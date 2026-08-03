@@ -6,7 +6,7 @@
   "scope": {
     "repository": "mdbase-dev/mdbase-connect",
     "included": [
-      "application authorization and first-contact trust",
+      "signed application identity, authorization, and connector continuity",
       "relay encryption and replay protection",
       "local connector authorization",
       "hosted-provider authorization and encryption",
@@ -25,7 +25,7 @@
       "title": "Application-signed authorization ceiling",
       "authority": "The application installation signs the maximum requested authority; the portal may narrow it but cannot broaden it.",
       "sources": [
-        "crates/connect-protocol/src/first_contact.rs",
+        "crates/connect-protocol/src/application_authorization.rs",
         "packages/protocol/src/application-authorization.ts",
         "services/server/src/application-authorization.ts",
         "services/server/src/features/authorizations/approval-service.ts"
@@ -36,26 +36,27 @@
         "services/server/src/live-authorization.test.ts"
       ],
       "fixtures": [
-        "packages/protocol/test/fixtures/application-authorization-v1.json"
+        "packages/protocol/test/fixtures/application-authorization-v2.json"
       ]
     },
     {
-      "id": "first-contact-sas",
-      "title": "First-contact application-to-connector authentication",
-      "authority": "The application and connector derive the authentication string independently; only the local connector can persist installation trust.",
+      "id": "identity-continuity",
+      "title": "Stable application and connector identity continuity",
+      "authority": "A stable application installation key signs each fresh grant request; applications pin the connector public key on first successful authorization and reject silent replacement.",
       "sources": [
-        "crates/connect-protocol/src/first_contact.rs",
-        "packages/client/src/first-contact.ts",
-        "crates/connect-core/src/registry/application_trust.rs",
-        "crates/connect-agent/src/server/trust.rs"
+        "packages/client/src/application-identity.ts",
+        "packages/client/src/connect.ts",
+        "crates/connect-agent/src/server/authorization.rs",
+        "crates/connect-core/src/registry/grants.rs"
       ],
       "tests": [
-        "packages/client/src/first-contact.test.ts",
+        "packages/client/src/application-identity.test.ts",
+        "packages/client/src/connector-identity-continuity.test.ts",
         "crates/connect-core/src/registry/tests/security_state.rs",
         "crates/connect-agent/src/server/tests.rs"
       ],
       "fixtures": [
-        "packages/protocol/test/fixtures/first-contact-v1.json"
+        "packages/protocol/test/fixtures/application-authorization-v2.json"
       ]
     },
     {
@@ -166,16 +167,10 @@
   ],
   "cryptographicConstructions": [
     {
-      "id": "authorization-proof-v1",
+      "id": "authorization-proof-v2",
       "construction": "P-256 ECDSA with SHA-256 and canonical 64-byte IEEE-P1363 low-S signatures over a domain-separated, length-delimited transcript",
-      "binding": "protocol, authorization, application, manifest, installation and grant keys, flow, nonce, lifetime, redirect and state, PKCE challenge, requested operations and files, and optional collection",
-      "source": "crates/connect-protocol/src/first_contact.rs"
-    },
-    {
-      "id": "first-contact-v1",
-      "construction": "P-256 ECDH; transcript SHA-256 as HKDF-SHA-256 salt; domain-separated HKDF info; 40 derived bits rendered as eight Crockford Base32 characters",
-      "binding": "protocol, application and installation identity and keys, connector identity and key",
-      "source": "crates/connect-protocol/src/first_contact.rs"
+      "binding": "protocol, authorization, application, manifest, stable installation signing identity, fresh grant agreement and signing keys, flow, nonce, lifetime, redirect and state, PKCE challenge, requested operations and files, and optional collection",
+      "source": "crates/connect-protocol/src/application_authorization.rs"
     },
     {
       "id": "relay-encryption-v1",
@@ -231,7 +226,7 @@
   ],
   "operationalEvidence": [
     {
-      "id": "first-contact-live-boundary",
+      "id": "signed-identity-live-boundary",
       "references": [
         "https://github.com/mdbase-dev/mdbase-connect/pull/154",
         "https://github.com/mdbase-dev/mdbase-connect/actions/runs/30750841856"
@@ -264,10 +259,6 @@
     {
       "id": "standard-hosted-provider-trust",
       "description": "The standard hosted provider can decrypt collection content; private zero-knowledge hosting is not implemented."
-    },
-    {
-      "id": "human-sas-comparison",
-      "description": "First-contact protection depends on independent endpoint displays and an accurate human comparison of a 40-bit short authentication string."
     },
     {
       "id": "no-key-transparency",

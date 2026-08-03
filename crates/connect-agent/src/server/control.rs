@@ -124,17 +124,6 @@ impl AgentState {
                 .registry
                 .set_paused(params.paused)
                 .map(|_| serde_json::json!({ "paused": params.paused })),
-            ControlCommand::ApplicationTrustSnapshot => self.application_trust_snapshot(),
-            ControlCommand::ApplicationTrustShow(params) => self.show_application_trust(params.id),
-            ControlCommand::ApplicationTrustAccept(params) => {
-                self.accept_application_trust(&params)
-            }
-            ControlCommand::ApplicationTrustReject(params) => {
-                self.reject_application_trust(params.request_id)
-            }
-            ControlCommand::ApplicationTrustRevoke(params) => {
-                self.revoke_application_trust(params.id)
-            }
             ControlCommand::AccountRenameComputer(params) => match self.cloud() {
                 Ok(cloud) => cloud.rename_computer(&params).await,
                 Err(error) => Err(error),

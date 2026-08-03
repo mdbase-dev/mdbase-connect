@@ -16,7 +16,6 @@ import {
 import {
   MdbaseConnect,
   applicationInstallationId,
-  deriveFirstContactSas,
   signApplicationAuthorization,
   unwrapConnectOutcome
 } from "../packages/client/dist/index.js";
@@ -273,9 +272,6 @@ secret: connector scope test
   await collectionChoice.waitFor({ state: "visible" });
   await collectionChoice.check();
   await onboardingPage.getByRole("button", { name: "Allow MVP Workout App" }).click();
-  await onboardingPage.getByRole("heading", {
-    name: "Compare the first-contact code."
-  }).waitFor();
   const callback = await finishSignedWebAuthorization(initialAuthorization);
   await onboardingContext.close();
   await onboardingBrowser.close();
@@ -922,9 +918,6 @@ implements:
         globalThis.portableHarness.authorization = authorization;
         document.querySelector("#code").textContent = authorization.userCode;
       },
-      onFirstContact(challenge) {
-        globalThis.portableHarness.firstContact = challenge;
-      },
       openVerification() {}
     }).then(async (authorizationOutcome) => {
       const { connection } = MdbaseConnect.unwrapConnectOutcome(authorizationOutcome);
@@ -984,16 +977,6 @@ implements:
       offer_id: portableOffer.offer_id,
       operations: ["describe", "query"]
     });
-    await portablePage.waitForFunction(
-      () => Boolean(globalThis.portableHarness.firstContact)
-    );
-    const portableFirstContact = await portablePage.evaluate(
-      () => globalThis.portableHarness.firstContact
-    );
-    await cliJson([
-      "trust", "accept", portableClaim.body.request_id,
-      "--code", portableFirstContact.authenticationString
-    ]);
     await portablePage.waitForFunction(
       () => Boolean(globalThis.portableHarness.result || globalThis.portableHarness.error),
       undefined,
@@ -1219,12 +1202,11 @@ async function startSignedWebAuthorization({
   const challenge = createHash("sha256").update(verifier).digest("base64url");
   const issuedAt = new Date();
   const proof = await signApplicationAuthorization({
-    protocol_version: 1,
+    protocol_version: 2,
     authorization_id: authorizationId,
     application_id: application.id,
     application_manifest_digest: application.manifest_digest,
     application_installation_id: await applicationInstallationId(installationKey),
-    installation_agreement_public_key: installationKey.agreementPublicKey,
     installation_signing_public_key: installationKey.signingPublicKey,
     grant_agreement_public_key: authorizationGrantKey.agreementPublicKey,
     grant_signing_public_key: authorizationGrantKey.signingPublicKey,
@@ -1272,45 +1254,21 @@ async function startSignedWebAuthorization({
     grantKey: authorizationGrantKey,
     redirectUri,
     verifier,
-    state
+    state,
+    cookie
   };
 }
 
-async function authorizationPoll(authorization) {
-  const response = await fetch(`${serverUrl}/oauth/authorization_status`, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: authorization.application.id,
-      authorization_id: authorization.id,
-      code_verifier: authorization.verifier
-    })
-  });
-  const body = await response.json();
-  if (response.ok) return { complete: body };
-  if (body.error === "authorization_pending" || body.error === "slow_down") {
-    return { pending: body };
-  }
-  throw new Error(`Authorization poll returned HTTP ${response.status}: ${JSON.stringify(body)}`);
-}
-
 async function finishSignedWebAuthorization(authorization) {
-  let trustAccepted = false;
   for (let attempt = 0; attempt < 30; attempt += 1) {
-    const status = await authorizationPoll(authorization);
-    if (status.complete) return new URL(status.complete.authorization_redirect);
-    if (status.pending?.first_contact && !trustAccepted) {
-      const code = await deriveFirstContactSas(
-        status.pending.first_contact,
-        "application",
-        authorization.installationKey
-      );
-      await cliJson(["trust", "accept", authorization.id, "--code", code]);
-      trustAccepted = true;
-    }
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, 2_100));
+    const status = await request(
+      `/v1/authorization-requests/${authorization.id}/status`,
+      { cookie: authorization.cookie }
+    );
+    if (status.body.redirect_uri) return new URL(status.body.redirect_uri);
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 1_000));
   }
-  throw new Error("Application polling did not complete after portal approval and local trust");
+  throw new Error("Application redirect was not ready after portal approval");
 }
 
 async function approvePortalAuthorization(authorizationId, cookie, decision) {
@@ -1323,7 +1281,7 @@ async function approvePortalAuthorization(authorizationId, cookie, decision) {
     }
   );
   const body = await response.json();
-  if (response.ok || (response.status === 409 && body.error?.code === "trust_required")) {
+  if (response.ok) {
     return body;
   }
   throw new Error(

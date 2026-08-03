@@ -4,7 +4,7 @@ use super::*;
 fn policy_snapshot_replaces_previous_local_authority() {
     let state = tempdir().unwrap();
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let grant = trusted_test_grant(&registry, vec!["read".to_string(), "query".to_string()]);
+    let grant = signed_test_grant(&registry, vec!["read".to_string(), "query".to_string()]);
     registry
         .replace_grants(std::slice::from_ref(&grant))
         .unwrap();
@@ -27,10 +27,10 @@ fn policy_snapshot_replaces_previous_local_authority() {
 }
 
 #[test]
-fn policy_snapshots_fail_closed_after_tampering_or_local_trust_revocation() {
+fn policy_snapshots_fail_closed_after_signed_authorization_tampering() {
     let state = tempdir().unwrap();
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let grant = trusted_test_grant(&registry, vec!["read".to_string()]);
+    let grant = signed_test_grant(&registry, vec!["read".to_string()]);
     registry
         .replace_grants(std::slice::from_ref(&grant))
         .unwrap();
@@ -46,7 +46,10 @@ fn policy_snapshots_fail_closed_after_tampering_or_local_trust_revocation() {
         .unwrap());
 
     let mut substituted = grant.clone();
-    substituted.first_contact.application_signing_public_key = substituted
+    substituted
+        .application_authorization
+        .binding
+        .installation_signing_public_key = substituted
         .application_authorization
         .binding
         .grant_signing_public_key
@@ -56,13 +59,8 @@ fn policy_snapshots_fail_closed_after_tampering_or_local_trust_revocation() {
         Err(ConnectError::InvalidInput(_))
     ));
 
-    let trust_id = registry.application_trusts().unwrap()[0].id;
-    assert!(registry.revoke_application_trust(trust_id).unwrap());
+    registry.replace_grants(&[]).unwrap();
     assert!(registry.list_grants().unwrap().is_empty());
-    assert!(matches!(
-        registry.replace_grants(&[grant]),
-        Err(ConnectError::AccessDenied(_))
-    ));
 }
 
 #[test]
@@ -265,10 +263,67 @@ fn development_registry_upgrade_adds_origin_receipts_and_a_safe_reorder_floor() 
 }
 
 #[test]
+fn development_registry_upgrade_discards_v1_grants_and_trust_ceremony_state() {
+    let state = tempdir().unwrap();
+    let path = state.path().join("connector.sqlite");
+    let legacy = Connection::open(&path).unwrap();
+    legacy
+        .execute_batch(
+            "CREATE TABLE grants (
+                 id TEXT PRIMARY KEY,
+                 application_id TEXT NOT NULL,
+                 collection_id TEXT NOT NULL,
+                 operations TEXT NOT NULL,
+                 first_contact TEXT,
+                 application_authorization TEXT
+             );
+             CREATE TABLE application_trusts (id TEXT PRIMARY KEY);
+             CREATE TABLE pending_application_trusts (request_id TEXT PRIMARY KEY);
+             INSERT INTO grants (
+                 id, application_id, collection_id, operations,
+                 first_contact, application_authorization
+             ) VALUES (
+                 '01911111-1111-7111-8111-111111111111',
+                 '01922222-2222-7222-8222-222222222222',
+                 '01933333-3333-7333-8333-333333333333',
+                 '[\"read\"]', '{}',
+                 '{\"binding\":{\"protocol_version\":1}}'
+             );",
+        )
+        .unwrap();
+    drop(legacy);
+
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let connection = registry.connection().unwrap();
+    let grant_count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM grants", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(grant_count, 0);
+    let first_contact_columns: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('grants') WHERE name = 'first_contact'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(first_contact_columns, 0);
+    let trust_tables: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'table'
+               AND name IN ('application_trusts', 'pending_application_trusts')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(trust_tables, 0);
+}
+
+#[test]
 fn policy_rotation_prunes_only_obsolete_encrypted_replay_windows() {
     let state = tempdir().unwrap();
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let mut grant = trusted_test_grant(&registry, vec!["read".to_string()]);
+    let mut grant = signed_test_grant(&registry, vec!["read".to_string()]);
     registry
         .replace_grants(std::slice::from_ref(&grant))
         .unwrap();

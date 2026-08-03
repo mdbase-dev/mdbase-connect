@@ -123,7 +123,7 @@ describe("live connector-mediated authorization", () => {
         protocol_version: 1,
         connector_version: "0.1.0-test",
         capabilities: [
-          "application-trust-v1",
+          "application-authorization-v2",
           "authorization-activation",
           "encrypted-relay",
           "policy-ack"
@@ -270,98 +270,17 @@ describe("live connector-mediated authorization", () => {
     );
     expect(active.rows[0].activated_at).not.toBeNull();
     expect(active.rows[0].completed_at).not.toBeNull();
+    const completedStatus = await app.inject({
+      method: "GET",
+      url: `/v1/authorization-requests/${firstRequestId}/status`,
+      headers: { cookie }
+    });
+    expect(completedStatus.json()).toMatchObject({
+      status: "approved",
+      redirect_uri: expect.stringContaining("code=")
+    });
 
-    activationError = {
-      code: "trust_required",
-      message: "Confirm the first-contact authentication string locally."
-    };
     holdActivation = false;
-    const trustRequestId = await createAuthorizationRequest(
-      app,
-      applicationId,
-      manifestDigest,
-      cookie,
-      "trust"
-    );
-    const secondOffer = (await app.inject({
-      method: "GET",
-      url: `/v1/authorization-requests/${trustRequestId}`,
-      headers: { cookie }
-    })).json().collections[0];
-    const trustRequired = await app.inject({
-      method: "POST",
-      url: `/v1/authorization-requests/${trustRequestId}/approve`,
-      headers: { cookie },
-      payload: {
-        collection_id: serverCollectionId,
-        offer_id: secondOffer.offer_id,
-        operations: ["describe"]
-      }
-    });
-    expect(trustRequired.statusCode).toBe(409);
-    expect(trustRequired.json().error).toMatchObject({
-      code: "trust_required"
-    });
-    const waitingForTrust = await app.inject({
-      method: "GET",
-      url: `/v1/authorization-requests/${trustRequestId}/status`,
-      headers: { cookie }
-    });
-    expect(waitingForTrust.json()).toMatchObject({
-      status: "trust_required",
-      first_contact: {
-        application_id: applicationId,
-        connector_id: connector.connector.id
-      }
-    });
-    const trustVerifier = "live-connector-verifier-trust-that-is-long-enough-000001";
-    const applicationWaiting = await app.inject({
-      method: "POST",
-      url: "/oauth/authorization_status",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      payload: new URLSearchParams({
-        client_id: applicationId,
-        authorization_id: trustRequestId,
-        code_verifier: trustVerifier
-      }).toString()
-    });
-    expect(applicationWaiting.statusCode).toBe(400);
-    expect(applicationWaiting.json()).toMatchObject({
-      error: "authorization_pending",
-      first_contact: {
-        application_id: applicationId,
-        connector_id: connector.connector.id
-      }
-    });
-    activationError = null;
-    const durableTrustWait = await db.query(
-      `SELECT grant_id, completed_at, poll_consumed_at, trust_required_at
-       FROM authorization_requests WHERE id = $1`,
-      [trustRequestId]
-    );
-    expect(durableTrustWait.rows[0]).toMatchObject({
-      grant_id: null,
-      completed_at: null,
-      poll_consumed_at: null,
-      trust_required_at: expect.anything()
-    });
-    await db.query(
-      "UPDATE authorization_requests SET last_polled_at = NULL WHERE id = $1",
-      [trustRequestId]
-    );
-    const resumed = await app.inject({
-      method: "POST",
-      url: "/oauth/authorization_status",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      payload: new URLSearchParams({
-        client_id: applicationId,
-        authorization_id: trustRequestId,
-        code_verifier: trustVerifier
-      }).toString()
-    });
-    expect(resumed.statusCode, JSON.stringify(resumed.json())).toBe(200);
-    expect(resumed.json().authorization_redirect).toContain("code=");
-
     activationError = {
       code: "access_paused",
       message: "Remote access was paused before activation."

@@ -2,9 +2,8 @@ use super::*;
 
 impl CollectionRegistry {
     pub fn replace_grants(&self, grants: &[GrantPolicy]) -> Result<(), ConnectError> {
-        let validation = self.connection()?;
         for grant in grants {
-            validate_grant_application_trust(&validation, grant)?;
+            validate_grant_application_authorization(grant)?;
         }
         let active_crypto_keys = grants
             .iter()
@@ -24,9 +23,8 @@ impl CollectionRegistry {
                    (id, application_id, collection_id, operations, scope, application_name,
                     application_distribution, application_homepage, application_project_url,
                     application_origin, application_icon, collection_name, created_at, encryption,
-                    file_capability, notification_criteria, first_contact,
-                    application_authorization)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+                    file_capability, notification_criteria, application_authorization)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             )?;
             for grant in grants {
                 statement.execute(params![
@@ -54,7 +52,6 @@ impl CollectionRegistry {
                         .map(serde_json::to_string)
                         .transpose()?,
                     serde_json::to_string(&grant.notification_criteria)?,
-                    serde_json::to_string(&grant.first_contact)?,
                     serde_json::to_string(&grant.application_authorization)?,
                 ])?;
             }
@@ -98,15 +95,14 @@ impl CollectionRegistry {
 
     pub fn upsert_grant(&self, grant: &GrantPolicy) -> Result<(), ConnectError> {
         let connection = self.connection()?;
-        validate_grant_application_trust(&connection, grant)?;
+        validate_grant_application_authorization(grant)?;
         connection.execute(
             "INSERT INTO grants
                (id, application_id, collection_id, operations, scope, application_name,
                 application_distribution, application_homepage, application_project_url,
                 application_origin, application_icon, collection_name, created_at, encryption,
-                file_capability, notification_criteria, first_contact,
-                application_authorization)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+                file_capability, notification_criteria, application_authorization)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
              ON CONFLICT(id) DO UPDATE SET
                application_id = excluded.application_id,
                collection_id = excluded.collection_id,
@@ -123,7 +119,6 @@ impl CollectionRegistry {
                encryption = excluded.encryption,
                file_capability = excluded.file_capability,
                notification_criteria = excluded.notification_criteria,
-               first_contact = excluded.first_contact,
                application_authorization = excluded.application_authorization,
                updated_at = CURRENT_TIMESTAMP",
             params![
@@ -151,7 +146,6 @@ impl CollectionRegistry {
                     .map(serde_json::to_string)
                     .transpose()?,
                 serde_json::to_string(&grant.notification_criteria)?,
-                serde_json::to_string(&grant.first_contact)?,
                 serde_json::to_string(&grant.application_authorization)?,
             ],
         )?;
@@ -290,20 +284,12 @@ impl CollectionRegistry {
     }
 }
 
-fn validate_grant_application_trust(
-    connection: &rusqlite::Connection,
-    grant: &GrantPolicy,
-) -> Result<(), ConnectError> {
+fn validate_grant_application_authorization(grant: &GrantPolicy) -> Result<(), ConnectError> {
     grant.validate_application_security().map_err(|error| {
         invalid_grant_security(format!(
             "grant does not match its application proof: {error}"
         ))
     })?;
-    if !super::application_trust::is_trusted(connection, &grant.first_contact)? {
-        return Err(ConnectError::AccessDenied(
-            "This application installation has not passed first-contact verification.".to_string(),
-        ));
-    }
     Ok(())
 }
 

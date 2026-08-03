@@ -350,7 +350,6 @@ async function auditDesktopResumedAuthorization() {
         pending_authorizations: [],
         authority_conflicts: []
       }),
-      applicationTrustSnapshot: async () => ({ pending: [], trusted: [] }),
       listActivity: async () => [],
       hostedSnapshot: async () => ({
         online: false,
@@ -418,29 +417,6 @@ async function auditDesktopRoutes() {
         serverUrl: "https://connect.mdbase.dev"
       }),
       accessSnapshot: async () => access,
-      applicationTrustSnapshot: async () => ({
-        pending: [{
-          request_id: "55555555-5555-4555-8555-555555555555",
-          binding: {
-            protocol_version: 1,
-            application_id: pendingAuthorization.application_id,
-            application_installation_id: "66666666-6666-4666-8666-666666666666",
-            application_agreement_public_key: "application-agreement-key",
-            application_signing_public_key: "application-signing-key",
-            connector_id: access.account.connector_id,
-            connector_agreement_public_key: "connector-agreement-key"
-          },
-          presentation: {
-            application_name: pendingAuthorization.application_name,
-            application_distribution: pendingAuthorization.application_distribution,
-            application_homepage: pendingAuthorization.application_homepage
-          },
-          authentication_string: "7K3M-9Q2T",
-          created_at: "2026-08-02T00:00:00.000Z",
-          expires_at: "2099-08-01T00:00:00.000Z"
-        }],
-        trusted: []
-      }),
       listActivity: async () => [],
       hostedSnapshot: async () => ({
         online: true,
@@ -456,10 +432,7 @@ async function auditDesktopRoutes() {
       setLaunchAtLogin: async () => ({ enabled: false, available: true }),
       checkForUpdates: async () => updateStatus,
       installUpdate: async () => updateStatus,
-      openAuthorization: async () => undefined,
-      acceptApplicationTrust: async () => undefined,
-      rejectApplicationTrust: async () => undefined,
-      revokeApplicationTrust: async () => undefined
+      openAuthorization: async () => undefined
     };
   }, desktopAuthorizationFixture("44444444-4444-4444-8444-444444444444"));
   await page.goto(servers[1].origin);
@@ -479,9 +452,7 @@ async function auditDesktopRoutes() {
     await page.getByRole("heading", { name: route[1] }).waitFor();
     if (route[0] === "App access") {
       await page.getByRole("button", { name: "Review in portal" }).waitFor();
-      await page.getByRole("button", { name: "Reject" }).waitFor();
-      await page.getByRole("button", { name: "Codes match — trust application" }).waitFor();
-      await expectText(page, "7K3M-9Q2T");
+      assert.equal(await page.getByRole("button", { name: "Reject" }).count(), 0);
     }
     await auditPage(page, `desktop ${route[0].toLowerCase()}`);
   }

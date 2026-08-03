@@ -175,12 +175,14 @@ export async function reconcileApplicationGrants(
     scope: GrantScope;
     notification_criteria: NotificationCriterion[];
     file_capability: FileCapability | null;
+    application_origin: string;
+    proof_public_key: string;
   }>(
     `SELECT g.id, g.user_id, col.connector_id, g.hosted_collection_id, g.hosted_replica_id,
             g.operations, col.contracts AS local_contracts, col.spec_version,
             hosted.contracts AS hosted_contracts, hosted.template,
             replica.allowed_types, g.scope, g.notification_criteria,
-            g.file_capability
+            g.file_capability, g.application_origin, g.proof_public_key
      FROM grants g
      LEFT JOIN collections col ON col.id = g.collection_id
      LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
@@ -294,7 +296,9 @@ export async function reconcileApplicationGrants(
           contractScope: desiredScope.access === "contract" ? desiredScope.contracts : [],
           fullCollection: application.requirements.access === "full_collection",
           allowedOperations: hostedReplicaCollectionOperations(grant.operations),
-          fileCapability: desiredFileCapability
+          fileCapability: desiredFileCapability,
+          allowedOrigin: grant.application_origin,
+          proofPublicKey: grant.proof_public_key
         });
         await db.query(
           "UPDATE hosted_replicas SET allowed_types = $2::jsonb, mode = $3 WHERE id = $1",

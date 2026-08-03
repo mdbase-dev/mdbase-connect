@@ -10,9 +10,9 @@ mod operations;
 mod scope;
 mod security_state;
 
-fn trusted_test_grant(registry: &CollectionRegistry, operations: Vec<String>) -> GrantPolicy {
+fn signed_test_grant(_registry: &CollectionRegistry, operations: Vec<String>) -> GrantPolicy {
     let fixture: Value = serde_json::from_str(include_str!(
-        "../../../../packages/protocol/test/fixtures/application-authorization-v1.json"
+        "../../../../packages/protocol/test/fixtures/application-authorization-v2.json"
     ))
     .unwrap();
     let binding: mdbase_connect_protocol::ApplicationAuthorizationBinding =
@@ -23,35 +23,6 @@ fn trusted_test_grant(registry: &CollectionRegistry, operations: Vec<String>) ->
     };
     proof.verify().unwrap();
     let connector_id = Uuid::parse_str("01977777-7777-7777-8777-777777777777").unwrap();
-    let first_contact = mdbase_connect_protocol::FirstContactBinding {
-        protocol_version: mdbase_connect_protocol::FIRST_CONTACT_PROTOCOL_VERSION,
-        application_id: binding.application_id,
-        application_installation_id: binding.application_installation_id,
-        application_agreement_public_key: binding.installation_agreement_public_key.clone(),
-        application_signing_public_key: binding.installation_signing_public_key.clone(),
-        connector_id,
-        connector_agreement_public_key: binding.grant_signing_public_key.clone(),
-    };
-    let now = chrono::Utc::now();
-    let trust_request = mdbase_connect_protocol::ApplicationTrustRequest {
-        request_id: Uuid::new_v4(),
-        binding: first_contact.clone(),
-        presentation: mdbase_connect_protocol::ApplicationTrustPresentation {
-            application_name: "Test application".to_string(),
-            application_distribution: "web".to_string(),
-            application_homepage: "https://app.example".to_string(),
-            application_project_url: None,
-            application_icon: None,
-        },
-        created_at: now.to_rfc3339(),
-        expires_at: (now + chrono::Duration::minutes(10)).to_rfc3339(),
-    };
-    registry
-        .record_application_trust_request(&trust_request)
-        .unwrap();
-    registry
-        .accept_application_trust(trust_request.request_id)
-        .unwrap();
     GrantPolicy {
         id: Uuid::new_v4(),
         application_id: binding.application_id,
@@ -75,7 +46,7 @@ fn trusted_test_grant(registry: &CollectionRegistry, operations: Vec<String>) ->
             connector_id,
             collection_id: binding.collection_id.unwrap(),
             application_agreement_public_key: binding.grant_agreement_public_key,
-            connector_agreement_public_key: first_contact.connector_agreement_public_key.clone(),
+            connector_agreement_public_key: binding.grant_signing_public_key.clone(),
         }),
         file_capability: binding.requested_files.map(|files| {
             mdbase_connect_protocol::FileCapability {
@@ -85,7 +56,6 @@ fn trusted_test_grant(registry: &CollectionRegistry, operations: Vec<String>) ->
                 scope: files.scope,
             }
         }),
-        first_contact,
         application_authorization: proof,
     }
 }

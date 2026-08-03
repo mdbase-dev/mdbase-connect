@@ -101,6 +101,46 @@
         "code",
         "category",
         "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "application_identity_unavailable"
+        },
+        "category": {
+          "const": "compatibility"
+        },
+        "recovery": {
+          "const": "upgrade_application"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
         "message",
         "details"
       ],
@@ -261,6 +301,46 @@
         },
         "category": {
           "const": "authorization"
+        },
+        "recovery": {
+          "const": "reauthorize"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "authorization_replayed"
+        },
+        "category": {
+          "const": "integrity"
         },
         "recovery": {
           "const": "reauthorize"
@@ -1681,46 +1761,6 @@
           "const": 1
         },
         "code": {
-          "const": "first_contact_handler_required"
-        },
-        "category": {
-          "const": "compatibility"
-        },
-        "recovery": {
-          "const": "upgrade_application"
-        },
-        "message": {
-          "type": "string",
-          "minLength": 1
-        },
-        "operation_outcome": {
-          "enum": [
-            "not_sent",
-            "rejected",
-            "unknown"
-          ]
-        },
-        "trace_id": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
-    },
-    {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "problem_version",
-        "code",
-        "category",
-        "recovery",
-        "message"
-      ],
-      "properties": {
-        "problem_version": {
-          "const": 1
-        },
-        "code": {
           "const": "hosted_provider_unavailable"
         },
         "category": {
@@ -1813,6 +1853,46 @@
               }
             }
           }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "invalid_application_authorization"
+        },
+        "category": {
+          "const": "validation"
+        },
+        "recovery": {
+          "const": "fix_request"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },
@@ -1952,46 +2032,6 @@
         },
         "code": {
           "const": "invalid_encrypted_response"
-        },
-        "category": {
-          "const": "integrity"
-        },
-        "recovery": {
-          "const": "contact_support"
-        },
-        "message": {
-          "type": "string",
-          "minLength": 1
-        },
-        "operation_outcome": {
-          "enum": [
-            "not_sent",
-            "rejected",
-            "unknown"
-          ]
-        },
-        "trace_id": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
-    },
-    {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "problem_version",
-        "code",
-        "category",
-        "recovery",
-        "message"
-      ],
-      "properties": {
-        "problem_version": {
-          "const": 1
-        },
-        "code": {
-          "const": "invalid_first_contact"
         },
         "category": {
           "const": "integrity"
@@ -3240,6 +3280,46 @@
               "type": "integer"
             }
           }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "reconnect_required"
+        },
+        "category": {
+          "const": "authorization"
+        },
+        "recovery": {
+          "const": "reauthorize"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },

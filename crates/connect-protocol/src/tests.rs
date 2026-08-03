@@ -1,11 +1,8 @@
 use super::*;
 
-fn fixture_application_security(
-    application_id: Uuid,
-    connector_id: Uuid,
-) -> (FirstContactBinding, ApplicationAuthorizationProof) {
+fn fixture_application_authorization(application_id: Uuid) -> ApplicationAuthorizationProof {
     let fixture: Value = serde_json::from_str(include_str!(
-        "../../../packages/protocol/test/fixtures/application-authorization-v1.json"
+        "../../../packages/protocol/test/fixtures/application-authorization-v2.json"
     ))
     .unwrap();
     let mut proof = ApplicationAuthorizationProof {
@@ -13,16 +10,7 @@ fn fixture_application_security(
         signature: "A".repeat(86),
     };
     proof.binding.application_id = application_id;
-    let first_contact = FirstContactBinding {
-        protocol_version: FIRST_CONTACT_PROTOCOL_VERSION,
-        application_id,
-        application_installation_id: proof.binding.application_installation_id,
-        application_agreement_public_key: proof.binding.installation_agreement_public_key.clone(),
-        application_signing_public_key: proof.binding.installation_signing_public_key.clone(),
-        connector_id,
-        connector_agreement_public_key: proof.binding.grant_signing_public_key.clone(),
-    };
-    (first_contact, proof)
+    proof
 }
 
 fn protocol_schema() -> Value {
@@ -463,7 +451,7 @@ fn rust_relay_messages_match_the_canonical_wire_schema() {
         Uuid::parse_str("01933333-3333-7333-8333-333333333333").unwrap(),
         Uuid::parse_str("01944444-4444-7444-8444-444444444444").unwrap(),
     ];
-    let (first_contact, application_authorization) = fixture_application_security(ids[3], ids[2]);
+    let application_authorization = fixture_application_authorization(ids[3]);
     let encryption = GrantEncryption {
         protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
         suite: RELAY_ENCRYPTION_SUITE.to_string(),
@@ -475,7 +463,7 @@ fn rust_relay_messages_match_the_canonical_wire_schema() {
             .binding
             .grant_agreement_public_key
             .clone(),
-        connector_agreement_public_key: first_contact.connector_agreement_public_key.clone(),
+        connector_agreement_public_key: "B".repeat(87),
     };
     for message in [
         RelayMessage::RelayHello {
@@ -571,7 +559,6 @@ fn rust_relay_messages_match_the_canonical_wire_schema() {
                         folders: vec!["Assets".to_string()],
                     },
                 }),
-                first_contact,
                 application_authorization,
             }],
         },
@@ -595,7 +582,7 @@ fn portable_policy_keeps_v1_and_the_exact_opaque_origin() {
         Uuid::parse_str("01933333-3333-7333-8333-333333333333").unwrap(),
         Uuid::parse_str("01944444-4444-7444-8444-444444444444").unwrap(),
     ];
-    let (first_contact, application_authorization) = fixture_application_security(ids[1], ids[3]);
+    let application_authorization = fixture_application_authorization(ids[1]);
     let message = RelayMessage::PolicySnapshot {
         protocol_version: CONTROL_PROTOCOL_VERSION,
         request_id: ids[3],
@@ -626,7 +613,6 @@ fn portable_policy_keeps_v1_and_the_exact_opaque_origin() {
                 connector_agreement_public_key: "B".repeat(87),
             }),
             file_capability: None,
-            first_contact,
             application_authorization,
         }],
     };

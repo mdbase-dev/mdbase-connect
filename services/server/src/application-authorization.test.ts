@@ -9,7 +9,7 @@ import {
 
 const fixture = JSON.parse(readFileSync(
   fileURLToPath(new URL(
-    "../../../packages/protocol/test/fixtures/application-authorization-v1.json",
+    "../../../packages/protocol/test/fixtures/application-authorization-v2.json",
     import.meta.url
   )),
   "utf8"

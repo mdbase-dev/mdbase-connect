@@ -26,7 +26,7 @@ import { contractRequirements } from "../../hosted.js";
 import { HostedProviderClient } from "../../hosted-provider.js";
 import { hostedReplicaCollectionOperations } from "../../hosted-replica-policy.js";
 import { planCollectionGrant } from "../../grant-planner.js";
-import { ConnectorOperationError, RelayHub } from "../../relay.js";
+import { RelayHub } from "../../relay.js";
 import { randomToken } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
@@ -213,7 +213,7 @@ export async function approvePortalAuthorization(
     const scope = plan.scope;
     if (!selected.relay_public_key) {
       throw new RequestValidationError(
-        "First-contact authorization requires an up-to-date connector."
+        "Encrypted application authorization requires an up-to-date connector."
       );
     }
     const encryption: GrantEncryption = {
@@ -226,18 +226,8 @@ export async function approvePortalAuthorization(
       application_agreement_public_key: pending.application_agreement_public_key,
       connector_agreement_public_key: selected.relay_public_key
     };
-    const firstContact = {
-      protocol_version: 1 as const,
-      application_id: pending.application_id,
-      application_installation_id:
-        pending.application_authorization.binding.application_installation_id,
-      application_agreement_public_key:
-        pending.application_authorization.binding.installation_agreement_public_key,
-      application_signing_public_key:
-        pending.application_authorization.binding.installation_signing_public_key,
-      connector_id: selected.connector_id,
-      connector_agreement_public_key: selected.relay_public_key
-    };
+    const applicationInstallationId =
+      pending.application_authorization.binding.application_installation_id;
     const applicationOrigin = pending.flow === "device_code"
       ? "null"
       : applicationOriginForRedirect(
@@ -248,9 +238,9 @@ export async function approvePortalAuthorization(
       `INSERT INTO grants
          (id, user_id, application_id, collection_id, operations, scope, encryption,
           file_capability, application_origin, notification_criteria,
-          application_authorization, first_contact, activated_at)
+          application_authorization, application_installation_id, activated_at)
        VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb,
-               $9, $10::jsonb, $11::jsonb, $12::jsonb, NULL)
+               $9, $10::jsonb, $11::jsonb, $12, NULL)
        RETURNING created_at`,
       [
         grantId,
@@ -264,30 +254,15 @@ export async function approvePortalAuthorization(
         applicationOrigin,
         JSON.stringify(pending.notifications.criteria),
         JSON.stringify(pending.application_authorization),
-        JSON.stringify(firstContact)
+        applicationInstallationId
       ]
     );
     await connection.query(
       `UPDATE authorization_requests
        SET grant_id = $2,
-           activation_started_at = now(),
-           first_contact = $3::jsonb,
-           portal_approved_at = COALESCE(portal_approved_at, now()),
-           approval_snapshot = $4::jsonb,
-           trust_required_at = NULL
+           activation_started_at = now()
        WHERE id = $1`,
-      [
-        input.requestId,
-        grantId,
-        JSON.stringify(firstContact),
-        JSON.stringify({
-          version: 1,
-          offer_id: input.offerId,
-          collection_id: input.collectionId,
-          operations: input.operations,
-          contract_setups: input.contractSetups
-        })
-      ]
+      [input.requestId, grantId]
     );
     connectorId = selected.connector_id;
     localCollectionId = selected.local_id;
@@ -313,7 +288,6 @@ export async function approvePortalAuthorization(
       created_at: new Date(inserted.rows[0].created_at).toISOString(),
       encryption,
       ...(plan.fileCapability ? { file_capability: plan.fileCapability } : {}),
-      first_contact: firstContact,
       application_authorization: pending.application_authorization
     };
     await connection.query("COMMIT");
@@ -341,14 +315,6 @@ export async function approvePortalAuthorization(
     );
   } catch (error) {
     await abandonPendingAuthorizationGrant(db, input.requestId, grantId);
-    if (error instanceof ConnectorOperationError && error.code === "trust_required") {
-      await db.query(
-        `UPDATE authorization_requests
-         SET trust_required_at = now()
-         WHERE id = $1 AND completed_at IS NULL AND denied_at IS NULL`,
-        [input.requestId]
-      );
-    }
     await relay.pushPolicy(connectorId);
     throw error;
   }
@@ -411,67 +377,6 @@ export async function approvePortalAuthorization(
     source: "portal_live_offer"
   });
   return true;
-}
-
-/**
- * Retry the exact local-collection decision already recorded by the portal.
- * This is intentionally unavailable until the connector has rejected the
- * first activation with `trust_required`; polling cannot create or change a
- * user's approval decision.
- */
-export async function resumePortalAuthorization(
-  db: DatabasePool,
-  relay: RelayHub,
-  requestId: string
-): Promise<boolean> {
-  const stored = await db.query<{
-    user_id: string;
-    approval_snapshot: unknown;
-  }>(
-    `SELECT user_id, approval_snapshot
-     FROM authorization_requests
-     WHERE id = $1 AND portal_approved_at IS NOT NULL
-       AND trust_required_at IS NOT NULL
-       AND completed_at IS NULL AND denied_at IS NULL
-       AND expires_at > now()`,
-    [requestId]
-  );
-  const row = stored.rows[0];
-  if (!row) return false;
-  const snapshot = parseApprovalSnapshot(row.approval_snapshot);
-  return approvePortalAuthorization(db, relay, {
-    requestId,
-    userId: row.user_id,
-    offerId: snapshot.offer_id,
-    collectionId: snapshot.collection_id,
-    operations: snapshot.operations,
-    contractSetups: snapshot.contract_setups
-  });
-}
-
-interface ApprovalSnapshot {
-  version: 1;
-  offer_id: string;
-  collection_id: string;
-  operations: CollectionOperation[];
-  contract_setups: ContractSetupChoice[];
-}
-
-function parseApprovalSnapshot(value: unknown): ApprovalSnapshot {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new RequestValidationError("The recorded approval decision is invalid.");
-  }
-  const snapshot = value as Partial<ApprovalSnapshot>;
-  if (
-    snapshot.version !== 1
-    || typeof snapshot.offer_id !== "string"
-    || typeof snapshot.collection_id !== "string"
-    || !Array.isArray(snapshot.operations)
-    || !Array.isArray(snapshot.contract_setups)
-  ) {
-    throw new RequestValidationError("The recorded approval decision is invalid.");
-  }
-  return snapshot as ApprovalSnapshot;
 }
 
 async function abandonPendingAuthorizationGrant(
@@ -588,6 +493,7 @@ export async function approveHostedAuthorization(
 ): Promise<boolean> {
   const connection = await db.connect();
   let replicaId: string | null = null;
+  let newReplicaId: string | null = null;
   let notificationGrantId: string | null = null;
   try {
     await connection.query("BEGIN");
@@ -604,6 +510,7 @@ export async function approveHostedAuthorization(
       relay_protocol: number | null;
       application_agreement_public_key: string | null;
       application_signing_public_key: string | null;
+      application_authorization: ApplicationAuthorizationProof | null;
       flow: "authorization_code" | "device_code";
       collection_id: string | null;
     }>(
@@ -612,7 +519,7 @@ export async function approveHostedAuthorization(
               ar.redirect_uri, ar.requested_operations,
               a.requirements, a.provisions, a.notifications,
               ar.relay_protocol, ar.application_agreement_public_key,
-              ar.application_signing_public_key, ar.flow,
+              ar.application_signing_public_key, ar.application_authorization, ar.flow,
               ar.collection_id
        FROM authorization_requests ar
        JOIN applications a ON a.id = ar.application_id
@@ -626,6 +533,10 @@ export async function approveHostedAuthorization(
       await connection.query("ROLLBACK");
       return false;
     }
+    await connection.query(
+      "SELECT id FROM hosted_collections WHERE id = $1 FOR UPDATE",
+      [input.collectionId]
+    );
     if (pending.collection_id && pending.collection_id !== input.collectionId) {
       throw new RequestValidationError(
         "This authorization request is restricted to a different collection."
@@ -653,9 +564,10 @@ export async function approveHostedAuthorization(
       pending.relay_protocol !== ENCRYPTED_RELAY_PROTOCOL_VERSION
       || !pending.application_agreement_public_key
       || !pending.application_signing_public_key
+      || !pending.application_authorization
     ) {
       throw new RequestValidationError(
-        "Remote authority access requires independent agreement and signing keys."
+        "Hosted access requires a signed, key-bound application authorization request."
       );
     }
     const requiredContracts = requiredContractsForRequirements(pending.requirements);
@@ -739,14 +651,46 @@ export async function approveHostedAuthorization(
       : ["http:", "https:"].includes(new URL(pending.redirect_uri!).protocol)
         ? new URL(pending.redirect_uri!).origin
         : undefined;
-    const grantId = randomUUID();
-    notificationGrantId = grantId;
-    replicaId = randomUUID();
-    const bootstrapToken = randomToken("hsa");
-    await provider.registerReplica(input.collectionId, {
-      id: replicaId,
-      name: `${pending.application_name} application access`,
-      purpose: "application",
+    const applicationInstallationId =
+      pending.application_authorization.binding.application_installation_id;
+    const existing = await connection.query<{
+      id: string;
+      hosted_replica_id: string;
+      application_installation_id: string | null;
+    }>(
+      `SELECT id, hosted_replica_id, application_installation_id
+       FROM grants
+       WHERE user_id = $1 AND application_id = $2
+         AND hosted_collection_id = $3 AND revoked_at IS NULL
+         AND hosted_replica_id IS NOT NULL
+         AND (application_installation_id = $4 OR application_installation_id IS NULL)
+       ORDER BY (application_installation_id = $4) DESC, created_at ASC
+       FOR UPDATE`,
+      [
+        input.userId,
+        pending.application_id,
+        input.collectionId,
+        applicationInstallationId
+      ]
+    );
+    const retained = existing.rows[0];
+    const grantId = retained?.id ?? randomUUID();
+    replicaId = retained?.hosted_replica_id ?? randomUUID();
+
+    for (const duplicate of existing.rows.slice(1)) {
+      await provider.revokeReplica(duplicate.hosted_replica_id);
+      await connection.query(
+        "UPDATE hosted_replicas SET revoked_at = now() WHERE id = $1",
+        [duplicate.hosted_replica_id]
+      );
+      await connection.query(
+        "UPDATE grants SET revoked_at = now() WHERE id = $1",
+        [duplicate.id]
+      );
+    }
+
+    const replicaPolicy = {
+      grantId,
       mode: plan.replicaMode,
       allowedTypes,
       contractScope: scope.access === "contract" ? scope.contracts : [],
@@ -754,45 +698,92 @@ export async function approveHostedAuthorization(
       allowedOperations: hostedReplicaCollectionOperations(operations),
       fileCapability: plan.fileCapability,
       allowedOrigin,
-      proofPublicKey: pending.application_signing_public_key!,
-      grantId,
-      token: bootstrapToken,
-      tokenTtlSeconds: 3_600
-    });
-    await connection.query(
-      `INSERT INTO hosted_replicas
-         (id, collection_id, authorized_user_id, name, purpose, mode,
-          allowed_types, token_hash)
-       VALUES ($1, $2, $3, $4, 'application', $5, $6::jsonb, NULL)`,
-      [
-        replicaId,
-        input.collectionId,
-        input.userId,
-        `${pending.application_name} application access`,
-        plan.replicaMode,
-        JSON.stringify(allowedTypes)
-      ]
-    );
-    await connection.query(
-      `INSERT INTO grants
-          (id, user_id, application_id, hosted_collection_id, hosted_replica_id,
-          operations, scope, encryption, proof_public_key, application_origin,
-          file_capability, notification_criteria)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, NULL, $8, $9, $10::jsonb, $11::jsonb)`,
-      [
-        grantId,
-        input.userId,
-        pending.application_id,
-        input.collectionId,
-        replicaId,
-        JSON.stringify(operations),
-        JSON.stringify(scope),
-        pending.application_signing_public_key,
-        applicationOrigin,
-        plan.fileCapability ? JSON.stringify(plan.fileCapability) : null,
-        JSON.stringify(pending.notifications.criteria)
-      ]
-    );
+      proofPublicKey: pending.application_signing_public_key
+    };
+    if (retained) {
+      await provider.updateApplicationReplica(replicaId, replicaPolicy);
+      await connection.query(
+        `UPDATE hosted_replicas
+         SET mode = $2, allowed_types = $3::jsonb, revoked_at = NULL
+         WHERE id = $1`,
+        [replicaId, plan.replicaMode, JSON.stringify(allowedTypes)]
+      );
+      await connection.query(
+        `UPDATE grants SET
+           operations = $2::jsonb, scope = $3::jsonb,
+           proof_public_key = $4, application_origin = $5,
+           file_capability = $6::jsonb, notification_criteria = $7::jsonb,
+           application_authorization = $8::jsonb,
+           application_installation_id = $9,
+           activated_at = now(), revoked_at = NULL
+         WHERE id = $1`,
+        [
+          grantId,
+          JSON.stringify(operations),
+          JSON.stringify(scope),
+          pending.application_signing_public_key,
+          applicationOrigin,
+          plan.fileCapability ? JSON.stringify(plan.fileCapability) : null,
+          JSON.stringify(pending.notifications.criteria),
+          JSON.stringify(pending.application_authorization),
+          applicationInstallationId
+        ]
+      );
+      await connection.query(
+        "DELETE FROM refresh_tokens WHERE grant_id = $1",
+        [grantId]
+      );
+    } else {
+      newReplicaId = replicaId;
+      notificationGrantId = grantId;
+      const bootstrapToken = randomToken("hsa");
+      await provider.registerReplica(input.collectionId, {
+        id: replicaId,
+        name: `${pending.application_name} application access`,
+        purpose: "application",
+        ...replicaPolicy,
+        token: bootstrapToken,
+        tokenTtlSeconds: 3_600
+      });
+      await connection.query(
+        `INSERT INTO hosted_replicas
+           (id, collection_id, authorized_user_id, name, purpose, mode,
+            allowed_types, token_hash)
+         VALUES ($1, $2, $3, $4, 'application', $5, $6::jsonb, NULL)`,
+        [
+          replicaId,
+          input.collectionId,
+          input.userId,
+          `${pending.application_name} application access`,
+          plan.replicaMode,
+          JSON.stringify(allowedTypes)
+        ]
+      );
+      await connection.query(
+        `INSERT INTO grants
+            (id, user_id, application_id, hosted_collection_id, hosted_replica_id,
+             operations, scope, encryption, proof_public_key, application_origin,
+             file_capability, notification_criteria, application_authorization,
+             application_installation_id)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, NULL, $8, $9,
+                 $10::jsonb, $11::jsonb, $12::jsonb, $13)`,
+        [
+          grantId,
+          input.userId,
+          pending.application_id,
+          input.collectionId,
+          replicaId,
+          JSON.stringify(operations),
+          JSON.stringify(scope),
+          pending.application_signing_public_key,
+          applicationOrigin,
+          plan.fileCapability ? JSON.stringify(plan.fileCapability) : null,
+          JSON.stringify(pending.notifications.criteria),
+          JSON.stringify(pending.application_authorization),
+          applicationInstallationId
+        ]
+      );
+    }
     await connection.query(
       `UPDATE authorization_requests SET completed_at = now(), grant_id = $2
        WHERE id = $1 AND completed_at IS NULL`,
@@ -814,7 +805,7 @@ export async function approveHostedAuthorization(
         .revokeNotificationGrant(input.collectionId, notificationGrantId)
         .catch(() => undefined);
     }
-    if (replicaId) await provider.revokeReplica(replicaId).catch(() => undefined);
+    if (newReplicaId) await provider.revokeReplica(newReplicaId).catch(() => undefined);
     throw error;
   } finally {
     connection.release();

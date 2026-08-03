@@ -1700,33 +1700,6 @@ kbd {
 
 .confirm-dialog-copy p { margin: 0; }
 
-.first-contact-dialog .confirm-dialog-copy > div {
-  display: grid;
-  gap: 14px;
-}
-
-.first-contact-code {
-  display: block;
-  padding: 14px;
-  border: 1px solid var(--line-strong);
-  border-radius: 4px;
-  background: var(--surface-subtle);
-  color: var(--ink);
-  font-size: 28px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-align: center;
-  overflow-wrap: anywhere;
-}
-
-.first-contact-dialog > footer {
-  justify-content: space-between;
-  align-items: center;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-}
-
 .confirm-dialog > footer {
   display: flex;
   justify-content: flex-end;

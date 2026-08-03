@@ -1,7 +1,7 @@
 # Encryption architecture
 
-Status: encrypted relay, first-contact trust, standard hosted encryption, and
-managed hosted key wrapping implemented
+Status: encrypted relay, signed application identity, connector continuity,
+standard hosted encryption, and managed hosted key wrapping implemented
 
 ## Purpose
 
@@ -44,12 +44,11 @@ implementations and exercises tampering, replay, scope, pause, revocation, and
 downgrade behavior. Connector identity material lives in the operating-system
 credential store. Existing owner-only `relay-identity.key` installations are
 migrated into that store, read back for identity verification, and only then
-have the legacy file removed. Verifying first contact and auditing logs remain
-public-release gates. First contact now uses a signed application authorization
-request, stable application-installation identity, and an independently derived
-short authentication string. Portal approval still chooses the collection and
-permissions; the local connector separately accepts or rejects the exact new
-installation before it stores the grant.
+have the legacy file removed. Signed authorization uses a stable application
+installation identity and fresh per-grant keys. Portal approval still chooses
+the collection and permissions; the local connector verifies the exact signed
+ceiling before storing the grant. The browser persists a connector-key TOFU pin
+separately from grant credentials so later substitution fails closed.
 
 The hosted provider encrypts canonical records, retained versions, change
 payloads, mutation receipts, and collection resources with AES-256-GCM under a
@@ -149,33 +148,31 @@ removes the connector's active grant key and blocks relay routing. Losing an
 application key requires authorization again; it never puts the underlying
 local collection at risk.
 
-### First-contact authentication
+### Signed application identity and connector continuity
 
 Server-mediated public-key discovery protects against passive observation,
 payload logging, database disclosure, and an honest-but-curious control plane.
 The signed authorization request additionally prevents the server from
-silently substituting application installation or per-grant keys.
+silently substituting the stable application installation signing key, fresh
+per-grant keys, requested authority, flow, callback, or PKCE challenge. The
+connector verifies that proof before persisting a local grant. Expired,
+malformed, replayed, or v1 authorization proofs fail closed.
 
-For the first grant from an application installation to a local connector, the
-application and connector derive the same short authentication string from
-their independently held keys and the exact first-contact transcript. The
-application shows its value through the SDK while the connector shows its
-value locally through the desktop or headless CLI. The connector stores trust
-only after the user confirms an exact match. A mismatch, expired request,
-changed installation key, changed connector key, replayed request, or absent
-local confirmation fails closed. Later grants may reuse the exact trusted
-installation identity; changing its key material requires first contact again.
+The browser SDK separately uses trust on first use for connector continuity.
+After the first successful encrypted local authorization, it stores the
+connector ID and public agreement key independently of the grant. Later token
+responses for that connector ID must contain the same key, including after a
+grant is forgotten and re-created. An intentional connector replacement
+requires the application to make an explicit `forgetConnectorIdentity` call
+after the user verifies the computer through another means.
 
-This comparison is separate from portal consent. The portal remains the only
-place that selects a collection and permissions, and connector trust endpoints
-cannot create or broaden a grant. Hosted-only grants do not cross a local
-connector and therefore do not require local first-contact approval.
-
-The comparison resists an active control plane only when the user compares the
-application and connector displays through independently trusted surfaces. A
-compromised application or connector display remains within that endpoint's
-trust boundary. Append-only key transparency is a possible later defense and
-is not part of the current claim.
+Portal consent remains the place that selects the collection and permissions.
+The signed ceiling prevents the portal from broadening the application's
+request, while the connector or hosted provider remains the final authority.
+TOFU detects changes after the first successful connection; it does not provide
+independent authentication of the connector on that first connection.
+Append-only key transparency or publisher/connector attestation could add that
+property later and is not part of the current claim.
 
 ### Encrypted envelope
 
@@ -431,9 +428,9 @@ and decrypted recovery material never enter audit events.
 - browser non-extractable keys, atomic counters, encrypted operations, binding
   refresh, and fail-closed behavior;
 - opaque relay routing and cross-runtime end-to-end coverage;
-- signed authorization, stable installation identity, independently displayed
-  first-contact codes, exact local trust persistence, and desktop/headless
-  acceptance, rejection, and revocation;
+- signed authorization, stable installation identity, fresh per-grant keys,
+  connector-key continuity, and desktop/headless acceptance, rejection, and
+  revocation;
 - per-collection hosted data keys and authenticated content envelopes;
 - versioned local and AWS KMS wrappers, exact-context KMS envelopes, bounded
   zeroizing DEK cache, stored-key readiness checks, and aggregate-only
@@ -482,8 +479,8 @@ The relay-only encryption milestone is complete when:
 
 ## Decisions still open
 
-- append-only connector/application key transparency beyond explicit
-  first-contact comparison;
+- connector authentication on first use and append-only connector/application
+  key transparency beyond continuity checks;
 - relay key rotation intervals and message limits;
 - visible relay metadata, including whether operation names remain visible;
 - any future plaintext metadata or query-index leakage for standard hosted

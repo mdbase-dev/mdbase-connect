@@ -47,7 +47,8 @@ describe("database migrations", () => {
       "0009_grant_file_capabilities",
       "0010_beta_entitlements_and_email",
       "0011_application_authorization_trust",
-      "0012_notification_contract_digests"
+      "0012_notification_contract_digests",
+      "0013_signed_tofu_application_identity"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -68,6 +69,97 @@ describe("database migrations", () => {
       "SELECT id FROM schema_migrations ORDER BY id"
     );
     expect(repeated.rows).toEqual(applied.rows);
+  });
+
+  it("invalidates v1 and malformed authorization state during the v2 identity break", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    await db.query(
+      "ALTER TABLE grants DROP CONSTRAINT grants_local_application_authorization_required"
+    );
+    await db.query(
+      "ALTER TABLE authorization_requests DROP CONSTRAINT authorization_requests_application_identity_required"
+    );
+    await db.query("DROP INDEX grants_active_hosted_application_installation_idx");
+    await db.query("ALTER TABLE grants DROP COLUMN application_installation_id");
+    await db.query("ALTER TABLE authorization_requests DROP COLUMN application_installation_id");
+    await db.query("ALTER TABLE grants ADD COLUMN first_contact jsonb");
+    await db.query("ALTER TABLE authorization_requests ADD COLUMN first_contact jsonb");
+    await db.query("ALTER TABLE authorization_requests ADD COLUMN trust_required_at timestamptz");
+    await db.query("ALTER TABLE authorization_requests ADD COLUMN portal_approved_at timestamptz");
+    await db.query("ALTER TABLE authorization_requests ADD COLUMN approval_snapshot jsonb");
+    await db.query("ALTER TABLE authorization_requests ADD COLUMN poll_consumed_at timestamptz");
+    await db.query(
+      "DELETE FROM schema_migrations WHERE id = '0013_signed_tofu_application_identity'"
+    );
+
+    const userId = randomUUID();
+    const connectorId = randomUUID();
+    const collectionId = randomUUID();
+    const applicationId = randomUUID();
+    const grantId = randomUUID();
+    await db.query(
+      "INSERT INTO users (id, email, name) VALUES ($1, $2, 'Owner')",
+      [userId, `${userId}@example.com`]
+    );
+    await db.query(
+      `INSERT INTO connectors (id, user_id, name, token_hash)
+       VALUES ($1, $2, 'Laptop', $3)`,
+      [connectorId, userId, randomUUID()]
+    );
+    await db.query(
+      `INSERT INTO collections
+         (id, user_id, connector_id, local_id, display_name, spec_version)
+       VALUES ($1, $2, $3, $4, 'Notes', '0.3.0')`,
+      [collectionId, userId, connectorId, randomUUID()]
+    );
+    await db.query(
+      `INSERT INTO applications
+         (id, canonical_identity, name, homepage, redirect_uris)
+       VALUES ($1, $2, 'Legacy app', 'https://legacy.example', '[]'::jsonb)`,
+      [applicationId, `web:https://legacy.example/${applicationId}`]
+    );
+    const v1Proof = {
+      binding: {
+        protocol_version: 1,
+        application_installation_id: randomUUID()
+      },
+      signature: "legacy"
+    };
+    await db.query(
+      `INSERT INTO grants
+         (id, user_id, application_id, collection_id, operations,
+          application_authorization, first_contact)
+       VALUES ($1, $2, $3, $4, '[]'::jsonb, $5::jsonb, '{}'::jsonb)`,
+      [grantId, userId, applicationId, collectionId, JSON.stringify(v1Proof)]
+    );
+    for (const proof of [v1Proof, {}]) {
+      await db.query(
+        `INSERT INTO authorization_requests
+           (id, user_id, application_id, requested_operations,
+            application_authorization, expires_at)
+         VALUES ($1, $2, $3, '[]'::jsonb, $4::jsonb, now() + interval '5 minutes')`,
+        [randomUUID(), userId, applicationId, JSON.stringify(proof)]
+      );
+    }
+
+    await runControlPlaneMigrations(db);
+
+    expect((await db.query("SELECT id FROM grants WHERE id = $1", [grantId])).rows)
+      .toHaveLength(0);
+    expect((await db.query(
+      "SELECT id FROM authorization_requests WHERE application_id = $1",
+      [applicationId]
+    )).rows).toHaveLength(0);
+    const removedColumns = await db.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_name IN ('grants', 'authorization_requests')
+         AND column_name IN (
+           'first_contact', 'trust_required_at', 'portal_approved_at',
+           'approval_snapshot', 'poll_consumed_at'
+         )`
+    );
+    expect(removedColumns.rows).toEqual([]);
   });
 
   it("upgrades a beta legacy schema before instance administration runs", async () => {
@@ -320,7 +412,8 @@ describe("database migrations", () => {
       "0009_grant_file_capabilities",
       "0010_beta_entitlements_and_email",
       "0011_application_authorization_trust",
-      "0012_notification_contract_digests"
+      "0012_notification_contract_digests",
+      "0013_signed_tofu_application_identity"
     ]);
   });
 

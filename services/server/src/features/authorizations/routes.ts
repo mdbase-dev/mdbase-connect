@@ -63,6 +63,10 @@ import {
 } from "./approval-service.js";
 import { registerGrantRevocationRoute } from "./grant-revocation-route.js";
 import { registerAuthorizationPollingRoutes } from "./polling-routes.js";
+import {
+  createAuthorizationRedirect,
+  deniedAuthorizationRedirect
+} from "./redirects.js";
 import type { AuthorizationRouteOptions } from "./route-options.js";
 
 const operationSchema = z.enum(COLLECTION_OPERATIONS);
@@ -81,7 +85,7 @@ export function registerAuthorizationRoutes(
     z.object({ requestId: z.uuid() }).parse(request.params);
     return reply.code(409).send(apiError(
       "portal_activation_required",
-      "Approve this signed request in the portal; local first-contact trust is confirmed through the connector control interface."
+      "Approve this signed request in the portal."
     ));
   });
 
@@ -91,7 +95,7 @@ export function registerAuthorizationRoutes(
     z.object({ requestId: z.uuid() }).parse(request.params);
     return reply.code(409).send(apiError(
       "portal_activation_required",
-      "Deny this request in the portal; reject first-contact application trust through the connector control interface."
+      "Deny this signed request in the portal."
     ));
   });
 
@@ -159,12 +163,12 @@ export function registerAuthorizationRoutes(
          (id, user_id, application_id, flow, redirect_uri, state, code_challenge,
           requested_operations, collection_id, relay_protocol,
           application_agreement_public_key, application_signing_public_key,
-          application_authorization,
+          application_authorization, application_installation_id,
           device_code_hash, user_code, user_code_hash,
           poll_interval_seconds, expires_at)
        VALUES ($1, NULL, $2, 'device_code', NULL, NULL, $3, $4::jsonb, $5, $6,
-               $7, $8, $9::jsonb, $10, $11, $12, $13,
-               $14::timestamptz)
+               $7, $8, $9::jsonb, $10, $11, $12, $13, $14,
+               $15::timestamptz)
        ON CONFLICT (id) DO NOTHING
        RETURNING id`,
       [
@@ -177,6 +181,7 @@ export function registerAuthorizationRoutes(
         proof.binding.grant_agreement_public_key,
         proof.binding.grant_signing_public_key,
         JSON.stringify(proof),
+        proof.binding.application_installation_id,
         tokenHash(deviceCode),
         userCode,
         tokenHash(canonicalUserCode(userCode)),
@@ -186,7 +191,7 @@ export function registerAuthorizationRoutes(
     );
     if (!inserted.rows[0]) {
       return reply.code(400).send(apiError(
-        "invalid_application_authorization",
+        "authorization_replayed",
         "The application authorization request has already been used."
       ));
     }
@@ -291,8 +296,11 @@ export function registerAuthorizationRoutes(
       template: string | null;
       hosted_contracts: CollectionContractDescriptor[] | null;
       file_capability: FileCapability | null;
+      application_origin: string;
+      proof_public_key: string;
     }>(
       `SELECT g.id, g.operations, g.encryption, g.scope, g.file_capability,
+              g.application_origin, g.proof_public_key,
               a.requirements, col.connector_id,
               g.hosted_replica_id, hosted.template, hosted.contracts AS hosted_contracts
        FROM grants g
@@ -329,7 +337,9 @@ export function registerAuthorizationRoutes(
         contractScope: current.scope.access === "contract" ? current.scope.contracts : [],
         fullCollection: current.scope.access === "full_collection",
         allowedOperations: hostedReplicaCollectionOperations(operations),
-        fileCapability: current.file_capability ?? undefined
+        fileCapability: current.file_capability ?? undefined,
+        allowedOrigin: current.application_origin,
+        proofPublicKey: current.proof_public_key
       });
     }
     const updated = await options.db.query<{ id: string; operations: string[] }>(
@@ -406,10 +416,10 @@ export function registerAuthorizationRoutes(
          (id, user_id, application_id, redirect_uri, state, code_challenge,
           requested_operations, collection_id, relay_protocol,
           application_agreement_public_key, application_signing_public_key,
-          application_authorization,
+          application_authorization, application_installation_id,
           expires_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11,
-               $12::jsonb, $13::timestamptz)
+               $12::jsonb, $13, $14::timestamptz)
        ON CONFLICT (id) DO NOTHING
        RETURNING id`,
       [
@@ -425,12 +435,13 @@ export function registerAuthorizationRoutes(
         proof.binding.grant_agreement_public_key,
         proof.binding.grant_signing_public_key,
         JSON.stringify(proof),
+        proof.binding.application_installation_id,
         proof.binding.expires_at
       ]
     );
     if (!inserted.rows[0]) {
       return reply.code(400).send(apiError(
-        "invalid_application_authorization",
+        "authorization_replayed",
         "The application authorization request has already been used."
       ));
     }
@@ -440,8 +451,7 @@ export function registerAuthorizationRoutes(
       expires_in: Math.max(
         1,
         Math.floor((Date.parse(proof.binding.expires_at) - Date.now()) / 1_000)
-      ),
-      interval: 2
+      )
     });
   });
 
@@ -458,7 +468,6 @@ export function registerAuthorizationRoutes(
       `UPDATE authorization_requests SET user_id = $2
        WHERE id = $1 AND flow = 'authorization_code'
          AND expires_at > now() AND denied_at IS NULL
-         AND poll_consumed_at IS NULL
          AND (user_id IS NULL OR user_id = $2)
        RETURNING id`,
       [requestId, user.id]
@@ -603,14 +612,12 @@ export function registerAuthorizationRoutes(
       application_id: string;
       grant_id: string | null;
       activation_started_at: string | null;
-      trust_required_at: string | null;
-      first_contact: unknown | null;
       redirect_uri: string | null;
       state: string | null;
       code_challenge: string | null;
     }>(
       `SELECT completed_at, denied_at, expires_at, application_id, grant_id,
-              activation_started_at, trust_required_at, first_contact,
+              activation_started_at,
               flow, redirect_uri, state, code_challenge
        FROM authorization_requests
        WHERE id = $1 AND user_id = $2 AND expires_at > now()`,
@@ -619,19 +626,31 @@ export function registerAuthorizationRoutes(
     const value = authorization.rows[0];
     if (!value) return reply.code(404).send(apiError("authorization_not_found", "Authorization request expired or was not found."));
     if (value.denied_at) {
-      return { status: "denied" };
+      return value.flow === "device_code"
+        ? { status: "denied" }
+        : {
+            status: "denied",
+            redirect_uri: deniedAuthorizationRedirect({
+              redirect_uri: value.redirect_uri!,
+              state: value.state
+            })
+          };
     }
     if (value.completed_at && value.grant_id) {
-      return { status: "approved" };
+      if (value.flow === "device_code") return { status: "approved" };
+      return {
+        status: "approved",
+        redirect_uri: await createAuthorizationRedirect(options.db, publicUrl, {
+          application_id: value.application_id,
+          redirect_uri: value.redirect_uri!,
+          state: value.state,
+          code_challenge: value.code_challenge!,
+          grant_id: value.grant_id
+        })
+      };
     }
     if (value.grant_id && value.activation_started_at) {
       return { status: "setting_up" };
-    }
-    if (value.trust_required_at && value.first_contact) {
-      return {
-        status: "trust_required",
-        first_contact: value.first_contact
-      };
     }
     return { status: "pending" };
   });

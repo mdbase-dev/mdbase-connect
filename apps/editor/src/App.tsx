@@ -28,7 +28,6 @@ import { CollectionRail } from "./CollectionRail";
 import { CollectionSwitcher, ConnectScreen } from "./ConnectionScreens";
 import { ConflictResolver } from "./ConflictResolver";
 import { ConfirmDialog } from "./Dialog";
-import { FirstContactDialog } from "./FirstContactDialog";
 import {
   loadContractCatalog,
   type ContractCatalogPack
@@ -569,7 +568,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     }
   }, [gateway, indexController, openNote, refreshDescription]);
 
-  const { authorizeCollection, firstContact } = useCollectionAuthorization({
+  const { authorizeCollection } = useCollectionAuthorization({
     gateway,
     phase,
     start,
@@ -1763,10 +1762,6 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       onConfirm={confirmation.onConfirm}
       onClose={() => setConfirmation(undefined)}
     />}
-    {firstContact && <FirstContactDialog
-      challenge={firstContact.challenge}
-      onCancel={firstContact.cancel}
-    />}
   </>;
   if (phase === "loading" || !description) return <OpeningScreen />;
 
@@ -2160,10 +2155,6 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       initialFocus={confirmation.initialFocus}
       onConfirm={confirmation.onConfirm}
       onClose={() => setConfirmation(undefined)}
-    />}
-    {firstContact && <FirstContactDialog
-      challenge={firstContact.challenge}
-      onCancel={firstContact.cancel}
     />}
     <NotePreviewCard preview={notePreviewController.preview} />
   </div>;

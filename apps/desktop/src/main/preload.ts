@@ -51,13 +51,6 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   pairingStatus: (pairingId: string) => ipcRenderer.invoke("connect:pairing:status", pairingId),
   accessSnapshot: () => ipcRenderer.invoke("connect:access:snapshot"),
   setAccessPaused: (paused: boolean) => ipcRenderer.invoke("connect:access:pause", paused),
-  applicationTrustSnapshot: () => ipcRenderer.invoke("connect:trust:snapshot"),
-  acceptApplicationTrust: (input: { requestId: string; authenticationString: string }) =>
-    ipcRenderer.invoke("connect:trust:accept", input),
-  rejectApplicationTrust: (requestId: string) =>
-    ipcRenderer.invoke("connect:trust:reject", requestId),
-  revokeApplicationTrust: (trustId: string) =>
-    ipcRenderer.invoke("connect:trust:revoke", trustId),
   renameComputer: (name: string) => ipcRenderer.invoke("connect:account:rename-computer", name),
   createGrant: (input: { applicationId: string; collectionId: string; operations: string[] }) =>
     ipcRenderer.invoke("connect:grants:create", input),

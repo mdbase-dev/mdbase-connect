@@ -2,15 +2,14 @@
   "schemaVersion": 1,
   "gates": [
     {
-      "id": "first-contact-trust-decision",
-      "title": "First-contact connector trust decision",
+      "id": "application-identity-trust-decision",
+      "title": "Application identity and first-use trust decision",
       "owner": "Product and security owners",
       "status": "complete",
       "evidence": [
-        "https://github.com/mdbase-dev/mdbase-connect/pull/154",
-        "https://github.com/mdbase-dev/mdbase-connect/actions/runs/30750841856"
+        "docs/decisions/0004-signed-tofu-application-identity.md"
       ],
-      "notes": "A signed authorization request and independently derived authentication string now require exact local confirmation on desktop or the headless CLI, separately from portal consent. Cross-runtime, real-browser, Electron, restart, mismatch, revocation, and policy tests passed in the recorded CI run."
+      "notes": "ADR 0004 retains stable signed application identity, makes portal consent the single authorization decision, and explicitly accepts the control plane as the first-use identity introducer. Connector key continuity detects later changes without claiming protection against a malicious first-use control plane."
     },
     {
       "id": "managed-key-service-and-rotation-drill",

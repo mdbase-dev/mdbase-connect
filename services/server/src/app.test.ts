@@ -20,7 +20,10 @@ import { createDatabase } from "./db.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
 import { authorityProofMessage } from "./authority-proof.js";
 import { pkceChallenge, tokenHash } from "./security.js";
-import { testApplicationAuthorization } from "./application-authorization.test-helper.js";
+import {
+  createTestApplicationIdentity,
+  testApplicationAuthorization
+} from "./application-authorization.test-helper.js";
 
 const resources: Array<() => Promise<void>> = [];
 const TEST_CONTRACT_DIGEST = `sha256:${"0".repeat(64)}`;
@@ -190,9 +193,10 @@ describe("mdbase connect server", () => {
     await db.query(
       `INSERT INTO grants
          (id, user_id, application_id, collection_id, operations,
-          application_authorization, first_contact)
-       VALUES ($1, $2, $3, $4, '["read"]'::jsonb, '{}'::jsonb, '{}'::jsonb)`,
-      [grantId, userId, applicationId, collectionId]
+          application_authorization, application_installation_id)
+       VALUES ($1, $2, $3, $4, '["read"]'::jsonb,
+               '{"binding":{"protocol_version":2}}'::jsonb, $5)`,
+      [grantId, userId, applicationId, collectionId, randomUUID()]
     );
     await db.query(
       `INSERT INTO access_tokens (id, token_hash, grant_id, expires_at)
@@ -523,9 +527,11 @@ describe("mdbase connect server", () => {
     await db.query(
       `INSERT INTO grants
          (id, user_id, application_id, collection_id, operations, scope,
-          application_authorization, first_contact)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, '{}'::jsonb, '{}'::jsonb),
-              ($7, $2, $3, $8, $5::jsonb, $9::jsonb, '{}'::jsonb, '{}'::jsonb)`,
+          application_authorization, application_installation_id)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb,
+               '{"binding":{"protocol_version":2}}'::jsonb, $10),
+              ($7, $2, $3, $8, $5::jsonb, $9::jsonb,
+               '{"binding":{"protocol_version":2}}'::jsonb, $10)`,
       [
         legacyCompatibleGrantId,
         user.rows[0].id,
@@ -535,7 +541,8 @@ describe("mdbase connect server", () => {
         JSON.stringify({ contracts: [] }),
         legacyIncompatibleGrantId,
         authorityId(incompatibleLocalCollectionId),
-        JSON.stringify({ contracts: [contractDescriptor()] })
+        JSON.stringify({ contracts: [contractDescriptor()] }),
+        randomUUID()
       ]
     );
     const rediscovered = await app.inject({
@@ -703,7 +710,10 @@ describe("mdbase connect server", () => {
       url: `/v1/authorization-requests/${deniedRequestId}/status`,
       headers: { cookie }
     });
-    expect(deniedStatus.json()).toEqual({ status: "denied" });
+    expect(deniedStatus.json()).toEqual({
+      status: "denied",
+      redirect_uri: expect.stringContaining("error=access_denied")
+    });
 
     const portalAuthorization = await startWebAuthorization(app, cookie, {
         applicationId,
@@ -737,17 +747,13 @@ describe("mdbase connect server", () => {
     });
     expect(locallyApproved.statusCode).toBe(409);
     expect(locallyApproved.json().error.code).toBe("portal_activation_required");
-    await db.query(
-      "UPDATE authorization_requests SET portal_approved_at = now() WHERE id = $1",
-      [portalRequestId]
-    );
     const policyAfterPortalApproval = await app.inject({
       method: "GET",
       url: "/v1/connectors/control",
       headers: { authorization: `Bearer ${connector.token}` }
     });
     expect(policyAfterPortalApproval.json().grants).toEqual([]);
-    expect(policyAfterPortalApproval.json().pending_authorizations).not.toContainEqual(
+    expect(policyAfterPortalApproval.json().pending_authorizations).toContainEqual(
       expect.objectContaining({ id: portalRequestId })
     );
 
@@ -1105,7 +1111,7 @@ describe("mdbase connect server", () => {
     })).json()).toMatchObject({ error: "expired_token" });
   });
 
-  it("authorizes a portable v1 application directly against a hosted collection", async () => {
+  it("adopts a legacy hosted grant for one portable v2 installation without another replica", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
     const hostedProvider = {
@@ -1182,6 +1188,7 @@ describe("mdbase connect server", () => {
       Buffer.from(applicationSigningJwk.y!, "base64url")
     ]).toString("base64url");
     const verifier = "portable-hosted-verifier-that-is-long-enough-0001";
+    const installationIdentity = createTestApplicationIdentity();
     const proof = await testApplicationAuthorization({
       applicationId,
       applicationManifestDigest,
@@ -1189,6 +1196,7 @@ describe("mdbase connect server", () => {
       codeChallenge: pkceChallenge(verifier),
       requestedOperations: ["describe", "query", "create", "update", "sync"],
       collectionId,
+      installationIdentity,
       grantAgreementPublicKey: applicationAgreementPublicKey,
       grantSigningPublicKey: applicationSigningPublicKey
     });
@@ -1342,6 +1350,93 @@ describe("mdbase connect server", () => {
       encryption: null,
       proof_public_key: applicationSigningPublicKey
     });
+
+    await db.query(
+      `UPDATE grants
+       SET application_authorization = NULL, application_installation_id = NULL
+       WHERE id = $1`,
+      [token.json().grant_id]
+    );
+
+    const secondAgreementPublicKey = p256PublicKey();
+    const secondSigningKeys = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+    const secondSigningJwk = secondSigningKeys.publicKey.export({ format: "jwk" });
+    const secondSigningPublicKey = Buffer.concat([
+      Buffer.from([4]),
+      Buffer.from(secondSigningJwk.x!, "base64url"),
+      Buffer.from(secondSigningJwk.y!, "base64url")
+    ]).toString("base64url");
+    const secondVerifier = "portable-hosted-verifier-that-is-long-enough-0002";
+    const secondProof = await testApplicationAuthorization({
+      applicationId,
+      applicationManifestDigest,
+      flow: "device_code",
+      codeChallenge: pkceChallenge(secondVerifier),
+      requestedOperations: ["describe", "query", "sync"],
+      collectionId,
+      installationIdentity,
+      grantAgreementPublicKey: secondAgreementPublicKey,
+      grantSigningPublicKey: secondSigningPublicKey
+    });
+    const secondDevice = await app.inject({
+      method: "POST",
+      url: "/oauth/device_authorization",
+      headers: {
+        origin: "null",
+        "content-type": "application/x-www-form-urlencoded"
+      },
+      payload: new URLSearchParams({
+        client_id: applicationId,
+        operations: "describe,query,sync",
+        collection_id: collectionId,
+        code_challenge: pkceChallenge(secondVerifier),
+        code_challenge_method: "S256",
+        application_authorization: JSON.stringify(secondProof)
+      }).toString()
+    });
+    expect(secondDevice.statusCode, JSON.stringify(secondDevice.json())).toBe(200);
+    const secondLookup = await app.inject({
+      method: "POST",
+      url: "/v1/device-authorization-requests/lookup",
+      headers: { cookie },
+      payload: { user_code: secondDevice.json().user_code }
+    });
+    const secondRequestId = secondLookup.json().request_id as string;
+    const secondApproval = await app.inject({
+      method: "POST",
+      url: `/v1/authorization-requests/${secondRequestId}/approve`,
+      headers: { cookie },
+      payload: {
+        collection_id: collectionId,
+        operations: ["describe", "query", "sync"]
+      }
+    });
+    expect(secondApproval.statusCode, JSON.stringify(secondApproval.json())).toBe(200);
+    expect(hostedProvider.registerReplica).toHaveBeenCalledTimes(1);
+    expect(hostedProvider.updateApplicationReplica).toHaveBeenCalledWith(
+      token.json().authority.replica_id,
+      expect.objectContaining({
+        grantId: token.json().grant_id,
+        allowedOrigin: "null",
+        proofPublicKey: secondSigningPublicKey
+      })
+    );
+    const activeCapabilities = await db.query<{
+      id: string;
+      hosted_replica_id: string;
+      application_installation_id: string;
+    }>(
+      `SELECT id, hosted_replica_id, application_installation_id
+       FROM grants
+       WHERE application_id = $1
+         AND hosted_collection_id = $2 AND revoked_at IS NULL`,
+      [applicationId, collectionId]
+    );
+    expect(activeCapabilities.rows).toEqual([{
+      id: token.json().grant_id,
+      hosted_replica_id: token.json().authority.replica_id,
+      application_installation_id: secondProof.binding.application_installation_id
+    }]);
   });
 
   it("lets a paired desktop manage only its owner's hosted collections and mirrors", async () => {
@@ -1683,7 +1778,9 @@ describe("mdbase connect server", () => {
       expect.objectContaining({
         allowedTypes: [],
         fullCollection: true,
-        allowedOperations: ["describe", "query", "create", "update"]
+        allowedOperations: ["describe", "query", "create", "update"],
+        allowedOrigin: "http://localhost:4173",
+        proofPublicKey: expect.any(String)
       })
     );
     const reconciled = await db.query<{ allowed_types: string[] }>(
@@ -1708,7 +1805,12 @@ describe("mdbase connect server", () => {
     expect(narrowed.json().grant.operations).toEqual(["describe", "query", "sync"]);
     expect(hostedProvider.updateApplicationReplica).toHaveBeenLastCalledWith(
       provisioned.rows[0].id,
-      expect.objectContaining({ mode: "read_only", allowedOperations: ["describe", "query"] })
+      expect.objectContaining({
+        mode: "read_only",
+        allowedOperations: ["describe", "query"],
+        allowedOrigin: "http://localhost:4173",
+        proofPublicKey: expect.any(String)
+      })
     );
     const broadened = await app.inject({
       method: "PATCH",

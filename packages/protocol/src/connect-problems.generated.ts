@@ -5,10 +5,12 @@ export const CONNECT_PROBLEM_VERSION = 1 as const;
 export const CONNECT_PROBLEM_CATALOG = {
   "access_denied": { category: "authorization", recovery: "reauthorize" },
   "access_paused": { category: "availability", recovery: "resume_connector_access" },
+  "application_identity_unavailable": { category: "compatibility", recovery: "upgrade_application" },
   "approval_window_blocked": { category: "authorization", recovery: "reauthorize" },
   "authority_authorization_changed": { category: "authorization", recovery: "reauthorize" },
   "authorization_cancelled": { category: "cancellation", recovery: "none" },
   "authorization_expired": { category: "authorization", recovery: "reauthorize" },
+  "authorization_replayed": { category: "integrity", recovery: "reauthorize" },
   "browser_required": { category: "compatibility", recovery: "none" },
   "callback_url_required": { category: "validation", recovery: "fix_request" },
   "change_cursor_reset": { category: "conflict", recovery: "refresh" },
@@ -41,14 +43,13 @@ export const CONNECT_PROBLEM_CATALOG = {
   "file_not_found": { category: "conflict", recovery: "refresh" },
   "file_source_mismatch": { category: "conflict", recovery: "refresh" },
   "file_upload_incomplete": { category: "conflict", recovery: "retry" },
-  "first_contact_handler_required": { category: "compatibility", recovery: "upgrade_application" },
   "hosted_provider_unavailable": { category: "availability", recovery: "retry" },
   "insufficient_access": { category: "authorization", recovery: "reauthorize" },
+  "invalid_application_authorization": { category: "validation", recovery: "fix_request" },
   "invalid_application_manifest": { category: "validation", recovery: "fix_request" },
   "invalid_callback": { category: "validation", recovery: "fix_request" },
   "invalid_device_authorization_response": { category: "integrity", recovery: "contact_support" },
   "invalid_encrypted_response": { category: "integrity", recovery: "contact_support" },
-  "invalid_first_contact": { category: "integrity", recovery: "contact_support" },
   "invalid_loopback_url": { category: "validation", recovery: "fix_request" },
   "invalid_mutation_id": { category: "validation", recovery: "fix_request" },
   "invalid_operation_response": { category: "integrity", recovery: "contact_support" },
@@ -79,6 +80,7 @@ export const CONNECT_PROBLEM_CATALOG = {
   "pending_mutation_unresolved": { category: "conflict", recovery: "resolve_outcome" },
   "query_snapshot_changed": { category: "conflict", recovery: "refresh" },
   "rate_limited": { category: "availability", recovery: "retry" },
+  "reconnect_required": { category: "authorization", recovery: "reauthorize" },
   "redirect_uri_required": { category: "validation", recovery: "fix_request" },
   "reference_updates_unsupported": { category: "compatibility", recovery: "fix_request" },
   "relay_authorization_expired": { category: "authorization", recovery: "reauthorize" },
@@ -115,6 +117,7 @@ export interface ConnectProblemDetailsByCode {
   "return_to"?: string;
 };
   "access_paused": undefined;
+  "application_identity_unavailable": undefined;
   "approval_window_blocked": {
   "user_code": string;
   "verification_uri": string;
@@ -125,6 +128,7 @@ export interface ConnectProblemDetailsByCode {
   "authority_authorization_changed": undefined;
   "authorization_cancelled": undefined;
   "authorization_expired": undefined;
+  "authorization_replayed": undefined;
   "browser_required": undefined;
   "callback_url_required": undefined;
   "change_cursor_reset": undefined;
@@ -173,18 +177,17 @@ export interface ConnectProblemDetailsByCode {
   "file_not_found": undefined;
   "file_source_mismatch": undefined;
   "file_upload_incomplete": undefined;
-  "first_contact_handler_required": undefined;
   "hosted_provider_unavailable": undefined;
   "insufficient_access": {
   "required_operations": Array<string>;
   "granted_operations": Array<string>;
   "missing_operations": Array<string>;
 };
+  "invalid_application_authorization": undefined;
   "invalid_application_manifest": undefined;
   "invalid_callback": undefined;
   "invalid_device_authorization_response": undefined;
   "invalid_encrypted_response": undefined;
-  "invalid_first_contact": undefined;
   "invalid_loopback_url": undefined;
   "invalid_mutation_id": undefined;
   "invalid_operation_response": undefined;
@@ -220,6 +223,7 @@ export interface ConnectProblemDetailsByCode {
   "rate_limited": {
   "retry_after_ms"?: number;
 };
+  "reconnect_required": undefined;
   "redirect_uri_required": undefined;
   "reference_updates_unsupported": undefined;
   "relay_authorization_expired": undefined;
@@ -252,6 +256,12 @@ export interface ConnectProblemByCode {
     recovery: "resume_connector_access";
     details?: never;
   };
+  "application_identity_unavailable": ConnectProblemBase & {
+    code: "application_identity_unavailable";
+    category: "compatibility";
+    recovery: "upgrade_application";
+    details?: never;
+  };
   "approval_window_blocked": ConnectProblemBase & {
     code: "approval_window_blocked";
     category: "authorization";
@@ -273,6 +283,12 @@ export interface ConnectProblemByCode {
   "authorization_expired": ConnectProblemBase & {
     code: "authorization_expired";
     category: "authorization";
+    recovery: "reauthorize";
+    details?: never;
+  };
+  "authorization_replayed": ConnectProblemBase & {
+    code: "authorization_replayed";
+    category: "integrity";
     recovery: "reauthorize";
     details?: never;
   };
@@ -468,12 +484,6 @@ export interface ConnectProblemByCode {
     recovery: "retry";
     details?: never;
   };
-  "first_contact_handler_required": ConnectProblemBase & {
-    code: "first_contact_handler_required";
-    category: "compatibility";
-    recovery: "upgrade_application";
-    details?: never;
-  };
   "hosted_provider_unavailable": ConnectProblemBase & {
     code: "hosted_provider_unavailable";
     category: "availability";
@@ -485,6 +495,12 @@ export interface ConnectProblemByCode {
     category: "authorization";
     recovery: "reauthorize";
     details: ConnectProblemDetailsByCode["insufficient_access"];
+  };
+  "invalid_application_authorization": ConnectProblemBase & {
+    code: "invalid_application_authorization";
+    category: "validation";
+    recovery: "fix_request";
+    details?: never;
   };
   "invalid_application_manifest": ConnectProblemBase & {
     code: "invalid_application_manifest";
@@ -506,12 +522,6 @@ export interface ConnectProblemByCode {
   };
   "invalid_encrypted_response": ConnectProblemBase & {
     code: "invalid_encrypted_response";
-    category: "integrity";
-    recovery: "contact_support";
-    details?: never;
-  };
-  "invalid_first_contact": ConnectProblemBase & {
-    code: "invalid_first_contact";
     category: "integrity";
     recovery: "contact_support";
     details?: never;
@@ -695,6 +705,12 @@ export interface ConnectProblemByCode {
     category: "availability";
     recovery: "retry";
     details?: ConnectProblemDetailsByCode["rate_limited"];
+  };
+  "reconnect_required": ConnectProblemBase & {
+    code: "reconnect_required";
+    category: "authorization";
+    recovery: "reauthorize";
+    details?: never;
   };
   "redirect_uri_required": ConnectProblemBase & {
     code: "redirect_uri_required";

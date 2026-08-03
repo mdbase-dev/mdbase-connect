@@ -4,12 +4,11 @@ import type { CollectionOperation } from "./operations.js";
 export type ApplicationAuthorizationFlow = "authorization_code" | "device_code";
 
 export interface ApplicationAuthorizationBinding {
-  protocol_version: 1;
+  protocol_version: 2;
   authorization_id: string;
   application_id: string;
   application_manifest_digest: string;
   application_installation_id: string;
-  installation_agreement_public_key: string;
   installation_signing_public_key: string;
   grant_agreement_public_key: string;
   grant_signing_public_key: string;
@@ -31,24 +30,19 @@ export interface ApplicationAuthorizationProof {
 }
 
 const INSTALLATION_ID_DOMAIN = new TextEncoder().encode(
-  "mdbase-connect application installation id v1\0"
+  "mdbase-connect application installation id v2\0"
 );
 const AUTHORIZATION_PROOF_DOMAIN = new TextEncoder().encode(
-  "mdbase-connect application authorization proof\0"
+  "mdbase-connect application authorization proof v2\0"
 );
 
-export async function applicationInstallationIdFromPublicKeys(
-  agreementPublicKey: string,
+export async function applicationInstallationIdFromPublicKey(
   signingPublicKey: string
 ): Promise<string> {
-  const agreement = publicKey(agreementPublicKey);
   const signing = publicKey(signingPublicKey);
-  if (equalBytes(agreement, signing)) {
-    throw new Error("Application installation agreement and signing keys must be distinct.");
-  }
   const digest = new Uint8Array(await crypto.subtle.digest(
     "SHA-256",
-    concat([INSTALLATION_ID_DOMAIN, field(agreement), field(signing)]) as BufferSource
+    concat([INSTALLATION_ID_DOMAIN, field(signing)]) as BufferSource
   ));
   const id = digest.slice(0, 16);
   id[6] = (id[6]! & 0x0f) | 0x80;
@@ -66,7 +60,6 @@ export function authorizationSigningMessage(
   binding: ApplicationAuthorizationBinding
 ): Uint8Array {
   const keys = [
-    publicKey(binding.installation_agreement_public_key),
     publicKey(binding.installation_signing_public_key),
     publicKey(binding.grant_agreement_public_key),
     publicKey(binding.grant_signing_public_key)
@@ -78,7 +71,7 @@ export function authorizationSigningMessage(
   const nonce = canonicalBase64(binding.authorization_nonce);
   const challenge = canonicalBase64(binding.code_challenge);
   if (
-    binding.protocol_version !== 1
+    binding.protocol_version !== 2
     || nonce.byteLength !== 32
     || !/^[0-9a-f]{64}$/u.test(binding.application_manifest_digest)
     || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/u.test(binding.issued_at)

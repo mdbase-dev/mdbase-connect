@@ -78,6 +78,26 @@ try {
   assert.equal(created.agreementExportRejected, true);
   assert.equal(created.signingExportRejected, true);
 
+  const installation = await firstPage.evaluate(async (keyHandle) => {
+    const store = new MdbaseConnect.IndexedDbApplicationIdentityStore();
+    const record = await store.create(`installation:${keyHandle}`);
+    let exportRejected = false;
+    try {
+      await crypto.subtle.exportKey("pkcs8", record.signingPrivateKey);
+    } catch {
+      exportRejected = true;
+    }
+    return {
+      signingPublicKey: record.signingPublicKey,
+      extractable: record.signingPrivateKey.extractable,
+      exportRejected
+    };
+  }, handle);
+  assert.deepEqual(
+    { extractable: installation.extractable, exportRejected: installation.exportRejected },
+    { extractable: false, exportRejected: true }
+  );
+
   const restoredInSecondTab = await secondPage.evaluate(async (keyHandle) => {
     const record = await new MdbaseConnect.IndexedDbGrantKeyStore().get(keyHandle);
     if (!record) return null;
@@ -98,6 +118,18 @@ try {
     signingPublicKey: created.signingPublicKey,
     signingExtractable: false,
     signatureBytes: 64
+  });
+  const restoredInstallation = await secondPage.evaluate(async (keyHandle) => {
+    const record = await new MdbaseConnect.IndexedDbApplicationIdentityStore()
+      .get(`installation:${keyHandle}`);
+    return record && {
+      signingPublicKey: record.signingPublicKey,
+      extractable: record.signingPrivateKey.extractable
+    };
+  }, handle);
+  assert.deepEqual(restoredInstallation, {
+    signingPublicKey: installation.signingPublicKey,
+    extractable: false
   });
 
   const counters = (
@@ -138,8 +170,14 @@ try {
     signingPublicKey: created.signingPublicKey,
     counter: "41"
   });
+  const installationAfterRestart = await restartedPage.evaluate(async (keyHandle) => {
+    const record = await new MdbaseConnect.IndexedDbApplicationIdentityStore()
+      .get(`installation:${keyHandle}`);
+    return record?.signingPublicKey;
+  }, handle);
+  assert.equal(installationAfterRestart, installation.signingPublicKey);
   console.log(
-    "Browser key storage passed: non-extractable keys persisted across tabs and restart; counters were atomic."
+    "Browser key storage passed: grant and installation keys persisted non-extractably across tabs and restart; counters were atomic."
   );
 } finally {
   await context?.close().catch(() => undefined);

@@ -1,5 +1,6 @@
 import type { JsonObject, MdbaseAppManifest } from "@mdbase-dev/connect-protocol";
 import type { GrantKeyStore } from "./crypto.js";
+import type { ApplicationIdentityStore } from "./application-identity.js";
 
 export interface MdbaseConnectOptions {
   serverUrl: string;
@@ -13,6 +14,8 @@ export interface MdbaseConnectOptions {
   /** Encrypted relay is required by default for newly authorized grants. */
   relayEncryption?: "required" | "disabled";
   keyStore?: GrantKeyStore;
+  /** Persistent installation signing identity; separate from disposable grant keys. */
+  identityStore?: ApplicationIdentityStore;
   /** Prefer same-computer connector access when the browser permits it. */
   directAccess?: "auto" | "disabled";
   /** Loopback origin override for development and automated testing. */

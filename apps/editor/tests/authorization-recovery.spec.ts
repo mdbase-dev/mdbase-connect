@@ -44,8 +44,7 @@ test("recovers from a stale local grant without bypassing the connector", async 
       await json(route, {
         authorization_id: authorizationId,
         authorization_uri: `${serverUrl}/oauth/authorize?request_id=${authorizationId}`,
-        expires_in: 600,
-        interval: 5
+        expires_in: 600
       });
       return;
     }
@@ -190,10 +189,8 @@ test("recovers from a stale local grant without bypassing the connector", async 
     );
   }, { configuredServerUrl: serverUrl, configuredManifestPath: manifestPath })).toBeNull();
 
-  const popupPromise = page.waitForEvent("popup");
   await page.getByRole("button", { name: "Choose a collection" }).click();
-  const approval = await popupPromise;
-  await expect(approval).toHaveURL(/connect\.mdbase\.dev\/oauth\/authorize/);
+  await expect(page).toHaveURL(/connect\.mdbase\.dev\/oauth\/authorize/);
 });
 
 async function json(route: Route, body: unknown, status = 200): Promise<void> {
