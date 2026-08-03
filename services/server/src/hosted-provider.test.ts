@@ -163,6 +163,8 @@ describe("hosted provider control client", () => {
       contractScope: [],
       fullCollection: false,
       allowedOperations: ["read", "sync", "query"],
+      allowedOrigin: "https://tasks.example",
+      proofPublicKey: "application-proof-key",
       fileCapability: {
         kind: "files",
         protocol_version: 1,
@@ -187,7 +189,9 @@ describe("hosted provider control client", () => {
             protocol_version: 1,
             actions: ["list", "read"],
             scope: { kind: "selected_folders", folders: ["Assets"] }
-          }
+          },
+          allowed_origin: "https://tasks.example",
+          proof_public_key: "application-proof-key"
         })
       ],
       [

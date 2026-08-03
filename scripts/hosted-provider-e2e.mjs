@@ -92,6 +92,7 @@ const {
 const { mirrorProfileDirectory } = await import("../packages/sync/dist/device.js");
 const {
   MdbaseConnect,
+  MemoryApplicationIdentityStore,
   MemoryGrantKeyStore,
   unwrapConnectOutcome
 } = await import("../packages/client/dist/index.js");
@@ -1050,18 +1051,21 @@ try {
       redirectUri: inlineManifest.redirectUri,
       storage: inlineStorage,
       keyStore: new MemoryGrantKeyStore(),
+      identityStore: new MemoryApplicationIdentityStore(),
       navigate: (value) => { inlineAuthorizationUrl = value; }
     });
     const inlineAuthorization = inlineSdk.authorize({
       operations: ["describe", "read", "query", "create", "update"]
     });
     await waitFor(() => inlineAuthorizationUrl, "SDK did not start inline hosted authorization");
-    await authorizeHostedApplicationByCreating(
+    assert.deepEqual(unwrapConnectOutcome(await inlineAuthorization), { kind: "redirecting" });
+    const inlineCallbackUrl = await authorizeHostedApplicationByCreating(
       inlineAuthorizationUrl,
-      emptyCookie
+      emptyCookie,
+      inlineManifest.redirectUri
     );
     const { connection: inlineConnection } = unwrapConnectOutcome(
-      await inlineAuthorization
+      await inlineSdk.completeAuthorization(inlineCallbackUrl)
     );
     const inlineToken = inlineStorage.token();
     assert.equal(
@@ -1106,6 +1110,7 @@ try {
     redirectUri: manifest.redirectUri,
     storage,
     keyStore: new MemoryGrantKeyStore(),
+    identityStore: new MemoryApplicationIdentityStore(),
     navigate: (value) => { authorizationUrl = value; }
   });
   const hostedAuthorization = hostedSdk.authorize({
@@ -1115,13 +1120,15 @@ try {
     ]
   });
   await waitFor(() => authorizationUrl, "SDK did not start hosted authorization");
-  await authorizeHostedApplication(
+  assert.deepEqual(unwrapConnectOutcome(await hostedAuthorization), { kind: "redirecting" });
+  const callbackUrl = await authorizeHostedApplication(
     authorizationUrl,
     cookie,
-    genericCollectionId
+    genericCollectionId,
+    manifest.redirectUri
   );
   const { connection: hostedConnection } = unwrapConnectOutcome(
-    await hostedAuthorization
+    await hostedSdk.completeAuthorization(callbackUrl)
   );
   const storedHostedToken = storage.token();
   assert.equal(
@@ -3288,7 +3295,7 @@ async function countMarkdownFiles(root) {
   return count;
 }
 
-async function authorizeHostedApplication(authorizationUrl, cookie, collectionId) {
+async function authorizeHostedApplication(authorizationUrl, cookie, collectionId, redirectUri) {
   const browser = await chromium.launch({ headless: true });
   try {
     const separator = cookie.indexOf("=");
@@ -3312,19 +3319,20 @@ async function authorizeHostedApplication(authorizationUrl, cookie, collectionId
     await expect(page.getByRole("button", { name: "Create hosted collection" })).toBeVisible();
     await page.getByRole("button", { name: "Allow Hosted SDK E2E" }).click();
     const outcome = await Promise.race([
-      page.getByText("Access approved", { exact: true })
-        .waitFor({ state: "visible" }).then(() => "approved"),
+      page.waitForURL((url) => authorizationCallbackMatches(url, redirectUri))
+        .then(() => "approved"),
       page.locator(".message.error").waitFor({ state: "visible" }).then(() => "error")
     ]);
     if (outcome === "error") {
       throw new Error(`Hosted authorization failed: ${await page.locator(".message.error").innerText()}`);
     }
+    return page.url();
   } finally {
     await browser.close();
   }
 }
 
-async function authorizeHostedApplicationByCreating(authorizationUrl, cookie) {
+async function authorizeHostedApplicationByCreating(authorizationUrl, cookie, redirectUri) {
   const browser = await chromium.launch({ headless: true });
   try {
     const separator = cookie.indexOf("=");
@@ -3356,17 +3364,25 @@ async function authorizeHostedApplicationByCreating(authorizationUrl, cookie) {
     })).toBeChecked();
     await page.getByRole("button", { name: "Set up and allow Workout Inline E2E" }).click();
     const outcome = await Promise.race([
-      page.getByText("Access approved", { exact: true })
-        .waitFor({ state: "visible" })
+      page.waitForURL((url) => authorizationCallbackMatches(url, redirectUri))
         .then(() => "approved"),
       page.locator(".message.error").waitFor({ state: "visible" }).then(() => "error")
     ]);
     if (outcome === "error") {
       throw new Error(`Inline hosted authorization failed: ${await page.locator(".message.error").innerText()}`);
     }
+    return page.url();
   } finally {
     await browser.close();
   }
+}
+
+function authorizationCallbackMatches(url, redirectUri) {
+  const expected = new URL(redirectUri);
+  return url.origin === expected.origin
+    && url.pathname === expected.pathname
+    && url.searchParams.has("code")
+    && url.searchParams.has("state");
 }
 
 async function startPostgres() {

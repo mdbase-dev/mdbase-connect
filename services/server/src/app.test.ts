@@ -1778,7 +1778,9 @@ describe("mdbase connect server", () => {
       expect.objectContaining({
         allowedTypes: [],
         fullCollection: true,
-        allowedOperations: ["describe", "query", "create", "update"]
+        allowedOperations: ["describe", "query", "create", "update"],
+        allowedOrigin: "http://localhost:4173",
+        proofPublicKey: expect.any(String)
       })
     );
     const reconciled = await db.query<{ allowed_types: string[] }>(
@@ -1803,7 +1805,12 @@ describe("mdbase connect server", () => {
     expect(narrowed.json().grant.operations).toEqual(["describe", "query", "sync"]);
     expect(hostedProvider.updateApplicationReplica).toHaveBeenLastCalledWith(
       provisioned.rows[0].id,
-      expect.objectContaining({ mode: "read_only", allowedOperations: ["describe", "query"] })
+      expect.objectContaining({
+        mode: "read_only",
+        allowedOperations: ["describe", "query"],
+        allowedOrigin: "http://localhost:4173",
+        proofPublicKey: expect.any(String)
+      })
     );
     const broadened = await app.inject({
       method: "PATCH",

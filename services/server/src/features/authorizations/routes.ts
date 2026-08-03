@@ -296,8 +296,11 @@ export function registerAuthorizationRoutes(
       template: string | null;
       hosted_contracts: CollectionContractDescriptor[] | null;
       file_capability: FileCapability | null;
+      application_origin: string;
+      proof_public_key: string;
     }>(
       `SELECT g.id, g.operations, g.encryption, g.scope, g.file_capability,
+              g.application_origin, g.proof_public_key,
               a.requirements, col.connector_id,
               g.hosted_replica_id, hosted.template, hosted.contracts AS hosted_contracts
        FROM grants g
@@ -334,7 +337,9 @@ export function registerAuthorizationRoutes(
         contractScope: current.scope.access === "contract" ? current.scope.contracts : [],
         fullCollection: current.scope.access === "full_collection",
         allowedOperations: hostedReplicaCollectionOperations(operations),
-        fileCapability: current.file_capability ?? undefined
+        fileCapability: current.file_capability ?? undefined,
+        allowedOrigin: current.application_origin,
+        proofPublicKey: current.proof_public_key
       });
     }
     const updated = await options.db.query<{ id: string; operations: string[] }>(

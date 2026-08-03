@@ -539,8 +539,11 @@ export async function narrowHostedGrantForUser(
     template: HostedTemplate;
     hosted_contracts: CollectionContractDescriptor[];
     file_capability: FileCapability | null;
+    application_origin: string;
+    proof_public_key: string;
   }>(
     `SELECT g.id, g.hosted_replica_id, g.operations, g.scope, g.file_capability,
+            g.application_origin, g.proof_public_key,
             a.requirements, h.template,
             h.contracts AS hosted_contracts
      FROM grants g
@@ -602,7 +605,9 @@ export async function narrowHostedGrantForUser(
         : [],
       fullCollection: current.scope.access === "full_collection",
       allowedOperations: hostedReplicaCollectionOperations(operations),
-      fileCapability: current.file_capability ?? undefined
+      fileCapability: current.file_capability ?? undefined,
+      allowedOrigin: current.application_origin,
+      proofPublicKey: current.proof_public_key
     }
   );
   const updated = await options.db.query<{
