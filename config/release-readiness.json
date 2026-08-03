@@ -30,9 +30,15 @@
       "id": "backup-encryption-and-restore-drill",
       "title": "Encrypted backup and restore drill",
       "owner": "Service operations owner",
-      "status": "required",
-      "evidence": [],
-      "notes": "Verify encrypted database and volume backups, restoration, key recovery, recovery objectives, and deletion behavior in the managed environment."
+      "status": "complete",
+      "evidence": [
+        "https://github.com/mdbase-dev/mdbase-cloud-ops/actions/runs/30795956568",
+        "https://github.com/mdbase-dev/mdbase-cloud-ops/pull/56",
+        "https://github.com/mdbase-dev/mdbase-cloud-ops/pull/75",
+        "https://github.com/mdbase-dev/mdbase-cloud-ops/pull/76",
+        "https://github.com/mdbase-dev/mdbase-cloud-ops/pull/77"
+      ],
+      "notes": "The beta26 staging drill independently verified the signed governance-retained archive, clean-restored all three PostgreSQL databases, restored and digest-checked non-empty provider-managed R2 data, decrypted every hosted collection key through the Sydney KMS replica, cold-started the exact archived provider image, exercised restored and synthetic record/file semantics, measured recovery-point age and elapsed recovery time, proved provider-driven deletion, and cleanup-verified both source and isolated targets."
     },
     {
       "id": "platform-signing-and-notarization",

@@ -57,9 +57,10 @@ random per-collection data key. A versioned wrapping boundary supports the
 legacy local deployment key and AWS KMS envelopes carrying the immutable key
 ARN. Exact KMS encryption context binds each wrapped key to its environment,
 purpose, and collection. PostgreSQL retains only the wrapped key, ciphertext,
-and the explicit metadata listed below. Live staging activation and a complete
-V1-to-V2 rotation drill have passed; the isolated full recovery drill remains
-release operations work. Private/zero-knowledge hosting is not implemented.
+and the explicit metadata listed below. Live staging activation, a complete
+V1-to-V2 rotation drill, and an isolated Sydney-replica recovery of the exact
+beta26 database/object set have passed. Private/zero-knowledge hosting is not
+implemented.
 
 Local Markdown files are also plaintext from mdbase's perspective. Operating
 system full-disk encryption, encrypted home directories, and device access

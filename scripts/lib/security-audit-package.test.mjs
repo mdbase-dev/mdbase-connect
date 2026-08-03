@@ -24,7 +24,6 @@ const requiredLimitationIds = [
   "no-key-transparency",
   "render-static-aws-credentials",
   "single-relay-broker",
-  "complete-recovery-drill-pending",
   "platform-signing-pending",
   "single-operator-recovery"
 ];
