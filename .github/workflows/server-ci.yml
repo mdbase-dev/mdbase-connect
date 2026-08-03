@@ -316,15 +316,13 @@ jobs:
           done
           docker rm --force mdbase-provider-previous >/dev/null
 
-      - name: Seed the persisted beta notification shape
+      - name: Seed the persisted previous release notification shape
         run: |
           docker run --rm --interactive --network host \
             --env PGPASSWORD=previous-provider-upgrade \
             postgres:18-alpine \
             psql --host 127.0.0.1 --username mdbase --dbname mdbase_provider_upgrade \
             --set ON_ERROR_STOP=1 <<'SQL'
-          DELETE FROM _sqlx_migrations WHERE version = 15;
-
           INSERT INTO hosted_provider_collections
             (id, template, spec_version, max_records, max_content_bytes,
              max_document_bytes, max_replicas, resource_revision,
@@ -350,7 +348,7 @@ jobs:
               "scope":{"contracts":[],"access":"full_collection"},
               "notification_criteria":[{
                 "id":"task.reminder",
-                "event":{"id":"timer.fired","version":1},
+                "event":{"id":"mdbase.runtime.timer.fired","version":"1.0.0"},
                 "presentation":{"title":"Task reminder"}
               }],
               "created_at":"2026-07-29T00:00:00Z"
@@ -358,7 +356,7 @@ jobs:
           );
           SQL
 
-      - name: Apply the previous release migration
+      - name: Reopen persisted state with the previous release
         run: |
           . .github/previous-release.env
           docker run --detach --name mdbase-provider-previous-migration \
@@ -397,10 +395,10 @@ jobs:
                        )
                        FROM hosted_provider_notification_grants
                        WHERE grant_id = '22222222-2222-4222-8222-222222222222'")
-          echo "Previous release partial migration: $previous_contract"
-          [[ "$previous_contract" == "timer.fired|1.0.0" ]]
+          echo "Previous release notification contract: $previous_contract"
+          [[ "$previous_contract" == "mdbase.runtime.timer.fired|1.0.0" ]]
 
-      - name: Require candidate migration and recovery readiness
+      - name: Require candidate recovery readiness
         run: |
           cleanup() {
             docker logs mdbase-provider-upgrade-candidate || true
@@ -450,7 +448,7 @@ jobs:
                        )
                        FROM hosted_provider_notification_grants
                        WHERE grant_id = '22222222-2222-4222-8222-222222222222'")
-          echo "Migrated notification contract: $contract"
+          echo "Recovered notification contract: $contract"
           [[ "$contract" == "mdbase.runtime.timer.fired|1.0.0" ]]
 
       - name: Stop test-only R2 readiness stub
