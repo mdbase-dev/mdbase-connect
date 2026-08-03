@@ -78,7 +78,10 @@ Hosted deployments select the data-key writer with
 and `MDBASE_CONNECT_HOSTED_KMS_REGION`. AWS credentials come from the standard
 SDK credential chain. The database URL, provider internal token, legacy master
 key, and R2 credentials are environment-only settings rather than command-line
-arguments so they do not enter shell history or process listings.
+arguments so they do not enter shell history or process listings. The R2
+credential may include `MDBASE_CONNECT_R2_SESSION_TOKEN` when an S3-compatible
+provider issues short-lived credentials; omitting it preserves ordinary
+long-lived bucket credentials.
 
 The service resolves a configured KMS alias to an immutable enabled symmetric
 key ARN at startup. Its least-privilege identity needs `DescribeKey`, plus only

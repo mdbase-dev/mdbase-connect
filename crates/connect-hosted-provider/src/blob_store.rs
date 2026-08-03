@@ -10,6 +10,7 @@ use futures_util::{stream, Stream};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
+use std::fmt;
 use std::pin::Pin;
 use std::time::Duration;
 use url::Url;
@@ -19,21 +20,43 @@ const MAX_MULTIPART_PART_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 const MIN_DOWNLOAD_PART_BYTES: u64 = 64 * 1024;
 const MAX_DOWNLOAD_PART_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_PRESIGN_SECONDS: u64 = 7 * 24 * 60 * 60;
+const PROVIDER_OBJECT_PREFIX: &str = "v1/";
 
 pub type BlobStreamError = Box<dyn std::error::Error + Send + Sync>;
 pub type BlobByteStream =
     Pin<Box<dyn Stream<Item = Result<Bytes, BlobStreamError>> + Send + 'static>>;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct R2Config {
     pub endpoint: String,
     pub bucket: String,
     pub access_key_id: String,
     pub secret_access_key: String,
+    pub session_token: Option<String>,
     pub multipart_part_bytes: u64,
     pub download_part_bytes: u64,
     pub presign_ttl: Duration,
     allow_insecure_loopback: bool,
+}
+
+impl fmt::Debug for R2Config {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("R2Config")
+            .field("endpoint", &self.endpoint)
+            .field("bucket", &self.bucket)
+            .field("access_key_id", &"[redacted]")
+            .field("secret_access_key", &"[redacted]")
+            .field(
+                "session_token",
+                &self.session_token.as_ref().map(|_| "[redacted]"),
+            )
+            .field("multipart_part_bytes", &self.multipart_part_bytes)
+            .field("download_part_bytes", &self.download_part_bytes)
+            .field("presign_ttl", &self.presign_ttl)
+            .field("allow_insecure_loopback", &self.allow_insecure_loopback)
+            .finish()
+    }
 }
 
 impl R2Config {
@@ -51,6 +74,7 @@ impl R2Config {
             bucket: bucket.into(),
             access_key_id: access_key_id.into(),
             secret_access_key: secret_access_key.into(),
+            session_token: None,
             multipart_part_bytes,
             download_part_bytes,
             presign_ttl,
@@ -74,6 +98,7 @@ impl R2Config {
             bucket: bucket.into(),
             access_key_id: access_key_id.into(),
             secret_access_key: secret_access_key.into(),
+            session_token: None,
             multipart_part_bytes,
             download_part_bytes,
             presign_ttl,
@@ -82,6 +107,12 @@ impl R2Config {
         config.validate()?;
         config.endpoint = config.endpoint.trim_end_matches('/').to_string();
         Ok(config)
+    }
+
+    pub fn with_session_token(mut self, session_token: Option<String>) -> ApiResult<Self> {
+        self.session_token = session_token;
+        self.validate()?;
+        Ok(self)
     }
 
     fn validate(&self) -> ApiResult<()> {
@@ -101,6 +132,10 @@ impl R2Config {
             || self.bucket.len() > 255
             || self.access_key_id.trim().is_empty()
             || self.secret_access_key.trim().is_empty()
+            || self
+                .session_token
+                .as_ref()
+                .is_some_and(|token| token.trim().is_empty())
             || !(MIN_MULTIPART_PART_BYTES..=MAX_MULTIPART_PART_BYTES)
                 .contains(&self.multipart_part_bytes)
             || !(MIN_DOWNLOAD_PART_BYTES..=MAX_DOWNLOAD_PART_BYTES)
@@ -139,7 +174,7 @@ impl R2BlobStore {
         let credentials = Credentials::new(
             config.access_key_id.clone(),
             config.secret_access_key.clone(),
-            None,
+            config.session_token.clone(),
             None,
             "mdbase-connect-r2",
         );
@@ -202,11 +237,13 @@ impl BlobStore for R2BlobStore {
 
     async fn ready(&self) -> ApiResult<()> {
         self.client
-            .head_bucket()
+            .list_objects_v2()
             .bucket(&self.config.bucket)
+            .prefix(PROVIDER_OBJECT_PREFIX)
+            .max_keys(1)
             .send()
             .await
-            .map_err(|error| r2_unavailable("head bucket", &error))?;
+            .map_err(|error| r2_unavailable("list provider object namespace", &error))?;
         Ok(())
     }
 
@@ -564,6 +601,7 @@ fn object_verification_failed() -> ApiError {
 fn validate_object_key(key: &str) -> ApiResult<()> {
     if key.is_empty()
         || key.len() > 1024
+        || !key.starts_with(PROVIDER_OBJECT_PREFIX)
         || key.starts_with('/')
         || key.contains("..")
         || key.chars().any(char::is_whitespace)
@@ -592,6 +630,8 @@ fn r2_unavailable(operation: &str, error: &impl std::fmt::Display) -> ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
 
     #[test]
     fn r2_configuration_is_strict_and_does_not_accept_undersized_parts() {
@@ -604,10 +644,16 @@ mod tests {
             8 * 1024 * 1024,
             Duration::from_secs(900),
         )
+        .unwrap()
+        .with_session_token(Some("temporary-session".to_string()))
         .unwrap();
         let store = R2BlobStore::new(valid);
         assert_eq!(store.upload_part_size(), 8 * 1024 * 1024);
         assert_eq!(store.download_part_size(), 8 * 1024 * 1024);
+        assert_eq!(
+            store.config.session_token.as_deref(),
+            Some("temporary-session")
+        );
 
         for invalid in [
             R2Config::new(
@@ -669,11 +715,124 @@ mod tests {
             Duration::from_secs(900),
         )
         .is_err());
+        assert!(R2Config::new(
+            "https://account.r2.cloudflarestorage.com",
+            "bucket",
+            "access",
+            "secret",
+            8 * 1024 * 1024,
+            8 * 1024 * 1024,
+            Duration::from_secs(900),
+        )
+        .unwrap()
+        .with_session_token(Some("   ".to_string()))
+        .is_err());
+    }
+
+    #[tokio::test]
+    async fn temporary_session_token_is_bound_to_presigned_requests() {
+        let config = R2Config::new(
+            "https://account.r2.cloudflarestorage.com",
+            "private-bucket",
+            "temporary-access",
+            "temporary-secret",
+            8 * 1024 * 1024,
+            8 * 1024 * 1024,
+            Duration::from_secs(900),
+        )
+        .unwrap()
+        .with_session_token(Some("temporary-session".to_string()))
+        .unwrap();
+        let store = R2BlobStore::new(config);
+        let request = store
+            .presign_put(
+                "v1/staging/01922222-2222-7222-8222-222222222222/01933333-3333-7333-8333-333333333333",
+                5,
+            )
+            .await
+            .unwrap();
+        let url = Url::parse(&request.url).unwrap();
+        assert!(url.query_pairs().any(|(name, value)| {
+            name.eq_ignore_ascii_case("X-Amz-Security-Token") && value == "temporary-session"
+        }));
+        let debug = format!("{:?}", store.config);
+        assert!(debug.contains("[redacted]"));
+        assert!(!debug.contains("temporary-access"));
+        assert!(!debug.contains("temporary-secret"));
+        assert!(!debug.contains("temporary-session"));
+    }
+
+    #[tokio::test]
+    async fn readiness_lists_only_the_provider_namespace_for_scoped_credentials() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            loop {
+                let mut buffer = [0_u8; 1024];
+                let read = socket.read(&mut buffer).await.unwrap();
+                assert_ne!(read, 0, "readiness request ended before its headers");
+                request.extend_from_slice(&buffer[..read]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let body = concat!(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+                "<ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">",
+                "<Name>private-bucket</Name><Prefix>v1/</Prefix><KeyCount>0</KeyCount>",
+                "<MaxKeys>1</MaxKeys><IsTruncated>false</IsTruncated></ListBucketResult>"
+            );
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/xml\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+            String::from_utf8(request).unwrap()
+        });
+
+        let config = R2Config::new_insecure_loopback(
+            format!("http://{address}"),
+            "private-bucket",
+            "temporary-access",
+            "temporary-secret",
+            8 * 1024 * 1024,
+            8 * 1024 * 1024,
+            Duration::from_secs(900),
+        )
+        .unwrap()
+        .with_session_token(Some("temporary-session".to_string()))
+        .unwrap();
+        R2BlobStore::new(config).ready().await.unwrap();
+
+        let request = server.await.unwrap();
+        let request_line = request.lines().next().unwrap();
+        assert!(
+            request_line.starts_with("GET /private-bucket/?"),
+            "unexpected readiness request: {request_line}"
+        );
+        assert!(request_line.contains("list-type=2"));
+        assert!(request_line.contains("max-keys=1"));
+        assert!(request_line.contains("prefix=v1%2F"));
+        assert!(request.lines().any(|line| {
+            let Some((name, value)) = line.split_once(':') else {
+                return false;
+            };
+            name.eq_ignore_ascii_case("x-amz-security-token") && value.trim() == "temporary-session"
+        }));
     }
 
     #[test]
     fn opaque_object_keys_cannot_escape_the_provider_prefix() {
-        for invalid in ["", "/absolute", "v1/../secret", "v1/white space"] {
+        for invalid in [
+            "",
+            "/absolute",
+            "outside/provider",
+            "v1/../secret",
+            "v1/white space",
+        ] {
             assert!(validate_object_key(invalid).is_err());
         }
         assert!(validate_object_key(

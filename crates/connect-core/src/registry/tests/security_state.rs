@@ -149,6 +149,49 @@ fn encrypted_replay_window_survives_restart_allows_reordering_and_serializes_dup
 }
 
 #[test]
+fn encrypted_replay_ledger_accepts_a_full_concurrent_request_burst() {
+    const REQUESTS: usize = 32;
+
+    let state = tempdir().unwrap();
+    let registry = Arc::new(CollectionRegistry::open(state.path()).unwrap());
+    let grant_id = Uuid::new_v4();
+    let barrier = Arc::new(Barrier::new(REQUESTS));
+    let threads = (0..REQUESTS)
+        .map(|index| {
+            let registry = registry.clone();
+            let barrier = barrier.clone();
+            thread::spawn(move || {
+                let counter = u64::try_from(index + 1).unwrap();
+                let request_id = Uuid::new_v4();
+                let fingerprint = format!("fingerprint-{counter}");
+                barrier.wait();
+                let claim = registry.claim_encrypted_request(
+                    grant_id,
+                    "burst-key",
+                    counter,
+                    request_id,
+                    &fingerprint,
+                )?;
+                registry.complete_encrypted_request(
+                    grant_id,
+                    "burst-key",
+                    request_id,
+                    &fingerprint,
+                    r#"{"ciphertext":"response"}"#,
+                )?;
+                Ok::<_, ConnectError>(claim)
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let claims = threads
+        .into_iter()
+        .map(|thread| thread.join().unwrap().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(claims, vec![EncryptedRequestClaim::Fresh; REQUESTS]);
+}
+
+#[test]
 fn development_registry_upgrade_adds_origin_receipts_and_a_safe_reorder_floor() {
     let state = tempdir().unwrap();
     let path = state.path().join("connector.sqlite");

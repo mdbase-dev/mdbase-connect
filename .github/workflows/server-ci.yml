@@ -252,6 +252,11 @@ jobs:
       CANDIDATE_IMAGE: mdbase-connect-hosted-provider:upgrade-candidate
       PROVIDER_INTERNAL_TOKEN: previous-provider-upgrade-internal-token
       PROVIDER_MASTER_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+      MDBASE_CONNECT_R2_ENDPOINT: http://127.0.0.1:9000
+      MDBASE_CONNECT_R2_BUCKET: upgrade-canary
+      MDBASE_CONNECT_R2_ACCESS_KEY_ID: upgrade-canary
+      MDBASE_CONNECT_R2_SECRET_ACCESS_KEY: upgrade-canary-secret
+      MDBASE_CONNECT_ALLOW_INSECURE_R2: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -262,6 +267,38 @@ jobs:
           --tag "$CANDIDATE_IMAGE"
           .
 
+      - name: Start test-only R2 readiness stub
+        run: |
+          node --input-type=module --eval '
+            import { createServer } from "node:http";
+            const body = [
+              "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+              "<ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">",
+              "<Name>upgrade-canary</Name><Prefix>v1/</Prefix><KeyCount>0</KeyCount>",
+              "<MaxKeys>1</MaxKeys><IsTruncated>false</IsTruncated>",
+              "</ListBucketResult>",
+            ].join("");
+            createServer((_request, response) => {
+              response.writeHead(200, {
+                "content-type": "application/xml",
+                "content-length": Buffer.byteLength(body),
+              });
+              response.end(body);
+            }).listen(9000, "127.0.0.1");
+          ' >"$RUNNER_TEMP/mdbase-upgrade-r2.log" 2>&1 &
+          r2_pid=$!
+          echo "$r2_pid" >"$RUNNER_TEMP/mdbase-upgrade-r2.pid"
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:9000 >/dev/null; then
+              exit 0
+            fi
+            if ! kill -0 "$r2_pid" >/dev/null 2>&1 || [ "$attempt" = 30 ]; then
+              cat "$RUNNER_TEMP/mdbase-upgrade-r2.log"
+              exit 1
+            fi
+            sleep 1
+          done
+
       - name: Create the previous provider schema
         run: |
           . .github/previous-release.env
@@ -271,6 +308,11 @@ jobs:
             --env DATABASE_URL \
             --env MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN="$PROVIDER_INTERNAL_TOKEN" \
             --env MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY="$PROVIDER_MASTER_KEY" \
+            --env MDBASE_CONNECT_R2_ENDPOINT \
+            --env MDBASE_CONNECT_R2_BUCKET \
+            --env MDBASE_CONNECT_R2_ACCESS_KEY_ID \
+            --env MDBASE_CONNECT_R2_SECRET_ACCESS_KEY \
+            --env MDBASE_CONNECT_ALLOW_INSECURE_R2 \
             "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE" >/dev/null
           for attempt in {1..30}; do
             if curl --fail --silent http://127.0.0.1:8790/ready >/dev/null; then
@@ -284,15 +326,13 @@ jobs:
           done
           docker rm --force mdbase-provider-previous >/dev/null
 
-      - name: Seed the persisted beta notification shape
+      - name: Seed the persisted previous release notification shape
         run: |
           docker run --rm --interactive --network host \
             --env PGPASSWORD=previous-provider-upgrade \
             postgres:18-alpine \
             psql --host 127.0.0.1 --username mdbase --dbname mdbase_provider_upgrade \
             --set ON_ERROR_STOP=1 <<'SQL'
-          DELETE FROM _sqlx_migrations WHERE version = 15;
-
           INSERT INTO hosted_provider_collections
             (id, template, spec_version, max_records, max_content_bytes,
              max_document_bytes, max_replicas, resource_revision,
@@ -318,7 +358,7 @@ jobs:
               "scope":{"contracts":[],"access":"full_collection"},
               "notification_criteria":[{
                 "id":"task.reminder",
-                "event":{"id":"timer.fired","version":1},
+                "event":{"id":"mdbase.runtime.timer.fired","version":"1.0.0"},
                 "presentation":{"title":"Task reminder"}
               }],
               "created_at":"2026-07-29T00:00:00Z"
@@ -326,7 +366,7 @@ jobs:
           );
           SQL
 
-      - name: Apply the previous release migration
+      - name: Reopen persisted state with the previous release
         run: |
           . .github/previous-release.env
           docker run --detach --name mdbase-provider-previous-migration \
@@ -334,6 +374,11 @@ jobs:
             --env DATABASE_URL \
             --env MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN="$PROVIDER_INTERNAL_TOKEN" \
             --env MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY="$PROVIDER_MASTER_KEY" \
+            --env MDBASE_CONNECT_R2_ENDPOINT \
+            --env MDBASE_CONNECT_R2_BUCKET \
+            --env MDBASE_CONNECT_R2_ACCESS_KEY_ID \
+            --env MDBASE_CONNECT_R2_SECRET_ACCESS_KEY \
+            --env MDBASE_CONNECT_ALLOW_INSECURE_R2 \
             "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE" >/dev/null
           for attempt in {1..30}; do
             if curl --fail --silent http://127.0.0.1:8790/ready >/dev/null; then
@@ -360,21 +405,12 @@ jobs:
                        )
                        FROM hosted_provider_notification_grants
                        WHERE grant_id = '22222222-2222-4222-8222-222222222222'")
-          echo "Previous release partial migration: $previous_contract"
-          [[ "$previous_contract" == "timer.fired|1.0.0" ]]
+          echo "Previous release notification contract: $previous_contract"
+          [[ "$previous_contract" == "mdbase.runtime.timer.fired|1.0.0" ]]
 
-      - name: Require candidate migration and recovery readiness
+      - name: Require candidate recovery readiness
         run: |
-          node --input-type=module --eval '
-            import { createServer } from "node:http";
-            createServer((_request, response) => {
-              response.writeHead(200);
-              response.end();
-            }).listen(9000, "127.0.0.1");
-          ' >/tmp/mdbase-upgrade-r2.log 2>&1 &
-          r2_pid=$!
           cleanup() {
-            kill "$r2_pid" >/dev/null 2>&1 || true
             docker logs mdbase-provider-upgrade-candidate || true
             docker rm --force mdbase-provider-upgrade-candidate >/dev/null 2>&1 || true
           }
@@ -385,11 +421,11 @@ jobs:
             --env MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN="$PROVIDER_INTERNAL_TOKEN" \
             --env MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY="$PROVIDER_MASTER_KEY" \
             --env MDBASE_CONNECT_CONTROL_PLANE_URL=http://127.0.0.1:9 \
-            --env MDBASE_CONNECT_R2_ENDPOINT=http://127.0.0.1:9000 \
-            --env MDBASE_CONNECT_R2_BUCKET=upgrade-canary \
-            --env MDBASE_CONNECT_R2_ACCESS_KEY_ID=upgrade-canary \
-            --env MDBASE_CONNECT_R2_SECRET_ACCESS_KEY=upgrade-canary-secret \
-            --env MDBASE_CONNECT_ALLOW_INSECURE_R2=true \
+            --env MDBASE_CONNECT_R2_ENDPOINT \
+            --env MDBASE_CONNECT_R2_BUCKET \
+            --env MDBASE_CONNECT_R2_ACCESS_KEY_ID \
+            --env MDBASE_CONNECT_R2_SECRET_ACCESS_KEY \
+            --env MDBASE_CONNECT_ALLOW_INSECURE_R2 \
             "$CANDIDATE_IMAGE" >/dev/null
 
           for attempt in {1..30}; do
@@ -424,8 +460,16 @@ jobs:
                        )
                        FROM hosted_provider_notification_grants
                        WHERE grant_id = '22222222-2222-4222-8222-222222222222'")
-          echo "Migrated notification contract: $contract"
+          echo "Recovered notification contract: $contract"
           [[ "$contract" == "mdbase.runtime.timer.fired|1.0.0|sha256:41105be7a7abf33b31ced47e1e1965242236e40ccaea286b959b0a8c591f5642" ]]
+
+      - name: Stop test-only R2 readiness stub
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/mdbase-upgrade-r2.pid" ]; then
+            r2_pid=$(<"$RUNNER_TEMP/mdbase-upgrade-r2.pid")
+            kill "$r2_pid" >/dev/null 2>&1 || true
+          fi
 
   hosted-provider:
     runs-on: ubuntu-latest

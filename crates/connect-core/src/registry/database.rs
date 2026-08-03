@@ -10,6 +10,7 @@ impl CollectionRegistry {
             db_path: state_dir.as_ref().join("connector.sqlite"),
             providers: Arc::new(Mutex::new(HashMap::new())),
             file_reconciles: Arc::new(Mutex::new(HashMap::new())),
+            encrypted_request_writes: Arc::new(Mutex::new(())),
         };
         registry.migrate()?;
         registry.recover_file_transfers()?;

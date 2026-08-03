@@ -30,6 +30,14 @@ impl CollectionRegistry {
         request_id: Uuid,
         request_fingerprint: &str,
     ) -> Result<EncryptedRequestClaim, ConnectError> {
+        // SQLite permits one writer at a time. Keep the small replay-ledger transactions ordered
+        // within this connector process so bursts of authenticated operations cannot turn normal
+        // writer contention into a false security rejection. Collection operations themselves stay
+        // concurrent, and SQLite remains the cross-process serialization boundary.
+        let _write_guard = self
+            .encrypted_request_writes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut connection = self.connection()?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let state = transaction
@@ -129,6 +137,10 @@ impl CollectionRegistry {
         request_fingerprint: &str,
         response_envelope: &str,
     ) -> Result<(), ConnectError> {
+        let _write_guard = self
+            .encrypted_request_writes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let updated = self.connection()?.execute(
             "UPDATE grant_crypto_requests SET response_envelope = ?5
              WHERE grant_id = ?1 AND key_id = ?2 AND request_id = ?3
