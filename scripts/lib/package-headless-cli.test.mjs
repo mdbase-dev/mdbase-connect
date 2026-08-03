@@ -8,20 +8,35 @@ import { packageHeadlessCli } from "../package-headless-cli.mjs";
 
 test("packages the verified canonical CLI for each release filename mode", async () => {
   const root = await mkdtemp(join(tmpdir(), "mdbase-headless-test-"));
+  const originalWorkingDirectory = process.cwd();
+  let changedWorkingDirectory = false;
   try {
     const repositoryRoot = join(root, "repo");
     const outputDirectory = join(root, "output");
     await mkdir(join(repositoryRoot, "docs"), { recursive: true });
     await writeFile(join(repositoryRoot, "LICENSE"), "test license\n");
     await writeFile(join(repositoryRoot, "docs", "headless.md"), "install safely\n");
-    const binary = join(root, "mdbase");
-    await writeFile(binary, `#!/usr/bin/env bash
+    let binary;
+    if (process.platform === "win32") {
+      // Use a real host-native executable on Windows. The adjacent extensionless
+      // script lets node accept the CLI's multi-word help invocation without
+      // weakening the production packager's native-binary verification.
+      await writeFile(join(root, "connect"), `
+if (process.argv.slice(2).join(" ") !== "daemon run --help") process.exit(1);
+`);
+      process.chdir(root);
+      changedWorkingDirectory = true;
+      binary = process.execPath;
+    } else {
+      binary = join(root, "mdbase");
+      await writeFile(binary, `#!/usr/bin/env bash
 case "$*" in
   --help|"connect daemon run --help") exit 0 ;;
   *) exit 1 ;;
 esac
 `);
-    await chmod(binary, 0o755);
+      await chmod(binary, 0o755);
+    }
 
     const packaged = await packageHeadlessCli({
       platform: "linux",
@@ -53,6 +68,7 @@ esac
     );
     assert.ok((await readFile(unsigned.artifactPath)).length > 0);
   } finally {
+    if (changedWorkingDirectory) process.chdir(originalWorkingDirectory);
     await rm(root, { recursive: true, force: true });
   }
 });
