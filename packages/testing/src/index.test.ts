@@ -25,6 +25,7 @@ describe("browser authorization fixture", () => {
   it("seeds, reduces, expires, reloads, and removes a production-shaped grant", async () => {
     const storage = new MemoryLocalStorage();
     vi.stubGlobal("localStorage", storage);
+    vi.stubGlobal("location", { origin: "https://tasks.example" });
     const page = new FixturePage();
     const controller = await installMdbaseBrowserFixture(page, {
       serverUrl: "https://connect.example/",
@@ -53,7 +54,8 @@ describe("browser authorization fixture", () => {
         syncUrl: "https://authority.example/sync",
         filesUrl: "https://authority.example/files",
         replicaId: "replica-1"
-      }
+      },
+      directAccess: "enabled"
     });
 
     page.navigate();
@@ -62,6 +64,7 @@ describe("browser authorization fixture", () => {
       operations: ["describe", "read", "update"],
       authority: { replicaId: "replica-1" }
     });
+    expect(await controller.isInstalled(page)).toBe(true);
 
     await controller.setOperations(page, ["describe"]);
     expect(JSON.parse(storage.getItem(tokenKey)!).operations).toEqual(["describe"]);

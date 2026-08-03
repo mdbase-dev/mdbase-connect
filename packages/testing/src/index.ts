@@ -43,6 +43,8 @@ export interface MdbaseBrowserFixtureOptions {
   authority: MdbaseFixtureAuthority;
   accessToken?: string;
   expiresAt?: number;
+  /** Begin with the browser's direct connector preference enabled. */
+  directAccess?: "enabled" | "disabled";
 }
 
 export interface MdbaseBrowserFixtureController {
@@ -51,12 +53,14 @@ export interface MdbaseBrowserFixtureController {
   expire(page: MdbaseTestPage): Promise<void>;
   setOperations(page: MdbaseTestPage, operations: CollectionOperation[]): Promise<void>;
   remove(page: MdbaseTestPage): Promise<void>;
+  isInstalled(page: MdbaseTestPage): Promise<boolean>;
 }
 
 interface BrowserFixtureSeed {
   indexKey: string;
   tokenKey: string;
   collectionId: string;
+  directAccess?: "enabled" | "disabled";
   token: Record<string, unknown>;
 }
 
@@ -80,7 +84,8 @@ export async function installMdbaseBrowserFixture(
       tokenKey: seed.tokenKey,
       patch: { operations }
     }).then(() => undefined),
-    remove: (target) => target.evaluate(removeSeed, seed).then(() => undefined)
+    remove: (target) => target.evaluate(removeSeed, seed).then(() => undefined),
+    isInstalled: async (target) => Boolean(await target.evaluate(hasSeed, seed))
   };
 }
 
@@ -98,6 +103,7 @@ function fixtureSeed(options: MdbaseBrowserFixtureOptions): BrowserFixtureSeed {
     indexKey: `${prefix}:connections`,
     tokenKey: `${prefix}:token:${options.collection.id}`,
     collectionId: options.collection.id,
+    ...(options.directAccess ? { directAccess: options.directAccess } : {}),
     token: {
       version: 1,
       accessToken,
@@ -141,6 +147,9 @@ function writeSeed(seed: BrowserFixtureSeed): void {
     collectionIds: [seed.collectionId]
   }));
   localStorage.setItem(seed.tokenKey, JSON.stringify(seed.token));
+  if (seed.directAccess) {
+    localStorage.setItem(`mdbase-connect:direct:${location.origin}`, seed.directAccess);
+  }
 }
 
 function updateToken(input: { tokenKey: string; patch: Record<string, unknown> }): void {
@@ -152,6 +161,10 @@ function updateToken(input: { tokenKey: string; patch: Record<string, unknown> }
 function removeSeed(seed: BrowserFixtureSeed): void {
   localStorage.removeItem(seed.tokenKey);
   localStorage.removeItem(seed.indexKey);
+}
+
+function hasSeed(seed: BrowserFixtureSeed): boolean {
+  return localStorage.getItem(seed.tokenKey) !== null;
 }
 
 function stripTrailingSlash(value: string): string {
