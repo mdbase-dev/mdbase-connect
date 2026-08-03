@@ -4,11 +4,13 @@ import { resolve } from "node:path";
 import { createRequire } from "node:module";
 import { promisify } from "node:util";
 import {
+  APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
   CONTROL_PROTOCOL_VERSION,
   decodeRelayFileFrame,
   encodeFileFrame,
   encodeRelayFileFrame,
   FILE_TRANSFER_PROTOCOL_VERSION,
+  ENCRYPTED_RELAY_PROTOCOL_VERSION,
   RELAY_CAPABILITIES
 } from "../packages/protocol/dist/index.js";
 import { MemoryGrantKeyStore } from "../packages/client/dist/crypto.js";
@@ -187,7 +189,7 @@ try {
     "Concurrent cross-instance relay burst was incomplete");
 
   const encryption = {
-    protocol_version: 2,
+    protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
     suite: "P256-HKDF-SHA256-AES256GCM",
     key_id: `enc_${randomUUID()}`,
     scope_epoch: 1,
@@ -280,7 +282,7 @@ try {
 
   const encryptedEnvelope = {
     type: "encrypted_operation_request",
-    protocol_version: 1,
+    protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
     suite: encryption.suite,
     request_id: randomUUID(),
     grant_id: fixture.grantId,
@@ -440,7 +442,7 @@ async function seed(db, hash) {
   const connectorKey = await keyStore.create(`relay-e2e-connector:${connectorId}`);
   const issuedAt = new Date();
   const applicationAuthorization = await signApplicationAuthorization({
-    protocol_version: 1,
+    protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
     authorization_id: authorizationId,
     application_id: applicationId,
     application_manifest_digest: "00".repeat(32),
