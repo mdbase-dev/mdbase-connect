@@ -727,6 +727,7 @@ class DynamicTransport {
   }
   openSession() { return this.system.transportFor(this.replica).openSession(); }
   snapshot(snapshotId, page) { return this.system.transportFor(this.replica).snapshot(snapshotId, page); }
+  fileSnapshot(snapshotId, page) { return this.system.transportFor(this.replica).fileSnapshot(snapshotId, page); }
   changes(after, limit) { return this.system.transportFor(this.replica).changes(after, limit); }
   mutate(mutation) { return this.system.transportFor(this.replica).mutate(mutation); }
 }
