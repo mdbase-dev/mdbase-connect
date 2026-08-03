@@ -280,6 +280,7 @@ pub struct CollectionRegistry {
     db_path: PathBuf,
     providers: Arc<Mutex<HashMap<Uuid, Arc<FilesystemProvider>>>>,
     file_reconciles: Arc<Mutex<HashMap<Uuid, Arc<Mutex<()>>>>>,
+    encrypted_request_writes: Arc<Mutex<()>>,
 }
 
 /// Filesystem state that must be synchronized after a successful operation.
