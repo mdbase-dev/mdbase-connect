@@ -8,10 +8,6 @@ import {
 } from "@mdbase-dev/connect-protocol";
 
 export interface MdbaseTestPage {
-  addInitScript<Argument>(
-    script: (argument: Argument) => void | Promise<void>,
-    argument: Argument
-  ): Promise<void>;
   evaluate<Result, Argument>(
     script: (argument: Argument) => Result | Promise<Result>,
     argument: Argument
@@ -73,7 +69,8 @@ interface BrowserFixtureSeed {
 }
 
 /**
- * Install a real Connect authorization record before application code runs.
+ * Atomically install a real Connect authorization on the currently loaded app
+ * origin. Reload after this promise resolves to exercise application startup.
  * This package, rather than consumer tests, owns the private browser format.
  */
 export async function installMdbaseBrowserFixture(
@@ -81,7 +78,7 @@ export async function installMdbaseBrowserFixture(
   options: MdbaseBrowserFixtureOptions
 ): Promise<MdbaseBrowserFixtureController> {
   const seed = fixtureSeed(options);
-  await page.addInitScript(writeSeed, seed);
+  await page.evaluate(writeSeed, seed);
   return {
     apply: (target) => target.evaluate(writeSeed, seed).then(() => undefined),
     expire: (target) => target.evaluate(updateToken, {

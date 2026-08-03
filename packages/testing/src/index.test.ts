@@ -9,20 +9,12 @@ class MemoryLocalStorage {
 }
 
 class FixturePage implements MdbaseTestPage {
-  init: Array<() => void> = [];
-  async addInitScript<Argument>(
-    script: (argument: Argument) => void | Promise<void>,
-    argument: Argument
-  ) {
-    this.init.push(() => { void script(argument); });
-  }
   async evaluate<Result, Argument>(
     script: (argument: Argument) => Result | Promise<Result>,
     argument: Argument
   ): Promise<Result> {
     return script(argument);
   }
-  navigate() { for (const script of this.init) script(); }
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -64,7 +56,6 @@ describe("browser authorization fixture", () => {
       directAccess: "enabled"
     });
 
-    page.navigate();
     const tokenKey = [...storage.values.keys()].find((key) => key.includes(":token:"))!;
     expect(JSON.parse(storage.getItem(tokenKey)!)).toMatchObject({
       operations: ["describe", "read", "update"],
