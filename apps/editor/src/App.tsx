@@ -10,7 +10,7 @@ import {
   WarningCircleIcon as CircleAlert,
   XIcon as X
 } from "./icons";
-import { ConnectOutcomeError, type CollectionChange, type CollectionDescription, type CollectionTypeDescriptor, type MutationProgress, type TypePackAssessment, type TypePackProvision } from "@mdbase-dev/connect";
+import { ConnectOutcomeError, type CollectionChange, type CollectionDescription, type CollectionTypeDescriptor, type MutationProgress } from "@mdbase-dev/connect";
 import {
   useCallback,
   useDeferredValue,
@@ -31,9 +31,9 @@ import { ConfirmDialog } from "./Dialog";
 import { FirstContactDialog } from "./FirstContactDialog";
 import {
   loadContractCatalog,
-  loadTypePackProvision,
   type ContractCatalogPack
 } from "./contract-catalog";
+import { reviewCatalogPackInstallation } from "./catalog-pack-installation";
 import type { AppPhase, ConnectionState, ContractCatalogLoadState, CreationContext, MobileHistoryState, MobilePane, Surface } from "./app-state-types";
 import { gatewayError, missingCoreOperations, missingTypeOperations } from "./gateway";
 import { useCollectionAuthorization } from "./collection-authorization";
@@ -1569,69 +1569,20 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   async function installCatalogPack(pack: ContractCatalogPack) {
-    const provision = await loadTypePackProvision(pack);
-    const assessment = await gateway.assessTypePack(provision);
-    if (!assessment.applicable) {
-      const conflicts = assessment.resources.filter(({ action }) => action === "conflict");
-      const adoptable = conflicts.filter((resource) =>
-        resource.mode === "managed" && resource.current_digest && !resource.installed_digest);
-      if (adoptable.length && adoptable.length === conflicts.length) {
-        const adoptions = Object.fromEntries(adoptable.map((resource) => [
-          resource.target,
-          resource.current_digest!
-        ]));
-        setConfirmation({
-          title: `Let “${pack.displayName}” manage these definitions?`,
-          body: <>
-            <p>The collection has older unmanaged files at the pack’s managed paths.</p>
-            <ul>{adoptable.map((resource) => <li key={resource.target}><code>{resource.target}</code></li>)}</ul>
-            <p>The editor will replace these reviewed files and record their exact source, version, and digest in <code>mdbase.lock.yaml</code>. Future upgrades stop instead of overwriting an unexpected edit.</p>
-          </>,
-          confirmLabel: "Adopt and update",
-          cancelLabel: "Not now",
-          initialFocus: "cancel",
-          onConfirm: async () => {
-            try {
-              const reviewed = await gateway.assessTypePack(provision, adoptions);
-              if (!reviewed.applicable) {
-                throw new Error(reviewed.resources.find(({ action }) => action === "conflict")?.reason
-                  ?? "The definitions changed while they were being reviewed.");
-              }
-              await finishCatalogPackInstall(pack, provision, reviewed, adoptions);
-            } catch (error) {
-              setTypeError(gatewayError(error));
-            }
-          }
-        });
-        return;
-      }
-      throw new Error(conflicts[0]?.reason ?? "This pack conflicts with collection definitions.");
-    }
-    await finishCatalogPackInstall(pack, provision, assessment);
-  }
-
-  async function finishCatalogPackInstall(
-    pack: ContractCatalogPack,
-    provision: TypePackProvision,
-    assessment: TypePackAssessment,
-    adoptions: Record<string, string> = {}
-  ) {
-    const previousTypes = new Set(description?.types.map((type) => type.name) ?? []);
-    const installed = await gateway.applyTypePack(provision, assessment, adoptions);
-    const next = await refreshDescription();
-    const addedTypes = next.types.filter((type) => !previousTypes.has(type.name));
-    const primaryType = pack.primaryType
-      ? addedTypes.find((type) => type.name === pack.primaryType)
-      : undefined;
-    if (primaryType && !typeDraftDirty()) {
-      setTypeWorkspace("definition");
-      setSelectedTypeName(primaryType.name);
-      setMobilePane("editor");
-      await loadTypeSource(primaryType.name);
-      setNotice(`Added “${pack.displayName}” and opened the new type.`);
-      return;
-    }
-    setNotice(`Installed “${pack.displayName}” (${installed.resources.length} resources, ${addedTypes.length} new ${addedTypes.length === 1 ? "type" : "types"}).`);
+    await reviewCatalogPackInstallation(pack, gateway, {
+      installedTypeNames: description?.types.map(({ name }) => name) ?? [],
+      confirm: (confirmation) => setConfirmation(confirmation),
+      refreshDescription,
+      isTypeDraftDirty: typeDraftDirty,
+      openType: async (name) => {
+        setTypeWorkspace("definition");
+        setSelectedTypeName(name);
+        setMobilePane("editor");
+        await loadTypeSource(name);
+      },
+      notify: setNotice,
+      onError: (error) => setTypeError(gatewayError(error))
+    });
   }
 
   function typeDraftDirty() {

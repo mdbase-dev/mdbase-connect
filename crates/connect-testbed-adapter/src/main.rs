@@ -9,7 +9,8 @@ use mdbase_connect_protocol::{
 };
 use mdbase_connect_runtime::{
     compose_notification_catalog, notification_event_envelope, successful_notification_outcome,
-    AuthorityEvent, NOTIFICATION_ACTION_ID, NOTIFICATION_EXECUTOR_ID,
+    AuthorityEvent, NOTIFICATION_ACTION_ID, NOTIFICATION_EXECUTOR_ID, RECORD_MODIFIED_EVENT_DIGEST,
+    RECORD_MODIFIED_EVENT_ID,
 };
 use mdbase_runtime::{
     ActionDispatch, ActionInvocation, ActionOutcome, ActionProvider, AuthorizationDecision,
@@ -290,9 +291,9 @@ fn test_grant(collection_id: Uuid) -> GrantSummary {
         notification_criteria: vec![NotificationCriterion {
             id: "note.modified".to_string(),
             event: ContractRequirement {
-                id: "mdbase.record.modified".to_string(),
+                id: RECORD_MODIFIED_EVENT_ID.to_string(),
                 version: "1.0.0".to_string(),
-                digest: format!("sha256:{}", "0".repeat(64)),
+                digest: RECORD_MODIFIED_EVENT_DIGEST.to_string(),
             },
             r#if: None,
             debounce: None,

@@ -6,8 +6,7 @@ use std::{
 
 use mdbase::{runtime::CollectionSnapshot, v03::OperationResult, Collection};
 use mdbase_connect_protocol::{
-    ApplyTypePackInput, AssessTypePackInput, ContractSetupChoice, ContractSetupMode, SyncMutation,
-    SyncMutationOperation, SyncRecord, TypePackProvision,
+    ApplyTypePackInput, AssessTypePackInput, SyncMutation, SyncMutationOperation, SyncRecord,
 };
 use mdbase_connect_runtime::contract_scope::{ContractScope, ContractSelector};
 use serde_json::{Map, Value};
@@ -17,7 +16,9 @@ use uuid::Uuid;
 
 use crate::error::{ApiError, ApiResult};
 
+mod type_packs;
 mod types;
+use type_packs::{engine_contract_setup, engine_type_pack_provision};
 pub use types::{Execution, StoredDocument};
 
 pub struct WorkingSet {
@@ -449,51 +450,6 @@ impl WorkingSet {
             })
             .collect())
     }
-}
-
-fn engine_type_pack_provision(
-    provision: &TypePackProvision,
-) -> ApiResult<mdbase::v03::TypePackProvision> {
-    let manifest = serde_json::to_value(&provision.manifest).map_err(|error| {
-        ApiError::internal(format!(
-            "The type pack manifest could not serialize: {error}"
-        ))
-    })?;
-    Ok(mdbase::v03::TypePackProvision {
-        manifest,
-        resources: provision
-            .resources
-            .iter()
-            .map(|resource| mdbase::v03::TypePackResource {
-                source: resource.source.clone(),
-                document: resource.document.clone(),
-            })
-            .collect(),
-    })
-}
-
-fn engine_contract_setup(setup: &ContractSetupChoice) -> mdbase::v03::ContractSetupChoice {
-    let contract = mdbase::v03::ContractIdentity {
-        id: setup.contract.id.clone(),
-        version: setup.contract.version.clone(),
-    };
-    let mode = match &setup.mode {
-        ContractSetupMode::Starter => mdbase::v03::ContractSetupMode::Starter,
-        ContractSetupMode::Existing {
-            type_name,
-            type_revision,
-            fields,
-            binding,
-        } => {
-            mdbase::v03::ContractSetupMode::Existing(mdbase::v03::ExistingContractImplementation {
-                type_name: type_name.clone(),
-                type_revision: type_revision.clone(),
-                fields: fields.clone(),
-                binding: binding.clone(),
-            })
-        }
-    };
-    mdbase::v03::ContractSetupChoice { contract, mode }
 }
 
 fn operation_input(

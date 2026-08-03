@@ -1,6 +1,7 @@
 use super::*;
 use mdbase_connect_protocol::{
-    ContractRequirement, TypePackManifest, TypePackManifestResource, TypePackSourceResource,
+    ContractRequirement, ContractSetupChoice, ContractSetupMode, TypePackManifest,
+    TypePackManifestResource, TypePackProvision, TypePackSourceResource,
 };
 
 fn work_item_provision() -> TypePackProvision {

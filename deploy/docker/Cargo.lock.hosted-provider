@@ -2554,6 +2554,7 @@ dependencies = [
  "rusqlite",
  "semver",
  "serde",
+ "serde_jcs",
  "serde_json",
  "serde_yaml",
  "sha2 0.10.9",
@@ -2594,6 +2595,7 @@ dependencies = [
  "rand 0.8.7",
  "serde",
  "serde_json",
+ "serde_yaml",
 ]
 
 [[package]]
