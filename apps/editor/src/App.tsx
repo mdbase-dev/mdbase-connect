@@ -84,7 +84,7 @@ import { initialEditorSurface, loadPreferences, savePreferences, type EditorPref
 import { composeRecordSource, replaceDocumentFrontmatter } from "./record-source";
 import { QuickOpen, ShortcutHelp } from "./QuickOpen";
 import { SettingsView } from "./SettingsView";
-import { structuralChangesRequireRefresh } from "./structural-change-reconciliation";
+import { reconcileStructuralChanges } from "./structural-change-reconciliation";
 import { NEW_TYPE_SOURCE } from "./type-constants";
 import { useCollectionIndex } from "./use-collection-index";
 import {
@@ -650,13 +650,18 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         const shouldRefreshTypes = typesChanged;
         typesChanged = false;
         const currentPaths = new Set(indexController.getSnapshot().notes.map((note) => note.path));
-        const shouldRefreshIndex = indexChanged
-          || structuralChangesRequireRefresh(structuralChanges, currentPaths);
+        const structuralReconciliation = reconcileStructuralChanges(structuralChanges, currentPaths);
+        const shouldRefreshIndex = indexChanged || structuralReconciliation.requiresRefresh;
         structuralChanges.length = 0;
         indexChanged = false;
         if (shouldRefreshIndex) void loadIndex().catch((error) => {
           if (!controller.signal.aborted) setConnectionIssue(gatewayError(error));
         });
+        else for (const path of structuralReconciliation.deletedPathsToConfirm) {
+          void refreshChangedNote(path).catch(() => loadIndex().catch((error) => {
+            if (!controller.signal.aborted) setConnectionIssue(gatewayError(error));
+          }));
+        }
         for (const path of paths) void refreshChangedNote(path).catch((error) => {
           if (!controller.signal.aborted) setNotice(gatewayError(error));
         });

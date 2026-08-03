@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CollectionChange } from "@mdbase-dev/connect";
-import { structuralChangesRequireRefresh } from "./structural-change-reconciliation";
+import { reconcileStructuralChanges } from "./structural-change-reconciliation";
 
 function change(type: string, payload: CollectionChange["payload"], cursor = 1): CollectionChange {
   return {
@@ -13,51 +13,54 @@ function change(type: string, payload: CollectionChange["payload"], cursor = 1):
 
 describe("structuralChangesRequireRefresh", () => {
   it("accepts a locally reconciled create, delete, and rename", () => {
-    expect(structuralChangesRequireRefresh(
+    expect(reconcileStructuralChanges(
       [change("mdbase.record.created", { path: "Created.md" })],
       new Set(["Created.md"])
-    )).toBe(false);
-    expect(structuralChangesRequireRefresh(
+    )).toEqual({ requiresRefresh: false, deletedPathsToConfirm: [] });
+    expect(reconcileStructuralChanges(
       [change("mdbase.record.deleted", { path: "Deleted.md" })],
       new Set()
-    )).toBe(false);
-    expect(structuralChangesRequireRefresh(
+    )).toEqual({ requiresRefresh: false, deletedPathsToConfirm: [] });
+    expect(reconcileStructuralChanges(
       [change("mdbase.record.renamed", { from: "Before.md", to: "After.md" })],
       new Set(["After.md"])
-    )).toBe(false);
+    )).toEqual({ requiresRefresh: false, deletedPathsToConfirm: [] });
   });
 
   it("requests a refresh when the current index does not reflect an event", () => {
-    expect(structuralChangesRequireRefresh(
+    expect(reconcileStructuralChanges(
       [change("mdbase.record.created", { path: "Remote.md" })],
       new Set()
-    )).toBe(true);
-    expect(structuralChangesRequireRefresh(
-      [change("mdbase.record.deleted", { path: "Remote.md" })],
-      new Set(["Remote.md"])
-    )).toBe(true);
-    expect(structuralChangesRequireRefresh(
+    ).requiresRefresh).toBe(true);
+    expect(reconcileStructuralChanges(
       [change("mdbase.record.renamed", { from: "Before.md", to: "After.md" })],
       new Set(["Before.md"])
-    )).toBe(true);
+    ).requiresRefresh).toBe(true);
+  });
+
+  it("targets a contradictory delete for authoritative confirmation", () => {
+    expect(reconcileStructuralChanges(
+      [change("mdbase.record.deleted", { path: "Remote.md" })],
+      new Set(["Remote.md"])
+    )).toEqual({ requiresRefresh: false, deletedPathsToConfirm: ["Remote.md"] });
   });
 
   it("uses the final state of rapid delete/restore and rename-back sequences", () => {
-    expect(structuralChangesRequireRefresh([
+    expect(reconcileStructuralChanges([
       change("mdbase.record.deleted", { path: "Note.md" }, 1),
       change("mdbase.record.created", { path: "Note.md" }, 2)
-    ], new Set(["Note.md"]))).toBe(false);
+    ], new Set(["Note.md"]))).toEqual({ requiresRefresh: false, deletedPathsToConfirm: [] });
 
-    expect(structuralChangesRequireRefresh([
+    expect(reconcileStructuralChanges([
       change("mdbase.record.renamed", { from: "A.md", to: "B.md" }, 1),
       change("mdbase.record.renamed", { from: "B.md", to: "A.md" }, 2)
-    ], new Set(["A.md"]))).toBe(false);
+    ], new Set(["A.md"]))).toEqual({ requiresRefresh: false, deletedPathsToConfirm: [] });
   });
 
   it("fails safe when a structural event is malformed", () => {
-    expect(structuralChangesRequireRefresh(
+    expect(reconcileStructuralChanges(
       [change("mdbase.record.deleted", {})],
       new Set()
-    )).toBe(true);
+    ).requiresRefresh).toBe(true);
   });
 });
