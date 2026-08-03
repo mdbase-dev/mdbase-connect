@@ -5,24 +5,17 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { runInNewContext } from "node:vm";
+import { publicPackages } from "./public-packages.mjs";
 
 const run = promisify(execFile);
 const root = resolve(import.meta.dirname, "..");
-const packages = [
-  "protocol",
-  "client",
-  "devkit",
-  "sync",
-  "testing",
-  "pickle",
-  "webhooks"
-];
+const packages = await publicPackages();
 const scratch = await mkdtemp(join(tmpdir(), "mdbase-connect-packages-"));
 
 try {
-  for (const packageName of packages) {
-    const packageRoot = join(root, "packages", packageName);
-    const archive = join(scratch, `${packageName}.tgz`);
+  for (const packageDescription of packages) {
+    const packageRoot = join(root, packageDescription.directory);
+    const archive = join(scratch, `${packageDescription.name.replace(/^@/, "").replaceAll("/", "-")}.tgz`);
     await run("pnpm", ["pack", "--out", archive], { cwd: packageRoot });
     const entries = (await run("tar", ["-tzf", archive])).stdout.trim().split("\n");
     const manifest = JSON.parse((await run("tar", ["-xOf", archive, "package/package.json"])).stdout);

@@ -66,30 +66,16 @@ jobs:
       - name: Pack public packages
         run: |
           mkdir -p "$RUNNER_TEMP/npm-packages"
-          for PACKAGE_DIR in \
-            packages/protocol \
-            packages/client \
-            packages/devkit \
-            packages/sync \
-            packages/pickle \
-            packages/webhooks
-          do
+          while IFS=$'\t' read -r PACKAGE_NAME PACKAGE_DIR; do
             pnpm --dir "$PACKAGE_DIR" pack --pack-destination "$RUNNER_TEMP/npm-packages"
-          done
+          done < <(node scripts/public-packages.mjs)
 
       - name: Publish packages
         env:
           DIST_TAG: ${{ steps.release.outputs.dist_tag }}
           VERSION: ${{ steps.release.outputs.version }}
         run: |
-          for PACKAGE_NAME in \
-            @mdbase-dev/connect-protocol \
-            @mdbase-dev/connect \
-            @mdbase-dev/connect-dev \
-            @mdbase-dev/connect-sync \
-            @mdbase-dev/pickle \
-            @mdbase-dev/connect-webhooks
-          do
+          while IFS=$'\t' read -r PACKAGE_NAME PACKAGE_DIR; do
             if npm view "$PACKAGE_NAME@$VERSION" version >/dev/null 2>&1; then
               echo "$PACKAGE_NAME@$VERSION is already published; skipping"
               continue
@@ -100,4 +86,4 @@ jobs:
             npm publish "$RUNNER_TEMP/npm-packages/${SAFE_NAME}-${VERSION}.tgz" \
               --access public \
               --tag "$DIST_TAG"
-          done
+          done < <(node scripts/public-packages.mjs)
