@@ -702,6 +702,34 @@ mod tests {
         .is_err());
     }
 
+    #[tokio::test]
+    async fn temporary_session_token_is_bound_to_presigned_requests() {
+        let config = R2Config::new(
+            "https://account.r2.cloudflarestorage.com",
+            "private-bucket",
+            "temporary-access",
+            "temporary-secret",
+            8 * 1024 * 1024,
+            8 * 1024 * 1024,
+            Duration::from_secs(900),
+        )
+        .unwrap()
+        .with_session_token(Some("temporary-session".to_string()))
+        .unwrap();
+        let store = R2BlobStore::new(config);
+        let request = store
+            .presign_put(
+                "v1/staging/01922222-2222-7222-8222-222222222222/01933333-3333-7333-8333-333333333333",
+                5,
+            )
+            .await
+            .unwrap();
+        let url = Url::parse(&request.url).unwrap();
+        assert!(url.query_pairs().any(|(name, value)| {
+            name.eq_ignore_ascii_case("X-Amz-Security-Token") && value == "temporary-session"
+        }));
+    }
+
     #[test]
     fn opaque_object_keys_cannot_escape_the_provider_prefix() {
         for invalid in ["", "/absolute", "v1/../secret", "v1/white space"] {
