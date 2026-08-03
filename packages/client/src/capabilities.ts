@@ -125,17 +125,6 @@ function effectiveCapability(
       };
     }
   }
-  if (id === "sync.offline-replica" && connection.authority.kind !== "hosted") {
-    return {
-      ...base,
-      state: "unsupported",
-      reason: "This collection is held by a computer and has no durable hosted replica.",
-      evidence: [...base.evidence, {
-        source: "authority",
-        fact: "The collection authority is a user-operated connector."
-      }]
-    };
-  }
   if (
     id === "notifications.background-delivery"
     && (manifest.notifications?.criteria.length ?? 0) === 0
@@ -165,7 +154,13 @@ function effectiveCapability(
         : "Backed by a user-operated mdbase connector."
     }],
     ...(id === "sync.offline-replica"
-      ? { details: { durability: "device", writes: "queued", authority: "hosted" } }
+      ? {
+          details: {
+            durability: "device",
+            writes: "queued",
+            authority: connection.authority.kind
+          }
+        }
       : {}),
     ...(id === "notifications.background-delivery"
       ? { details: { delivery: "authority", payload: "opaque" } }
