@@ -14,6 +14,7 @@ import {
 } from "../../../scripts/lib/connect-test-environment.mjs";
 import {
   MdbaseConnect,
+  MemoryApplicationIdentityStore,
   MemoryGrantKeyStore,
   unwrapConnectOutcome
 } from "../../../packages/client/dist/index.js";
@@ -201,6 +202,7 @@ try {
     redirectUri: manifest.redirect_uris[0],
     storage: consumerStorage,
     keyStore: new MemoryGrantKeyStore(),
+    identityStore: new MemoryApplicationIdentityStore(),
     navigate: (value) => { authorizationUrl = value; }
   });
   const authorization = consumer.authorize({
@@ -236,6 +238,7 @@ try {
   const token = consumerStorage.token();
   assert.match(token.accessToken, /^mdb_/);
   assert.ok(token.grantId);
+  await connectedWindow.getByRole("button", { name: "App access" }).click();
   await connectedWindow
     .locator("details.application-grant-group")
     .filter({ hasText: "Docker fixture consumer" })
