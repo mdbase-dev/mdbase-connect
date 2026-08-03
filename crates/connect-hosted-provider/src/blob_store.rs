@@ -20,6 +20,7 @@ const MAX_MULTIPART_PART_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 const MIN_DOWNLOAD_PART_BYTES: u64 = 64 * 1024;
 const MAX_DOWNLOAD_PART_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_PRESIGN_SECONDS: u64 = 7 * 24 * 60 * 60;
+const PROVIDER_OBJECT_PREFIX: &str = "v1/";
 
 pub type BlobStreamError = Box<dyn std::error::Error + Send + Sync>;
 pub type BlobByteStream =
@@ -236,11 +237,13 @@ impl BlobStore for R2BlobStore {
 
     async fn ready(&self) -> ApiResult<()> {
         self.client
-            .head_bucket()
+            .list_objects_v2()
             .bucket(&self.config.bucket)
+            .prefix(PROVIDER_OBJECT_PREFIX)
+            .max_keys(1)
             .send()
             .await
-            .map_err(|error| r2_unavailable("head bucket", &error))?;
+            .map_err(|error| r2_unavailable("list provider object namespace", &error))?;
         Ok(())
     }
 
@@ -598,6 +601,7 @@ fn object_verification_failed() -> ApiError {
 fn validate_object_key(key: &str) -> ApiResult<()> {
     if key.is_empty()
         || key.len() > 1024
+        || !key.starts_with(PROVIDER_OBJECT_PREFIX)
         || key.starts_with('/')
         || key.contains("..")
         || key.chars().any(char::is_whitespace)
@@ -626,6 +630,8 @@ fn r2_unavailable(operation: &str, error: &impl std::fmt::Display) -> ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
 
     #[test]
     fn r2_configuration_is_strict_and_does_not_accept_undersized_parts() {
@@ -756,9 +762,77 @@ mod tests {
         assert!(!debug.contains("temporary-session"));
     }
 
+    #[tokio::test]
+    async fn readiness_lists_only_the_provider_namespace_for_scoped_credentials() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            loop {
+                let mut buffer = [0_u8; 1024];
+                let read = socket.read(&mut buffer).await.unwrap();
+                assert_ne!(read, 0, "readiness request ended before its headers");
+                request.extend_from_slice(&buffer[..read]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let body = concat!(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+                "<ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">",
+                "<Name>private-bucket</Name><Prefix>v1/</Prefix><KeyCount>0</KeyCount>",
+                "<MaxKeys>1</MaxKeys><IsTruncated>false</IsTruncated></ListBucketResult>"
+            );
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/xml\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+            String::from_utf8(request).unwrap()
+        });
+
+        let config = R2Config::new_insecure_loopback(
+            format!("http://{address}"),
+            "private-bucket",
+            "temporary-access",
+            "temporary-secret",
+            8 * 1024 * 1024,
+            8 * 1024 * 1024,
+            Duration::from_secs(900),
+        )
+        .unwrap()
+        .with_session_token(Some("temporary-session".to_string()))
+        .unwrap();
+        R2BlobStore::new(config).ready().await.unwrap();
+
+        let request = server.await.unwrap();
+        let request_line = request.lines().next().unwrap();
+        assert!(
+            request_line.starts_with("GET /private-bucket/?"),
+            "unexpected readiness request: {request_line}"
+        );
+        assert!(request_line.contains("list-type=2"));
+        assert!(request_line.contains("max-keys=1"));
+        assert!(request_line.contains("prefix=v1%2F"));
+        assert!(request.lines().any(|line| {
+            let Some((name, value)) = line.split_once(':') else {
+                return false;
+            };
+            name.eq_ignore_ascii_case("x-amz-security-token") && value.trim() == "temporary-session"
+        }));
+    }
+
     #[test]
     fn opaque_object_keys_cannot_escape_the_provider_prefix() {
-        for invalid in ["", "/absolute", "v1/../secret", "v1/white space"] {
+        for invalid in [
+            "",
+            "/absolute",
+            "outside/provider",
+            "v1/../secret",
+            "v1/white space",
+        ] {
             assert!(validate_object_key(invalid).is_err());
         }
         assert!(validate_object_key(
