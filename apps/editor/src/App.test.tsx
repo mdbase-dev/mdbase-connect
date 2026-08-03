@@ -1153,7 +1153,7 @@ class DirectAccessGateway extends DemoCollectionGateway {
     const connection = super.currentConnection();
     return connection ? {
       ...connection,
-      route: this.directAccess === "available" ? "direct" : "relay",
+      authorityKind: "connector",
       directAccess: this.directAccess
     } : null;
   }

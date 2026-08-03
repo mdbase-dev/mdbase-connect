@@ -49,7 +49,7 @@ esac
     assert.equal(packaged.artifactName, "mdbase-cli-0.1.0-beta.28-linux-x64.tar.gz");
     const listing = spawnSync("tar", ["-tzf", packaged.artifactPath], { encoding: "utf8" });
     assert.equal(listing.status, 0);
-    assert.match(listing.stdout, /mdbase-0\.1\.0-beta\.27-linux-x64\/mdbase$/m);
+    assert.match(listing.stdout, /mdbase-0\.1\.0-beta\.28-linux-x64\/mdbase$/m);
     assert.match(listing.stdout, /README\.md$/m);
     assert.match(listing.stdout, /LICENSE$/m);
 

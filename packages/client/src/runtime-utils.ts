@@ -317,6 +317,33 @@ export function defaultRedirectUri(): string {
   return location.href.split(/[?#]/)[0];
 }
 
+export function applicationStorageOrigin(
+  manifest: MdbaseAppManifest | string,
+  manifestSource: string,
+  redirectUri: string,
+  registeredPortable: boolean
+): string {
+  if (
+    (typeof manifest !== "string" && manifest.distribution === "portable")
+    || registeredPortable
+  ) return "null";
+  const redirect = new URL(redirectUri);
+  if (["http:", "https:"].includes(redirect.protocol)) return redirect.origin;
+  if (typeof location !== "undefined") return location.origin;
+  if (typeof manifest !== "string") return new URL(manifest.homepage).origin;
+  try {
+    return new URL(manifestSource).origin;
+  } catch {
+    return "";
+  }
+}
+
+export function collectionIdFromTokenKey(key: string): string {
+  const marker = ":token:";
+  const index = key.lastIndexOf(marker);
+  return index < 0 ? "" : key.slice(index + marker.length);
+}
+
 export function defaultCallbackUrl(): string {
   if (typeof location === "undefined") {
     throw connectError(

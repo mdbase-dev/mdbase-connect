@@ -8,7 +8,15 @@ import { runInNewContext } from "node:vm";
 
 const run = promisify(execFile);
 const root = resolve(import.meta.dirname, "..");
-const packages = ["protocol", "client", "devkit", "sync", "pickle", "webhooks"];
+const packages = [
+  "protocol",
+  "client",
+  "devkit",
+  "sync",
+  "testing",
+  "pickle",
+  "webhooks"
+];
 const scratch = await mkdtemp(join(tmpdir(), "mdbase-connect-packages-"));
 
 try {

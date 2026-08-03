@@ -95,11 +95,11 @@ describe("ConnectCollectionGateway recovery operations", () => {
     injectConnection(gateway, connection);
 
     await expect(gateway.checkDirectAccess()).resolves.toMatchObject({
-      route: "relay",
+      authorityKind: "connector",
       directAccess: "permission_required"
     });
     await expect(gateway.requestDirectAccess()).resolves.toMatchObject({
-      route: "relay",
+      authorityKind: "connector",
       directAccess: "available"
     });
     expect(checkDirectAccess).toHaveBeenCalledOnce();
@@ -163,7 +163,7 @@ describe("ConnectCollectionGateway recovery operations", () => {
       displayName: "Notes",
       operations: ["read"],
       missingCapabilities: ["records.update"],
-      route: "relay",
+      authorityKind: "connector",
       directAccess: "unavailable"
       }
     });

@@ -10,10 +10,16 @@ class MemoryLocalStorage {
 
 class FixturePage implements MdbaseTestPage {
   init: Array<() => void> = [];
-  async addInitScript<Argument>(script: (argument: Argument) => void, argument: Argument) {
-    this.init.push(() => script(argument));
+  async addInitScript<Argument>(
+    script: (argument: Argument) => void | Promise<void>,
+    argument: Argument
+  ) {
+    this.init.push(() => { void script(argument); });
   }
-  async evaluate<Argument>(script: (argument: Argument) => void, argument: Argument) {
+  async evaluate<Result, Argument>(
+    script: (argument: Argument) => Result | Promise<Result>,
+    argument: Argument
+  ): Promise<Result> {
     return script(argument);
   }
   navigate() { for (const script of this.init) script(); }

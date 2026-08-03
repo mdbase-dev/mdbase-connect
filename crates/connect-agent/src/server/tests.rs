@@ -288,6 +288,7 @@ fn live_authorization_is_acknowledged_only_after_the_grant_is_stored() {
             access: Some(ApplicationAccess::FullCollection),
             collection_kind: None,
             files: None,
+            capabilities: None,
         },
         provisions: ApplicationProvisions::default(),
         contract_setups: Vec::new(),

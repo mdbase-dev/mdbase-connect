@@ -408,7 +408,7 @@ function summarizeConnection(connection: MdbaseConnectionInfo): ConnectionSummar
     collectionId: connection.collectionId,
     displayName: connection.displayName,
     operations: connection.operations,
-    route: connection.route,
+    authorityKind: connection.authority.kind,
     directAccess: connection.directAccess
   };
 }

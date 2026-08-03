@@ -8,8 +8,14 @@ import {
 } from "@mdbase-dev/connect-protocol";
 
 export interface MdbaseTestPage {
-  addInitScript<Argument>(script: (argument: Argument) => void, argument: Argument): Promise<void>;
-  evaluate<Argument>(script: (argument: Argument) => void, argument: Argument): Promise<unknown>;
+  addInitScript<Argument>(
+    script: (argument: Argument) => void | Promise<void>,
+    argument: Argument
+  ): Promise<void>;
+  evaluate<Result, Argument>(
+    script: (argument: Argument) => Result | Promise<Result>,
+    argument: Argument
+  ): Promise<Result>;
 }
 
 export type MdbaseFixtureApplication =
@@ -60,6 +66,8 @@ interface BrowserFixtureSeed {
   indexKey: string;
   tokenKey: string;
   collectionId: string;
+  keyHandle: string;
+  authorityKind: MdbaseFixtureAuthority["kind"];
   directAccess?: "enabled" | "disabled";
   token: Record<string, unknown>;
 }
@@ -103,6 +111,8 @@ function fixtureSeed(options: MdbaseBrowserFixtureOptions): BrowserFixtureSeed {
     indexKey: `${prefix}:connections`,
     tokenKey: `${prefix}:token:${options.collection.id}`,
     collectionId: options.collection.id,
+    keyHandle: `fixture:${options.application.manifest.id}:${options.collection.id}`,
+    authorityKind: options.authority.kind,
     ...(options.directAccess ? { directAccess: options.directAccess } : {}),
     token: {
       version: 1,
@@ -141,14 +151,124 @@ function operationsForManifest(
   return operationsForApplicationCapabilities(requirements);
 }
 
-function writeSeed(seed: BrowserFixtureSeed): void {
+async function writeSeed(seed: BrowserFixtureSeed): Promise<void> {
+  let token = { ...seed.token };
+  if (
+    typeof indexedDB !== "undefined"
+    && typeof crypto !== "undefined"
+    && crypto.subtle !== undefined
+  ) {
+    const agreement = await crypto.subtle.generateKey(
+      { name: "ECDH", namedCurve: "P-256" },
+      true,
+      ["deriveBits"]
+    ) as CryptoKeyPair;
+    const agreementPrivateKey = await crypto.subtle.importKey(
+      "pkcs8",
+      await crypto.subtle.exportKey("pkcs8", agreement.privateKey),
+      { name: "ECDH", namedCurve: "P-256" },
+      false,
+      ["deriveBits"]
+    );
+    const agreementPublicKey = encode(
+      await crypto.subtle.exportKey("raw", agreement.publicKey)
+    );
+    const signing = await crypto.subtle.generateKey(
+      { name: "ECDSA", namedCurve: "P-256" },
+      true,
+      ["sign", "verify"]
+    ) as CryptoKeyPair;
+    const signingPrivateKey = await crypto.subtle.importKey(
+      "pkcs8",
+      await crypto.subtle.exportKey("pkcs8", signing.privateKey),
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["sign"]
+    );
+    const signingPublicKey = encode(
+      await crypto.subtle.exportKey("raw", signing.publicKey)
+    );
+    const database = await openKeyDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction("grant-keys", "readwrite");
+      transaction.objectStore("grant-keys").put({
+        handle: seed.keyHandle,
+        agreementPrivateKey,
+        agreementPublicKey,
+        signingPrivateKey,
+        signingPublicKey,
+        counter: "0"
+      });
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(
+        transaction.error ?? new Error("Fixture key transaction aborted.")
+      );
+      transaction.oncomplete = () => resolve();
+    });
+    database.close();
+
+    if (seed.authorityKind === "hosted") {
+      token = {
+        ...token,
+        keyHandle: seed.keyHandle,
+        authority: {
+          ...(token.authority as Record<string, unknown>),
+          proofPublicKey: signingPublicKey
+        }
+      };
+    } else {
+      const connector = await crypto.subtle.generateKey(
+        { name: "ECDH", namedCurve: "P-256" },
+        true,
+        ["deriveBits"]
+      ) as CryptoKeyPair;
+      token = {
+        ...token,
+        grantId: crypto.randomUUID(),
+        keyHandle: seed.keyHandle,
+        applicationOrigin: location.origin,
+        encryption: {
+          protocol_version: 1,
+          suite: "P256-HKDF-SHA256-AES256GCM",
+          key_id: `fixture-${crypto.randomUUID()}`,
+          scope_epoch: 1,
+          connector_id: crypto.randomUUID(),
+          collection_id: seed.collectionId,
+          application_agreement_public_key: agreementPublicKey,
+          connector_agreement_public_key: encode(
+            await crypto.subtle.exportKey("raw", connector.publicKey)
+          )
+        }
+      };
+    }
+  }
   localStorage.setItem(seed.indexKey, JSON.stringify({
     version: 1,
     collectionIds: [seed.collectionId]
   }));
-  localStorage.setItem(seed.tokenKey, JSON.stringify(seed.token));
+  localStorage.setItem(seed.tokenKey, JSON.stringify(token));
   if (seed.directAccess) {
     localStorage.setItem(`mdbase-connect:direct:${location.origin}`, seed.directAccess);
+  }
+
+  function encode(value: ArrayBuffer): string {
+    return btoa(String.fromCharCode(...new Uint8Array(value)))
+      .replaceAll("+", "-")
+      .replaceAll("/", "_")
+      .replace(/=+$/, "");
+  }
+
+  function openKeyDatabase(): Promise<IDBDatabase> {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open("mdbase-connect-keys", 1);
+      request.onupgradeneeded = () => {
+        if (!request.result.objectStoreNames.contains("grant-keys")) {
+          request.result.createObjectStore("grant-keys", { keyPath: "handle" });
+        }
+      };
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
   }
 }
 
@@ -158,9 +278,27 @@ function updateToken(input: { tokenKey: string; patch: Record<string, unknown> }
   localStorage.setItem(input.tokenKey, JSON.stringify({ ...current, ...input.patch }));
 }
 
-function removeSeed(seed: BrowserFixtureSeed): void {
+async function removeSeed(seed: BrowserFixtureSeed): Promise<void> {
   localStorage.removeItem(seed.tokenKey);
   localStorage.removeItem(seed.indexKey);
+  if (typeof indexedDB === "undefined") return;
+  const database = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open("mdbase-connect-keys", 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains("grant-keys")) {
+        request.result.createObjectStore("grant-keys", { keyPath: "handle" });
+      }
+    };
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+  });
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction("grant-keys", "readwrite");
+    transaction.objectStore("grant-keys").delete(seed.keyHandle);
+    transaction.onerror = () => reject(transaction.error);
+    transaction.oncomplete = () => resolve();
+  });
+  database.close();
 }
 
 function hasSeed(seed: BrowserFixtureSeed): boolean {

@@ -17,17 +17,26 @@ import type {
 } from "./connection.js";
 import type { MdbaseConnectionInfo } from "./connection-types.js";
 import { connectProblem } from "./errors.js";
-import type { MdbaseConnect } from "./mdbase-connect.js";
 import {
   connectFailure,
   connectSuccess,
   type ConnectOutcome,
   type CollectionTypeProblemCode,
   type AuthorizationProblemCode,
+  type RegistrationProblemCode,
   type SessionProblemCode
 } from "./outcomes.js";
 import type { MdbaseApplicationSelection, MdbaseSelectionHistory } from "./selection.js";
-import { MdbaseSession, type MdbaseUnavailableReason } from "./session.js";
+import {
+  MdbaseSession,
+  type MdbaseSessionConnect,
+  type MdbaseUnavailableReason
+} from "./session.js";
+
+export interface MdbaseApplicationSessionConnect<Frontmatter extends JsonObject = JsonObject>
+  extends MdbaseSessionConnect<Frontmatter> {
+  manifest(): Promise<ConnectOutcome<MdbaseAppManifest, RegistrationProblemCode>>;
+}
 
 export interface MdbaseApplicationSessionOptions {
   selection: MdbaseApplicationSelection;
@@ -117,7 +126,7 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
   private verificationGeneration = 0;
 
   constructor(
-    private readonly connect: MdbaseConnect<Frontmatter>,
+    private readonly connect: MdbaseApplicationSessionConnect<Frontmatter>,
     private readonly options: MdbaseApplicationSessionOptions
   ) {
     this.verificationStore = options.verificationStore ?? defaultVerificationStore();

@@ -125,8 +125,8 @@ function DirectAccessRow({ connection, busy, onRequest }: {
 }
 
 function connectionRouteLabel(connection: ConnectionSummary | null): string {
-  if (connection?.route === "remote") return "Hosted";
-  if (connection?.route === "direct" || connection?.directAccess === "available") return "This computer";
+  if (connection?.authorityKind === "hosted") return "Hosted";
+  if (connection?.directAccess === "available") return "This computer";
   return "Via mdbase";
 }
 
