@@ -37,7 +37,7 @@ pub const DEFAULT_LOOPBACK_PORT: u16 = 28_485;
 pub const SYNC_PROTOCOL_VERSION: u32 = 1;
 pub const RELAY_HANDSHAKE_TIMEOUT_SECONDS: u64 = 5;
 pub const RELAY_INCOMPATIBLE_CLOSE_CODE: u16 = 4406;
-pub const MINIMUM_CONNECTOR_VERSION: &str = "0.1.0-beta.31";
+pub const MINIMUM_CONNECTOR_VERSION: &str = "0.1.0-beta.32";
 pub const HOSTED_PROVIDER_REQUIRED_CAPABILITIES: &[&str] =
     &["durable-mutation-journal-v1", "durable-file-lifecycle-v1"];
 pub const HOSTED_PROVIDER_CAPABILITIES: &[&str] = &[
