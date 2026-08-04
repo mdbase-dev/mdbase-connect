@@ -115,10 +115,10 @@ misrepresented as broken collection setup.
 - `unknown` means the SDK cannot safely say whether it applied.
 
 Never automatically repeat a mutation with an `unknown` outcome as a new
-request. Inspect `connection.pendingMutation()`, reconcile visible collection
-state, or call `resumePendingMutation()` with the exact original input. Connect
-persists the encrypted request and the connector keeps a durable receipt so a
-resume cannot apply the same mutation twice.
+request. Inspect `connection.pendingMutations()`, reconcile visible collection
+state, and call the matching handle's `recover()` method. Connect persists the
+exact request and the authority keeps a durable receipt, so recovery reuses the
+original request ID and cannot apply the same logical mutation twice.
 
 `isRetryableConnectError()` exists for internal throwing boundaries, but public
 outcome code should use `problem.recovery === "retry"` and still avoid retrying

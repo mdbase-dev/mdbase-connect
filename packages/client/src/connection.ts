@@ -81,7 +81,6 @@ import type {
   MutationProgressState,
   ConnectRequestOptions,
   PendingMutation,
-  PendingMutationSummary,
   QueryInput,
   QueryPage,
   QueryPagesOptions,
@@ -479,7 +478,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
 
   forget(): void {
     const token = this.transport.currentToken();
-    this.internals.removeToken(this.collectionId, token?.keyHandle, "not_authorized");
+    this.internals.removeToken(this.collectionId, token?.keyHandle, "not_authorized", true);
     this.transport.notifyStorageChanged();
   }
 
@@ -560,7 +559,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     options: RenameProgressOptions = {}
   ): Promise<ConnectOutcome<RenameResult, CollectionMutationProblemCode>> {
     const started = Date.now();
-    const resumed = this.pendingMutation()?.operation === "rename";
+    const resumed = false;
     let estimate: MutationEstimate | undefined;
     const emit = (state: MutationProgressState, cancellable: boolean, completedUnits = 0) => {
       options.onProgress?.({
@@ -611,7 +610,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     options: DeleteProgressOptions = {}
   ): Promise<ConnectOutcome<DeleteResult, CollectionMutationProblemCode>> {
     const started = Date.now();
-    const resumed = this.pendingMutation()?.operation === "delete";
+    const resumed = false;
     let estimate: MutationEstimate | undefined;
     const emit = (state: MutationProgressState, cancellable: boolean, completedUnits = 0) => {
       options.onProgress?.({
@@ -658,37 +657,32 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
   }
 
   pendingMutations<Result = unknown>(): readonly PendingMutation<Result>[] {
-    const pending = this.pendingMutation<Result>();
-    return pending ? [pending] : [];
+    return this.transport.pendingMutations().map((summary) => ({
+      ...summary,
+      recover: (options) => captureConnectOutcome(
+        () => this.recoverPendingMutation<Result>(summary.requestId, options),
+        COLLECTION_MUTATION_PROBLEM_CODES
+      )
+    }));
   }
 
-  pendingMutation<Result = unknown>(requestId?: string): PendingMutation<Result> | null {
-    const summary = this.transport.pendingMutation();
-    if (!summary || (requestId !== undefined && summary.requestId !== requestId)) return null;
+  pendingMutation<Result = unknown>(requestId: string): PendingMutation<Result> | null {
+    const summary = this.transport.pendingMutation(requestId);
+    if (!summary) return null;
     return {
       ...summary,
       recover: (options) => captureConnectOutcome(
-        () => this.recoverPendingMutation<Result>(options),
+        () => this.recoverPendingMutation<Result>(requestId, options),
         COLLECTION_MUTATION_PROBLEM_CODES
       )
     };
   }
 
-  /** @deprecated Use pendingMutation(requestId)?.recover(); input is retained only during migration. */
-  resumePendingMutation<Result>(
-    _input: unknown,
-    options?: ConnectRequestOptions
-  ): Promise<ConnectOutcome<Result, CollectionMutationProblemCode>> {
-    return captureConnectOutcome(
-      () => this.recoverPendingMutation<Result>(options),
-      COLLECTION_MUTATION_PROBLEM_CODES
-    );
-  }
-
   private async recoverPendingMutation<Result>(
+    requestId: string,
     options?: ConnectRequestOptions
   ): Promise<Result> {
-    const result = await this.transport.resumePendingMutation<unknown>(options);
+    const result = await this.transport.recoverPendingMutation<unknown>(requestId, options);
     if (result && typeof result === "object" && "valid" in result) {
       const envelope = result as MdbaseOperationEnvelope<Result>;
       if (!envelope.valid) throw new MdbaseConnectError(operationProblem(envelope));

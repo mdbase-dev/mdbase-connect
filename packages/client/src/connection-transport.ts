@@ -3,12 +3,15 @@ import type {
   EncryptedRelayOperationRequest,
   EncryptedRelayOperationResponse,
   JsonObject,
-  MdbaseOperationRequest
+  MdbaseOperationRequest,
+  MutationOperationIdentifier
 } from "@mdbase-dev/connect-protocol";
 import {
   CONTROL_PROTOCOL_VERSION,
   ENCRYPTED_RELAY_PROTOCOL_VERSION,
-  isConnectProblem
+  isConnectProblem,
+  isCollectionOperation,
+  mutationOperationIdentifier
 } from "@mdbase-dev/connect-protocol";
 import {
   decryptRelayResponse,
@@ -68,7 +71,8 @@ export interface ConnectionTransportInternals {
   removeToken(
     collectionId: string,
     keyHandle?: string,
-    reason?: "not_authorized" | "authorization_lost" | "invalid_stored_grant"
+    reason?: "not_authorized" | "authorization_lost" | "invalid_stored_grant",
+    discardPending?: boolean
   ): void;
   storeTokenResponse(body: any, clientId: string, keyHandle?: string): StoredToken;
   tokenKey(collectionId: string): string;
@@ -194,27 +198,32 @@ export class ConnectionTransport {
    * Authority credentials and routing stay private inside the SDK.
    */
 
-  pendingMutation(): PendingMutationSummary | null {
-    const pending = parseStored<PendingMutation>(this.storage.getItem(this.pendingMutationKey()));
-    const token = this.currentToken();
-    if (!pending || !token
-        || pending.collectionId !== token.collectionId
-        || pending.grantId !== token.grantId
-        || pending.keyId !== token.encryption?.key_id) return null;
-    return {
+  pendingMutations(): readonly PendingMutationSummary[] {
+    return this.storedPendingMutations().map((pending) => ({
       requestId: pending.requestId,
-      operation: pending.operation,
+      operation: this.pendingMutationIdentifier(pending),
       fingerprint: pending.inputFingerprint,
       status: "outcome_unknown",
-      createdAt: pending.createdAt,
-      resumable: true
-    };
+      createdAt: new Date(pending.createdAt).toISOString()
+    }));
   }
 
-  async resumePendingMutation<Result>(
+  pendingMutation(requestId: string): PendingMutationSummary | null {
+    const pending = this.storedPendingMutation(requestId);
+    return pending ? {
+      requestId: pending.requestId,
+      operation: this.pendingMutationIdentifier(pending),
+      fingerprint: pending.inputFingerprint,
+      status: "outcome_unknown",
+      createdAt: new Date(pending.createdAt).toISOString()
+    } : null;
+  }
+
+  async recoverPendingMutation<Result>(
+    requestId: string,
     options?: ConnectRequestOptions
   ): Promise<Result> {
-    const pending = this.storedPendingMutation();
+    const pending = this.storedPendingMutation(requestId);
     if (!pending) {
       throw connectError(
         "no_pending_mutation",
@@ -267,14 +276,16 @@ export class ConnectionTransport {
       token = await this.authorizedToken({ signal: options.signal, timeoutMs: null });
       if (!token) throw connectError("not_authorized", "Reconnect this application to continue.");
     }
+    const pendingRequestId = storedPending?.requestId
+      ?? (isMutation(operation, input) ? crypto.randomUUID() : undefined);
     let attempt: OperationAttempt;
     try {
-      attempt = await this.sendOperation(token, operation, input, tryDirect, options, storedPending);
+      attempt = await this.sendOperation(token, operation, input, tryDirect, options, pendingRequestId);
     } catch (error) {
       throw operationTransportError(
         error,
         options.signal,
-        (storedPending !== undefined || isMutation(operation, input)) && this.pendingMutation() !== null,
+        pendingRequestId !== undefined && this.storedPendingMutation(pendingRequestId) !== null,
         token.authority ? "hosted_provider_unavailable" : "relay_unavailable"
       );
     }
@@ -295,16 +306,16 @@ export class ConnectionTransport {
           { operationOutcome: "unknown" }
         );
       }
-      if (attempt.pendingMutation) this.clearPendingMutation();
+      if (attempt.pendingMutation) this.clearPendingMutation(attempt.requestId);
       token = await this.refreshAuthorization(options.signal);
       tryDirect = await this.shouldAttemptDirect(token);
       try {
-        attempt = await this.sendOperation(token, operation, input, tryDirect, options, storedPending);
+        attempt = await this.sendOperation(token, operation, input, tryDirect, options, pendingRequestId);
       } catch (error) {
         throw operationTransportError(
           error,
           options.signal,
-          (storedPending !== undefined || isMutation(operation, input)) && this.pendingMutation() !== null,
+          pendingRequestId !== undefined && this.storedPendingMutation(pendingRequestId) !== null,
           token.authority ? "hosted_provider_unavailable" : "relay_unavailable"
         );
       }
@@ -333,7 +344,7 @@ export class ConnectionTransport {
         throw unknownMutationOutcome(error);
       }
       if (attempt.pendingMutation && !attempt.directDeliveryUncertain) {
-        this.clearPendingMutation();
+        this.clearPendingMutation(attempt.requestId);
       }
       if (error.code === "direct_operation_rejected" && error.status === 403) {
         this.invalidateRejectedAuthorization(token);
@@ -342,7 +353,12 @@ export class ConnectionTransport {
     }
     if (attempt.encryptedRequest) {
       const encryptedResponse = body?.envelope as EncryptedRelayOperationResponse | undefined;
-      if (!encryptedResponse || !token.encryption || !token.grantId || !token.keyHandle) {
+      const pendingCrypto = attempt.pendingMutationRecord;
+      const responseEncryption = pendingCrypto?.encryption ?? token.encryption;
+      const responseGrantId = pendingCrypto?.grantId ?? token.grantId;
+      const responseApplicationId = pendingCrypto?.applicationId ?? token.clientId;
+      const responseKeyHandle = pendingCrypto?.keyHandle ?? token.keyHandle;
+      if (!encryptedResponse || !responseEncryption || !responseGrantId || !responseKeyHandle) {
         if (attempt.pendingMutation) throw unknownMutationOutcome(
           new Error("Encrypted operation response was missing its envelope.")
         );
@@ -354,12 +370,16 @@ export class ConnectionTransport {
       try {
         const decrypted = await decryptRelayResponse<Result>(
           this.keyStore,
-          token.keyHandle,
-          { grantId: token.grantId, applicationId: token.clientId, encryption: token.encryption },
+          responseKeyHandle,
+          {
+            grantId: responseGrantId,
+            applicationId: responseApplicationId,
+            encryption: responseEncryption
+          },
           attempt.encryptedRequest,
           encryptedResponse
         );
-        if (attempt.pendingMutation) this.clearPendingMutation();
+        if (attempt.pendingMutation) this.clearPendingMutation(attempt.requestId);
         if (!decrypted.ok) throw serverConnectError(
           decrypted.problem.code === "unknown"
             ? decrypted.problem.server_code
@@ -400,7 +420,7 @@ export class ConnectionTransport {
           "The collection authority returned an invalid operation problem."
         );
       }
-      if (attempt.pendingMutation) this.clearPendingMutation();
+      if (attempt.pendingMutation) this.clearPendingMutation(attempt.requestId);
       throw new MdbaseConnectError(body.problem);
     }
     if (body.ok !== true || !("result" in body)) {
@@ -412,7 +432,7 @@ export class ConnectionTransport {
         "The collection authority returned an incomplete operation response."
       );
     }
-    if (attempt.pendingMutation) this.clearPendingMutation();
+    if (attempt.pendingMutation) this.clearPendingMutation(attempt.requestId);
     return body.result as Result;
   }
 
@@ -502,25 +522,21 @@ export class ConnectionTransport {
     input: unknown,
     tryDirect: boolean,
     options: ConnectRequestOptions = {},
-    storedPending?: PendingMutation
+    pendingRequestId?: string
   ): Promise<OperationAttempt> {
     let body: unknown = input ?? {};
     let encryptedRequest: Awaited<ReturnType<typeof encryptRelayRequest>> | undefined;
     let pendingMutation = false;
     let resumingMutation = false;
-    let requestId: string = crypto.randomUUID();
+    let requestId: string = pendingRequestId ?? crypto.randomUUID();
     let pending: PendingMutation | null = null;
     let inputFingerprint: string | undefined;
-    if (storedPending || isMutation(operation, input)) {
-      inputFingerprint = storedPending?.inputFingerprint
+    if (pendingRequestId !== undefined) {
+      pending = this.storedPendingMutation(pendingRequestId);
+      inputFingerprint = pending?.inputFingerprint
         ?? await operationFingerprint(operation, input);
-      pending = storedPending ?? parseStored<PendingMutation>(
-          this.storage.getItem(this.pendingMutationKey())
-        );
       if (pending) {
         if (pending.collectionId !== token.collectionId
-            || pending.grantId !== token.grantId
-            || pending.keyId !== token.encryption?.key_id
             || pending.operation !== operation
             || pending.inputFingerprint !== inputFingerprint) {
           throw connectError(
@@ -532,6 +548,19 @@ export class ConnectionTransport {
         resumingMutation = true;
       }
       pendingMutation = true;
+    }
+    const mutation = pending?.mutation ?? mutationOperationIdentifier(operation, input);
+    if (pending?.envelope && (token.authority || !token.encryption)) {
+      throw connectError(
+        "pending_mutation_unresolved",
+        "The pending write requires its encrypted relay authority. Reconnect that authority before recovery."
+      );
+    }
+    if (pending?.request && token.encryption && !token.authority) {
+      throw connectError(
+        "pending_mutation_unresolved",
+        "The pending write belongs to a different authority transport. Reconnect that authority before recovery."
+      );
     }
     if (token.encryption && !token.authority) {
       if (!token.grantId || !token.keyHandle) {
@@ -556,16 +585,20 @@ export class ConnectionTransport {
               input,
               requestId
             );
-            this.storage.setItem(this.pendingMutationKey(), JSON.stringify({
+            this.storePendingMutation({
               collectionId: token.collectionId,
               ...(token.grantId ? { grantId: token.grantId } : {}),
               keyId: token.encryption.key_id,
+              keyHandle: token.keyHandle,
+              applicationId: token.clientId,
+              encryption: token.encryption,
               operation,
+              mutation: mutation!,
               inputFingerprint: inputFingerprint!,
               requestId,
               envelope: encryptedRequest,
               createdAt: Date.now()
-            } satisfies PendingMutation));
+            });
           }
         } else {
           encryptedRequest = await encryptRelayRequest(
@@ -589,15 +622,16 @@ export class ConnectionTransport {
         };
       body = request;
       if (pendingMutation && !pending) {
-        this.storage.setItem(this.pendingMutationKey(), JSON.stringify({
+        this.storePendingMutation({
           collectionId: token.collectionId,
           ...(token.grantId ? { grantId: token.grantId } : {}),
           operation,
+          mutation: mutation!,
           inputFingerprint: inputFingerprint!,
           requestId,
           request,
           createdAt: Date.now()
-        } satisfies PendingMutation));
+        });
       }
     }
     if (tryDirect && encryptedRequest && !token.authority) {
@@ -619,6 +653,7 @@ export class ConnectionTransport {
             requestId,
             encryptedRequest,
             pendingMutation,
+            ...(pendingMutation ? { pendingMutationRecord: pending ?? this.storedPendingMutation(requestId) ?? undefined } : {}),
             resumingMutation
           };
         }
@@ -664,6 +699,7 @@ export class ConnectionTransport {
         encryptedRequest,
         directDeliveryUncertain,
         pendingMutation,
+        ...(pendingMutation ? { pendingMutationRecord: pending ?? this.storedPendingMutation(requestId) ?? undefined } : {}),
         resumingMutation
       };
     }
@@ -691,7 +727,14 @@ export class ConnectionTransport {
         signal: options.signal
       });
     if (response.ok) this.setRoute(token.authority ? "remote" : "relay");
-    return { response, requestId, encryptedRequest, pendingMutation, resumingMutation };
+    return {
+      response,
+      requestId,
+      encryptedRequest,
+      pendingMutation,
+      ...(pendingMutation ? { pendingMutationRecord: pending ?? this.storedPendingMutation(requestId) ?? undefined } : {}),
+      resumingMutation
+    };
   }
 
   private directCapable(token: StoredToken | null): boolean {
@@ -1025,22 +1068,81 @@ export class ConnectionTransport {
   private notificationKey(transport: "web_push" | "fcm" = "web_push") {
     return this.internals.notificationKey(this.collectionId, transport);
   }
-  private pendingMutationKey() {
+  private pendingMutationBaseKey() {
     return this.internals.pendingMutationKey(this.collectionId);
   }
 
-  private storedPendingMutation(): PendingMutation | null {
-    const pending = parseStored<PendingMutation>(this.storage.getItem(this.pendingMutationKey()));
-    const token = this.currentToken();
-    if (!pending || !token
-        || pending.collectionId !== token.collectionId
-        || pending.grantId !== token.grantId
-        || pending.keyId !== token.encryption?.key_id
-        || (!pending.envelope && !pending.request)) return null;
-    return pending;
+  private pendingMutationKey(requestId: string): string {
+    return `${this.pendingMutationBaseKey()}:${encodeURIComponent(requestId)}`;
   }
-  private clearPendingMutation(): void {
-    this.storage.removeItem(this.pendingMutationKey());
+
+  private storedPendingMutations(): PendingMutation[] {
+    const token = this.currentToken();
+    if (!token) return [];
+    const baseKey = this.pendingMutationBaseKey();
+    const legacy = parseStored<PendingMutation>(this.storage.getItem(baseKey));
+    if (this.validPendingMutation(legacy) && legacy.collectionId === token.collectionId) {
+      const migratedKey = this.pendingMutationKey(legacy.requestId);
+      if (!this.storage.getItem(migratedKey)) {
+        this.storage.setItem(migratedKey, JSON.stringify(legacy));
+      }
+      this.storage.removeItem(baseKey);
+    }
+    const keys: string[] = [];
+    for (let index = 0; index < this.storage.length; index += 1) {
+      const key = this.storage.key(index);
+      if (key?.startsWith(`${baseKey}:`)) keys.push(key);
+    }
+    return keys
+      .map((key) => parseStored<PendingMutation>(this.storage.getItem(key)))
+      .filter((pending): pending is PendingMutation =>
+        this.validPendingMutation(pending) && pending.collectionId === token.collectionId)
+      .sort((left, right) => left.createdAt - right.createdAt
+        || left.requestId.localeCompare(right.requestId));
+  }
+
+  private storedPendingMutation(requestId: string): PendingMutation | null {
+    return this.storedPendingMutations()
+      .find((pending) => pending.requestId === requestId) ?? null;
+  }
+
+  private pendingMutationIdentifier(pending: PendingMutation): MutationOperationIdentifier {
+    return pending.mutation ?? mutationOperationIdentifier(
+      pending.operation,
+      pending.request?.input ?? (pending.operation === "sync" ? { action: "mutate" } : {})
+    ) ?? (pending.operation === "sync" ? "sync:mutate" : pending.operation) as MutationOperationIdentifier;
+  }
+
+  private validPendingMutation(pending: PendingMutation | null): pending is PendingMutation {
+    return Boolean(
+      pending
+      && typeof pending.collectionId === "string"
+      && typeof pending.requestId === "string"
+      && pending.requestId.length > 0
+      && isCollectionOperation(pending.operation)
+      && typeof pending.inputFingerprint === "string"
+      && Number.isFinite(pending.createdAt)
+      && pending.createdAt > 0
+      && (pending.envelope || pending.request)
+      && (pending.operation === "sync" || mutationOperationIdentifier(
+        pending.operation,
+        pending.request?.input ?? {}
+      ) !== null)
+    );
+  }
+
+  private storePendingMutation(pending: PendingMutation): void {
+    this.storage.setItem(this.pendingMutationKey(pending.requestId), JSON.stringify(pending));
+  }
+
+  private clearPendingMutation(requestId: string): void {
+    const key = this.pendingMutationKey(requestId);
+    const pending = parseStored<PendingMutation>(this.storage.getItem(key));
+    this.storage.removeItem(key);
+    const currentKeyHandle = this.currentToken()?.keyHandle;
+    if (pending?.keyHandle && pending.keyHandle !== currentKeyHandle) {
+      void this.keyStore.delete(pending.keyHandle).catch(() => undefined);
+    }
   }
   private directPreferenceKey() {
     return this.internals.directPreferenceKey();

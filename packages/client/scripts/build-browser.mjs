@@ -24,8 +24,9 @@ await build({
 });
 
 const bundle = await readFile(outputFile);
-const rawBudget = 180_000;
-const gzipBudget = 45_000;
+// Candidate baseline includes independently recoverable durable mutation handles.
+const rawBudget = 182_000;
+const gzipBudget = 46_000;
 if (bundle.byteLength > rawBudget || gzipSync(bundle).byteLength > gzipBudget) {
   throw new Error(
     `Browser SDK exceeds its budget: ${bundle.byteLength}/${rawBudget} raw bytes, `

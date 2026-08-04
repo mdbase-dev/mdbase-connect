@@ -963,12 +963,15 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
   removeToken(
     collectionId: string,
     keyHandle?: string,
-    reason: MdbaseUnavailableReason = "authorization_lost"
+    reason: MdbaseUnavailableReason = "authorization_lost",
+    discardPending = false
   ): void {
     this.invalidatedConnections.set(collectionId, reason);
-    if (keyHandle) void this.keyStore.delete(keyHandle).catch(() => undefined);
+    if (keyHandle && (discardPending || !this.pendingMutationsUseKey(collectionId, keyHandle))) {
+      void this.keyStore.delete(keyHandle).catch(() => undefined);
+    }
     this.storage.removeItem(this.tokenKey(collectionId));
-    this.storage.removeItem(this.pendingMutationKey(collectionId));
+    if (discardPending) this.removePendingMutations(collectionId);
     for (const transport of ["web_push", "fcm"] as const) {
       this.storage.removeItem(this.notificationKey(collectionId, transport));
     }
@@ -989,6 +992,31 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
 
   pendingMutationKey(collectionId: string): string {
     return `${this.storagePrefix()}:pending-mutation:${collectionId}`;
+  }
+
+  private removePendingMutations(collectionId: string): void {
+    const baseKey = this.pendingMutationKey(collectionId);
+    const keys = [baseKey];
+    for (let index = 0; index < this.storage.length; index += 1) {
+      const key = this.storage.key(index);
+      if (key?.startsWith(`${baseKey}:`)) keys.push(key);
+    }
+    for (const key of keys) {
+      const pending = parseStored<{ keyHandle?: string }>(this.storage.getItem(key));
+      if (pending?.keyHandle) void this.keyStore.delete(pending.keyHandle).catch(() => undefined);
+      this.storage.removeItem(key);
+    }
+  }
+
+  private pendingMutationsUseKey(collectionId: string, keyHandle: string): boolean {
+    const baseKey = this.pendingMutationKey(collectionId);
+    for (let index = 0; index < this.storage.length; index += 1) {
+      const key = this.storage.key(index);
+      if (key !== baseKey && !key?.startsWith(`${baseKey}:`)) continue;
+      const pending = parseStored<{ keyHandle?: string }>(this.storage.getItem(key));
+      if (pending?.keyHandle === keyHandle) return true;
+    }
+    return false;
   }
 
   notificationKey(collectionId: string, transport: "web_push" | "fcm" = "web_push"): string {

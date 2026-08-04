@@ -3,6 +3,7 @@ import type {
   CollectionOperation,
   ConnectProblem,
   JsonObject,
+  MutationOperationIdentifier,
   QueryRecord,
   RecordDocument
 } from "@mdbase-dev/connect-protocol";
@@ -139,11 +140,10 @@ export interface DeleteProgressOptions extends MutationProgressOptions {
 
 export interface PendingMutationSummary {
   requestId: string;
-  operation: CollectionOperation;
+  operation: MutationOperationIdentifier;
   fingerprint: string;
   status: "pending" | "recovering" | "outcome_unknown";
-  createdAt: number;
-  resumable: true;
+  createdAt: string;
 }
 
 export interface PendingMutation<Result = unknown> extends PendingMutationSummary {

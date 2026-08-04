@@ -20,11 +20,18 @@ The complete developer guide covers
 const mdbase = new MdbaseConnect({
   serverUrl: "https://connect.mdbase.dev",
   manifest: new URL(".well-known/mdbase-app.json", location.href).href,
-  redirectUri: "https://workouts.example/auth/mdbase/callback"
+  redirectUri: "https://workouts.example/auth/mdbase/callback",
+  timeouts: {
+    requestMs: 15_000,
+    watchStartMs: 20_000,
+    uploadMs: 120_000,
+    syncMs: 60_000
+  }
 });
-const session = mdbase.createApplicationSession({
+const session = mdbase.application({
   selection: new MdbaseBrowserSelection()
 });
+const unsubscribeSession = session.subscribe(() => render(session.getSnapshot()));
 
 const started = await session.start();
 if (!started.ok) {
@@ -56,12 +63,20 @@ const updated = await connection.update({
 });
 if (!updated.ok) renderProblem(updated.problem);
 
-for await (const change of connection.watch()) {
-  if (!change.ok) {
-    renderProblem(change.problem);
-    break;
-  }
-  console.log(change.value.type, change.value.payload.path);
+const pageLifetime = new AbortController();
+const watch = await connection.watch(
+  { lifetimeSignal: pageLifetime.signal },
+  { timeoutMs: 20_000 }
+);
+if (!watch.ok) {
+  renderProblem(watch.problem);
+} else {
+  const unsubscribeWatch = watch.value.subscribe(
+    (change) => console.log(change.type, change.payload.path),
+    renderWatchStatus,
+    renderProblem
+  );
+  // On navigation: unsubscribeWatch(); watch.value.close();
 }
 ```
 
@@ -69,6 +84,45 @@ Expected failures are returned as typed `ConnectOutcome` values. Exceptions are
 reserved for programming errors and broken SDK invariants. See
 [typed outcomes and recovery](../../docs/sdk-outcomes.md) for the complete
 problem model, setup failures, mutation uncertainty, and UI guidance.
+
+React applications can use the same session without introducing another state
+owner:
+
+```ts
+const store = externalStore(session);
+
+function useMdbaseSession() {
+  return useSyncExternalStore(
+    store.subscribe,
+    store.getSnapshot,
+    store.getSnapshot
+  );
+}
+```
+
+Browser and native callbacks share the same typed completion boundary:
+
+```ts
+const browserResult = await session.completeAuthorization(location.href, {
+  timeoutMs: 15_000
+});
+const nativeResult = await session.completeAuthorization(deepLinkUrl, {
+  signal: appForeground.signal,
+  timeoutMs: 15_000
+});
+```
+
+Unknown writes are recovered through their durable handles, never by calling
+the original mutation again with reconstructed input:
+
+```ts
+for (const pending of connection.pendingMutations()) {
+  showRecoveryAction(pending.requestId, async () => {
+    const recovered = await pending.recover({ timeoutMs: 30_000 });
+    if (!recovered.ok) renderProblem(recovered.problem);
+  });
+}
+```
 
 `MdbaseConnect` is the application-level authorization registry.
 `MdbaseApplicationSession` is the normal application boundary: it owns active
@@ -424,10 +478,11 @@ can show authoritative reference impact before asking for confirmation.
 applying, completed, and cancelled phases with an impact estimate. Cancellation
 remains available during an encrypted local/relay mutation because the SDK
 persists its exact encrypted request before dispatch. If waiting is cancelled
-after dispatch, `pendingMutation()` reports the interruption and
-`resumePendingMutation()` safely recovers the connector's durable receipt using
-the exact same input. Other providers are cancellable until apply begins and
-then run to a definitive response.
+after dispatch, `pendingMutations()` exposes durable handles. A handle's
+`recover()` method resends the exact stored request identity and bytes; callers
+never reconstruct or resupply mutation input. Multiple interrupted writes are
+independently recoverable. Other providers are cancellable until apply begins
+and then run to a definitive response.
 Authorization is retained in `localStorage` by default. Access tokens are
 renewed with rotating refresh tokens; passing a custom `Storage` implementation
 allows a host to choose another persistence boundary.
