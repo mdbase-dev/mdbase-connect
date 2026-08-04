@@ -14,8 +14,8 @@ tags:
   - user-experience
   - consumers
 created_at: 2026-08-04T10:51:42+10:00
-updated_at: 2026-08-04T21:58:03+10:00
-progress_summary: Phases 0-1 are complete. Phase 2 journals are implemented across local and hosted authorities, with the remaining gate limited to the generated full mutator termination matrix and observed desktop-platform CI. Phase 3 bounded IO/database waits and Phase 4 beta SDK surface are complete. Phase 5 management correctness is implemented but needs the remaining presentation/race matrix. Phase 6 candidate packaging and four consumer migrations are now active; Phase 7 has not started.
+updated_at: 2026-08-04T22:13:17+10:00
+progress_summary: Phases 0-1 are complete. Phase 2 journals are implemented across local and hosted authorities, with the remaining gate limited to the generated full mutator termination matrix and observed desktop-platform CI. Phases 3-5 are complete, including bounded waits, the frozen public SDK, and management race/upgrade correctness. Phase 6 now advances from Connect commit c78c22a into exact candidate packaging and four consumer migrations; Phase 7 has not started.
 type: task
 ---
 

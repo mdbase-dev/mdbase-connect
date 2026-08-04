@@ -9,8 +9,8 @@ phase: 6
 depends_on: [Beta hardening 06 - management correctness, Beta hardening 07 - public SDK surface]
 tags: [beta, packaging, consumers, editor, workouts, pickle, tasknotes]
 created_at: 2026-08-04T17:48:28+10:00
-updated_at: 2026-08-04T21:58:03+10:00
-progress_summary: The candidate SDK surface and package audit are green at Connect commit 0e6f95b; the in-repo Editor already uses connect.application(). No candidate artifacts have yet been generated or copied into the four canonical consumer checkouts. Next is to finish the management presentation gate, package one exact artifact set, record its source commit, then migrate Editor, Workouts, Pickle, and TaskNotes in order.
+updated_at: 2026-08-04T22:13:17+10:00
+progress_summary: Phase 5 is complete at Connect commit c78c22a, including the remaining management presentation and race matrix. No candidate artifacts have yet been generated or copied into the four canonical consumer checkouts. Next is to package this exact source commit, record the artifact suffix and hashes, then migrate Editor, Workouts, Pickle, and TaskNotes in order.
 type: task
 ---
 
@@ -27,10 +27,11 @@ durable response-loss recovery and every product-specific gate.
 - The actual SDK root, rather than a parallel candidate declaration, compiles
   all four consumer spikes and their removed-API assertions.
 - Workspace package audit and the in-repo Editor build/tests are green.
-- Artifact generation is deliberately deferred until the remaining management
-  UX test matrix is green, so all consumers receive one stable source commit.
+- The management UX matrix is complete and commit `c78c22a` is ready to be
+  treated as the artifact source candidate.
 
 ## Next
 
-Run `pnpm package:consumer`, record the source commit and artifact suffix, then
-migrate the canonical Editor checkout first without mixing package builds.
+Run `pnpm package:consumer` from commit `c78c22a`, record the source commit,
+artifact suffix, and hashes, then migrate the canonical Editor checkout first
+without mixing package builds.
