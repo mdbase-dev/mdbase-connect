@@ -46,12 +46,6 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     );
   }
 
-  createApplicationSession(
-    options: MdbaseApplicationSessionOptions
-  ): MdbaseApplicationSession<Frontmatter> {
-    return new MdbaseApplicationSession(this, options, this.internals.timeouts);
-  }
-
   /** The ordinary application lifecycle entry point. */
   application(
     options: MdbaseApplicationSessionOptions

@@ -85,7 +85,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
       manifest: new URL(".well-known/mdbase-app.json", appRoot).href,
       redirectUri: appRoot.href
     });
-    this.session = connect.createApplicationSession({
+    this.session = connect.application({
       selection: new MdbaseBrowserSelection({
         fallbackPath: appRoot.pathname
       }),

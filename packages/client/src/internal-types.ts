@@ -6,7 +6,8 @@ import type {
   GrantEncryption,
   FileCapability,
   GrantScope,
-  MdbaseOperationRequest
+  MdbaseOperationRequest,
+  MutationOperationIdentifier
 } from "@mdbase-dev/connect-protocol";
 import { encryptRelayRequest } from "./crypto.js";
 
@@ -72,7 +73,11 @@ export interface PendingMutation {
   collectionId: string;
   grantId?: string;
   keyId?: string;
+  keyHandle?: string;
+  applicationId?: string;
+  encryption?: GrantEncryption;
   operation: CollectionOperation;
+  mutation?: MutationOperationIdentifier;
   inputFingerprint: string;
   requestId: string;
   envelope?: EncryptedRelayOperationRequest;
@@ -87,6 +92,7 @@ export interface OperationAttempt {
   encryptedRequest?: Awaited<ReturnType<typeof encryptRelayRequest>>;
   directDeliveryUncertain?: boolean;
   pendingMutation?: boolean;
+  pendingMutationRecord?: PendingMutation;
   resumingMutation?: boolean;
 }
 

@@ -1,7 +1,8 @@
 # Candidate beta SDK public surface
 
-Status: Phase 0 frozen public-shape specification. The compile-only candidate
-module remains deliberately unexported until the Phase 4 implementation slice.
+Status: implemented beta candidate. The compile-only candidate path is an
+unexported alias of the real root entry point, so consumer fixtures cannot drift
+onto a parallel handwritten interface.
 
 ## Golden path and lifecycle hierarchy
 
@@ -23,8 +24,8 @@ The current fourth conceptual layer, `MdbaseCollectionClient`, remains a
 provider-neutral advanced/testing seam but is not part of the golden path and
 does not own state. Ordinary applications do not construct or navigate to it.
 
-The candidate factory is `connect.application(options)`. The beta.28
-`createApplicationSession` name is removed after controlled consumers migrate.
+The factory is `connect.application(options)`. The beta.28
+`createApplicationSession` name is removed in the candidate release.
 Raw register/authorize/token/transport helpers move to `/advanced`; they do not
 remain root aliases.
 
