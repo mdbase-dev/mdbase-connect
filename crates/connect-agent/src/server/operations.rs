@@ -728,7 +728,8 @@ impl AgentState {
                 )
             }
             Err(error) => {
-                return encrypted_problem_response(keys, metadata, operation_problem(&error))
+                metrics::claim_error(mutation_identifier, &error);
+                return encrypted_problem_response(keys, metadata, operation_problem(&error));
             }
         };
         for _ in 0..1_000 {

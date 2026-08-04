@@ -29,6 +29,15 @@ pub(super) fn outcome_unknown() {
     );
 }
 
+pub(super) fn request_id_conflict() {
+    tracing::warn!(
+        target: "mdbase_connect::metrics",
+        metric = "mutation_event",
+        mutation_event = "request_id_conflict",
+        "privacy-safe hosted provider metric"
+    );
+}
+
 impl HostedProvider {
     /// Emit one privacy-safe aggregate snapshot for deployment monitoring.
     pub async fn log_operation_mutation_metrics(&self) {

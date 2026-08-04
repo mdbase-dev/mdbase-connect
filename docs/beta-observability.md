@@ -10,7 +10,7 @@ authority or exporting collection data.
 | `metric` | Fields | Release interpretation |
 | --- | --- | --- |
 | `mutation_journal_snapshot` | journal state counts, oldest unfinished age, tombstone count, lease counts, database pool size/idle, registry schema version where applicable | Hold when unfinished age grows across samples, stale leases do not clear, or pool idle remains exhausted. |
-| `mutation_event` | `mutation_event`, canonical operation kind where available, terminal/recovery state | Count `lease_takeover`, `duplicate_replay`, and `outcome_unknown` separately. A replay is expected in response-loss drills; an unexplained unknown outcome blocks promotion. |
+| `mutation_event` | `mutation_event`, canonical operation kind where available, terminal/recovery state | Count `lease_takeover`, `duplicate_replay`, `request_id_conflict`, and `outcome_unknown` separately. A replay is expected in response-loss drills; an unexplained conflict or unknown outcome blocks promotion. |
 | `registry_open_failure` | typed error code | Separates migration/schema/integrity/busy failures without exporting the registry path. |
 | `mutation_journal_snapshot_failure` | typed provider error code | Treat as loss of recovery visibility and hold the canary. |
 | `boundary_response_failure` | typed response class and, for provider boundaries, HTTP status | Counts invalid relay/provider response classes without recording response bodies. |

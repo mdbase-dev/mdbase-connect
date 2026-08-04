@@ -981,6 +981,7 @@ pub(super) fn sync_receipt_applied(receipt: &SyncMutationReceipt) -> bool {
 }
 
 fn mutation_conflict(request_id: Uuid) -> ApiError {
+    super::mutation_metrics::request_id_conflict();
     ApiError::conflict(
         "mutation_request_conflict",
         "This request ID was already bound to different mutation input.",
