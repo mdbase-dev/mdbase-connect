@@ -208,6 +208,13 @@ export function registerErrorHandler(app: FastifyInstance): void {
         "Password authentication is temporarily unavailable."
       ));
     }
+    if (isDatabaseTimeoutError(error)) {
+      request.log.warn({ database_timeout_class: databaseTimeoutClass(error) }, "database wait timed out");
+      return reply.code(503).send(apiError(
+        "database_timeout",
+        "The service database is busy. Retry the request."
+      ));
+    }
     const statusCode = httpErrorStatus(error);
     if (statusCode === 413) {
       return reply.code(413).send(apiError(
@@ -227,4 +234,19 @@ export function registerErrorHandler(app: FastifyInstance): void {
       "The request could not be completed."
     ));
   });
+}
+
+export function isDatabaseTimeoutError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; message?: unknown };
+  return candidate.code === "57014"
+    || candidate.code === "55P03"
+    || candidate.message === "timeout exceeded when trying to connect";
+}
+
+function databaseTimeoutClass(error: unknown): "lock" | "pool" | "statement" {
+  const candidate = error as { code?: unknown };
+  if (candidate.code === "55P03") return "lock";
+  if (candidate.code === "57014") return "statement";
+  return "pool";
 }

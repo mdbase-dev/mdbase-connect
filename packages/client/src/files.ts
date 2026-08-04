@@ -13,6 +13,13 @@ import { FILE_PROTOCOL_VERSION } from "@mdbase-dev/connect-protocol";
 import { MdbaseConnectError, connectError } from "./errors.js";
 import { IncrementalSha256 } from "./file-sha256.js";
 import { BinaryPartReader } from "./file-stream-source.js";
+import type { ConnectRequestOptions } from "./operation-types.js";
+import {
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  DEFAULT_UPLOAD_TIMEOUT_MS,
+  createRequestBudget,
+  withCooperativeRequestBudget
+} from "./request-budget.js";
 
 const HASH_CHUNK_BYTES = 1024 * 1024;
 const DEFAULT_CONCURRENCY = 4;
@@ -43,19 +50,17 @@ export interface MdbaseFileProgress {
   totalBytes: number;
 }
 
-export interface MdbaseFileListOptions {
+export interface MdbaseFileListOptions extends ConnectRequestOptions {
   folder?: string;
   pageSize?: number;
-  signal?: AbortSignal;
 }
 
-export interface MdbaseFileUploadOptions {
+export interface MdbaseFileUploadOptions extends ConnectRequestOptions {
   mediaType?: string;
   ifRevision?: string;
   concurrency?: number;
   /** Stable retry key. Reuse it after an ambiguous failure to resume or replay commit. */
   transferId?: string;
-  signal?: AbortSignal;
   onProgress?: (progress: MdbaseFileProgress) => void;
 }
 
@@ -64,24 +69,21 @@ export type MdbaseFileStreamUploadOptions = Omit<
   "concurrency"
 >;
 
-export interface MdbaseFileDownloadOptions {
+export interface MdbaseFileDownloadOptions extends ConnectRequestOptions {
   concurrency?: number;
-  signal?: AbortSignal;
   onProgress?: (progress: MdbaseFileProgress) => void;
 }
 
-export interface MdbaseFileMoveOptions {
+export interface MdbaseFileMoveOptions extends ConnectRequestOptions {
   ifRevision?: string;
   /** Reuse after an ambiguous network failure to receive the original receipt. */
   mutationId?: string;
-  signal?: AbortSignal;
 }
 
-export interface MdbaseFileDeleteOptions {
+export interface MdbaseFileDeleteOptions extends ConnectRequestOptions {
   ifRevision?: string;
   /** Reuse after an ambiguous network failure to receive the original receipt. */
   mutationId?: string;
-  signal?: AbortSignal;
 }
 
 /** Internal transport seam used by direct and relayed encrypted chunk delivery. */
@@ -128,10 +130,13 @@ export class MdbaseFileClient {
   ) {}
 
   async *list(options: MdbaseFileListOptions = {}): AsyncGenerator<CollectionFileDescriptor> {
+    const budget = createRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS);
+    const signal = budget.signal;
+    try {
     this.requireAction("list");
     let after: string | undefined;
     do {
-      throwIfAborted(options.signal);
+      throwIfAborted(signal);
       const query = new URLSearchParams({
         protocol_version: String(FILE_PROTOCOL_VERSION),
         ...(options.folder ? { folder: options.folder } : {}),
@@ -142,23 +147,36 @@ export class MdbaseFileClient {
         "GET",
         `?${query.toString()}`,
         undefined,
-        options.signal
+        signal
       );
       if (page.protocol_version !== 1 || page.type !== "files_page" || !Array.isArray(page.files)) {
         throw connectError("invalid_operation_response", "The authority returned an invalid file page.");
       }
       for (const file of page.files) {
-        throwIfAborted(options.signal);
+        throwIfAborted(signal);
         yield file;
       }
       after = page.next;
     } while (after);
+    } finally {
+      budget.dispose();
+    }
   }
 
   async upload(
     path: string,
     source: MdbaseFileSource,
     options: MdbaseFileUploadOptions = {}
+  ): Promise<CollectionFileDescriptor> {
+    return withCooperativeRequestBudget(options, DEFAULT_UPLOAD_TIMEOUT_MS, (budget) =>
+      this.uploadWithinBudget(path, source, { ...options, signal: budget.signal, timeoutMs: null })
+    );
+  }
+
+  private async uploadWithinBudget(
+    path: string,
+    source: MdbaseFileSource,
+    options: MdbaseFileUploadOptions
   ): Promise<CollectionFileDescriptor> {
     this.requireAction(options.ifRevision ? "replace" : "add");
     const blob = sourceBlob(source, options.mediaType);
@@ -191,6 +209,20 @@ export class MdbaseFileClient {
     path: string,
     source: MdbaseFileStreamSource,
     options: MdbaseFileStreamUploadOptions = {}
+  ): Promise<CollectionFileDescriptor> {
+    return withCooperativeRequestBudget(options, DEFAULT_UPLOAD_TIMEOUT_MS, (budget) =>
+      this.uploadStreamWithinBudget(path, source, {
+        ...options,
+        signal: budget.signal,
+        timeoutMs: null
+      })
+    );
+  }
+
+  private async uploadStreamWithinBudget(
+    path: string,
+    source: MdbaseFileStreamSource,
+    options: MdbaseFileStreamUploadOptions
   ): Promise<CollectionFileDescriptor> {
     this.requireAction(options.ifRevision ? "replace" : "add");
     if (!Number.isSafeInteger(source.size) || source.size < 0) {
@@ -389,6 +421,16 @@ export class MdbaseFileClient {
     file: CollectionFileDescriptor,
     options: MdbaseFileDownloadOptions = {}
   ): Promise<ReadableStream<Uint8Array>> {
+    return withCooperativeRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS, (budget) =>
+      this.openDownloadStream(file, options, budget.signal)
+    );
+  }
+
+  private async openDownloadStream(
+    file: CollectionFileDescriptor,
+    options: MdbaseFileDownloadOptions,
+    startupSignal: AbortSignal
+  ): Promise<ReadableStream<Uint8Array>> {
     this.requireAction("read");
     validConcurrency(options.concurrency);
     const transferId = crypto.randomUUID();
@@ -400,7 +442,7 @@ export class MdbaseFileClient {
         transfer_id: transferId,
         file_id: file.file_id,
         revision: file.revision
-      }, options.signal);
+      }, startupSignal);
       requireTransferSession(session, transferId, "download");
       if (session.total_size !== file.size
           || session.strategy.kind !== "object_ranges"
@@ -557,6 +599,16 @@ export class MdbaseFileClient {
     path: string,
     options: MdbaseFileMoveOptions = {}
   ): Promise<CollectionFileDescriptor> {
+    return withCooperativeRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS, (budget) =>
+      this.moveWithinBudget(file, path, { ...options, signal: budget.signal, timeoutMs: null })
+    );
+  }
+
+  private async moveWithinBudget(
+    file: CollectionFileDescriptor,
+    path: string,
+    options: MdbaseFileMoveOptions
+  ): Promise<CollectionFileDescriptor> {
     this.requireAction("move");
     const mutationId = options.mutationId ?? crypto.randomUUID();
     let receipt: MoveFileReceipt;
@@ -596,6 +648,15 @@ export class MdbaseFileClient {
   async delete(
     file: CollectionFileDescriptor,
     options: MdbaseFileDeleteOptions = {}
+  ): Promise<DeleteFileReceipt> {
+    return withCooperativeRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS, (budget) =>
+      this.deleteWithinBudget(file, { ...options, signal: budget.signal, timeoutMs: null })
+    );
+  }
+
+  private async deleteWithinBudget(
+    file: CollectionFileDescriptor,
+    options: MdbaseFileDeleteOptions
   ): Promise<DeleteFileReceipt> {
     this.requireAction("delete");
     const mutationId = options.mutationId ?? crypto.randomUUID();

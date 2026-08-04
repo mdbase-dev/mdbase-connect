@@ -32,7 +32,7 @@ import type {
   MdbaseConnectionRoute
 } from "./connection-types.js";
 import type {
-  OperationRequestOptions,
+  ConnectRequestOptions,
   PendingMutationSummary
 } from "./operation-types.js";
 import { ConnectionFileTransport } from "./connection-file-transport.js";
@@ -49,6 +49,7 @@ import {
 } from "./operation-helpers.js";
 import {
   apiError,
+  decodeJsonResponse,
   oauthErrorCode,
   parseGrantScope,
   parseStored,
@@ -56,6 +57,13 @@ import {
   validStoredEncryption,
   validFileCapability
 } from "./runtime-utils.js";
+import {
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  DEFAULT_STARTUP_TIMEOUT_MS,
+  DEFAULT_SYNC_TIMEOUT_MS,
+  withCooperativeRequestBudget,
+  withRequestBudget
+} from "./request-budget.js";
 
 export interface ConnectionTransportInternals {
   readonly relayEncryption: "required" | "disabled";
@@ -111,8 +119,8 @@ export class ConnectionTransport {
       keyStore: this.keyStore,
       serverUrl: this.serverUrl,
       loopbackUrl: this.loopbackUrl,
-      authorizedToken: () => this.authorizedToken(),
-      refreshAuthorization: () => this.refreshAuthorization(),
+      authorizedToken: (signal) => this.authorizedToken({ signal, timeoutMs: null }),
+      refreshAuthorization: (signal) => this.refreshAuthorization(signal),
       shouldAttemptDirect: (token) => this.shouldAttemptDirect(token),
       onDirectAvailable: () => {
         this.markDirectAvailable();
@@ -140,7 +148,13 @@ export class ConnectionTransport {
     this.emitConnection();
   }
 
-  async checkDirectAccess(): Promise<DirectAccessStatus> {
+  async checkDirectAccess(options: ConnectRequestOptions = {}): Promise<DirectAccessStatus> {
+    return withRequestBudget(options, DEFAULT_STARTUP_TIMEOUT_MS, (budget) =>
+      this.checkDirectAccessWithinBudget(budget.signal)
+    );
+  }
+
+  private async checkDirectAccessWithinBudget(signal: AbortSignal): Promise<DirectAccessStatus> {
     const token = this.currentToken();
     if (!this.directEligible(token)) return this.setDirectStatus("disabled");
     const permission = await localNetworkPermission();
@@ -149,16 +163,22 @@ export class ConnectionTransport {
         && this.storage.getItem(this.directPreferenceKey()) !== "enabled") {
       return this.setDirectStatus("permission_required");
     }
-    return this.probeDirectAccess();
+    return this.probeDirectAccess(signal);
   }
 
   /** Call from a user gesture to request browser permission for direct local access. */
-  async requestDirectAccess(): Promise<DirectAccessStatus> {
+  async requestDirectAccess(options: ConnectRequestOptions = {}): Promise<DirectAccessStatus> {
+    return withRequestBudget(options, DEFAULT_STARTUP_TIMEOUT_MS, (budget) =>
+      this.requestDirectAccessWithinBudget(budget.signal)
+    );
+  }
+
+  private async requestDirectAccessWithinBudget(signal: AbortSignal): Promise<DirectAccessStatus> {
     const token = this.currentToken();
     if (!this.directCapable(token)) return this.setDirectStatus("disabled");
     this.storage.setItem(this.directPreferenceKey(), "enabled");
     this.directRetryAt = 0;
-    return this.probeDirectAccess();
+    return this.probeDirectAccess(signal);
   }
 
   disableDirectAccess(): void {
@@ -185,7 +205,7 @@ export class ConnectionTransport {
 
   async resumePendingMutation<Result>(
     input: unknown,
-    options?: OperationRequestOptions
+    options?: ConnectRequestOptions
   ): Promise<Result> {
     const pending = this.pendingMutation();
     if (!pending) {
@@ -200,7 +220,20 @@ export class ConnectionTransport {
   async performOperation<Result>(
     operation: CollectionOperation,
     input: unknown,
-    options: OperationRequestOptions = {}
+    options: ConnectRequestOptions = {}
+  ): Promise<Result> {
+    return withCooperativeRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS, (budget) =>
+      this.performOperationWithinBudget<Result>(operation, input, {
+        ...options,
+        signal: budget.signal
+      })
+    );
+  }
+
+  private async performOperationWithinBudget<Result>(
+    operation: CollectionOperation,
+    input: unknown,
+    options: ConnectRequestOptions
   ): Promise<Result> {
     throwIfCancelled(options.signal);
     let token = this.currentToken();
@@ -216,7 +249,7 @@ export class ConnectionTransport {
     }
     let tryDirect = await this.shouldAttemptDirect(token);
     if (!tryDirect) {
-      token = await this.authorizedToken();
+      token = await this.authorizedToken({ signal: options.signal, timeoutMs: null });
       if (!token) throw connectError("not_authorized", "Reconnect this application to continue.");
     }
     let attempt: OperationAttempt;
@@ -232,7 +265,11 @@ export class ConnectionTransport {
     }
     let response = attempt.response;
     const staleBinding = response.status === 409
-      && (await response.clone().json().catch(() => null))?.error?.code === "encryption_binding_stale";
+      && (await decodeJsonResponse(
+        response.clone(),
+        "invalid_operation_response",
+        "The collection authority returned an invalid operation response."
+      ).catch(() => null))?.error?.code === "encryption_binding_stale";
     if ((response.status === 401 || staleBinding) && token.refreshToken) {
       if (attempt.pendingMutation
           && (attempt.directDeliveryUncertain
@@ -244,7 +281,7 @@ export class ConnectionTransport {
         );
       }
       if (attempt.pendingMutation) this.clearPendingMutation();
-      token = await this.refreshAuthorization();
+      token = await this.refreshAuthorization(options.signal);
       tryDirect = await this.shouldAttemptDirect(token);
       try {
         attempt = await this.sendOperation(token, operation, input, tryDirect, options);
@@ -260,7 +297,11 @@ export class ConnectionTransport {
     }
     let body: any;
     try {
-      body = await response.json();
+      body = await decodeJsonResponse(
+        response,
+        "invalid_operation_response",
+        "The collection authority returned a response that is not valid JSON."
+      );
     } catch (cause) {
       if (attempt.pendingMutation) throw unknownMutationOutcome(cause);
       throw connectError(
@@ -365,21 +406,12 @@ export class ConnectionTransport {
     replicaId: string,
     method: "GET" | "POST",
     path: string,
-    input?: unknown
+    input?: unknown,
+    options: ConnectRequestOptions = {}
   ): Promise<Result> {
-    let token = await this.authorizedToken();
-    if (!token?.authority
-        || token.collectionId !== collectionId
-        || token.authority.replicaId !== replicaId) {
-      throw connectError(
-        "authority_authorization_changed",
-        "Reconnect this collection authority before synchronizing."
-      );
-    }
-    let response = await this.sendAuthoritySyncRequest(token, method, path, input);
-    if (response.status === 401 && token.refreshToken) {
-      token = await this.refreshAuthorization();
-      if (!token.authority
+    return withCooperativeRequestBudget(options, DEFAULT_SYNC_TIMEOUT_MS, async (budget) => {
+      let token = await this.authorizedToken({ signal: budget.signal, timeoutMs: null });
+      if (!token?.authority
           || token.collectionId !== collectionId
           || token.authority.replicaId !== replicaId) {
         throw connectError(
@@ -387,18 +419,46 @@ export class ConnectionTransport {
           "Reconnect this collection authority before synchronizing."
         );
       }
-      response = await this.sendAuthoritySyncRequest(token, method, path, input);
-    }
-    const body = await response.json();
-    if (!response.ok) throw apiError(body, "sync_failed", "Collection synchronization failed.", response.status);
-    return body as Result;
+      try {
+        let response = await this.sendAuthoritySyncRequest(token, method, path, input, budget.signal);
+        if (response.status === 401 && token.refreshToken) {
+          token = await this.refreshAuthorization(budget.signal);
+          if (!token.authority
+              || token.collectionId !== collectionId
+              || token.authority.replicaId !== replicaId) {
+            throw connectError(
+              "authority_authorization_changed",
+              "Reconnect this collection authority before synchronizing."
+            );
+          }
+          response = await this.sendAuthoritySyncRequest(token, method, path, input, budget.signal);
+        }
+        const body = await decodeJsonResponse(
+          response,
+          "invalid_operation_response",
+          "The collection authority returned an invalid synchronization response."
+        );
+        if (!response.ok) {
+          throw apiError(body, "sync_failed", "Collection synchronization failed.", response.status);
+        }
+        return body as Result;
+      } catch (error) {
+        throw operationTransportError(
+          error,
+          budget.signal,
+          method === "POST" && path === "mutations",
+          "hosted_provider_unavailable"
+        );
+      }
+    });
   }
 
   private async sendAuthoritySyncRequest(
     token: StoredToken,
     method: "GET" | "POST",
     path: string,
-    input?: unknown
+    input: unknown,
+    signal: AbortSignal
   ): Promise<Response> {
     if (!token.authority) {
       throw connectError("not_remote_authority", "This authorization has no remote authority endpoint.");
@@ -415,7 +475,8 @@ export class ConnectionTransport {
           ...(input === undefined ? {} : { "content-type": "application/json" }),
           ...proof
         },
-        ...(body === undefined ? {} : { body })
+        ...(body === undefined ? {} : { body }),
+        signal
       }
     );
   }
@@ -425,7 +486,7 @@ export class ConnectionTransport {
     operation: CollectionOperation,
     input: unknown,
     tryDirect: boolean,
-    options: OperationRequestOptions = {}
+    options: ConnectRequestOptions = {}
   ): Promise<OperationAttempt> {
     let body: unknown = input ?? {};
     let encryptedRequest: Awaited<ReturnType<typeof encryptRelayRequest>> | undefined;
@@ -555,7 +616,7 @@ export class ConnectionTransport {
       try {
         relayToken = token.expiresAt > Date.now() + 30_000
           ? token
-          : await this.refreshAuthorization();
+          : await this.refreshAuthorization(options.signal);
       } catch (error) {
         if (pendingMutation && (directDeliveryUncertain || resumingMutation)) throw unknownMutationOutcome(error);
         throw error;
@@ -653,14 +714,19 @@ export class ConnectionTransport {
     return true;
   }
 
-  private async probeDirectAccess(): Promise<DirectAccessStatus> {
+  private async probeDirectAccess(signal?: AbortSignal): Promise<DirectAccessStatus> {
     this.setDirectStatus("checking");
     try {
       const response = await fetch(`${this.loopbackUrl}/v1/ready`, loopbackRequest({
         method: "GET",
-        cache: "no-store"
+        cache: "no-store",
+        signal
       }));
-      const body = await response.json().catch(() => null);
+      const body = await decodeJsonResponse(
+        response,
+        "invalid_operation_response",
+        "The connector returned an invalid readiness response."
+      ).catch(() => null);
       if (response.ok
           && body?.service === "mdbase-connect"
           && body?.loopback_protocol_version === 1
@@ -798,7 +864,7 @@ export class ConnectionTransport {
     return token;
   }
 
-  async authorizedToken(): Promise<StoredToken | null> {
+  async authorizedToken(options: ConnectRequestOptions = {}): Promise<StoredToken | null> {
     const token = this.currentToken();
     if (!token) return null;
     if (token.expiresAt > Date.now() + 30_000) return token;
@@ -812,18 +878,18 @@ export class ConnectionTransport {
       this.internals.removeToken(this.collectionId, token.keyHandle);
       return null;
     }
-    return this.refreshAuthorization();
+    return this.refreshAuthorization(options.signal);
   }
 
-  private refreshAuthorization(): Promise<StoredToken> {
+  private refreshAuthorization(signal?: AbortSignal): Promise<StoredToken> {
     if (this.refreshPromise) return this.refreshPromise;
-    this.refreshPromise = this.performRefresh().finally(() => {
+    this.refreshPromise = this.performRefresh(signal).finally(() => {
       this.refreshPromise = null;
     });
     return this.refreshPromise;
   }
 
-  private async performRefresh(): Promise<StoredToken> {
+  private async performRefresh(signal?: AbortSignal): Promise<StoredToken> {
     const current = this.currentToken();
     if (!current?.refreshToken) {
       throw connectError("not_authorized", "Reconnect this application to continue.");
@@ -856,9 +922,14 @@ export class ConnectionTransport {
         "content-type": "application/x-www-form-urlencoded",
         ...proof
       },
-      body: refreshBody
+      body: refreshBody,
+      signal
     });
-    const body = await response.json();
+    const body = await decodeJsonResponse(
+      response,
+      "invalid_token_response",
+      "The authorization service returned an invalid token response."
+    );
     if (!response.ok) {
       const latest = this.currentToken();
       if (latest?.refreshToken && latest.refreshToken !== attemptedRefreshToken) {

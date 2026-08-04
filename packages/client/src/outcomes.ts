@@ -29,12 +29,15 @@ export type ConnectOutcome<
 export type CommonOperationProblemCode =
   | "access_denied"
   | "access_paused"
+  | "authorization_binding_incompatible"
   | "authorization_expired"
+  | "capability_contract_incompatible"
   | "collection_access_denied"
   | "connector_identity_changed"
   | "connector_offline"
   | "connector_upgrade_required"
   | "direct_operation_rejected"
+  | "durable_mutation_unsupported"
   | "operation_outcome_unknown"
   | "encryption_required"
   | "encrypted_relay_rejected"
@@ -44,6 +47,8 @@ export type CommonOperationProblemCode =
   | "invalid_operation_response"
   | "invalid_request"
   | "missing_grant_key"
+  | "mutation_recovery_expired"
+  | "mutation_request_conflict"
   | "not_authorized"
   | "operation_cancelled"
   | "operation_failed"
@@ -52,17 +57,21 @@ export type CommonOperationProblemCode =
   | "relay_unavailable"
   | "temporarily_unavailable"
   | "timeout"
+  | "transport_protocol_incompatible"
   | "unsupported_operation";
 
 export const COMMON_OPERATION_PROBLEM_CODES = [
   "access_denied",
   "access_paused",
+  "authorization_binding_incompatible",
   "authorization_expired",
+  "capability_contract_incompatible",
   "collection_access_denied",
   "connector_identity_changed",
   "connector_offline",
   "connector_upgrade_required",
   "direct_operation_rejected",
+  "durable_mutation_unsupported",
   "operation_outcome_unknown",
   "encryption_required",
   "encrypted_relay_rejected",
@@ -72,6 +81,8 @@ export const COMMON_OPERATION_PROBLEM_CODES = [
   "invalid_operation_response",
   "invalid_request",
   "missing_grant_key",
+  "mutation_recovery_expired",
+  "mutation_request_conflict",
   "not_authorized",
   "operation_cancelled",
   "operation_failed",
@@ -80,6 +91,7 @@ export const COMMON_OPERATION_PROBLEM_CODES = [
   "relay_unavailable",
   "temporarily_unavailable",
   "timeout",
+  "transport_protocol_incompatible",
   "unsupported_operation"
 ] as const satisfies readonly CommonOperationProblemCode[];
 
@@ -89,6 +101,7 @@ export const ALL_CONNECT_PROBLEM_CODES = Object.keys(
 
 export type RegistrationProblemCode =
   | "discovery_failed"
+  | "invalid_operation_response"
   | "invalid_application_manifest"
   | "invalid_request"
   | "manifest_load_failed"
@@ -98,6 +111,7 @@ export type RegistrationProblemCode =
 
 export const REGISTRATION_PROBLEM_CODES = [
   "discovery_failed",
+  "invalid_operation_response",
   "invalid_application_manifest",
   "invalid_request",
   "manifest_load_failed",
@@ -111,9 +125,11 @@ export type AuthorizationProblemCode =
   | "access_denied"
   | "application_identity_unavailable"
   | "approval_window_blocked"
+  | "authorization_binding_incompatible"
   | "authorization_cancelled"
   | "authorization_replayed"
   | "browser_required"
+  | "capability_contract_incompatible"
   | "collection_access_denied"
   | "collection_configuration_invalid"
   | "collection_contracts_missing"
@@ -128,6 +144,7 @@ export type AuthorizationProblemCode =
   | "connector_offline"
   | "connector_upgrade_required"
   | "device_authorization_failed"
+  | "durable_mutation_unsupported"
   | "encryption_required"
   | "expired_token"
   | "invalid_application_authorization"
@@ -136,16 +153,19 @@ export type AuthorizationProblemCode =
   | "invalid_token_response"
   | "scope_denied"
   | "reconnect_required"
-  | "token_exchange_failed";
+  | "token_exchange_failed"
+  | "transport_protocol_incompatible";
 
 export const AUTHORIZATION_PROBLEM_CODES = [
   ...REGISTRATION_PROBLEM_CODES,
   "access_denied",
   "application_identity_unavailable",
   "approval_window_blocked",
+  "authorization_binding_incompatible",
   "authorization_cancelled",
   "authorization_replayed",
   "browser_required",
+  "capability_contract_incompatible",
   "collection_access_denied",
   "collection_configuration_invalid",
   "collection_contracts_missing",
@@ -160,6 +180,7 @@ export const AUTHORIZATION_PROBLEM_CODES = [
   "connector_offline",
   "connector_upgrade_required",
   "device_authorization_failed",
+  "durable_mutation_unsupported",
   "encryption_required",
   "expired_token",
   "invalid_application_authorization",
@@ -168,12 +189,14 @@ export const AUTHORIZATION_PROBLEM_CODES = [
   "invalid_token_response",
   "scope_denied",
   "reconnect_required",
-  "token_exchange_failed"
+  "token_exchange_failed",
+  "transport_protocol_incompatible"
 ] as const satisfies readonly AuthorizationProblemCode[];
 
 export type NotificationProblemCode =
   | RegistrationProblemCode
   | "authorization_expired"
+  | "invalid_operation_response"
   | "invalid_push_subscription"
   | "managed_fcm_not_declared"
   | "not_authorized"
@@ -187,6 +210,7 @@ export type NotificationProblemCode =
 export const NOTIFICATION_PROBLEM_CODES = [
   ...REGISTRATION_PROBLEM_CODES,
   "authorization_expired",
+  "invalid_operation_response",
   "invalid_push_subscription",
   "managed_fcm_not_declared",
   "not_authorized",

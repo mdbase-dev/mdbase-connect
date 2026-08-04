@@ -1885,12 +1885,16 @@ describe("mdbase connect server", () => {
     expect(broadened.statusCode).toBe(400);
     revokeReplica.mockRejectedValueOnce(new Error("provider unavailable"));
     const pendingRevocation = await app.inject({
-      method: "DELETE",
-      url: `/v1/connectors/hosted/grants/${grantId}`,
-      headers: { authorization: `Bearer ${connector.token}` }
+      method: "POST",
+      url: "/v1/grants/revoke-batch",
+      headers: { cookie },
+      payload: { grant_ids: [grantId] }
     });
-    expect(pendingRevocation.statusCode).toBe(200);
-    expect(pendingRevocation.json()).toEqual({ ok: true, revocation_status: "revoking" });
+    expect(pendingRevocation.statusCode, JSON.stringify(pendingRevocation.json())).toBe(200);
+    expect(pendingRevocation.json()).toEqual({
+      ok: true,
+      results: [{ grant_id: grantId, status: "revoking" }]
+    });
     const pendingControl = await app.inject({
       method: "GET",
       url: "/v1/connectors/hosted-control",

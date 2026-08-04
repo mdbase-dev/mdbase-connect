@@ -37,7 +37,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
-      setAccount(await client.account(signal));
+      setAccount(await client.account({ signal }));
       setError("");
     } catch (reason) {
       if (signal?.aborted) return;

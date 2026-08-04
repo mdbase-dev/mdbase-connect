@@ -357,10 +357,29 @@ export class ConnectCollectionGateway implements CollectionGateway {
   }
 
   async watch(onChange: (change: import("@mdbase-dev/connect").CollectionChange) => void, signal: AbortSignal, onStatus?: (status: import("@mdbase-dev/connect").WatchStatus) => void): Promise<void> {
-    for await (const outcome of this.requireConnection().watch({ signal, pollIntervalMs: 1_500, onStatus })) {
-      const change = unwrapConnectOutcome(outcome);
-      if (change.type.startsWith("mdbase.record.") || change.type === "mdbase.type.changed") onChange(change);
-    }
+    const opened = unwrapConnectOutcome(await this.requireConnection().watch({
+      pollIntervalMs: 1_500,
+      lifetimeSignal: signal
+    }));
+    if (signal.aborted) return;
+    await new Promise<void>((resolve, reject) => {
+      let stop: () => void = () => undefined;
+      stop = opened.subscribe(
+        (change) => {
+          if (change.type.startsWith("mdbase.record.") || change.type === "mdbase.type.changed") onChange(change);
+        },
+        onStatus,
+        (problem) => {
+          stop();
+          if (signal.aborted) resolve();
+          else reject(new MdbaseConnectError(problem));
+        }
+      );
+      signal.addEventListener("abort", () => {
+        stop();
+        resolve();
+      }, { once: true });
+    });
   }
 
   private activeConnection(): MdbaseConnection<NoteFrontmatter> | null {

@@ -1,6 +1,6 @@
 import { connectError } from "./errors.js";
 import type { StoredToken } from "./internal-types.js";
-import { apiError } from "./runtime-utils.js";
+import { apiError, decodeJsonResponse } from "./runtime-utils.js";
 
 type ProofHeaders = (
   token: StoredToken,
@@ -72,7 +72,11 @@ export async function performHostedFileRequest<Result>(
       active, method, path, input, signal, proofHeaders
     );
   }
-  const body = await response.json().catch(() => ({}));
+  const body = await decodeJsonResponse(
+    response,
+    "invalid_operation_response",
+    "The hosted authority returned an invalid file response."
+  );
   if (!response.ok) {
     throw apiError(
       body,
@@ -109,7 +113,11 @@ export async function performHostedFilePartRequest(
     );
   }
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
+    const body = await decodeJsonResponse(
+      response,
+      "invalid_operation_response",
+      "The hosted authority returned an invalid file range error response."
+    );
     throw apiError(
       body,
       "operation_failed",

@@ -4,13 +4,19 @@ export function abortableDelay(
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
-      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+      reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
       return;
     }
-    const timeout = setTimeout(resolve, milliseconds);
-    signal?.addEventListener("abort", () => {
+    const cleanup = () => signal?.removeEventListener("abort", abort);
+    const timeout = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, milliseconds);
+    const abort = () => {
       clearTimeout(timeout);
-      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
-    }, { once: true });
+      cleanup();
+      reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", abort, { once: true });
   });
 }

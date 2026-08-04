@@ -1,21 +1,22 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  createPkce,
   MdbaseBrowserSelection,
-  MdbaseCollectionClient,
   MdbaseConnect,
   MdbaseConnectError,
   ConnectOutcomeError,
   connectError,
   connectSuccess,
   isRetryableConnectError,
-  MemoryApplicationIdentityStore,
-  MemoryGrantKeyStore,
   parseMdbaseNativeNotificationData,
   parseMdbasePushPayload,
   showMdbasePushNotification,
   unwrapConnectOutcome
 } from "./index.js";
+import { createPkce, MdbaseCollectionClient } from "./advanced.js";
+import {
+  MemoryApplicationIdentityStore,
+  MemoryGrantKeyStore
+} from "./crypto-entry.js";
 import { MdbaseSession } from "./session.js";
 import type {
   GrantEncryption,
@@ -3030,6 +3031,58 @@ schema:
   });
 });
 
+describe("bounded watch subscriptions", () => {
+  it("bounds startup even when fetch ignores AbortSignal", async () => {
+    vi.useFakeTimers();
+    const connection = watchConnection();
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      () => new Promise<Response>(() => undefined)
+    );
+
+    const pending = connection.watch({}, { timeoutMs: 25 });
+    const result = expect(pending).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "timeout", operation_outcome: "not_sent" }
+    });
+    await vi.advanceTimersByTimeAsync(25);
+    await result;
+  });
+
+  it("returns an abortable subscription and preserves startup events", async () => {
+    const connection = watchConnection();
+    const change = {
+      cursor: 2,
+      type: "mdbase.record.modified",
+      occurred_at: "2026-08-04T00:00:00Z",
+      payload: { path: "notes/one.md" }
+    };
+    vi.spyOn(globalThis, "fetch")
+      .mockImplementationOnce(async (_input, init) => {
+        const request = JSON.parse(String(init?.body));
+        return jsonResponse({
+          protocol_version: 1,
+          request_id: request.request_id,
+          ok: true,
+          result: { events: [change], cursor: 2, has_more: false }
+        });
+      })
+      .mockImplementation((_input, init) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+      }));
+
+    const opened = await connection.watch({ cursor: 1 });
+    expect(opened).toEqual(expect.objectContaining({ ok: true }));
+    if (!opened.ok) return;
+    const changes: unknown[] = [];
+    const statuses: string[] = [];
+    opened.value.subscribe((event) => changes.push(event), (status) => statuses.push(status.state));
+    expect(changes).toEqual([change]);
+    expect(statuses).toEqual(["connected"]);
+    opened.value.close();
+    expect(opened.value.status.state).toBe("closed");
+  });
+});
+
 async function encryptedConnection() {
   const storage = new MemoryStorage();
   const keyStore = new MemoryGrantKeyStore();
@@ -3125,6 +3178,30 @@ function progressConnection() {
     relayEncryption: "disabled"
   });
   return manager.connection(TEST_COLLECTION_ID)!;
+}
+
+function watchConnection() {
+  const serverUrl = "https://connect.example";
+  const manifest = "https://tasks.example/manifest.json";
+  const storage = new MemoryStorage();
+  storage.setItem(storedTokenKey(serverUrl, manifest, TEST_COLLECTION_ID), JSON.stringify({
+    version: 1,
+    accessToken: "watch-token",
+    clientId: TEST_APPLICATION_ID,
+    collectionId: TEST_COLLECTION_ID,
+    collectionName: "Tasks",
+    operations: ["changes"],
+    scope: { contracts: [], access: "full_collection" },
+    expiresAt: Date.now() + 60_000,
+    savedAt: Date.now()
+  }));
+  return new MdbaseConnect({
+    serverUrl,
+    manifest,
+    redirectUri: "https://tasks.example/callback",
+    storage,
+    relayEncryption: "disabled"
+  }).connection(TEST_COLLECTION_ID)!;
 }
 
 class MemoryStorage implements Storage {

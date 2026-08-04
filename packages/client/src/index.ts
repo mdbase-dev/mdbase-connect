@@ -1,32 +1,5 @@
-export {
-  decryptRelayResponse,
-  encryptRelayRequest,
-  IndexedDbGrantKeyStore,
-  MemoryGrantKeyStore,
-  RelayCryptoError,
-  type RelayBinding,
-  type GrantKeyRecord,
-  type GrantKeyStore
-} from "./crypto.js";
-export {
-  FileTransferCryptoError,
-  GrantFileTransferCipher,
-  type FileTransferBinding
-} from "./file-crypto.js";
-export {
-  ApplicationIdentityStoreError,
-  IndexedDbApplicationIdentityStore,
-  MemoryApplicationIdentityStore,
-  applicationInstallationId,
-  authorizationSigningMessage,
-  signApplicationAuthorization,
-  type ApplicationIdentity,
-  type ApplicationIdentityStore
-} from "./application-identity.js";
-
 export * from "./authorization-types.js";
 export * from "./application-session.js";
-export * from "./collection-client.js";
 export * from "./connect-options.js";
 export * from "./mdbase-connect.js";
 export * from "./connection.js";
@@ -37,9 +10,10 @@ export * from "./files.js";
 export * from "./notifications.js";
 export * from "./outcomes.js";
 export * from "./operation-types.js";
+export * from "./external-store.js";
+export { type RequestBudget } from "./request-budget.js";
 export * from "./selection.js";
 export type { MdbaseUnavailableReason } from "./session.js";
-export { createPkce } from "./runtime-utils.js";
 
 export type {
   ApplicationProvisions,

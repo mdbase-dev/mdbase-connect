@@ -9,6 +9,7 @@ import type {
   SyncSession,
   SyncSnapshotPage
 } from "@mdbase-dev/connect-protocol";
+import type { ConnectRequestOptions } from "./operation-types.js";
 
 export type MdbaseConnectionRoute = "remote" | "direct" | "relay";
 export type DirectAccessStatus =
@@ -41,10 +42,10 @@ export interface MdbaseAuthorizationCapabilities {
 }
 
 export interface MdbaseSyncTransport<Frontmatter extends JsonObject = JsonObject> {
-  openSession(): Promise<SyncSession>;
-  snapshot(snapshotId: string, page?: string): Promise<SyncSnapshotPage<Frontmatter>>;
-  changes(after: number, limit?: number): Promise<SyncChangesPage<Frontmatter>>;
-  mutate(mutation: SyncMutation): Promise<SyncMutationReceipt<Frontmatter>>;
+  openSession(options?: ConnectRequestOptions): Promise<SyncSession>;
+  snapshot(snapshotId: string, page?: string, options?: ConnectRequestOptions): Promise<SyncSnapshotPage<Frontmatter>>;
+  changes(after: number, limit?: number, options?: ConnectRequestOptions): Promise<SyncChangesPage<Frontmatter>>;
+  mutate(mutation: SyncMutation, options?: ConnectRequestOptions): Promise<SyncMutationReceipt<Frontmatter>>;
 }
 
 export interface MdbaseSyncConnection<Frontmatter extends JsonObject = JsonObject> {

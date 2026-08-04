@@ -60,7 +60,7 @@ import type {
   MdbaseTimer,
   MdbaseTimerList,
   MdbaseTimerReconciliation,
-  OperationRequestOptions,
+  ConnectRequestOptions,
   QueryInput,
   QueryPage,
   QueryPagesOptions,
@@ -87,7 +87,7 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
   operation<Result>(
     operation: CollectionOperation,
     input: unknown,
-    options?: OperationRequestOptions
+    options?: ConnectRequestOptions
   ): Promise<ConnectOutcome<Result>> {
     return captureConnectOutcome(
       () => this.transport.operation<Result>(operation, input, options),
@@ -95,24 +95,24 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
     );
   }
 
-  describe(): Promise<ConnectOutcome<CollectionDescription, CollectionDescriptionProblemCode>> {
-    return this.rawOperation("describe", {}, COLLECTION_DESCRIPTION_PROBLEM_CODES);
+  describe(options?: ConnectRequestOptions): Promise<ConnectOutcome<CollectionDescription, CollectionDescriptionProblemCode>> {
+    return this.rawOperation("describe", {}, COLLECTION_DESCRIPTION_PROBLEM_CODES, options);
   }
 
   changes(
     input: ChangesInput = {},
-    options?: OperationRequestOptions
+    options?: ConnectRequestOptions
   ): Promise<ConnectOutcome<CollectionChangesPage, CollectionChangesProblemCode>> {
     return this.rawOperation("changes", input, COLLECTION_CHANGES_PROBLEM_CODES, options);
   }
 
-  read(input: ReadInput): Promise<ConnectOutcome<RecordDocument<Frontmatter>, CollectionReadProblemCode>> {
-    return this.envelopeOperation("read", input, COLLECTION_READ_PROBLEM_CODES);
+  read(input: ReadInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<RecordDocument<Frontmatter>, CollectionReadProblemCode>> {
+    return this.envelopeOperation("read", input, COLLECTION_READ_PROBLEM_CODES, options);
   }
 
   query(
     input: QueryInput = {},
-    options?: OperationRequestOptions
+    options?: ConnectRequestOptions
   ): Promise<ConnectOutcome<QueryResult<Frontmatter>, CollectionQueryProblemCode>> {
     return this.envelopeOperation("query", input, COLLECTION_QUERY_PROBLEM_CODES, options);
   }
@@ -140,7 +140,7 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
         offset,
         limit: pageNumber === 0 ? firstPageSize : pageSize,
         ...(snapshot ? { snapshot } : {})
-      }, { signal: options.signal });
+      }, { signal: options.signal, timeoutMs: options.timeoutMs });
       if (!queried.ok) {
         yield queried;
         return;
@@ -199,104 +199,104 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
     }, diagnostics);
   }
 
-  listViews(): Promise<ConnectOutcome<SavedViewList, CollectionReadProblemCode>> {
-    return this.envelopeOperation("list_views", {}, COLLECTION_READ_PROBLEM_CODES);
+  listViews(options?: ConnectRequestOptions): Promise<ConnectOutcome<SavedViewList, CollectionReadProblemCode>> {
+    return this.envelopeOperation("list_views", {}, COLLECTION_READ_PROBLEM_CODES, options);
   }
 
-  executeView(input: ExecuteViewInput): Promise<ConnectOutcome<SavedViewExecution<Frontmatter>, CollectionReadProblemCode>> {
-    return this.envelopeOperation("execute_view", input, COLLECTION_READ_PROBLEM_CODES);
+  executeView(input: ExecuteViewInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<SavedViewExecution<Frontmatter>, CollectionReadProblemCode>> {
+    return this.envelopeOperation("execute_view", input, COLLECTION_READ_PROBLEM_CODES, options);
   }
 
-  readViewSource(input: ReadViewSourceInput): Promise<ConnectOutcome<SavedViewSourceDocument, CollectionReadProblemCode>> {
-    return this.envelopeOperation("read_view_source", input, COLLECTION_READ_PROBLEM_CODES);
+  readViewSource(input: ReadViewSourceInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<SavedViewSourceDocument, CollectionReadProblemCode>> {
+    return this.envelopeOperation("read_view_source", input, COLLECTION_READ_PROBLEM_CODES, options);
   }
 
-  createViewSource(input: CreateViewSourceInput): Promise<ConnectOutcome<SavedViewSourceDocument, CollectionMutationProblemCode>> {
-    return this.envelopeOperation("create_view_source", input, COLLECTION_MUTATION_PROBLEM_CODES);
+  createViewSource(input: CreateViewSourceInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<SavedViewSourceDocument, CollectionMutationProblemCode>> {
+    return this.envelopeOperation("create_view_source", input, COLLECTION_MUTATION_PROBLEM_CODES, options);
   }
 
-  updateViewSource(input: UpdateViewSourceInput): Promise<ConnectOutcome<SavedViewSourceDocument, CollectionMutationProblemCode>> {
-    return this.envelopeOperation("update_view_source", input, COLLECTION_MUTATION_PROBLEM_CODES);
+  updateViewSource(input: UpdateViewSourceInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<SavedViewSourceDocument, CollectionMutationProblemCode>> {
+    return this.envelopeOperation("update_view_source", input, COLLECTION_MUTATION_PROBLEM_CODES, options);
   }
 
-  deleteViewSource(input: DeleteViewSourceInput): Promise<ConnectOutcome<DeleteViewSourceResult, CollectionMutationProblemCode>> {
-    return this.envelopeOperation("delete_view_source", input, COLLECTION_MUTATION_PROBLEM_CODES);
+  deleteViewSource(input: DeleteViewSourceInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<DeleteViewSourceResult, CollectionMutationProblemCode>> {
+    return this.envelopeOperation("delete_view_source", input, COLLECTION_MUTATION_PROBLEM_CODES, options);
   }
 
-  create(input: CreateInput<Frontmatter>): Promise<ConnectOutcome<RecordDocument<Frontmatter>, CollectionMutationProblemCode>> {
-    return this.envelopeOperation("create", input, COLLECTION_MUTATION_PROBLEM_CODES);
+  create(input: CreateInput<Frontmatter>, options?: ConnectRequestOptions): Promise<ConnectOutcome<RecordDocument<Frontmatter>, CollectionMutationProblemCode>> {
+    return this.envelopeOperation("create", input, COLLECTION_MUTATION_PROBLEM_CODES, options);
   }
 
-  update(input: UpdateInput<Frontmatter>): Promise<ConnectOutcome<RecordDocument<Frontmatter>, CollectionMutationProblemCode>> {
-    return this.envelopeOperation("update", input, COLLECTION_MUTATION_PROBLEM_CODES);
+  update(input: UpdateInput<Frontmatter>, options?: ConnectRequestOptions): Promise<ConnectOutcome<RecordDocument<Frontmatter>, CollectionMutationProblemCode>> {
+    return this.envelopeOperation("update", input, COLLECTION_MUTATION_PROBLEM_CODES, options);
   }
 
-  delete(input: DeleteInput, options?: OperationRequestOptions): Promise<ConnectOutcome<DeleteResult, CollectionMutationProblemCode>> {
+  delete(input: DeleteInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<DeleteResult, CollectionMutationProblemCode>> {
     return this.envelopeOperation("delete", input, COLLECTION_MUTATION_PROBLEM_CODES, options);
   }
 
-  preflightDelete(input: DeleteInput, options?: OperationRequestOptions): Promise<ConnectOutcome<DeletePreflightResult, CollectionMutationProblemCode>> {
+  preflightDelete(input: DeleteInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<DeletePreflightResult, CollectionMutationProblemCode>> {
     return this.envelopeOperation("delete", { ...input, check_backlinks: true, dry_run: true }, COLLECTION_MUTATION_PROBLEM_CODES, options);
   }
 
-  rename(input: RenameInput, options?: OperationRequestOptions): Promise<ConnectOutcome<RenameResult, CollectionMutationProblemCode>> {
+  rename(input: RenameInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<RenameResult, CollectionMutationProblemCode>> {
     return this.envelopeOperation("rename", input, COLLECTION_MUTATION_PROBLEM_CODES, options);
   }
 
-  preflightRename(input: RenameInput, options?: OperationRequestOptions): Promise<ConnectOutcome<RenamePreflightResult, CollectionMutationProblemCode>> {
+  preflightRename(input: RenameInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<RenamePreflightResult, CollectionMutationProblemCode>> {
     return this.envelopeOperation("rename", { ...input, dry_run: true }, COLLECTION_MUTATION_PROBLEM_CODES, options);
   }
 
-  validate(input: JsonObject = {}): Promise<ConnectOutcome<JsonObject, CollectionReadProblemCode>> {
-    return this.envelopeOperation("validate", input, COLLECTION_READ_PROBLEM_CODES);
+  validate(input: JsonObject = {}, options?: ConnectRequestOptions): Promise<ConnectOutcome<JsonObject, CollectionReadProblemCode>> {
+    return this.envelopeOperation("validate", input, COLLECTION_READ_PROBLEM_CODES, options);
   }
 
-  readType(input: ReadTypeInput): Promise<ConnectOutcome<CollectionTypeDocument, CollectionTypeProblemCode>> {
-    return this.envelopeOperation("read_type", input, COLLECTION_TYPE_PROBLEM_CODES);
+  readType(input: ReadTypeInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<CollectionTypeDocument, CollectionTypeProblemCode>> {
+    return this.envelopeOperation("read_type", input, COLLECTION_TYPE_PROBLEM_CODES, options);
   }
 
-  createType(input: CreateTypeInput): Promise<ConnectOutcome<CollectionTypeDocument, CollectionTypeProblemCode>> {
-    return this.envelopeOperation("create_type", input, COLLECTION_TYPE_PROBLEM_CODES);
+  createType(input: CreateTypeInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<CollectionTypeDocument, CollectionTypeProblemCode>> {
+    return this.envelopeOperation("create_type", input, COLLECTION_TYPE_PROBLEM_CODES, options);
   }
 
-  updateType(input: UpdateTypeInput): Promise<ConnectOutcome<CollectionTypeDocument, CollectionTypeProblemCode>> {
-    return this.envelopeOperation("update_type", input, COLLECTION_TYPE_PROBLEM_CODES);
+  updateType(input: UpdateTypeInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<CollectionTypeDocument, CollectionTypeProblemCode>> {
+    return this.envelopeOperation("update_type", input, COLLECTION_TYPE_PROBLEM_CODES, options);
   }
 
-  assessTypePack(input: AssessTypePackInput): Promise<ConnectOutcome<TypePackAssessment, CollectionTypeProblemCode>> {
-    return this.envelopeOperation("assess_type_pack", input, COLLECTION_TYPE_PROBLEM_CODES);
+  assessTypePack(input: AssessTypePackInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<TypePackAssessment, CollectionTypeProblemCode>> {
+    return this.envelopeOperation("assess_type_pack", input, COLLECTION_TYPE_PROBLEM_CODES, options);
   }
 
-  applyTypePack(input: ApplyTypePackInput): Promise<ConnectOutcome<TypePackApplyResult, CollectionTypeProblemCode>> {
-    return this.envelopeOperation("apply_type_pack", input, COLLECTION_TYPE_PROBLEM_CODES);
+  applyTypePack(input: ApplyTypePackInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<TypePackApplyResult, CollectionTypeProblemCode>> {
+    return this.envelopeOperation("apply_type_pack", input, COLLECTION_TYPE_PROBLEM_CODES, options);
   }
 
-  listTimers(namespace: string): Promise<ConnectOutcome<MdbaseTimerList, CollectionReadProblemCode>> {
-    return this.rawOperation("list_timers", { namespace }, COLLECTION_READ_PROBLEM_CODES);
+  listTimers(namespace: string, options?: ConnectRequestOptions): Promise<ConnectOutcome<MdbaseTimerList, CollectionReadProblemCode>> {
+    return this.rawOperation("list_timers", { namespace }, COLLECTION_READ_PROBLEM_CODES, options);
   }
 
   putTimer(input: {
     namespace: string;
     criterion_id: string;
     timer: MdbaseDesiredTimer;
-  }): Promise<ConnectOutcome<MdbaseTimer, CollectionMutationProblemCode>> {
-    return this.rawOperation("put_timer", input, COLLECTION_MUTATION_PROBLEM_CODES);
+  }, options?: ConnectRequestOptions): Promise<ConnectOutcome<MdbaseTimer, CollectionMutationProblemCode>> {
+    return this.rawOperation("put_timer", input, COLLECTION_MUTATION_PROBLEM_CODES, options);
   }
 
   cancelTimer(input: {
     namespace: string;
     id: string;
     generation?: number;
-  }): Promise<ConnectOutcome<{ namespace: string; id: string; cancelled: boolean }, CollectionMutationProblemCode>> {
-    return this.rawOperation("cancel_timer", input, COLLECTION_MUTATION_PROBLEM_CODES);
+  }, options?: ConnectRequestOptions): Promise<ConnectOutcome<{ namespace: string; id: string; cancelled: boolean }, CollectionMutationProblemCode>> {
+    return this.rawOperation("cancel_timer", input, COLLECTION_MUTATION_PROBLEM_CODES, options);
   }
 
   reconcileTimers(input: {
     namespace: string;
     criterion_id: string;
     timers: MdbaseDesiredTimer[];
-  }): Promise<ConnectOutcome<MdbaseTimerReconciliation, CollectionMutationProblemCode>> {
-    return this.rawOperation("reconcile_timers", input, COLLECTION_MUTATION_PROBLEM_CODES);
+  }, options?: ConnectRequestOptions): Promise<ConnectOutcome<MdbaseTimerReconciliation, CollectionMutationProblemCode>> {
+    return this.rawOperation("reconcile_timers", input, COLLECTION_MUTATION_PROBLEM_CODES, options);
   }
 
   async *watch(options: WatchOptions = {}): AsyncGenerator<ConnectOutcome<CollectionChange, CollectionChangesProblemCode>> {
@@ -309,7 +309,7 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
     while (!options.signal?.aborted) {
       const changed = await this.changes(
         cursor === undefined ? {} : { after: cursor, limit: 200 },
-        { signal: options.signal }
+        { signal: options.signal, timeoutMs: options.timeoutMs }
       );
       if (!changed.ok) {
         const problem = changed.problem;
@@ -376,7 +376,7 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
     operation: CollectionOperation,
     input: unknown,
     allowedCodes: readonly Code[],
-    options?: OperationRequestOptions
+    options?: ConnectRequestOptions
   ): Promise<ConnectOutcome<Result, Code>> {
     return captureConnectOutcome(
       () => this.transport.operation<Result>(operation, input, options),
@@ -388,7 +388,7 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
     operation: CollectionOperation,
     input: unknown,
     allowedCodes: readonly Code[],
-    options?: OperationRequestOptions
+    options?: ConnectRequestOptions
   ): Promise<ConnectOutcome<Result, Code>> {
     const transported = await captureConnectOutcome(
       () => this.transport.operation<MdbaseOperationEnvelope<Result>>(operation, input, options),

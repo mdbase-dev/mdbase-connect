@@ -58,18 +58,20 @@ export function ConnectApp() {
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const busyRef = useRef(new Set<string>());
-  const refreshPromiseRef = useRef<Promise<void> | null>(null);
+  const refreshGenerationRef = useRef(0);
 
   const refresh = useCallback((signal?: AbortSignal): Promise<void> => {
     if (accountDeleted) return Promise.resolve();
-    if (refreshPromiseRef.current) return refreshPromiseRef.current;
+    const generation = ++refreshGenerationRef.current;
     const request = (async () => {
       try {
-        const next = await management.overview(signal);
+        const next = await management.overview({ signal });
+        if (generation !== refreshGenerationRef.current) return;
         setData(next);
         setRefreshError("");
         if (next.authentication.provider !== "tailscale") {
-          const sessionResult = await management.sessions(signal);
+          const sessionResult = await management.sessions({ signal });
+          if (generation !== refreshGenerationRef.current) return;
           setSessions(sessionResult.sessions);
         }
       } catch (reason) {
@@ -81,10 +83,6 @@ export function ConnectApp() {
         setRefreshError(errorMessage(reason));
       }
     })();
-    refreshPromiseRef.current = request;
-    void request.finally(() => {
-      if (refreshPromiseRef.current === request) refreshPromiseRef.current = null;
-    });
     return request;
   }, [accountDeleted]);
 
@@ -116,17 +114,18 @@ export function ConnectApp() {
     busyRef.current.add(id);
     setBusy(new Set(busyRef.current));
     setMutationError("");
+    let succeeded = false;
     try {
       await action();
-      await refresh();
-      return true;
+      succeeded = true;
     } catch (reason) {
       setMutationError(errorMessage(reason));
-      return false;
     } finally {
+      await refresh();
       busyRef.current.delete(id);
       setBusy(new Set(busyRef.current));
     }
+    return succeeded;
   }
 
   function navigate(next: ConnectView, collectionId?: string) {
@@ -318,7 +317,7 @@ function CollectionAccess({ collection, groups, busy, perform }: {
           {group.grants.map((grant) => <GrantEditor key={grant.id} grant={grant} busy={busy} perform={perform} />)}
           <ConfirmAction className="danger connect-revoke-application" label="Revoke access" question={`Revoke ${group.applicationName} access to ${collection.name}?`} confirmLabel="Revoke access" busy={busy.has(`application-${group.applicationId}`)} onConfirm={() => {
             void perform(`application-${group.applicationId}`, async () => {
-              for (const grant of group.grants) await management.revokeGrant(grant.id);
+              await management.revokeApplication(group.grants.map((grant) => grant.id));
             });
           }} />
         </div>
@@ -404,7 +403,7 @@ function Applications({ groups, busy, perform }: {
           {group.grants.map((grant) => <GrantEditor key={grant.id} grant={grant} busy={busy} perform={perform} />)}
           <ConfirmAction className="danger connect-revoke-application" label="Revoke application" question={`Revoke all ${group.applicationName} access?`} confirmLabel="Revoke application" busy={busy.has(`application-${group.applicationId}`)} onConfirm={() => {
             void perform(`application-${group.applicationId}`, async () => {
-              for (const grant of group.grants) await management.revokeGrant(grant.id);
+              await management.revokeApplication(group.grants.map((grant) => grant.id));
             });
           }} />
         </div>

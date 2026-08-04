@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { MdbaseConnect, MemoryGrantKeyStore } from "./index.js";
+import { MdbaseConnect } from "./index.js";
+import { MemoryGrantKeyStore } from "./crypto-entry.js";
 
 const COLLECTION_ID = "11111111-1111-4111-8111-111111111111";
 const CONNECTOR_ID = "22222222-2222-4222-8222-222222222222";

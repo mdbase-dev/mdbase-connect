@@ -2,10 +2,12 @@ import { createHash } from "node:crypto";
 import { Ajv2020, type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
 import { parseDocument } from "yaml";
 import {
-  MdbaseCollectionClient,
-  connectError,
-  type MdbaseCollectionTransport
+  connectError
 } from "@mdbase-dev/connect";
+import {
+  MdbaseCollectionClient,
+  type MdbaseCollectionTransport
+} from "@mdbase-dev/connect/advanced";
 import type {
   CollectionChange,
   CollectionChangesPage,

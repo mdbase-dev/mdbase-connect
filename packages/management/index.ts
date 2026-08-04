@@ -194,10 +194,20 @@ export interface ManagementOverview {
 }
 
 export class ManagementApiError extends Error {
-  constructor(public readonly status: number, message: string) {
+  constructor(
+    public readonly status: number,
+    public readonly code: "cancelled" | "http_error" | "invalid_response" | "partial_failure" | "timeout",
+    message: string,
+    public readonly details?: unknown
+  ) {
     super(message);
     this.name = "ManagementApiError";
   }
+}
+
+export interface ManagementRequestOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number | null;
 }
 
 export class ConnectManagementClient {
@@ -211,16 +221,16 @@ export class ConnectManagementClient {
     this.baseUrl = normalized.href;
   }
 
-  overview(signal?: AbortSignal): Promise<ManagementOverview> {
-    return this.request("/v1/me", { signal });
+  overview(options?: ManagementRequestOptions): Promise<ManagementOverview> {
+    return this.request("/v1/me", {}, options);
   }
 
-  sessions(signal?: AbortSignal): Promise<{ sessions: AccountSession[] }> {
-    return this.request("/v1/account/sessions", { signal });
+  sessions(options?: ManagementRequestOptions): Promise<{ sessions: AccountSession[] }> {
+    return this.request("/v1/account/sessions", {}, options);
   }
 
-  account(signal?: AbortSignal): Promise<AccountData> {
-    return this.request("/v1/account", { signal });
+  account(options?: ManagementRequestOptions): Promise<AccountData> {
+    return this.request("/v1/account", {}, options);
   }
 
   githubAccountFlowUrl(purpose: "link" | "reauth_delete"): string {
@@ -232,43 +242,43 @@ export class ConnectManagementClient {
     return url.href;
   }
 
-  startGoogleAccountFlow(purpose: "link" | "reauth_delete"): Promise<{
+  startGoogleAccountFlow(purpose: "link" | "reauth_delete", options?: ManagementRequestOptions): Promise<{
     client_id: string;
     nonce: string;
   }> {
     const path = purpose === "link"
       ? "/v1/account/identities/google/link"
       : "/v1/account/reauth/google";
-    return this.request(`${path}?return_to=${encodeURIComponent("/account")}`);
+    return this.request(`${path}?return_to=${encodeURIComponent("/account")}`, {}, options);
   }
 
-  completeGoogleAccountFlow(credential: string): Promise<{ redirect_to: string }> {
+  completeGoogleAccountFlow(credential: string, options?: ManagementRequestOptions): Promise<{ redirect_to: string }> {
     return this.request("/auth/google/callback", {
       method: "POST",
       headers: { "x-mdbase-auth": "google" },
       body: JSON.stringify({ credential })
-    });
+    }, options);
   }
 
-  disconnectIdentity(provider: "github" | "google"): Promise<void> {
-    return this.request(`/v1/account/identities/${provider}`, { method: "DELETE" });
+  disconnectIdentity(provider: "github" | "google", options?: ManagementRequestOptions): Promise<void> {
+    return this.request(`/v1/account/identities/${provider}`, { method: "DELETE" }, options);
   }
 
-  changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  changePassword(currentPassword: string, newPassword: string, options?: ManagementRequestOptions): Promise<void> {
     return this.request("/v1/account/password", {
       method: "PATCH",
       body: JSON.stringify({
         current_password: currentPassword,
         new_password: newPassword
       })
-    });
+    }, options);
   }
 
   deleteAccount(input: {
     confirmation: string;
     currentPassword?: string;
     reauthenticationToken?: string;
-  }): Promise<void> {
+  }, options?: ManagementRequestOptions): Promise<void> {
     return this.request("/v1/account", {
       method: "DELETE",
       body: JSON.stringify({
@@ -276,86 +286,187 @@ export class ConnectManagementClient {
         ...(input.currentPassword ? { current_password: input.currentPassword } : {}),
         ...(input.reauthenticationToken ? { reauth_token: input.reauthenticationToken } : {})
       })
-    });
+    }, options);
   }
 
-  createHostedCollection(displayName: string): Promise<void> {
+  createHostedCollection(displayName: string, options?: ManagementRequestOptions): Promise<void> {
     return this.request("/v1/hosted/collections", {
       method: "POST",
       body: JSON.stringify({ display_name: displayName, template: "mdbase" })
-    });
+    }, options);
   }
 
-  renameHostedCollection(id: string, displayName: string): Promise<void> {
+  renameHostedCollection(id: string, displayName: string, options?: ManagementRequestOptions): Promise<void> {
     return this.request(`/v1/hosted/collections/${encodeURIComponent(id)}`, {
       method: "PATCH",
       body: JSON.stringify({ display_name: displayName })
-    });
+    }, options);
   }
 
-  deleteHostedCollection(id: string): Promise<void> {
-    return this.request(`/v1/hosted/collections/${encodeURIComponent(id)}`, { method: "DELETE" });
+  deleteHostedCollection(id: string, options?: ManagementRequestOptions): Promise<void> {
+    return this.request(`/v1/hosted/collections/${encodeURIComponent(id)}`, { method: "DELETE" }, options);
   }
 
-  revokeReplica(id: string): Promise<void> {
-    return this.request(`/v1/hosted/replicas/${encodeURIComponent(id)}`, { method: "DELETE" });
+  revokeReplica(id: string, options?: ManagementRequestOptions): Promise<void> {
+    return this.request(`/v1/hosted/replicas/${encodeURIComponent(id)}`, { method: "DELETE" }, options);
   }
 
-  renameConnector(id: string, name: string): Promise<void> {
+  renameConnector(id: string, name: string, options?: ManagementRequestOptions): Promise<void> {
     return this.request(`/v1/connectors/${encodeURIComponent(id)}`, {
       method: "PATCH",
       body: JSON.stringify({ name })
-    });
+    }, options);
   }
 
-  revokeConnector(id: string): Promise<void> {
-    return this.request(`/v1/connectors/${encodeURIComponent(id)}`, { method: "DELETE" });
+  revokeConnector(id: string, options?: ManagementRequestOptions): Promise<void> {
+    return this.request(`/v1/connectors/${encodeURIComponent(id)}`, { method: "DELETE" }, options);
   }
 
-  updateGrant(id: string, operations: string[]): Promise<void> {
+  updateGrant(id: string, operations: string[], options?: ManagementRequestOptions): Promise<void> {
     return this.request(`/v1/grants/${encodeURIComponent(id)}`, {
       method: "PATCH",
       body: JSON.stringify({ operations })
-    });
+    }, options);
   }
 
-  revokeGrant(id: string): Promise<void> {
-    return this.request(`/v1/grants/${encodeURIComponent(id)}`, { method: "DELETE" });
+  revokeGrant(id: string, options?: ManagementRequestOptions): Promise<void> {
+    return this.request(`/v1/grants/${encodeURIComponent(id)}`, { method: "DELETE" }, options);
   }
 
-  revokeSession(id: string): Promise<void> {
-    return this.request(`/v1/account/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
-  }
-
-  revokeOtherSessions(): Promise<void> {
-    return this.request("/v1/account/sessions/revoke-others", { method: "POST" });
-  }
-
-  logout(): Promise<void> {
-    return this.request("/v1/logout", { method: "POST" });
-  }
-
-  private async request<T = void>(path: string, init: RequestInit = {}): Promise<T> {
-    const response = await fetch(new URL(path, this.baseUrl), {
-      ...init,
-      credentials: "include",
-      headers: {
-        accept: "application/json",
-        ...(init.body ? { "content-type": "application/json" } : {}),
-        ...init.headers
-      }
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const message = body && typeof body === "object"
-        && "error" in body
-        && body.error && typeof body.error === "object"
-        && "message" in body.error
-        && typeof body.error.message === "string"
-        ? body.error.message
-        : `Request failed with HTTP ${response.status}.`;
-      throw new ManagementApiError(response.status, message);
+  async revokeApplication(
+    grantIds: string[],
+    options?: ManagementRequestOptions
+  ): Promise<{ results: Array<{ grant_id: string; status: "revoked" | "revoking" | "conflict" }> }> {
+    const result = await this.request<{
+      ok: boolean;
+      results: Array<{ grant_id: string; status: "revoked" | "revoking" | "conflict" }>;
+    }>("/v1/grants/revoke-batch", {
+      method: "POST",
+      body: JSON.stringify({ grant_ids: [...new Set(grantIds)] })
+    }, options);
+    const failed = result.results.filter(({ status }) => status === "conflict");
+    if (failed.length > 0) {
+      throw new ManagementApiError(
+        200,
+        "partial_failure",
+        `${result.results.length - failed.length} grants were revoked; ${failed.length} changed concurrently. The current state has been refreshed.`,
+        { results: result.results }
+      );
     }
-    return body as T;
+    return result;
   }
+
+  revokeSession(id: string, options?: ManagementRequestOptions): Promise<void> {
+    return this.request(`/v1/account/sessions/${encodeURIComponent(id)}`, { method: "DELETE" }, options);
+  }
+
+  revokeOtherSessions(options?: ManagementRequestOptions): Promise<void> {
+    return this.request("/v1/account/sessions/revoke-others", { method: "POST" }, options);
+  }
+
+  logout(options?: ManagementRequestOptions): Promise<void> {
+    return this.request("/v1/logout", { method: "POST" }, options);
+  }
+
+  private async request<T = void>(
+    path: string,
+    init: RequestInit = {},
+    options: ManagementRequestOptions = {}
+  ): Promise<T> {
+    const deadline = managementDeadline(options);
+    try {
+      const response = await deadline.wait(fetch(new URL(path, this.baseUrl), {
+        ...init,
+        signal: deadline.signal,
+        credentials: "include",
+        headers: {
+          accept: "application/json",
+          ...(init.body ? { "content-type": "application/json" } : {}),
+          ...init.headers
+        }
+      }));
+      const text = await deadline.wait(response.text());
+      let body: unknown = {};
+      if (text.trim() !== "") {
+        try {
+          body = JSON.parse(text);
+        } catch {
+          throw new ManagementApiError(
+            response.status,
+            "invalid_response",
+            `The management service returned invalid JSON (HTTP ${response.status}).`
+          );
+        }
+      } else if (response.ok && response.status !== 204) {
+        throw new ManagementApiError(
+          response.status,
+          "invalid_response",
+          `The management service returned an empty response (HTTP ${response.status}).`
+        );
+      }
+      if (!response.ok) {
+        const message = body && typeof body === "object"
+          && "error" in body
+          && body.error && typeof body.error === "object"
+          && "message" in body.error
+          && typeof body.error.message === "string"
+          ? body.error.message
+          : `Request failed with HTTP ${response.status}.`;
+        throw new ManagementApiError(response.status, "http_error", message);
+      }
+      return body as T;
+    } catch (cause) {
+      if (cause instanceof ManagementApiError) throw cause;
+      if (deadline.signal.aborted) {
+        throw new ManagementApiError(
+          0,
+          deadline.timedOut() ? "timeout" : "cancelled",
+          deadline.timedOut() ? "The management request timed out." : "The management request was cancelled."
+        );
+      }
+      throw cause;
+    } finally {
+      deadline.dispose();
+    }
+  }
+}
+
+function managementDeadline(options: ManagementRequestOptions): {
+  signal: AbortSignal;
+  timedOut(): boolean;
+  wait<T>(promise: Promise<T>): Promise<T>;
+  dispose(): void;
+} {
+  const controller = new AbortController();
+  let timeout = false;
+  const abort = () => controller.abort(options.signal?.reason);
+  if (options.signal?.aborted) abort();
+  else options.signal?.addEventListener("abort", abort, { once: true });
+  const timeoutMs = options.timeoutMs === null ? null : options.timeoutMs ?? 30_000;
+  if (timeoutMs !== null && (!Number.isFinite(timeoutMs) || timeoutMs < 0)) {
+    throw new TypeError("timeoutMs must be a finite non-negative number or null.");
+  }
+  const timer = timeoutMs === null ? undefined : setTimeout(() => {
+    timeout = true;
+    controller.abort();
+  }, timeoutMs);
+  const wait = <T>(promise: Promise<T>): Promise<T> => {
+    if (controller.signal.aborted) return Promise.reject(controller.signal.reason);
+    return new Promise<T>((resolve, reject) => {
+      const aborted = () => reject(controller.signal.reason);
+      controller.signal.addEventListener("abort", aborted, { once: true });
+      promise.then(resolve, reject).finally(() => {
+        controller.signal.removeEventListener("abort", aborted);
+      });
+    });
+  };
+  return {
+    signal: controller.signal,
+    timedOut: () => timeout,
+    wait,
+    dispose: () => {
+      if (timer !== undefined) clearTimeout(timer);
+      options.signal?.removeEventListener("abort", abort);
+    }
+  };
 }

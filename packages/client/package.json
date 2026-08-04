@@ -18,6 +18,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./advanced": {
+      "types": "./dist/advanced.d.ts",
+      "import": "./dist/advanced.js"
+    },
+    "./crypto": {
+      "types": "./dist/crypto-entry.d.ts",
+      "import": "./dist/crypto-entry.js"
     }
   },
   "files": [
@@ -31,6 +39,8 @@
     "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json && node scripts/build-browser.mjs",
     "test": "vitest run",
     "test:browser-storage": "pnpm build && node scripts/browser-storage.test.mjs",
+    "test:consumer-spikes": "tsc -p tsconfig.consumer-spikes.json",
+    "test:public-api": "pnpm build && tsc -p tsconfig.public-api.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

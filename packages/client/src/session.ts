@@ -30,13 +30,15 @@ import type {
   MdbaseSelectionHistory,
   MdbaseApplicationSelection
 } from "./selection.js";
+import type { ConnectRequestOptions } from "./operation-types.js";
 
 export interface MdbaseSessionConnect<Frontmatter extends JsonObject> {
   authorize(
     options?: MdbaseAuthorizeOptions
   ): Promise<ConnectOutcome<MdbaseAuthorizationOutcome<Frontmatter>, AuthorizationProblemCode>>;
   completeAuthorization(
-    callbackUrl: string
+    callbackUrl: string,
+    options?: ConnectRequestOptions
   ): Promise<ConnectOutcome<MdbaseAuthorizationResult<Frontmatter>, AuthorizationProblemCode>>;
   connections(): MdbaseConnectionInfo[];
   connection(collectionId: string): MdbaseConnection<Frontmatter> | null;
@@ -106,7 +108,7 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
     this.refresh();
   }
 
-  async start(): Promise<ConnectOutcome<MdbaseSessionSnapshot<Frontmatter>, SessionProblemCode>> {
+  async start(options?: ConnectRequestOptions): Promise<ConnectOutcome<MdbaseSessionSnapshot<Frontmatter>, SessionProblemCode>> {
     if (!this.started) {
       this.started = true;
       this.stopConnections = this.connect.onConnectionsChange(() => this.refresh());
@@ -117,7 +119,7 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
     }
     const callback = this.selection.authorizationCallback();
     if (callback) {
-      const completed = await this.handleAuthorizationCallback(callback);
+      const completed = await this.handleAuthorizationCallback(callback, options);
       if (!completed.ok) return completed;
     }
     else this.autoSelectOnlyConnection();
@@ -259,7 +261,8 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
   }
 
   handleAuthorizationCallback(
-    callbackUrl: string
+    callbackUrl: string,
+    options?: ConnectRequestOptions
   ): Promise<ConnectOutcome<MdbaseConnection<Frontmatter>, AuthorizationProblemCode>> {
     if (!isAuthorizationCallbackUrl(callbackUrl)) {
       return Promise.resolve(connectFailure(connectProblem(
@@ -269,7 +272,7 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
     }
     if (this.callbackPromise) return this.callbackPromise;
     this.transactionDepth += 1;
-    const completion = this.connect.completeAuthorization(callbackUrl)
+    const completion = this.connect.completeAuthorization(callbackUrl, options)
       .then((outcome) => {
         if (!outcome.ok) {
           const returnTo = authorizationReturnToFromProblem(outcome.problem);
