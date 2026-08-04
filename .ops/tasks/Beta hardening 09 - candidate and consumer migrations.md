@@ -1,6 +1,6 @@
 ---
 title: Beta hardening 09 - candidate and consumer migrations
-status: in_progress
+status: done
 priority: critical
 owner: codex
 parent: SDK and authority beta hardening
@@ -9,8 +9,8 @@ phase: 6
 depends_on: [Beta hardening 06 - management correctness, Beta hardening 07 - public SDK surface]
 tags: [beta, packaging, consumers, editor, workouts, pickle, tasknotes]
 created_at: 2026-08-04T17:48:28+10:00
-updated_at: 2026-08-05T07:03:00+10:00
-progress_summary: The final beta.32 candidate from Connect commit 4680eadb3b06 is now consumed by all four canaries: Workouts 2b8a953, Editor c701dca, Pickle f1c7c6e, and TaskNotes 5c55752. TaskNotes passes its complete verification, conformance, browser, production-smoke, isolated real-authority response-loss/restart, Capacitor sync, and Android build gates. Dogfooding also found and fixed a Strict Mode lifecycle-remount defect. Physical Android-device smokes for Pickle and TaskNotes remain unavailable because no device is attached.
+updated_at: 2026-08-05T08:49:15+10:00
+progress_summary: Complete. One exact six-package beta.32 candidate from Connect commit e1c1f49cca00 is pinned with SHA-512 integrity in Editor, Workouts, Pickle, and TaskNotes. Their pushed draft PRs pass focused/full product verification, browser recovery dogfood, and production builds; Pickle and TaskNotes additionally pass configured Android 36 emulator lifecycle, notification, opaque-push, and process-restart smokes.
 type: task
 ---
 
@@ -105,9 +105,36 @@ durable response-loss recovery and every product-specific gate.
   only as immutable rejected evidence. They are superseded and must not be
   copied into another consumer.
 
-## Next
+## Final candidate and exit evidence
 
-Run Pickle and TaskNotes physical Android-device smokes when a device becomes
-available. In parallel, finish the independent cross-authority mutator matrix
-and supported desktop-platform evidence required by the program before closing
-this slice and admitting the rollout gate.
+- Artifact source: Connect commit `e1c1f49cca00bbae51e7f1d9ffb5e05c576bb753`.
+  The Connect, Devkit, Protocol, Sync, Pickle, and Testing tarballs all report
+  `0.1.0-beta.32-e1c1f49cca00`; the generated manifest records their SHA-512
+  hashes, and `pnpm check:consumer-artifacts` verifies every consumer pin.
+- Editor: branch `agent/beta32-connect-hardening`, draft PR
+  `mdbase-dev/mdbase-editor#73`, head `5b26518`. Typecheck, build, bundle/CSP,
+  240 unit tests, and all 45 desktop/mobile/remote-authority Playwright tests
+  pass, including 10k-note performance and durable response-loss recovery.
+- Workouts: branch `agent/beta32-connect-hardening`, draft PR
+  `callumalpass/mdbase-workouts#21`, head `7829ad2`. Typecheck, manifest, build,
+  24 tests, 10 browser tests, and live beta.32 authorization/read/create/pause
+  dogfood pass. Legacy seed types are mapped in place through transactional
+  authorization and existing records remain visible.
+- Pickle: branch `agent/beta32-connect-hardening`, draft PR
+  `callumalpass/pickle-android#18`, head `63bab98`. Full verify, 8 desktop/mobile
+  Playwright tests, live response-loss/reload recovery, Capacitor sync, Gradle
+  test/lint/debug build, and the Android 36 emulator smoke pass. The emulator
+  proof covers response flow, hardware Back, notification channel, FCM
+  registration, live opaque push, and process restart.
+- TaskNotes: branch `agent/beta32-connect-hardening`, draft PR
+  `callumalpass/tasknotes-app#91`, head `3101679`. Full verify passes 352 tests,
+  coverage, 4,983 conformance cases (4,982 pass, one documented skip), the
+  mdbase oracle, manifest, and build. Eight desktop/mobile Playwright tests,
+  live response-loss/reload recovery, Capacitor sync, Gradle test/lint/debug
+  build, and the Android 36 notification/FCM/live-opaque-push/process-restart
+  smoke pass.
+- The consumer branches and PRs are intentionally draft until the coordinated
+  release train completes Phase 7. No consumer mixes artifacts or sources from
+  another Connect commit.
+
+Exit gate closed green on 2026-08-05. Phase 7 may begin.

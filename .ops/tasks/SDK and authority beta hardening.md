@@ -14,8 +14,8 @@ tags:
   - user-experience
   - consumers
 created_at: 2026-08-04T10:51:42+10:00
-updated_at: 2026-08-05T07:03:00+10:00
-progress_summary: Phases 0-1 and 3-5 are complete. Phase 2 journals are implemented across local and hosted authorities; the generated full-mutator termination matrix and observed supported-desktop runs remain. All four Phase 6 canaries use the final beta.32 candidate from Connect commit 4680eadb3b06: Workouts 2b8a953, Editor c701dca, Pickle f1c7c6e, and TaskNotes 5c55752. TaskNotes verify, conformance, browser, production-smoke, isolated real-authority recovery, Capacitor sync, and Android build gates are green. Physical Pickle/TaskNotes Android smokes remain unavailable because no device is attached. Phase 7 has not started.
+updated_at: 2026-08-05T08:49:15+10:00
+progress_summary: Phases 0-6 are independently green. The cross-authority recovery matrix passes 19 canonical mutators at six termination boundaries (114 cases); Server CI is green on Ubuntu, macOS, Windows, hosted/R2, upgrade, OAuth, and notification recovery; Editor CI and all Desktop Release targets are green; the architecture budget passes. One exact beta.32 artifact set from Connect e1c1f49cca00 is pinned in four pushed consumer draft PRs. Browser/live-authority dogfood is green in all four, and Pickle/TaskNotes Android 36 emulator smokes cover lifecycle, notifications, opaque push, and restart. Phase 7 guarded staging rollout is active; production is untouched.
 type: task
 ---
 
