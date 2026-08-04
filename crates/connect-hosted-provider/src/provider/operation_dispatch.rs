@@ -1,4 +1,5 @@
 use super::mutation_journal::{HostedMutationClaim, HostedMutationLease};
+use super::mutation_metrics::{duplicate_replay, lease_takeover};
 use super::*;
 
 impl HostedProvider {
@@ -42,7 +43,10 @@ impl HostedProvider {
                 .claim_operation_mutation(collection_id, &replica, operation, request_id, &input)
                 .await?;
             let (lease, prepared_head, takeover, applied_result) = match claim {
-                HostedMutationClaim::Terminal(result) => return result,
+                HostedMutationClaim::Terminal(result) => {
+                    duplicate_replay(operation);
+                    return result;
+                }
                 HostedMutationClaim::Live => {
                     return Err(ApiError::conflict(
                         "pending_mutation_unresolved",
@@ -63,6 +67,7 @@ impl HostedProvider {
                 return result;
             }
             if takeover {
+                lease_takeover(operation);
                 let current_head = self.current_collection_head(collection_id).await?;
                 let operation_has_inner_receipt =
                     matches!(operation, "create" | "update" | "delete" | "rename");

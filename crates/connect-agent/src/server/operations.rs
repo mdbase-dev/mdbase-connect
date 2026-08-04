@@ -1,6 +1,4 @@
-use super::operation_responses::*;
-use super::*;
-
+use super::{metrics, operation_responses::*, *};
 impl AgentState {
     fn scoped_operation(
         &self,
@@ -735,13 +733,17 @@ impl AgentState {
         };
         for _ in 0..1_000 {
             match claim {
-                MutationClaim::Terminal { receipt, .. } => {
-                    return serialized_encrypted_response(&receipt, metadata.request_id)
+                MutationClaim::Terminal { state, receipt } => {
+                    metrics::duplicate_replay(mutation_identifier, state);
+                    return serialized_encrypted_response(&receipt, metadata.request_id);
                 }
                 MutationClaim::Owned { lease, recovery } => {
+                    if lease.fencing_generation > 1 {
+                        metrics::lease_takeover(mutation_identifier, recovery.state);
+                    }
                     return self.execute_owned_mutation(
                         context, operation, input, metadata, keys, lease, *recovery, revoked,
-                    )
+                    );
                 }
                 MutationClaim::Live { .. } => {
                     std::thread::sleep(std::time::Duration::from_millis(25));
@@ -959,6 +961,7 @@ impl AgentState {
         lease: &MutationLease,
         reason: &str,
     ) -> RelayMessage {
+        metrics::outcome_unknown();
         let problem = ConnectProblem::new("operation_outcome_unknown", reason)
             .with_details(serde_json::json!({ "request_id": metadata.request_id }))
             .with_operation_outcome(ConnectOperationOutcome::Unknown);

@@ -83,6 +83,12 @@ export function registerErrorHandler(app: FastifyInstance): void {
       return reply.code(409).send(apiError("connector_offline", error.message));
     }
     if (error instanceof ConnectorOperationError) {
+      if (error.code.startsWith("invalid_")) {
+        request.log.warn(
+          { metric: "boundary_response_failure", response_class: error.code },
+          "privacy-safe Connect metric"
+        );
+      }
       return reply.code(409).send(apiError(error.code, error.message));
     }
     if (error instanceof SyncError) {
@@ -98,6 +104,8 @@ export function registerErrorHandler(app: FastifyInstance): void {
       }
       request.log.error(
         {
+          metric: "boundary_response_failure",
+          response_class: error.code,
           provider_status: error.status,
           provider_code: error.code
         },

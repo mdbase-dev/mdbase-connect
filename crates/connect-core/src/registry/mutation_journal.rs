@@ -138,6 +138,13 @@ struct StoredMutation {
 }
 
 impl CollectionRegistry {
+    /// Return the applied registry schema version without exposing registry paths or content.
+    pub fn schema_version(&self) -> Result<u32, ConnectError> {
+        self.connection()?
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .map_err(ConnectError::from)
+    }
+
     pub fn claim_mutation(
         &self,
         request: &MutationClaimRequest,

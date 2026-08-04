@@ -333,6 +333,7 @@ async fn maintain_history(provider: HostedProvider, retain_changes: u64, period:
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         interval.tick().await;
+        provider.log_operation_mutation_metrics().await;
         match provider.compact_stale_history(retain_changes).await {
             Ok(0) => {}
             Ok(collections) => {

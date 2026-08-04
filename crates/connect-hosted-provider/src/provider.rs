@@ -61,6 +61,7 @@ mod mutation_journal;
 pub use mutation_journal::HostedMutationJournalDiagnostics;
 mod mutation_journal_files;
 mod mutation_journal_migration;
+mod mutation_metrics;
 mod mutation_receipt;
 mod mutations;
 mod operation_context;

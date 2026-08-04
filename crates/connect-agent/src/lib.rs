@@ -58,7 +58,31 @@ pub async fn run(options: DaemonOptions) -> Result<(), Box<dyn std::error::Error
     let endpoint = options
         .endpoint
         .unwrap_or_else(|| default_control_endpoint(&state_dir));
-    let registry = CollectionRegistry::open(&state_dir)?;
+    let registry = match CollectionRegistry::open(&state_dir) {
+        Ok(registry) => registry,
+        Err(error) => {
+            tracing::error!(
+                target: "mdbase_connect::metrics",
+                metric = "registry_open_failure",
+                error_code = error.code(),
+                "privacy-safe connector metric"
+            );
+            return Err(error.into());
+        }
+    };
+    let schema_version = registry.schema_version()?;
+    let journal = registry.mutation_journal_diagnostics()?;
+    tracing::info!(
+        target: "mdbase_connect::metrics",
+        metric = "mutation_journal_snapshot",
+        schema_version,
+        state_counts = ?journal.state_counts,
+        oldest_unresolved_age_ms = ?journal.oldest_unresolved_age_ms,
+        live_leases = journal.live_leases,
+        stale_leases = journal.stale_leases,
+        tombstones = journal.tombstones,
+        "privacy-safe connector metric"
+    );
     let relay_identity =
         SystemSecretStore::new(&state_dir).load_or_create_relay_identity(&state_dir)?;
     let cloud = match (server_url.clone(), connector_token.clone()) {

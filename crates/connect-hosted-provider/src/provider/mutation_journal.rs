@@ -1,3 +1,4 @@
+use super::mutation_metrics::outcome_unknown;
 use super::mutation_receipt::StoredMutationReceipt;
 use super::*;
 
@@ -8,6 +9,8 @@ pub struct HostedMutationJournalDiagnostics {
     pub state_counts: BTreeMap<String, u64>,
     pub oldest_unfinished_seconds: Option<u64>,
     pub tombstones: u64,
+    pub database_pool_size: u32,
+    pub database_pool_idle: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -223,6 +226,8 @@ impl HostedProvider {
                 .map(|seconds| number(seconds.max(0), "oldest unfinished mutation age"))
                 .transpose()?,
             tombstones: number(tombstones, "mutation tombstone count")?,
+            database_pool_size: self.pool.size(),
+            database_pool_idle: self.pool.num_idle(),
         })
     }
 
@@ -886,6 +891,7 @@ impl HostedProvider {
         collection_id: Uuid,
         lease: &HostedMutationLease,
     ) -> ApiResult<Value> {
+        outcome_unknown();
         let result = Err(ApiError::conflict(
             "operation_outcome_unknown",
             "The hosted mutation may have applied, but its exact result cannot be recovered safely.",
