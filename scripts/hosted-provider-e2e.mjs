@@ -109,10 +109,12 @@ const {
 const { mirrorProfileDirectory } = await import("../packages/sync/dist/device.js");
 const {
   MdbaseConnect,
-  MemoryApplicationIdentityStore,
-  MemoryGrantKeyStore,
   unwrapConnectOutcome
 } = await import("../packages/client/dist/index.js");
+const {
+  MemoryApplicationIdentityStore,
+  MemoryGrantKeyStore
+} = await import("../packages/client/dist/crypto-entry.js");
 const { buildApp } = await import("../services/server/dist/app.js");
 const { createDatabase } = await import("../services/server/dist/db.js");
 const { HostedProviderClient } = await import("../services/server/dist/hosted-provider.js");
@@ -3796,7 +3798,10 @@ async function startPostgres() {
   for (let attempt = 0; attempt < 240; attempt += 1) {
     const ready = await execute(
       "docker",
-      ["exec", postgresContainer, "pg_isready", "--username", "mdbase", "--dbname", "mdbase"]
+      [
+        "exec", postgresContainer,
+        "pg_isready", "--host", "127.0.0.1", "--username", "mdbase", "--dbname", "mdbase"
+      ]
     ).then(() => true, () => false);
     if (ready) return `postgres://mdbase:${databasePassword}@127.0.0.1:${port}/mdbase`;
     await delay(250);

@@ -14,10 +14,12 @@ import {
 } from "../../../scripts/lib/connect-test-environment.mjs";
 import {
   MdbaseConnect,
-  MemoryApplicationIdentityStore,
-  MemoryGrantKeyStore,
   unwrapConnectOutcome
 } from "../../../packages/client/dist/index.js";
+import {
+  MemoryApplicationIdentityStore,
+  MemoryGrantKeyStore
+} from "../../../packages/client/dist/crypto-entry.js";
 
 const desktopRoot = resolve(import.meta.dirname, "..");
 const repoRoot = resolve(desktopRoot, "../..");
