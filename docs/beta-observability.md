@@ -14,6 +14,8 @@ authority or exporting collection data.
 | `registry_open_failure` | typed error code | Separates migration/schema/integrity/busy failures without exporting the registry path. |
 | `mutation_journal_snapshot_failure` | typed provider error code | Treat as loss of recovery visibility and hold the canary. |
 | `boundary_response_failure` | typed response class and, for provider boundaries, HTTP status | Counts invalid relay/provider response classes without recording response bodies. |
+| `database_timeout` | bounded timeout class | Separates pool acquisition, statement, and lock exhaustion; any canary-window spike requires explanation. |
+| `migration_failure` | no dimensions | The hosted provider could not establish its numbered migration ledger and must not become ready. |
 
 PostgreSQL timeout events already use `database_timeout_class` in the control
 plane and `timeout_class` in the hosted provider, with `pool`, `statement`, or

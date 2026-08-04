@@ -72,6 +72,11 @@ impl HostedProvider {
                         pool.close().await;
                     }
                     Err(error) => {
+                        tracing::error!(
+                            target: "mdbase_connect::metrics",
+                            metric = "migration_failure",
+                            "privacy-safe hosted provider metric"
+                        );
                         tracing::error!(error = %error, "hosted provider migration failed");
                         return Err(ApiError::internal(
                             "The hosted provider database migration failed.",

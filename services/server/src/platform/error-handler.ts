@@ -217,7 +217,10 @@ export function registerErrorHandler(app: FastifyInstance): void {
       ));
     }
     if (isDatabaseTimeoutError(error)) {
-      request.log.warn({ database_timeout_class: databaseTimeoutClass(error) }, "database wait timed out");
+      request.log.warn({
+        metric: "database_timeout",
+        database_timeout_class: databaseTimeoutClass(error)
+      }, "privacy-safe Connect metric");
       return reply.code(503).send(apiError(
         "database_timeout",
         "The service database is busy. Retry the request."

@@ -91,7 +91,12 @@ impl From<sqlx::Error> for ApiError {
             _ => None,
         };
         if let Some(timeout_class) = timeout_class {
-            tracing::warn!(timeout_class, "hosted provider database wait timed out");
+            tracing::warn!(
+                target: "mdbase_connect::metrics",
+                metric = "database_timeout",
+                timeout_class,
+                "privacy-safe hosted provider metric"
+            );
             return Self::new(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "provider_database_timeout",
