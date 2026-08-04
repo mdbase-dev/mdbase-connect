@@ -569,9 +569,6 @@ fn safe_relative(relative: &str) -> ApiResult<()> {
 mod contract_setup_tests;
 
 #[cfg(test)]
-mod obsidian_base_tests;
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
