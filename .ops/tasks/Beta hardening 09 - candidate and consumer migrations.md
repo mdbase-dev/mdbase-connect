@@ -9,8 +9,8 @@ phase: 6
 depends_on: [Beta hardening 06 - management correctness, Beta hardening 07 - public SDK surface]
 tags: [beta, packaging, consumers, editor, workouts, pickle, tasknotes]
 created_at: 2026-08-04T17:48:28+10:00
-updated_at: 2026-08-05T06:09:59+10:00
-progress_summary: The final beta.32 candidate is packaged from Connect commit 4680eadb3b06 after Pickle integration added domain-owned request budgets and exact durable response recovery. Workouts is converged at 2b8a953, Editor at c701dca, and Pickle at f1c7c6e. Pickle's complete verification, ordinary browser matrix, isolated real-authority response-loss/restart E2E, Capacitor sync, and Android debug build are green. Its physical-device smoke remains unavailable because no Android device is attached; TaskNotes is next.
+updated_at: 2026-08-05T07:03:00+10:00
+progress_summary: The final beta.32 candidate from Connect commit 4680eadb3b06 is now consumed by all four canaries: Workouts 2b8a953, Editor c701dca, Pickle f1c7c6e, and TaskNotes 5c55752. TaskNotes passes its complete verification, conformance, browser, production-smoke, isolated real-authority response-loss/restart, Capacitor sync, and Android build gates. Dogfooding also found and fixed a Strict Mode lifecycle-remount defect. Physical Android-device smokes for Pickle and TaskNotes remain unavailable because no device is attached.
 type: task
 ---
 
@@ -75,13 +75,39 @@ durable response-loss recovery and every product-specific gate.
 - Workouts commit `2b8a953` and Editor commit `c701dca` repin their already-green
   migrations to the exact `4680eadb3b06` artifact set. Focused verification is
   green at 24 Workouts tests and 236 Editor tests.
+- TaskNotes commits `0214a59`, `e6beba3`, and `bbc14b4` atomically repin the
+  exact `4680eadb3b06` Connect, devkit, protocol, and testing artifacts; map
+  application intent to durable authority request IDs; recover the exact
+  pending request before later canonical reads or writes; and apply explicit
+  request budgets and lifecycle cancellation across authorization, repository,
+  files, notifications, and collection switching.
+- TaskNotes commit `5c55752` adds the isolated HTTPS real-authority harness. It
+  completes a create at the authority, drops the successful response, observes
+  the retained draft and typed failure state, reloads, recovers the original
+  request, and proves exactly one new Markdown task. The first run exposed that
+  React Strict Mode cleanup aborted initial repository opening while the
+  repository retained its rejected initialization promise. The same commit
+  resets interrupted initialization on lifecycle resume and adds a regression
+  test; the real dogfood proof then passed in 10.1 seconds.
+- TaskNotes `pnpm verify` passes with 352 tests, application/domain coverage
+  thresholds, 4,983 TaskNotes conformance cases (4,982 pass, one documented
+  skip), the real mdbase collection oracle, manifest validation, and production
+  build. Desktop/mobile Playwright is 8/8 and production smoke is 7/7.
+  Capacitor sync and the Android debug build with JDK 21 are green. No Android
+  device is attached, so the physical-device smoke has not run.
+- TaskNotes' current product architecture has no application-owned offline task
+  replica or sync queue. The mdbase collection is the sole durable collection
+  boundary; bounded in-session caches and the separate application mutation
+  journal do not form a second authority. Replica/sync/transfer criteria in the
+  original canary wording are therefore not applicable and have been replaced
+  in the parent plan with direct-authority lifecycle and recovery gates.
 - The earlier beta.31, `48af56d`, `8edc7b3`, and `161dd7a` candidate directories are retained
   only as immutable rejected evidence. They are superseded and must not be
   copied into another consumer.
 
 ## Next
 
-Migrate TaskNotes to the immutable `4680eadb3b06` artifact set and run its
-native, lifecycle, sync, and cloud gates. Run Pickle's physical Android-device
-smoke when a device becomes available; the absent device does not block safe
-progress on the independent TaskNotes migration.
+Run Pickle and TaskNotes physical Android-device smokes when a device becomes
+available. In parallel, finish the independent cross-authority mutator matrix
+and supported desktop-platform evidence required by the program before closing
+this slice and admitting the rollout gate.

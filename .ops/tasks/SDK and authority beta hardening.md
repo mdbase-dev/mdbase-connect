@@ -14,8 +14,8 @@ tags:
   - user-experience
   - consumers
 created_at: 2026-08-04T10:51:42+10:00
-updated_at: 2026-08-05T06:09:59+10:00
-progress_summary: Phases 0-1 are complete. Phase 2 journals are implemented across local and hosted authorities, with the remaining gate limited to the generated full mutator termination matrix and observed desktop-platform CI. Phases 3-5 are complete. Phase 6 uses the final beta.32 candidate from Connect commit 4680eadb3b06: Workouts is converged at 2b8a953, Editor at c701dca, and Pickle at f1c7c6e with verify, browser, lifecycle/callback, isolated real-authority response-loss recovery, Capacitor sync, and Android build green. Pickle physical-device smoke is unavailable because no device is attached; TaskNotes remains. Phase 7 has not started.
+updated_at: 2026-08-05T07:03:00+10:00
+progress_summary: Phases 0-1 and 3-5 are complete. Phase 2 journals are implemented across local and hosted authorities; the generated full-mutator termination matrix and observed supported-desktop runs remain. All four Phase 6 canaries use the final beta.32 candidate from Connect commit 4680eadb3b06: Workouts 2b8a953, Editor c701dca, Pickle f1c7c6e, and TaskNotes 5c55752. TaskNotes verify, conformance, browser, production-smoke, isolated real-authority recovery, Capacitor sync, and Android build gates are green. Physical Pickle/TaskNotes Android smokes remain unavailable because no device is attached. Phase 7 has not started.
 type: task
 ---
 
@@ -42,7 +42,7 @@ Consumer migrations cover these canonical checkouts:
 | Product name | Checkout | Current use |
 | --- | --- | --- |
 | mdbase Editor | `/home/calluma/projects/mdbase-editor` | Broadest SDK surface: application sessions, query/read/CRUD, guarded rename/delete, types/type packs, direct access, and watch. |
-| TaskNotes | `/home/calluma/projects/tasknotes-app` | Offline replica and sync, files, native/browser authorization, notifications, and a separate application mutation journal. |
+| TaskNotes | `/home/calluma/projects/tasknotes-app` | Direct collection authority, bounded in-session caches, files, native/browser authorization, notifications, and a separate application mutation journal. It deliberately has no application-owned offline task replica. |
 | mdbase Workouts | `/home/calluma/projects/workout_tracker` | Online record CRUD, application sessions, cache invalidation, and Connect dogfood E2E. This is the current checkout for the `mdbase-workouts` repository. |
 | Pickle | `/home/calluma/projects/pickle-android` | Record reads/responses, watch, native deep-link authorization, app lifecycle, and notifications. The sibling `/home/calluma/projects/pickle` repository is the CLI/inbox and is not an SDK consumer. |
 
@@ -450,21 +450,23 @@ background/foreground, notification binding, and response-loss/restart E2E.
    stores user intent and scheduling; the SDK journal stores transport request
    identity and authority outcome. Persist the mapping between their operation
    IDs so recovery cannot generate a duplicate write.
-2. Thread deadlines/cancellation through session lifecycle, local-to-hosted
-   transfer, direct repository operations, files, replica initialization/sync,
-   notification operations, and collection switching. Background sync gets a
-   different budget from foreground UI.
-3. Reconcile the replica's pending queue with recovered authority receipts
-   before issuing another push. Test kill/restart during multi-record sync,
-   rolling-occurrence maintenance, attachment operations, and collection
-   transfer checkpoints.
-4. Preserve offline-first behavior: a network timeout marks transport offline
-   and leaves durable local intent pending; it must not corrupt the replica or
-   show a rejected write.
+2. Thread deadlines/cancellation through session lifecycle, authorization and
+   definition updates, direct repository operations, files, notification
+   operations, and collection switching. Backgrounding suspends foreground
+   authority work; foreground resume receives a fresh lifecycle signal.
+3. Reconcile application-journal intent with recovered authority receipts
+   before issuing a later write or canonical read. Test kill/restart during
+   multi-record commands, rolling-occurrence maintenance, attachment operations,
+   notification reconciliation, and collection lifecycle changes.
+4. Preserve the direct-authority product boundary: a network timeout marks the
+   collection unavailable and retains actionable user intent or drafts without
+   reporting a false rejection. Bounded in-session caches must never become an
+   application-owned offline replica or second synchronization authority.
 
 Required gates: full `pnpm verify`, cloud E2E, browser E2E, production and Android
-smokes, TaskNotes/mdbase conformance, offline restart, conflict handling, files,
-notifications, transfer resume, and authority response-loss recovery.
+smokes, TaskNotes/mdbase conformance, lifecycle restart, provider conflicts,
+files, notifications, collection switching, and authority response-loss
+recovery.
 
 Exit gate: all four consumers use one exact candidate artifact set, expose
 correct recovery UX, and pass their complete relevant suites. TaskNotes is last
