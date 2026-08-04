@@ -138,9 +138,16 @@ export interface DeleteProgressOptions extends MutationProgressOptions {
 }
 
 export interface PendingMutationSummary {
+  requestId: string;
   operation: CollectionOperation;
+  fingerprint: string;
+  status: "pending" | "recovering" | "outcome_unknown";
   createdAt: number;
   resumable: true;
+}
+
+export interface PendingMutation<Result = unknown> extends PendingMutationSummary {
+  recover(options?: ConnectRequestOptions): Promise<import("./outcomes.js").ConnectOutcome<Result>>;
 }
 
 export interface CreateInput<Frontmatter extends JsonObject = JsonObject> {

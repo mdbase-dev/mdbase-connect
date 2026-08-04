@@ -49,14 +49,14 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
   createApplicationSession(
     options: MdbaseApplicationSessionOptions
   ): MdbaseApplicationSession<Frontmatter> {
-    return new MdbaseApplicationSession(this, options);
+    return new MdbaseApplicationSession(this, options, this.internals.timeouts);
   }
 
   /** The ordinary application lifecycle entry point. */
   application(
     options: MdbaseApplicationSessionOptions
   ): MdbaseApplicationSession<Frontmatter> {
-    return new MdbaseApplicationSession(this, options);
+    return new MdbaseApplicationSession(this, options, this.internals.timeouts);
   }
 
   manifest(options?: ConnectRequestOptions): Promise<ConnectOutcome<import("@mdbase-dev/connect-protocol").MdbaseAppManifest, RegistrationProblemCode>> {

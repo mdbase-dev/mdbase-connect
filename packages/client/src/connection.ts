@@ -11,6 +11,7 @@ import type {
   FileCapability,
   GrantScope,
   JsonObject,
+  MdbaseOperationEnvelope,
   ReadViewSourceInput,
   RecordDocument,
   SavedViewExecution,
@@ -38,7 +39,12 @@ import type {
   MdbaseSyncConnection
 } from "./connection-types.js";
 import type { GrantKeyStore } from "./crypto.js";
-import { MdbaseConnectError, connectError, connectProblem } from "./errors.js";
+import {
+  MdbaseConnectError,
+  connectError,
+  connectProblem,
+  operationProblem
+} from "./errors.js";
 import { MdbaseFileClient } from "./files.js";
 import {
   DEFAULT_OPERATIONS,
@@ -74,6 +80,7 @@ import type {
   MutationEstimate,
   MutationProgressState,
   ConnectRequestOptions,
+  PendingMutation,
   PendingMutationSummary,
   QueryInput,
   QueryPage,
@@ -115,8 +122,7 @@ import {
 } from "./outcomes.js";
 import type { MdbaseDeviceAuthorization } from "./authorization-types.js";
 import {
-  DEFAULT_STARTUP_TIMEOUT_MS,
-  DEFAULT_SYNC_TIMEOUT_MS,
+  type ResolvedConnectTimeouts,
   withRequestBudget
 } from "./request-budget.js";
 
@@ -165,6 +171,7 @@ export interface MdbaseConnectionInternals<Frontmatter extends JsonObject>
   readonly keyStore: GrantKeyStore;
   readonly directAccessMode: "auto" | "disabled";
   readonly loopbackUrl: string;
+  readonly timeouts: ResolvedConnectTimeouts;
   register(options?: ConnectRequestOptions): Promise<Application>;
   authorize(
     options?: MdbaseAuthorizeOptions
@@ -194,6 +201,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       loopbackUrl: internals.loopbackUrl,
       collectionId,
       internals,
+      timeouts: internals.timeouts,
       onChange: () => this.emitConnection()
     });
     this.files = new MdbaseFileClient(
@@ -214,7 +222,8 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
             expectedLength,
             signal
           )
-      }
+      },
+      internals.timeouts
     );
     this.collectionClient = new MdbaseCollectionClient({
       operation: (operation, input, requestOptions) =>
@@ -226,7 +235,8 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       authorizedToken: (signal) => this.transport.authorizedToken({ signal, timeoutMs: null }),
       register: (signal) => this.internals.register({ signal, timeoutMs: null }),
       notificationKey: (transport) =>
-        internals.notificationKey(collectionId, transport)
+        internals.notificationKey(collectionId, transport),
+      requestTimeoutMs: internals.timeouts.requestMs
     });
   }
 
@@ -377,21 +387,21 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
         collectionId,
         replicaId,
         transport: {
-          openSession: (options) => this.transport.performOperation("sync", { action: "open_session" }, syncRequestOptions(options)),
+          openSession: (options) => this.transport.performOperation("sync", { action: "open_session" }, syncRequestOptions(options, this.internals.timeouts.syncMs)),
           snapshot: (snapshotId, page, options) => this.transport.performOperation("sync", {
             action: "snapshot",
             snapshot_id: snapshotId,
             ...(page ? { page } : {})
-          }, syncRequestOptions(options)),
+          }, syncRequestOptions(options, this.internals.timeouts.syncMs)),
           changes: (after, limit = 200, options) => this.transport.performOperation("sync", {
             action: "changes",
             after,
             limit
-          }, syncRequestOptions(options)),
+          }, syncRequestOptions(options, this.internals.timeouts.syncMs)),
           mutate: (mutation, options) => this.transport.performOperation("sync", {
             action: "mutate",
             mutation
-          }, syncRequestOptions(options))
+          }, syncRequestOptions(options, this.internals.timeouts.syncMs))
         }
       };
     }
@@ -647,18 +657,44 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     }
   }
 
-  pendingMutation(): PendingMutationSummary | null {
-    return this.transport.pendingMutation();
+  pendingMutations<Result = unknown>(): readonly PendingMutation<Result>[] {
+    const pending = this.pendingMutation<Result>();
+    return pending ? [pending] : [];
   }
 
+  pendingMutation<Result = unknown>(requestId?: string): PendingMutation<Result> | null {
+    const summary = this.transport.pendingMutation();
+    if (!summary || (requestId !== undefined && summary.requestId !== requestId)) return null;
+    return {
+      ...summary,
+      recover: (options) => captureConnectOutcome(
+        () => this.recoverPendingMutation<Result>(options),
+        COLLECTION_MUTATION_PROBLEM_CODES
+      )
+    };
+  }
+
+  /** @deprecated Use pendingMutation(requestId)?.recover(); input is retained only during migration. */
   resumePendingMutation<Result>(
-    input: unknown,
+    _input: unknown,
     options?: ConnectRequestOptions
   ): Promise<ConnectOutcome<Result, CollectionMutationProblemCode>> {
     return captureConnectOutcome(
-      () => this.transport.resumePendingMutation<Result>(input, options),
+      () => this.recoverPendingMutation<Result>(options),
       COLLECTION_MUTATION_PROBLEM_CODES
     );
+  }
+
+  private async recoverPendingMutation<Result>(
+    options?: ConnectRequestOptions
+  ): Promise<Result> {
+    const result = await this.transport.resumePendingMutation<unknown>(options);
+    if (result && typeof result === "object" && "valid" in result) {
+      const envelope = result as MdbaseOperationEnvelope<Result>;
+      if (!envelope.valid) throw new MdbaseConnectError(operationProblem(envelope));
+      return envelope.result;
+    }
+    return result as Result;
   }
 
   validate(input: JsonObject = {}, options?: ConnectRequestOptions): Promise<ConnectOutcome<JsonObject, CollectionReadProblemCode>> {
@@ -718,7 +754,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     options: ConnectRequestOptions = {}
   ): Promise<ConnectOutcome<MdbaseWatchSubscription, CollectionChangesProblemCode>> {
     return captureConnectOutcome(
-      () => withRequestBudget(options, DEFAULT_STARTUP_TIMEOUT_MS, async (budget) => {
+      () => withRequestBudget(options, this.internals.timeouts.watchStartMs, async (budget) => {
         const initial = await this.collectionClient.changes(
           input.cursor === undefined ? {} : { after: input.cursor, limit: 200 },
           { signal: budget.signal, timeoutMs: null }
@@ -734,7 +770,8 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
           this.collectionClient,
           initial.value.cursor,
           input,
-          input.cursor === undefined ? [] : initial.value.events
+          input.cursor === undefined ? [] : initial.value.events,
+          this.internals.timeouts.watchStartMs
         );
       }),
       COLLECTION_CHANGES_PROBLEM_CODES
@@ -769,7 +806,8 @@ class CollectionWatchSubscription implements MdbaseWatchSubscription {
     private readonly client: MdbaseCollectionClient,
     cursor: number,
     private readonly input: WatchInput,
-    pendingChanges: CollectionChange[]
+    pendingChanges: CollectionChange[],
+    private readonly watchStartTimeoutMs: number | null
   ) {
     this.pendingChanges = [...pendingChanges];
     this.currentStatus = { state: "connected", cursor, recovered: false };
@@ -830,7 +868,7 @@ class CollectionWatchSubscription implements MdbaseWatchSubscription {
       pollIntervalMs: this.input.pollIntervalMs,
       retry: this.input.retry,
       signal: this.controller.signal,
-      timeoutMs: DEFAULT_STARTUP_TIMEOUT_MS,
+      timeoutMs: this.watchStartTimeoutMs,
       onStatus: (status) => {
         if (firstStatus && status.state === "connecting") {
           firstStatus = false;
@@ -861,9 +899,12 @@ class CollectionWatchSubscription implements MdbaseWatchSubscription {
   }
 }
 
-function syncRequestOptions(options?: ConnectRequestOptions): ConnectRequestOptions {
+function syncRequestOptions(
+  options: ConnectRequestOptions | undefined,
+  defaultTimeoutMs: number | null
+): ConnectRequestOptions {
   return {
     ...options,
-    timeoutMs: options?.timeoutMs === undefined ? DEFAULT_SYNC_TIMEOUT_MS : options.timeoutMs
+    timeoutMs: options?.timeoutMs === undefined ? defaultTimeoutMs : options.timeoutMs
   };
 }

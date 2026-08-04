@@ -2706,10 +2706,15 @@ describe("direct loopback routing", () => {
         recovery: "resolve_outcome"
       }
     });
-    expect(fixture.connect.pendingMutation()).toMatchObject({
+    const pending = fixture.connect.pendingMutation();
+    expect(pending).toMatchObject({
+      requestId: expect.any(String),
       operation: "create",
+      fingerprint: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+      status: "outcome_unknown",
       resumable: true
     });
+    expect(fixture.connect.pendingMutations()).toHaveLength(1);
   });
 
   it("retries the exact encrypted envelope through the relay after an ambiguous direct failure", async () => {
@@ -2807,10 +2812,15 @@ schema:
         recovery: "resolve_outcome"
       }
     });
-    expect(fixture.connect.pendingMutation()).toMatchObject({
+    const pending = fixture.connect.pendingMutation();
+    expect(pending).toMatchObject({
+      requestId: expect.any(String),
       operation: "create",
+      fingerprint: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+      status: "outcome_unknown",
       resumable: true
     });
+    expect(fixture.connect.pendingMutations()).toHaveLength(1);
 
     fetchMock
       .mockImplementationOnce(async (request, init) => {
@@ -2826,7 +2836,7 @@ schema:
         }), { status: 503, headers: { "content-type": "application/json" } });
       });
 
-    await expect(fixture.connect.resumePendingMutation(input)).resolves.toMatchObject({
+    await expect(pending!.recover()).resolves.toMatchObject({
       ok: false,
       problem: { code: "operation_outcome_unknown", operation_outcome: "unknown" }
     });
@@ -3032,6 +3042,22 @@ schema:
 });
 
 describe("bounded watch subscriptions", () => {
+  it("uses the configured watch-start default", async () => {
+    vi.useFakeTimers();
+    const connection = watchConnection({ watchStartMs: 25 });
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      () => new Promise<Response>(() => undefined)
+    );
+
+    const pending = connection.watch();
+    const result = expect(pending).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "timeout" }
+    });
+    await vi.advanceTimersByTimeAsync(25);
+    await result;
+  });
+
   it("bounds startup even when fetch ignores AbortSignal", async () => {
     vi.useFakeTimers();
     const connection = watchConnection();
@@ -3080,6 +3106,47 @@ describe("bounded watch subscriptions", () => {
     expect(statuses).toEqual(["connected"]);
     opened.value.close();
     expect(opened.value.status.state).toBe("closed");
+  });
+});
+
+describe("durable pending mutation handles", () => {
+  it("recovers the stored plaintext protocol request without reconstructed input", async () => {
+    const connection = watchConnection();
+    const bodies: string[] = [];
+    vi.spyOn(globalThis, "fetch")
+      .mockImplementationOnce(async (_input, init) => {
+        bodies.push(String(init?.body));
+        throw new TypeError("response lost after dispatch");
+      })
+      .mockImplementationOnce(async (_input, init) => {
+        const body = String(init?.body);
+        bodies.push(body);
+        const request = JSON.parse(body);
+        return jsonResponse({
+          protocol_version: 1,
+          request_id: request.request_id,
+          ok: true,
+          result: {
+            valid: true,
+            result: { path: "notes/recovered.md" },
+            diagnostics: []
+          }
+        });
+      });
+
+    await expect(connection.create({ path: "notes/recovered.md", frontmatter: {} }))
+      .resolves.toMatchObject({
+        ok: false,
+        problem: { code: "operation_outcome_unknown", operation_outcome: "unknown" }
+      });
+    const pending = connection.pendingMutations<{ path: string }>();
+    expect(pending).toHaveLength(1);
+    await expect(pending[0]!.recover()).resolves.toMatchObject({
+      ok: true,
+      value: { path: "notes/recovered.md" }
+    });
+    expect(bodies[1]).toBe(bodies[0]);
+    expect(connection.pendingMutations()).toEqual([]);
   });
 });
 
@@ -3180,7 +3247,7 @@ function progressConnection() {
   return manager.connection(TEST_COLLECTION_ID)!;
 }
 
-function watchConnection() {
+function watchConnection(timeouts?: import("./connect-options.js").MdbaseConnectTimeouts) {
   const serverUrl = "https://connect.example";
   const manifest = "https://tasks.example/manifest.json";
   const storage = new MemoryStorage();
@@ -3190,7 +3257,7 @@ function watchConnection() {
     clientId: TEST_APPLICATION_ID,
     collectionId: TEST_COLLECTION_ID,
     collectionName: "Tasks",
-    operations: ["changes"],
+    operations: ["changes", "create"],
     scope: { contracts: [], access: "full_collection" },
     expiresAt: Date.now() + 60_000,
     savedAt: Date.now()
@@ -3200,7 +3267,8 @@ function watchConnection() {
     manifest,
     redirectUri: "https://tasks.example/callback",
     storage,
-    relayEncryption: "disabled"
+    relayEncryption: "disabled",
+    timeouts
   }).connection(TEST_COLLECTION_ID)!;
 }
 

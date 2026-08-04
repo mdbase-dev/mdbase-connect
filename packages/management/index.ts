@@ -443,8 +443,8 @@ function managementDeadline(options: ManagementRequestOptions): {
   if (options.signal?.aborted) abort();
   else options.signal?.addEventListener("abort", abort, { once: true });
   const timeoutMs = options.timeoutMs === null ? null : options.timeoutMs ?? 30_000;
-  if (timeoutMs !== null && (!Number.isFinite(timeoutMs) || timeoutMs < 0)) {
-    throw new TypeError("timeoutMs must be a finite non-negative number or null.");
+  if (timeoutMs !== null && (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)) {
+    throw new TypeError("timeoutMs must be a positive safe integer or null.");
   }
   const timer = timeoutMs === null ? undefined : setTimeout(() => {
     timeout = true;

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { MdbaseConnectError } from "./errors.js";
 import {
   createRequestBudget,
+  resolveConnectTimeouts,
   requestAbortReason,
   withRequestBudget
 } from "./request-budget.js";
@@ -34,6 +35,21 @@ describe("request budgets", () => {
     budget.dispose();
   });
 
+  it("resolves independently configurable workload defaults", () => {
+    expect(resolveConnectTimeouts({
+      requestMs: 5_000,
+      watchStartMs: null,
+      uploadMs: 90_000,
+      syncMs: 45_000
+    })).toEqual({
+      requestMs: 5_000,
+      watchStartMs: null,
+      uploadMs: 90_000,
+      syncMs: 45_000
+    });
+    expect(() => resolveConnectTimeouts({ requestMs: 0 })).toThrow(TypeError);
+  });
+
   it("composes caller cancellation and removes its listener", () => {
     const caller = new AbortController();
     const remove = vi.spyOn(caller.signal, "removeEventListener");
@@ -46,7 +62,7 @@ describe("request budgets", () => {
     expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
   });
 
-  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY])(
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])(
     "rejects invalid timeout %s before dispatch",
     (timeoutMs) => {
       expect(() => createRequestBudget({ timeoutMs })).toThrow(TypeError);

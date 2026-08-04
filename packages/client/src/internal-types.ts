@@ -5,7 +5,8 @@ import type {
   EncryptedRelayOperationRequest,
   GrantEncryption,
   FileCapability,
-  GrantScope
+  GrantScope,
+  MdbaseOperationRequest
 } from "@mdbase-dev/connect-protocol";
 import { encryptRelayRequest } from "./crypto.js";
 
@@ -75,6 +76,8 @@ export interface PendingMutation {
   inputFingerprint: string;
   requestId: string;
   envelope?: EncryptedRelayOperationRequest;
+  /** Exact plaintext protocol request for transports that do not use a grant envelope. */
+  request?: MdbaseOperationRequest;
   createdAt: number;
 }
 

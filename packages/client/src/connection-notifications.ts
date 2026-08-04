@@ -4,7 +4,7 @@ import { connectError } from "./errors.js";
 import { apiError, connectFetch, decodeJsonResponse, parseStored } from "./runtime-utils.js";
 import { base64UrlBytes, randomBase64Url } from "./base64.js";
 import type { ConnectRequestOptions } from "./operation-types.js";
-import { DEFAULT_REQUEST_TIMEOUT_MS, withRequestBudget } from "./request-budget.js";
+import { withRequestBudget } from "./request-budget.js";
 import type {
   MdbaseNativeNotificationRegistration,
   MdbaseNativeNotificationRegistrationOptions,
@@ -18,6 +18,7 @@ export interface ConnectionNotificationContext {
   authorizedToken(signal?: AbortSignal): Promise<StoredToken | null>;
   register(signal?: AbortSignal): Promise<Application>;
   notificationKey(transport?: "web_push" | "fcm"): string;
+  requestTimeoutMs: number | null;
 }
 
 export class ConnectionNotifications {
@@ -26,7 +27,7 @@ export class ConnectionNotifications {
   async registerNotifications(
     options: MdbaseNotificationRegistrationOptions
   ): Promise<MdbaseNotificationRegistration> {
-    return withRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS, (budget) =>
+    return withRequestBudget(options, this.context.requestTimeoutMs, (budget) =>
       this.registerNotificationsWithinBudget(options, budget.signal)
     );
   }
@@ -142,7 +143,7 @@ export class ConnectionNotifications {
   async registerNativeNotifications(
     options: MdbaseNativeNotificationRegistrationOptions
   ): Promise<MdbaseNativeNotificationRegistration> {
-    return withRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS, (budget) =>
+    return withRequestBudget(options, this.context.requestTimeoutMs, (budget) =>
       this.registerNativeNotificationsWithinBudget(options, budget.signal)
     );
   }
@@ -231,7 +232,7 @@ export class ConnectionNotifications {
   }
 
   async unregisterNativeNotifications(options: ConnectRequestOptions = {}): Promise<void> {
-    return withRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS, (budget) =>
+    return withRequestBudget(options, this.context.requestTimeoutMs, (budget) =>
       this.unregisterNativeNotificationsWithinBudget(budget.signal)
     );
   }
@@ -262,7 +263,7 @@ export class ConnectionNotifications {
     serviceWorker?: ServiceWorkerRegistration,
     options: ConnectRequestOptions = {}
   ): Promise<void> {
-    return withRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS, (budget) =>
+    return withRequestBudget(options, this.context.requestTimeoutMs, (budget) =>
       this.unregisterNotificationsWithinBudget(serviceWorker, budget.signal)
     );
   }

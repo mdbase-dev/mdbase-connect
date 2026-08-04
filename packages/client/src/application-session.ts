@@ -28,7 +28,11 @@ import {
 } from "./outcomes.js";
 import type { MdbaseApplicationSelection, MdbaseSelectionHistory } from "./selection.js";
 import type { ConnectRequestOptions } from "./operation-types.js";
-import { DEFAULT_STARTUP_TIMEOUT_MS, withRequestBudget } from "./request-budget.js";
+import {
+  resolveConnectTimeouts,
+  type ResolvedConnectTimeouts,
+  withRequestBudget
+} from "./request-budget.js";
 import { defaultCallbackUrl } from "./runtime-utils.js";
 import {
   MdbaseSession,
@@ -130,13 +134,14 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
 
   constructor(
     private readonly connect: MdbaseApplicationSessionConnect<Frontmatter>,
-    private readonly options: MdbaseApplicationSessionOptions
+    private readonly options: MdbaseApplicationSessionOptions,
+    private readonly timeouts: ResolvedConnectTimeouts = resolveConnectTimeouts()
   ) {
     this.verificationStore = options.verificationStore ?? defaultVerificationStore();
   }
 
   start(options?: ConnectRequestOptions): Promise<ConnectOutcome<MdbaseApplicationSessionSnapshot, SessionProblemCode>> {
-    return withRequestBudget(options, DEFAULT_STARTUP_TIMEOUT_MS, (budget) =>
+    return withRequestBudget(options, this.timeouts.watchStartMs, (budget) =>
       this.startWithinBudget({ signal: budget.signal, timeoutMs: null })
     );
   }
