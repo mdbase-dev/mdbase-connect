@@ -1,0 +1,3 @@
+# SQL migrations are immutable release inputs. Keep their bytes identical on
+# every checkout so embedded checksums and migration safety hashes are stable.
+*.sql text eol=lf

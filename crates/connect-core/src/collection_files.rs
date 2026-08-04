@@ -411,6 +411,7 @@ fn physical_file_information(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(not(target_os = "macos"))]
     use std::io::Write;
     use tempfile::tempdir;
 
@@ -562,9 +563,21 @@ mod tests {
         let root = tempdir().unwrap();
         write(root.path(), "Café/photo.png");
         write(root.path(), "Café/photo.png");
+        let distinct_spellings = fs::read_dir(root.path()).unwrap().count() == 2;
         let inventory = inventory(root.path(), &BTreeSet::new());
-        assert!(inventory.files.is_empty());
-        assert_eq!(inventory.issues.len(), 2);
+        if distinct_spellings {
+            assert!(inventory.files.is_empty());
+            assert_eq!(inventory.issues.len(), 2);
+            assert!(inventory
+                .issues
+                .iter()
+                .all(|issue| issue.code == "path_alias"));
+        } else {
+            // Normalizing filesystems such as the default macOS APFS cannot
+            // represent the two spellings as distinct directory entries.
+            assert_eq!(inventory.files.len(), 1);
+            assert!(inventory.issues.is_empty());
+        }
 
         let mut policy = all_files();
         policy.excluded_folders.insert("../outside".to_string());
@@ -575,6 +588,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn symlinks_hard_links_and_non_unicode_names_are_never_files() {
+        #[cfg(not(target_os = "macos"))]
         use std::os::unix::ffi::OsStringExt;
         use std::os::unix::fs::symlink;
 
@@ -590,9 +604,13 @@ mod tests {
             root.path().join("hard.png"),
         )
         .unwrap();
-        let invalid = std::ffi::OsString::from_vec(vec![b'i', b'n', 0xff, b'.', b'p', b'n', b'g']);
-        let mut file = fs::File::create(root.path().join(invalid)).unwrap();
-        file.write_all(b"invalid").unwrap();
+        #[cfg(not(target_os = "macos"))]
+        {
+            let invalid =
+                std::ffi::OsString::from_vec(vec![b'i', b'n', 0xff, b'.', b'p', b'n', b'g']);
+            let mut file = fs::File::create(root.path().join(invalid)).unwrap();
+            file.write_all(b"invalid").unwrap();
+        }
 
         let inventory = inventory(root.path(), &BTreeSet::new());
         assert!(inventory.files.is_empty());
@@ -601,10 +619,10 @@ mod tests {
             .iter()
             .map(|issue| issue.code)
             .collect::<BTreeSet<_>>();
-        assert_eq!(
-            codes,
-            BTreeSet::from(["hard_link_excluded", "non_unicode_path", "symlink_excluded"])
-        );
+        let mut expected = BTreeSet::from(["hard_link_excluded", "symlink_excluded"]);
+        #[cfg(not(target_os = "macos"))]
+        expected.insert("non_unicode_path");
+        assert_eq!(codes, expected);
     }
 
     #[cfg(unix)]
