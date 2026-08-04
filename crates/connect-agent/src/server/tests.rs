@@ -12,12 +12,12 @@ use uuid::Uuid;
 
 #[tokio::test]
 async fn listening_callback_runs_after_the_control_socket_is_reachable() {
-    let test_root = std::env::temp_dir().join(format!(
-        "mdbase-connect-listening-test-{}",
-        uuid::Uuid::new_v4()
-    ));
-    let endpoint = test_root.join("agent.sock");
-    let registry = CollectionRegistry::open(&test_root).unwrap();
+    // Darwin's sockaddr_un path is substantially shorter than Linux's. Use
+    // tempfile's compact directory name so this tests readiness ordering, not
+    // platform socket-path length.
+    let test_root = tempfile::tempdir().unwrap();
+    let endpoint = test_root.path().join("agent.sock");
+    let registry = CollectionRegistry::open(test_root.path().join("state")).unwrap();
     let watcher = CollectionWatchService::start(registry.clone());
     let state = Arc::new(AgentState::new(registry, watcher, None));
     let starting_ping = state
@@ -46,7 +46,6 @@ async fn listening_callback_runs_after_the_control_socket_is_reachable() {
 
     server.abort();
     let _ = server.await;
-    fs::remove_dir_all(test_root).unwrap();
 }
 
 #[tokio::test]
