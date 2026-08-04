@@ -66,7 +66,7 @@ export function throwIfCancelled(signal?: AbortSignal): void {
 export function operationTransportError(
   error: unknown,
   signal: AbortSignal | undefined,
-  outcomeUnknown: boolean,
+  pendingRequestId: string | undefined,
   unavailableCode: "hosted_provider_unavailable" | "relay_unavailable"
 ): Error {
   // Problems raised before transport dispatch already describe the
@@ -74,7 +74,7 @@ export function operationTransportError(
   // pending mutation also exists in storage.
   if (error instanceof MdbaseConnectError) return error;
   if (signal?.aborted) {
-    if (outcomeUnknown) return unknownMutationOutcome(error);
+    if (pendingRequestId) return unknownMutationOutcome(pendingRequestId, error);
     if (signal.reason instanceof MdbaseConnectError) return signal.reason;
     return connectError(
       "operation_cancelled",
@@ -82,8 +82,8 @@ export function operationTransportError(
       { operationOutcome: "not_sent", cause: error }
     );
   }
-  if (outcomeUnknown) {
-    return unknownMutationOutcome(error);
+  if (pendingRequestId) {
+    return unknownMutationOutcome(pendingRequestId, error);
   }
   if (error instanceof TypeError) {
     return connectError(
@@ -165,10 +165,10 @@ export function sortJson(value: unknown): unknown {
   return value;
 }
 
-export function unknownMutationOutcome(cause: unknown): MdbaseConnectError {
+export function unknownMutationOutcome(requestId: string, cause: unknown): MdbaseConnectError {
   return connectError(
     "operation_outcome_unknown",
     "The write may have completed, but mdbase could not recover its authoritative result. Retry the exact same write to recover safely.",
-    { operationOutcome: "unknown", cause }
+    { operationOutcome: "unknown", details: { request_id: requestId }, cause }
   );
 }

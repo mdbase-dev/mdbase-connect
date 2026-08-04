@@ -259,7 +259,9 @@ export interface ConnectProblemDetailsByCode {
   "diagnostics": Array<Record<string, unknown>>;
   "partial_result"?: unknown;
 };
-  "operation_outcome_unknown": undefined;
+  "operation_outcome_unknown": {
+  "request_id": string;
+};
   "path_occupied": undefined;
   "pending_mutation_unresolved": undefined;
   "query_snapshot_changed": undefined;
@@ -765,7 +767,7 @@ export interface ConnectProblemByCode {
     code: "operation_outcome_unknown";
     category: "conflict";
     recovery: "resolve_outcome";
-    details?: never;
+    details: ConnectProblemDetailsByCode["operation_outcome_unknown"];
   };
   "path_occupied": ConnectProblemBase & {
     code: "path_occupied";
@@ -1267,6 +1269,17 @@ const CONNECT_PROBLEM_DETAIL_SCHEMAS: Readonly<Record<string, ConnectProblemDeta
         }
       },
       "partial_result": {}
+    }
+  },
+  "operation_outcome_unknown": {
+    "type": "object",
+    "required": [
+      "request_id"
+    ],
+    "properties": {
+      "request_id": {
+        "type": "string"
+      }
     }
   },
   "rate_limited": {

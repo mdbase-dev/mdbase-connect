@@ -2695,15 +2695,17 @@ describe("direct loopback routing", () => {
     fixture.connect.disableDirectAccess();
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("relay response lost"));
 
-    await expect(fixture.connect.create({
+    const outcome = await fixture.connect.create({
       path: "uncertain.md",
       frontmatter: { title: "Uncertain" }
-    })).resolves.toMatchObject({
+    });
+    expect(outcome).toMatchObject({
       ok: false,
       problem: {
         code: "operation_outcome_unknown",
         operation_outcome: "unknown",
-        recovery: "resolve_outcome"
+        recovery: "resolve_outcome",
+        details: { request_id: expect.any(String) }
       }
     });
     const pending = fixture.connect.pendingMutations()[0];
@@ -2715,6 +2717,7 @@ describe("direct loopback routing", () => {
       createdAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/)
     });
     expect(fixture.connect.pendingMutations()).toHaveLength(1);
+    expect(outcome.ok ? undefined : outcome.problem.details?.request_id).toBe(pending?.requestId);
   });
 
   it("tracks multiple unknown writes and recovers an exact encrypted envelope", async () => {

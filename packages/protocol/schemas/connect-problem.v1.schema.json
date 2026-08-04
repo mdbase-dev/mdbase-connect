@@ -3433,7 +3433,8 @@
         "code",
         "category",
         "recovery",
-        "message"
+        "message",
+        "details"
       ],
       "properties": {
         "problem_version": {
@@ -3462,6 +3463,18 @@
         "trace_id": {
           "type": "string",
           "minLength": 1
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "request_id"
+          ],
+          "properties": {
+            "request_id": {
+              "type": "string"
+            }
+          }
         }
       }
     },
