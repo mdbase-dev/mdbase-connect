@@ -730,7 +730,10 @@ fn ensure_private_directory(path: &Path) -> Result<(), ConnectError> {
 }
 
 fn sync_file(path: &Path) -> Result<(), ConnectError> {
-    File::open(path)?.sync_all()?;
+    // Windows requires a write-capable handle for FlushFileBuffers. Opening
+    // read-only happens to work on Unix but makes the same durability boundary
+    // fail with ERROR_ACCESS_DENIED on Windows.
+    OpenOptions::new().write(true).open(path)?.sync_all()?;
     Ok(())
 }
 
