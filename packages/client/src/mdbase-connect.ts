@@ -21,6 +21,7 @@ import {
 import { MdbaseApplicationSession, type MdbaseApplicationSessionOptions } from "./application-session.js";
 import type { MdbaseUnavailableReason } from "./session.js";
 import type { Application } from "./internal-types.js";
+import type { ConnectRequestOptions } from "./operation-types.js";
 
 export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
   private readonly internals: MdbaseConnectInternals<Frontmatter>;
@@ -29,9 +30,9 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     this.internals = new MdbaseConnectInternals(options);
   }
 
-  register(): Promise<ConnectOutcome<Application, RegistrationProblemCode>> {
+  register(options?: ConnectRequestOptions): Promise<ConnectOutcome<Application, RegistrationProblemCode>> {
     return captureConnectOutcome(
-      () => this.internals.register(),
+      () => this.internals.register(options),
       REGISTRATION_PROBLEM_CODES
     );
   }
@@ -51,9 +52,16 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     return new MdbaseApplicationSession(this, options);
   }
 
-  manifest(): Promise<ConnectOutcome<import("@mdbase-dev/connect-protocol").MdbaseAppManifest, RegistrationProblemCode>> {
+  /** The ordinary application lifecycle entry point. */
+  application(
+    options: MdbaseApplicationSessionOptions
+  ): MdbaseApplicationSession<Frontmatter> {
+    return new MdbaseApplicationSession(this, options);
+  }
+
+  manifest(options?: ConnectRequestOptions): Promise<ConnectOutcome<import("@mdbase-dev/connect-protocol").MdbaseAppManifest, RegistrationProblemCode>> {
     return captureConnectOutcome(
-      () => this.internals.manifestDeclaration(),
+      () => this.internals.manifestDeclaration(options),
       REGISTRATION_PROBLEM_CODES
     );
   }
@@ -63,10 +71,14 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
   }
 
   completeAuthorization(
-    callbackUrl?: string
+    callbackUrl?: string | URL,
+    options?: ConnectRequestOptions
   ): Promise<ConnectOutcome<MdbaseAuthorizationResult<Frontmatter>, AuthorizationProblemCode>> {
     return captureConnectOutcome(
-      () => this.internals.completeAuthorization(callbackUrl ?? defaultCallbackUrl()),
+      () => this.internals.completeAuthorization(
+        callbackUrl === undefined ? defaultCallbackUrl() : String(callbackUrl),
+        options
+      ),
       AUTHORIZATION_PROBLEM_CODES
     );
   }

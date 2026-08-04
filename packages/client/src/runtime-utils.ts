@@ -38,6 +38,28 @@ export async function connectFetch(
   }
 }
 
+/** Decode JSON without allowing native syntax/body errors across the SDK boundary. */
+export async function decodeJsonResponse(
+  response: Response,
+  code: string,
+  message: string
+): Promise<any> {
+  let text: string;
+  try {
+    text = await response.text();
+  } catch (cause) {
+    throw serverConnectError(code, message, { status: response.status, cause });
+  }
+  if (text.trim() === "") {
+    throw serverConnectError(code, message, { status: response.status });
+  }
+  try {
+    return JSON.parse(text);
+  } catch (cause) {
+    throw serverConnectError(code, message, { status: response.status, cause });
+  }
+}
+
 export function canonicalLoopbackUrl(value: string): string {
   const url = new URL(value);
   if (url.protocol !== "http:"

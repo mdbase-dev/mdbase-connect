@@ -1,4 +1,5 @@
 import type {
+  CollectionChange,
   CollectionOperation,
   ConnectProblem,
   JsonObject,
@@ -82,6 +83,7 @@ export interface QueryPagesOptions<Record extends JsonObject = JsonObject> {
   firstPageSize?: number;
   pageSize?: number;
   signal?: AbortSignal;
+  timeoutMs?: number | null;
   onProgress?: (page: QueryPage<Record>) => void;
 }
 
@@ -95,8 +97,10 @@ export interface QueryPage<Record extends JsonObject = JsonObject> {
   snapshot?: string;
 }
 
-export interface OperationRequestOptions {
+export interface ConnectRequestOptions {
   signal?: AbortSignal;
+  /** Relative request budget. `null` deliberately disables the SDK default. */
+  timeoutMs?: number | null;
 }
 
 export interface MutationEstimate {
@@ -119,8 +123,7 @@ export interface MutationProgress {
   estimate?: MutationEstimate;
 }
 
-export interface MutationProgressOptions {
-  signal?: AbortSignal;
+export interface MutationProgressOptions extends ConnectRequestOptions {
   onProgress?: (progress: MutationProgress) => void;
 }
 
@@ -247,6 +250,8 @@ export interface WatchOptions {
   cursor?: number;
   pollIntervalMs?: number;
   signal?: AbortSignal;
+  /** Per-poll/reconnect budget. null deliberately disables the SDK default. */
+  timeoutMs?: number | null;
   /** Set to false to surface transient transport failures immediately. */
   retry?: false | WatchRetryOptions;
   onStatus?: (status: WatchStatus) => void;
@@ -264,9 +269,29 @@ export type WatchStatus =
   | { state: "connecting"; cursor?: number }
   | { state: "connected"; cursor: number; recovered: boolean }
   | { state: "reconnecting"; cursor?: number; attempt: number; retryInMs: number; problem: ConnectProblem }
-  | { state: "reset_required"; cursor: number; problem: ConnectProblem<"change_cursor_reset"> };
+  | { state: "reset_required"; cursor: number; problem: ConnectProblem<"change_cursor_reset"> }
+  | { state: "closed"; cursor?: number };
+
+export interface WatchInput {
+  cursor?: number;
+  pollIntervalMs?: number;
+  retry?: false | WatchRetryOptions;
+  /** Cancels the subscription lifetime after bounded startup succeeds. */
+  lifetimeSignal?: AbortSignal;
+}
+
+export interface MdbaseWatchSubscription {
+  readonly status: WatchStatus;
+  readonly problem: ConnectProblem | null;
+  subscribe(
+    listener: (change: CollectionChange) => void,
+    onStatus?: (status: WatchStatus) => void,
+    onProblem?: (problem: ConnectProblem) => void
+  ): () => void;
+  close(): void;
+}
 
 /** Provider-neutral operation transport used by the typed collection client. */
 export interface MdbaseCollectionTransport {
-  operation<Result>(operation: CollectionOperation, input: unknown, options?: OperationRequestOptions): Promise<Result>;
+  operation<Result>(operation: CollectionOperation, input: unknown, options?: ConnectRequestOptions): Promise<Result>;
 }

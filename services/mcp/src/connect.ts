@@ -3,7 +3,7 @@ import {
   decryptRelayResponse,
   encryptRelayRequest,
   type GrantKeyStore
-} from "@mdbase-dev/connect";
+} from "@mdbase-dev/connect/crypto";
 import type {
   CollectionOperation,
   EncryptedRelayOperationResponse,

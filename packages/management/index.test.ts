@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConnectManagementClient, ManagementApiError } from "./index";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 describe("ConnectManagementClient", () => {
   it("uses the account origin with explicit browser credentials", async () => {
@@ -32,6 +35,75 @@ describe("ConnectManagementClient", () => {
     await expect(client.overview()).rejects.toEqual(
       expect.objectContaining<Partial<ManagementApiError>>({ status: 401, message: "Sign in first." })
     );
+  });
+
+  it("bounds a black-holed request with a typed timeout", async () => {
+    vi.useFakeTimers();
+    // Deliberately ignore AbortSignal to prove the public deadline is not
+    // dependent on a cooperative fetch implementation.
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
+    const client = new ConnectManagementClient("https://connect.example");
+    const pending = client.overview({ timeoutMs: 25 });
+    const rejection = expect(pending).rejects.toMatchObject({ code: "timeout", status: 0 });
+    await vi.advanceTimersByTimeAsync(25);
+    await rejection;
+  });
+
+  it("rejects an invalid successful response at the boundary", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>proxy error</html>", {
+      status: 200,
+      headers: { "content-type": "text/html" }
+    })));
+    const client = new ConnectManagementClient("https://connect.example");
+
+    await expect(client.overview()).rejects.toMatchObject({
+      code: "invalid_response",
+      status: 200
+    });
+  });
+
+  it("revokes an application through one exact batch request", async () => {
+    const fetch = vi.fn(async () => Response.json({
+      ok: true,
+      results: [
+        { grant_id: "grant-a", status: "revoked" },
+        { grant_id: "grant-b", status: "revoking" }
+      ]
+    }));
+    vi.stubGlobal("fetch", fetch);
+    const client = new ConnectManagementClient("https://connect.example");
+
+    await expect(client.revokeApplication(["grant-a", "grant-b", "grant-a"]))
+      .resolves.toMatchObject({ results: [{ grant_id: "grant-a" }, { grant_id: "grant-b" }] });
+    expect(fetch).toHaveBeenCalledWith(
+      new URL("https://connect.example/v1/grants/revoke-batch"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ grant_ids: ["grant-a", "grant-b"] })
+      })
+    );
+  });
+
+  it("reports exact partial batch completion", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      ok: false,
+      results: [
+        { grant_id: "grant-a", status: "revoked" },
+        { grant_id: "grant-b", status: "conflict" }
+      ]
+    })));
+    const client = new ConnectManagementClient("https://connect.example");
+
+    await expect(client.revokeApplication(["grant-a", "grant-b"]))
+      .rejects.toMatchObject({
+        code: "partial_failure",
+        details: {
+          results: [
+            { grant_id: "grant-a", status: "revoked" },
+            { grant_id: "grant-b", status: "conflict" }
+          ]
+        }
+      });
   });
 
   it("exposes account management without leaking editor URLs into OAuth state", async () => {

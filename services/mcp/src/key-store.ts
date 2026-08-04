@@ -1,4 +1,4 @@
-import type { GrantKeyRecord, GrantKeyStore } from "@mdbase-dev/connect";
+import type { GrantKeyRecord, GrantKeyStore } from "@mdbase-dev/connect/crypto";
 import type { DatabasePool } from "./db.js";
 import { SecretBox } from "./security.js";
 

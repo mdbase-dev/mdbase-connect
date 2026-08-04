@@ -136,6 +136,34 @@ describe("ConnectApp", () => {
     expect(overviewCalls()).toBe(2);
   });
 
+  it("ignores an older refresh that arrives after a newer generation", async () => {
+    const older = structuredClone(overview);
+    let resolveOlder: ((response: Response) => void) | undefined;
+    let overviewCall = 0;
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/v1/account/sessions") return Response.json({ sessions: [] });
+      if (path !== "/v1/me") return Response.json({ ok: true });
+      overviewCall += 1;
+      if (overviewCall === 1) {
+        return new Promise<Response>((resolve) => { resolveOlder = resolve; });
+      }
+      const newer = structuredClone(overview);
+      newer.collections[0].display_name = "Newest collection";
+      return Response.json(newer);
+    });
+    render(<ConnectApp />);
+    await waitFor(() => expect(overviewCall).toBe(1));
+
+    fireEvent(document, new Event("visibilitychange"));
+    expect(await screen.findByRole("heading", { name: "Newest collection" })).toBeInTheDocument();
+    await act(async () => resolveOlder?.(Response.json(older)));
+
+    expect(screen.getByRole("heading", { name: "Newest collection" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Garden notes" })).not.toBeInTheDocument();
+  });
+
   it("keeps collection input open after a failed creation", async () => {
     const user = userEvent.setup();
     render(<ConnectApp />);
@@ -238,6 +266,55 @@ describe("ConnectApp", () => {
     expect(await screen.findByText("Revoking…")).toBeInTheDocument();
     expect(screen.getByText(/Waiting for the hosted authority to confirm revocation/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Revoke" })).not.toBeInTheDocument();
+  });
+
+  it("revokes every application grant through one batch and refreshes", async () => {
+    const now = new Date().toISOString();
+    overview.grants = ["grant-a", "grant-b"].map((id, index) => ({
+      id,
+      operations: ["read"],
+      scope: { contracts: [], access: "full_collection" as const },
+      created_at: now,
+      revoked_at: null,
+      revocation_status: "active" as const,
+      collection_id: index === 0 ? "collection" : "collection-two",
+      collection_name: index === 0 ? "Garden notes" : "Research notes",
+      collection_kind: "local" as const,
+      application_id: "reading-list",
+      application_name: "Reading list",
+      distribution: "web" as const,
+      homepage: "https://reading.example",
+      project_url: null,
+      application_origin: "https://reading.example",
+      icon: null
+    }));
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      if (path !== "/v1/grants/revoke-batch") return originalFetch(input, init);
+      overview.grants = [];
+      return Response.json({
+        ok: true,
+        results: [
+          { grant_id: "grant-a", status: "revoked" },
+          { grant_id: "grant-b", status: "revoked" }
+        ]
+      });
+    });
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await user.click(await screen.findByRole("link", { name: /Applications/ }));
+    await user.click(screen.getByText("Reading list"));
+    await user.click(screen.getByRole("button", { name: "Revoke application" }));
+    await user.click(screen.getByRole("button", { name: "Revoke application" }));
+
+    await waitFor(() => expect(screen.queryByText("Reading list")).not.toBeInTheDocument());
+    const batchCalls = vi.mocked(fetch).mock.calls.filter(([input]) =>
+      new URL(String(input)).pathname === "/v1/grants/revoke-batch"
+    );
+    expect(batchCalls).toHaveLength(1);
+    expect(batchCalls[0][1]?.body).toBe(JSON.stringify({ grant_ids: ["grant-a", "grant-b"] }));
+    expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
   });
 
   it("keeps hosted storage, sign-in methods, and account deletion in the editor", async () => {

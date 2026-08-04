@@ -20,8 +20,8 @@ export interface ConnectionFileTransportOptions {
   keyStore: GrantKeyStore;
   serverUrl: string;
   loopbackUrl: string;
-  authorizedToken(): Promise<StoredToken | null>;
-  refreshAuthorization(): Promise<StoredToken>;
+  authorizedToken(signal?: AbortSignal): Promise<StoredToken | null>;
+  refreshAuthorization(signal?: AbortSignal): Promise<StoredToken>;
   shouldAttemptDirect(token: StoredToken): Promise<boolean>;
   onDirectAvailable(): void;
   onDirectUnavailable(): void;
@@ -46,7 +46,7 @@ export class ConnectionFileTransport {
     input?: unknown,
     signal?: AbortSignal
   ): Promise<Result> {
-    const token = await this.requireFileToken();
+    const token = await this.requireFileToken(signal);
     if (!token.authority) {
       return this.local.control<Result>(token, method, path, input, signal);
     }
@@ -84,7 +84,7 @@ export class ConnectionFileTransport {
     expectedLength: number,
     signal?: AbortSignal
   ): Promise<ReadableStream<Uint8Array>> {
-    const token = await this.requireFileToken();
+    const token = await this.requireFileToken(signal);
     if (!token.authority) {
       throw connectError(
         "not_remote_authority",
@@ -101,8 +101,8 @@ export class ConnectionFileTransport {
     );
   }
 
-  private async requireFileToken(): Promise<StoredToken> {
-    const token = await this.options.authorizedToken();
+  private async requireFileToken(signal?: AbortSignal): Promise<StoredToken> {
+    const token = await this.options.authorizedToken(signal);
     if (!token?.fileCapability) {
       throw connectError("not_authorized", "This connection has no file capability.");
     }

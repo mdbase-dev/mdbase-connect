@@ -1,8 +1,10 @@
 import type { Application } from "./internal-types.js";
 import type { StoredToken } from "./internal-types.js";
 import { connectError } from "./errors.js";
-import { apiError, connectFetch, parseStored } from "./runtime-utils.js";
+import { apiError, connectFetch, decodeJsonResponse, parseStored } from "./runtime-utils.js";
 import { base64UrlBytes, randomBase64Url } from "./base64.js";
+import type { ConnectRequestOptions } from "./operation-types.js";
+import { DEFAULT_REQUEST_TIMEOUT_MS, withRequestBudget } from "./request-budget.js";
 import type {
   MdbaseNativeNotificationRegistration,
   MdbaseNativeNotificationRegistrationOptions,
@@ -13,8 +15,8 @@ import type {
 export interface ConnectionNotificationContext {
   serverUrl: string;
   storage: Storage;
-  authorizedToken(): Promise<StoredToken | null>;
-  register(): Promise<Application>;
+  authorizedToken(signal?: AbortSignal): Promise<StoredToken | null>;
+  register(signal?: AbortSignal): Promise<Application>;
   notificationKey(transport?: "web_push" | "fcm"): string;
 }
 
@@ -24,14 +26,23 @@ export class ConnectionNotifications {
   async registerNotifications(
     options: MdbaseNotificationRegistrationOptions
   ): Promise<MdbaseNotificationRegistration> {
-    const token = await this.context.authorizedToken();
+    return withRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS, (budget) =>
+      this.registerNotificationsWithinBudget(options, budget.signal)
+    );
+  }
+
+  private async registerNotificationsWithinBudget(
+    options: MdbaseNotificationRegistrationOptions,
+    signal: AbortSignal
+  ): Promise<MdbaseNotificationRegistration> {
+    const token = await this.context.authorizedToken(signal);
     if (!token) {
       throw connectError(
         "not_authorized",
         "Connect this application before enabling notifications."
       );
     }
-    const application = await this.context.register();
+    const application = await this.context.register(signal);
     const declared = application.notifications?.criteria.map((criterion) => criterion.id) ?? [];
     const criteria = [...new Set(options.criteria ?? declared)];
     const undeclared = criteria.find((criterion) => !declared.includes(criterion));
@@ -49,11 +60,15 @@ export class ConnectionNotifications {
     }
     const keyResponse = await connectFetch(
       `${this.context.serverUrl}/v1/notifications/vapid-public-key`,
-      undefined,
+      { signal },
       "notifications_unavailable",
       "Push notifications are unavailable."
     );
-    const keyBody = await keyResponse.json();
+    const keyBody = await decodeJsonResponse(
+      keyResponse,
+      "invalid_operation_response",
+      "Connect returned an invalid notification key response."
+    );
     if (!keyResponse.ok) {
       throw apiError(keyBody, "notifications_unavailable", "Push notifications are unavailable.", keyResponse.status);
     }
@@ -91,16 +106,22 @@ export class ConnectionNotifications {
           expirationTime: serialized.expirationTime ?? null,
           keys: serialized.keys
         }
-      })
+      }),
+      signal
     }, "notification_registration_failed", "Could not register push notifications.");
-    const channelBody = await channelResponse.json();
+    const channelBody = await decodeJsonResponse(
+      channelResponse,
+      "invalid_operation_response",
+      "Connect returned an invalid notification registration response."
+    );
     if (!channelResponse.ok) {
       throw apiError(channelBody, "notification_registration_failed", "Could not register push notifications.", channelResponse.status);
     }
     if (previous?.channelId && previous.channelId !== channelBody.channel_id) {
       void fetch(`${this.context.serverUrl}/v1/notifications/channels/${previous.channelId}`, {
         method: "DELETE",
-        headers: { authorization: `Bearer ${token.accessToken}` }
+        headers: { authorization: `Bearer ${token.accessToken}` },
+        signal
       }).catch(() => undefined);
     }
     const registration = {
@@ -121,14 +142,23 @@ export class ConnectionNotifications {
   async registerNativeNotifications(
     options: MdbaseNativeNotificationRegistrationOptions
   ): Promise<MdbaseNativeNotificationRegistration> {
-    const token = await this.context.authorizedToken();
+    return withRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS, (budget) =>
+      this.registerNativeNotificationsWithinBudget(options, budget.signal)
+    );
+  }
+
+  private async registerNativeNotificationsWithinBudget(
+    options: MdbaseNativeNotificationRegistrationOptions,
+    signal: AbortSignal
+  ): Promise<MdbaseNativeNotificationRegistration> {
+    const token = await this.context.authorizedToken(signal);
     if (!token) {
       throw connectError(
         "not_authorized",
         "Connect this application before enabling notifications."
       );
     }
-    const application = await this.context.register();
+    const application = await this.context.register(signal);
     if (application.notifications?.native_delivery?.mode !== "managed_fcm") {
       throw connectError(
         "managed_fcm_not_declared",
@@ -170,9 +200,14 @@ export class ConnectionNotifications {
         criteria,
         transport: "fcm",
         token: options.token
-      })
+      }),
+      signal
     }, "notification_registration_failed", "Could not register native notifications.");
-    const body = await response.json();
+    const body = await decodeJsonResponse(
+      response,
+      "invalid_operation_response",
+      "Connect returned an invalid native notification response."
+    );
     if (!response.ok) {
       throw apiError(
         body,
@@ -182,7 +217,7 @@ export class ConnectionNotifications {
       );
     }
     if (previous?.channelId && previous.channelId !== body.channel_id) {
-      void this.deleteNotificationChannel(previous.channelId, token.accessToken)
+      void this.deleteNotificationChannel(previous.channelId, token.accessToken, signal)
         .catch(() => undefined);
     }
     const registration: MdbaseNativeNotificationRegistration = {
@@ -195,12 +230,18 @@ export class ConnectionNotifications {
     return registration;
   }
 
-  async unregisterNativeNotifications(): Promise<void> {
+  async unregisterNativeNotifications(options: ConnectRequestOptions = {}): Promise<void> {
+    return withRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS, (budget) =>
+      this.unregisterNativeNotificationsWithinBudget(budget.signal)
+    );
+  }
+
+  private async unregisterNativeNotificationsWithinBudget(signal: AbortSignal): Promise<void> {
     const storageKey = this.context.notificationKey("fcm");
     const registration = parseStored<MdbaseNativeNotificationRegistration>(
       this.context.storage.getItem(storageKey)
     );
-    const token = await this.context.authorizedToken();
+    const token = await this.context.authorizedToken(signal);
     if (registration?.channelId && !token) {
       throw connectError(
         "not_authorized",
@@ -210,19 +251,30 @@ export class ConnectionNotifications {
     if (registration?.channelId && token) {
       await this.deleteNotificationChannel(
         registration.channelId,
-        token.accessToken
+        token.accessToken,
+        signal
       );
     }
     this.context.storage.removeItem(storageKey);
   }
 
   async unregisterNotifications(
-    serviceWorker?: ServiceWorkerRegistration
+    serviceWorker?: ServiceWorkerRegistration,
+    options: ConnectRequestOptions = {}
+  ): Promise<void> {
+    return withRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS, (budget) =>
+      this.unregisterNotificationsWithinBudget(serviceWorker, budget.signal)
+    );
+  }
+
+  private async unregisterNotificationsWithinBudget(
+    serviceWorker: ServiceWorkerRegistration | undefined,
+    signal: AbortSignal
   ): Promise<void> {
     const registration = parseStored<MdbaseNotificationRegistration>(
       this.context.storage.getItem(this.context.notificationKey())
     );
-    const token = await this.context.authorizedToken();
+    const token = await this.context.authorizedToken(signal);
     if (registration?.channelId && !token) {
       throw connectError(
         "not_authorized",
@@ -232,10 +284,15 @@ export class ConnectionNotifications {
     if (registration?.channelId && token) {
       const response = await connectFetch(`${this.context.serverUrl}/v1/notifications/channels/${registration.channelId}`, {
         method: "DELETE",
-        headers: { authorization: `Bearer ${token.accessToken}` }
+        headers: { authorization: `Bearer ${token.accessToken}` },
+        signal
       }, "notification_unregistration_failed", "Could not unregister push notifications.");
       if (!response.ok && response.status !== 404) {
-        const body = await response.json();
+        const body = await decodeJsonResponse(
+          response,
+          "invalid_operation_response",
+          "Connect returned an invalid notification response."
+        );
         throw apiError(
           body,
           "notification_unregistration_failed",
@@ -250,19 +307,25 @@ export class ConnectionNotifications {
   }
   private async deleteNotificationChannel(
     channelId: string,
-    accessToken: string
+    accessToken: string,
+    signal?: AbortSignal
   ): Promise<void> {
     const response = await connectFetch(
       `${this.context.serverUrl}/v1/notifications/channels/${channelId}`,
       {
         method: "DELETE",
-        headers: { authorization: `Bearer ${accessToken}` }
+        headers: { authorization: `Bearer ${accessToken}` },
+        signal
       },
       "notification_unregistration_failed",
       "Could not unregister push notifications."
     );
     if (!response.ok && response.status !== 404) {
-      const body = await response.json();
+      const body = await decodeJsonResponse(
+        response,
+        "invalid_operation_response",
+        "Connect returned an invalid notification response."
+      );
       throw apiError(
         body,
         "notification_unregistration_failed",

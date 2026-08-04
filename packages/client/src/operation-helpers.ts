@@ -1,4 +1,8 @@
-import type { CollectionOperation } from "@mdbase-dev/connect-protocol";
+import {
+  isMutatingOperation,
+  mutationFingerprint,
+  type CollectionOperation
+} from "@mdbase-dev/connect-protocol";
 import { MdbaseConnectError, connectError } from "./errors.js";
 import type { StoredToken } from "./internal-types.js";
 import type {
@@ -8,7 +12,6 @@ import type {
   RenameInput,
   RenamePreflightResult
 } from "./operation-types.js";
-import { bytesToBase64Url } from "./base64.js";
 
 export type LoopbackRequestInit = RequestInit & {
   targetAddressSpace?: "loopback";
@@ -35,23 +38,7 @@ export function directFallbackStatus(status: number): boolean {
 }
 
 export function isMutation(operation: CollectionOperation, input?: unknown): boolean {
-  if (input && typeof input === "object" && !Array.isArray(input)
-      && (input as Record<string, unknown>).dry_run === true) return false;
-  return (operation === "sync"
-      && input !== null
-      && typeof input === "object"
-      && !Array.isArray(input)
-      && (input as Record<string, unknown>).action === "mutate")
-    || operation === "create"
-    || operation === "update"
-    || operation === "delete"
-    || operation === "rename"
-    || operation === "create_type"
-    || operation === "update_type"
-    || operation === "apply_type_pack"
-    || operation === "put_timer"
-    || operation === "cancel_timer"
-    || operation === "reconcile_timers";
+  return isMutatingOperation(operation, input);
 }
 
 export function uniqueOperations(operations: CollectionOperation[]): CollectionOperation[] {
@@ -88,6 +75,7 @@ export function operationTransportError(
   if (error instanceof MdbaseConnectError) return error;
   if (signal?.aborted) {
     if (outcomeUnknown) return unknownMutationOutcome(error);
+    if (signal.reason instanceof MdbaseConnectError) return signal.reason;
     return connectError(
       "operation_cancelled",
       "The operation was cancelled before it changed the collection.",
@@ -157,9 +145,7 @@ export async function operationFingerprint(
   operation: CollectionOperation,
   input: unknown
 ): Promise<string> {
-  const encoded = new TextEncoder().encode(`${operation}\0${canonicalJson(input ?? {})}`);
-  const digest = await crypto.subtle.digest("SHA-256", encoded);
-  return bytesToBase64Url(new Uint8Array(digest));
+  return mutationFingerprint(operation, input ?? {});
 }
 
 export function canonicalJson(value: unknown): string {

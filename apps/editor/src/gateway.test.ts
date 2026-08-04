@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  MdbaseCollectionClient,
   ConnectOutcomeError,
   connectFailure,
   connectProblem,
@@ -10,6 +9,7 @@ import {
   type MdbaseConnection,
   type MdbaseConnectionInfo
 } from "@mdbase-dev/connect";
+import { MdbaseCollectionClient } from "@mdbase-dev/connect/advanced";
 import { ConnectCollectionGateway, gatewayError } from "./gateway";
 import type { NoteDocument, NoteListProgress, NoteSummary } from "./model";
 

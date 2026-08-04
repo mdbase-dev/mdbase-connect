@@ -38,7 +38,7 @@ import {
   validateGrantEncryption,
   type GrantKeyStore
 } from "./crypto.js";
-import { connectError, serverConnectError } from "./errors.js";
+import { MdbaseConnectError, connectError, serverConnectError } from "./errors.js";
 import {
   DEFAULT_OPERATIONS,
   type Application,
@@ -47,6 +47,11 @@ import {
   type StoredToken
 } from "./internal-types.js";
 import { uniqueOperations } from "./operation-helpers.js";
+import type { ConnectRequestOptions } from "./operation-types.js";
+import {
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  withRequestBudget
+} from "./request-budget.js";
 import type { MdbaseUnavailableReason } from "./session.js";
 import {
   MemoryStorage,
@@ -59,6 +64,7 @@ import {
   defaultManifestSource,
   defaultRedirectUri,
   defaultStorage,
+  decodeJsonResponse,
   isOpaquePortableManifest,
   manifestStorageFingerprint,
   oauthErrorCode,
@@ -91,19 +97,21 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
   private readonly invalidatedConnections = new Map<string, MdbaseUnavailableReason>();
 
   constructor(options: MdbaseConnectOptions) {
-    this.serverUrl = stripTrailingSlash(options.serverUrl);
-    this.manifest = options.manifest ?? defaultManifestSource();
+    this.serverUrl = stripTrailingSlash(String(options.serverUrl));
+    this.manifest = options.manifest instanceof URL
+      ? options.manifest.href
+      : options.manifest ?? defaultManifestSource();
     this.manifestSource = typeof this.manifest === "string"
       ? this.manifest
       : this.manifest.distribution === "portable"
         ? `bundle:${this.manifest.id}:${manifestStorageFingerprint(this.manifest)}`
         : `bundle:${this.manifest.id}`;
     const opaquePortable = isOpaquePortableManifest(this.manifest);
-    this.redirectUri = options.redirectUri ?? (
+    this.redirectUri = options.redirectUri === undefined ? (
       typeof this.manifest !== "string" && this.manifest.distribution === "portable"
         ? ""
         : defaultRedirectUri()
-    );
+    ) : String(options.redirectUri);
     this.storage = options.storage ?? defaultStorage(opaquePortable);
     this.relayEncryption = options.relayEncryption ?? "required";
     this.keyStore = options.keyStore ?? (
@@ -119,7 +127,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       : this.storage instanceof MemoryStorage ? "memory" : "persistent";
     this.directAccessMode = options.directAccess ?? "auto";
     this.loopbackUrl = canonicalLoopbackUrl(
-      options.loopbackUrl ?? `http://127.0.0.1:${DEFAULT_LOOPBACK_PORT}`
+      String(options.loopbackUrl ?? `http://127.0.0.1:${DEFAULT_LOOPBACK_PORT}`)
     );
     this.navigate = options.navigate;
     if (typeof window !== "undefined" && this.storage === window.localStorage) {
@@ -145,32 +153,51 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     };
   }
 
-  async register(): Promise<Application> {
+  register(options: ConnectRequestOptions = {}): Promise<Application> {
+    return withRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS, (budget) =>
+      this.registerWithinBudget(budget.signal)
+    );
+  }
+
+  private async registerWithinBudget(signal: AbortSignal): Promise<Application> {
     if (this.application) return this.application;
     const response = await connectFetch(`${this.serverUrl}/v1/apps/register`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ manifest: await this.manifestDeclaration() })
+      body: JSON.stringify({ manifest: await this.manifestDeclaration({ signal, timeoutMs: null }) }),
+      signal
     }, "temporarily_unavailable", "Application registration is temporarily unavailable.");
-    const body = await response.json();
+    const body = await decodeJsonResponse(
+      response,
+      "invalid_operation_response",
+      "Connect returned an invalid application registration response."
+    );
     if (!response.ok) throw apiError(body, "discovery_failed", "Application discovery failed.", response.status);
     this.application = body.application;
     return this.application!;
   }
 
-  manifestDeclaration(): Promise<MdbaseAppManifest> {
+  manifestDeclaration(options: ConnectRequestOptions = {}): Promise<MdbaseAppManifest> {
     if (this.manifestPromise) return this.manifestPromise;
-    this.manifestPromise = this.loadManifest();
+    const loading = withRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS, (budget) =>
+      this.loadManifest(budget.signal)
+    );
+    const shared = loading.catch((error: unknown) => {
+      if (this.manifestPromise === shared) this.manifestPromise = null;
+      throw error;
+    });
+    this.manifestPromise = shared;
     return this.manifestPromise;
   }
 
-  private async loadManifest(): Promise<MdbaseAppManifest> {
+  private async loadManifest(signal: AbortSignal): Promise<MdbaseAppManifest> {
     if (typeof this.manifest !== "string") return this.manifest;
     const source = this.manifest;
     let response: Response;
     try {
       response = await fetch(source, {
-        headers: { accept: "application/json" }
+        headers: { accept: "application/json" },
+        signal
       });
     } catch (cause) {
       throw connectError(
@@ -187,7 +214,11 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       );
     }
     try {
-      return await response.json() as MdbaseAppManifest;
+      return await decodeJsonResponse(
+        response,
+        "invalid_application_manifest",
+        "The bundled application declaration is not valid JSON."
+      ) as MdbaseAppManifest;
     } catch (cause) {
       throw connectError(
         "invalid_application_manifest",
@@ -210,6 +241,14 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
   async authorize(
     options: MdbaseAuthorizeOptions = {}
   ): Promise<MdbaseAuthorizationOutcome<Frontmatter>> {
+    return withRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS, (budget) =>
+      this.authorizeWithinBudget({ ...options, signal: budget.signal, timeoutMs: null })
+    );
+  }
+
+  private async authorizeWithinBudget(
+    options: MdbaseAuthorizeOptions
+  ): Promise<MdbaseAuthorizationOutcome<Frontmatter>> {
     if (typeof location === "undefined" && !this.navigate && !options.openVerification) {
       throw connectError(
         "browser_required",
@@ -230,7 +269,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       : null;
     let application: Application;
     try {
-      application = await this.register();
+      application = await this.registerWithinBudget(options.signal!);
     } catch (error) {
       popup?.close();
       throw error;
@@ -321,7 +360,11 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         }),
         signal: options.signal
       });
-      const body = await response.json();
+      const body = await decodeJsonResponse(
+        response,
+        "invalid_device_authorization_response",
+        "The authorization service returned an invalid authorization response."
+      );
       if (!response.ok) {
         throw apiError(
           body,
@@ -354,11 +397,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       this.storage.removeItem(this.pendingKey(state));
       await this.keyStore.delete(keyHandle);
       if (options.signal?.aborted) {
-        throw connectError(
-          "authorization_cancelled",
-          "Application authorization was cancelled.",
-          { cause: error }
-        );
+        throw authorizationAbort(options.signal, "Application authorization was cancelled.", error);
       }
       throw error;
     }
@@ -427,9 +466,14 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
           code_challenge: challenge,
           code_challenge_method: "S256",
           application_authorization: JSON.stringify(proof)
-        })
+        }),
+        signal: options.signal
       });
-      body = await response.json();
+      body = await decodeJsonResponse(
+        response,
+        "invalid_device_authorization_response",
+        "The authorization service returned an invalid device authorization response."
+      );
     } catch (cause) {
       popup?.close();
       await this.keyStore.delete(keyHandle);
@@ -456,10 +500,10 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       popup?.close();
       await this.keyStore.delete(keyHandle);
       if (options.signal?.aborted) {
-        throw connectError(
-          "authorization_cancelled",
+        throw authorizationAbort(
+          options.signal,
           "Downloaded application authorization was cancelled.",
-          { cause: error }
+          error
         );
       }
       throw error;
@@ -495,8 +539,8 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       while (Date.now() < authorization.expiresAt) {
         await abortableDelay(intervalSeconds * 1_000, options.signal);
         if (options.signal?.aborted) {
-          throw connectError(
-            "authorization_cancelled",
+          throw authorizationAbort(
+            options.signal,
             "Downloaded application authorization was cancelled."
           );
         }
@@ -515,15 +559,19 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
           });
         } catch (cause) {
           if (options.signal?.aborted) {
-            throw connectError(
-              "authorization_cancelled",
+            throw authorizationAbort(
+              options.signal,
               "Downloaded application authorization was cancelled.",
-              { cause }
+              cause
             );
           }
           continue;
         }
-        const tokenBody = await tokenResponse.json();
+        const tokenBody = await decodeJsonResponse(
+          tokenResponse,
+          "invalid_token_response",
+          "The authorization service returned an invalid token response."
+        );
         if (!tokenResponse.ok) {
           const code = oauthErrorCode(tokenBody);
           if (code === "authorization_pending") {
@@ -599,17 +647,29 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       popup?.close();
       await this.keyStore.delete(keyHandle);
       if (options.signal?.aborted) {
-        throw connectError(
-          "authorization_cancelled",
+        throw authorizationAbort(
+          options.signal,
           "Downloaded application authorization was cancelled.",
-          { cause: error }
+          error
         );
       }
       throw error;
     }
   }
 
-  completeAuthorization(callbackUrl: string): Promise<MdbaseAuthorizationResult<Frontmatter>> {
+  completeAuthorization(
+    callbackUrl: string,
+    options: ConnectRequestOptions = {}
+  ): Promise<MdbaseAuthorizationResult<Frontmatter>> {
+    return withRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS, (budget) =>
+      this.completeAuthorizationWithinBudget(callbackUrl, budget.signal)
+    );
+  }
+
+  private completeAuthorizationWithinBudget(
+    callbackUrl: string,
+    signal: AbortSignal
+  ): Promise<MdbaseAuthorizationResult<Frontmatter>> {
     const state = new URL(callbackUrl).searchParams.get("state");
     if (!state) {
       return Promise.reject(connectError(
@@ -619,7 +679,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     }
     const existing = this.completionPromises.get(state);
     if (existing) return existing;
-    const completion = this.performAuthorizationCompletion(callbackUrl, state);
+    const completion = this.performAuthorizationCompletion(callbackUrl, state, signal);
     const shared = completion.finally(() => {
       if (this.completionPromises.get(state) === shared) this.completionPromises.delete(state);
     });
@@ -629,7 +689,8 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
 
   private async performAuthorizationCompletion(
     callbackUrl: string,
-    state: string
+    state: string,
+    signal: AbortSignal
   ): Promise<MdbaseAuthorizationResult<Frontmatter>> {
     const callback = new URL(callbackUrl);
     const code = callback.searchParams.get("code");
@@ -659,9 +720,14 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         client_id: pending.clientId,
         redirect_uri: pending.redirectUri,
         code_verifier: pending.verifier
-      })
+      }),
+      signal
     }, "temporarily_unavailable", "Authorization completion is temporarily unavailable.");
-    const body = await response.json();
+    const body = await decodeJsonResponse(
+      response,
+      "invalid_token_response",
+      "The authorization service returned an invalid token response."
+    );
     if (!response.ok) throw apiError(body, "token_exchange_failed", "Authorization could not be completed.", response.status);
     if (pending.relayEncryption === "required" && !body.authority && (
       !body.encryption
@@ -973,4 +1039,13 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     const connections = this.connections();
     for (const listener of this.listeners) listener(connections);
   }
+}
+
+function authorizationAbort(
+  signal: AbortSignal,
+  message: string,
+  cause?: unknown
+): MdbaseConnectError {
+  if (signal.reason instanceof MdbaseConnectError) return signal.reason;
+  return connectError("authorization_cancelled", message, { cause });
 }

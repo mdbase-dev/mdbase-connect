@@ -38,7 +38,7 @@ import type {
   MdbaseSyncConnection
 } from "./connection-types.js";
 import type { GrantKeyStore } from "./crypto.js";
-import { MdbaseConnectError, connectError } from "./errors.js";
+import { MdbaseConnectError, connectError, connectProblem } from "./errors.js";
 import { MdbaseFileClient } from "./files.js";
 import {
   DEFAULT_OPERATIONS,
@@ -73,7 +73,7 @@ import type {
   MdbaseTimerReconciliation,
   MutationEstimate,
   MutationProgressState,
-  OperationRequestOptions,
+  ConnectRequestOptions,
   PendingMutationSummary,
   QueryInput,
   QueryPage,
@@ -87,10 +87,13 @@ import type {
   RenameResult,
   UpdateInput,
   UpdateTypeInput,
-  WatchOptions
+  MdbaseWatchSubscription,
+  WatchInput,
+  WatchStatus
 } from "./operation-types.js";
 import {
   AUTHORIZATION_PROBLEM_CODES,
+  COLLECTION_CHANGES_PROBLEM_CODES,
   COLLECTION_MUTATION_PROBLEM_CODES,
   DIRECT_ACCESS_PROBLEM_CODES,
   NOTIFICATION_PROBLEM_CODES,
@@ -111,12 +114,17 @@ import {
   type RegistrationProblemCode
 } from "./outcomes.js";
 import type { MdbaseDeviceAuthorization } from "./authorization-types.js";
+import {
+  DEFAULT_STARTUP_TIMEOUT_MS,
+  DEFAULT_SYNC_TIMEOUT_MS,
+  withRequestBudget
+} from "./request-budget.js";
 
 export type MdbaseAuthorizationTarget =
   | { kind: "choose" }
   | { kind: "collection"; collectionId: string };
 
-export interface MdbaseAuthorizeOptions {
+export interface MdbaseAuthorizeOptions extends ConnectRequestOptions {
   operations?: CollectionOperation[];
   /** Choose any compatible collection, or require one exact collection. */
   target?: MdbaseAuthorizationTarget;
@@ -126,16 +134,13 @@ export interface MdbaseAuthorizeOptions {
   onDeviceCode?: (authorization: MdbaseDeviceAuthorization) => void;
   /** Replace the default popup for a downloaded application's approval page. */
   openVerification?: (authorization: MdbaseDeviceAuthorization) => void | Promise<void>;
-  /** Stop polling and discard the unapproved, in-memory key. */
-  signal?: AbortSignal;
 }
 
-export interface MdbaseConnectionAuthorizeOptions {
+export interface MdbaseConnectionAuthorizeOptions extends ConnectRequestOptions {
   operations?: CollectionOperation[];
   returnTo?: string;
   onDeviceCode?: (authorization: MdbaseDeviceAuthorization) => void;
   openVerification?: (authorization: MdbaseDeviceAuthorization) => void | Promise<void>;
-  signal?: AbortSignal;
 }
 
 export interface MdbaseConnectEnvironment {
@@ -160,7 +165,7 @@ export interface MdbaseConnectionInternals<Frontmatter extends JsonObject>
   readonly keyStore: GrantKeyStore;
   readonly directAccessMode: "auto" | "disabled";
   readonly loopbackUrl: string;
-  register(): Promise<Application>;
+  register(options?: ConnectRequestOptions): Promise<Application>;
   authorize(
     options?: MdbaseAuthorizeOptions
   ): Promise<MdbaseAuthorizationOutcome<Frontmatter>>;
@@ -218,8 +223,8 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     this.notifications = new ConnectionNotifications({
       serverUrl: internals.serverUrl,
       storage: internals.storage,
-      authorizedToken: () => this.transport.authorizedToken(),
-      register: () => this.internals.register(),
+      authorizedToken: (signal) => this.transport.authorizedToken({ signal, timeoutMs: null }),
+      register: (signal) => this.internals.register({ signal, timeoutMs: null }),
       notificationKey: (transport) =>
         internals.notificationKey(collectionId, transport)
     });
@@ -250,9 +255,9 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     return this.transport.route;
   }
 
-  register(): Promise<ConnectOutcome<Application, RegistrationProblemCode>> {
+  register(options?: ConnectRequestOptions): Promise<ConnectOutcome<Application, RegistrationProblemCode>> {
     return captureConnectOutcome(
-      () => this.internals.register(),
+      () => this.internals.register(options),
       REGISTRATION_PROBLEM_CODES
     );
   }
@@ -337,17 +342,17 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     this.transport.notifyStorageChanged();
   }
 
-  checkDirectAccess(): Promise<ConnectOutcome<DirectAccessStatus, DirectAccessProblemCode>> {
+  checkDirectAccess(options?: ConnectRequestOptions): Promise<ConnectOutcome<DirectAccessStatus, DirectAccessProblemCode>> {
     return captureConnectOutcome(
-      () => this.transport.checkDirectAccess(),
+      () => this.transport.checkDirectAccess(options),
       DIRECT_ACCESS_PROBLEM_CODES
     );
   }
 
   /** Call from a user gesture to request browser permission for direct local access. */
-  requestDirectAccess(): Promise<ConnectOutcome<DirectAccessStatus, DirectAccessProblemCode>> {
+  requestDirectAccess(options?: ConnectRequestOptions): Promise<ConnectOutcome<DirectAccessStatus, DirectAccessProblemCode>> {
     return captureConnectOutcome(
-      () => this.transport.requestDirectAccess(),
+      () => this.transport.requestDirectAccess(options),
       DIRECT_ACCESS_PROBLEM_CODES
     );
   }
@@ -372,21 +377,21 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
         collectionId,
         replicaId,
         transport: {
-          openSession: () => this.transport.performOperation("sync", { action: "open_session" }),
-          snapshot: (snapshotId, page) => this.transport.performOperation("sync", {
+          openSession: (options) => this.transport.performOperation("sync", { action: "open_session" }, syncRequestOptions(options)),
+          snapshot: (snapshotId, page, options) => this.transport.performOperation("sync", {
             action: "snapshot",
             snapshot_id: snapshotId,
             ...(page ? { page } : {})
-          }),
-          changes: (after, limit = 200) => this.transport.performOperation("sync", {
+          }, syncRequestOptions(options)),
+          changes: (after, limit = 200, options) => this.transport.performOperation("sync", {
             action: "changes",
             after,
             limit
-          }),
-          mutate: (mutation) => this.transport.performOperation("sync", {
+          }, syncRequestOptions(options)),
+          mutate: (mutation, options) => this.transport.performOperation("sync", {
             action: "mutate",
             mutation
-          })
+          }, syncRequestOptions(options))
         }
       };
     }
@@ -395,24 +400,27 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       collectionId,
       replicaId,
       transport: {
-        openSession: () => this.transport.performAuthoritySyncRequest(collectionId, replicaId, "POST", "sessions"),
-        snapshot: (snapshotId, page) => {
+        openSession: (options) => this.transport.performAuthoritySyncRequest(collectionId, replicaId, "POST", "sessions", undefined, options),
+        snapshot: (snapshotId, page, options) => {
           const query = new URLSearchParams({ snapshot_id: snapshotId });
           if (page) query.set("page", page);
-          return this.transport.performAuthoritySyncRequest(collectionId, replicaId, "GET", `snapshot?${query}`);
+          return this.transport.performAuthoritySyncRequest(collectionId, replicaId, "GET", `snapshot?${query}`, undefined, options);
         },
-        changes: (after, limit = 200) => this.transport.performAuthoritySyncRequest(
+        changes: (after, limit = 200, options) => this.transport.performAuthoritySyncRequest(
           collectionId,
           replicaId,
           "GET",
-          `changes?${new URLSearchParams({ after: String(after), limit: String(limit) })}`
+          `changes?${new URLSearchParams({ after: String(after), limit: String(limit) })}`,
+          undefined,
+          options
         ),
-        mutate: (mutation) => this.transport.performAuthoritySyncRequest(
+        mutate: (mutation, options) => this.transport.performAuthoritySyncRequest(
           collectionId,
           replicaId,
           "POST",
           "mutations",
-          mutation
+          mutation,
+          options
         )
       }
     };
@@ -442,18 +450,19 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     );
   }
 
-  unregisterNativeNotifications(): Promise<ConnectOutcome<void, NotificationProblemCode>> {
+  unregisterNativeNotifications(options?: ConnectRequestOptions): Promise<ConnectOutcome<void, NotificationProblemCode>> {
     return captureConnectOutcome(
-      () => this.notifications.unregisterNativeNotifications(),
+      () => this.notifications.unregisterNativeNotifications(options),
       NOTIFICATION_PROBLEM_CODES
     );
   }
 
   unregisterNotifications(
-    serviceWorker?: ServiceWorkerRegistration
+    serviceWorker?: ServiceWorkerRegistration,
+    options?: ConnectRequestOptions
   ): Promise<ConnectOutcome<void, NotificationProblemCode>> {
     return captureConnectOutcome(
-      () => this.notifications.unregisterNotifications(serviceWorker),
+      () => this.notifications.unregisterNotifications(serviceWorker, options),
       NOTIFICATION_PROBLEM_CODES
     );
   }
@@ -464,19 +473,19 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     this.transport.notifyStorageChanged();
   }
 
-  describe(): Promise<ConnectOutcome<CollectionDescription, CollectionDescriptionProblemCode>> {
-    return this.collectionClient.describe();
+  describe(options?: ConnectRequestOptions): Promise<ConnectOutcome<CollectionDescription, CollectionDescriptionProblemCode>> {
+    return this.collectionClient.describe(options);
   }
 
-  changes(input: ChangesInput = {}, options?: OperationRequestOptions): Promise<ConnectOutcome<CollectionChangesPage, CollectionChangesProblemCode>> {
+  changes(input: ChangesInput = {}, options?: ConnectRequestOptions): Promise<ConnectOutcome<CollectionChangesPage, CollectionChangesProblemCode>> {
     return this.collectionClient.changes(input, options);
   }
 
-  read(input: ReadInput): Promise<ConnectOutcome<RecordDocument<Frontmatter>, CollectionReadProblemCode>> {
-    return this.collectionClient.read(input);
+  read(input: ReadInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<RecordDocument<Frontmatter>, CollectionReadProblemCode>> {
+    return this.collectionClient.read(input, options);
   }
 
-  query(input: QueryInput = {}, options?: OperationRequestOptions): Promise<ConnectOutcome<QueryResult<Frontmatter>, CollectionQueryProblemCode>> {
+  query(input: QueryInput = {}, options?: ConnectRequestOptions): Promise<ConnectOutcome<QueryResult<Frontmatter>, CollectionQueryProblemCode>> {
     return this.collectionClient.query(input, options);
   }
 
@@ -488,51 +497,51 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     return this.collectionClient.queryAll(input, options);
   }
 
-  listViews(): Promise<ConnectOutcome<SavedViewList, CollectionReadProblemCode>> {
-    return this.collectionClient.listViews();
+  listViews(options?: ConnectRequestOptions): Promise<ConnectOutcome<SavedViewList, CollectionReadProblemCode>> {
+    return this.collectionClient.listViews(options);
   }
 
-  executeView(input: ExecuteViewInput): Promise<ConnectOutcome<SavedViewExecution<Frontmatter>, CollectionReadProblemCode>> {
-    return this.collectionClient.executeView(input);
+  executeView(input: ExecuteViewInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<SavedViewExecution<Frontmatter>, CollectionReadProblemCode>> {
+    return this.collectionClient.executeView(input, options);
   }
 
-  readViewSource(input: ReadViewSourceInput): Promise<ConnectOutcome<SavedViewSourceDocument, CollectionReadProblemCode>> {
-    return this.collectionClient.readViewSource(input);
+  readViewSource(input: ReadViewSourceInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<SavedViewSourceDocument, CollectionReadProblemCode>> {
+    return this.collectionClient.readViewSource(input, options);
   }
 
-  createViewSource(input: CreateViewSourceInput): Promise<ConnectOutcome<SavedViewSourceDocument, CollectionMutationProblemCode>> {
-    return this.collectionClient.createViewSource(input);
+  createViewSource(input: CreateViewSourceInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<SavedViewSourceDocument, CollectionMutationProblemCode>> {
+    return this.collectionClient.createViewSource(input, options);
   }
 
-  updateViewSource(input: UpdateViewSourceInput): Promise<ConnectOutcome<SavedViewSourceDocument, CollectionMutationProblemCode>> {
-    return this.collectionClient.updateViewSource(input);
+  updateViewSource(input: UpdateViewSourceInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<SavedViewSourceDocument, CollectionMutationProblemCode>> {
+    return this.collectionClient.updateViewSource(input, options);
   }
 
-  deleteViewSource(input: DeleteViewSourceInput): Promise<ConnectOutcome<DeleteViewSourceResult, CollectionMutationProblemCode>> {
-    return this.collectionClient.deleteViewSource(input);
+  deleteViewSource(input: DeleteViewSourceInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<DeleteViewSourceResult, CollectionMutationProblemCode>> {
+    return this.collectionClient.deleteViewSource(input, options);
   }
 
-  create(input: CreateInput<Frontmatter>): Promise<ConnectOutcome<RecordDocument<Frontmatter>, CollectionMutationProblemCode>> {
-    return this.collectionClient.create(input);
+  create(input: CreateInput<Frontmatter>, options?: ConnectRequestOptions): Promise<ConnectOutcome<RecordDocument<Frontmatter>, CollectionMutationProblemCode>> {
+    return this.collectionClient.create(input, options);
   }
 
-  update(input: UpdateInput<Frontmatter>): Promise<ConnectOutcome<RecordDocument<Frontmatter>, CollectionMutationProblemCode>> {
-    return this.collectionClient.update(input);
+  update(input: UpdateInput<Frontmatter>, options?: ConnectRequestOptions): Promise<ConnectOutcome<RecordDocument<Frontmatter>, CollectionMutationProblemCode>> {
+    return this.collectionClient.update(input, options);
   }
 
-  delete(input: DeleteInput, options?: OperationRequestOptions): Promise<ConnectOutcome<DeleteResult, CollectionMutationProblemCode>> {
+  delete(input: DeleteInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<DeleteResult, CollectionMutationProblemCode>> {
     return this.collectionClient.delete(input, options);
   }
 
-  preflightDelete(input: DeleteInput, options?: OperationRequestOptions): Promise<ConnectOutcome<DeletePreflightResult, CollectionMutationProblemCode>> {
+  preflightDelete(input: DeleteInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<DeletePreflightResult, CollectionMutationProblemCode>> {
     return this.collectionClient.preflightDelete(input, options);
   }
 
-  rename(input: RenameInput, options?: OperationRequestOptions): Promise<ConnectOutcome<RenameResult, CollectionMutationProblemCode>> {
+  rename(input: RenameInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<RenameResult, CollectionMutationProblemCode>> {
     return this.collectionClient.rename(input, options);
   }
 
-  preflightRename(input: RenameInput, options?: OperationRequestOptions): Promise<ConnectOutcome<RenamePreflightResult, CollectionMutationProblemCode>> {
+  preflightRename(input: RenameInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<RenamePreflightResult, CollectionMutationProblemCode>> {
     return this.collectionClient.preflightRename(input, options);
   }
 
@@ -644,7 +653,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
 
   resumePendingMutation<Result>(
     input: unknown,
-    options?: OperationRequestOptions
+    options?: ConnectRequestOptions
   ): Promise<ConnectOutcome<Result, CollectionMutationProblemCode>> {
     return captureConnectOutcome(
       () => this.transport.resumePendingMutation<Result>(input, options),
@@ -652,66 +661,90 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     );
   }
 
-  validate(input: JsonObject = {}): Promise<ConnectOutcome<JsonObject, CollectionReadProblemCode>> {
-    return this.collectionClient.validate(input);
+  validate(input: JsonObject = {}, options?: ConnectRequestOptions): Promise<ConnectOutcome<JsonObject, CollectionReadProblemCode>> {
+    return this.collectionClient.validate(input, options);
   }
 
-  readType(input: ReadTypeInput): Promise<ConnectOutcome<CollectionTypeDocument, CollectionTypeProblemCode>> {
-    return this.collectionClient.readType(input);
+  readType(input: ReadTypeInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<CollectionTypeDocument, CollectionTypeProblemCode>> {
+    return this.collectionClient.readType(input, options);
   }
 
-  createType(input: CreateTypeInput): Promise<ConnectOutcome<CollectionTypeDocument, CollectionTypeProblemCode>> {
-    return this.collectionClient.createType(input);
+  createType(input: CreateTypeInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<CollectionTypeDocument, CollectionTypeProblemCode>> {
+    return this.collectionClient.createType(input, options);
   }
 
-  updateType(input: UpdateTypeInput): Promise<ConnectOutcome<CollectionTypeDocument, CollectionTypeProblemCode>> {
-    return this.collectionClient.updateType(input);
+  updateType(input: UpdateTypeInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<CollectionTypeDocument, CollectionTypeProblemCode>> {
+    return this.collectionClient.updateType(input, options);
   }
 
-  assessTypePack(input: AssessTypePackInput): Promise<ConnectOutcome<TypePackAssessment, CollectionTypeProblemCode>> {
-    return this.collectionClient.assessTypePack(input);
+  assessTypePack(input: AssessTypePackInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<TypePackAssessment, CollectionTypeProblemCode>> {
+    return this.collectionClient.assessTypePack(input, options);
   }
 
-  applyTypePack(input: ApplyTypePackInput): Promise<ConnectOutcome<TypePackApplyResult, CollectionTypeProblemCode>> {
-    return this.collectionClient.applyTypePack(input);
+  applyTypePack(input: ApplyTypePackInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<TypePackApplyResult, CollectionTypeProblemCode>> {
+    return this.collectionClient.applyTypePack(input, options);
   }
 
-  listTimers(namespace: string): Promise<ConnectOutcome<MdbaseTimerList, CollectionReadProblemCode>> {
-    return this.collectionClient.listTimers(namespace);
+  listTimers(namespace: string, options?: ConnectRequestOptions): Promise<ConnectOutcome<MdbaseTimerList, CollectionReadProblemCode>> {
+    return this.collectionClient.listTimers(namespace, options);
   }
 
   putTimer(input: {
     namespace: string;
     criterion_id: string;
     timer: MdbaseDesiredTimer;
-  }): Promise<ConnectOutcome<MdbaseTimer, CollectionMutationProblemCode>> {
-    return this.collectionClient.putTimer(input);
+  }, options?: ConnectRequestOptions): Promise<ConnectOutcome<MdbaseTimer, CollectionMutationProblemCode>> {
+    return this.collectionClient.putTimer(input, options);
   }
 
   cancelTimer(input: {
     namespace: string;
     id: string;
     generation?: number;
-  }): Promise<ConnectOutcome<{ namespace: string; id: string; cancelled: boolean }, CollectionMutationProblemCode>> {
-    return this.collectionClient.cancelTimer(input);
+  }, options?: ConnectRequestOptions): Promise<ConnectOutcome<{ namespace: string; id: string; cancelled: boolean }, CollectionMutationProblemCode>> {
+    return this.collectionClient.cancelTimer(input, options);
   }
 
   reconcileTimers(input: {
     namespace: string;
     criterion_id: string;
     timers: MdbaseDesiredTimer[];
-  }): Promise<ConnectOutcome<MdbaseTimerReconciliation, CollectionMutationProblemCode>> {
-    return this.collectionClient.reconcileTimers(input);
+  }, options?: ConnectRequestOptions): Promise<ConnectOutcome<MdbaseTimerReconciliation, CollectionMutationProblemCode>> {
+    return this.collectionClient.reconcileTimers(input, options);
   }
 
-  watch(options: WatchOptions = {}): AsyncGenerator<ConnectOutcome<CollectionChange, CollectionChangesProblemCode>> {
-    return this.collectionClient.watch(options);
+  watch(
+    input: WatchInput = {},
+    options: ConnectRequestOptions = {}
+  ): Promise<ConnectOutcome<MdbaseWatchSubscription, CollectionChangesProblemCode>> {
+    return captureConnectOutcome(
+      () => withRequestBudget(options, DEFAULT_STARTUP_TIMEOUT_MS, async (budget) => {
+        const initial = await this.collectionClient.changes(
+          input.cursor === undefined ? {} : { after: input.cursor, limit: 200 },
+          { signal: budget.signal, timeoutMs: null }
+        );
+        if (!initial.ok) throw new MdbaseConnectError(initial.problem);
+        if (initial.value.reset) {
+          throw new MdbaseConnectError(connectProblem(
+            "change_cursor_reset",
+            "The collection change cursor expired. Refresh collection state before subscribing again."
+          ));
+        }
+        return new CollectionWatchSubscription(
+          this.collectionClient,
+          initial.value.cursor,
+          input,
+          input.cursor === undefined ? [] : initial.value.events
+        );
+      }),
+      COLLECTION_CHANGES_PROBLEM_CODES
+    );
   }
 
   operation<Result>(
     operation: CollectionOperation,
     input: unknown,
-    options?: OperationRequestOptions
+    options?: ConnectRequestOptions
   ): Promise<ConnectOutcome<Result>> {
     return this.collectionClient.operation(operation, input, options);
   }
@@ -720,4 +753,117 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     const connection = this.info();
     for (const listener of this.connectionListeners) listener(connection);
   }
+}
+
+class CollectionWatchSubscription implements MdbaseWatchSubscription {
+  private readonly changes = new Set<(change: CollectionChange) => void>();
+  private readonly statuses = new Set<(status: WatchStatus) => void>();
+  private readonly problems = new Set<(problem: import("@mdbase-dev/connect-protocol").ConnectProblem) => void>();
+  private readonly controller = new AbortController();
+  private removeLifetimeAbort?: () => void;
+  private currentStatus: WatchStatus;
+  private currentProblem: import("@mdbase-dev/connect-protocol").ConnectProblem | null = null;
+  private pendingChanges: CollectionChange[];
+
+  constructor(
+    private readonly client: MdbaseCollectionClient,
+    cursor: number,
+    private readonly input: WatchInput,
+    pendingChanges: CollectionChange[]
+  ) {
+    this.pendingChanges = [...pendingChanges];
+    this.currentStatus = { state: "connected", cursor, recovered: false };
+    const lifetimeSignal = input.lifetimeSignal;
+    if (lifetimeSignal?.aborted) this.close();
+    else if (lifetimeSignal) {
+      const close = () => this.close();
+      lifetimeSignal.addEventListener("abort", close, { once: true });
+      this.removeLifetimeAbort = () => lifetimeSignal.removeEventListener("abort", close);
+    }
+    if (!this.controller.signal.aborted) void this.run(cursor);
+  }
+
+  get status(): WatchStatus {
+    return this.currentStatus;
+  }
+
+  get problem(): import("@mdbase-dev/connect-protocol").ConnectProblem | null {
+    return this.currentProblem;
+  }
+
+  subscribe(
+    listener: (change: CollectionChange) => void,
+    onStatus?: (status: WatchStatus) => void,
+    onProblem?: (problem: import("@mdbase-dev/connect-protocol").ConnectProblem) => void
+  ): () => void {
+    this.changes.add(listener);
+    if (onStatus) {
+      this.statuses.add(onStatus);
+      onStatus(this.currentStatus);
+    }
+    if (onProblem) {
+      this.problems.add(onProblem);
+      if (this.currentProblem) onProblem(this.currentProblem);
+    }
+    for (const change of this.pendingChanges) listener(change);
+    this.pendingChanges = [];
+    return () => {
+      this.changes.delete(listener);
+      if (onStatus) this.statuses.delete(onStatus);
+      if (onProblem) this.problems.delete(onProblem);
+    };
+  }
+
+  close(): void {
+    if (this.controller.signal.aborted) return;
+    this.controller.abort();
+    this.removeLifetimeAbort?.();
+    this.removeLifetimeAbort = undefined;
+    const cursor = "cursor" in this.currentStatus ? this.currentStatus.cursor : undefined;
+    this.publishStatus({ state: "closed", ...(cursor === undefined ? {} : { cursor }) });
+  }
+
+  private async run(cursor: number): Promise<void> {
+    let firstStatus = true;
+    const iterator = this.client.watch({
+      cursor,
+      pollIntervalMs: this.input.pollIntervalMs,
+      retry: this.input.retry,
+      signal: this.controller.signal,
+      timeoutMs: DEFAULT_STARTUP_TIMEOUT_MS,
+      onStatus: (status) => {
+        if (firstStatus && status.state === "connecting") {
+          firstStatus = false;
+          return;
+        }
+        firstStatus = false;
+        this.publishStatus(status);
+      }
+    });
+    try {
+      for await (const outcome of iterator) {
+        if (this.controller.signal.aborted) return;
+        if (!outcome.ok) {
+          this.currentProblem = outcome.problem;
+          for (const listener of this.problems) listener(outcome.problem);
+          return;
+        }
+        for (const listener of this.changes) listener(outcome.value);
+      }
+    } finally {
+      if (!this.controller.signal.aborted) this.close();
+    }
+  }
+
+  private publishStatus(status: WatchStatus): void {
+    this.currentStatus = status;
+    for (const listener of this.statuses) listener(status);
+  }
+}
+
+function syncRequestOptions(options?: ConnectRequestOptions): ConnectRequestOptions {
+  return {
+    ...options,
+    timeoutMs: options?.timeoutMs === undefined ? DEFAULT_SYNC_TIMEOUT_MS : options.timeoutMs
+  };
 }

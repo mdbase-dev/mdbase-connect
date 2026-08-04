@@ -26,14 +26,14 @@ import {
   directFallbackStatus,
   loopbackRequest
 } from "./operation-helpers.js";
-import { apiError } from "./runtime-utils.js";
+import { apiError, decodeJsonResponse } from "./runtime-utils.js";
 
 interface LocalFileTransportOptions {
   keyStore: GrantKeyStore;
   serverUrl: string;
   loopbackUrl: string;
-  authorizedToken(): Promise<StoredToken | null>;
-  refreshAuthorization(): Promise<StoredToken>;
+  authorizedToken(signal?: AbortSignal): Promise<StoredToken | null>;
+  refreshAuthorization(signal?: AbortSignal): Promise<StoredToken>;
   shouldAttemptDirect(token: StoredToken): Promise<boolean>;
   onDirectAvailable(): void;
   onDirectUnavailable(): void;
@@ -78,7 +78,7 @@ export class LocalFileTransport {
     }
     response = await this.sendRelayControl(token, encryptedRequest, signal);
     if (await refreshableBindingFailure(response, token)) {
-      token = await this.options.refreshAuthorization();
+      token = await this.options.refreshAuthorization(signal);
       requireLocalFileToken(token);
       encryptedRequest = await this.encryptControl(token, controlInput);
       response = await this.sendRelayControl(token, encryptedRequest, signal);
@@ -92,7 +92,11 @@ export class LocalFileTransport {
     encryptedRequest: EncryptedRelayOperationRequest,
     response: Response
   ): Promise<Result> {
-    const body = await response.json().catch(() => ({}));
+    const body = await decodeJsonResponse(
+      response,
+      "invalid_operation_response",
+      "The collection authority returned an invalid file control response."
+    );
     if (!response.ok) {
       throw apiError(body, "operation_failed", "Collection file request failed.", response.status);
     }
@@ -120,7 +124,7 @@ export class LocalFileTransport {
     bytes: Uint8Array,
     signal?: AbortSignal
   ): Promise<void> {
-    const token = await this.localFileToken(session, "upload");
+    const token = await this.localFileToken(session, "upload", signal);
     let deliveryToken = token;
     let encoded = await encryptedUploadChunk(
       this.options.keyStore,
@@ -151,7 +155,7 @@ export class LocalFileTransport {
     }
     response = await this.sendRelayUpload(deliveryToken, encoded, signal);
     if (response.status === 401 && deliveryToken.refreshToken) {
-      deliveryToken = await this.options.refreshAuthorization();
+      deliveryToken = await this.options.refreshAuthorization(signal);
       requireLocalFileToken(deliveryToken);
       encoded = await encryptedUploadChunk(
         this.options.keyStore,
@@ -163,7 +167,11 @@ export class LocalFileTransport {
       response = await this.sendRelayUpload(deliveryToken, encoded, signal);
     }
     if (!response.ok) {
-      const body = await response.json().catch(() => ({}));
+      const body = await decodeJsonResponse(
+        response,
+        "invalid_operation_response",
+        "The collection authority returned an invalid file upload response."
+      );
       throw apiError(
         body,
         "operation_failed",
@@ -179,7 +187,7 @@ export class LocalFileTransport {
     chunkIndex: number,
     signal?: AbortSignal
   ): Promise<Uint8Array> {
-    let token = await this.localFileToken(session, "download");
+    let token = await this.localFileToken(session, "download", signal);
     let response: Response | undefined;
     if (await this.options.shouldAttemptDirect(token)) {
       try {
@@ -199,7 +207,7 @@ export class LocalFileTransport {
     }
     response = await this.sendRelayDownload(token, session, chunkIndex, signal);
     if (response.status === 401 && token.refreshToken) {
-      token = await this.options.refreshAuthorization();
+      token = await this.options.refreshAuthorization(signal);
       requireLocalFileToken(token);
       response = await this.sendRelayDownload(token, session, chunkIndex, signal);
     }
@@ -214,7 +222,11 @@ export class LocalFileTransport {
     response: Response
   ): Promise<Uint8Array> {
     if (!response.ok) {
-      const body = await response.json().catch(() => ({}));
+      const body = await decodeJsonResponse(
+        response,
+        "invalid_operation_response",
+        "The collection authority returned an invalid file download response."
+      );
       throw apiError(
         body,
         "operation_failed",
@@ -320,9 +332,10 @@ export class LocalFileTransport {
 
   private async localFileToken(
     session: FileTransferSession,
-    direction: "upload" | "download"
+    direction: "upload" | "download",
+    signal?: AbortSignal
   ): Promise<StoredToken> {
-    const token = await this.options.authorizedToken();
+    const token = await this.options.authorizedToken(signal);
     if (!token || token.authority || !token.fileCapability || !token.encryption
         || !token.grantId || !token.keyHandle
         || session.direction !== direction
@@ -374,7 +387,11 @@ async function requireSuccessfulChunkResponse(
   message: string
 ): Promise<void> {
   if (response.ok) return;
-  const body = await response.json().catch(() => ({}));
+  const body = await decodeJsonResponse(
+    response,
+    "invalid_operation_response",
+    "The collection authority returned an invalid file transfer response."
+  );
   throw apiError(body, "operation_failed", message, response.status);
 }
 
@@ -385,7 +402,11 @@ async function refreshableBindingFailure(
   if (!token.refreshToken) return false;
   if (response.status === 401) return true;
   if (response.status !== 409) return false;
-  const body = await response.clone().json().catch(() => null);
+  const body = await decodeJsonResponse(
+    response.clone(),
+    "invalid_operation_response",
+    "The collection authority returned an invalid file response."
+  ).catch(() => null);
   return body?.error?.code === "encryption_binding_stale";
 }
 

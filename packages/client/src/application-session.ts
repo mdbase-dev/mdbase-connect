@@ -27,6 +27,9 @@ import {
   type SessionProblemCode
 } from "./outcomes.js";
 import type { MdbaseApplicationSelection, MdbaseSelectionHistory } from "./selection.js";
+import type { ConnectRequestOptions } from "./operation-types.js";
+import { DEFAULT_STARTUP_TIMEOUT_MS, withRequestBudget } from "./request-budget.js";
+import { defaultCallbackUrl } from "./runtime-utils.js";
 import {
   MdbaseSession,
   type MdbaseSessionConnect,
@@ -35,7 +38,7 @@ import {
 
 export interface MdbaseApplicationSessionConnect<Frontmatter extends JsonObject = JsonObject>
   extends MdbaseSessionConnect<Frontmatter> {
-  manifest(): Promise<ConnectOutcome<MdbaseAppManifest, RegistrationProblemCode>>;
+  manifest(options?: ConnectRequestOptions): Promise<ConnectOutcome<MdbaseAppManifest, RegistrationProblemCode>>;
 }
 
 export interface MdbaseApplicationSessionOptions {
@@ -132,8 +135,14 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     this.verificationStore = options.verificationStore ?? defaultVerificationStore();
   }
 
-  async start(): Promise<ConnectOutcome<MdbaseApplicationSessionSnapshot, SessionProblemCode>> {
-    const manifest = await this.connect.manifest();
+  start(options?: ConnectRequestOptions): Promise<ConnectOutcome<MdbaseApplicationSessionSnapshot, SessionProblemCode>> {
+    return withRequestBudget(options, DEFAULT_STARTUP_TIMEOUT_MS, (budget) =>
+      this.startWithinBudget({ signal: budget.signal, timeoutMs: null })
+    );
+  }
+
+  private async startWithinBudget(options: ConnectRequestOptions): Promise<ConnectOutcome<MdbaseApplicationSessionSnapshot, SessionProblemCode>> {
+    const manifest = await this.connect.manifest(options);
     if (!manifest.ok) return manifest;
     const capabilities = manifest.value.requirements?.capabilities;
     if (!capabilities) {
@@ -159,9 +168,9 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
       operations: operationsForSession(capabilities)
     });
     this.stopBase = this.base.subscribe(() => this.refresh());
-    const started = await this.base.start();
+    const started = await this.base.start(options);
     if (!started.ok) return started;
-    await this.refresh(true);
+    await this.refresh(true, options);
     return connectSuccess(this.snapshot);
   }
 
@@ -210,9 +219,20 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
   }
 
   handleAuthorizationCallback(
-    callbackUrl: string
+    callbackUrl: string | URL,
+    options?: ConnectRequestOptions
   ): Promise<ConnectOutcome<MdbaseConnection<Frontmatter>, AuthorizationProblemCode>> {
-    return this.requireBase().handleAuthorizationCallback(callbackUrl);
+    return this.requireBase().handleAuthorizationCallback(String(callbackUrl), options);
+  }
+
+  completeAuthorization(
+    callbackUrl?: string | URL,
+    options?: ConnectRequestOptions
+  ): Promise<ConnectOutcome<MdbaseConnection<Frontmatter>, AuthorizationProblemCode>> {
+    return this.requireBase().handleAuthorizationCallback(
+      callbackUrl === undefined ? defaultCallbackUrl() : String(callbackUrl),
+      options
+    );
   }
 
   ensureCapabilities(
@@ -249,7 +269,7 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     return this.requireBase().ensureOperations(operationsForIds(capabilities));
   }
 
-  async applyDefinitionUpdates(): Promise<ConnectOutcome<
+  async applyDefinitionUpdates(options?: ConnectRequestOptions): Promise<ConnectOutcome<
     MdbaseApplicationSessionSnapshot,
     CollectionTypeProblemCode | "collection_not_ready"
   >> {
@@ -270,20 +290,23 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
       return connectFailure(connectProblem("collection_not_ready", "The collection is not ready."));
     }
     for (const { provision, assessment } of this.reviewEntries) {
-      const applied = await connection.applyTypePack({
+      const input = {
         provision,
         installed_by: this.requireManifest().id,
         expected_assessment_digest: assessment.assessment_digest,
         ...(assessment.status === "downgrade" ? { allow_downgrade: true } : {})
-      });
+      };
+      const applied = options
+        ? await connection.applyTypePack(input, options)
+        : await connection.applyTypePack(input);
       if (!applied.ok) return applied;
     }
     this.reviewEntries = [];
-    await this.verifyDefinitions(this.context(connection), ++this.verificationGeneration);
+    await this.verifyDefinitions(this.context(connection), ++this.verificationGeneration, options);
     return connectSuccess(this.snapshot);
   }
 
-  private async refresh(awaitVerification = false): Promise<void> {
+  private async refresh(awaitVerification = false, options?: ConnectRequestOptions): Promise<void> {
     if (!this.base || !this.manifest) return;
     const current = this.base.getSnapshot();
     this.verificationGeneration += 1;
@@ -317,13 +340,14 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     } else {
       this.publish({ status: "checking_definitions", ...context });
     }
-    const verification = this.verifyDefinitions(context, generation);
+    const verification = this.verifyDefinitions(context, generation, options);
     if (awaitVerification) await verification;
   }
 
   private async verifyDefinitions(
     context: ApplicationSessionContext,
-    generation: number
+    generation: number,
+    options?: ConnectRequestOptions
   ): Promise<void> {
     const connection = this.connection();
     const manifest = this.requireManifest();
@@ -332,10 +356,13 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     const managesDefinitions = manifest.requirements?.capabilities?.required
       .includes("definitions.type-pack.apply") ?? false;
     for (const provision of managesDefinitions ? manifest.provisions?.type_packs ?? [] : []) {
-      const outcome = await connection.assessTypePack({
+      const input = {
         provision,
         installed_by: manifest.id
-      });
+      };
+      const outcome = options
+        ? await connection.assessTypePack(input, options)
+        : await connection.assessTypePack(input);
       if (generation !== this.verificationGeneration) return;
       if (!outcome.ok) {
         this.publish({ status: "blocked", problem: outcome.problem, ...context });

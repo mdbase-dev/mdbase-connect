@@ -1,6 +1,7 @@
 import { connectError } from "./errors.js";
+import type { ConnectRequestOptions } from "./operation-types.js";
 
-export interface MdbaseNotificationRegistrationOptions {
+export interface MdbaseNotificationRegistrationOptions extends ConnectRequestOptions {
   serviceWorker: ServiceWorkerRegistration;
   /** Manifest criterion IDs to enable. Omit to enable every declared criterion. */
   criteria?: string[];
@@ -14,7 +15,7 @@ export interface MdbaseNotificationRegistration {
   criteria: string[];
 }
 
-export interface MdbaseNativeNotificationRegistrationOptions {
+export interface MdbaseNativeNotificationRegistrationOptions extends ConnectRequestOptions {
   /** Current FCM registration token. Refresh by calling this method again. */
   token: string;
   /** Manifest criterion IDs to enable. Omit to enable every declared criterion. */
