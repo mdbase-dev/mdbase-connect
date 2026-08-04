@@ -58,9 +58,7 @@ import {
   validFileCapability
 } from "./runtime-utils.js";
 import {
-  DEFAULT_REQUEST_TIMEOUT_MS,
-  DEFAULT_STARTUP_TIMEOUT_MS,
-  DEFAULT_SYNC_TIMEOUT_MS,
+  type ResolvedConnectTimeouts,
   withCooperativeRequestBudget,
   withRequestBudget
 } from "./request-budget.js";
@@ -88,6 +86,7 @@ export interface ConnectionTransportOptions {
   collectionId: string;
   internals: ConnectionTransportInternals;
   onChange(): void;
+  timeouts: ResolvedConnectTimeouts;
 }
 
 export class ConnectionTransport {
@@ -99,6 +98,7 @@ export class ConnectionTransport {
   private readonly collectionId: string;
   private readonly internals: ConnectionTransportInternals;
   private readonly onChange: () => void;
+  private readonly timeouts: ResolvedConnectTimeouts;
   readonly files: ConnectionFileTransport;
   private refreshPromise: Promise<StoredToken> | null = null;
   private directStatus: DirectAccessStatus;
@@ -115,6 +115,7 @@ export class ConnectionTransport {
     this.collectionId = options.collectionId;
     this.internals = options.internals;
     this.onChange = options.onChange;
+    this.timeouts = options.timeouts;
     this.files = new ConnectionFileTransport({
       keyStore: this.keyStore,
       serverUrl: this.serverUrl,
@@ -149,7 +150,7 @@ export class ConnectionTransport {
   }
 
   async checkDirectAccess(options: ConnectRequestOptions = {}): Promise<DirectAccessStatus> {
-    return withRequestBudget(options, DEFAULT_STARTUP_TIMEOUT_MS, (budget) =>
+    return withRequestBudget(options, this.timeouts.watchStartMs, (budget) =>
       this.checkDirectAccessWithinBudget(budget.signal)
     );
   }
@@ -168,7 +169,7 @@ export class ConnectionTransport {
 
   /** Call from a user gesture to request browser permission for direct local access. */
   async requestDirectAccess(options: ConnectRequestOptions = {}): Promise<DirectAccessStatus> {
-    return withRequestBudget(options, DEFAULT_STARTUP_TIMEOUT_MS, (budget) =>
+    return withRequestBudget(options, this.timeouts.watchStartMs, (budget) =>
       this.requestDirectAccessWithinBudget(budget.signal)
     );
   }
@@ -200,21 +201,34 @@ export class ConnectionTransport {
         || pending.collectionId !== token.collectionId
         || pending.grantId !== token.grantId
         || pending.keyId !== token.encryption?.key_id) return null;
-    return { operation: pending.operation, createdAt: pending.createdAt, resumable: true };
+    return {
+      requestId: pending.requestId,
+      operation: pending.operation,
+      fingerprint: pending.inputFingerprint,
+      status: "outcome_unknown",
+      createdAt: pending.createdAt,
+      resumable: true
+    };
   }
 
   async resumePendingMutation<Result>(
-    input: unknown,
     options?: ConnectRequestOptions
   ): Promise<Result> {
-    const pending = this.pendingMutation();
+    const pending = this.storedPendingMutation();
     if (!pending) {
       throw connectError(
         "no_pending_mutation",
         "There is no interrupted mutation to resume."
       );
     }
-    return this.performOperation<Result>(pending.operation, input, options);
+    return withCooperativeRequestBudget(options, this.timeouts.requestMs, (budget) =>
+      this.performOperationWithinBudget<Result>(
+        pending.operation,
+        pending.request?.input ?? {},
+        { ...options, signal: budget.signal },
+        pending
+      )
+    );
   }
 
   async performOperation<Result>(
@@ -222,7 +236,7 @@ export class ConnectionTransport {
     input: unknown,
     options: ConnectRequestOptions = {}
   ): Promise<Result> {
-    return withCooperativeRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS, (budget) =>
+    return withCooperativeRequestBudget(options, this.timeouts.requestMs, (budget) =>
       this.performOperationWithinBudget<Result>(operation, input, {
         ...options,
         signal: budget.signal
@@ -233,7 +247,8 @@ export class ConnectionTransport {
   private async performOperationWithinBudget<Result>(
     operation: CollectionOperation,
     input: unknown,
-    options: ConnectRequestOptions
+    options: ConnectRequestOptions,
+    storedPending?: PendingMutation
   ): Promise<Result> {
     throwIfCancelled(options.signal);
     let token = this.currentToken();
@@ -254,12 +269,12 @@ export class ConnectionTransport {
     }
     let attempt: OperationAttempt;
     try {
-      attempt = await this.sendOperation(token, operation, input, tryDirect, options);
+      attempt = await this.sendOperation(token, operation, input, tryDirect, options, storedPending);
     } catch (error) {
       throw operationTransportError(
         error,
         options.signal,
-        isMutation(operation, input) && this.pendingMutation() !== null,
+        (storedPending !== undefined || isMutation(operation, input)) && this.pendingMutation() !== null,
         token.authority ? "hosted_provider_unavailable" : "relay_unavailable"
       );
     }
@@ -284,12 +299,12 @@ export class ConnectionTransport {
       token = await this.refreshAuthorization(options.signal);
       tryDirect = await this.shouldAttemptDirect(token);
       try {
-        attempt = await this.sendOperation(token, operation, input, tryDirect, options);
+        attempt = await this.sendOperation(token, operation, input, tryDirect, options, storedPending);
       } catch (error) {
         throw operationTransportError(
           error,
           options.signal,
-          isMutation(operation, input) && this.pendingMutation() !== null,
+          (storedPending !== undefined || isMutation(operation, input)) && this.pendingMutation() !== null,
           token.authority ? "hosted_provider_unavailable" : "relay_unavailable"
         );
       }
@@ -409,7 +424,7 @@ export class ConnectionTransport {
     input?: unknown,
     options: ConnectRequestOptions = {}
   ): Promise<Result> {
-    return withCooperativeRequestBudget(options, DEFAULT_SYNC_TIMEOUT_MS, async (budget) => {
+    return withCooperativeRequestBudget(options, this.timeouts.syncMs, async (budget) => {
       let token = await this.authorizedToken({ signal: budget.signal, timeoutMs: null });
       if (!token?.authority
           || token.collectionId !== collectionId
@@ -486,7 +501,8 @@ export class ConnectionTransport {
     operation: CollectionOperation,
     input: unknown,
     tryDirect: boolean,
-    options: ConnectRequestOptions = {}
+    options: ConnectRequestOptions = {},
+    storedPending?: PendingMutation
   ): Promise<OperationAttempt> {
     let body: unknown = input ?? {};
     let encryptedRequest: Awaited<ReturnType<typeof encryptRelayRequest>> | undefined;
@@ -495,11 +511,12 @@ export class ConnectionTransport {
     let requestId: string = crypto.randomUUID();
     let pending: PendingMutation | null = null;
     let inputFingerprint: string | undefined;
-    if (isMutation(operation, input)) {
-      inputFingerprint = await operationFingerprint(operation, input);
-      pending = parseStored<PendingMutation>(
-        this.storage.getItem(this.pendingMutationKey())
-      );
+    if (storedPending || isMutation(operation, input)) {
+      inputFingerprint = storedPending?.inputFingerprint
+        ?? await operationFingerprint(operation, input);
+      pending = storedPending ?? parseStored<PendingMutation>(
+          this.storage.getItem(this.pendingMutationKey())
+        );
       if (pending) {
         if (pending.collectionId !== token.collectionId
             || pending.grantId !== token.grantId
@@ -565,11 +582,11 @@ export class ConnectionTransport {
       }
       body = encryptedRequest;
     } else {
-      const request: MdbaseOperationRequest = {
-        protocol_version: 1,
-        request_id: requestId,
-        input: body
-      };
+      const request: MdbaseOperationRequest = pending?.request ?? {
+          protocol_version: 1,
+          request_id: requestId,
+          input: body
+        };
       body = request;
       if (pendingMutation && !pending) {
         this.storage.setItem(this.pendingMutationKey(), JSON.stringify({
@@ -578,6 +595,7 @@ export class ConnectionTransport {
           operation,
           inputFingerprint: inputFingerprint!,
           requestId,
+          request,
           createdAt: Date.now()
         } satisfies PendingMutation));
       }
@@ -1009,6 +1027,17 @@ export class ConnectionTransport {
   }
   private pendingMutationKey() {
     return this.internals.pendingMutationKey(this.collectionId);
+  }
+
+  private storedPendingMutation(): PendingMutation | null {
+    const pending = parseStored<PendingMutation>(this.storage.getItem(this.pendingMutationKey()));
+    const token = this.currentToken();
+    if (!pending || !token
+        || pending.collectionId !== token.collectionId
+        || pending.grantId !== token.grantId
+        || pending.keyId !== token.encryption?.key_id
+        || (!pending.envelope && !pending.request)) return null;
+    return pending;
   }
   private clearPendingMutation(): void {
     this.storage.removeItem(this.pendingMutationKey());

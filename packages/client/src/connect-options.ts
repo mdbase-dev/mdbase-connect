@@ -2,6 +2,13 @@ import type { JsonObject, MdbaseAppManifest } from "@mdbase-dev/connect-protocol
 import type { GrantKeyStore } from "./crypto.js";
 import type { ApplicationIdentityStore } from "./application-identity.js";
 
+export interface MdbaseConnectTimeouts {
+  requestMs?: number | null;
+  watchStartMs?: number | null;
+  uploadMs?: number | null;
+  syncMs?: number | null;
+}
+
 export interface MdbaseConnectOptions {
   serverUrl: string | URL;
   /**
@@ -22,6 +29,8 @@ export interface MdbaseConnectOptions {
   loopbackUrl?: string | URL;
   /** Override browser navigation, for example to use a native system browser. */
   navigate?: (url: string) => void | Promise<void>;
+  /** Workload-specific defaults. Per-call timeoutMs always wins. */
+  timeouts?: MdbaseConnectTimeouts;
 }
 
 export type MdbaseFrontmatter = JsonObject;

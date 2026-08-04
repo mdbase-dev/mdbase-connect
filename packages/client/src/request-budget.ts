@@ -1,10 +1,29 @@
 import { MdbaseConnectError, connectError } from "./errors.js";
 import type { ConnectRequestOptions } from "./operation-types.js";
+import type { MdbaseConnectTimeouts } from "./connect-options.js";
 
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 export const DEFAULT_STARTUP_TIMEOUT_MS = 10_000;
 export const DEFAULT_UPLOAD_TIMEOUT_MS = 120_000;
 export const DEFAULT_SYNC_TIMEOUT_MS = 60_000;
+
+export interface ResolvedConnectTimeouts {
+  requestMs: number | null;
+  watchStartMs: number | null;
+  uploadMs: number | null;
+  syncMs: number | null;
+}
+
+export function resolveConnectTimeouts(
+  timeouts: MdbaseConnectTimeouts = {}
+): ResolvedConnectTimeouts {
+  return {
+    requestMs: configuredTimeout(timeouts.requestMs, DEFAULT_REQUEST_TIMEOUT_MS, "requestMs"),
+    watchStartMs: configuredTimeout(timeouts.watchStartMs, DEFAULT_STARTUP_TIMEOUT_MS, "watchStartMs"),
+    uploadMs: configuredTimeout(timeouts.uploadMs, DEFAULT_UPLOAD_TIMEOUT_MS, "uploadMs"),
+    syncMs: configuredTimeout(timeouts.syncMs, DEFAULT_SYNC_TIMEOUT_MS, "syncMs")
+  };
+}
 
 export interface RequestBudget {
   readonly signal: AbortSignal;
@@ -15,12 +34,11 @@ export interface RequestBudget {
 
 export function createRequestBudget(
   options: ConnectRequestOptions = {},
-  defaultTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+  defaultTimeoutMs: number | null = DEFAULT_REQUEST_TIMEOUT_MS,
   now: () => number = Date.now
 ): RequestBudget {
-  const timeoutMs = options.timeoutMs === null
-    ? null
-    : validTimeout(options.timeoutMs ?? defaultTimeoutMs);
+  const configured = options.timeoutMs === undefined ? defaultTimeoutMs : options.timeoutMs;
+  const timeoutMs = configured === null ? null : validTimeout(configured);
   const controller = new AbortController();
   const deadline = timeoutMs === null ? null : now() + timeoutMs;
   const abortFromCaller = () => controller.abort(options.signal?.reason);
@@ -49,7 +67,7 @@ export function createRequestBudget(
 
 export async function withRequestBudget<Result>(
   options: ConnectRequestOptions | undefined,
-  defaultTimeoutMs: number,
+  defaultTimeoutMs: number | null,
   operation: (budget: RequestBudget) => Promise<Result>
 ): Promise<Result> {
   const budget = createRequestBudget(options, defaultTimeoutMs);
@@ -74,7 +92,7 @@ export async function withRequestBudget<Result>(
  */
 export async function withCooperativeRequestBudget<Result>(
   options: ConnectRequestOptions | undefined,
-  defaultTimeoutMs: number,
+  defaultTimeoutMs: number | null,
   operation: (budget: RequestBudget) => Promise<Result>
 ): Promise<Result> {
   const budget = createRequestBudget(options, defaultTimeoutMs);
@@ -96,8 +114,21 @@ export function requestAbortReason(signal: AbortSignal): unknown {
 }
 
 function validTimeout(value: number): number {
-  if (!Number.isFinite(value) || value < 0) {
-    throw new TypeError("timeoutMs must be a finite non-negative number or null.");
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new TypeError("timeoutMs must be a positive safe integer or null.");
+  }
+  return value;
+}
+
+function configuredTimeout(
+  value: number | null | undefined,
+  fallback: number,
+  name: string
+): number | null {
+  if (value === undefined) return fallback;
+  if (value === null) return null;
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new TypeError(`${name} must be a positive safe integer or null.`);
   }
   return value;
 }

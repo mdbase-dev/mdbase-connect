@@ -15,9 +15,9 @@ import { IncrementalSha256 } from "./file-sha256.js";
 import { BinaryPartReader } from "./file-stream-source.js";
 import type { ConnectRequestOptions } from "./operation-types.js";
 import {
-  DEFAULT_REQUEST_TIMEOUT_MS,
-  DEFAULT_UPLOAD_TIMEOUT_MS,
   createRequestBudget,
+  resolveConnectTimeouts,
+  type ResolvedConnectTimeouts,
   withCooperativeRequestBudget
 } from "./request-budget.js";
 
@@ -126,11 +126,12 @@ export class MdbaseFileClient {
     private readonly capability: () => FileCapability | null,
     private readonly request: ControlRequest,
     private readonly framed?: MdbaseFramedFileTransport,
-    private readonly hosted?: MdbaseHostedFileTransport
+    private readonly hosted?: MdbaseHostedFileTransport,
+    private readonly timeouts: ResolvedConnectTimeouts = resolveConnectTimeouts()
   ) {}
 
   async *list(options: MdbaseFileListOptions = {}): AsyncGenerator<CollectionFileDescriptor> {
-    const budget = createRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS);
+    const budget = createRequestBudget(options, this.timeouts.requestMs);
     const signal = budget.signal;
     try {
     this.requireAction("list");
@@ -168,7 +169,7 @@ export class MdbaseFileClient {
     source: MdbaseFileSource,
     options: MdbaseFileUploadOptions = {}
   ): Promise<CollectionFileDescriptor> {
-    return withCooperativeRequestBudget(options, DEFAULT_UPLOAD_TIMEOUT_MS, (budget) =>
+    return withCooperativeRequestBudget(options, this.timeouts.uploadMs, (budget) =>
       this.uploadWithinBudget(path, source, { ...options, signal: budget.signal, timeoutMs: null })
     );
   }
@@ -210,7 +211,7 @@ export class MdbaseFileClient {
     source: MdbaseFileStreamSource,
     options: MdbaseFileStreamUploadOptions = {}
   ): Promise<CollectionFileDescriptor> {
-    return withCooperativeRequestBudget(options, DEFAULT_UPLOAD_TIMEOUT_MS, (budget) =>
+    return withCooperativeRequestBudget(options, this.timeouts.uploadMs, (budget) =>
       this.uploadStreamWithinBudget(path, source, {
         ...options,
         signal: budget.signal,
@@ -421,7 +422,7 @@ export class MdbaseFileClient {
     file: CollectionFileDescriptor,
     options: MdbaseFileDownloadOptions = {}
   ): Promise<ReadableStream<Uint8Array>> {
-    return withCooperativeRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS, (budget) =>
+    return withCooperativeRequestBudget(options, this.timeouts.requestMs, (budget) =>
       this.openDownloadStream(file, options, budget.signal)
     );
   }
@@ -599,7 +600,7 @@ export class MdbaseFileClient {
     path: string,
     options: MdbaseFileMoveOptions = {}
   ): Promise<CollectionFileDescriptor> {
-    return withCooperativeRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS, (budget) =>
+    return withCooperativeRequestBudget(options, this.timeouts.requestMs, (budget) =>
       this.moveWithinBudget(file, path, { ...options, signal: budget.signal, timeoutMs: null })
     );
   }
@@ -649,7 +650,7 @@ export class MdbaseFileClient {
     file: CollectionFileDescriptor,
     options: MdbaseFileDeleteOptions = {}
   ): Promise<DeleteFileReceipt> {
-    return withCooperativeRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS, (budget) =>
+    return withCooperativeRequestBudget(options, this.timeouts.requestMs, (budget) =>
       this.deleteWithinBudget(file, { ...options, signal: budget.signal, timeoutMs: null })
     );
   }

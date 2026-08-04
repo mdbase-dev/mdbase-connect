@@ -49,7 +49,8 @@ import {
 import { uniqueOperations } from "./operation-helpers.js";
 import type { ConnectRequestOptions } from "./operation-types.js";
 import {
-  DEFAULT_REQUEST_TIMEOUT_MS,
+  resolveConnectTimeouts,
+  type ResolvedConnectTimeouts,
   withRequestBudget
 } from "./request-budget.js";
 import type { MdbaseUnavailableReason } from "./session.js";
@@ -88,6 +89,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
   readonly directAccessMode: "auto" | "disabled";
   readonly loopbackUrl: string;
   readonly navigate?: (url: string) => void | Promise<void>;
+  readonly timeouts: ResolvedConnectTimeouts;
   readonly credentialStorage: MdbaseConnectEnvironment["credentialStorage"];
   private application: Application | null = null;
   private manifestPromise: Promise<MdbaseAppManifest> | null = null;
@@ -130,6 +132,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       String(options.loopbackUrl ?? `http://127.0.0.1:${DEFAULT_LOOPBACK_PORT}`)
     );
     this.navigate = options.navigate;
+    this.timeouts = resolveConnectTimeouts(options.timeouts);
     if (typeof window !== "undefined" && this.storage === window.localStorage) {
       window.addEventListener("storage", (event) => {
         if (event.storageArea !== this.storage || !event.key?.startsWith(this.storagePrefix())) return;
@@ -154,7 +157,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
   }
 
   register(options: ConnectRequestOptions = {}): Promise<Application> {
-    return withRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS, (budget) =>
+    return withRequestBudget(options, this.timeouts.requestMs, (budget) =>
       this.registerWithinBudget(budget.signal)
     );
   }
@@ -179,7 +182,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
 
   manifestDeclaration(options: ConnectRequestOptions = {}): Promise<MdbaseAppManifest> {
     if (this.manifestPromise) return this.manifestPromise;
-    const loading = withRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS, (budget) =>
+    const loading = withRequestBudget(options, this.timeouts.requestMs, (budget) =>
       this.loadManifest(budget.signal)
     );
     const shared = loading.catch((error: unknown) => {
@@ -241,7 +244,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
   async authorize(
     options: MdbaseAuthorizeOptions = {}
   ): Promise<MdbaseAuthorizationOutcome<Frontmatter>> {
-    return withRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS, (budget) =>
+    return withRequestBudget(options, this.timeouts.requestMs, (budget) =>
       this.authorizeWithinBudget({ ...options, signal: budget.signal, timeoutMs: null })
     );
   }
@@ -661,7 +664,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     callbackUrl: string,
     options: ConnectRequestOptions = {}
   ): Promise<MdbaseAuthorizationResult<Frontmatter>> {
-    return withRequestBudget(options, DEFAULT_REQUEST_TIMEOUT_MS, (budget) =>
+    return withRequestBudget(options, this.timeouts.requestMs, (budget) =>
       this.completeAuthorizationWithinBudget(callbackUrl, budget.signal)
     );
   }
