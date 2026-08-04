@@ -32,6 +32,18 @@ interface AccountOverviewRouteOptions {
   hostedReference?: HostedAuthorityRegistry;
 }
 
+interface AccountConnectorRow {
+  id: string;
+  name: string;
+  last_seen_at: string | null;
+  created_at: string;
+  connector_version: string | null;
+  last_incompatible_at: string | null;
+  incompatibility_code: string | null;
+  minimum_connector_version: string | null;
+  connector_update_url: string | null;
+}
+
 export function registerAccountOverviewRoute(
   app: FastifyInstance,
   options: AccountOverviewRouteOptions
@@ -52,8 +64,11 @@ export function registerAccountOverviewRoute(
       );
     }
     const { authentication_provider: authenticationProvider, ...user } = authenticated;
-    const connectors = await options.db.query(
-      `SELECT c.id, c.name, c.last_seen_at, c.created_at
+    const connectors = await options.db.query<AccountConnectorRow>(
+      `SELECT c.id, c.name, c.last_seen_at, c.created_at,
+              c.connector_version, c.last_incompatible_at,
+              c.incompatibility_code, c.minimum_connector_version,
+              c.connector_update_url
        FROM connectors c
        WHERE c.user_id = $1 AND c.revoked_at IS NULL
        ORDER BY c.created_at`,
@@ -237,7 +252,21 @@ export function registerAccountOverviewRoute(
         provider: authenticationProvider ?? (options.tailscaleAuth ? "tailscale" : "session"),
         registration: authenticationSettings.registrationMode
       },
-      connectors: connectors.rows,
+      connectors: connectors.rows.map((connector) => ({
+        id: connector.id,
+        name: connector.name,
+        last_seen_at: connector.last_seen_at,
+        created_at: connector.created_at,
+        connector_version: connector.connector_version,
+        compatibility: connector.incompatibility_code === "connector_upgrade_required"
+          ? "upgrade_required" as const
+          : connector.connector_version
+            ? "compatible" as const
+            : "unknown" as const,
+        last_incompatible_at: connector.last_incompatible_at,
+        minimum_connector_version: connector.minimum_connector_version,
+        update_url: connector.connector_update_url
+      })),
       collections: await Promise.all(collections.rows.map(async (collection) => {
         const access = await resolveLocalCollectionAccess(
           options.db,

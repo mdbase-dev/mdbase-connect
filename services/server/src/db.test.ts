@@ -48,7 +48,8 @@ describe("database migrations", () => {
       "0010_beta_entitlements_and_email",
       "0011_application_authorization_trust",
       "0012_notification_contract_digests",
-      "0013_signed_tofu_application_identity"
+      "0013_signed_tofu_application_identity",
+      "0014_connector_compatibility"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -413,7 +414,8 @@ describe("database migrations", () => {
       "0010_beta_entitlements_and_email",
       "0011_application_authorization_trust",
       "0012_notification_contract_digests",
-      "0013_signed_tofu_application_identity"
+      "0013_signed_tofu_application_identity",
+      "0014_connector_compatibility"
     ]);
   });
 

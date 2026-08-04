@@ -49,6 +49,34 @@ describe("ConnectManagementClient", () => {
     await rejection;
   });
 
+  it("does not dispatch a request cancelled by its caller in advance", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const client = new ConnectManagementClient("https://connect.example");
+    const controller = new AbortController();
+    controller.abort("navigation");
+
+    await expect(client.revokeGrant("grant", { signal: controller.signal }))
+      .rejects.toMatchObject({
+        code: "cancelled",
+        details: { operation_outcome: "not_sent" }
+      });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("reports a black-holed mutation as outcome unknown", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
+    const client = new ConnectManagementClient("https://connect.example");
+    const pending = client.revokeGrant("grant", { timeoutMs: 25 });
+    const rejection = expect(pending).rejects.toMatchObject({
+      code: "outcome_unknown",
+      details: { operation_outcome: "unknown" }
+    });
+    await vi.advanceTimersByTimeAsync(25);
+    await rejection;
+  });
+
   it("rejects an invalid successful response at the boundary", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>proxy error</html>", {
       status: 200,

@@ -145,6 +145,11 @@ export interface ManagementOverview {
     name: string;
     last_seen_at: string | null;
     created_at: string;
+    connector_version?: string | null;
+    compatibility?: "compatible" | "unknown" | "upgrade_required";
+    last_incompatible_at?: string | null;
+    minimum_connector_version?: string | null;
+    update_url?: string | null;
   }>;
   collections: Array<{
     id: string;
@@ -196,7 +201,7 @@ export interface ManagementOverview {
 export class ManagementApiError extends Error {
   constructor(
     public readonly status: number,
-    public readonly code: "cancelled" | "http_error" | "invalid_response" | "partial_failure" | "timeout",
+    public readonly code: "cancelled" | "http_error" | "invalid_response" | "outcome_unknown" | "partial_failure" | "timeout",
     message: string,
     public readonly details?: unknown
   ) {
@@ -374,8 +379,12 @@ export class ConnectManagementClient {
     options: ManagementRequestOptions = {}
   ): Promise<T> {
     const deadline = managementDeadline(options);
+    const method = (init.method ?? "GET").toUpperCase();
+    const mutation = !["GET", "HEAD", "OPTIONS"].includes(method);
+    let dispatched = false;
     try {
-      const response = await deadline.wait(fetch(new URL(path, this.baseUrl), {
+      if (deadline.signal.aborted) throw deadline.signal.reason;
+      const request = fetch(new URL(path, this.baseUrl), {
         ...init,
         signal: deadline.signal,
         credentials: "include",
@@ -384,7 +393,9 @@ export class ConnectManagementClient {
           ...(init.body ? { "content-type": "application/json" } : {}),
           ...init.headers
         }
-      }));
+      });
+      dispatched = true;
+      const response = await deadline.wait(request);
       const text = await deadline.wait(response.text());
       let body: unknown = {};
       if (text.trim() !== "") {
@@ -418,6 +429,26 @@ export class ConnectManagementClient {
     } catch (cause) {
       if (cause instanceof ManagementApiError) throw cause;
       if (deadline.signal.aborted) {
+        if (mutation && dispatched) {
+          throw new ManagementApiError(
+            0,
+            "outcome_unknown",
+            deadline.timedOut()
+              ? "The request timed out after it may have reached the service. Refresh to confirm the current state before trying again."
+              : "The request was cancelled after it may have reached the service. Refresh to confirm the current state before trying again.",
+            { operation_outcome: "unknown" }
+          );
+        }
+        if (mutation) {
+          throw new ManagementApiError(
+            0,
+            deadline.timedOut() ? "timeout" : "cancelled",
+            deadline.timedOut()
+              ? "The management request timed out before it changed server state."
+              : "The management request was cancelled before dispatch.",
+            { operation_outcome: "not_sent" }
+          );
+        }
         throw new ManagementApiError(
           0,
           deadline.timedOut() ? "timeout" : "cancelled",
