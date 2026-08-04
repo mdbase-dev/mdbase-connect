@@ -380,6 +380,62 @@ describe("live connector-mediated authorization", () => {
     });
     const [code] = await closePromise;
     expect(code).toBe(4406);
+    const recorded = await db.query<{
+      connector_version: string | null;
+      incompatibility_code: string | null;
+      minimum_connector_version: string | null;
+      connector_update_url: string | null;
+    }>(
+      `SELECT connector_version, incompatibility_code,
+              minimum_connector_version, connector_update_url
+       FROM connectors WHERE id = $1`,
+      [connector.connector.id]
+    );
+    expect(recorded.rows[0]).toEqual({
+      connector_version: "0.1.0-beta.30",
+      incompatibility_code: "connector_upgrade_required",
+      minimum_connector_version: "0.1.0-beta.31",
+      connector_update_url: "https://github.com/mdbase-dev/mdbase-connect/releases/latest"
+    });
+    const overview = await app.inject({ method: "GET", url: "/v1/me", headers: { cookie } });
+    expect(overview.json().connectors).toContainEqual(expect.objectContaining({
+      id: connector.connector.id,
+      connector_version: "0.1.0-beta.30",
+      compatibility: "upgrade_required",
+      minimum_connector_version: "0.1.0-beta.31",
+      update_url: "https://github.com/mdbase-dev/mdbase-connect/releases/latest"
+    }));
+
+    const updatedSocket = new WebSocket(
+      `${address.replace(/^http/, "ws")}/v1/relay`,
+      { headers: { authorization: `Bearer ${connector.token}` } }
+    );
+    await once(updatedSocket, "open");
+    const policy = once(updatedSocket, "message");
+    updatedSocket.send(JSON.stringify({
+      type: "relay_hello",
+      protocol_version: 1,
+      connector_version: "0.1.0-beta.31",
+      capabilities: [
+        "application-authorization-v2",
+        "authorization-activation",
+        "encrypted-relay",
+        "policy-ack"
+      ]
+    }));
+    await policy;
+    const recovered = await db.query<{
+      connector_version: string | null;
+      incompatibility_code: string | null;
+    }>(
+      "SELECT connector_version, incompatibility_code FROM connectors WHERE id = $1",
+      [connector.connector.id]
+    );
+    expect(recovered.rows[0]).toEqual({
+      connector_version: "0.1.0-beta.31",
+      incompatibility_code: null
+    });
+    updatedSocket.close();
   });
 });
 

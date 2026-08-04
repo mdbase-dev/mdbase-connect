@@ -108,15 +108,35 @@ export class RelayHub {
         || hello.protocol_version !== CONTROL_PROTOCOL_VERSION
         || !connectorVersionAtLeast(hello.connector_version, MINIMUM_CONNECTOR_VERSION)
         || !RELAY_REQUIRED_CAPABILITIES.every((capability) => hello.capabilities.includes(capability))) {
-      rejectIncompatibleRelay(socket);
+      try {
+        if (!this.isConnected(connectorId)) {
+          await this.db.query(
+            `UPDATE connectors
+             SET connector_version = $2,
+                 last_incompatible_at = now(),
+                 incompatibility_code = 'connector_upgrade_required',
+                 minimum_connector_version = $3,
+                 connector_update_url = $4
+             WHERE id = $1`,
+            [connectorId, hello?.connector_version ?? null, MINIMUM_CONNECTOR_VERSION, CONNECTOR_UPDATE_URL]
+          );
+        }
+      } finally {
+        rejectIncompatibleRelay(socket);
+      }
       return;
     }
     const updated = await this.db.query<{ relay_generation: string | number }>(
       `UPDATE connectors
-       SET last_seen_at = now(), relay_generation = relay_generation + 1
+       SET last_seen_at = now(), relay_generation = relay_generation + 1,
+           connector_version = $2,
+           last_incompatible_at = NULL,
+           incompatibility_code = NULL,
+           minimum_connector_version = NULL,
+           connector_update_url = NULL
        WHERE id = $1
        RETURNING relay_generation`,
-      [connectorId]
+      [connectorId, hello.connector_version]
     );
     const row = updated.rows[0];
     if (!row) {
