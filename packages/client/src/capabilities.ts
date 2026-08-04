@@ -87,7 +87,10 @@ function effectiveCapability(
       reason: "The current grant does not include every operation for this capability."
     };
   }
-  if (id === "definitions.contracts.current") {
+  if (
+    id === "definitions.contracts.current"
+    && connection.scope.access !== "full_collection"
+  ) {
     const approved = new Set(connection.scope.contracts.map(
       ({ id, version, digest }) => `${id}@${version}:${digest}`
     ));
