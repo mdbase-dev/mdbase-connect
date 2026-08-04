@@ -1,5 +1,5 @@
 import { createSandbox } from "@mdbase-dev/connect-dev";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   PICKLE_APPROVAL_RESPONSE_TYPE_DOCUMENT,
@@ -180,6 +180,59 @@ describe("Pickle contract adapter", () => {
     await expect(
       pickle.respond(answered[0], { decision: "reject" })
     ).rejects.toThrow("already has a response");
+  });
+
+  it("forwards one request budget through discovery, reads, and response creation", async () => {
+    const sandbox = createSandbox<PickleFrontmatter>({
+      description: {
+        display_name: "Approvals",
+        spec_version: "0.3.0",
+        types: [requestType, approvalType],
+        contracts: [contract]
+      },
+      records: [
+        {
+          path: "requests/request-one.md",
+          types: [requestType.name],
+          frontmatter: {
+            type: requestType.name,
+            request_id: "req-one",
+            subject: "Ship the release?",
+            response_type: approvalType.name
+          }
+        }
+      ]
+    });
+    const describe = vi.spyOn(sandbox.client, "describe");
+    const queryAll = vi.spyOn(sandbox.client, "queryAll");
+    const create = vi.spyOn(sandbox.client, "create");
+    const controller = new AbortController();
+    const pickle = new PickleCollection(sandbox.client as never);
+
+    const [request] = await pickle.list({
+      signal: controller.signal,
+      timeoutMs: 4_000
+    });
+    await pickle.respond(request, { decision: "approve" }, {
+      responder: "callum",
+      signal: controller.signal,
+      timeoutMs: 7_000
+    });
+
+    expect(describe).toHaveBeenCalledWith({
+      signal: controller.signal,
+      timeoutMs: 4_000
+    });
+    expect(queryAll).toHaveBeenCalledWith(expect.any(Object), {
+      signal: controller.signal,
+      timeoutMs: 4_000
+    });
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        frontmatter: expect.objectContaining({ responder: "callum" })
+      }),
+      { signal: controller.signal, timeoutMs: 7_000 }
+    );
   });
 
   it("treats request status as cancellation only", async () => {
