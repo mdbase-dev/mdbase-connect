@@ -14,8 +14,8 @@ tags:
   - user-experience
   - consumers
 created_at: 2026-08-04T10:51:42+10:00
-updated_at: 2026-08-05T00:32:58+10:00
-progress_summary: Phases 0-1 are complete. Phase 2 journals are implemented across local and hosted authorities, with the remaining gate limited to the generated full mutator termination matrix and observed desktop-platform CI. Phases 3-5 are complete. Phase 6 uses the replacement beta.32 candidate from Connect commit 8edc7b327c2a; Workouts is migrated and green at f61217f, Editor is repinned and green at 502bc26, and Pickle and TaskNotes remain. Phase 7 has not started.
+updated_at: 2026-08-05T05:55:50+10:00
+progress_summary: Phases 0-1 are complete. Phase 2 journals are implemented across local and hosted authorities, with the remaining gate limited to the generated full mutator termination matrix and observed desktop-platform CI. Phases 3-5 are complete. Phase 6 now uses the final beta.32 candidate from Connect commit 4680eadb3b06: Workouts is converged at 2b8a953, Editor at c701dca, and Pickle is migrated at 3dd5612 with verify, browser, lifecycle/callback, Capacitor sync, and Android build green. Pickle still needs its isolated real response-loss/restart E2E and physical-device smoke; TaskNotes remains. Phase 7 has not started.
 type: task
 ---
 

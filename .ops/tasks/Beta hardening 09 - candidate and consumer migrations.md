@@ -9,8 +9,8 @@ phase: 6
 depends_on: [Beta hardening 06 - management correctness, Beta hardening 07 - public SDK surface]
 tags: [beta, packaging, consumers, editor, workouts, pickle, tasknotes]
 created_at: 2026-08-04T17:48:28+10:00
-updated_at: 2026-08-05T00:32:58+10:00
-progress_summary: The replacement beta.32 candidate is packaged from Connect commit 8edc7b327c2a after Workouts dogfood closed full-collection capability and contract-projection defects. Workouts is migrated and fully green at f61217f, and Editor is repinned and fully green at 502bc26 against that exact candidate. Pickle and TaskNotes remain on their prior artifacts.
+updated_at: 2026-08-05T05:55:50+10:00
+progress_summary: The final beta.32 candidate is packaged from Connect commit 4680eadb3b06 after Pickle integration added domain-owned request budgets and exact durable response recovery. Workouts is converged at 2b8a953, Editor at c701dca, and Pickle at 3dd5612. Pickle's verify, browser, callback/lifecycle tests, Capacitor sync, and Android debug build are green; its real response-loss/restart E2E and physical-device smoke remain before TaskNotes.
 type: task
 ---
 
@@ -27,8 +27,8 @@ durable response-loss recovery and every product-specific gate.
 - The actual SDK root, rather than a parallel candidate declaration, compiles
   all four consumer spikes and their removed-API assertions.
 - Workspace package audit and the in-repo Editor build/tests are green.
-- The replacement artifact source is Connect commit
-  `8edc7b327c2a62127e8757dabce483e5869c24b3`. Its six beta.32 packages and
+- The final artifact source is Connect commit
+  `4680eadb3b06d70d83edfdfeb5940e00c5e06aee`. Its six beta.32 packages and
   SHA-512 hashes are recorded in the generated candidate manifest.
 - Editor integration found that `operation_outcome_unknown` did not always
   include the durable request ID. Commits `51bc556` and `79c6e43` bind that
@@ -50,11 +50,29 @@ durable response-loss recovery and every product-specific gate.
   zero vulnerabilities; typecheck, 24 unit tests, manifest verification,
   production build, 10 browser tests, and the real authorize/read/create/pause
   dogfood test are green.
-- The earlier beta.31 and `48af56d` beta.32 candidate directories are retained
+- Pickle integration exposed a missing domain boundary: `@mdbase-dev/pickle`
+  did not forward request budgets or own the recorded-versus-pending response
+  outcome. Connect commits `161dd7a` and `4680ead` add those APIs and exact
+  request-ID recovery, keeping transport problem parsing out of the app UI.
+- Pickle commit `3dd5612` consumes the exact `4680eadb3b06` Connect, protocol,
+  and Pickle artifacts. Startup, authorization callbacks, definition updates,
+  list/respond, watch startup/lifetime, and notification binding are bounded
+  and cancellable. Native backgrounding suspends foreground work, browser close
+  and deep-link replay are typed/tested, and an unknown response remains visible
+  and resumes by its original durable request ID after reopen. `pnpm verify`
+  passes with 18 tests, desktop/mobile Playwright is 8/8, Capacitor sync is
+  green, and the debug APK builds with the installed JDK 21. No Android device
+  is attached, so the physical-device smoke has not run; the isolated real
+  authority response-loss/restart E2E also remains.
+- Workouts commit `2b8a953` and Editor commit `c701dca` repin their already-green
+  migrations to the exact `4680eadb3b06` artifact set. Focused verification is
+  green at 24 Workouts tests and 236 Editor tests.
+- The earlier beta.31, `48af56d`, `8edc7b3`, and `161dd7a` candidate directories are retained
   only as immutable rejected evidence. They are superseded and must not be
   copied into another consumer.
 
 ## Next
 
-Migrate Pickle, then TaskNotes, to the same immutable `8edc7b327c2a` artifact
-set and run their product-specific native, lifecycle, sync, and cloud gates.
+Close Pickle's isolated authority response-loss/restart E2E and run the Android
+device smoke when a device is available. Then migrate TaskNotes to the immutable
+`4680eadb3b06` artifact set and run its native, lifecycle, sync, and cloud gates.
