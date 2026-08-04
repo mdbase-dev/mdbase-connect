@@ -1,0 +1,57 @@
+{
+  "fingerprint_schema_version": 1,
+  "cases": [
+    {
+      "name": "ordered_record_create",
+      "operation": "create",
+      "input": {
+        "path": "Notes/é.md",
+        "document": "---\ncount: 1\n---\n"
+      },
+      "canonical_input": "{\"document\":\"---\\ncount: 1\\n---\\n\",\"path\":\"Notes/é.md\"}",
+      "transcript_hex": "6d64626173652d636f6e6e656374206d75746174696f6e2066696e6765727072696e74207631000000000100000000000000066372656174650000000100000000000000387b22646f63756d656e74223a222d2d2d5c6e636f756e743a20315c6e2d2d2d5c6e222c2270617468223a224e6f7465732fc3a92e6d64227d",
+      "fingerprint": "eLlioLb6IObynNQEAFG_MCQmjAHgIUWo1hrzyQD84jM"
+    },
+    {
+      "name": "numeric_record_update",
+      "operation": "update",
+      "input": {
+        "z": [333333333.3333333, 1e+30, 4.5, 0.002, 1e-27],
+        "a": "€$\u000f\nA'B\"\\\"/"
+      },
+      "canonical_input": "{\"a\":\"€$\\u000f\\nA'B\\\"\\\\\\\"/\",\"z\":[333333333.3333333,1e+30,4.5,0.002,1e-27]}",
+      "transcript_hex": "6d64626173652d636f6e6e656374206d75746174696f6e2066696e6765727072696e742076310000000001000000000000000675706461746500000001000000000000004c7b2261223a22e282ac245c75303030665c6e4127425c225c5c5c222f222c227a223a5b3333333333333333332e333333333333332c31652b33302c342e352c302e3030322c31652d32375d7d",
+      "fingerprint": "8ga5MhQsJV6-vALeO0iLdwOE-HXXYVDVaNKD0KmAr7s"
+    },
+    {
+      "name": "sync_mutation_batch",
+      "operation": "sync",
+      "input": {
+        "action": "mutate",
+        "changes": [
+          {
+            "path": "Tasks/one.md",
+            "base_revision": null,
+            "document": "hello"
+          }
+        ]
+      },
+      "canonical_input": "{\"action\":\"mutate\",\"changes\":[{\"base_revision\":null,\"document\":\"hello\",\"path\":\"Tasks/one.md\"}]}",
+      "transcript_hex": "6d64626173652d636f6e6e656374206d75746174696f6e2066696e6765727072696e742076310000000001000000000000000b73796e633a6d757461746500000001000000000000005f7b22616374696f6e223a226d7574617465222c226368616e676573223a5b7b22626173655f7265766973696f6e223a6e756c6c2c22646f63756d656e74223a2268656c6c6f222c2270617468223a225461736b732f6f6e652e6d64227d5d7d",
+      "fingerprint": "5rEdoKe9ju-A-ujDzn32uV087ueuJyBh9M3jQiDGypM"
+    },
+    {
+      "name": "file_move",
+      "operation": "file_control",
+      "input": {
+        "type": "move_file",
+        "file_id": "01911111-1111-7111-8111-111111111111",
+        "to_path": "Archive/diagram.png",
+        "expected_revision": "rev_01K0G8F8XRZ5CNE2X3MQBBSN8S"
+      },
+      "canonical_input": "{\"expected_revision\":\"rev_01K0G8F8XRZ5CNE2X3MQBBSN8S\",\"file_id\":\"01911111-1111-7111-8111-111111111111\",\"to_path\":\"Archive/diagram.png\",\"type\":\"move_file\"}",
+      "transcript_hex": "6d64626173652d636f6e6e656374206d75746174696f6e2066696e6765727072696e742076310000000001000000000000001666696c655f636f6e74726f6c3a6d6f76655f66696c6500000001000000000000009a7b2265787065637465645f7265766973696f6e223a227265765f30314b304738463858525a35434e453258334d514242534e3853222c2266696c655f6964223a2230313931313131312d313131312d373131312d383131312d313131313131313131313131222c22746f5f70617468223a22417263686976652f6469616772616d2e706e67222c2274797065223a226d6f76655f66696c65227d",
+      "fingerprint": "kbA8Etxk3wF0a9j5BLiL2xarmivxpekvWyAPHmo8Kmg"
+    }
+  ]
+}

@@ -353,6 +353,10 @@ async fn ready(State(state): State<AppState>) -> ApiResult<Json<Value>> {
     let notifications = state.provider.ready().await?;
     Ok(Json(json!({
         "status": "ready",
+        "provider": {
+            "version": env!("CARGO_PKG_VERSION"),
+            "capabilities": mdbase_connect_protocol::HOSTED_PROVIDER_CAPABILITIES,
+        },
         "notifications": notifications
     })))
 }

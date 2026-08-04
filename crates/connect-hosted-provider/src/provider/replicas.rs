@@ -206,6 +206,8 @@ impl HostedProvider {
                 "Replica credential lifetime must be between one minute and 30 days.",
             ));
         }
+        let mut transaction = self.pool.begin().await?;
+        archive_application_replay_credential(&mut transaction, replica_id).await?;
         let result = sqlx::query(
             r#"UPDATE hosted_provider_replicas
                SET token_hash = $2, token_expires_at = now() + ($3 * interval '1 second')
@@ -214,7 +216,7 @@ impl HostedProvider {
         .bind(replica_id)
         .bind(token_hash(token))
         .bind(to_i64(token_ttl_seconds, "replica credential lifetime")?)
-        .execute(&self.pool)
+        .execute(&mut *transaction)
         .await?;
         if result.rows_affected() == 0 {
             return Err(ApiError::not_found(
@@ -222,6 +224,7 @@ impl HostedProvider {
                 "Active replica not found.",
             ));
         }
+        transaction.commit().await?;
         Ok(())
     }
 
@@ -252,7 +255,28 @@ impl HostedProvider {
         .bind(token_hash(token))
         .fetch_optional(&mut *transaction)
         .await?;
-        let replica = replica_from_row(row)?;
+        let replica = if row.is_some() {
+            replica_from_row(row)?
+        } else {
+            let retired = sqlx::query(
+                r#"SELECT replica.id, replica.purpose, replica.mode,
+                          replica.allowed_types, replica.contract_scope,
+                          replica.full_collection, replica.allowed_operations,
+                          replica.file_capability, retired.allowed_origin,
+                          retired.proof_public_key, replica.grant_id, replica.scope_epoch
+                   FROM hosted_provider_retired_replay_credentials retired
+                   JOIN hosted_provider_replicas replica ON replica.id = retired.replica_id
+                   WHERE replica.collection_id = $1 AND replica.purpose = 'application'
+                     AND retired.token_hash = $2 AND retired.expires_at > now()
+                   ORDER BY retired.retired_at DESC LIMIT 1
+                   FOR SHARE OF replica"#,
+            )
+            .bind(collection_id)
+            .bind(token_hash(token))
+            .fetch_optional(&mut *transaction)
+            .await?;
+            replica_from_row(retired)?
+        };
         match replica.purpose {
             ReplicaPurpose::Mirror => {
                 if request_origin.is_some() || proof.is_some() {
@@ -336,6 +360,8 @@ impl HostedProvider {
             .map_err(|error| {
                 ApiError::internal(format!("File capability could not be serialized: {error}"))
             })?;
+        let mut transaction = self.pool.begin().await?;
+        archive_application_replay_credential(&mut transaction, replica_id).await?;
         let result = sqlx::query(
             r#"UPDATE hosted_provider_replicas
                SET scope_epoch = scope_epoch + CASE
@@ -370,7 +396,7 @@ impl HostedProvider {
         .bind(input.grant_id)
         .bind(input.allowed_origin)
         .bind(input.proof_public_key)
-        .execute(&self.pool)
+        .execute(&mut *transaction)
         .await?;
         if result.rows_affected() == 0 {
             return Err(ApiError::not_found(
@@ -378,16 +404,20 @@ impl HostedProvider {
                 "Active application capability not found.",
             ));
         }
+        transaction.commit().await?;
         Ok(())
     }
 
     pub async fn revoke_replica(&self, replica_id: Uuid) -> ApiResult<()> {
+        let mut transaction = self.pool.begin().await?;
+        archive_application_replay_credential(&mut transaction, replica_id).await?;
         sqlx::query(
             "UPDATE hosted_provider_replicas SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL",
         )
         .bind(replica_id)
-        .execute(&self.pool)
+        .execute(&mut *transaction)
         .await?;
+        transaction.commit().await?;
         Ok(())
     }
 
@@ -434,4 +464,23 @@ impl HostedProvider {
         authorize_sync_access(&replica, required_operation, request_origin)?;
         Ok(replica)
     }
+}
+
+async fn archive_application_replay_credential(
+    transaction: &mut Transaction<'_, Postgres>,
+    replica_id: Uuid,
+) -> ApiResult<()> {
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_retired_replay_credentials (
+             replica_id, token_hash, allowed_origin, proof_public_key, expires_at
+           )
+           SELECT id, token_hash, allowed_origin, proof_public_key,
+                  now() + interval '365 days'
+           FROM hosted_provider_replicas
+           WHERE id = $1 AND purpose = 'application' AND revoked_at IS NULL"#,
+    )
+    .bind(replica_id)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
 }

@@ -36,7 +36,7 @@ impl CollectionRegistry {
             }
             execute_loaded(collection, &registered.spec_version, operation, input)
         };
-        let result = if is_collection_mutation(operation) {
+        let result = if operation == "batch" || is_mutating_operation(operation, input) {
             provider.with_collection(|collection| {
                 sync_store.assert_mutation_allowed(id)?;
                 let result = execute(collection)?;
@@ -313,7 +313,7 @@ impl CollectionRegistry {
             sync_store.assert_authority_available(id)?;
             self.scoped_operation_loaded(&registered, collection, operation, input, scope)
         };
-        if is_collection_mutation(operation) {
+        if operation == "batch" || is_mutating_operation(operation, input) {
             provider.with_collection(|collection| {
                 sync_store.assert_mutation_allowed(id)?;
                 let result = execute(collection)?;

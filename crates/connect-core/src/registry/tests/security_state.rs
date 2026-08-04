@@ -97,9 +97,12 @@ fn encrypted_replay_window_survives_restart_allows_reordering_and_serializes_dup
             .unwrap(),
         EncryptedRequestClaim::Completed(r#"{"ciphertext":"response"}"#.to_string())
     );
-    assert!(registry
-        .claim_encrypted_request(grant_id, "key-1", 41, first_request, "tampered")
-        .is_err());
+    assert_eq!(
+        registry
+            .claim_encrypted_request(grant_id, "key-1", 41, first_request, "tampered")
+            .unwrap(),
+        EncryptedRequestClaim::Conflict
+    );
     assert_eq!(
         registry
             .claim_encrypted_request(grant_id, "key-1", 42, Uuid::new_v4(), "fingerprint-42")
@@ -190,7 +193,7 @@ fn encrypted_replay_ledger_accepts_a_full_concurrent_request_burst() {
 }
 
 #[test]
-fn development_registry_upgrade_adds_origin_receipts_and_a_safe_reorder_floor() {
+fn pre_beta28_development_registry_fails_closed_without_reinterpretation() {
     let state = tempdir().unwrap();
     let path = state.path().join("connector.sqlite");
     let legacy = Connection::open(&path).unwrap();
@@ -227,43 +230,26 @@ fn development_registry_upgrade_adds_origin_receipts_and_a_safe_reorder_floor() 
         .unwrap();
     drop(legacy);
 
-    let registry = CollectionRegistry::open(state.path()).unwrap();
-    let connection = registry.connection().unwrap();
-    let origin: String = connection
-        .query_row(
-            "SELECT dflt_value FROM pragma_table_info('grants')
-                 WHERE name = 'application_origin'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(origin, "''");
-    let floor: String = connection
-        .query_row(
-            "SELECT reorder_floor FROM grant_crypto_state
-                 WHERE grant_id = ?1 AND key_id = 'legacy-key'",
-            [grant_id.to_string()],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(floor, "40");
-    drop(connection);
+    assert!(matches!(
+        CollectionRegistry::open(state.path()),
+        Err(ConnectError::RegistrySchemaIncompatible { found: 0, .. })
+    ));
+    let preserved = Connection::open(path).unwrap();
     assert_eq!(
-        registry
-            .claim_encrypted_request(
-                grant_id,
-                "legacy-key",
-                41,
-                Uuid::new_v4(),
-                "upgraded-fingerprint"
+        preserved
+            .query_row(
+                "SELECT last_request_counter FROM grant_crypto_state
+                 WHERE grant_id = ?1 AND key_id = 'legacy-key'",
+                [grant_id.to_string()],
+                |row| row.get::<_, String>(0),
             )
             .unwrap(),
-        EncryptedRequestClaim::Fresh
+        "40"
     );
 }
 
 #[test]
-fn development_registry_upgrade_discards_v1_grants_and_trust_ceremony_state() {
+fn authorization_v1_development_registry_is_preserved_but_not_opened() {
     let state = tempdir().unwrap();
     let path = state.path().join("connector.sqlite");
     let legacy = Connection::open(&path).unwrap();
@@ -293,12 +279,15 @@ fn development_registry_upgrade_discards_v1_grants_and_trust_ceremony_state() {
         .unwrap();
     drop(legacy);
 
-    let registry = CollectionRegistry::open(state.path()).unwrap();
-    let connection = registry.connection().unwrap();
+    assert!(matches!(
+        CollectionRegistry::open(state.path()),
+        Err(ConnectError::RegistrySchemaIncompatible { found: 0, .. })
+    ));
+    let connection = Connection::open(path).unwrap();
     let grant_count: i64 = connection
         .query_row("SELECT COUNT(*) FROM grants", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(grant_count, 0);
+    assert_eq!(grant_count, 1);
     let first_contact_columns: i64 = connection
         .query_row(
             "SELECT COUNT(*) FROM pragma_table_info('grants') WHERE name = 'first_contact'",
@@ -306,7 +295,7 @@ fn development_registry_upgrade_discards_v1_grants_and_trust_ceremony_state() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(first_contact_columns, 0);
+    assert_eq!(first_contact_columns, 1);
     let trust_tables: i64 = connection
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master
@@ -316,11 +305,11 @@ fn development_registry_upgrade_discards_v1_grants_and_trust_ceremony_state() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(trust_tables, 0);
+    assert_eq!(trust_tables, 2);
 }
 
 #[test]
-fn policy_rotation_prunes_only_obsolete_encrypted_replay_windows() {
+fn policy_rotation_retains_only_authenticated_historical_replay_material() {
     let state = tempdir().unwrap();
     let registry = CollectionRegistry::open(state.path()).unwrap();
     let mut grant = signed_test_grant(&registry, vec!["read".to_string()]);
@@ -359,5 +348,16 @@ fn policy_rotation_prunes_only_obsolete_encrypted_replay_windows() {
             |row| row.get::<_, u64>(0),
         )
         .unwrap();
-    assert_eq!(obsolete, 0);
+    assert_eq!(obsolete, 1);
+    let archived = registry
+        .connection()
+        .unwrap()
+        .query_row(
+            "SELECT COUNT(*) FROM revoked_grant_replay_material
+             WHERE grant_id = ?1 AND key_id = 'key-1'",
+            [grant.id.to_string()],
+            |row| row.get::<_, u64>(0),
+        )
+        .unwrap();
+    assert_eq!(archived, 1);
 }

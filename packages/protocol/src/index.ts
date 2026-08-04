@@ -13,6 +13,7 @@ import type {
 export * from "./connect-problems.generated.js";
 export * from "./files.js";
 export * from "./operations.js";
+export * from "./mutation-fingerprint.js";
 export * from "./capabilities.js";
 export * from "./application-authorization.js";
 export * from "./type-packs.js";
@@ -31,6 +32,15 @@ export const RELAY_REQUIRED_CAPABILITIES = [
   "authorization-activation",
   "encrypted-relay",
   "policy-ack"
+] as const;
+export const MINIMUM_CONNECTOR_VERSION = "0.1.0-beta.31" as const;
+export const HOSTED_PROVIDER_REQUIRED_CAPABILITIES = [
+  "durable-mutation-journal-v1",
+  "durable-file-lifecycle-v1"
+] as const;
+export const HOSTED_PROVIDER_CAPABILITIES = [
+  ...HOSTED_PROVIDER_REQUIRED_CAPABILITIES,
+  "mutation-replay-after-credential-retirement-v1"
 ] as const;
 export const RELAY_CAPABILITIES = [
   ...RELAY_REQUIRED_CAPABILITIES,
@@ -564,6 +574,7 @@ export interface RelayIncompatible {
   protocol_version: 1;
   code: "connector_upgrade_required";
   message: string;
+  minimum_connector_version: string;
   update_url: string;
 }
 

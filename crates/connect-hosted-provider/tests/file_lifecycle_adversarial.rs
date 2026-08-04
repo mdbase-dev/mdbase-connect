@@ -20,6 +20,7 @@ async fn adversarial_file_lifecycle_scenarios() {
     let database_url = std::env::var("MDBASE_ADVERSARIAL_DATABASE_URL")
         .expect("MDBASE_ADVERSARIAL_DATABASE_URL is required");
 
+    mutation_retention_boundaries(&database_url).await;
     commit_wins_abort_loses(&database_url).await;
     commit_wins_expiry_loses(&database_url).await;
     abort_wins_against_late_copy(&database_url).await;
@@ -32,6 +33,103 @@ async fn adversarial_file_lifecycle_scenarios() {
     backup_hold_fences_in_flight_and_future_deletions(&database_url).await;
     duplicate_commit_is_idempotent(&database_url).await;
     duplicate_commit_across_providers_is_idempotent(&database_url).await;
+}
+
+async fn mutation_retention_boundaries(database_url: &str) {
+    let fixture = FileLifecycleFixture::new(database_url).await;
+    let replica_id: Uuid =
+        sqlx::query_scalar("SELECT id FROM hosted_provider_replicas WHERE collection_id = $1")
+            .bind(fixture.collection_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .expect("fixture replica exists");
+    let completed_young = Uuid::now_v7();
+    let completed_edge = Uuid::now_v7();
+    let acknowledged_young = Uuid::now_v7();
+    let acknowledged_edge = Uuid::now_v7();
+    let unknown = Uuid::now_v7();
+    for (request_id, state, completed_days, acknowledged_days) in [
+        (completed_young, "completed", 179, None),
+        (completed_edge, "completed", 180, None),
+        (acknowledged_young, "acknowledged", 181, Some(29)),
+        (acknowledged_edge, "acknowledged", 181, Some(30)),
+        (unknown, "outcome_unknown", 1_000, None),
+    ] {
+        sqlx::query(
+            r#"INSERT INTO hosted_provider_mutation_journal (
+                 replica_id, request_id, operation_kind, input_schema_version,
+                 input_digest, state, process_epoch, lease_owner,
+                 lease_expires_at, fencing_generation,
+                 final_receipt_ciphertext, receipt_digest,
+                 accepted_at, completed_at, acknowledged_at
+               ) VALUES (
+                 $1, $2, 'create', 1, decode('01', 'hex'), $3, $4, $5,
+                 now(), 1, decode('02', 'hex'), decode('03', 'hex'),
+                 now() - make_interval(days => $6),
+                 now() - make_interval(days => $6),
+                 CASE WHEN $7::integer IS NULL THEN NULL
+                      ELSE now() - make_interval(days => $7) END
+               )"#,
+        )
+        .bind(replica_id)
+        .bind(request_id)
+        .bind(state)
+        .bind(Uuid::now_v7())
+        .bind(Uuid::now_v7())
+        .bind(completed_days)
+        .bind(acknowledged_days)
+        .execute(&fixture.pool)
+        .await
+        .expect("retention fixture row inserts");
+    }
+
+    let expired_tombstone = Uuid::now_v7();
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_mutation_tombstones (
+             replica_id, request_id, operation_kind, input_schema_version,
+             input_digest, terminal_state, receipt_digest, accepted_at,
+             completed_at, tombstoned_at, expires_at
+           ) VALUES (
+             $1, $2, 'create', 1, decode('01', 'hex'), 'completed',
+             decode('03', 'hex'), now() - interval '600 days',
+             now() - interval '500 days', now() - interval '366 days',
+             now() - interval '1 day'
+           )"#,
+    )
+    .bind(replica_id)
+    .bind(expired_tombstone)
+    .execute(&fixture.pool)
+    .await
+    .expect("expired tombstone fixture inserts");
+
+    assert_eq!(
+        fixture
+            .provider
+            .compact_operation_mutations()
+            .await
+            .expect("journal compaction succeeds"),
+        2
+    );
+    let retained: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT request_id FROM hosted_provider_mutation_journal WHERE replica_id = $1",
+    )
+    .bind(replica_id)
+    .fetch_all(&fixture.pool)
+    .await
+    .expect("retained journal rows query");
+    assert!(retained.contains(&completed_young));
+    assert!(retained.contains(&acknowledged_young));
+    assert!(retained.contains(&unknown));
+    let tombstones: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT request_id FROM hosted_provider_mutation_tombstones WHERE replica_id = $1",
+    )
+    .bind(replica_id)
+    .fetch_all(&fixture.pool)
+    .await
+    .expect("retained tombstones query");
+    assert!(tombstones.contains(&completed_edge));
+    assert!(tombstones.contains(&acknowledged_edge));
+    assert!(tombstones.contains(&expired_tombstone));
 }
 
 async fn backup_hold_fences_in_flight_and_future_deletions(database_url: &str) {

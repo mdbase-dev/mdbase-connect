@@ -1,0 +1,40 @@
+{
+  "catalog_version": 1,
+  "collection_operations": [
+    { "id": "describe", "input_schema_version": 1, "mutation": "never" },
+    { "id": "changes", "input_schema_version": 1, "mutation": "never" },
+    { "id": "read", "input_schema_version": 1, "mutation": "never" },
+    { "id": "query", "input_schema_version": 1, "mutation": "never" },
+    { "id": "list_views", "input_schema_version": 1, "mutation": "never" },
+    { "id": "execute_view", "input_schema_version": 1, "mutation": "never" },
+    { "id": "read_view_source", "input_schema_version": 1, "mutation": "never" },
+    { "id": "create_view_source", "input_schema_version": 1, "mutation": "always" },
+    { "id": "update_view_source", "input_schema_version": 1, "mutation": "always" },
+    { "id": "delete_view_source", "input_schema_version": 1, "mutation": "always" },
+    { "id": "validate", "input_schema_version": 1, "mutation": "never" },
+    { "id": "create", "input_schema_version": 1, "mutation": "always" },
+    { "id": "update", "input_schema_version": 1, "mutation": "always" },
+    { "id": "delete", "input_schema_version": 1, "mutation": "always" },
+    { "id": "rename", "input_schema_version": 1, "mutation": "always" },
+    { "id": "read_type", "input_schema_version": 1, "mutation": "never" },
+    { "id": "create_type", "input_schema_version": 1, "mutation": "always" },
+    { "id": "update_type", "input_schema_version": 1, "mutation": "always" },
+    { "id": "assess_type_pack", "input_schema_version": 1, "mutation": "never" },
+    { "id": "apply_type_pack", "input_schema_version": 1, "mutation": "always" },
+    { "id": "list_timers", "input_schema_version": 1, "mutation": "never" },
+    { "id": "put_timer", "input_schema_version": 1, "mutation": "always" },
+    { "id": "cancel_timer", "input_schema_version": 1, "mutation": "always" },
+    { "id": "reconcile_timers", "input_schema_version": 1, "mutation": "always" },
+    { "id": "sync", "input_schema_version": 1, "mutation": "sync_action" }
+  ],
+  "file_control_messages": [
+    { "id": "list_files", "input_schema_version": 1, "mutation": false },
+    { "id": "open_file_upload", "input_schema_version": 1, "mutation": true },
+    { "id": "open_file_download", "input_schema_version": 1, "mutation": false },
+    { "id": "move_file", "input_schema_version": 1, "mutation": true },
+    { "id": "delete_file", "input_schema_version": 1, "mutation": true },
+    { "id": "get_file_transfer_status", "input_schema_version": 1, "mutation": false },
+    { "id": "commit_file_upload", "input_schema_version": 1, "mutation": true },
+    { "id": "abort_file_transfer", "input_schema_version": 1, "mutation": true }
+  ]
+}

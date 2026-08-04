@@ -14,8 +14,12 @@ concurrency:
 
 jobs:
   windows-filesystem:
-    name: Windows filesystem safety
-    runs-on: windows-2025
+    name: Filesystem durability (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
     defaults:
       run:
         working-directory: mdbase-connect

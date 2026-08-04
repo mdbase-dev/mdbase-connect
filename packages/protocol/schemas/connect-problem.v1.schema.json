@@ -250,6 +250,80 @@
         "code",
         "category",
         "recovery",
+        "message",
+        "details"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "authorization_binding_incompatible"
+        },
+        "category": {
+          "const": "compatibility"
+        },
+        "recovery": {
+          "const": "upgrade_application"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contract",
+            "required",
+            "supported",
+            "peer"
+          ],
+          "properties": {
+            "contract": {
+              "type": "string"
+            },
+            "required": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "supported": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "peer": {
+              "type": "string"
+            },
+            "operation": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
         "message"
       ],
       "properties": {
@@ -439,6 +513,80 @@
         "trace_id": {
           "type": "string",
           "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message",
+        "details"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "capability_contract_incompatible"
+        },
+        "category": {
+          "const": "compatibility"
+        },
+        "recovery": {
+          "const": "upgrade_application"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contract",
+            "required",
+            "supported",
+            "peer"
+          ],
+          "properties": {
+            "contract": {
+              "type": "string"
+            },
+            "required": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "supported": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "peer": {
+              "type": "string"
+            },
+            "operation": {
+              "type": "string"
+            }
+          }
         }
       }
     },
@@ -1343,6 +1491,80 @@
         "trace_id": {
           "type": "string",
           "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message",
+        "details"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "durable_mutation_unsupported"
+        },
+        "category": {
+          "const": "compatibility"
+        },
+        "recovery": {
+          "const": "upgrade_connector"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contract",
+            "required",
+            "supported",
+            "peer"
+          ],
+          "properties": {
+            "contract": {
+              "type": "string"
+            },
+            "required": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "supported": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "peer": {
+              "type": "string"
+            },
+            "operation": {
+              "type": "string"
+            }
+          }
         }
       }
     },
@@ -2628,6 +2850,99 @@
           "const": 1
         },
         "code": {
+          "const": "mutation_recovery_expired"
+        },
+        "category": {
+          "const": "compatibility"
+        },
+        "recovery": {
+          "const": "none"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message",
+        "details"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "mutation_request_conflict"
+        },
+        "category": {
+          "const": "conflict"
+        },
+        "recovery": {
+          "const": "resolve_conflict"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "request_id"
+          ],
+          "properties": {
+            "request_id": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
           "const": "no_pending_mutation"
         },
         "category": {
@@ -3455,6 +3770,206 @@
           "const": 1
         },
         "code": {
+          "const": "registry_backup_invalid"
+        },
+        "category": {
+          "const": "integrity"
+        },
+        "recovery": {
+          "const": "contact_support"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "registry_busy"
+        },
+        "category": {
+          "const": "availability"
+        },
+        "recovery": {
+          "const": "retry"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "registry_corrupt"
+        },
+        "category": {
+          "const": "integrity"
+        },
+        "recovery": {
+          "const": "repair_collection"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "registry_migration_failed"
+        },
+        "category": {
+          "const": "internal"
+        },
+        "recovery": {
+          "const": "contact_support"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "registry_schema_incompatible"
+        },
+        "category": {
+          "const": "compatibility"
+        },
+        "recovery": {
+          "const": "upgrade_connector"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
           "const": "relay_authorization_expired"
         },
         "category": {
@@ -3837,6 +4352,80 @@
         "trace_id": {
           "type": "string",
           "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message",
+        "details"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "transport_protocol_incompatible"
+        },
+        "category": {
+          "const": "compatibility"
+        },
+        "recovery": {
+          "const": "upgrade_connector"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contract",
+            "required",
+            "supported",
+            "peer"
+          ],
+          "properties": {
+            "contract": {
+              "type": "string"
+            },
+            "required": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "supported": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "peer": {
+              "type": "string"
+            },
+            "operation": {
+              "type": "string"
+            }
+          }
         }
       }
     },

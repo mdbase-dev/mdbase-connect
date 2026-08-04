@@ -688,6 +688,16 @@ test("relay request and response discriminators reject malformed wire messages",
     capabilities: hello.capabilities
   };
   assert.equal(validate(welcome), true, JSON.stringify(validate.errors));
+  const incompatible = {
+    type: "relay_incompatible",
+    protocol_version: 1,
+    code: "connector_upgrade_required",
+    message: "Update required.",
+    minimum_connector_version: "0.1.0-beta.31",
+    update_url: "https://github.com/mdbase-dev/mdbase-connect/releases/latest"
+  };
+  assert.equal(validate(incompatible), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ ...incompatible, minimum_connector_version: "latest" }), false);
 
   const request = {
     type: "operation_request",

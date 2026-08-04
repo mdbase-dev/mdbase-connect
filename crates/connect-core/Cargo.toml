@@ -8,11 +8,13 @@ repository.workspace = true
 [dependencies]
 chrono.workspace = true
 directories.workspace = true
+hmac.workspace = true
 mdbase.workspace = true
 mdbase-connect-protocol = { path = "../connect-protocol" }
 mdbase-connect-runtime = { path = "../connect-runtime" }
 keyring.workspace = true
 notify.workspace = true
+rand_core.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true

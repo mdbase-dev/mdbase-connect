@@ -1,7 +1,7 @@
 use super::*;
 
 impl HostedProvider {
-    pub(super) async fn authenticate_for_file(
+    pub(in crate::provider) async fn authenticate_for_file(
         &self,
         collection_id: Uuid,
         token: &str,

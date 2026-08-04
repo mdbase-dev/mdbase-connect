@@ -1,3 +1,4 @@
+use super::mutation_journal::HostedMutationLease;
 use super::*;
 
 impl HostedProvider {
@@ -6,6 +7,7 @@ impl HostedProvider {
         collection_id: Uuid,
         operation: &str,
         input: Value,
+        mutation_lease: Option<&HostedMutationLease>,
     ) -> ApiResult<Value> {
         let mut transaction = self.pool.begin().await?;
         let collection = sqlx::query(
@@ -209,27 +211,40 @@ impl HostedProvider {
         .bind(resources_ciphertext)
         .execute(&mut *transaction)
         .await?;
+        let result = serde_json::to_value(envelope).map_err(|error| {
+            ApiError::internal(format!("Hosted operation could not serialize: {error}"))
+        })?;
+        if let Some(lease) = mutation_lease {
+            self.mark_operation_mutation_applied_in(
+                &mut transaction,
+                &data_key,
+                lease,
+                &Ok(result.clone()),
+            )
+            .await?;
+        }
         transaction.commit().await?;
         cached.head = Some(head);
         cached.query_cache.clear();
         cached.query_order.clear();
-        serde_json::to_value(envelope).map_err(|error| {
-            ApiError::internal(format!("Hosted operation could not serialize: {error}"))
-        })
+        Ok(result)
     }
 
     pub(super) async fn write_type_pack_apply_operation(
         &self,
         collection_id: Uuid,
         input: &ApplyTypePackInput,
+        mutation_lease: Option<&HostedMutationLease>,
     ) -> ApiResult<Value> {
-        self.write_definition_mutation(collection_id, input).await
+        self.write_definition_mutation(collection_id, input, mutation_lease)
+            .await
     }
 
     async fn write_definition_mutation(
         &self,
         collection_id: Uuid,
         input: &ApplyTypePackInput,
+        mutation_lease: Option<&HostedMutationLease>,
     ) -> ApiResult<Value> {
         let mut transaction = self.pool.begin().await?;
         let collection = sqlx::query(
@@ -534,12 +549,22 @@ impl HostedProvider {
         .bind(resources_ciphertext)
         .execute(&mut *transaction)
         .await?;
+        let result = serde_json::to_value(envelope).map_err(|error| {
+            ApiError::internal(format!("Hosted type pack could not serialize: {error}"))
+        })?;
+        if let Some(lease) = mutation_lease {
+            self.mark_operation_mutation_applied_in(
+                &mut transaction,
+                &data_key,
+                lease,
+                &Ok(result.clone()),
+            )
+            .await?;
+        }
         transaction.commit().await?;
         cached.head = Some(head);
         cached.query_cache.clear();
         cached.query_order.clear();
-        serde_json::to_value(envelope).map_err(|error| {
-            ApiError::internal(format!("Hosted type pack could not serialize: {error}"))
-        })
+        Ok(result)
     }
 }

@@ -16,6 +16,20 @@ impl HostedProvider {
                 .acquire_timeout(Duration::from_secs(5))
                 .idle_timeout(Duration::from_secs(10 * 60))
                 .max_lifetime(Duration::from_secs(30 * 60))
+                .after_connect(|connection, _metadata| {
+                    Box::pin(async move {
+                        sqlx::query("SET statement_timeout = 15000")
+                            .execute(&mut *connection)
+                            .await?;
+                        sqlx::query("SET lock_timeout = 5000")
+                            .execute(&mut *connection)
+                            .await?;
+                        sqlx::query("SET idle_in_transaction_session_timeout = 10000")
+                            .execute(&mut *connection)
+                            .await?;
+                        Ok(())
+                    })
+                })
                 .connect(database_url)
                 .await
             {
@@ -28,6 +42,7 @@ impl HostedProvider {
                                 .transpose()?;
                             let provider = Self {
                                 pool,
+                                process_epoch: Uuid::new_v4(),
                                 crypto,
                                 key_readiness: Arc::new(Mutex::new(KeyReadinessState {
                                     last_checked: Instant::now(),
@@ -50,6 +65,7 @@ impl HostedProvider {
                                 )),
                                 blob_store,
                             };
+                            provider.migrate_legacy_sync_receipts().await?;
                             if let Some(notifications) = &provider.notifications {
                                 notifications.prepare().await?;
                                 provider.recover_notifications(1_000).await?;

@@ -329,7 +329,7 @@ describe("live connector-mediated authorization", () => {
     expect(Number(pendingGrants.rows[0].count)).toBe(0);
   });
 
-  it("rejects a pre-handshake connector with an actionable upgrade response", async () => {
+  it("rejects a connector below the minimum version with an actionable upgrade response", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
     const { app } = await buildApp({
@@ -360,17 +360,22 @@ describe("live connector-mediated authorization", () => {
     const messagePromise = once(socket, "message");
     const closePromise = once(socket, "close");
     socket.send(JSON.stringify({
-      type: "policy_applied",
+      type: "relay_hello",
       protocol_version: 1,
-      request_id: "01911111-1111-7111-8111-111111111111",
-      revision: `sha256:${"0".repeat(64)}`,
-      ok: true
+      connector_version: "0.1.0-beta.30",
+      capabilities: [
+        "application-authorization-v2",
+        "authorization-activation",
+        "encrypted-relay",
+        "policy-ack"
+      ]
     }));
     const [raw] = await messagePromise;
     expect(JSON.parse(raw.toString())).toMatchObject({
       type: "relay_incompatible",
       protocol_version: 1,
       code: "connector_upgrade_required",
+      minimum_connector_version: "0.1.0-beta.31",
       update_url: "https://github.com/mdbase-dev/mdbase-connect/releases/latest"
     });
     const [code] = await closePromise;

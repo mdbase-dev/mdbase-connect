@@ -48,6 +48,23 @@ impl HostedBackupAdmin {
     pub async fn connect(database_url: &str) -> ApiResult<Self> {
         let pool = PgPoolOptions::new()
             .max_connections(2)
+            .acquire_timeout(std::time::Duration::from_secs(5))
+            .idle_timeout(std::time::Duration::from_secs(10 * 60))
+            .max_lifetime(std::time::Duration::from_secs(30 * 60))
+            .after_connect(|connection, _metadata| {
+                Box::pin(async move {
+                    sqlx::query("SET statement_timeout = 300000")
+                        .execute(&mut *connection)
+                        .await?;
+                    sqlx::query("SET lock_timeout = 30000")
+                        .execute(&mut *connection)
+                        .await?;
+                    sqlx::query("SET idle_in_transaction_session_timeout = 30000")
+                        .execute(&mut *connection)
+                        .await?;
+                    Ok(())
+                })
+            })
             .connect(database_url)
             .await?;
         hosted_migrator().run(&pool).await.map_err(|error| {

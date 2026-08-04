@@ -16,6 +16,23 @@ impl CollectionRegistry {
             .collect::<BTreeSet<_>>();
         let mut connection = self.connection()?;
         let transaction = connection.transaction()?;
+        let stored_crypto_keys = {
+            let mut statement = transaction.prepare(
+                "SELECT id, json_extract(encryption, '$.key_id')
+                 FROM grants WHERE encryption IS NOT NULL",
+            )?;
+            let rows = statement
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows
+        };
+        for (grant_id, key_id) in stored_crypto_keys {
+            if !active_crypto_keys.contains(&(grant_id.clone(), key_id)) {
+                archive_grant_replay_material(&transaction, &grant_id)?;
+            }
+        }
         transaction.execute("DELETE FROM grants", [])?;
         {
             let mut statement = transaction.prepare(
@@ -56,39 +73,6 @@ impl CollectionRegistry {
                 ])?;
             }
         }
-        transaction.execute(
-            "DELETE FROM grant_crypto_state WHERE grant_id NOT IN (SELECT id FROM grants)",
-            [],
-        )?;
-        transaction.execute(
-            "DELETE FROM grant_crypto_requests WHERE grant_id NOT IN (SELECT id FROM grants)",
-            [],
-        )?;
-        let stored_crypto_keys = {
-            let mut statement = transaction.prepare(
-                "SELECT grant_id, key_id FROM grant_crypto_state
-                 UNION SELECT grant_id, key_id FROM grant_crypto_requests",
-            )?;
-            let rows = statement
-                .query_map([], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                })?
-                .collect::<Result<Vec<_>, _>>()?;
-            rows
-        };
-        for (grant_id, key_id) in stored_crypto_keys {
-            if active_crypto_keys.contains(&(grant_id.clone(), key_id.clone())) {
-                continue;
-            }
-            transaction.execute(
-                "DELETE FROM grant_crypto_state WHERE grant_id = ?1 AND key_id = ?2",
-                params![grant_id, key_id],
-            )?;
-            transaction.execute(
-                "DELETE FROM grant_crypto_requests WHERE grant_id = ?1 AND key_id = ?2",
-                params![grant_id, key_id],
-            )?;
-        }
         transaction.commit()?;
         Ok(())
     }
@@ -96,6 +80,7 @@ impl CollectionRegistry {
     pub fn upsert_grant(&self, grant: &GrantPolicy) -> Result<(), ConnectError> {
         let connection = self.connection()?;
         validate_grant_application_authorization(grant)?;
+        archive_grant_replay_material(&connection, &grant.id.to_string())?;
         connection.execute(
             "INSERT INTO grants
                (id, application_id, collection_id, operations, scope, application_name,
@@ -149,27 +134,6 @@ impl CollectionRegistry {
                 serde_json::to_string(&grant.application_authorization)?,
             ],
         )?;
-        if let Some(encryption) = &grant.encryption {
-            connection.execute(
-                "DELETE FROM grant_crypto_state
-                 WHERE grant_id = ?1 AND key_id <> ?2",
-                params![grant.id.to_string(), encryption.key_id],
-            )?;
-            connection.execute(
-                "DELETE FROM grant_crypto_requests
-                 WHERE grant_id = ?1 AND key_id <> ?2",
-                params![grant.id.to_string(), encryption.key_id],
-            )?;
-        } else {
-            connection.execute(
-                "DELETE FROM grant_crypto_state WHERE grant_id = ?1",
-                [grant.id.to_string()],
-            )?;
-            connection.execute(
-                "DELETE FROM grant_crypto_requests WHERE grant_id = ?1",
-                [grant.id.to_string()],
-            )?;
-        }
         Ok(())
     }
 
@@ -256,6 +220,165 @@ impl CollectionRegistry {
             .find(|grant| grant.id == grant_id))
     }
 
+    /// Return the immutable installation identity and authorization snapshot digest used to bind
+    /// a durable mutation claim. The digest is over the exact signed proof stored with the grant.
+    pub fn grant_mutation_identity(
+        &self,
+        grant_id: Uuid,
+    ) -> Result<Option<(Uuid, String)>, ConnectError> {
+        let authorization = self
+            .connection()?
+            .query_row(
+                "SELECT application_authorization FROM grants WHERE id = ?1",
+                [grant_id.to_string()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let Some(authorization) = authorization else {
+            return Ok(None);
+        };
+        let proof: ApplicationAuthorizationProof = serde_json::from_str(&authorization)?;
+        let digest = Sha256::digest(authorization.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        Ok(Some((proof.binding.application_installation_id, digest)))
+    }
+
+    /// Resolve either the active grant or the exact historical public-key material needed to
+    /// authenticate replay of an already-accepted request. Callers must never use a revoked
+    /// context to claim or apply a new mutation.
+    pub fn grant_replay_context(
+        &self,
+        grant_id: Uuid,
+        key_id: &str,
+    ) -> Result<Option<GrantReplayContext>, ConnectError> {
+        if let Some(grant) = self.grant_context(grant_id)? {
+            if grant
+                .encryption
+                .as_ref()
+                .is_some_and(|encryption| encryption.key_id == key_id)
+            {
+                let Some((application_installation_id, grant_snapshot_digest)) =
+                    self.grant_mutation_identity(grant_id)?
+                else {
+                    return Ok(None);
+                };
+                return Ok(Some(GrantReplayContext {
+                    grant,
+                    revoked: false,
+                    application_installation_id,
+                    grant_snapshot_digest,
+                }));
+            }
+        }
+
+        let row = self
+            .connection()?
+            .query_row(
+                "SELECT application_id, application_name, application_distribution,
+                        application_homepage, application_project_url, application_origin,
+                        application_icon, collection_id, collection_name, operations, scope,
+                        created_at, encryption, file_capability, notification_criteria,
+                        application_authorization
+                 FROM revoked_grant_replay_material
+                 WHERE grant_id = ?1 AND key_id = ?2",
+                params![grant_id.to_string(), key_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, Option<String>>(6)?,
+                        row.get::<_, String>(7)?,
+                        row.get::<_, String>(8)?,
+                        row.get::<_, String>(9)?,
+                        row.get::<_, String>(10)?,
+                        row.get::<_, String>(11)?,
+                        row.get::<_, String>(12)?,
+                        row.get::<_, Option<String>>(13)?,
+                        row.get::<_, String>(14)?,
+                        row.get::<_, String>(15)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((
+            application_id,
+            application_name,
+            application_distribution,
+            application_homepage,
+            application_project_url,
+            application_origin,
+            application_icon,
+            collection_id,
+            collection_name,
+            operations,
+            scope,
+            created_at,
+            encryption,
+            file_capability,
+            notification_criteria,
+            application_authorization,
+        )) = row
+        else {
+            return Ok(None);
+        };
+        let proof: ApplicationAuthorizationProof =
+            serde_json::from_str(&application_authorization)?;
+        proof.verify().map_err(|error| {
+            ConnectError::InvalidInput(format!(
+                "Stored revoked grant authorization is invalid: {error}"
+            ))
+        })?;
+        let grant_snapshot_digest = Sha256::digest(application_authorization.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        Ok(Some(GrantReplayContext {
+            grant: GrantSummary {
+                id: grant_id,
+                application_id: parse_registry_uuid(&application_id)?,
+                application_name,
+                application_distribution,
+                application_homepage,
+                application_project_url,
+                application_origin,
+                application_icon,
+                collection_id: parse_registry_uuid(&collection_id)?,
+                collection_name,
+                operations: serde_json::from_str(&operations)?,
+                scope: serde_json::from_str(&scope)?,
+                notification_criteria: serde_json::from_str(&notification_criteria)?,
+                created_at,
+                encryption: Some(serde_json::from_str(&encryption)?),
+                file_capability: file_capability
+                    .as_deref()
+                    .map(serde_json::from_str)
+                    .transpose()?,
+            },
+            revoked: true,
+            application_installation_id: proof.binding.application_installation_id,
+            grant_snapshot_digest,
+        }))
+    }
+
+    pub fn replay_origin_allowed(&self, origin: &str) -> Result<bool, ConnectError> {
+        Ok(self
+            .connection()?
+            .query_row(
+                "SELECT 1 FROM revoked_grant_replay_material
+                 WHERE application_origin = ?1 LIMIT 1",
+                [origin],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some())
+    }
+
     pub fn authorizes(
         &self,
         grant_id: Uuid,
@@ -298,4 +421,28 @@ fn invalid_grant_security(message: impl Into<String>) -> ConnectError {
         "Invalid application authorization: {}",
         message.into()
     ))
+}
+
+fn archive_grant_replay_material(
+    connection: &Connection,
+    grant_id: &str,
+) -> Result<(), ConnectError> {
+    connection.execute(
+        "INSERT OR REPLACE INTO revoked_grant_replay_material (
+            grant_id, key_id, application_id, collection_id, operations, scope,
+            application_name, application_distribution, application_homepage,
+            application_project_url, application_origin, application_icon,
+            collection_name, notification_criteria, created_at, encryption,
+            file_capability, application_authorization, revoked_at_ms
+         )
+         SELECT id, json_extract(encryption, '$.key_id'), application_id, collection_id,
+                operations, scope, application_name, application_distribution,
+                application_homepage, application_project_url, application_origin,
+                application_icon, collection_name, notification_criteria, created_at,
+                encryption, file_capability, application_authorization,
+                CAST(unixepoch('subsec') * 1000 AS INTEGER)
+         FROM grants WHERE id = ?1 AND encryption IS NOT NULL",
+        [grant_id],
+    )?;
+    Ok(())
 }

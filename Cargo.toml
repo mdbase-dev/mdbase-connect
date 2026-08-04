@@ -39,7 +39,7 @@ mdbase-interop = { version = "0.1.0-rc.2", git = "https://github.com/mdbase-dev/
 mdbase-runtime = { path = "../mdbase-rs/crates/mdbase-runtime" }
 notify = "8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["backup", "bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_jcs = "0.1"
 serde_json = "1"

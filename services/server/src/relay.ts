@@ -18,6 +18,7 @@ import {
   CONTROL_PROTOCOL_VERSION,
   CONTRACT_SETUP_CAPABILITY,
   isConnectProblem,
+  MINIMUM_CONNECTOR_VERSION,
   normalizeConnectProblem,
   RELAY_CAPABILITIES,
   RELAY_REQUIRED_CAPABILITIES
@@ -105,6 +106,7 @@ export class RelayHub {
     const hello = await handshake;
     if (!hello
         || hello.protocol_version !== CONTROL_PROTOCOL_VERSION
+        || !connectorVersionAtLeast(hello.connector_version, MINIMUM_CONNECTOR_VERSION)
         || !RELAY_REQUIRED_CAPABILITIES.every((capability) => hello.capabilities.includes(capability))) {
       rejectIncompatibleRelay(socket);
       return;
@@ -802,8 +804,49 @@ function rejectIncompatibleRelay(socket: WebSocket): void {
     protocol_version: CONTROL_PROTOCOL_VERSION,
     code: "connector_upgrade_required",
     message: "This mdbase Connect version is no longer compatible. Update the desktop app and reconnect.",
+    minimum_connector_version: MINIMUM_CONNECTOR_VERSION,
     update_url: CONNECTOR_UPDATE_URL
   }), () => socket.close(INCOMPATIBLE_CLOSE_CODE, "Connector upgrade required"));
+}
+
+export function connectorVersionAtLeast(actual: string, minimum: string): boolean {
+  const left = parseConnectorVersion(actual);
+  const right = parseConnectorVersion(minimum);
+  if (!left || !right) return false;
+  for (let index = 0; index < 3; index += 1) {
+    if (left.core[index] !== right.core[index]) {
+      return left.core[index]! > right.core[index]!;
+    }
+  }
+  if (left.prerelease.length === 0) return true;
+  if (right.prerelease.length === 0) return false;
+  const length = Math.max(left.prerelease.length, right.prerelease.length);
+  for (let index = 0; index < length; index += 1) {
+    const leftPart = left.prerelease[index];
+    const rightPart = right.prerelease[index];
+    if (leftPart === undefined) return false;
+    if (rightPart === undefined) return true;
+    if (leftPart === rightPart) continue;
+    const leftNumber = /^[0-9]+$/u.test(leftPart) ? Number(leftPart) : null;
+    const rightNumber = /^[0-9]+$/u.test(rightPart) ? Number(rightPart) : null;
+    if (leftNumber !== null && rightNumber !== null) return leftNumber > rightNumber;
+    if (leftNumber !== null) return false;
+    if (rightNumber !== null) return true;
+    return leftPart > rightPart;
+  }
+  return true;
+}
+
+function parseConnectorVersion(value: string): {
+  core: [number, number, number];
+  prerelease: string[];
+} | null {
+  const match = /^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/u.exec(value);
+  if (!match) return null;
+  return {
+    core: [Number(match[1]), Number(match[2]), Number(match[3])],
+    prerelease: match[4]?.split(".") ?? []
+  };
 }
 
 

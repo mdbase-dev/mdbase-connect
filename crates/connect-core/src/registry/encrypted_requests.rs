@@ -7,6 +7,7 @@ pub enum EncryptedRequestClaim {
     Fresh,
     Completed(String),
     InProgress,
+    Conflict,
 }
 
 pub fn encrypted_request_fingerprint(
@@ -65,7 +66,8 @@ impl CollectionRegistry {
             .optional()?;
         if let Some((fingerprint, response)) = existing {
             if fingerprint != request_fingerprint {
-                return Err(ConnectError::EncryptedRelayRejected);
+                transaction.commit()?;
+                return Ok(EncryptedRequestClaim::Conflict);
             }
             transaction.commit()?;
             return Ok(match response {

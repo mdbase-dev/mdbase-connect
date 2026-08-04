@@ -113,12 +113,13 @@
     "relayIncompatible": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "protocol_version", "code", "message", "update_url"],
+      "required": ["type", "protocol_version", "code", "message", "minimum_connector_version", "update_url"],
       "properties": {
         "type": { "const": "relay_incompatible" },
         "protocol_version": { "const": 1 },
         "code": { "const": "connector_upgrade_required" },
         "message": { "type": "string", "minLength": 1 },
+        "minimum_connector_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$" },
         "update_url": { "type": "string", "format": "uri", "pattern": "^https://" }
       }
     },

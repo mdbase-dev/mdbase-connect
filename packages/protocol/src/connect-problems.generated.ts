@@ -8,11 +8,13 @@ export const CONNECT_PROBLEM_CATALOG = {
   "application_identity_unavailable": { category: "compatibility", recovery: "upgrade_application" },
   "approval_window_blocked": { category: "authorization", recovery: "reauthorize" },
   "authority_authorization_changed": { category: "authorization", recovery: "reauthorize" },
+  "authorization_binding_incompatible": { category: "compatibility", recovery: "upgrade_application" },
   "authorization_cancelled": { category: "cancellation", recovery: "none" },
   "authorization_expired": { category: "authorization", recovery: "reauthorize" },
   "authorization_replayed": { category: "integrity", recovery: "reauthorize" },
   "browser_required": { category: "compatibility", recovery: "none" },
   "callback_url_required": { category: "validation", recovery: "fix_request" },
+  "capability_contract_incompatible": { category: "compatibility", recovery: "upgrade_application" },
   "change_cursor_reset": { category: "conflict", recovery: "refresh" },
   "collection_access_denied": { category: "authorization", recovery: "reauthorize" },
   "collection_configuration_invalid": { category: "validation", recovery: "repair_collection" },
@@ -33,6 +35,7 @@ export const CONNECT_PROBLEM_CATALOG = {
   "device_authorization_failed": { category: "authorization", recovery: "reauthorize" },
   "direct_operation_rejected": { category: "authorization", recovery: "reauthorize" },
   "discovery_failed": { category: "availability", recovery: "retry" },
+  "durable_mutation_unsupported": { category: "compatibility", recovery: "upgrade_connector" },
   "encrypted_relay_rejected": { category: "authorization", recovery: "reauthorize" },
   "encryption_required": { category: "authorization", recovery: "reauthorize" },
   "expired_token": { category: "authorization", recovery: "reauthorize" },
@@ -63,6 +66,8 @@ export const CONNECT_PROBLEM_CATALOG = {
   "manifest_load_failed": { category: "availability", recovery: "retry" },
   "manifest_required": { category: "validation", recovery: "fix_request" },
   "missing_grant_key": { category: "authorization", recovery: "reauthorize" },
+  "mutation_recovery_expired": { category: "compatibility", recovery: "none" },
+  "mutation_request_conflict": { category: "conflict", recovery: "resolve_conflict" },
   "no_pending_mutation": { category: "conflict", recovery: "refresh" },
   "not_authorized": { category: "authorization", recovery: "reauthorize" },
   "not_remote_authority": { category: "compatibility", recovery: "choose_collection" },
@@ -83,6 +88,11 @@ export const CONNECT_PROBLEM_CATALOG = {
   "reconnect_required": { category: "authorization", recovery: "reauthorize" },
   "redirect_uri_required": { category: "validation", recovery: "fix_request" },
   "reference_updates_unsupported": { category: "compatibility", recovery: "fix_request" },
+  "registry_backup_invalid": { category: "integrity", recovery: "contact_support" },
+  "registry_busy": { category: "availability", recovery: "retry" },
+  "registry_corrupt": { category: "integrity", recovery: "repair_collection" },
+  "registry_migration_failed": { category: "internal", recovery: "contact_support" },
+  "registry_schema_incompatible": { category: "compatibility", recovery: "upgrade_connector" },
   "relay_authorization_expired": { category: "authorization", recovery: "reauthorize" },
   "relay_unavailable": { category: "availability", recovery: "retry" },
   "sandbox_unsupported": { category: "compatibility", recovery: "fix_request" },
@@ -93,6 +103,7 @@ export const CONNECT_PROBLEM_CATALOG = {
   "temporarily_unavailable": { category: "availability", recovery: "retry" },
   "timeout": { category: "availability", recovery: "retry" },
   "token_exchange_failed": { category: "availability", recovery: "retry" },
+  "transport_protocol_incompatible": { category: "compatibility", recovery: "upgrade_connector" },
   "type_pack_provision_failed": { category: "validation", recovery: "repair_collection" },
   "unknown_collection": { category: "selection", recovery: "choose_collection" },
   "unsafe_file_path": { category: "validation", recovery: "fix_request" },
@@ -126,11 +137,25 @@ export interface ConnectProblemDetailsByCode {
   "interval_seconds": number;
 };
   "authority_authorization_changed": undefined;
+  "authorization_binding_incompatible": {
+  "contract": string;
+  "required": Array<number>;
+  "supported": Array<number>;
+  "peer": string;
+  "operation"?: string;
+};
   "authorization_cancelled": undefined;
   "authorization_expired": undefined;
   "authorization_replayed": undefined;
   "browser_required": undefined;
   "callback_url_required": undefined;
+  "capability_contract_incompatible": {
+  "contract": string;
+  "required": Array<number>;
+  "supported": Array<number>;
+  "peer": string;
+  "operation"?: string;
+};
   "change_cursor_reset": undefined;
   "collection_access_denied": undefined;
   "collection_configuration_invalid": {
@@ -167,6 +192,13 @@ export interface ConnectProblemDetailsByCode {
   "device_authorization_failed": undefined;
   "direct_operation_rejected": undefined;
   "discovery_failed": undefined;
+  "durable_mutation_unsupported": {
+  "contract": string;
+  "required": Array<number>;
+  "supported": Array<number>;
+  "peer": string;
+  "operation"?: string;
+};
   "encrypted_relay_rejected": undefined;
   "encryption_required": undefined;
   "expired_token": undefined;
@@ -208,6 +240,10 @@ export interface ConnectProblemDetailsByCode {
   "manifest_load_failed": undefined;
   "manifest_required": undefined;
   "missing_grant_key": undefined;
+  "mutation_recovery_expired": undefined;
+  "mutation_request_conflict": {
+  "request_id": string;
+};
   "no_pending_mutation": undefined;
   "not_authorized": undefined;
   "not_remote_authority": undefined;
@@ -233,6 +269,11 @@ export interface ConnectProblemDetailsByCode {
   "reconnect_required": undefined;
   "redirect_uri_required": undefined;
   "reference_updates_unsupported": undefined;
+  "registry_backup_invalid": undefined;
+  "registry_busy": undefined;
+  "registry_corrupt": undefined;
+  "registry_migration_failed": undefined;
+  "registry_schema_incompatible": undefined;
   "relay_authorization_expired": undefined;
   "relay_unavailable": undefined;
   "sandbox_unsupported": undefined;
@@ -243,6 +284,13 @@ export interface ConnectProblemDetailsByCode {
   "temporarily_unavailable": undefined;
   "timeout": undefined;
   "token_exchange_failed": undefined;
+  "transport_protocol_incompatible": {
+  "contract": string;
+  "required": Array<number>;
+  "supported": Array<number>;
+  "peer": string;
+  "operation"?: string;
+};
   "type_pack_provision_failed": undefined;
   "unknown_collection": undefined;
   "unsafe_file_path": undefined;
@@ -281,6 +329,12 @@ export interface ConnectProblemByCode {
     recovery: "reauthorize";
     details?: never;
   };
+  "authorization_binding_incompatible": ConnectProblemBase & {
+    code: "authorization_binding_incompatible";
+    category: "compatibility";
+    recovery: "upgrade_application";
+    details: ConnectProblemDetailsByCode["authorization_binding_incompatible"];
+  };
   "authorization_cancelled": ConnectProblemBase & {
     code: "authorization_cancelled";
     category: "cancellation";
@@ -310,6 +364,12 @@ export interface ConnectProblemByCode {
     category: "validation";
     recovery: "fix_request";
     details?: never;
+  };
+  "capability_contract_incompatible": ConnectProblemBase & {
+    code: "capability_contract_incompatible";
+    category: "compatibility";
+    recovery: "upgrade_application";
+    details: ConnectProblemDetailsByCode["capability_contract_incompatible"];
   };
   "change_cursor_reset": ConnectProblemBase & {
     code: "change_cursor_reset";
@@ -430,6 +490,12 @@ export interface ConnectProblemByCode {
     category: "availability";
     recovery: "retry";
     details?: never;
+  };
+  "durable_mutation_unsupported": ConnectProblemBase & {
+    code: "durable_mutation_unsupported";
+    category: "compatibility";
+    recovery: "upgrade_connector";
+    details: ConnectProblemDetailsByCode["durable_mutation_unsupported"];
   };
   "encrypted_relay_rejected": ConnectProblemBase & {
     code: "encrypted_relay_rejected";
@@ -611,6 +677,18 @@ export interface ConnectProblemByCode {
     recovery: "reauthorize";
     details?: never;
   };
+  "mutation_recovery_expired": ConnectProblemBase & {
+    code: "mutation_recovery_expired";
+    category: "compatibility";
+    recovery: "none";
+    details?: never;
+  };
+  "mutation_request_conflict": ConnectProblemBase & {
+    code: "mutation_request_conflict";
+    category: "conflict";
+    recovery: "resolve_conflict";
+    details: ConnectProblemDetailsByCode["mutation_request_conflict"];
+  };
   "no_pending_mutation": ConnectProblemBase & {
     code: "no_pending_mutation";
     category: "conflict";
@@ -731,6 +809,36 @@ export interface ConnectProblemByCode {
     recovery: "fix_request";
     details?: never;
   };
+  "registry_backup_invalid": ConnectProblemBase & {
+    code: "registry_backup_invalid";
+    category: "integrity";
+    recovery: "contact_support";
+    details?: never;
+  };
+  "registry_busy": ConnectProblemBase & {
+    code: "registry_busy";
+    category: "availability";
+    recovery: "retry";
+    details?: never;
+  };
+  "registry_corrupt": ConnectProblemBase & {
+    code: "registry_corrupt";
+    category: "integrity";
+    recovery: "repair_collection";
+    details?: never;
+  };
+  "registry_migration_failed": ConnectProblemBase & {
+    code: "registry_migration_failed";
+    category: "internal";
+    recovery: "contact_support";
+    details?: never;
+  };
+  "registry_schema_incompatible": ConnectProblemBase & {
+    code: "registry_schema_incompatible";
+    category: "compatibility";
+    recovery: "upgrade_connector";
+    details?: never;
+  };
   "relay_authorization_expired": ConnectProblemBase & {
     code: "relay_authorization_expired";
     category: "authorization";
@@ -790,6 +898,12 @@ export interface ConnectProblemByCode {
     category: "availability";
     recovery: "retry";
     details?: never;
+  };
+  "transport_protocol_incompatible": ConnectProblemBase & {
+    code: "transport_protocol_incompatible";
+    category: "compatibility";
+    recovery: "upgrade_connector";
+    details: ConnectProblemDetailsByCode["transport_protocol_incompatible"];
   };
   "type_pack_provision_failed": ConnectProblemBase & {
     code: "type_pack_provision_failed";
@@ -876,6 +990,70 @@ const CONNECT_PROBLEM_DETAIL_SCHEMAS: Readonly<Record<string, ConnectProblemDeta
       },
       "interval_seconds": {
         "type": "integer"
+      }
+    }
+  },
+  "authorization_binding_incompatible": {
+    "type": "object",
+    "required": [
+      "contract",
+      "required",
+      "supported",
+      "peer"
+    ],
+    "properties": {
+      "contract": {
+        "type": "string"
+      },
+      "required": {
+        "type": "array",
+        "items": {
+          "type": "integer"
+        }
+      },
+      "supported": {
+        "type": "array",
+        "items": {
+          "type": "integer"
+        }
+      },
+      "peer": {
+        "type": "string"
+      },
+      "operation": {
+        "type": "string"
+      }
+    }
+  },
+  "capability_contract_incompatible": {
+    "type": "object",
+    "required": [
+      "contract",
+      "required",
+      "supported",
+      "peer"
+    ],
+    "properties": {
+      "contract": {
+        "type": "string"
+      },
+      "required": {
+        "type": "array",
+        "items": {
+          "type": "integer"
+        }
+      },
+      "supported": {
+        "type": "array",
+        "items": {
+          "type": "integer"
+        }
+      },
+      "peer": {
+        "type": "string"
+      },
+      "operation": {
+        "type": "string"
       }
     }
   },
@@ -971,6 +1149,38 @@ const CONNECT_PROBLEM_DETAIL_SCHEMAS: Readonly<Record<string, ConnectProblemDeta
       }
     }
   },
+  "durable_mutation_unsupported": {
+    "type": "object",
+    "required": [
+      "contract",
+      "required",
+      "supported",
+      "peer"
+    ],
+    "properties": {
+      "contract": {
+        "type": "string"
+      },
+      "required": {
+        "type": "array",
+        "items": {
+          "type": "integer"
+        }
+      },
+      "supported": {
+        "type": "array",
+        "items": {
+          "type": "integer"
+        }
+      },
+      "peer": {
+        "type": "string"
+      },
+      "operation": {
+        "type": "string"
+      }
+    }
+  },
   "insufficient_access": {
     "type": "object",
     "required": [
@@ -1033,6 +1243,17 @@ const CONNECT_PROBLEM_DETAIL_SCHEMAS: Readonly<Record<string, ConnectProblemDeta
       }
     }
   },
+  "mutation_request_conflict": {
+    "type": "object",
+    "required": [
+      "request_id"
+    ],
+    "properties": {
+      "request_id": {
+        "type": "string"
+      }
+    }
+  },
   "operation_invalid": {
     "type": "object",
     "required": [
@@ -1054,6 +1275,38 @@ const CONNECT_PROBLEM_DETAIL_SCHEMAS: Readonly<Record<string, ConnectProblemDeta
     "properties": {
       "retry_after_ms": {
         "type": "integer"
+      }
+    }
+  },
+  "transport_protocol_incompatible": {
+    "type": "object",
+    "required": [
+      "contract",
+      "required",
+      "supported",
+      "peer"
+    ],
+    "properties": {
+      "contract": {
+        "type": "string"
+      },
+      "required": {
+        "type": "array",
+        "items": {
+          "type": "integer"
+        }
+      },
+      "supported": {
+        "type": "array",
+        "items": {
+          "type": "integer"
+        }
+      },
+      "peer": {
+        "type": "string"
+      },
+      "operation": {
+        "type": "string"
       }
     }
   }

@@ -106,10 +106,10 @@ impl AgentState {
     ) -> RelayMessage {
         let origin_matches = self
             .registry
-            .grant_context(envelope.grant_id)
+            .grant_replay_context(envelope.grant_id, &envelope.key_id)
             .ok()
             .flatten()
-            .is_some_and(|grant| grant.application_origin == origin);
+            .is_some_and(|context| context.grant.application_origin == origin);
         if !origin_matches {
             return encrypted_rejection(envelope.request_id);
         }
@@ -472,14 +472,18 @@ impl AgentState {
         envelope: mdbase_connect_protocol::EncryptedRelayEnvelope,
     ) -> RelayMessage {
         let rejected = || encrypted_rejection(envelope.request_id);
-        let Some(context) = self
+        let Some(replay_context) = self
             .registry
-            .grant_context(envelope.grant_id)
+            .grant_replay_context(envelope.grant_id, &envelope.key_id)
             .ok()
             .flatten()
         else {
             return rejected();
         };
+        let revoked = replay_context.revoked;
+        let application_installation_id = replay_context.application_installation_id;
+        let grant_snapshot_digest = replay_context.grant_snapshot_digest.clone();
+        let context = replay_context.grant;
         let Some(encryption) = context.encryption.as_ref() else {
             return rejected();
         };
@@ -528,6 +532,8 @@ impl AgentState {
         let Ok(fingerprint) = encrypted_request_fingerprint(&envelope) else {
             return rejected();
         };
+        let mutation =
+            mutation_operation_identifier(&envelope.operation, &input).map(str::to_owned);
         match self.registry.claim_encrypted_request(
             context.id,
             &encryption.key_id,
@@ -542,7 +548,7 @@ impl AgentState {
                     |envelope| RelayMessage::EncryptedOperationResponse { envelope },
                 );
             }
-            Ok(EncryptedRequestClaim::InProgress) => {
+            Ok(EncryptedRequestClaim::InProgress) if mutation.is_none() => {
                 for _ in 0..1_000 {
                     std::thread::sleep(std::time::Duration::from_millis(25));
                     match self.registry.encrypted_request_response(
@@ -563,11 +569,43 @@ impl AgentState {
                 }
                 return rejected();
             }
+            Ok(EncryptedRequestClaim::InProgress) => {}
+            Ok(EncryptedRequestClaim::Conflict) if mutation.is_some() => {
+                return encrypted_problem_response(
+                    &keys,
+                    metadata,
+                    ConnectProblem::new(
+                        "mutation_request_conflict",
+                        "This request ID was already bound to different mutation input.",
+                    )
+                    .with_details(serde_json::json!({ "request_id": envelope.request_id }))
+                    .with_operation_outcome(ConnectOperationOutcome::Rejected),
+                )
+            }
+            Ok(EncryptedRequestClaim::Conflict) => return rejected(),
             Err(_) => return rejected(),
         }
 
+        if let Some(mutation_identifier) = mutation {
+            return self.handle_durable_encrypted_mutation(
+                &context,
+                &envelope.operation,
+                &mutation_identifier,
+                &input,
+                metadata,
+                &keys,
+                application_installation_id,
+                grant_snapshot_digest,
+                revoked,
+            );
+        }
+
         let paused = self.registry.paused().unwrap_or(true);
-        let result = if paused {
+        let result = if revoked {
+            Err(ConnectError::AccessDenied(
+                "This grant has been revoked.".to_string(),
+            ))
+        } else if paused {
             Err(ConnectError::AccessDenied(
                 "Remote access is paused on this computer.".to_string(),
             ))
@@ -632,9 +670,393 @@ impl AgentState {
             envelope: response_envelope,
         }
     }
+
+    #[allow(clippy::too_many_arguments)]
+    fn handle_durable_encrypted_mutation(
+        &self,
+        context: &mdbase_connect_protocol::GrantSummary,
+        operation: &str,
+        mutation_identifier: &str,
+        input: &serde_json::Value,
+        metadata: RelayMetadata<'_>,
+        keys: &RelayKeys,
+        application_installation_id: uuid::Uuid,
+        grant_snapshot_digest: String,
+        revoked: bool,
+    ) -> RelayMessage {
+        let Some(input_schema_version) = operation_input_schema_version(operation, input) else {
+            return encrypted_problem_response(
+                keys,
+                metadata,
+                ConnectProblem::new(
+                    "invalid_request",
+                    "The mutation input schema version is not defined.",
+                )
+                .with_operation_outcome(ConnectOperationOutcome::Rejected),
+            );
+        };
+        let Ok(input_digest) = mutation_fingerprint(operation, input) else {
+            return encrypted_problem_response(
+                keys,
+                metadata,
+                ConnectProblem::new(
+                    "invalid_request",
+                    "The mutation input is not canonical I-JSON.",
+                )
+                .with_operation_outcome(ConnectOperationOutcome::Rejected),
+            );
+        };
+        let claim_request = MutationClaimRequest {
+            application_installation_id,
+            grant_id: context.id,
+            request_id: metadata.request_id,
+            operation_kind: mutation_identifier.to_string(),
+            input_schema_version,
+            input_digest,
+            grant_snapshot_digest,
+            allow_new: !revoked,
+        };
+
+        let mut claim = match self.registry.claim_mutation(&claim_request) {
+            Ok(claim) => claim,
+            Err(ConnectError::AccessDenied(message)) if revoked => {
+                return encrypted_problem_response(
+                    keys,
+                    metadata,
+                    ConnectProblem::new("access_denied", message)
+                        .with_details(serde_json::json!({ "request_id": metadata.request_id }))
+                        .with_operation_outcome(ConnectOperationOutcome::NotSent),
+                )
+            }
+            Err(error) => {
+                return encrypted_problem_response(keys, metadata, operation_problem(&error))
+            }
+        };
+        for _ in 0..1_000 {
+            match claim {
+                MutationClaim::Terminal { receipt, .. } => {
+                    return serialized_encrypted_response(&receipt, metadata.request_id)
+                }
+                MutationClaim::Owned { lease, recovery } => {
+                    return self.execute_owned_mutation(
+                        context, operation, input, metadata, keys, lease, *recovery, revoked,
+                    )
+                }
+                MutationClaim::Live { .. } => {
+                    std::thread::sleep(std::time::Duration::from_millis(25));
+                    claim = match self.registry.claim_mutation(&claim_request) {
+                        Ok(claim) => claim,
+                        Err(error) => {
+                            return encrypted_problem_response(
+                                keys,
+                                metadata,
+                                operation_problem(&error),
+                            )
+                        }
+                    };
+                }
+            }
+        }
+        pending_mutation_response(keys, metadata)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn execute_owned_mutation(
+        &self,
+        context: &mdbase_connect_protocol::GrantSummary,
+        operation: &str,
+        input: &serde_json::Value,
+        metadata: RelayMetadata<'_>,
+        keys: &RelayKeys,
+        lease: MutationLease,
+        recovery: mdbase_connect_core::MutationRecoveryData,
+        revoked: bool,
+    ) -> RelayMessage {
+        if recovery.state == MutationJournalState::Applied {
+            let Some(receipt) = recovery
+                .result_metadata
+                .as_ref()
+                .and_then(|value| value.get("response_envelope"))
+                .and_then(serde_json::Value::as_str)
+            else {
+                return self.mark_owned_mutation_unknown(
+                    keys,
+                    metadata,
+                    &lease,
+                    "Applied mutation evidence has no recoverable encrypted receipt.",
+                );
+            };
+            if self
+                .registry
+                .complete_mutation(&lease, receipt, recovery.result_metadata.as_ref())
+                .is_err()
+            {
+                return pending_mutation_response(keys, metadata);
+            }
+            return serialized_encrypted_response(receipt, metadata.request_id);
+        }
+
+        let before = match self.local_mutation_evidence(context.collection_id, operation) {
+            Ok(evidence) => evidence,
+            Err(error) => {
+                let body = serde_json::json!({
+                    "ok": false,
+                    "problem": operation_problem(&error),
+                });
+                let Some((message, serialized)) = encrypted_response(keys, metadata, &body) else {
+                    return encrypted_rejection(metadata.request_id);
+                };
+                if self
+                    .registry
+                    .complete_mutation(&lease, &serialized, Some(&body))
+                    .is_err()
+                {
+                    return pending_mutation_response(keys, metadata);
+                }
+                return message;
+            }
+        };
+
+        if recovery.state == MutationJournalState::Prepared
+            && recovery.before_evidence.as_ref() != Some(&before)
+        {
+            return self.mark_owned_mutation_unknown(
+                keys,
+                metadata,
+                &lease,
+                "The collection changed after preparation and the exact mutation outcome cannot be distinguished.",
+            );
+        }
+        if revoked {
+            return self.abandon_owned_mutation_after_revocation(keys, metadata, &lease);
+        }
+        if recovery.state != MutationJournalState::Prepared
+            && self
+                .registry
+                .prepare_mutation(
+                    &lease,
+                    Some(&serde_json::json!({
+                        "operation": operation,
+                        "collection_id": context.collection_id,
+                    })),
+                    Some(&before),
+                )
+                .is_err()
+        {
+            return pending_mutation_response(keys, metadata);
+        }
+
+        let paused = self.registry.paused().unwrap_or(true);
+        let result = if paused {
+            Err(ConnectError::AccessDenied(
+                "Remote access is paused on this computer.".to_string(),
+            ))
+        } else if operation == "file_control" {
+            self.file_control(context, input.clone())
+        } else {
+            self.scoped_operation(
+                "encrypted",
+                context.collection_id,
+                operation,
+                input,
+                context,
+            )
+        };
+        let (outcome, detail) = match &result {
+            Ok(_) => ("succeeded", None),
+            Err(error) if paused => ("denied", Some(error.to_string())),
+            Err(error) => ("failed", Some(error.to_string())),
+        };
+        let _ = self.registry.record_activity(
+            context.application_id,
+            &context.application_name,
+            context.collection_id,
+            &context.collection_name,
+            operation,
+            outcome,
+            detail.as_deref(),
+        );
+        let succeeded = result.is_ok();
+        let body = match result {
+            Ok(result) => serde_json::json!({ "ok": true, "result": result }),
+            Err(error) => serde_json::json!({
+                "ok": false,
+                "problem": if paused {
+                    ConnectProblem::new("access_paused", error.to_string())
+                        .with_operation_outcome(ConnectOperationOutcome::Rejected)
+                } else {
+                    operation_problem(&error)
+                }
+            }),
+        };
+        let Some((message, serialized)) = encrypted_response(keys, metadata, &body) else {
+            return encrypted_rejection(metadata.request_id);
+        };
+        let result_metadata = serde_json::json!({ "response_envelope": serialized });
+        if succeeded {
+            let after = match self.local_mutation_evidence(context.collection_id, operation) {
+                Ok(evidence) => evidence,
+                Err(_) => {
+                    return self.mark_owned_mutation_unknown(
+                        keys,
+                        metadata,
+                        &lease,
+                        "The mutation returned but post-apply evidence could not be persisted.",
+                    )
+                }
+            };
+            if self
+                .registry
+                .mark_mutation_applied(&lease, Some(&after), Some(&result_metadata))
+                .is_err()
+            {
+                return pending_mutation_response(keys, metadata);
+            }
+        }
+        if self
+            .registry
+            .complete_mutation(&lease, &serialized, Some(&result_metadata))
+            .is_err()
+        {
+            return pending_mutation_response(keys, metadata);
+        }
+        message
+    }
+
+    fn abandon_owned_mutation_after_revocation(
+        &self,
+        keys: &RelayKeys,
+        metadata: RelayMetadata<'_>,
+        lease: &MutationLease,
+    ) -> RelayMessage {
+        let body = serde_json::json!({
+            "ok": false,
+            "problem": ConnectProblem::new(
+                "access_denied",
+                "The grant was revoked before this accepted mutation began its effect.",
+            )
+            .with_details(serde_json::json!({ "request_id": metadata.request_id }))
+            .with_operation_outcome(ConnectOperationOutcome::NotSent),
+        });
+        let Some((message, serialized)) = encrypted_response(keys, metadata, &body) else {
+            return encrypted_rejection(metadata.request_id);
+        };
+        if self
+            .registry
+            .abandon_mutation(lease, &serialized, Some(&body))
+            .is_err()
+        {
+            return pending_mutation_response(keys, metadata);
+        }
+        message
+    }
+
+    fn mark_owned_mutation_unknown(
+        &self,
+        keys: &RelayKeys,
+        metadata: RelayMetadata<'_>,
+        lease: &MutationLease,
+        reason: &str,
+    ) -> RelayMessage {
+        let problem = ConnectProblem::new("operation_outcome_unknown", reason)
+            .with_details(serde_json::json!({ "request_id": metadata.request_id }))
+            .with_operation_outcome(ConnectOperationOutcome::Unknown);
+        let body = serde_json::json!({ "ok": false, "problem": problem });
+        let Some((message, serialized)) = encrypted_response(keys, metadata, &body) else {
+            return encrypted_rejection(metadata.request_id);
+        };
+        if self
+            .registry
+            .mark_mutation_outcome_unknown(lease, &serialized, Some(&body))
+            .is_err()
+        {
+            return pending_mutation_response(keys, metadata);
+        }
+        message
+    }
+
+    fn local_mutation_evidence(
+        &self,
+        collection_id: uuid::Uuid,
+        operation: &str,
+    ) -> Result<serde_json::Value, ConnectError> {
+        if matches!(operation, "put_timer" | "cancel_timer" | "reconcile_timers") {
+            return Ok(serde_json::json!({
+                "kind": "timer_authority",
+                "collection_id": collection_id,
+            }));
+        }
+        let snapshot = self.registry.authority_snapshot(collection_id)?;
+        Ok(serde_json::json!({
+            "kind": "collection_manifest",
+            "manifest_digest": snapshot.manifest_digest,
+        }))
+    }
+}
+
+fn encrypted_response(
+    keys: &RelayKeys,
+    metadata: RelayMetadata<'_>,
+    body: &serde_json::Value,
+) -> Option<(RelayMessage, String)> {
+    let ciphertext = keys
+        .encrypt_json(RelayDirection::Response, metadata, body)
+        .ok()?;
+    let response_envelope = metadata.envelope(ciphertext);
+    let serialized = serde_json::to_string(&response_envelope).ok()?;
+    Some((
+        RelayMessage::EncryptedOperationResponse {
+            envelope: response_envelope,
+        },
+        serialized,
+    ))
+}
+
+fn encrypted_problem_response(
+    keys: &RelayKeys,
+    metadata: RelayMetadata<'_>,
+    problem: ConnectProblem,
+) -> RelayMessage {
+    encrypted_response(
+        keys,
+        metadata,
+        &serde_json::json!({ "ok": false, "problem": problem }),
+    )
+    .map_or_else(
+        || encrypted_rejection(metadata.request_id),
+        |(message, _)| message,
+    )
+}
+
+fn pending_mutation_response(keys: &RelayKeys, metadata: RelayMetadata<'_>) -> RelayMessage {
+    encrypted_problem_response(
+        keys,
+        metadata,
+        ConnectProblem::new(
+            "pending_mutation_unresolved",
+            "The authority accepted this mutation and is still recovering its durable receipt.",
+        )
+        .with_details(serde_json::json!({ "request_id": metadata.request_id })),
+    )
+}
+
+fn serialized_encrypted_response(serialized: &str, request_id: uuid::Uuid) -> RelayMessage {
+    serde_json::from_str(serialized).map_or_else(
+        |_| encrypted_rejection(request_id),
+        |envelope| RelayMessage::EncryptedOperationResponse { envelope },
+    )
 }
 
 fn operation_problem(error: &ConnectError) -> ConnectProblem {
+    if let ConnectError::MutationRequestConflict { request_id } = error {
+        return ConnectProblem::new(error.code(), error.to_string())
+            .with_details(serde_json::json!({ "request_id": request_id }))
+            .with_operation_outcome(ConnectOperationOutcome::Rejected);
+    }
+    if let ConnectError::MutationRecoveryExpired { request_id } = error {
+        return ConnectProblem::new(error.code(), error.to_string())
+            .with_details(serde_json::json!({ "request_id": request_id }));
+    }
     if let ConnectError::CollectionInvalid {
         code, diagnostics, ..
     } = error
