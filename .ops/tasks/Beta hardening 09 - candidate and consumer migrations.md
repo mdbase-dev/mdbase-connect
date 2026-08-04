@@ -9,8 +9,8 @@ phase: 6
 depends_on: [Beta hardening 06 - management correctness, Beta hardening 07 - public SDK surface]
 tags: [beta, packaging, consumers, editor, workouts, pickle, tasknotes]
 created_at: 2026-08-04T17:48:28+10:00
-updated_at: 2026-08-05T05:55:50+10:00
-progress_summary: The final beta.32 candidate is packaged from Connect commit 4680eadb3b06 after Pickle integration added domain-owned request budgets and exact durable response recovery. Workouts is converged at 2b8a953, Editor at c701dca, and Pickle at 3dd5612. Pickle's verify, browser, callback/lifecycle tests, Capacitor sync, and Android debug build are green; its real response-loss/restart E2E and physical-device smoke remain before TaskNotes.
+updated_at: 2026-08-05T06:09:59+10:00
+progress_summary: The final beta.32 candidate is packaged from Connect commit 4680eadb3b06 after Pickle integration added domain-owned request budgets and exact durable response recovery. Workouts is converged at 2b8a953, Editor at c701dca, and Pickle at f1c7c6e. Pickle's complete verification, ordinary browser matrix, isolated real-authority response-loss/restart E2E, Capacitor sync, and Android debug build are green. Its physical-device smoke remains unavailable because no Android device is attached; TaskNotes is next.
 type: task
 ---
 
@@ -62,8 +62,16 @@ durable response-loss recovery and every product-specific gate.
   and resumes by its original durable request ID after reopen. `pnpm verify`
   passes with 18 tests, desktop/mobile Playwright is 8/8, Capacitor sync is
   green, and the debug APK builds with the installed JDK 21. No Android device
-  is attached, so the physical-device smoke has not run; the isolated real
-  authority response-loss/restart E2E also remains.
+  is attached, so the physical-device smoke has not run.
+- Pickle follow-up commit `f1c7c6e` adds an opt-in, isolated HTTPS dogfood
+  harness against a real paired authority. The test allows response creation to
+  complete, drops the HTTP response, observes the durable pending state, reloads
+  the application, recovers the original request ID, and proves exactly one
+  response Markdown file. It passes in 8.1 seconds; the ordinary desktop/mobile
+  Playwright matrix remains 8/8, and `pnpm verify` passes with 19 tests. The
+  notification criterion now reads the canonical CloudEvent `data` field and
+  reaches the expected local push-not-configured boundary without a criterion
+  evaluation error.
 - Workouts commit `2b8a953` and Editor commit `c701dca` repin their already-green
   migrations to the exact `4680eadb3b06` artifact set. Focused verification is
   green at 24 Workouts tests and 236 Editor tests.
@@ -73,6 +81,7 @@ durable response-loss recovery and every product-specific gate.
 
 ## Next
 
-Close Pickle's isolated authority response-loss/restart E2E and run the Android
-device smoke when a device is available. Then migrate TaskNotes to the immutable
-`4680eadb3b06` artifact set and run its native, lifecycle, sync, and cloud gates.
+Migrate TaskNotes to the immutable `4680eadb3b06` artifact set and run its
+native, lifecycle, sync, and cloud gates. Run Pickle's physical Android-device
+smoke when a device becomes available; the absent device does not block safe
+progress on the independent TaskNotes migration.
