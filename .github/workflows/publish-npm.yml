@@ -45,6 +45,9 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "dist_tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
 
+      - name: Verify trusted-publisher bootstrap
+        run: pnpm check:npm-bootstrap
+
       - run: pnpm install --frozen-lockfile
       - run: pnpm version:check
 

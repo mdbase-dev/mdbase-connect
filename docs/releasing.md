@@ -57,6 +57,25 @@ the status without evidence is itself rejected.
 
 ## Signing and publication
 
+### First publication of a new npm package
+
+npm trusted publishing cannot create a package. Before tagging a release that
+adds a public package, a scope owner must bootstrap that package once:
+
+1. Run the full local package verification above and pack the package from the
+   exact reviewed commit.
+2. Authenticate interactively with `npm login` and publish that audited tarball
+   with `npm publish <tarball> --access public --tag next`.
+3. Configure `publish-npm.yml` in `mdbase-dev/mdbase-connect` as the package's
+   GitHub Actions trusted publisher, restricted to the `npm` environment and
+   the `npm publish` operation.
+4. Run `pnpm check:npm-bootstrap` before creating the release tag.
+
+The tag workflow runs the same check before publishing anything. This keeps a
+missing first-time bootstrap from leaving a release partially published. All
+subsequent publications use short-lived GitHub OIDC credentials and provenance;
+do not add a long-lived npm publication token to the repository.
+
 Canonical public artifacts use each platform's trust channel:
 
 - macOS: Developer ID signing and Apple notarization;

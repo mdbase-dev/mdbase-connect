@@ -10,6 +10,7 @@
     "build": "pnpm -r build",
     "build:packages": "pnpm --filter \"./packages/**\" -r --if-present build",
     "check:architecture": "node scripts/check-architecture.mjs",
+    "check:npm-bootstrap": "node scripts/check-npm-package-bootstrap.mjs",
     "check:release-readiness": "node scripts/check-release-readiness.mjs",
     "generate:problems": "node scripts/generate-connect-problems.mjs",
     "check:problems": "node scripts/generate-connect-problems.mjs --check",
