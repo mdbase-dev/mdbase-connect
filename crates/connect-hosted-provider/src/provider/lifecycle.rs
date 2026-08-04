@@ -10,29 +10,7 @@ impl HostedProvider {
         let started = Instant::now();
         let mut retry_delay = Duration::from_millis(100);
         loop {
-            match PgPoolOptions::new()
-                .max_connections(20)
-                .min_connections(1)
-                .acquire_timeout(Duration::from_secs(5))
-                .idle_timeout(Duration::from_secs(10 * 60))
-                .max_lifetime(Duration::from_secs(30 * 60))
-                .after_connect(|connection, _metadata| {
-                    Box::pin(async move {
-                        sqlx::query("SET statement_timeout = 15000")
-                            .execute(&mut *connection)
-                            .await?;
-                        sqlx::query("SET lock_timeout = 5000")
-                            .execute(&mut *connection)
-                            .await?;
-                        sqlx::query("SET idle_in_transaction_session_timeout = 10000")
-                            .execute(&mut *connection)
-                            .await?;
-                        Ok(())
-                    })
-                })
-                .connect(database_url)
-                .await
-            {
+            match hosted_pool_options().connect(database_url).await {
                 Ok(pool) => match hosted_migrator().run(&pool).await {
                     Ok(()) => match verify_database_key(&pool, &crypto).await {
                         Ok(()) => {
@@ -211,6 +189,29 @@ fn key_readiness_unavailable() -> ApiError {
     )
 }
 
+fn hosted_pool_options() -> PgPoolOptions {
+    PgPoolOptions::new()
+        .max_connections(DATABASE_POOL_CONNECTIONS)
+        .min_connections(1)
+        .acquire_timeout(DATABASE_ACQUIRE_TIMEOUT)
+        .idle_timeout(Duration::from_secs(10 * 60))
+        .max_lifetime(Duration::from_secs(30 * 60))
+        .after_connect(|connection, _metadata| {
+            Box::pin(async move {
+                sqlx::query("SET statement_timeout = 15000")
+                    .execute(&mut *connection)
+                    .await?;
+                sqlx::query("SET lock_timeout = 5000")
+                    .execute(&mut *connection)
+                    .await?;
+                sqlx::query("SET idle_in_transaction_session_timeout = 10000")
+                    .execute(&mut *connection)
+                    .await?;
+                Ok(())
+            })
+        })
+}
+
 #[cfg(test)]
 mod key_readiness_tests {
     use super::*;
@@ -228,5 +229,115 @@ mod key_readiness_tests {
         state.healthy = false;
         assert!(!state.should_probe(start + KEY_READINESS_FAILURE_TTL - Duration::from_millis(1)));
         assert!(state.should_probe(start + KEY_READINESS_FAILURE_TTL));
+    }
+}
+
+#[cfg(test)]
+mod database_bounds_tests {
+    use super::*;
+    use sqlx::Row;
+
+    #[tokio::test]
+    #[ignore = "requires MDBASE_TEST_DATABASE_BOUNDS_URL; exercised by the provider system suite"]
+    async fn production_pool_waits_and_database_locks_are_bounded() {
+        let database_url = std::env::var("MDBASE_TEST_DATABASE_BOUNDS_URL")
+            .expect("MDBASE_TEST_DATABASE_BOUNDS_URL is required");
+        let pool = hosted_pool_options()
+            .min_connections(0)
+            .connect(&database_url)
+            .await
+            .expect("database bounds pool connects");
+
+        let mut held = Vec::with_capacity(DATABASE_POOL_CONNECTIONS as usize);
+        for _ in 0..DATABASE_POOL_CONNECTIONS {
+            held.push(pool.acquire().await.expect("pool slot is acquired"));
+        }
+        let started = Instant::now();
+        let saturated = pool
+            .acquire()
+            .await
+            .expect_err("saturated pool must time out");
+        assert!(started.elapsed() >= DATABASE_ACQUIRE_TIMEOUT - Duration::from_millis(250));
+        assert_database_timeout(ApiError::from(saturated), "pool");
+        drop(held);
+
+        let settings = sqlx::query(
+            "SELECT current_setting('statement_timeout') AS statement_timeout, \
+                    current_setting('lock_timeout') AS lock_timeout, \
+                    current_setting('idle_in_transaction_session_timeout') AS idle_timeout",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("production timeout settings are readable");
+        assert_eq!(settings.get::<String, _>("statement_timeout"), "15s");
+        assert_eq!(settings.get::<String, _>("lock_timeout"), "5s");
+        assert_eq!(settings.get::<String, _>("idle_timeout"), "10s");
+
+        let mut statement = pool.begin().await.expect("statement transaction begins");
+        sqlx::query("SET LOCAL statement_timeout = 50")
+            .execute(&mut *statement)
+            .await
+            .expect("test statement timeout is shortened");
+        let statement_error = sqlx::query("SELECT pg_sleep(1)")
+            .execute(&mut *statement)
+            .await
+            .expect_err("black-holed statement must time out");
+        assert_database_timeout(ApiError::from(statement_error), "statement");
+        statement
+            .rollback()
+            .await
+            .expect("aborted statement transaction rolls back");
+
+        sqlx::query("DROP TABLE IF EXISTS hosted_provider_database_bounds")
+            .execute(&pool)
+            .await
+            .expect("stale lock fixture is removed");
+        sqlx::query(
+            "CREATE TABLE hosted_provider_database_bounds \
+             (id INTEGER PRIMARY KEY, value INTEGER NOT NULL)",
+        )
+        .execute(&pool)
+        .await
+        .expect("lock fixture is created");
+        sqlx::query("INSERT INTO hosted_provider_database_bounds (id, value) VALUES (1, 0)")
+            .execute(&pool)
+            .await
+            .expect("lock fixture row is created");
+        let mut owner = pool.begin().await.expect("lock owner begins");
+        sqlx::query("UPDATE hosted_provider_database_bounds SET value = value + 1 WHERE id = 1")
+            .execute(&mut *owner)
+            .await
+            .expect("lock owner acquires row lock");
+        let mut waiter = pool.begin().await.expect("lock waiter begins");
+        sqlx::query("SET LOCAL lock_timeout = 50")
+            .execute(&mut *waiter)
+            .await
+            .expect("test lock timeout is shortened");
+        let lock_error = sqlx::query(
+            "UPDATE hosted_provider_database_bounds SET value = value + 1 WHERE id = 1",
+        )
+        .execute(&mut *waiter)
+        .await
+        .expect_err("blocked row lock must time out");
+        assert_database_timeout(ApiError::from(lock_error), "lock");
+        waiter.rollback().await.expect("lock waiter rolls back");
+        owner.rollback().await.expect("lock owner rolls back");
+        sqlx::query("DROP TABLE hosted_provider_database_bounds")
+            .execute(&pool)
+            .await
+            .expect("lock fixture is removed");
+        pool.close().await;
+    }
+
+    fn assert_database_timeout(error: ApiError, expected_class: &str) {
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.code, "provider_database_timeout");
+        assert_eq!(
+            error
+                .details
+                .as_ref()
+                .and_then(|details| details["timeout_class"].as_str()),
+            Some(expected_class)
+        );
     }
 }

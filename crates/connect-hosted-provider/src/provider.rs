@@ -88,6 +88,8 @@ use policy::*;
 
 const SNAPSHOT_PAGE_SIZE: i64 = 200;
 const DATABASE_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
+const DATABASE_POOL_CONNECTIONS: u32 = 20;
+const DATABASE_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(5);
 const KEY_READINESS_SUCCESS_TTL: Duration = Duration::from_secs(60);
 const KEY_READINESS_FAILURE_TTL: Duration = Duration::from_secs(5);
 type WorkingSetSlot = Arc<Mutex<Option<CachedCollection>>>;
