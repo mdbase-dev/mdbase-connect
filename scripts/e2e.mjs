@@ -9,14 +9,14 @@ import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 import { chromium } from "@playwright/test";
 import {
+  applicationInstallationId,
   decryptRelayResponse,
   encryptRelayRequest,
-  MemoryGrantKeyStore
-} from "../packages/client/dist/crypto.js";
+  MemoryGrantKeyStore,
+  signApplicationAuthorization
+} from "../packages/client/dist/crypto-entry.js";
 import {
   MdbaseConnect,
-  applicationInstallationId,
-  signApplicationAuthorization,
   unwrapConnectOutcome
 } from "../packages/client/dist/index.js";
 import { availableTcpPort, poll } from "./lib/test-runtime.mjs";
@@ -1549,7 +1549,8 @@ async function openApplicationServer(name, contracts, access) {
 <meta charset="utf-8">
 <script type="importmap">{"imports":{"@mdbase-dev/connect-protocol":"${origin}/protocol/index.js"}}</script>
 <script type="module">
-  import { MdbaseConnect, MemoryGrantKeyStore, unwrapConnectOutcome } from "${origin}/client/index.js";
+  import { MdbaseConnect, unwrapConnectOutcome } from "${origin}/client/index.js";
+  import { MemoryGrantKeyStore } from "${origin}/client/crypto-entry.js";
   const keyStore = new MemoryGrantKeyStore();
   const key = await keyStore.create("browser-e2e-grant");
   globalThis.directHarness = {

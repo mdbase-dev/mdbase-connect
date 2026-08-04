@@ -13,11 +13,11 @@ import {
   ENCRYPTED_RELAY_PROTOCOL_VERSION,
   RELAY_CAPABILITIES
 } from "../packages/protocol/dist/index.js";
-import { MemoryGrantKeyStore } from "../packages/client/dist/crypto.js";
 import {
   applicationInstallationId,
+  MemoryGrantKeyStore,
   signApplicationAuthorization
-} from "../packages/client/dist/index.js";
+} from "../packages/client/dist/crypto-entry.js";
 import { availableTcpPort, poll } from "./lib/test-runtime.mjs";
 
 process.env.NODE_ENV = "test";
