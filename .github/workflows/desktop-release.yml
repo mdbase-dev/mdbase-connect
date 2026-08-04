@@ -635,6 +635,8 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:packages
+      - name: Exercise the complete editor release build
+        run: pnpm --filter mdbase-editor build
       - name: Exercise headless release packaging
         run: node --test scripts/lib/package-headless-cli.test.mjs
       - name: Exercise editor release tests

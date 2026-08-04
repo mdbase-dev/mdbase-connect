@@ -15,7 +15,7 @@
     "preview": "vite preview --host 127.0.0.1",
     "icons": "node scripts/write-phosphor-icon-names.mjs",
     "manifest": "node scripts/write-manifest.mjs",
-    "manifest:validate": "mdbase-connect-dev validate-manifest public/.well-known/mdbase-app.json"
+    "manifest:validate": "node ../../packages/devkit/dist/cli.js validate-manifest public/.well-known/mdbase-app.json"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
