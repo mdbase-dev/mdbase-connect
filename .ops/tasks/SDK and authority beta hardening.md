@@ -14,8 +14,8 @@ tags:
   - user-experience
   - consumers
 created_at: 2026-08-04T10:51:42+10:00
-updated_at: 2026-08-04T22:13:17+10:00
-progress_summary: Phases 0-1 are complete. Phase 2 journals are implemented across local and hosted authorities, with the remaining gate limited to the generated full mutator termination matrix and observed desktop-platform CI. Phases 3-5 are complete, including bounded waits, the frozen public SDK, and management race/upgrade correctness. Phase 6 now advances from Connect commit c78c22a into exact candidate packaging and four consumer migrations; Phase 7 has not started.
+updated_at: 2026-08-04T22:36:55+10:00
+progress_summary: Phases 0-1 are complete. Phase 2 journals are implemented across local and hosted authorities, with the remaining gate limited to the generated full mutator termination matrix and observed desktop-platform CI. Phases 3-5 are complete. Phase 6 has one immutable beta.31 set from Connect commit 79c6e43267d6; Editor is migrated and fully green at 8ef38b9, with Workouts, Pickle, and TaskNotes remaining. Phase 7 has not started.
 type: task
 ---
 
