@@ -88,6 +88,12 @@ expose the others.
 See the [MCP gateway guide](docs/mcp-gateway.md) for supported tools and the
 gateway's trust boundary.
 
+## Release notes
+
+See the [changelog](CHANGELOG.md) for breaking SDK/contract changes, durable
+mutation guarantees, upgrade requirements, recovery guidance, and platform
+preview limitations.
+
 ## Build an application
 
 The `@mdbase-dev/connect` SDK gives browser and native applications an authorized,
