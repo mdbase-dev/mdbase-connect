@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -27,6 +28,13 @@ try {
       if (target.includes("*")) continue;
       const entry = `package/${target.replace(/^\.\//, "")}`;
       assert(entries.includes(entry), `${manifest.name} exports missing file ${target}`);
+    }
+    for (const target of binTargets(manifest.bin)) {
+      const entry = `package/${target.replace(/^\.\//, "")}`;
+      assert(entries.includes(entry), `${manifest.name} exposes missing executable ${target}`);
+      await access(join(packageRoot, target), constants.X_OK).catch(() => {
+        throw new Error(`${manifest.name} executable ${target} cannot run from a workspace install`);
+      });
     }
     if (manifest.name === "@mdbase-dev/connect") {
       const browserEntry = "package/dist/browser/mdbase-connect.min.js";
@@ -84,6 +92,12 @@ function exportTargets(value) {
   if (typeof value === "string") return [value];
   if (!value || typeof value !== "object") return [];
   return Object.values(value).flatMap(exportTargets);
+}
+
+function binTargets(value) {
+  if (typeof value === "string") return [value];
+  if (!value || typeof value !== "object") return [];
+  return Object.values(value);
 }
 
 function assert(condition, message) {

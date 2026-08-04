@@ -4,11 +4,13 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
+    "esModuleInterop": true,
     "declaration": true,
     "outDir": "dist",
     "rootDir": "src",
+    "types": ["node"],
+    "resolveJsonModule": true,
     "skipLibCheck": true
   },
   "include": ["src/**/*.ts"]
 }
-

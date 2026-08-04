@@ -1904,7 +1904,8 @@
         "code",
         "category",
         "recovery",
-        "message"
+        "message",
+        "details"
       ],
       "properties": {
         "problem_version": {
@@ -1933,6 +1934,42 @@
         "trace_id": {
           "type": "string",
           "minLength": 1
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "issues"
+          ],
+          "properties": {
+            "issues": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "keyword",
+                  "message",
+                  "params"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "keyword": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "params": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },

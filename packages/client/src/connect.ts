@@ -192,7 +192,17 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       throw connectError(
         "invalid_application_manifest",
         "The bundled application declaration is not valid JSON.",
-        { cause }
+        {
+          cause,
+          details: {
+            issues: [{
+              path: "/",
+              keyword: "json",
+              message: "must be valid JSON",
+              params: {}
+            }]
+          }
+        }
       );
     }
   }

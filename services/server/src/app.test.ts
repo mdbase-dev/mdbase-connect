@@ -308,6 +308,16 @@ describe("mdbase connect server", () => {
         "dev.mdbase.tasks://auth/mdbase/callback"
       ],
       requirements: {
+        capabilities: {
+          contract_version: 1,
+          required: [
+            "collection.inspect",
+            "records.read",
+            "definitions.contracts.current",
+            "definitions.type-pack.apply"
+          ]
+        },
+        access: "full_collection",
         contracts: [{
           id: "example.work-item",
           version: "1.0.0",
@@ -334,6 +344,25 @@ describe("mdbase connect server", () => {
         )]
       }
     };
+
+    const validated = await app.inject({
+      method: "POST",
+      url: "/v1/apps/validate",
+      payload: { manifest }
+    });
+    expect(validated.statusCode).toBe(200);
+    expect(validated.json()).toMatchObject({
+      valid: true,
+      declaration: {
+        canonical_identity: expect.stringMatching(
+          /^bundle:dev\.mdbase\.tasks:sha256:[a-f0-9]{64}$/
+        ),
+        family_identity: "bundle:dev.mdbase.tasks",
+        manifest_digest: expect.stringMatching(/^[a-f0-9]{64}$/)
+      }
+    });
+    expect((await db.query("SELECT COUNT(*)::int AS count FROM applications")).rows[0])
+      .toEqual({ count: 0 });
 
     const first = await app.inject({
       method: "POST",
@@ -386,6 +415,10 @@ describe("mdbase connect server", () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json().error.code).toBe("invalid_application_manifest");
+    expect(response.json().error.details.issues[0]).toMatchObject({
+      path: "/redirect_uris/0",
+      keyword: "origin"
+    });
   });
 
   it("runs the discovery, consent, token, and offline operation path", async () => {

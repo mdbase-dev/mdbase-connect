@@ -46,7 +46,11 @@ import {
 export function registerErrorHandler(app: FastifyInstance): void {
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ApplicationManifestError) {
-      return reply.code(400).send(apiError("invalid_application_manifest", error.message));
+      return reply.code(400).send(apiError(
+        "invalid_application_manifest",
+        error.message,
+        { issues: error.issues }
+      ));
     }
     if (error instanceof ApplicationAuthorizationError) {
       return reply.code(400).send(apiError(

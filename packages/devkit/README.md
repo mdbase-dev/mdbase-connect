@@ -30,6 +30,17 @@ mdbase-connect-dev validate-manifest public/.well-known/mdbase-app.json --allow-
 mdbase-connect-dev validate-contract worklog-contract.json
 ```
 
+Manifest validation uses the same canonical JSON Schema, semantic checks,
+embedded-resource digest verification, and declaration-size bound as the
+matching Connect server. Run it against the generated artifact in application
+CI—not only against a handwritten source object. Failures include the exact
+JSON-pointer path and rule.
+
+Deployed applications can also submit `{ "manifest": ... }` to
+`POST /v1/apps/validate`. That endpoint performs the same validation without
+creating or updating an application registration, making it suitable for
+release smoke tests.
+
 Bundled application declarations support connector-controlled type-pack
 provisioning. Put the contract, its implementing types, and any referenced
 schemas in one `provisions.type_packs` transaction. Each manifest entry pins

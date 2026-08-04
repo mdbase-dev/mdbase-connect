@@ -184,7 +184,14 @@ export interface ConnectProblemDetailsByCode {
   "missing_operations": Array<string>;
 };
   "invalid_application_authorization": undefined;
-  "invalid_application_manifest": undefined;
+  "invalid_application_manifest": {
+  "issues": Array<{
+    "path": string;
+    "keyword": string;
+    "message": string;
+    "params": Record<string, unknown>;
+  }>;
+};
   "invalid_callback": undefined;
   "invalid_device_authorization_response": undefined;
   "invalid_encrypted_response": undefined;
@@ -506,7 +513,7 @@ export interface ConnectProblemByCode {
     code: "invalid_application_manifest";
     category: "validation";
     recovery: "fix_request";
-    details?: never;
+    details: ConnectProblemDetailsByCode["invalid_application_manifest"];
   };
   "invalid_callback": ConnectProblemBase & {
     code: "invalid_callback";
@@ -988,6 +995,40 @@ const CONNECT_PROBLEM_DETAIL_SCHEMAS: Readonly<Record<string, ConnectProblemDeta
         "type": "array",
         "items": {
           "type": "string"
+        }
+      }
+    }
+  },
+  "invalid_application_manifest": {
+    "type": "object",
+    "required": [
+      "issues"
+    ],
+    "properties": {
+      "issues": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "path",
+            "keyword",
+            "message",
+            "params"
+          ],
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "keyword": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "params": {
+              "type": "object"
+            }
+          }
         }
       }
     }

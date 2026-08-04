@@ -1,6 +1,6 @@
 {
   "name": "@mdbase-dev/connect-protocol",
-  "version": "0.1.0-beta.28",
+  "version": "0.1.0-beta.29",
   "private": false,
   "type": "module",
   "license": "MIT",
@@ -16,6 +16,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./manifest": {
+      "types": "./dist/manifest.d.ts",
+      "import": "./dist/manifest.js"
+    },
     "./schemas/*": "./schemas/*"
   },
   "files": [
@@ -27,9 +31,12 @@
     "test": "node --test test/*.test.mjs && node ../../scripts/generate-connect-problems.mjs --check",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
-  "devDependencies": {
+  "dependencies": {
     "ajv": "^8.20.0",
-    "ajv-formats": "^3.0.1",
+    "ajv-formats": "^3.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
     "typescript": "^7.0.2"
   }
 }

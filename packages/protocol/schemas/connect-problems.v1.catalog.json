@@ -167,7 +167,28 @@
       }
     },
     "invalid_application_authorization": { "category": "validation", "recovery": "fix_request" },
-    "invalid_application_manifest": { "category": "validation", "recovery": "fix_request" },
+    "invalid_application_manifest": {
+      "category": "validation",
+      "recovery": "fix_request",
+      "details": {
+        "required": ["issues"],
+        "properties": {
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["path", "keyword", "message", "params"],
+              "properties": {
+                "path": { "type": "string" },
+                "keyword": { "type": "string" },
+                "message": { "type": "string" },
+                "params": { "type": "object" }
+              }
+            }
+          }
+        }
+      }
+    },
     "invalid_callback": { "category": "validation", "recovery": "fix_request" },
     "invalid_device_authorization_response": { "category": "integrity", "recovery": "contact_support" },
     "invalid_encrypted_response": { "category": "integrity", "recovery": "contact_support" },

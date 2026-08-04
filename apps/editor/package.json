@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "pnpm manifest && vite --host 127.0.0.1",
-    "build": "pnpm manifest && tsc -b && vite build",
-    "build:e2e": "pnpm manifest && tsc -b && vite build --mode e2e",
+    "build": "pnpm manifest && pnpm manifest:validate && tsc -b && vite build",
+    "build:e2e": "pnpm manifest && pnpm manifest:validate && tsc -b && vite build --mode e2e",
     "check:bundle": "node scripts/check-bundle-size.mjs",
     "check:csp": "node scripts/check-csp.mjs",
     "typecheck": "tsc -b --pretty false",
@@ -14,7 +14,8 @@
     "test:e2e": "playwright test",
     "preview": "vite preview --host 127.0.0.1",
     "icons": "node scripts/write-phosphor-icon-names.mjs",
-    "manifest": "node scripts/write-manifest.mjs"
+    "manifest": "node scripts/write-manifest.mjs",
+    "manifest:validate": "mdbase-connect-dev validate-manifest public/.well-known/mdbase-app.json"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
@@ -45,6 +46,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
+    "@mdbase-dev/connect-dev": "workspace:*",
     "@playwright/test": "^1.61.1",
     "@testing-library/jest-dom": "7.0.0",
     "@testing-library/react": "^16.3.2",

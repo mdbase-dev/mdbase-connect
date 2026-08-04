@@ -16,23 +16,23 @@ import type {
   RecordDocument,
   TypePackProvision
 } from "@mdbase-dev/connect-protocol";
-import { isNativeRedirectUri } from "@mdbase-dev/connect-protocol";
-import appManifestSchema from "@mdbase-dev/connect-protocol/schemas/mdbase-app.schema.json" with { type: "json" };
+import {
+  formatManifestValidationIssues,
+  validateAppManifest,
+  type ManifestValidationIssue,
+  type ManifestValidationOptions,
+  type ManifestValidationResult
+} from "@mdbase-dev/connect-protocol/manifest";
 import connectProblemSchema from "@mdbase-dev/connect-protocol/schemas/connect-problem.v1.schema.json" with { type: "json" };
 import dataContractSchema from "@mdbase-dev/connect-protocol/schemas/data-contract.schema.json" with { type: "json" };
 import connectProtocolSchema from "@mdbase-dev/connect-protocol/schemas/connect-protocol.v1.schema.json" with { type: "json" };
 import filesSchema from "@mdbase-dev/connect-protocol/schemas/files.v1.schema.json" with { type: "json" };
 
-export interface ValidationIssue {
-  path: string;
-  keyword: string;
-  message: string;
-  params: Record<string, unknown>;
-}
-
-export type ValidationResult =
-  | { valid: true; issues: [] }
-  | { valid: false; issues: ValidationIssue[] };
+export type ValidationIssue = ManifestValidationIssue;
+export type ValidationResult = ManifestValidationResult;
+export type { ManifestValidationOptions };
+export { validateAppManifest };
+export const formatValidationIssues = formatManifestValidationIssues;
 
 const ajv = new Ajv2020({
   allErrors: true,
@@ -41,33 +41,12 @@ const ajv = new Ajv2020({
   strictRequired: false,
   formats: { "date-time": true, uri: true, uuid: true }
 });
-ajv.addSchema(appManifestSchema);
 ajv.addSchema(connectProblemSchema);
 ajv.addSchema(dataContractSchema);
 ajv.addSchema(filesSchema);
 ajv.addSchema(connectProtocolSchema);
 
-const appManifestValidator = requiredValidator(String(appManifestSchema.$id));
 const contractValidator = requiredValidator(String(dataContractSchema.$id));
-
-export interface ManifestValidationOptions {
-  /** Allow HTTP only for localhost/loopback developer manifests. */
-  allowLocal?: boolean;
-}
-
-export function validateAppManifest(
-  value: unknown,
-  options: ManifestValidationOptions = {}
-): ValidationResult {
-  const candidate = options.allowLocal ? localManifestSchemaCandidate(value) : value;
-  const schemaResult = validationResult(appManifestValidator, candidate);
-  if (!schemaResult.valid) return schemaResult;
-  const originResult = validateManifestOrigins(value, options.allowLocal === true);
-  if (!originResult.valid) return originResult;
-  const capabilityResult = validateCapabilityRequirements(value);
-  if (!capabilityResult.valid) return capabilityResult;
-  return validateProvisionRequirements(value);
-}
 
 export function validateDataContract(value: unknown): ValidationResult {
   return validationResult(contractValidator, value);
@@ -557,10 +536,6 @@ function sandboxFileMetadata<Frontmatter extends JsonObject>(
   };
 }
 
-export function formatValidationIssues(issues: ValidationIssue[]): string {
-  return issues.map((issue) => `${issue.path || "/"} ${issue.message}`).join("; ");
-}
-
 function requiredValidator(reference: string): ValidateFunction {
   const validate = ajv.getSchema(reference);
   if (!validate) throw new Error(`Canonical schema is unavailable: ${reference}`);
@@ -581,233 +556,6 @@ function validationIssue(error: ErrorObject): ValidationIssue {
     keyword: error.keyword,
     message: error.message ?? "is invalid",
     params: error.params as Record<string, unknown>
-  };
-}
-
-function validateManifestOrigins(value: unknown, allowLocal: boolean): ValidationResult {
-  const manifest = asObject(value);
-  try {
-    const homepage = new URL(String(manifest.homepage));
-    if (!secureOrAllowedLocal(homepage, allowLocal)) {
-      return semanticIssue("/homepage", "must use HTTPS (or loopback HTTP in local mode)");
-    }
-    for (const [index, redirect] of (manifest.redirect_uris as unknown[]).entries()) {
-      const url = new URL(String(redirect));
-      if (url.origin === homepage.origin && !secureOrAllowedLocal(url, allowLocal)) {
-        return semanticIssue(`/redirect_uris/${index}`, "must use HTTPS (or loopback HTTP in local mode)");
-      }
-      const nativeAllowed = nativeRedirectMatchesApplication(url, String(manifest.id));
-      if (url.origin !== homepage.origin && !nativeAllowed) {
-        return semanticIssue(
-          `/redirect_uris/${index}`,
-          "must use the homepage origin or a private-use scheme matching the application ID"
-        );
-      }
-    }
-    if (manifest.icon !== undefined && new URL(String(manifest.icon)).origin !== homepage.origin) {
-      return semanticIssue("/icon", "must use the homepage origin");
-    }
-    return { valid: true, issues: [] };
-  } catch {
-    return semanticIssue("/", "contains an invalid URL");
-  }
-}
-
-function nativeRedirectMatchesApplication(url: URL, applicationId: string): boolean {
-  const scheme = url.protocol.slice(0, -1);
-  return isNativeRedirectUri(url)
-    && (scheme === applicationId || scheme.startsWith(`${applicationId}.`));
-}
-
-function validateProvisionRequirements(value: unknown): ValidationResult {
-  const manifest = asObject(value);
-  const requirements = asObject(manifest.requirements);
-  const requiredContracts = Array.isArray(requirements.contracts) ? requirements.contracts : [];
-  const required = new Set(requiredContracts.map((contract) => {
-    const value = asObject(contract);
-    return `${value.id}@${value.version}`;
-  }));
-  const provisions = asObject(manifest.provisions);
-  const packs = Array.isArray(provisions.type_packs)
-    ? provisions.type_packs
-    : [];
-  for (const [packIndex, provisionValue] of packs.entries()) {
-    const provision = asObject(provisionValue);
-    const providedContracts = Array.isArray(provision.provides)
-      ? provision.provides
-      : [];
-    for (const providedValue of providedContracts) {
-      const provided = asObject(providedValue);
-      if (!required.has(`${provided.id}@${provided.version}`)) {
-        return semanticIssue(
-          `/provisions/type_packs/${packIndex}/provides`,
-          "may only contain contracts required by the application"
-        );
-      }
-    }
-    const manifest = asObject(provision.manifest);
-    const declaredResources = Array.isArray(manifest.resources)
-      ? manifest.resources.map(asObject)
-      : [];
-    const embeddedResources = Array.isArray(provision.resources)
-      ? provision.resources.map(asObject)
-      : [];
-    const embedded = new Map(
-      embeddedResources.map((resource) => [
-        String(resource.source),
-        resource.document
-      ])
-    );
-    if (
-      embedded.size !== embeddedResources.length
-      || declaredResources.length !== embeddedResources.length
-    ) {
-      return semanticIssue(
-        `/provisions/type_packs/${packIndex}/resources`,
-        "must match manifest source paths exactly"
-      );
-    }
-    for (const [resourceIndex, resource] of declaredResources.entries()) {
-      const source = String(resource.source);
-      const document = embedded.get(source);
-      if (typeof document !== "string") {
-        return semanticIssue(
-          `/provisions/type_packs/${packIndex}/resources`,
-          `is missing manifest source ${source}`
-        );
-      }
-      const digest =
-        `sha256:${createHash("sha256").update(document).digest("hex")}`;
-      if (digest !== resource.digest) {
-        return semanticIssue(
-          `/provisions/type_packs/${packIndex}/manifest/resources/${resourceIndex}/digest`,
-          "does not match the embedded document"
-        );
-      }
-    }
-  }
-  return { valid: true, issues: [] };
-}
-
-function validateCapabilityRequirements(value: unknown): ValidationResult {
-  const manifest = asObject(value);
-  const requirements = asObject(manifest.requirements);
-  const capabilities = asObject(requirements.capabilities);
-  if (Object.keys(capabilities).length === 0) return { valid: true, issues: [] };
-  const required = Array.isArray(capabilities.required)
-    ? capabilities.required.map(String)
-    : [];
-  const optional = Array.isArray(capabilities.optional)
-    ? capabilities.optional.map(String)
-    : [];
-  if (new Set(required).size !== required.length) {
-    return semanticIssue("/requirements/capabilities/required", "must not contain duplicates");
-  }
-  if (new Set(optional).size !== optional.length) {
-    return semanticIssue("/requirements/capabilities/optional", "must not contain duplicates");
-  }
-  const overlap = optional.find((capability) => required.includes(capability));
-  if (overlap) {
-    return semanticIssue(
-      "/requirements/capabilities/optional",
-      `must not repeat required capability ${overlap}`
-    );
-  }
-  const declared = new Set([...required, ...optional]);
-  const provisions = asObject(manifest.provisions);
-  if (
-    Array.isArray(requirements.contracts)
-    && requirements.contracts.length > 0
-    && requirements.access !== "full_collection"
-    && !required.includes("definitions.contracts.current")
-  ) {
-    return semanticIssue(
-      "/requirements/capabilities/required",
-      "must require definitions.contracts.current for contract-scoped requirements"
-    );
-  }
-  if (declared.has("definitions.type-pack.apply")) {
-    if (requirements.access !== "full_collection") {
-      return semanticIssue(
-        "/requirements/access",
-        "must be full_collection for definitions.type-pack.apply"
-      );
-    }
-    if (!required.includes("definitions.type-pack.apply")) {
-      return semanticIssue(
-        "/requirements/capabilities/required",
-        "must require definitions.type-pack.apply when it is declared"
-      );
-    }
-    if (!Array.isArray(provisions.type_packs) || provisions.type_packs.length === 0) {
-      return semanticIssue(
-        "/provisions/type_packs",
-        "must contain a pack for definitions.type-pack.apply"
-      );
-    }
-  }
-  if (
-    declared.has("notifications.background-delivery")
-    && !Array.isArray(asObject(manifest.notifications).criteria)
-  ) {
-    return semanticIssue(
-      "/notifications/criteria",
-      "must be declared for notifications.background-delivery"
-    );
-  }
-  const fileRequirement = asObject(requirements.files);
-  const fileActions = Array.isArray(fileRequirement.actions)
-    ? new Set(fileRequirement.actions.map(String))
-    : new Set<string>();
-  for (const action of ["list", "read", "add", "replace", "move", "delete"]) {
-    const capability = `files.${action}`;
-    if (declared.has(capability) !== fileActions.has(action)) {
-      return semanticIssue(
-        "/requirements/capabilities",
-        `${capability} and requirements.files.actions.${action} must be declared together`
-      );
-    }
-  }
-  return { valid: true, issues: [] };
-}
-
-function localManifestSchemaCandidate(value: unknown): unknown {
-  const candidate = clone(value);
-  const object = asObject(candidate);
-  for (const field of ["homepage", "icon"] as const) {
-    if (typeof object[field] === "string") object[field] = schemaSafeLocalUrl(object[field]);
-  }
-  if (Array.isArray(object.redirect_uris)) {
-    object.redirect_uris = object.redirect_uris.map((url) =>
-      typeof url === "string" ? schemaSafeLocalUrl(url) : url
-    );
-  }
-  return candidate;
-}
-
-function schemaSafeLocalUrl(value: string): string {
-  try {
-    const url = new URL(value);
-    if (url.protocol === "http:" && isLoopback(url.hostname)) url.protocol = "https:";
-    return url.href;
-  } catch {
-    return value;
-  }
-}
-
-function secureOrAllowedLocal(url: URL, allowLocal: boolean): boolean {
-  return url.protocol === "https:"
-    || (allowLocal && url.protocol === "http:" && isLoopback(url.hostname));
-}
-
-function isLoopback(hostname: string): boolean {
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]" || hostname === "::1";
-}
-
-function semanticIssue(path: string, message: string): ValidationResult {
-  return {
-    valid: false,
-    issues: [{ path, keyword: "semantic", message, params: {} }]
   };
 }
 

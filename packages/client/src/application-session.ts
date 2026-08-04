@@ -139,7 +139,17 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     if (!capabilities) {
       return connectFailure(connectProblem(
         "invalid_application_manifest",
-        "Application sessions require a versioned semantic capability contract."
+        "Application sessions require a versioned semantic capability contract.",
+        {
+          details: {
+            issues: [{
+              path: "/requirements/capabilities",
+              keyword: "required",
+              message: "is required for application sessions",
+              params: {}
+            }]
+          }
+        }
       ));
     }
     this.manifest = manifest.value;
@@ -220,7 +230,20 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     if (capabilities.some((capability) => !declared.has(capability))) {
       return Promise.resolve(connectFailure(connectProblem(
         "invalid_application_manifest",
-        "Applications may only request capabilities declared in their manifest."
+        "Applications may only request capabilities declared in their manifest.",
+        {
+          details: {
+            issues: [{
+              path: "/requirements/capabilities",
+              keyword: "undeclaredCapability",
+              message: "must declare every capability requested by the application",
+              params: {
+                requested: capabilities,
+                declared: [...declared]
+              }
+            }]
+          }
+        }
       )));
     }
     return this.requireBase().ensureOperations(operationsForIds(capabilities));

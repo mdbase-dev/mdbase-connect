@@ -56,6 +56,10 @@ describe("portable application manifests", () => {
       name: "Asset Browser",
       requirements: {
         contracts: [],
+        capabilities: {
+          contract_version: 1,
+          required: ["collection.inspect", "files.list", "files.read"]
+        },
         files: {
           actions: ["list", "read"],
           scope: { kind: "selected_folders", folders: ["Assets", "Exports/Final"] }
@@ -137,7 +141,7 @@ describe("portable application manifests", () => {
       ...base,
       project_url: "https://workouts.example/source",
       icon: "https://tracking.example/icon.svg"
-    })).toThrow("Portable application icons must use the project URL origin.");
+    })).toThrow("/icon must use the project_url origin");
     expect(registerApplicationManifest({
       ...base,
       requirements: {
@@ -145,5 +149,45 @@ describe("portable application manifests", () => {
         collection_kind: "hosted"
       }
     }).manifest.requirements.collection_kind).toBe("hosted");
+  });
+
+  it("reports the exact missing type-pack ownership path", () => {
+    const document = "---\nkind: mdbase.type\nname: scratch\nversion: 1\n---\n";
+    const invalid = {
+      manifest_version: 1,
+      distribution: "portable",
+      id: "dev.mdbase.scratch",
+      name: "Scratch",
+      provisions: {
+        type_packs: [{
+          manifest: {
+            kind: "mdbase.type-pack",
+            id: "dev.mdbase.scratch",
+            version: "1.0.0",
+            resources: [{
+              kind: "type",
+              source: "types/scratch.md",
+              target: "_types/scratch.md",
+              digest: canonicalSha256(document)
+            }]
+          },
+          resources: [{ source: "types/scratch.md", document }],
+          provides: []
+        }]
+      }
+    };
+
+    expect(() => registerApplicationManifest(invalid)).toThrow(
+      "/provisions/type_packs/0/manifest/resources/0/mode is required"
+    );
+    try {
+      registerApplicationManifest(invalid);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApplicationManifestError);
+      expect((error as ApplicationManifestError).issues[0]).toMatchObject({
+        path: "/provisions/type_packs/0/manifest/resources/0/mode",
+        keyword: "required"
+      });
+    }
   });
 });

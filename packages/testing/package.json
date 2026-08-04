@@ -1,6 +1,6 @@
 {
   "name": "@mdbase-dev/connect-testing",
-  "version": "0.1.0-beta.28",
+  "version": "0.1.0-beta.29",
   "private": false,
   "type": "module",
   "license": "MIT",
@@ -16,7 +16,10 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "dependencies": {
     "@mdbase-dev/connect-protocol": "workspace:*"
   },
