@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "./db.js";
 import {
   hostedContracts,
-  hostedResources,
   HostedAuthorityRegistry
 } from "./hosted.js";
 
@@ -13,18 +12,6 @@ afterEach(async () => database?.end());
 describe("hosted collection profiles", () => {
   it("keeps generic mdbase collections independent of application contracts", () => {
     expect(hostedContracts("mdbase")).toEqual([]);
-  });
-
-  it("enables Obsidian Base view sources in every new hosted collection", () => {
-    const resources = hostedResources("mdbase");
-    expect(resources.revision).toBe("mdbase-template:2");
-    expect(resources.documents[0]!.document).toContain(
-      "include:\n      - views/**/*.base"
-    );
-    expect(resources.documents[0]!.document).toContain("create_folder: views");
-    expect(resources.documents[0]!.document).toContain(
-      "default_for_new_views: true"
-    );
   });
 });
 

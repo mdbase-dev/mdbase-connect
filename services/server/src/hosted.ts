@@ -445,19 +445,10 @@ export function typesForContracts(
 }
 
 export function mdbaseResources(): SyncCollectionResources {
-  const configuration = `spec_version: 0.3.0
-settings:
-  types_folder: _types
-  default_validation: error
-x-obsidian:
-  bases:
-    include:
-      - views/**/*.base
-    create_folder: views
-    default_for_new_views: true
-`;
+  const configuration =
+    "spec_version: 0.3.0\nsettings:\n  types_folder: _types\n  default_validation: error\n";
   return {
-    revision: "mdbase-template:2",
+    revision: "mdbase-template:1",
     spec_version: "0.3.0",
     types: [],
     contracts: [],
