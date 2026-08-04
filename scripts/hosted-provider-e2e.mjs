@@ -25,6 +25,10 @@ import {
 import { availableTcpPort, delay } from "./lib/test-runtime.mjs";
 import { portableHostedFileE2E } from "./system/provider/portable-hosted-file.mjs";
 import { portalLifecycleE2E } from "./system/provider/portal-lifecycle.mjs";
+import {
+  verifyControlPlaneDatabaseBounds,
+  verifyHostedProviderDatabaseBounds
+} from "./lib/database-bounds.mjs";
 
 process.env.NODE_ENV = "test";
 const execute = promisify(execFile);
@@ -116,6 +120,10 @@ const { HostedProviderClient } = await import("../services/server/dist/hosted-pr
 try {
   phase("starting disposable PostgreSQL 18");
   const databaseUrl = await startPostgres();
+  phase("proving control-plane PostgreSQL wait bounds");
+  await verifyControlPlaneDatabaseBounds(databaseUrl);
+  phase("proving hosted-provider PostgreSQL wait bounds");
+  await verifyHostedProviderDatabaseBounds(databaseUrl, repoRoot);
   phase("starting disposable S3-compatible object storage");
   objectStoreEndpoint = await startObjectStore();
   let provider = await startProvider(databaseUrl);
