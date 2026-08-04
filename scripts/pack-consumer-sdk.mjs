@@ -6,12 +6,13 @@ import { spawnSync } from "node:child_process";
 
 const packageDirectories = new Map([
   ["connect", "packages/client"],
+  ["devkit", "packages/devkit"],
   ["protocol", "packages/protocol"],
   ["sync", "packages/sync"],
   ["pickle", "packages/pickle"],
   ["testing", "packages/testing"],
 ]);
-const defaultPackages = ["connect", "protocol", "sync", "testing"];
+const defaultPackages = ["connect", "devkit", "protocol", "sync", "testing"];
 
 const options = parseArguments(process.argv.slice(2));
 const destination = resolve(options.destination);
@@ -84,7 +85,7 @@ function parseArguments(arguments_) {
   const destinationIndex = arguments_.indexOf("--destination");
   if (destinationIndex === -1 || !arguments_[destinationIndex + 1]) {
     throw new Error(
-      "Usage: node scripts/pack-consumer-sdk.mjs --destination <vendor-directory> [--packages connect,protocol,sync,pickle,testing]",
+      "Usage: node scripts/pack-consumer-sdk.mjs --destination <vendor-directory> [--packages connect,devkit,protocol,sync,pickle,testing]",
     );
   }
   const packagesIndex = arguments_.indexOf("--packages");
