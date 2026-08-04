@@ -1595,7 +1595,7 @@ class CancellableRenameGateway extends DemoCollectionGateway {
       await new Promise<void>((_resolve, reject) => options.signal?.addEventListener("abort", () => reject(new ConnectOutcomeError(connectProblem(
         "operation_outcome_unknown",
         "Waiting was cancelled after the mutation was sent. Resume the pending mutation to recover its authoritative result.",
-        { operationOutcome: "unknown" }
+        { operationOutcome: "unknown", details: { request_id: "rename-request" } }
       ))), { once: true }));
     }
     return super.rename(from, to, revision, updateRefs, options);

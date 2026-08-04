@@ -1030,7 +1030,8 @@ describe("actionable SDK errors", () => {
       recovery: "refresh"
     });
     expect(connectError("operation_outcome_unknown", "Check the write.", {
-      operationOutcome: "unknown"
+      operationOutcome: "unknown",
+      details: { request_id: "request-unknown" }
     })).toMatchObject({
       retryable: false,
       outcomeUnknown: true,
