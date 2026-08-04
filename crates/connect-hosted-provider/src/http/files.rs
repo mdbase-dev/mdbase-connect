@@ -90,10 +90,18 @@ async fn open_file_upload(
         authorize_file_request(&state, &headers, Method::POST, &uri, collection_id, &body).await?;
     let origin = request_origin(&headers);
     let request = file_json::<OpenFileUploadRequest>(&body)?;
+    let journal_request = request.clone();
+    let provider = &state.provider;
     Ok(Json(
-        state
-            .provider
-            .open_file_upload(collection_id, token, request, origin)
+        provider
+            .run_file_control_mutation(
+                collection_id,
+                token,
+                "open_file_upload",
+                request.transfer_id,
+                &journal_request,
+                || provider.open_file_upload(collection_id, token, request, origin),
+            )
             .await?,
     ))
 }
@@ -130,10 +138,18 @@ async fn commit_file_upload(
     let origin = request_origin(&headers);
     let request = file_json::<CommitFileUploadRequest>(&body)?;
     require_matching_transfer(transfer_id, request.transfer_id)?;
+    let journal_request = request.clone();
+    let provider = &state.provider;
     Ok(Json(
-        state
-            .provider
-            .commit_file_upload(collection_id, token, request, origin)
+        provider
+            .run_file_control_mutation(
+                collection_id,
+                token,
+                "commit_file_upload",
+                transfer_id,
+                &journal_request,
+                || provider.commit_file_upload(collection_id, token, request, origin),
+            )
             .await?,
     ))
 }
@@ -246,18 +262,22 @@ async fn abort_file_transfer(
         .provider
         .authorize_request(collection_id, token, origin, proof.as_ref())
         .await?;
+    let request = AbortFileTransferRequest {
+        protocol_version: mdbase_connect_protocol::FILE_PROTOCOL_VERSION,
+        message_type: AbortFileTransferRequestKind::AbortFileTransfer,
+        transfer_id,
+    };
+    let journal_request = request.clone();
+    let provider = &state.provider;
     Ok(Json(
-        state
-            .provider
-            .abort_file_transfer(
+        provider
+            .run_file_control_mutation(
                 collection_id,
                 token,
-                AbortFileTransferRequest {
-                    protocol_version: mdbase_connect_protocol::FILE_PROTOCOL_VERSION,
-                    message_type: AbortFileTransferRequestKind::AbortFileTransfer,
-                    transfer_id,
-                },
-                origin,
+                "abort_file_transfer",
+                transfer_id,
+                &journal_request,
+                || provider.abort_file_transfer(collection_id, token, request, origin),
             )
             .await?,
     ))
@@ -275,10 +295,18 @@ async fn move_file(
     let origin = request_origin(&headers);
     let request = file_json::<MoveFileRequest>(&body)?;
     require_matching_file(file_id, request.file_id)?;
+    let journal_request = request.clone();
+    let provider = &state.provider;
     Ok(Json(
-        state
-            .provider
-            .move_file(collection_id, token, request, origin)
+        provider
+            .run_file_control_mutation(
+                collection_id,
+                token,
+                "move_file",
+                request.mutation_id,
+                &journal_request,
+                || provider.move_file(collection_id, token, request, origin),
+            )
             .await?,
     ))
 }
@@ -295,10 +323,18 @@ async fn delete_file(
     let origin = request_origin(&headers);
     let request = file_json::<DeleteFileRequest>(&body)?;
     require_matching_file(file_id, request.file_id)?;
+    let journal_request = request.clone();
+    let provider = &state.provider;
     Ok(Json(
-        state
-            .provider
-            .delete_file(collection_id, token, request, origin)
+        provider
+            .run_file_control_mutation(
+                collection_id,
+                token,
+                "delete_file",
+                request.mutation_id,
+                &journal_request,
+                || provider.delete_file(collection_id, token, request, origin),
+            )
             .await?,
     ))
 }

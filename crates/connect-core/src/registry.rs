@@ -1,13 +1,15 @@
 use directories::ProjectDirs;
 use mdbase::runtime::FilesystemProvider;
 use mdbase::{Collection, SpecProfile};
+use mdbase_connect_protocol::is_mutating_operation;
 use mdbase_connect_protocol::{
-    ActivityEntry, ApplicationRequirements, ApplyTypePackInput, AssessTypePackInput,
-    AuthoritySnapshot, CollectionChange, CollectionChangesPage, CollectionContractDescriptor,
-    CollectionDescription, CollectionSummary, CollectionTypeDescriptor, ContractRequirement,
-    ContractSetupChoice, ContractSetupMode, EncryptedRelayEnvelope, GrantPolicy, GrantScope,
-    GrantSummary, SyncCollectionResources, SyncMutation, SyncMutationReceipt, SyncResourceDocument,
-    TypePackProvision, CONTROL_PROTOCOL_VERSION,
+    ActivityEntry, ApplicationAuthorizationProof, ApplicationRequirements, ApplyTypePackInput,
+    AssessTypePackInput, AuthoritySnapshot, CollectionChange, CollectionChangesPage,
+    CollectionContractDescriptor, CollectionDescription, CollectionSummary,
+    CollectionTypeDescriptor, ContractRequirement, ContractSetupChoice, ContractSetupMode,
+    EncryptedRelayEnvelope, GrantPolicy, GrantScope, GrantSummary, SyncCollectionResources,
+    SyncMutation, SyncMutationReceipt, SyncResourceDocument, TypePackProvision,
+    CONTROL_PROTOCOL_VERSION,
 };
 use mdbase_connect_runtime::contract_scope::{ContractScope, ContractScopeError};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
@@ -38,6 +40,8 @@ mod file_transfers;
 mod files;
 mod grants;
 mod identity;
+mod migrations;
+mod mutation_journal;
 mod operation_execution;
 mod operations;
 mod scope;
@@ -49,9 +53,13 @@ use identity::{
     remove_mirror_marker, set_collection_identity, write_collection_id, write_mirror_marker,
 };
 pub use identity::{collection_identity, mirror_collection_id};
+pub use migrations::{RegistryBackupDiagnostic, RegistryBackupMetadata, RegistryDiagnostics};
+pub use mutation_journal::{
+    MutationClaim, MutationClaimRequest, MutationJournalDiagnostics, MutationJournalState,
+    MutationLease, MutationRecoveryData,
+};
 use operation_execution::{
-    error_message, execute_loaded, has_contract, is_collection_mutation, operation_invalidation,
-    supported_operations,
+    error_message, execute_loaded, has_contract, operation_invalidation, supported_operations,
 };
 use scope::{
     change_is_in_scope, contract_scope_error, ensure_no_new_out_of_scope_types,
@@ -110,6 +118,31 @@ pub enum ConnectError {
     AuthorityTransferMismatch,
     #[error("Local registry error: {0}")]
     Registry(#[from] rusqlite::Error),
+    #[error("The local registry at {path} is corrupt: {detail}. The file was preserved; restore a verified backup or export diagnostics before repair.")]
+    RegistryCorrupt { path: PathBuf, detail: String },
+    #[error("The local registry at {path} uses unsupported schema version {found} (this build supports through {supported}): {detail}")]
+    RegistrySchemaIncompatible {
+        path: PathBuf,
+        found: u32,
+        supported: u32,
+        detail: String,
+    },
+    #[error("The local registry at {path} is busy; stop the other connector process and retry")]
+    RegistryBusy { path: PathBuf },
+    #[error("Registry migration {version} failed for {path}: {detail}")]
+    RegistryMigration {
+        path: PathBuf,
+        version: u32,
+        detail: String,
+    },
+    #[error("Registry backup {path} is invalid: {detail}")]
+    RegistryBackupInvalid { path: PathBuf, detail: String },
+    #[error("Mutation request {request_id} was already bound to different input")]
+    MutationRequestConflict { request_id: Uuid },
+    #[error("Mutation request {request_id} is outside the supported recovery horizon")]
+    MutationRecoveryExpired { request_id: Uuid },
+    #[error("Mutation request {request_id} lost its fenced journal lease")]
+    MutationFenceLost { request_id: Uuid },
     #[error("Filesystem error: {0}")]
     Io(#[from] std::io::Error),
     #[error("Configuration error: {0}")]
@@ -156,6 +189,14 @@ impl ConnectError {
             Self::AuthorityRetired => "authority_retired",
             Self::AuthorityTransferMismatch => "authority_transfer_mismatch",
             Self::Registry(_) => "registry_failed",
+            Self::RegistryCorrupt { .. } => "registry_corrupt",
+            Self::RegistrySchemaIncompatible { .. } => "registry_schema_incompatible",
+            Self::RegistryBusy { .. } => "registry_busy",
+            Self::RegistryMigration { .. } => "registry_migration_failed",
+            Self::RegistryBackupInvalid { .. } => "registry_backup_invalid",
+            Self::MutationRequestConflict { .. } => "mutation_request_conflict",
+            Self::MutationRecoveryExpired { .. } => "mutation_recovery_expired",
+            Self::MutationFenceLost { .. } => "pending_mutation_unresolved",
             Self::Io(_) => "io_failed",
             Self::Config(_) => "invalid_config",
             Self::Settings(_) => "invalid_config",
@@ -276,9 +317,18 @@ pub(crate) fn ensure_private_state_dir(state_dir: &Path) -> Result<(), ConnectEr
 #[derive(Debug, Clone)]
 pub struct CollectionRegistry {
     db_path: PathBuf,
+    process_epoch: Uuid,
     providers: Arc<Mutex<HashMap<Uuid, Arc<FilesystemProvider>>>>,
     file_reconciles: Arc<Mutex<HashMap<Uuid, Arc<Mutex<()>>>>>,
     encrypted_request_writes: Arc<Mutex<()>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct GrantReplayContext {
+    pub grant: GrantSummary,
+    pub revoked: bool,
+    pub application_installation_id: Uuid,
+    pub grant_snapshot_digest: String,
 }
 
 /// Filesystem state that must be synchronized after a successful operation.

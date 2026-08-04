@@ -6,6 +6,7 @@ import type {
   GrantSummary,
   TypePackProvision
 } from "@mdbase-dev/connect-protocol";
+import { HOSTED_PROVIDER_REQUIRED_CAPABILITIES } from "@mdbase-dev/connect-protocol";
 import { hostedReplicaCollectionOperations } from "./hosted-replica-policy.js";
 import { safeEqual } from "./security.js";
 
@@ -115,7 +116,22 @@ export class HostedProviderClient {
   }
 
   async ready(): Promise<void> {
-    await this.request("GET", "/ready", undefined, false);
+    const result = await this.request("GET", "/ready", undefined, false) as {
+      status?: unknown;
+      provider?: { version?: unknown; capabilities?: unknown };
+    } | undefined;
+    const capabilities = result?.provider?.capabilities;
+    if (result?.status !== "ready"
+        || typeof result.provider?.version !== "string"
+        || !Array.isArray(capabilities)
+        || !capabilities.every((capability) => typeof capability === "string")
+        || !HOSTED_PROVIDER_REQUIRED_CAPABILITIES.every(
+          (required) => capabilities.includes(required)
+        )) {
+      throw new HostedProviderUnavailableError(
+        new Error("Hosted provider capability report is incompatible.")
+      );
+    }
   }
 
   authorizesInternalToken(candidate: string | null): boolean {

@@ -101,10 +101,10 @@ enum AdminError {
 }
 
 impl AdminError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             Self::Environment(_) => "environment_configuration_error",
-            Self::Provider(error) => error.code,
+            Self::Provider(error) => &error.code,
             Self::Serialization(_) => "serialization_error",
         }
     }

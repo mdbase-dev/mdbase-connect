@@ -175,6 +175,7 @@ impl HostedProvider {
     /// Replicas behind the retained cursor deliberately use the ordinary
     /// snapshot-reset path on their next pull.
     pub async fn compact_stale_history(&self, retain_changes: u64) -> ApiResult<usize> {
+        self.compact_operation_mutations().await?;
         let rows = sqlx::query(
             r#"SELECT id, head
                FROM hosted_provider_collections

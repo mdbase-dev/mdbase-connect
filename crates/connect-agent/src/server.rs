@@ -5,11 +5,14 @@ use crate::watcher::CollectionWatchService;
 use mdbase_connect_core::{
     configure_cloud, disconnect_cloud, encrypted_request_fingerprint, load_cloud_configuration,
     CloudConfiguration, CollectionRegistry, ConnectError, EncryptedRequestClaim, LocalReplica,
+    MutationClaim, MutationClaimRequest, MutationJournalState, MutationLease,
 };
 use mdbase_connect_protocol::crypto::{
-    parse_counter, validate_envelope, RelayBinding, RelayDirection, RelayIdentity, RelayMetadata,
+    parse_counter, validate_envelope, RelayBinding, RelayDirection, RelayIdentity, RelayKeys,
+    RelayMetadata,
 };
 use mdbase_connect_protocol::{
+    mutation_fingerprint, mutation_operation_identifier, operation_input_schema_version,
     AgentConnectionState, AgentStatus, ApplicationAccess, AuthorityTarget,
     AuthorizationCollectionOffer, AuthorizationCollectionTypes, ConnectOperationOutcome,
     ConnectProblem, ContractSetupChoice, ControlCommand, ControlError, ControlRequest,
@@ -151,11 +154,11 @@ impl AgentState {
 
     pub fn origin_allowed(&self, origin: &str) -> bool {
         !origin.is_empty()
-            && self.registry.list_grants().is_ok_and(|grants| {
+            && (self.registry.list_grants().is_ok_and(|grants| {
                 grants
                     .iter()
                     .any(|grant| grant.application_origin == origin && grant.encryption.is_some())
-            })
+            }) || self.registry.replay_origin_allowed(origin).unwrap_or(false))
     }
 }
 

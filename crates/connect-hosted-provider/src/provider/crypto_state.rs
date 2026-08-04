@@ -101,27 +101,6 @@ pub(super) fn mutation_hash(mutation: &SyncMutation) -> ApiResult<Vec<u8>> {
     Ok(Sha256::digest(bytes).to_vec())
 }
 
-pub(super) fn operation_request_hash(operation: &str, input: &Value) -> ApiResult<Vec<u8>> {
-    let bytes = serde_jcs::to_vec(&json!({
-        "operation": operation,
-        "input": input,
-    }))
-    .map_err(|error| {
-        ApiError::internal(format!(
-            "Hosted operation request could not serialize: {error}"
-        ))
-    })?;
-    Ok(Sha256::digest(bytes).to_vec())
-}
-
-pub(super) fn operation_prepared_aad(replica_id: Uuid, request_id: Uuid) -> Vec<u8> {
-    format!("hosted-provider/operation-prepared/v1/{replica_id}/{request_id}").into_bytes()
-}
-
-pub(super) fn operation_response_aad(replica_id: Uuid, request_id: Uuid) -> Vec<u8> {
-    format!("hosted-provider/operation-response/v1/{replica_id}/{request_id}").into_bytes()
-}
-
 pub(super) fn number(value: i64, name: &'static str) -> ApiResult<u64> {
     value
         .try_into()

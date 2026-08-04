@@ -57,6 +57,8 @@ mod file_policy;
 mod files;
 mod lifecycle;
 mod lifecycle_states;
+mod mutation_journal;
+pub use mutation_journal::HostedMutationJournalDiagnostics;
 mod mutations;
 mod operation_context;
 mod operation_dispatch;
@@ -160,6 +162,7 @@ impl Default for ProviderLimits {
 #[derive(Clone)]
 pub struct HostedProvider {
     pool: PgPool,
+    process_epoch: Uuid,
     crypto: ProviderCrypto,
     key_readiness: Arc<Mutex<KeyReadinessState>>,
     limits: ProviderLimits,
@@ -351,11 +354,6 @@ struct PreparedRecordOperation {
     mutation: SyncMutation,
     previous_path: Option<String>,
     include_document: bool,
-}
-
-enum StoredRecordOperation {
-    Prepared(PreparedRecordOperation),
-    Completed(Value),
 }
 
 struct CachedCollection {

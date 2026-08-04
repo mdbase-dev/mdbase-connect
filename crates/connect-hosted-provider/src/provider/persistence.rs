@@ -64,30 +64,6 @@ pub(super) async fn authenticate_in(
     replica_from_row(row)
 }
 
-pub(super) async fn authenticate_in_for_sync(
-    transaction: &mut Transaction<'_, Postgres>,
-    collection_id: Uuid,
-    token: &str,
-    required_operation: &str,
-    request_origin: Option<&str>,
-) -> ApiResult<Replica> {
-    let row = sqlx::query(
-        r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations, file_capability,
-                  allowed_origin, proof_public_key, grant_id, scope_epoch
-           FROM hosted_provider_replicas
-           WHERE collection_id = $1 AND token_hash = $2
-             AND revoked_at IS NULL AND token_expires_at > now()
-           FOR SHARE"#,
-    )
-    .bind(collection_id)
-    .bind(token_hash(token))
-    .fetch_optional(&mut **transaction)
-    .await?;
-    let replica = replica_from_row(row)?;
-    authorize_sync_access(&replica, required_operation, request_origin)?;
-    Ok(replica)
-}
-
 pub(super) fn replica_from_row(row: Option<sqlx::postgres::PgRow>) -> ApiResult<Replica> {
     let row = row.ok_or_else(|| {
         ApiError::unauthorized(
@@ -317,11 +293,18 @@ pub(super) async fn persist_deleted_record(
     Ok(())
 }
 
+pub(super) struct SyncJournalContext<'a> {
+    pub(super) provider: &'a HostedProvider,
+    pub(super) lease: &'a mutation_journal::HostedMutationLease,
+    pub(super) public_result: bool,
+}
+
 pub(super) async fn store_rejection(
     mut transaction: Transaction<'_, Postgres>,
     crypto: &ProviderCrypto,
     data_key: &[u8; 32],
     mutation: &SyncMutation,
+    journal: &SyncJournalContext<'_>,
     code: &str,
     message: &str,
 ) -> ApiResult<SyncMutationReceipt> {
@@ -338,6 +321,7 @@ pub(super) async fn store_rejection(
         data_key,
         mutation.replica_id,
         mutation,
+        journal,
         &receipt,
     )
     .await?;
@@ -351,22 +335,18 @@ pub(super) async fn store_receipt(
     data_key: &[u8; 32],
     replica_id: Uuid,
     mutation: &SyncMutation,
+    journal: &SyncJournalContext<'_>,
     receipt: &SyncMutationReceipt,
 ) -> ApiResult<()> {
-    sqlx::query(
-        r#"INSERT INTO hosted_provider_mutation_receipts
-             (replica_id, mutation_id, mutation_hash, receipt_ciphertext)
-           VALUES ($1, $2, $3, $4)"#,
-    )
-    .bind(replica_id)
-    .bind(mutation.mutation_id)
-    .bind(mutation_hash(mutation)?)
-    .bind(crypto.encrypt_json(
-        data_key,
-        receipt,
-        &receipt_aad(replica_id, mutation.mutation_id),
-    )?)
-    .execute(&mut **transaction)
-    .await?;
-    Ok(())
+    let _ = (crypto, replica_id, mutation);
+    journal
+        .provider
+        .store_sync_effect_in(
+            transaction,
+            data_key,
+            journal.lease,
+            receipt,
+            journal.public_result,
+        )
+        .await
 }

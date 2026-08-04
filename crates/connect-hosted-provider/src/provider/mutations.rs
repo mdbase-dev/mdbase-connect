@@ -1,3 +1,4 @@
+use super::mutation_journal::{HostedMutationClaim, HostedMutationLease};
 use super::*;
 
 impl HostedProvider {
@@ -19,18 +20,57 @@ impl HostedProvider {
         mutation: SyncMutation,
         request_origin: Option<&str>,
     ) -> ApiResult<SyncMutationReceipt> {
-        let mut transaction = self.pool.begin().await?;
         let required_operation = mutation_operation_name(mutation.operation);
-        let replica = authenticate_in_for_sync(
-            &mut transaction,
-            collection_id,
-            token,
-            required_operation,
-            request_origin,
-        )
-        .await?;
-        self.mutate_in_transaction(transaction, collection_id, mutation, replica)
-            .await
+        let replica = self
+            .authenticate_for_sync(collection_id, token, required_operation, request_origin)
+            .await?;
+        let claim = self
+            .claim_sync_mutation(collection_id, &replica, &mutation)
+            .await?;
+        let lease = match claim {
+            HostedMutationClaim::Terminal(result) => {
+                return sync_receipt_from_value(result?);
+            }
+            HostedMutationClaim::Live => {
+                return Err(ApiError::conflict(
+                    "pending_mutation_unresolved",
+                    "The sync mutation is still owned by an active request handler.",
+                )
+                .with_details(json!({ "request_id": mutation.mutation_id })));
+            }
+            HostedMutationClaim::Owned {
+                lease,
+                applied_result: Some(result),
+                ..
+            } => {
+                self.complete_operation_mutation(collection_id, &lease, &result)
+                    .await?;
+                return sync_receipt_from_value(result?);
+            }
+            HostedMutationClaim::Owned { lease, .. } => lease,
+        };
+        let transaction = self.pool.begin().await?;
+        let result = self
+            .mutate_in_transaction(
+                transaction,
+                collection_id,
+                mutation,
+                replica,
+                Some(&lease),
+                true,
+            )
+            .await;
+        let value_result = result
+            .as_ref()
+            .map_err(|error| ApiError::new(error.status, error.code.clone(), error.message.clone()))
+            .and_then(|receipt| {
+                serde_json::to_value(receipt).map_err(|error| {
+                    ApiError::internal(format!("Sync receipt could not serialize: {error}"))
+                })
+            });
+        self.complete_operation_mutation(collection_id, &lease, &value_result)
+            .await?;
+        result
     }
 
     pub(super) async fn mutate_for(
@@ -39,11 +79,24 @@ impl HostedProvider {
         token: &str,
         mutation: SyncMutation,
         purpose: ReplicaPurpose,
+        journal_lease: Option<&HostedMutationLease>,
     ) -> ApiResult<SyncMutationReceipt> {
         let mut transaction = self.pool.begin().await?;
         let replica = authenticate_in(&mut transaction, collection_id, token, purpose).await?;
-        self.mutate_in_transaction(transaction, collection_id, mutation, replica)
-            .await
+        if let Some(lease) = journal_lease {
+            if let Some(receipt) = self.load_sync_effect(collection_id, lease).await? {
+                return Ok(receipt);
+            }
+        }
+        self.mutate_in_transaction(
+            transaction,
+            collection_id,
+            mutation,
+            replica,
+            journal_lease,
+            false,
+        )
+        .await
     }
 
     pub(super) async fn mutate_in_transaction(
@@ -52,6 +105,8 @@ impl HostedProvider {
         collection_id: Uuid,
         mutation: SyncMutation,
         replica: Replica,
+        journal_lease: Option<&HostedMutationLease>,
+        journal_result_is_public: bool,
     ) -> ApiResult<SyncMutationReceipt> {
         if mutation.replica_id != replica.id {
             return Err(ApiError::forbidden(
@@ -81,36 +136,19 @@ impl HostedProvider {
         let data_key = self
             .collection_key(collection_id, &wrapped_data_key)
             .await?;
-        if let Some(row) = sqlx::query(
-            "SELECT mutation_hash, receipt_ciphertext FROM hosted_provider_mutation_receipts WHERE replica_id = $1 AND mutation_id = $2",
-        )
-        .bind(replica.id)
-        .bind(mutation.mutation_id)
-        .fetch_optional(&mut *transaction)
-        .await?
-        {
-            let stored_hash: Vec<u8> = row.get("mutation_hash");
-            let submitted_hash = mutation_hash(&mutation)?;
-            if !bool::from(stored_hash.ct_eq(&submitted_hash)) {
-                return Err(ApiError::conflict(
-                    "mutation_id_reused",
-                    "Mutation ID was already used for a different mutation.",
-                ));
-            }
-            let receipt: SyncMutationReceipt = self.crypto.decrypt_json(
-                &data_key,
-                row.get("receipt_ciphertext"),
-                &receipt_aad(replica.id, mutation.mutation_id),
-            )?;
-            transaction.commit().await?;
-            return Ok(previously_applied(receipt));
-        }
+        let journal = SyncJournalContext {
+            provider: self,
+            lease: journal_lease
+                .ok_or_else(|| ApiError::internal("Hosted sync mutation has no journal lease."))?,
+            public_result: journal_result_is_public,
+        };
         if replica.mode != SyncReplicaMode::ReadWrite {
             return store_rejection(
                 transaction,
                 &self.crypto,
                 &data_key,
                 &mutation,
+                &journal,
                 "replica_read_only",
                 "This replica is read-only.",
             )
@@ -122,45 +160,42 @@ impl HostedProvider {
                 &self.crypto,
                 &data_key,
                 &mutation,
+                &journal,
                 "scope_epoch_stale",
                 "Replica scope changed; open a new sync session.",
             )
             .await;
         }
         if let Some(predecessor) = mutation.causal_predecessor {
-            let predecessor_receipt: Option<Vec<u8>> = sqlx::query_scalar(
-                r#"SELECT receipt_ciphertext FROM hosted_provider_mutation_receipts
-                   WHERE replica_id = $1 AND mutation_id = $2"#,
+            let predecessor_applied: Option<bool> = sqlx::query_scalar(
+                r#"SELECT effect_applied FROM hosted_provider_mutation_journal
+                   WHERE replica_id = $1 AND request_id = $2
+                     AND operation_kind = 'sync:mutate'
+                     AND state IN ('applied', 'completed', 'acknowledged')"#,
             )
             .bind(replica.id)
             .bind(predecessor)
             .fetch_optional(&mut *transaction)
             .await?;
-            let Some(predecessor_receipt) = predecessor_receipt else {
+            let Some(predecessor_applied) = predecessor_applied else {
                 return store_rejection(
                     transaction,
                     &self.crypto,
                     &data_key,
                     &mutation,
+                    &journal,
                     "causal_predecessor_missing",
                     "The mutation's causal predecessor has not been applied.",
                 )
                 .await;
             };
-            let predecessor_receipt: SyncMutationReceipt = self.crypto.decrypt_json(
-                &data_key,
-                &predecessor_receipt,
-                &receipt_aad(replica.id, predecessor),
-            )?;
-            if !matches!(
-                predecessor_receipt,
-                SyncMutationReceipt::Applied { .. } | SyncMutationReceipt::PreviouslyApplied { .. }
-            ) {
+            if !predecessor_applied {
                 return store_rejection(
                     transaction,
                     &self.crypto,
                     &data_key,
                     &mutation,
+                    &journal,
                     "causal_predecessor_not_applied",
                     "The mutation's causal predecessor did not apply.",
                 )
@@ -236,6 +271,7 @@ impl HostedProvider {
                 &self.crypto,
                 &data_key,
                 &mutation,
+                &journal,
                 "record_conflict",
                 "The hosted record ID already exists.",
             )
@@ -248,6 +284,7 @@ impl HostedProvider {
                     &self.crypto,
                     &data_key,
                     &mutation,
+                    &journal,
                     "record_not_found",
                     "The hosted record does not exist.",
                 )
@@ -259,6 +296,7 @@ impl HostedProvider {
                     &self.crypto,
                     &data_key,
                     &mutation,
+                    &journal,
                     "scope_denied",
                     "The replica cannot mutate that record.",
                 )
@@ -270,6 +308,7 @@ impl HostedProvider {
                     &self.crypto,
                     &data_key,
                     &mutation,
+                    &journal,
                     "base_revision_required",
                     "Conditional mutations require a base revision.",
                 )
@@ -291,6 +330,7 @@ impl HostedProvider {
                     &data_key,
                     replica.id,
                     &mutation,
+                    &journal,
                     &receipt,
                 )
                 .await?;
@@ -310,6 +350,7 @@ impl HostedProvider {
                 &self.crypto,
                 &data_key,
                 &mutation,
+                &journal,
                 &code,
                 &message,
             )
@@ -332,6 +373,7 @@ impl HostedProvider {
                     &self.crypto,
                     &data_key,
                     &mutation,
+                    &journal,
                     "scope_denied",
                     "The mutation would change a record outside the replica scope.",
                 )
@@ -357,6 +399,7 @@ impl HostedProvider {
                     &self.crypto,
                     &data_key,
                     &mutation,
+                    &journal,
                     "document_quota_exceeded",
                     "The canonical Markdown document exceeds the hosted document size limit.",
                 )
@@ -379,6 +422,7 @@ impl HostedProvider {
                 &self.crypto,
                 &data_key,
                 &mutation,
+                &journal,
                 "collection_quota_exceeded",
                 "The mutation would exceed the hosted collection quota.",
             )
@@ -539,6 +583,7 @@ impl HostedProvider {
             &data_key,
             replica.id,
             &mutation,
+            &journal,
             &receipt,
         )
         .await?;
@@ -554,4 +599,10 @@ impl HostedProvider {
         }
         Ok(receipt)
     }
+}
+
+fn sync_receipt_from_value(value: Value) -> ApiResult<SyncMutationReceipt> {
+    serde_json::from_value(value).map_err(|error| {
+        ApiError::internal(format!("Stored sync mutation receipt is invalid: {error}"))
+    })
 }

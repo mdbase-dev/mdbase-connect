@@ -148,6 +148,18 @@ describe("hosted provider control client", () => {
     await expect(provider.ready()).rejects.toBeInstanceOf(HostedProviderUnavailableError);
   });
 
+  it("fails readiness when the provider omits a required durable capability", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      status: "ready",
+      provider: { version: "0.1.0-beta.31", capabilities: ["durable-mutation-journal-v1"] }
+    }), { status: 200 }));
+    const provider = new HostedProviderClient({
+      url: "https://provider.example",
+      internalToken: "internal-secret"
+    });
+    await expect(provider.ready()).rejects.toBeInstanceOf(HostedProviderUnavailableError);
+  });
+
   it("updates and rotates application capabilities with bounded credentials", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(undefined, { status: 204 })

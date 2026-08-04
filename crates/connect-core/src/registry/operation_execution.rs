@@ -331,30 +331,13 @@ pub(super) fn parse_v02_query(
     })
 }
 
-pub(super) fn is_collection_mutation(operation: &str) -> bool {
-    matches!(
-        operation,
-        "batch"
-            | "create"
-            | "update"
-            | "delete"
-            | "rename"
-            | "create_type"
-            | "update_type"
-            | "apply_type_pack"
-            | "create_view_source"
-            | "update_view_source"
-            | "delete_view_source"
-    )
-}
-
 pub(super) fn operation_invalidation(
     operation: &str,
     input: &Value,
     output: &Value,
 ) -> CollectionInvalidation {
     if input.get("dry_run").and_then(Value::as_bool) == Some(true)
-        || !is_collection_mutation(operation)
+        || !(operation == "batch" || is_mutating_operation(operation, input))
         || output.get("valid").and_then(Value::as_bool) == Some(false)
         || output.get("error").is_some()
     {

@@ -349,26 +349,6 @@ pub(super) fn operation_error(envelope: &OperationResult) -> (String, String) {
     (code, message)
 }
 
-pub(super) fn previously_applied(receipt: SyncMutationReceipt) -> SyncMutationReceipt {
-    match receipt {
-        SyncMutationReceipt::Applied {
-            mutation_id,
-            sequence,
-            record,
-        }
-        | SyncMutationReceipt::PreviouslyApplied {
-            mutation_id,
-            sequence,
-            record,
-        } => SyncMutationReceipt::PreviouslyApplied {
-            mutation_id,
-            sequence,
-            record,
-        },
-        receipt => receipt,
-    }
-}
-
 pub(super) fn scoped_resources(
     mut resources: SyncCollectionResources,
     allowed_types: &[String],

@@ -1,5 +1,33 @@
 use super::*;
 
+#[test]
+fn mutation_fingerprint_v1_matches_the_shared_typescript_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../packages/protocol/test/fixtures/mutation-fingerprint-v1.json"
+    ))
+    .unwrap();
+    assert_eq!(
+        fixture["fingerprint_schema_version"],
+        MUTATION_FINGERPRINT_SCHEMA_VERSION
+    );
+    for case in fixture["cases"].as_array().unwrap() {
+        let operation = case["operation"].as_str().unwrap();
+        let input = &case["input"];
+        let canonical_input = serde_jcs::to_string(input).unwrap();
+        assert_eq!(canonical_input, case["canonical_input"].as_str().unwrap());
+        let transcript = mutation_fingerprint_transcript(operation, input).unwrap();
+        let transcript_hex = transcript
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        assert_eq!(transcript_hex, case["transcript_hex"].as_str().unwrap());
+        assert_eq!(
+            mutation_fingerprint(operation, input).unwrap(),
+            case["fingerprint"].as_str().unwrap()
+        );
+    }
+}
+
 fn fixture_application_authorization(application_id: Uuid) -> ApplicationAuthorizationProof {
     let fixture: Value = serde_json::from_str(include_str!(
         "../../../packages/protocol/test/fixtures/application-authorization-v2.json"
@@ -486,6 +514,7 @@ fn rust_relay_messages_match_the_canonical_wire_schema() {
             protocol_version: CONTROL_PROTOCOL_VERSION,
             code: "connector_upgrade_required".to_string(),
             message: "Update required.".to_string(),
+            minimum_connector_version: MINIMUM_CONNECTOR_VERSION.to_string(),
             update_url: "https://github.com/mdbase-dev/mdbase-connect/releases/latest".to_string(),
         },
         RelayMessage::AuthorizationOfferRequest {
@@ -827,4 +856,28 @@ fn rust_sync_messages_match_the_canonical_wire_schema() {
     ] {
         assert_sync_schema(reference, value);
     }
+}
+
+#[test]
+fn generated_operation_catalog_classifies_collection_and_file_mutations() {
+    assert!(is_mutating_operation("create", &serde_json::json!({})));
+    assert!(!is_mutating_operation(
+        "delete",
+        &serde_json::json!({ "dry_run": true })
+    ));
+    assert_eq!(
+        mutation_operation_identifier("sync", &serde_json::json!({ "action": "mutate" })),
+        Some("sync:mutate")
+    );
+    assert_eq!(
+        mutation_operation_identifier(
+            "file_control",
+            &serde_json::json!({ "type": "commit_file_upload" })
+        ),
+        Some("file_control:commit_file_upload")
+    );
+    assert!(!is_mutating_operation(
+        "file_control",
+        &serde_json::json!({ "type": "list_files" })
+    ));
 }

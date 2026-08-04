@@ -271,16 +271,18 @@ fn scopes_resources_and_records_consistently() {
 }
 
 #[test]
-fn applied_receipts_become_replays_without_changing_the_sequence() {
+fn applied_receipts_replay_exactly_without_changing_status_or_sequence() {
     let mutation_id = Uuid::new_v4();
-    let receipt = previously_applied(SyncMutationReceipt::Applied {
+    let receipt = SyncMutationReceipt::Applied {
         mutation_id,
         sequence: 9,
         record: None,
-    });
+    };
+    let replay = receipt.clone();
+    assert_eq!(replay, receipt);
     assert!(matches!(
-        receipt,
-        SyncMutationReceipt::PreviouslyApplied {
+        replay,
+        SyncMutationReceipt::Applied {
             mutation_id: id,
             sequence: 9,
             ..

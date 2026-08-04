@@ -16,6 +16,7 @@ pub enum RelayMessage {
         protocol_version: u32,
         code: String,
         message: String,
+        minimum_connector_version: String,
         update_url: String,
     },
     PolicySnapshot {

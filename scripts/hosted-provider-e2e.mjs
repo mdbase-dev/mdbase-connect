@@ -29,6 +29,19 @@ import { portalLifecycleE2E } from "./system/provider/portal-lifecycle.mjs";
 process.env.NODE_ENV = "test";
 const execute = promisify(execFile);
 const repoRoot = resolve(import.meta.dirname, "..");
+const operationCatalog = JSON.parse(await readFile(
+  join(repoRoot, "packages", "protocol", "schemas", "operation-catalog.v1.json"),
+  "utf8"
+));
+const canonicalCollectionMutationKinds = operationCatalog.collection_operations.flatMap((operation) => {
+    if (operation.mutation === "always") return [operation.id];
+    if (operation.mutation === "sync_action") return ["sync:mutate"];
+    return [];
+  }).sort();
+const canonicalFileMutationKinds = operationCatalog.file_control_messages
+  .filter((operation) => operation.mutation)
+  .map((operation) => `file_control:${operation.id}`)
+  .sort();
 const providerBinary = resolve(
   process.env.MDBASE_CONNECT_PROVIDER_E2E_BINARY
     ?? join(repoRoot, "target", "debug", "mdbase-connect-hosted-provider")
@@ -182,20 +195,21 @@ try {
   assert.equal(repeatedProvision.contracts.length, 1);
 
   const fullReplicaToken = `full-${crypto.randomUUID()}-${crypto.randomUUID()}`;
+  const fullReplicaId = crypto.randomUUID();
   await internalRequest(
     provider.url,
     `/internal/v1/collections/${provisionCollectionId}/replicas`,
     {
       method: "POST",
       body: {
-        replica_id: crypto.randomUUID(),
+        replica_id: fullReplicaId,
         name: "Projection fixture writer",
         purpose: "application",
         mode: "read_write",
         allowed_types: [],
         contract_scope: [],
         full_collection: true,
-        allowed_operations: ["create", "rename", "delete"],
+        allowed_operations: ["create", "rename", "delete", "create_type"],
         grant_id: crypto.randomUUID(),
         token: fullReplicaToken
       }
@@ -237,6 +251,34 @@ try {
       body: exactOnceCreateInput
     }
   );
+  assert.equal(firstCreate.status, 200, JSON.stringify(firstCreate.body));
+  const replacementEpoch = crypto.randomUUID();
+  const replacementOwner = crypto.randomUUID();
+  await postgresQuery(
+    `UPDATE hosted_provider_mutation_journal
+     SET state = 'applied', process_epoch = '${replacementEpoch}',
+         lease_owner = '${replacementOwner}', lease_expires_at = now() + interval '30 seconds',
+         final_receipt_ciphertext = NULL, receipt_digest = NULL,
+         completed_at = NULL, updated_at = now()
+     WHERE replica_id = '${fullReplicaId}' AND request_id = '${exactOnceCreateId}'`
+  );
+  const liveCreate = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/create`,
+    {
+      method: "POST",
+      token: fullReplicaToken,
+      requestId: exactOnceCreateId,
+      body: exactOnceCreateInput
+    }
+  );
+  assert.equal(liveCreate.status, 409, JSON.stringify(liveCreate.body));
+  assert.equal(liveCreate.body.error.code, "pending_mutation_unresolved");
+  await postgresQuery(
+    `UPDATE hosted_provider_mutation_journal
+     SET lease_expires_at = now() - interval '1 second'
+     WHERE replica_id = '${fullReplicaId}' AND request_id = '${exactOnceCreateId}'`
+  );
   const replayedCreate = await rawRequest(
     provider.url,
     `/v1/authorities/${provisionCollectionId}/operations/create`,
@@ -247,8 +289,21 @@ try {
       body: exactOnceCreateInput
     }
   );
-  assert.equal(firstCreate.status, 200, JSON.stringify(firstCreate.body));
   assert.deepEqual(replayedCreate.body, firstCreate.body);
+  assert.equal(
+    await postgresQuery(
+      "SELECT to_regclass('public.hosted_provider_operation_requests') IS NULL"
+    ),
+    "t"
+  );
+  assert.equal(
+    await postgresQuery(
+      `SELECT state || '|' || fencing_generation
+       FROM hosted_provider_mutation_journal
+       WHERE replica_id = '${fullReplicaId}' AND request_id = '${exactOnceCreateId}'`
+    ),
+    "completed|2"
+  );
   const reusedRequest = await rawRequest(
     provider.url,
     `/v1/authorities/${provisionCollectionId}/operations/create`,
@@ -260,7 +315,7 @@ try {
     }
   );
   assert.equal(reusedRequest.status, 409, JSON.stringify(reusedRequest.body));
-  assert.equal(reusedRequest.body.error.code, "operation_request_id_reused");
+  assert.equal(reusedRequest.body.error.code, "mutation_request_conflict");
 
   const renameRequestId = crypto.randomUUID();
   const renameInput = { from: "retry-target.md", to: "retry-renamed.md" };
@@ -311,6 +366,280 @@ try {
   );
   assert.equal(firstDelete.status, 200, JSON.stringify(firstDelete.body));
   assert.deepEqual(replayedDelete.body, firstDelete.body);
+
+  const appliedTypeRequestId = crypto.randomUUID();
+  const appliedTypeInput = {
+    document: `---
+kind: mdbase.type
+name: durable_probe
+version: 1
+match:
+  where:
+    type: durable_probe
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+---
+`
+  };
+  const firstAppliedType = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/create_type`,
+    {
+      method: "POST",
+      token: fullReplicaToken,
+      requestId: appliedTypeRequestId,
+      body: appliedTypeInput
+    }
+  );
+  assert.equal(firstAppliedType.status, 200, JSON.stringify(firstAppliedType.body));
+  const headAfterAppliedType = await postgresQuery(
+    `SELECT head FROM hosted_provider_collections WHERE id = '${provisionCollectionId}'`
+  );
+  await postgresQuery(
+    `UPDATE hosted_provider_mutation_journal
+     SET state = 'applied', lease_expires_at = now() - interval '1 second',
+         final_receipt_ciphertext = NULL, receipt_digest = NULL,
+         completed_at = NULL, updated_at = now()
+     WHERE replica_id = '${fullReplicaId}' AND request_id = '${appliedTypeRequestId}'`
+  );
+  const replayedAppliedType = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/create_type`,
+    {
+      method: "POST",
+      token: fullReplicaToken,
+      requestId: appliedTypeRequestId,
+      body: appliedTypeInput
+    }
+  );
+  assert.deepEqual(replayedAppliedType.body, firstAppliedType.body);
+  assert.equal(
+    await postgresQuery(
+      `SELECT head FROM hosted_provider_collections WHERE id = '${provisionCollectionId}'`
+    ),
+    headAfterAppliedType
+  );
+
+  const fileReplicaId = crypto.randomUUID();
+  const fileReplicaToken = `file-${crypto.randomUUID()}-${crypto.randomUUID()}`;
+  await internalRequest(
+    provider.url,
+    `/internal/v1/collections/${provisionCollectionId}/replicas`,
+    {
+      method: "POST",
+      body: {
+        replica_id: fileReplicaId,
+        name: "Journal file lifecycle writer",
+        purpose: "application",
+        mode: "read_write",
+        allowed_types: [],
+        contract_scope: [],
+        full_collection: false,
+        allowed_operations: [],
+        file_capability: {
+          kind: "files",
+          protocol_version: 1,
+          actions: ["list", "read", "add", "replace", "move", "delete"],
+          scope: { kind: "collection" }
+        },
+        grant_id: crypto.randomUUID(),
+        token: fileReplicaToken
+      }
+    }
+  );
+  const fileTransport = new HttpSyncTransport(
+    authoritySyncUrl(provider.url, provisionCollectionId),
+    fileReplicaToken
+  );
+  const fileBytes = new TextEncoder().encode("durable file journal\n");
+  const fileTransferId = crypto.randomUUID();
+  const uploadedFile = await fileTransport.uploadFile(
+    {
+      protocol_version: 1,
+      type: "open_file_upload",
+      transfer_id: fileTransferId,
+      path: "assets/journal.txt",
+      size: fileBytes.byteLength,
+      content_digest: `sha256:${sha256Hex(fileBytes)}`,
+      media_type: "text/plain"
+    },
+    (async function* () { yield fileBytes; })()
+  );
+  const replayedCommit = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/files/uploads/${fileTransferId}/commit`,
+    {
+      method: "POST",
+      token: fileReplicaToken,
+      body: {
+        protocol_version: 1,
+        type: "commit_file_upload",
+        transfer_id: fileTransferId,
+        parts: []
+      }
+    }
+  );
+  assert.equal(replayedCommit.status, 200, JSON.stringify(replayedCommit.body));
+  assert.deepEqual(replayedCommit.body, uploadedFile);
+
+  const moveFileRequest = {
+    protocol_version: 1,
+    type: "move_file",
+    mutation_id: crypto.randomUUID(),
+    file_id: uploadedFile.file.file_id,
+    if_revision: uploadedFile.file.revision,
+    from_path: uploadedFile.file.path,
+    path: "assets/journal-moved.txt",
+    update_references: false
+  };
+  const movedFile = await fileTransport.moveFile(moveFileRequest);
+  assert.deepEqual(await fileTransport.moveFile(moveFileRequest), movedFile);
+  const deleteFileRequest = {
+    protocol_version: 1,
+    type: "delete_file",
+    mutation_id: crypto.randomUUID(),
+    file_id: movedFile.file.file_id,
+    if_revision: movedFile.file.revision,
+    path: movedFile.file.path
+  };
+  const deletedFile = await fileTransport.deleteFile(deleteFileRequest);
+  assert.deepEqual(await fileTransport.deleteFile(deleteFileRequest), deletedFile);
+
+  const abortedTransferId = crypto.randomUUID();
+  const openAbortRequest = {
+    protocol_version: 1,
+    type: "open_file_upload",
+    transfer_id: abortedTransferId,
+    path: "assets/aborted.txt",
+    size: fileBytes.byteLength,
+    content_digest: `sha256:${sha256Hex(fileBytes)}`,
+    media_type: "text/plain"
+  };
+  const openedAbort = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/files/uploads`,
+    { method: "POST", token: fileReplicaToken, body: openAbortRequest }
+  );
+  assert.equal(openedAbort.status, 200, JSON.stringify(openedAbort.body));
+  const openRequestId = await postgresQuery(
+    `SELECT request_id FROM hosted_provider_mutation_journal
+     WHERE replica_id = '${fileReplicaId}'
+       AND operation_kind = 'file_control:open_file_upload'
+       AND state = 'completed'
+     ORDER BY completed_at DESC LIMIT 1`
+  );
+  await postgresQuery(
+    `UPDATE hosted_provider_mutation_journal
+     SET state = 'prepared', process_epoch = '${crypto.randomUUID()}',
+         lease_owner = '${crypto.randomUUID()}',
+         lease_expires_at = now() + interval '30 seconds',
+         final_receipt_ciphertext = NULL, receipt_digest = NULL,
+         completed_at = NULL, updated_at = now()
+     WHERE replica_id = '${fileReplicaId}' AND request_id = '${openRequestId}'`
+  );
+  const liveOpen = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/files/uploads`,
+    { method: "POST", token: fileReplicaToken, body: openAbortRequest }
+  );
+  assert.equal(liveOpen.status, 409, JSON.stringify(liveOpen.body));
+  assert.equal(liveOpen.body.error.code, "pending_mutation_unresolved");
+  await postgresQuery(
+    `UPDATE hosted_provider_mutation_journal
+     SET lease_expires_at = now() - interval '1 second'
+     WHERE replica_id = '${fileReplicaId}' AND request_id = '${openRequestId}'`
+  );
+  const recoveredOpen = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/files/uploads`,
+    { method: "POST", token: fileReplicaToken, body: openAbortRequest }
+  );
+  assert.deepEqual(recoveredOpen.body, openedAbort.body);
+  const conflictingOpen = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/files/uploads`,
+    {
+      method: "POST",
+      token: fileReplicaToken,
+      body: { ...openAbortRequest, path: "assets/reused-transfer.txt" }
+    }
+  );
+  assert.equal(conflictingOpen.status, 409, JSON.stringify(conflictingOpen.body));
+  assert.equal(conflictingOpen.body.error.code, "mutation_request_conflict");
+  const firstAbort = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/files/transfers/${abortedTransferId}`,
+    { method: "DELETE", token: fileReplicaToken }
+  );
+  const replayedAbort = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/files/transfers/${abortedTransferId}`,
+    { method: "DELETE", token: fileReplicaToken }
+  );
+  assert.equal(firstAbort.status, 200, JSON.stringify(firstAbort.body));
+  assert.deepEqual(replayedAbort.body, firstAbort.body);
+  assert.deepEqual(
+    JSON.parse(await postgresQuery(
+      `SELECT json_agg(operation_kind ORDER BY operation_kind)::text
+       FROM (SELECT DISTINCT operation_kind FROM hosted_provider_mutation_journal
+             WHERE replica_id = '${fileReplicaId}'
+               AND operation_kind LIKE 'file_control:%' AND state = 'completed') kinds`
+    )),
+    canonicalFileMutationKinds
+  );
+
+  const rotatedFullReplicaToken = `rotated-full-${crypto.randomUUID()}-${crypto.randomUUID()}`;
+  await internalRequest(provider.url, `/internal/v1/replicas/${fullReplicaId}/token`, {
+    method: "POST",
+    body: { token: rotatedFullReplicaToken }
+  });
+  const replayAfterRotation = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/delete`,
+    {
+      method: "POST",
+      token: fullReplicaToken,
+      requestId: deleteRequestId,
+      body: deleteInput
+    }
+  );
+  assert.deepEqual(replayAfterRotation.body, firstDelete.body);
+  const oldTokenNewWrite = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/create`,
+    {
+      method: "POST",
+      token: fullReplicaToken,
+      body: { path: "must-not-exist.md", frontmatter: { type: "workout" } }
+    }
+  );
+  assert.equal(oldTokenNewWrite.status, 401, JSON.stringify(oldTokenNewWrite.body));
+  await internalRequest(provider.url, `/internal/v1/replicas/${fullReplicaId}`, {
+    method: "DELETE"
+  });
+  const replayAfterRevocation = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/rename`,
+    {
+      method: "POST",
+      token: rotatedFullReplicaToken,
+      requestId: renameRequestId,
+      body: renameInput
+    }
+  );
+  assert.deepEqual(replayAfterRevocation.body, firstRename.body);
+  const revokedTokenNewWrite = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/create`,
+    {
+      method: "POST",
+      token: rotatedFullReplicaToken,
+      body: { path: "also-must-not-exist.md", frontmatter: { type: "workout" } }
+    }
+  );
+  assert.equal(revokedTokenNewWrite.status, 401, JSON.stringify(revokedTokenNewWrite.body));
 
   const contractReplicaToken = `contract-${crypto.randomUUID()}-${crypto.randomUUID()}`;
   await internalRequest(
@@ -380,9 +709,13 @@ try {
   );
   assert.equal(selectedCreate.status, 200, JSON.stringify(selectedCreate.body));
   assert.equal(selectedCreate.body.result.result.frontmatter.title, "Selected provider");
-  await internalRequest(provider.url, `/internal/v1/collections/${provisionCollectionId}`, {
-    method: "DELETE"
-  });
+  try {
+    await internalRequest(provider.url, `/internal/v1/collections/${provisionCollectionId}`, {
+      method: "DELETE"
+    });
+  } catch (error) {
+    throw new Error(`${error.message}\nProvider logs:\n${provider.logs()}`, { cause: error });
+  }
 
   phase("running a hosted mutation through the durable notification runtime");
   const notificationSignals = [];
@@ -1437,14 +1770,14 @@ schema:
   assert.equal(plaintextRecordPaths, "");
 
   const replay = await writerTransport.mutate(originalMutation);
-  assert.equal(replay.status, "previously_applied");
+  assert.equal(replay.status, "applied");
   assert.equal(replay.record?.path, "tasks/offline.md");
   await expectSyncError(
     () => writerTransport.mutate({
       ...originalMutation,
       input: { ...originalMutation.input, path: "tasks/reused-id.md" }
     }),
-    "mutation_id_reused"
+    "mutation_request_conflict"
   );
 
   const readOnlyReceipt = await transport(provider.url, collectionId, readOnly).mutate(
@@ -2107,6 +2440,60 @@ schema:
   assert.equal(
     (await snapshotAll(restartedWriter, await restartedWriter.openSession())).length,
     bulkCount + recordsBeforeBulk
+  );
+
+  const conformanceReplicaId = crypto.randomUUID();
+  const conformanceToken = `conformance-${crypto.randomUUID()}-${crypto.randomUUID()}`;
+  await internalRequest(provider.url, `/internal/v1/collections/${collectionId}/replicas`, {
+    method: "POST",
+    body: {
+      replica_id: conformanceReplicaId,
+      name: "Canonical mutation conformance",
+      purpose: "application",
+      mode: "read_write",
+      allowed_types: [],
+      contract_scope: [],
+      full_collection: true,
+      allowed_operations: operationCatalog.collection_operations
+        .map(({ id }) => id)
+        .filter((id) => id !== "sync"),
+      grant_id: crypto.randomUUID(),
+      token: conformanceToken
+    }
+  });
+  const conformanceInputs = {
+    update_type: { name: "missing", document: "invalid" },
+    apply_type_pack: {},
+    create_view_source: { document: "invalid" },
+    update_view_source: { path: "Views/missing.md", document: "invalid" },
+    delete_view_source: { path: "Views/missing.md" },
+    put_timer: {
+      namespace: "journal-conformance",
+      criterion_id: "missing.criterion",
+      timer: { id: "probe", fire_at: "2026-08-04T00:00:00Z" }
+    },
+    cancel_timer: { namespace: "journal-conformance", id: "probe" },
+    reconcile_timers: {
+      namespace: "journal-conformance",
+      criterion_id: "missing.criterion",
+      timers: []
+    }
+  };
+  for (const [operation, input] of Object.entries(conformanceInputs)) {
+    await rawRequest(
+      provider.url,
+      `/v1/authorities/${collectionId}/operations/${operation}`,
+      { method: "POST", token: conformanceToken, requestId: crypto.randomUUID(), body: input }
+    );
+  }
+  const observedMutationKinds = JSON.parse(await postgresQuery(
+    `SELECT coalesce(json_agg(operation_kind ORDER BY operation_kind), '[]'::json)::text
+     FROM (SELECT DISTINCT operation_kind FROM hosted_provider_mutation_journal) kinds`
+  ));
+  assert.deepEqual(
+    canonicalCollectionMutationKinds.filter((kind) => !observedMutationKinds.includes(kind)),
+    [],
+    `provider E2E did not exercise every canonical mutation; observed ${observedMutationKinds.join(", ")}`
   );
 
   phase("restoring a logical backup into a fresh database");
