@@ -1,8 +1,7 @@
+use super::mutation_receipt::StoredMutationReceipt;
 use super::*;
 
 const MUTATION_LEASE_SECONDS: i64 = 30;
-const FILE_CONTROL_REQUEST_NAMESPACE: Uuid =
-    Uuid::from_u128(0x3cde_967c_d51b_5f64_9a67_bbd2_f41a_9aa4);
 
 #[derive(Debug, Clone, Serialize)]
 pub struct HostedMutationJournalDiagnostics {
@@ -33,250 +32,7 @@ pub(super) enum HostedMutationClaim {
     Terminal(ApiResult<Value>),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "outcome", rename_all = "snake_case")]
-enum StoredMutationReceipt {
-    Success {
-        value: Value,
-    },
-    Failure {
-        status: u16,
-        code: String,
-        message: String,
-        details: Option<Value>,
-    },
-}
-
-impl StoredMutationReceipt {
-    fn from_result(result: &ApiResult<Value>) -> Self {
-        match result {
-            Ok(value) => Self::Success {
-                value: value.clone(),
-            },
-            Err(error) => Self::Failure {
-                status: error.status.as_u16(),
-                code: error.code.clone(),
-                message: error.message.clone(),
-                details: error.details.clone(),
-            },
-        }
-    }
-
-    fn into_result(self) -> ApiResult<Value> {
-        match self {
-            Self::Success { value } => Ok(value),
-            Self::Failure {
-                status,
-                code,
-                message,
-                details,
-            } => {
-                let status =
-                    StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-                let mut error = ApiError::new(status, code, message);
-                error.details = details;
-                Err(error)
-            }
-        }
-    }
-}
-
 impl HostedProvider {
-    pub(crate) async fn run_file_control_mutation<T, F, Fut>(
-        &self,
-        collection_id: Uuid,
-        token: &str,
-        action: &'static str,
-        public_request_id: Uuid,
-        request: &impl Serialize,
-        execute: F,
-    ) -> ApiResult<T>
-    where
-        T: Serialize + serde::de::DeserializeOwned,
-        F: FnOnce() -> Fut,
-        Fut: std::future::Future<Output = ApiResult<T>>,
-    {
-        let input = serde_json::to_value(request).map_err(|error| {
-            ApiError::internal(format!("File control request could not serialize: {error}"))
-        })?;
-        let request_id = file_control_request_id(action, public_request_id);
-        let replica = match self.authenticate_for_file(collection_id, token).await {
-            Ok(replica) => replica,
-            Err(authentication_error) => {
-                let replay = self
-                    .replay_retired_operation_mutation(
-                        collection_id,
-                        token,
-                        "file_control",
-                        request_id,
-                        &input,
-                        authentication_error,
-                    )
-                    .await?;
-                return decode_file_control_result(replay);
-            }
-        };
-        let claim = self
-            .claim_operation_mutation(collection_id, &replica, "file_control", request_id, &input)
-            .await?;
-        let lease = match claim {
-            HostedMutationClaim::Terminal(result) => {
-                return decode_file_control_result(result?);
-            }
-            HostedMutationClaim::Live => {
-                return Err(ApiError::conflict(
-                    "pending_mutation_unresolved",
-                    "The file mutation is still owned by an active request handler.",
-                )
-                .with_details(json!({
-                    "request_id": public_request_id,
-                    "operation": action,
-                })));
-            }
-            HostedMutationClaim::Owned {
-                lease,
-                applied_result,
-                ..
-            } => {
-                if let Some(result) = applied_result {
-                    self.complete_operation_mutation(collection_id, &lease, &result)
-                        .await?;
-                    return decode_file_control_result(result?);
-                }
-                lease
-            }
-        };
-        // Each file control has a durable inner lifecycle keyed by its public
-        // transfer/mutation identity. Re-executing after journal takeover
-        // resumes that lifecycle or replays its receipt; it never starts a
-        // second logical effect.
-        let result = execute().await;
-        let stored_result = match &result {
-            Ok(value) => serde_json::to_value(value).map_err(|error| {
-                ApiError::internal(format!("File control result could not serialize: {error}"))
-            }),
-            Err(error) => Err(error.clone()),
-        };
-        self.complete_operation_mutation(collection_id, &lease, &stored_result)
-            .await?;
-        result
-    }
-
-    pub(super) async fn migrate_legacy_sync_receipts(&self) -> ApiResult<u64> {
-        let rows = sqlx::query(
-            r#"SELECT legacy.replica_id, legacy.mutation_id, legacy.mutation_hash,
-                      legacy.receipt_ciphertext, legacy.created_at,
-                      replica.grant_id, replica.collection_id,
-                      collection.wrapped_data_key
-               FROM archived_hosted_mutation_receipts legacy
-               JOIN hosted_provider_replicas replica ON replica.id = legacy.replica_id
-               JOIN hosted_provider_collections collection ON collection.id = replica.collection_id
-               WHERE legacy.migrated_at IS NULL
-               ORDER BY legacy.created_at, legacy.replica_id, legacy.mutation_id"#,
-        )
-        .fetch_all(&self.pool)
-        .await?;
-        let mut migrated = 0_u64;
-        for row in rows {
-            let replica_id: Uuid = row.get("replica_id");
-            let request_id: Uuid = row.get("mutation_id");
-            let collection_id: Uuid = row.get("collection_id");
-            let data_key = self
-                .collection_key(collection_id, row.get("wrapped_data_key"))
-                .await?;
-            let receipt: SyncMutationReceipt = self.crypto.decrypt_json(
-                &data_key,
-                row.get("receipt_ciphertext"),
-                &receipt_aad(replica_id, request_id),
-            )?;
-            let effect_applied = sync_receipt_applied(&receipt);
-            let value = serde_json::to_value(receipt).map_err(|error| {
-                ApiError::internal(format!("Legacy sync receipt could not serialize: {error}"))
-            })?;
-            let stored = StoredMutationReceipt::Success { value };
-            let plaintext = serde_json::to_vec(&stored).map_err(|error| {
-                ApiError::internal(format!(
-                    "Migrated sync receipt could not serialize: {error}"
-                ))
-            })?;
-            let ciphertext = self.crypto.encrypt_bytes(
-                &data_key,
-                &plaintext,
-                &hosted_mutation_receipt_aad(replica_id, request_id),
-            )?;
-            let mut transaction = self.pool.begin().await?;
-            let inserted = sqlx::query(
-                r#"INSERT INTO hosted_provider_mutation_journal (
-                     replica_id, grant_id, request_id, operation_kind,
-                     fingerprint_schema_version, input_schema_version, input_digest,
-                     state, process_epoch, lease_owner, lease_expires_at,
-                     fencing_generation, final_receipt_ciphertext, receipt_digest,
-                     effect_applied, accepted_at, updated_at, completed_at
-                   ) VALUES ($1, $2, $3, 'sync:mutate', 0, 1, $4, 'completed',
-                             $5, $6, $7, 1, $8, $9, $10, $11, $11, $11)
-                   ON CONFLICT (replica_id, request_id) DO NOTHING"#,
-            )
-            .bind(replica_id)
-            .bind(row.get::<Option<Uuid>, _>("grant_id"))
-            .bind(request_id)
-            .bind(row.get::<Vec<u8>, _>("mutation_hash"))
-            .bind(self.process_epoch)
-            .bind(Uuid::new_v4())
-            .bind(row.get::<DateTime<Utc>, _>("created_at"))
-            .bind(ciphertext)
-            .bind(Sha256::digest(&plaintext).to_vec())
-            .bind(effect_applied)
-            .bind(row.get::<DateTime<Utc>, _>("created_at"))
-            .execute(&mut *transaction)
-            .await?
-            .rows_affected();
-            if inserted == 0 {
-                let existing = sqlx::query(
-                    r#"SELECT operation_kind, fingerprint_schema_version, input_digest,
-                              state, receipt_digest
-                       FROM hosted_provider_mutation_journal
-                       WHERE replica_id = $1 AND request_id = $2 FOR UPDATE"#,
-                )
-                .bind(replica_id)
-                .bind(request_id)
-                .fetch_one(&mut *transaction)
-                .await?;
-                let same = existing.get::<String, _>("operation_kind") == "sync:mutate"
-                    && existing.get::<i32, _>("fingerprint_schema_version") == 0
-                    && bool::from(
-                        existing
-                            .get::<Vec<u8>, _>("input_digest")
-                            .ct_eq(&row.get::<Vec<u8>, _>("mutation_hash")),
-                    )
-                    && matches!(
-                        existing.get::<String, _>("state").as_str(),
-                        "completed" | "acknowledged"
-                    )
-                    && bool::from(
-                        existing
-                            .get::<Vec<u8>, _>("receipt_digest")
-                            .ct_eq(&Sha256::digest(&plaintext)),
-                    );
-                if !same {
-                    return Err(ApiError::internal(format!(
-                        "Legacy sync receipt {request_id} collides with incompatible mutation journal state."
-                    )));
-                }
-            }
-            sqlx::query(
-                r#"UPDATE archived_hosted_mutation_receipts SET migrated_at = now()
-                   WHERE replica_id = $1 AND mutation_id = $2 AND migrated_at IS NULL"#,
-            )
-            .bind(replica_id)
-            .bind(request_id)
-            .execute(&mut *transaction)
-            .await?;
-            transaction.commit().await?;
-            migrated += 1;
-        }
-        Ok(migrated)
-    }
-
     pub(super) async fn load_operation_preparation(
         &self,
         collection_id: Uuid,
@@ -1195,20 +951,7 @@ impl HostedProvider {
     }
 }
 
-fn file_control_request_id(action: &str, public_request_id: Uuid) -> Uuid {
-    let name = format!("{action}\0{public_request_id}");
-    Uuid::new_v5(&FILE_CONTROL_REQUEST_NAMESPACE, name.as_bytes())
-}
-
-fn decode_file_control_result<T: serde::de::DeserializeOwned>(value: Value) -> ApiResult<T> {
-    serde_json::from_value(value).map_err(|error| {
-        ApiError::internal(format!(
-            "Stored file control receipt could not deserialize: {error}"
-        ))
-    })
-}
-
-fn hosted_mutation_receipt_aad(replica_id: Uuid, request_id: Uuid) -> Vec<u8> {
+pub(super) fn hosted_mutation_receipt_aad(replica_id: Uuid, request_id: Uuid) -> Vec<u8> {
     format!("hosted-provider/mutation-journal/v1/{replica_id}/{request_id}").into_bytes()
 }
 
@@ -1224,7 +967,7 @@ fn hosted_sync_effect_aad(replica_id: Uuid, request_id: Uuid) -> Vec<u8> {
     format!("hosted-provider/sync-effect/v1/{replica_id}/{request_id}").into_bytes()
 }
 
-fn sync_receipt_applied(receipt: &SyncMutationReceipt) -> bool {
+pub(super) fn sync_receipt_applied(receipt: &SyncMutationReceipt) -> bool {
     matches!(
         receipt,
         SyncMutationReceipt::Applied { .. } | SyncMutationReceipt::PreviouslyApplied { .. }
