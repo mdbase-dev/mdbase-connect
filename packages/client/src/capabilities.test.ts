@@ -32,6 +32,66 @@ function connection(operations: string[]): MdbaseConnectionInfo {
 }
 
 describe("effectiveCapabilities", () => {
+  it("treats full-collection authorization as approval of required contracts", () => {
+    const contractManifest: MdbaseAppManifest = {
+      ...manifest,
+      requirements: {
+        access: "full_collection",
+        contracts: [{
+          id: "mdbase.workouts.exercise",
+          version: "1.0.0",
+          digest: `sha256:${"a".repeat(64)}`
+        }],
+        capabilities: {
+          contract_version: 1,
+          required: ["definitions.contracts.current"]
+        }
+      }
+    };
+
+    const capabilities = effectiveCapabilities(
+      contractManifest.requirements!.capabilities!,
+      contractManifest,
+      connection(["describe"])
+    );
+
+    expect(capabilities.requiredAvailable).toBe(true);
+    expect(capabilities.values["definitions.contracts.current"]).toMatchObject({
+      state: "available"
+    });
+  });
+
+  it("still requires exact contract approval for contract-scoped grants", () => {
+    const contractManifest: MdbaseAppManifest = {
+      ...manifest,
+      requirements: {
+        access: "contract",
+        contracts: [{
+          id: "mdbase.workouts.exercise",
+          version: "1.0.0",
+          digest: `sha256:${"a".repeat(64)}`
+        }],
+        capabilities: {
+          contract_version: 1,
+          required: ["definitions.contracts.current"]
+        }
+      }
+    };
+    const scoped = connection(["describe"]);
+    scoped.scope = { access: "contract", contracts: [] };
+
+    const capabilities = effectiveCapabilities(
+      contractManifest.requirements!.capabilities!,
+      contractManifest,
+      scoped
+    );
+
+    expect(capabilities.requiredAvailable).toBe(false);
+    expect(capabilities.values["definitions.contracts.current"]).toMatchObject({
+      state: "requires_authorization"
+    });
+  });
+
   it("recognizes connector-backed offline replication when the authority grants sync", () => {
     const capabilities = effectiveCapabilities(
       manifest.requirements!.capabilities!,
