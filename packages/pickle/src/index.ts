@@ -9,6 +9,7 @@ import type {
 import { MDBASE_RECORD_CREATED_CONTRACT } from "@mdbase-dev/connect-protocol";
 import {
   unwrapConnectOutcome,
+  type ConnectRequestOptions,
   type MdbaseConnection
 } from "@mdbase-dev/connect";
 import { PICKLE_REQUEST_CONTRACT_DIGEST } from "./resources.js";
@@ -118,17 +119,21 @@ export interface PickleRequest {
   frontmatter: PickleFrontmatter;
 }
 
-export interface RespondOptions {
+export interface RespondOptions extends ConnectRequestOptions {
   responder?: string;
 }
 
 export interface PickleClient {
-  describe(): ReturnType<MdbaseConnection<PickleFrontmatter>["describe"]>;
+  describe(
+    options?: ConnectRequestOptions
+  ): ReturnType<MdbaseConnection<PickleFrontmatter>["describe"]>;
   queryAll(
-    input: Parameters<MdbaseConnection<PickleFrontmatter>["queryAll"]>[0]
+    input: Parameters<MdbaseConnection<PickleFrontmatter>["queryAll"]>[0],
+    options?: Parameters<MdbaseConnection<PickleFrontmatter>["queryAll"]>[1]
   ): ReturnType<MdbaseConnection<PickleFrontmatter>["queryAll"]>;
   create(
-    input: Parameters<MdbaseConnection<PickleFrontmatter>["create"]>[0]
+    input: Parameters<MdbaseConnection<PickleFrontmatter>["create"]>[0],
+    options?: ConnectRequestOptions
   ): ReturnType<MdbaseConnection<PickleFrontmatter>["create"]>;
 }
 
@@ -184,19 +189,34 @@ export class PickleCollection {
   async describe(): Promise<{
     collection: CollectionDescription;
     contract: PickleContract;
+  }>;
+  async describe(options: ConnectRequestOptions): Promise<{
+    collection: CollectionDescription;
+    contract: PickleContract;
+  }>;
+  async describe(options: ConnectRequestOptions = {}): Promise<{
+    collection: CollectionDescription;
+    contract: PickleContract;
   }> {
-    this.description ??= unwrapConnectOutcome(await this.connect.describe());
+    this.description ??= unwrapConnectOutcome(
+      await this.connect.describe(options)
+    );
     this.contract ??= resolvePickleContract(this.description);
     return { collection: this.description, contract: this.contract };
   }
 
-  async list(): Promise<PickleRequest[]> {
-    const { collection, contract } = await this.describe();
-    const requestQuery = unwrapConnectOutcome(await this.connect.queryAll({
-      types: contract.implementations.map(({ typeName }) => typeName),
-      include_body: true,
-      frontmatter_mode: "effective"
-    }));
+  async list(options: ConnectRequestOptions = {}): Promise<PickleRequest[]> {
+    const { collection, contract } = await this.describe(options);
+    const requestQuery = unwrapConnectOutcome(
+      await this.connect.queryAll(
+        {
+          types: contract.implementations.map(({ typeName }) => typeName),
+          include_body: true,
+          frontmatter_mode: "effective"
+        },
+        options
+      )
+    );
     const requests = requestQuery.results.map(requireEffectiveFrontmatter);
     const responseTypes = [
       ...new Set(
@@ -213,11 +233,16 @@ export class PickleCollection {
     ];
     const responses = responseTypes.length
       ? (
-          unwrapConnectOutcome(await this.connect.queryAll({
-            types: responseTypes,
-            include_body: true,
-            frontmatter_mode: "effective"
-          }))
+          unwrapConnectOutcome(
+            await this.connect.queryAll(
+              {
+                types: responseTypes,
+                include_body: true,
+                frontmatter_mode: "effective"
+              },
+              options
+            )
+          )
         ).results.map(requireEffectiveFrontmatter)
       : [];
     return requests
@@ -250,18 +275,22 @@ export class PickleCollection {
     const responseFolder =
       stringField(asObject(responseType.collection?.path), "folder") ||
       "responses";
+    const { responder, ...requestOptions } = options;
     const frontmatter: PickleFrontmatter = {
       ...payload,
       type: request.responseType,
       request: requestLink(request.path),
-      responder: options.responder?.trim() || "human"
+      responder: responder?.trim() || "human"
     };
-    const created = await this.connect.create({
-      type: request.responseType,
-      path: `${trimSlashes(responseFolder)}/${crypto.randomUUID()}.md`,
-      frontmatter,
-      body: ""
-    });
+    const created = await this.connect.create(
+      {
+        type: request.responseType,
+        path: `${trimSlashes(responseFolder)}/${crypto.randomUUID()}.md`,
+        frontmatter,
+        body: ""
+      },
+      requestOptions
+    );
     return unwrapConnectOutcome(created);
   }
 }
