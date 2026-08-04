@@ -285,7 +285,9 @@ export class ConnectionTransport {
       throw operationTransportError(
         error,
         options.signal,
-        pendingRequestId !== undefined && this.storedPendingMutation(pendingRequestId) !== null,
+        pendingRequestId !== undefined && this.storedPendingMutation(pendingRequestId) !== null
+          ? pendingRequestId
+          : undefined,
         token.authority ? "hosted_provider_unavailable" : "relay_unavailable"
       );
     }
@@ -303,7 +305,7 @@ export class ConnectionTransport {
         throw connectError(
           "operation_outcome_unknown",
           "The direct operation may have completed, but its encrypted grant changed before the response could be recovered. Refresh before making another change.",
-          { operationOutcome: "unknown" }
+          { operationOutcome: "unknown", details: { request_id: attempt.requestId } }
         );
       }
       if (attempt.pendingMutation) this.clearPendingMutation(attempt.requestId);
@@ -315,7 +317,9 @@ export class ConnectionTransport {
         throw operationTransportError(
           error,
           options.signal,
-          pendingRequestId !== undefined && this.storedPendingMutation(pendingRequestId) !== null,
+          pendingRequestId !== undefined && this.storedPendingMutation(pendingRequestId) !== null
+            ? pendingRequestId
+            : undefined,
           token.authority ? "hosted_provider_unavailable" : "relay_unavailable"
         );
       }
@@ -329,7 +333,7 @@ export class ConnectionTransport {
         "The collection authority returned a response that is not valid JSON."
       );
     } catch (cause) {
-      if (attempt.pendingMutation) throw unknownMutationOutcome(cause);
+      if (attempt.pendingMutation) throw unknownMutationOutcome(attempt.requestId, cause);
       throw connectError(
         "invalid_operation_response",
         "The collection authority returned a response that is not valid JSON.",
@@ -341,7 +345,7 @@ export class ConnectionTransport {
       if (attempt.pendingMutation
           && (attempt.directDeliveryUncertain
             || (attempt.encryptedRequest && attempt.resumingMutation))) {
-        throw unknownMutationOutcome(error);
+        throw unknownMutationOutcome(attempt.requestId, error);
       }
       if (attempt.pendingMutation && !attempt.directDeliveryUncertain) {
         this.clearPendingMutation(attempt.requestId);
@@ -359,7 +363,7 @@ export class ConnectionTransport {
       const responseApplicationId = pendingCrypto?.applicationId ?? token.clientId;
       const responseKeyHandle = pendingCrypto?.keyHandle ?? token.keyHandle;
       if (!encryptedResponse || !responseEncryption || !responseGrantId || !responseKeyHandle) {
-        if (attempt.pendingMutation) throw unknownMutationOutcome(
+        if (attempt.pendingMutation) throw unknownMutationOutcome(attempt.requestId,
           new Error("Encrypted operation response was missing its envelope.")
         );
         throw connectError(
@@ -395,14 +399,14 @@ export class ConnectionTransport {
       } catch (error) {
         if (error instanceof MdbaseConnectError) throw error;
         if (error instanceof RelayCryptoError) {
-          if (attempt.pendingMutation) throw unknownMutationOutcome(error);
+          if (attempt.pendingMutation) throw unknownMutationOutcome(attempt.requestId, error);
           throw serverConnectError(error.code, error.message);
         }
         throw error;
       }
     }
     if (body?.protocol_version !== 1 || body?.request_id !== attempt.requestId) {
-      if (attempt.pendingMutation) throw unknownMutationOutcome(
+      if (attempt.pendingMutation) throw unknownMutationOutcome(attempt.requestId,
         new Error("Operation response protocol or request ID did not match.")
       );
       throw connectError(
@@ -412,7 +416,7 @@ export class ConnectionTransport {
     }
     if (body.ok === false) {
       if (!isConnectProblem(body.problem)) {
-        if (attempt.pendingMutation) throw unknownMutationOutcome(
+        if (attempt.pendingMutation) throw unknownMutationOutcome(attempt.requestId,
           new Error("Operation rejection did not contain a canonical problem.")
         );
         throw connectError(
@@ -424,7 +428,7 @@ export class ConnectionTransport {
       throw new MdbaseConnectError(body.problem);
     }
     if (body.ok !== true || !("result" in body)) {
-      if (attempt.pendingMutation) throw unknownMutationOutcome(
+      if (attempt.pendingMutation) throw unknownMutationOutcome(attempt.requestId,
         new Error("Successful operation response did not contain a result.")
       );
       throw connectError(
@@ -478,10 +482,15 @@ export class ConnectionTransport {
         }
         return body as Result;
       } catch (error) {
+        const mutationRequestId = method === "POST" && path === "mutations"
+          && input && typeof input === "object"
+          && typeof (input as { mutation_id?: unknown }).mutation_id === "string"
+          ? (input as { mutation_id: string }).mutation_id
+          : undefined;
         throw operationTransportError(
           error,
           budget.signal,
-          method === "POST" && path === "mutations",
+          mutationRequestId,
           "hosted_provider_unavailable"
         );
       }
@@ -671,7 +680,7 @@ export class ConnectionTransport {
           ? token
           : await this.refreshAuthorization(options.signal);
       } catch (error) {
-        if (pendingMutation && (directDeliveryUncertain || resumingMutation)) throw unknownMutationOutcome(error);
+        if (pendingMutation && (directDeliveryUncertain || resumingMutation)) throw unknownMutationOutcome(requestId, error);
         throw error;
       }
       let response: Response;
@@ -689,7 +698,7 @@ export class ConnectionTransport {
           }
         );
       } catch (error) {
-        if (pendingMutation && (directDeliveryUncertain || resumingMutation)) throw unknownMutationOutcome(error);
+        if (pendingMutation && (directDeliveryUncertain || resumingMutation)) throw unknownMutationOutcome(requestId, error);
         throw error;
       }
       if (response.ok) this.setRoute("relay");

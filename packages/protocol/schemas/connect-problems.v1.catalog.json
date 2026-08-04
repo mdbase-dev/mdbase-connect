@@ -278,7 +278,14 @@
         }
       }
     },
-    "operation_outcome_unknown": { "category": "conflict", "recovery": "resolve_outcome" },
+    "operation_outcome_unknown": {
+      "category": "conflict",
+      "recovery": "resolve_outcome",
+      "details": {
+        "required": ["request_id"],
+        "properties": { "request_id": { "type": "string" } }
+      }
+    },
     "path_occupied": { "category": "conflict", "recovery": "resolve_conflict" },
     "pending_mutation_unresolved": { "category": "conflict", "recovery": "resolve_outcome" },
     "query_snapshot_changed": { "category": "conflict", "recovery": "refresh" },
