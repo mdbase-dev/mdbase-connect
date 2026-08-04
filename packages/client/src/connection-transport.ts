@@ -3,21 +3,18 @@ import type {
   EncryptedRelayOperationRequest,
   EncryptedRelayOperationResponse,
   JsonObject,
-  MdbaseOperationRequest,
-  MutationOperationIdentifier
+  MdbaseOperationRequest
 } from "@mdbase-dev/connect-protocol";
 import {
   CONTROL_PROTOCOL_VERSION,
   ENCRYPTED_RELAY_PROTOCOL_VERSION,
   isConnectProblem,
-  isCollectionOperation,
   mutationOperationIdentifier
 } from "@mdbase-dev/connect-protocol";
 import {
   decryptRelayResponse,
   encryptRelayRequest,
   RelayCryptoError,
-  signAuthorityRequest,
   type GrantKeyStore
 } from "./crypto.js";
 import {
@@ -39,6 +36,8 @@ import type {
   PendingMutationSummary
 } from "./operation-types.js";
 import { ConnectionFileTransport } from "./connection-file-transport.js";
+import { authorityProofHeaders } from "./authority-proof.js";
+import { PendingMutationStore } from "./pending-mutation-store.js";
 import {
   directFallbackStatus,
   isMutation,
@@ -54,12 +53,9 @@ import {
   apiError,
   decodeJsonResponse,
   oauthErrorCode,
-  parseGrantScope,
   parseStored,
-  validStoredAuthority,
-  validStoredEncryption,
-  validFileCapability
 } from "./runtime-utils.js";
+import { readStoredToken } from "./stored-token.js";
 import {
   type ResolvedConnectTimeouts,
   withCooperativeRequestBudget,
@@ -76,7 +72,6 @@ export interface ConnectionTransportInternals {
   ): void;
   storeTokenResponse(body: any, clientId: string, keyHandle?: string): StoredToken;
   tokenKey(collectionId: string): string;
-  notificationKey(collectionId: string, transport?: "web_push" | "fcm"): string;
   pendingMutationKey(collectionId: string): string;
   directPreferenceKey(): string;
 }
@@ -103,6 +98,7 @@ export class ConnectionTransport {
   private readonly internals: ConnectionTransportInternals;
   private readonly onChange: () => void;
   private readonly timeouts: ResolvedConnectTimeouts;
+  private readonly pendingMutationStore: PendingMutationStore;
   readonly files: ConnectionFileTransport;
   private refreshPromise: Promise<StoredToken> | null = null;
   private directStatus: DirectAccessStatus;
@@ -120,6 +116,10 @@ export class ConnectionTransport {
     this.internals = options.internals;
     this.onChange = options.onChange;
     this.timeouts = options.timeouts;
+    this.pendingMutationStore = new PendingMutationStore(
+      this.storage,
+      this.internals.pendingMutationKey(this.collectionId)
+    );
     this.files = new ConnectionFileTransport({
       keyStore: this.keyStore,
       serverUrl: this.serverUrl,
@@ -134,7 +134,7 @@ export class ConnectionTransport {
       onDirectUnavailable: () => this.markDirectUnavailable(),
       onRelayAvailable: () => this.setRoute("relay"),
       authorityProofHeaders: (token, method, url, body, credential) =>
-        this.authorityProofHeaders(token, method, url, body, credential)
+        authorityProofHeaders(this.keyStore, token, method, url, body, credential)
     });
     this.directStatus = this.directAccessMode === "disabled"
       ? "disabled"
@@ -165,7 +165,7 @@ export class ConnectionTransport {
     const permission = await localNetworkPermission();
     if (permission === "denied") return this.setDirectStatus("denied");
     if ((permission === "prompt" || permission === null)
-        && this.storage.getItem(this.directPreferenceKey()) !== "enabled") {
+        && this.storage.getItem(this.internals.directPreferenceKey()) !== "enabled") {
       return this.setDirectStatus("permission_required");
     }
     return this.probeDirectAccess(signal);
@@ -181,13 +181,13 @@ export class ConnectionTransport {
   private async requestDirectAccessWithinBudget(signal: AbortSignal): Promise<DirectAccessStatus> {
     const token = this.currentToken();
     if (!this.directCapable(token)) return this.setDirectStatus("disabled");
-    this.storage.setItem(this.directPreferenceKey(), "enabled");
+    this.storage.setItem(this.internals.directPreferenceKey(), "enabled");
     this.directRetryAt = 0;
     return this.probeDirectAccess(signal);
   }
 
   disableDirectAccess(): void {
-    this.storage.setItem(this.directPreferenceKey(), "disabled");
+    this.storage.setItem(this.internals.directPreferenceKey(), "disabled");
     this.setDirectStatus("disabled");
     this.setRoute("relay");
   }
@@ -201,7 +201,7 @@ export class ConnectionTransport {
   pendingMutations(): readonly PendingMutationSummary[] {
     return this.storedPendingMutations().map((pending) => ({
       requestId: pending.requestId,
-      operation: this.pendingMutationIdentifier(pending),
+      operation: this.pendingMutationStore.identifier(pending),
       fingerprint: pending.inputFingerprint,
       status: "outcome_unknown",
       createdAt: new Date(pending.createdAt).toISOString()
@@ -212,7 +212,7 @@ export class ConnectionTransport {
     const pending = this.storedPendingMutation(requestId);
     return pending ? {
       requestId: pending.requestId,
-      operation: this.pendingMutationIdentifier(pending),
+      operation: this.pendingMutationStore.identifier(pending),
       fingerprint: pending.inputFingerprint,
       status: "outcome_unknown",
       createdAt: new Date(pending.createdAt).toISOString()
@@ -509,7 +509,14 @@ export class ConnectionTransport {
     }
     const url = `${token.authority.syncUrl}/${path}`;
     const body = input === undefined ? undefined : JSON.stringify(input);
-    const proof = await this.authorityProofHeaders(token, method, url, body, token.authority.accessToken);
+    const proof = await authorityProofHeaders(
+      this.keyStore,
+      token,
+      method,
+      url,
+      body,
+      token.authority.accessToken
+    );
     return fetch(
       url,
       {
@@ -594,7 +601,7 @@ export class ConnectionTransport {
               input,
               requestId
             );
-            this.storePendingMutation({
+            this.pendingMutationStore.store({
               collectionId: token.collectionId,
               ...(token.grantId ? { grantId: token.grantId } : {}),
               keyId: token.encryption.key_id,
@@ -631,7 +638,7 @@ export class ConnectionTransport {
         };
       body = request;
       if (pendingMutation && !pending) {
-        this.storePendingMutation({
+        this.pendingMutationStore.store({
           collectionId: token.collectionId,
           ...(token.grantId ? { grantId: token.grantId } : {}),
           operation,
@@ -717,7 +724,8 @@ export class ConnectionTransport {
       : `${this.serverUrl}/v1/authorities/${encodeURIComponent(token.collectionId)}/operations/${operation}`;
     const operationBody = JSON.stringify(body);
     const proof = token.authority
-      ? await this.authorityProofHeaders(
+      ? await authorityProofHeaders(
+          this.keyStore,
           token,
           "POST",
           operationUrl,
@@ -763,7 +771,7 @@ export class ConnectionTransport {
   private directEligible(token: StoredToken | null): token is StoredToken {
     return token !== null
       && this.directCapable(token)
-      && this.storage.getItem(this.directPreferenceKey()) !== "disabled";
+      && this.storage.getItem(this.internals.directPreferenceKey()) !== "disabled";
   }
 
   private async shouldAttemptDirect(token: StoredToken): Promise<boolean> {
@@ -776,7 +784,7 @@ export class ConnectionTransport {
       return false;
     }
     if ((permission === "prompt" || permission === null)
-        && this.storage.getItem(this.directPreferenceKey()) !== "enabled") {
+        && this.storage.getItem(this.internals.directPreferenceKey()) !== "enabled") {
       this.setDirectStatus("permission_required");
       return false;
     }
@@ -844,7 +852,9 @@ export class ConnectionTransport {
   }
 
   private invalidateRejectedAuthorization(rejected: StoredToken): void {
-    const current = parseStored<StoredToken>(this.storage.getItem(this.tokenKey()));
+    const current = parseStored<StoredToken>(this.storage.getItem(
+      this.internals.tokenKey(this.collectionId)
+    ));
     if (!current || !sameAuthorization(current, rejected)) return;
     this.internals.removeToken(this.collectionId, current.keyHandle);
     this.currentRoute = "relay";
@@ -853,85 +863,17 @@ export class ConnectionTransport {
   }
 
   currentToken(): StoredToken | null {
-    const stored = this.storage.getItem(this.tokenKey());
-    const token = parseStored<StoredToken>(stored);
-    const invalidate = (keyHandle?: unknown): null => {
-      this.internals.removeToken(
+    return readStoredToken({
+      stored: this.storage.getItem(this.internals.tokenKey(this.collectionId)),
+      collectionId: this.collectionId,
+      relayEncryption: this.internals.relayEncryption,
+      invalidate: (keyHandle) => this.internals.removeToken(
         this.collectionId,
-        typeof keyHandle === "string" ? keyHandle : undefined,
+        keyHandle,
         "invalid_stored_grant"
-      );
-      return null;
-    };
-    if (!token) {
-      if (stored) invalidate();
-      return null;
-    }
-    if (
-      token.version !== 1
-      || typeof token.accessToken !== "string"
-      || token.accessToken.length === 0
-      || typeof token.clientId !== "string"
-      || token.clientId.length === 0
-      || token.collectionId !== this.collectionId
-      || typeof token.collectionName !== "string"
-      || token.collectionName.length === 0
-      || !Array.isArray(token.operations)
-      || token.operations.some((operation) => typeof operation !== "string")
-      || typeof token.expiresAt !== "number"
-      || !Number.isFinite(token.expiresAt)
-      || (
-        token.refreshToken !== undefined
-        && (
-          typeof token.refreshToken !== "string"
-          || token.refreshToken.length === 0
-        )
-      )
-      || (
-        token.refreshExpiresAt !== undefined
-        && (
-          typeof token.refreshExpiresAt !== "number"
-          || !Number.isFinite(token.refreshExpiresAt)
-        )
-      )
-    ) return invalidate(token.keyHandle);
-    if (!parseGrantScope(token.scope)) {
-      return invalidate(token.keyHandle);
-    }
-    if (token.fileCapability && !validFileCapability(token.fileCapability)) {
-      return invalidate(token.keyHandle);
-    }
-    if (
-      token.authority
-      && !validStoredAuthority(token.authority, token.collectionId)
-    ) {
-      return invalidate(token.keyHandle);
-    }
-    if (this.internals.relayEncryption === "required") {
-      if (token.authority) {
-        if (!token.keyHandle || !token.authority.proofPublicKey) {
-          return invalidate(token.keyHandle);
-        }
-      } else {
-        if (
-          !token.grantId
-          || !token.keyHandle
-          || !validStoredEncryption(token.encryption, token.collectionId)
-        ) {
-          return invalidate(token.keyHandle);
-        }
-      }
-    }
-    if (token.expiresAt <= Date.now()
-        && (!token.refreshToken || (token.refreshExpiresAt ?? 0) <= Date.now())) {
-      // The cloud bearer and the local grant proof have separate lifetimes. Keep an
-      // encrypted local grant usable while the connector still recognizes it; relay
-      // use will require reauthorization, and revocation remains enforced locally.
-      if (this.directCapable(token)) return token;
-      this.internals.removeToken(this.collectionId, token.keyHandle);
-      return null;
-    }
-    return token;
+      ),
+      directCapable: (token) => this.directCapable(token)
+    });
   }
 
   async authorizedToken(options: ConnectRequestOptions = {}): Promise<StoredToken | null> {
@@ -978,7 +920,8 @@ export class ConnectionTransport {
       client_id: current.clientId
     }).toString();
     const proof = current.authority
-      ? await this.authorityProofHeaders(
+      ? await authorityProofHeaders(
+          this.keyStore,
           current,
           "POST",
           refreshUrl,
@@ -1020,41 +963,6 @@ export class ConnectionTransport {
     return this.storeTokenResponse(body, current.clientId, current.keyHandle);
   }
 
-  private async authorityProofHeaders(
-    token: StoredToken,
-    method: string,
-    url: string,
-    body: string | undefined,
-    credential: string
-  ): Promise<Record<string, string>> {
-    if (!token.authority?.proofPublicKey) return {};
-    if (!token.keyHandle) {
-      throw connectError(
-        "missing_grant_key",
-        "Reconnect this application to restore remote authority request signing."
-      );
-    }
-    try {
-      const target = new URL(url);
-      return await signAuthorityRequest(
-        this.keyStore,
-        token.keyHandle,
-        token.authority.proofPublicKey,
-        {
-          method,
-          target: `${target.pathname}${target.search}`,
-          body,
-          credential
-        }
-      );
-    } catch (error) {
-      if (error instanceof RelayCryptoError) {
-        throw serverConnectError(error.code, error.message);
-      }
-      throw error;
-    }
-  }
-
   private storeTokenResponse(body: any, clientId: string, keyHandle?: string): StoredToken {
     if (body.collection_id !== this.collectionId) {
       throw connectError(
@@ -1071,89 +979,22 @@ export class ConnectionTransport {
     return token;
   }
 
-  private tokenKey() {
-    return this.internals.tokenKey(this.collectionId);
-  }
-  private notificationKey(transport: "web_push" | "fcm" = "web_push") {
-    return this.internals.notificationKey(this.collectionId, transport);
-  }
-  private pendingMutationBaseKey() {
-    return this.internals.pendingMutationKey(this.collectionId);
-  }
-
-  private pendingMutationKey(requestId: string): string {
-    return `${this.pendingMutationBaseKey()}:${encodeURIComponent(requestId)}`;
-  }
-
   private storedPendingMutations(): PendingMutation[] {
-    const token = this.currentToken();
-    if (!token) return [];
-    const baseKey = this.pendingMutationBaseKey();
-    const legacy = parseStored<PendingMutation>(this.storage.getItem(baseKey));
-    if (this.validPendingMutation(legacy) && legacy.collectionId === token.collectionId) {
-      const migratedKey = this.pendingMutationKey(legacy.requestId);
-      if (!this.storage.getItem(migratedKey)) {
-        this.storage.setItem(migratedKey, JSON.stringify(legacy));
-      }
-      this.storage.removeItem(baseKey);
-    }
-    const keys: string[] = [];
-    for (let index = 0; index < this.storage.length; index += 1) {
-      const key = this.storage.key(index);
-      if (key?.startsWith(`${baseKey}:`)) keys.push(key);
-    }
-    return keys
-      .map((key) => parseStored<PendingMutation>(this.storage.getItem(key)))
-      .filter((pending): pending is PendingMutation =>
-        this.validPendingMutation(pending) && pending.collectionId === token.collectionId)
-      .sort((left, right) => left.createdAt - right.createdAt
-        || left.requestId.localeCompare(right.requestId));
+    return this.pendingMutationStore.list(this.currentToken()?.collectionId ?? null);
   }
 
   private storedPendingMutation(requestId: string): PendingMutation | null {
-    return this.storedPendingMutations()
-      .find((pending) => pending.requestId === requestId) ?? null;
-  }
-
-  private pendingMutationIdentifier(pending: PendingMutation): MutationOperationIdentifier {
-    return pending.mutation ?? mutationOperationIdentifier(
-      pending.operation,
-      pending.request?.input ?? (pending.operation === "sync" ? { action: "mutate" } : {})
-    ) ?? (pending.operation === "sync" ? "sync:mutate" : pending.operation) as MutationOperationIdentifier;
-  }
-
-  private validPendingMutation(pending: PendingMutation | null): pending is PendingMutation {
-    return Boolean(
-      pending
-      && typeof pending.collectionId === "string"
-      && typeof pending.requestId === "string"
-      && pending.requestId.length > 0
-      && isCollectionOperation(pending.operation)
-      && typeof pending.inputFingerprint === "string"
-      && Number.isFinite(pending.createdAt)
-      && pending.createdAt > 0
-      && (pending.envelope || pending.request)
-      && (pending.operation === "sync" || mutationOperationIdentifier(
-        pending.operation,
-        pending.request?.input ?? {}
-      ) !== null)
+    return this.pendingMutationStore.find(
+      this.currentToken()?.collectionId ?? null,
+      requestId
     );
   }
 
-  private storePendingMutation(pending: PendingMutation): void {
-    this.storage.setItem(this.pendingMutationKey(pending.requestId), JSON.stringify(pending));
-  }
-
   private clearPendingMutation(requestId: string): void {
-    const key = this.pendingMutationKey(requestId);
-    const pending = parseStored<PendingMutation>(this.storage.getItem(key));
-    this.storage.removeItem(key);
+    const pending = this.pendingMutationStore.take(requestId);
     const currentKeyHandle = this.currentToken()?.keyHandle;
     if (pending?.keyHandle && pending.keyHandle !== currentKeyHandle) {
       void this.keyStore.delete(pending.keyHandle).catch(() => undefined);
     }
-  }
-  private directPreferenceKey() {
-    return this.internals.directPreferenceKey();
   }
 }

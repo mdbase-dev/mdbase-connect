@@ -35,7 +35,6 @@ import type { MdbaseConnectionInfo } from "./connection-types.js";
 import {
   IndexedDbGrantKeyStore,
   MemoryGrantKeyStore,
-  validateGrantEncryption,
   type GrantKeyStore
 } from "./crypto.js";
 import { MdbaseConnectError, connectError, serverConnectError } from "./errors.js";
@@ -70,12 +69,11 @@ import {
   manifestStorageFingerprint,
   oauthErrorCode,
   parseDeviceAuthorization,
-  parseGrantScope,
   parseStored,
   stripTrailingSlash,
-  validFileCapability,
   validAuthorityTokenResponse
 } from "./runtime-utils.js";
+import { storedTokenFromResponse } from "./token-response.js";
 
 export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
   readonly serverUrl: string;
@@ -817,107 +815,19 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     if (typeof collectionId !== "string") {
       throw connectError("invalid_token_response", "Authorization returned no collection ID.");
     }
-    const scope = parseGrantScope(body.scope);
-    if (!scope) {
-      throw connectError(
-        "invalid_token_response",
-        "Authorization returned no valid collection scope."
-      );
-    }
-    if (body.authority && !validAuthorityTokenResponse(body.authority, collectionId)) {
-      throw connectError(
-        "invalid_token_response",
-        "Authorization returned an invalid remote authority capability."
-      );
-    }
-    if (body.authority && body.encryption) {
-      throw connectError(
-        "invalid_token_response",
-        "Authorization returned conflicting collection transports."
-      );
-    }
-    if (body.file_capability !== null && body.file_capability !== undefined
-        && !validFileCapability(body.file_capability)) {
-      throw connectError(
-        "invalid_token_response",
-        "Authorization returned an invalid file capability."
-      );
-    }
-    if (body.encryption) {
-      try {
-        validateGrantEncryption(body.encryption);
-      } catch {
-        throw connectError(
-          "invalid_token_response",
-          "Authorization returned an invalid encrypted relay binding."
-        );
-      }
-      this.pinConnectorIdentity(
-        body.encryption.connector_id,
-        body.encryption.connector_agreement_public_key
-      );
-      if (
-        body.encryption.collection_id !== collectionId
-        || typeof body.grant_id !== "string"
-        || body.grant_id.length === 0
-      ) {
-        throw connectError(
-          "invalid_token_response",
-          "Authorization returned an encrypted relay binding for another grant."
-        );
-      }
-    }
     const previous = parseStored<StoredToken>(this.storage.getItem(this.tokenKey(collectionId)));
-    if (
-      previous?.encryption
-      && body.encryption
-      && previous.keyHandle
-      && previous.keyHandle === keyHandle
-      && (
-        previous.grantId !== body.grant_id
-        || previous.encryption.connector_id !== body.encryption.connector_id
-        || previous.encryption.connector_agreement_public_key
-          !== body.encryption.connector_agreement_public_key
-        || previous.encryption.application_agreement_public_key
-          !== body.encryption.application_agreement_public_key
-      )
-    ) {
-      throw connectError(
-        "connector_identity_changed",
-        "The connector identity changed during authorization renewal. Reauthorize before sending collection data."
-      );
-    }
+    const token = storedTokenFromResponse({
+      body,
+      clientId,
+      keyHandle,
+      previous,
+      defaultApplicationOrigin: this.defaultApplicationOrigin(),
+      pinConnectorIdentity: (connectorId, publicKey) =>
+        this.pinConnectorIdentity(connectorId, publicKey)
+    });
     if (previous?.keyHandle && previous.keyHandle !== keyHandle) {
       void this.keyStore.delete(previous.keyHandle).catch(() => undefined);
     }
-    const token: StoredToken = {
-      version: 1,
-      accessToken: body.access_token,
-      refreshToken: body.refresh_token,
-      clientId,
-      collectionId,
-      collectionName: body.collection_name ?? `Collection ${collectionId.slice(0, 8)}`,
-      operations: body.operations,
-      scope,
-      expiresAt: Date.now() + body.expires_in * 1_000,
-      refreshExpiresAt: body.refresh_expires_in
-        ? Date.now() + body.refresh_expires_in * 1_000
-        : undefined,
-      grantId: body.grant_id,
-      encryption: body.encryption ?? undefined,
-      fileCapability: body.file_capability ?? undefined,
-      applicationOrigin: body.application_origin ?? this.defaultApplicationOrigin(),
-      keyHandle,
-      savedAt: Date.now(),
-      authority: body.authority ? {
-        operationsUrl: body.authority.operations_url,
-        syncUrl: body.authority.sync_url,
-        filesUrl: body.authority.files_url,
-        replicaId: body.authority.replica_id,
-        accessToken: body.authority.access_token,
-        proofPublicKey: body.authority.proof_public_key
-      } : undefined
-    };
     this.storage.setItem(this.tokenKey(collectionId), JSON.stringify(token));
     this.addConnectionId(collectionId);
     this.invalidatedConnections.delete(collectionId);
