@@ -7,32 +7,10 @@ import type {
 } from "@mdbase-dev/connect-protocol";
 import { FILE_PROTOCOL_VERSION } from "@mdbase-dev/connect-protocol";
 import type { CollectionAccessContext } from "./collection-access.js";
-
-const FULL_COLLECTION_OPERATIONS = new Set<CollectionOperation>([
-  "validate",
-  "list_views",
-  "execute_view",
-  "read_type",
-  "create_type",
-  "update_type",
-  "apply_type_pack"
-]);
-
-const WRITE_OPERATIONS = new Set<CollectionOperation>([
-  "create",
-  "update",
-  "delete",
-  "rename",
-  "create_type",
-  "update_type",
-  "apply_type_pack",
-  "create_view_source",
-  "update_view_source",
-  "delete_view_source",
-  "put_timer",
-  "cancel_timer",
-  "reconcile_timers"
-]);
+import {
+  requiresFullCollectionAccess,
+  requiresWriteReplica
+} from "./collection-operation-policy.js";
 
 const WRITE_FILE_ACTIONS = new Set(["add", "replace", "move", "delete"]);
 
@@ -91,7 +69,7 @@ export function planCollectionGrant(input: {
   }
   if (
     input.requirements.access !== "full_collection"
-    && operations.some((operation) => FULL_COLLECTION_OPERATIONS.has(operation))
+    && operations.some(requiresFullCollectionAccess)
   ) {
     throw new GrantPlanningError(
       "Saved views, collection-wide validation, and type definitions require the application manifest to request full collection access."
@@ -107,7 +85,7 @@ export function planCollectionGrant(input: {
   return {
     operations,
     scope,
-    replicaMode: operations.some((operation) => WRITE_OPERATIONS.has(operation))
+    replicaMode: operations.some(requiresWriteReplica)
       || fileRequirement?.actions.some((action) => WRITE_FILE_ACTIONS.has(action))
       ? "read_write"
       : "read_only",

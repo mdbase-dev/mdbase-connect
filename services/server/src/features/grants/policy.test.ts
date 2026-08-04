@@ -28,4 +28,11 @@ describe("application capability policy", () => {
       }
     })).toBe(false);
   });
+
+  it("fails closed when persisted grants contain a non-protocol operation", () => {
+    expect(operationsAllowedByRequirements(
+      ["read", "future_unclassified_operation"],
+      requirements
+    )).toBe(false);
+  });
 });

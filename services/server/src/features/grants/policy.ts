@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { operationsForApplicationCapabilities } from "@mdbase-dev/connect-protocol";
+import {
+  areCollectionOperations,
+  isCollectionOperation,
+  operationsForApplicationCapabilities
+} from "@mdbase-dev/connect-protocol";
 import type {
   ApplicationProvisions,
   ApplicationRequirements,
-  CollectionOperation,
   CollectionContractDescriptor,
   ContractRequirement,
   GrantEncryption,
@@ -13,28 +16,10 @@ import type {
 import type { DatabasePool } from "../../database-types.js";
 import { typesForContracts } from "../../hosted.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
-
-const FULL_COLLECTION_OPERATIONS = new Set([
-  "validate",
-  "list_views",
-  "execute_view",
-  "read_type",
-  "create_type",
-  "update_type",
-  "assess_type_pack",
-  "apply_type_pack"
-]);
-
-const PORTABLE_PROFILE_OPERATIONS = new Set([
-  "query",
-  "list_views",
-  "execute_view",
-  "read_type",
-  "create_type",
-  "update_type",
-  "assess_type_pack",
-  "apply_type_pack"
-]);
+import {
+  requiresFullCollectionAccess,
+  requiresPortableProfile
+} from "../../collection-operation-policy.js";
 
 export function scopeForRequirements(
   requirements: ApplicationRequirements | null | undefined,
@@ -60,21 +45,24 @@ export function collectionSupportsOperations(
   specVersion: string,
   operations: readonly string[]
 ): boolean {
+  if (!areCollectionOperations(operations)) return false;
   return /^0\.3(?:\.|$)/.test(specVersion)
-    || operations.every(
-      (operation) => !PORTABLE_PROFILE_OPERATIONS.has(operation)
-    );
+    || operations.every((operation) => !requiresPortableProfile(operation));
 }
 
 export function assertCollectionSupportsOperations(
   specVersion: string,
   operations: readonly string[]
 ): void {
-  const unsupported = operations.find(
-    (operation) =>
-      PORTABLE_PROFILE_OPERATIONS.has(operation)
-      && !/^0\.3(?:\.|$)/.test(specVersion)
-  );
+  const validOperations = areCollectionOperations(operations);
+  const unsupported = validOperations
+    ? operations.find((operation) =>
+        requiresPortableProfile(operation)
+          && !/^0\.3(?:\.|$)/.test(specVersion)
+      )
+    : operations.find((operation) =>
+        !isCollectionOperation(operation)
+      );
   if (unsupported) {
     throw new RequestValidationError(
       `This collection uses mdbase ${specVersion} and does not support the ${unsupported} operation.`
@@ -86,14 +74,15 @@ export function operationsAllowedByRequirements(
   operations: readonly string[],
   requirements: ApplicationRequirements | null | undefined
 ): boolean {
+  if (!areCollectionOperations(operations)) return false;
   if (
     requirements?.access !== "full_collection"
-    && operations.some((operation) => FULL_COLLECTION_OPERATIONS.has(operation))
+    && operations.some(requiresFullCollectionAccess)
   ) return false;
   const declared = requirements?.capabilities;
   if (!declared) return true;
   const allowed = new Set(operationsForApplicationCapabilities(declared));
-  return operations.every((operation) => allowed.has(operation as CollectionOperation));
+  return operations.every((operation) => allowed.has(operation));
 }
 
 export function assertOperationsAllowedByRequirements(

@@ -4,6 +4,7 @@ import type {
   CollectionOperation,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
+import { operationsForApplicationCapabilities } from "@mdbase-dev/connect-protocol";
 import {
   ownerAccess,
   type CollectionAccessContext
@@ -29,6 +30,31 @@ const owner = ownerAccess({
 }, "owner");
 
 describe("planCollectionGrant", () => {
+  it("plans every operation compiled for type-pack application sessions", () => {
+    const capabilities = {
+      contract_version: 1 as const,
+      required: ["definitions.type-pack.apply"] as const
+    };
+    const operations = operationsForApplicationCapabilities(capabilities);
+    const result = planCollectionGrant({
+      requestedOperations: operations,
+      applicationOperationCeiling: operations,
+      requirements: {
+        contracts: [],
+        access: "full_collection",
+        capabilities
+      },
+      availableContracts: [],
+      access: owner
+    });
+
+    expect(result).toEqual({
+      operations: ["assess_type_pack", "apply_type_pack"],
+      scope: { access: "full_collection", contracts: [] },
+      replicaMode: "read_write"
+    });
+  });
+
   it("intersects application, request, and human access ceilings", () => {
     const result = planCollectionGrant({
       requestedOperations: ["read", "update"],

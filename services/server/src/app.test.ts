@@ -537,6 +537,37 @@ describe("mdbase connect server", () => {
     const applicationId = discovered.json().application.id as string;
     const applicationManifestDigest =
       discovered.json().application.manifest_digest as string;
+    const definitionManager = applicationManifestFixture({
+      contracts: [],
+      access: "full_collection",
+      capabilities: {
+        contract_version: 1,
+        required: ["definitions.type-pack.apply"]
+      }
+    }, "Definition Manager");
+    definitionManager.manifest.id = "dev.mdbase.definition-manager";
+    definitionManager.manifest.redirect_uris = [definitionManager.redirectUri];
+    const registeredDefinitionManager = await app.inject({
+      method: "POST",
+      url: "/v1/apps/register",
+      payload: { manifest: definitionManager.manifest }
+    });
+    expect(
+      registeredDefinitionManager.statusCode,
+      registeredDefinitionManager.body
+    ).toBe(200);
+    const semanticAuthorization = await postWebAuthorization(app, {
+      applicationId: registeredDefinitionManager.json().application.id,
+      applicationManifestDigest:
+        registeredDefinitionManager.json().application.manifest_digest,
+      redirectUri: definitionManager.redirectUri,
+      verifier: "semantic-capability-verifier-that-is-long-enough-0001",
+      state: "semantic-capability",
+      operations: ["assess_type_pack", "apply_type_pack"],
+      collectionId
+    });
+    expect(semanticAuthorization.statusCode, semanticAuthorization.body).toBe(200);
+
     const invalidEncryption = await app.inject({
       method: "GET",
       url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${"a".repeat(43)}&code_challenge_method=S256&relay_protocol=3&application_agreement_public_key=${"A".repeat(87)}`,

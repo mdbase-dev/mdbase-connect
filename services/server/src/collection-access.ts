@@ -1,6 +1,7 @@
-import type {
-  CollectionOperation,
-  GrantScope
+import {
+  COLLECTION_OPERATIONS,
+  type CollectionOperation,
+  type GrantScope
 } from "@mdbase-dev/connect-protocol";
 import type { DatabaseQueryable } from "./db.js";
 import {
@@ -9,32 +10,7 @@ import {
   type CollectionLocator
 } from "./collection-catalog.js";
 
-export const COLLECTION_OPERATIONS = [
-  "describe",
-  "changes",
-  "read",
-  "query",
-  "validate",
-  "list_views",
-  "execute_view",
-  "read_view_source",
-  "create_view_source",
-  "update_view_source",
-  "delete_view_source",
-  "create",
-  "update",
-  "delete",
-  "rename",
-  "read_type",
-  "create_type",
-  "update_type",
-  "apply_type_pack",
-  "list_timers",
-  "put_timer",
-  "cancel_timer",
-  "reconcile_timers",
-  "sync"
-] as const satisfies readonly CollectionOperation[];
+export { COLLECTION_OPERATIONS };
 
 export type CollectionAction =
   | "collection.discover"

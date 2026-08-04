@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
+import { COLLECTION_OPERATIONS } from "../dist/operations.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const schema = JSON.parse(readFileSync(resolve(here, "../schemas/connect-protocol.v1.schema.json"), "utf8"));
@@ -48,6 +49,13 @@ test("all canonical schemas compile as strict JSON Schema 2020-12", () => {
   assert.ok(validator(interopSchema.$id));
   assert.ok(validator(syncSchema.$id));
   assert.ok(validator(problemSchema.$id));
+});
+
+test("the protocol schema exposes the executable collection operation contract", () => {
+  assert.deepEqual(
+    schema.$defs.operation.enum,
+    [...COLLECTION_OPERATIONS]
+  );
 });
 
 test("file capabilities use an explicit namespace and scope", () => {
