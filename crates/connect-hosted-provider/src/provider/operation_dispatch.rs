@@ -30,7 +30,13 @@ impl HostedProvider {
             }
         };
         authorize_application_operation(&replica, operation, request_origin)?;
-        let contract_scope = self.contract_scope(collection_id, &replica).await?;
+        let portable_selector = matches!(
+            operation,
+            "query" | "read" | "create" | "update" | "delete" | "rename"
+        ) && input.get("contract").is_some();
+        let contract_scope = self
+            .contract_scope(collection_id, &replica, portable_selector)
+            .await?;
         if mdbase_connect_protocol::is_mutating_operation(operation, &input) {
             let claim = self
                 .claim_operation_mutation(collection_id, &replica, operation, request_id, &input)
@@ -286,9 +292,15 @@ impl HostedProvider {
         &self,
         collection_id: Uuid,
         replica: &Replica,
+        portable_selector: bool,
     ) -> ApiResult<Option<ContractScope>> {
         if replica.full_collection {
-            return Ok(None);
+            if !portable_selector {
+                return Ok(None);
+            }
+            return ContractScope::new(self.collection_resources(collection_id).await?.contracts)
+                .map(Some)
+                .map_err(scope_error);
         }
         let current = self.collection_resources(collection_id).await?.contracts;
         for pinned in &replica.contract_scope {

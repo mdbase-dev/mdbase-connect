@@ -184,6 +184,34 @@ schema:
         .scoped_operation(collection.id, "query", &json!({}), &full_scope)
         .unwrap();
     assert_eq!(full_query["result"]["results"].as_array().unwrap().len(), 2);
+    let portable_full_query = registry
+        .scoped_operation(
+            collection.id,
+            "query",
+            &json!({
+                "contract": {
+                    "id": "example.work-item",
+                    "version": "1.0.0"
+                }
+            }),
+            &full_scope,
+        )
+        .unwrap();
+    assert_eq!(
+        portable_full_query["result"]["results"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        portable_full_query["result"]["results"][0]["frontmatter"],
+        json!({ "title": "Visible" })
+    );
+    assert_eq!(
+        portable_full_query["result"]["results"][0]["contract"]["id"],
+        "example.work-item"
+    );
 
     assert!(registry
         .is_compatible(
