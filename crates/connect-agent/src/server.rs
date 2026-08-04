@@ -45,6 +45,7 @@ mod account;
 mod authorization;
 mod control;
 mod files;
+mod operation_responses;
 mod operations;
 
 impl AgentState {
