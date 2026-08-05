@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.1.0-beta.33
+
+Beta.33 is the single successor to the undeployed beta.32 candidate. It retains
+beta.32's operation transport v2, authorization binding v3, semantic capability
+v1, and durable-mutation v1 contracts while deliberately breaking the
+application-facing SDK surface one final time before external beta. Supported
+beta.28+ data remains migration-safe; beta SDK compatibility is not preserved.
+
+### Final SDK surface and lifecycle
+
+- Application-facing inputs, results, and progress events consistently use
+  camelCase while protocol payloads remain canonical snake_case at the
+  boundary. User-owned frontmatter keys are never renamed.
+- `MdbaseApplicationSession.start()` is concurrency-safe and idempotent across
+  repeated starts, cancellation, failure, destruction, and framework remounts.
+  Composite operations consume one monotonic request budget rather than
+  restarting or dropping the caller's timeout.
+- The root package now exposes a reviewed golden-path API. Protocol-author and
+  cryptographic seams live on explicit subpaths, while supported outcome/fault
+  builders live in `@mdbase-dev/connect-testing`. The untyped ordinary
+  connection operation escape hatch and internal construction helpers are no
+  longer public.
+- Query/filter/order inputs are precisely typed from the canonical operation
+  contract. Packed positive and negative fixtures enforce root, `/advanced`,
+  `/crypto`, and testing boundaries, and every public example compiles.
+
+### Application-declared collection setup
+
+- Applications can declare required collection configuration, contracts, and
+  type packs. Local, relay, and hosted authorities use the same canonical
+  mdbase-rs assess/apply semantics, exact review digests, conflict reporting,
+  idempotent receipts, and atomic setup transaction.
+- Authorization binds setup to the reviewed application declaration. Generic
+  collection templates remain application-neutral; existing collections adopt
+  requirements without recreation or blanket template migration.
+
+### Performance and packaging
+
+- Hosted working sets maintain paired path/record indexes and use an explicit
+  caller-owned staged-mutation boundary. Ordinary filesystem mutations retain
+  mdbase-rs's collection-wide atomic shadow transaction, while hosted writes
+  rely on their disposable stage plus outer PostgreSQL transaction and cache
+  invalidation.
+- The 10,003-record hosted gate passes with mutation p95 84.01 ms, snapshot
+  1.334 s, change-page p95 27.38 ms, warm-read p95 46.72 ms, and warm-query p95
+  27.5 ms. The mutation budget remains 200 ms.
+- Editor, Workouts, Pickle Android, and TaskNotes must consume one immutable
+  beta.33 artifact set and roll out with the matching services as one train.
+  Do not activate the earlier beta.32 candidate.
+
 ## 0.1.0-beta.32
 
 Beta.32 is a coordinated breaking release of the SDK, desktop connector,

@@ -17,7 +17,7 @@ function readinessDocument(contractSupport: ConnectContractSupport = CONNECT_CON
   return {
     status: "ready",
     provider: {
-      version: "0.1.0-beta.32",
+      version: "0.1.0-beta.33",
       capabilities: [...HOSTED_PROVIDER_REQUIRED_CAPABILITIES],
       contract_support: contractSupport
     }

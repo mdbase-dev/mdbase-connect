@@ -119,7 +119,7 @@ describe("ConnectApp", () => {
   it("distinguishes an incompatible computer from an ordinary offline one", async () => {
     overview.connectors[0].compatibility = "upgrade_required";
     overview.connectors[0].connector_version = "0.1.0-beta.30";
-    overview.connectors[0].minimum_connector_version = "0.1.0-beta.32";
+    overview.connectors[0].minimum_connector_version = "0.1.0-beta.33";
     overview.connectors[0].update_url = "https://example.test/connect-update";
     const user = userEvent.setup();
     render(<ConnectApp />);
@@ -131,7 +131,7 @@ describe("ConnectApp", () => {
     expect(screen.queryByText("The editor can reach this collection now.")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("link", { name: "Computers" }));
-    expect(await screen.findByRole("link", { name: "Install version 0.1.0-beta.32 or later" }))
+    expect(await screen.findByRole("link", { name: "Install version 0.1.0-beta.33 or later" }))
       .toHaveAttribute("href", "https://example.test/connect-update");
   });
 

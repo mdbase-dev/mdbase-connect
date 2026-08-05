@@ -36,7 +36,7 @@ export const RELAY_REQUIRED_CAPABILITIES = [
   "encrypted-relay",
   "policy-ack"
 ] as const;
-export const MINIMUM_CONNECTOR_VERSION = "0.1.0-beta.32" as const;
+export const MINIMUM_CONNECTOR_VERSION = "0.1.0-beta.33" as const;
 export const HOSTED_PROVIDER_REQUIRED_CAPABILITIES = [
   "durable-mutation-journal-v1",
   "durable-file-lifecycle-v1"

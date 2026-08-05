@@ -413,7 +413,7 @@ describe("live connector-mediated authorization", () => {
         supported: [1],
         peer: "connector"
       },
-      minimum_connector_version: "0.1.0-beta.32",
+      minimum_connector_version: "0.1.0-beta.33",
       update_url: "https://github.com/mdbase-dev/mdbase-connect/releases/latest"
     });
     const [code] = await closePromise;
@@ -432,7 +432,7 @@ describe("live connector-mediated authorization", () => {
     expect(recorded.rows[0]).toEqual({
       connector_version: "0.1.0-beta.30",
       incompatibility_code: "transport_protocol_incompatible",
-      minimum_connector_version: "0.1.0-beta.32",
+      minimum_connector_version: "0.1.0-beta.33",
       connector_update_url: "https://github.com/mdbase-dev/mdbase-connect/releases/latest"
     });
     const overview = await app.inject({ method: "GET", url: "/v1/me", headers: { cookie } });
@@ -440,7 +440,7 @@ describe("live connector-mediated authorization", () => {
       id: connector.connector.id,
       connector_version: "0.1.0-beta.30",
       compatibility: "upgrade_required",
-      minimum_connector_version: "0.1.0-beta.32",
+      minimum_connector_version: "0.1.0-beta.33",
       update_url: "https://github.com/mdbase-dev/mdbase-connect/releases/latest"
     }));
 

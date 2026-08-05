@@ -84,3 +84,13 @@ call.
 Mixed-version test fixtures remain mandatory even though mixed-version
 operation is intentionally unsupported. They prove fail-before-write behavior
 and the accuracy of mismatch details.
+
+## Beta.33 successor note
+
+Beta.33 supersedes the undeployed beta.32 candidate without changing the
+contract-axis values in this matrix. Its deliberate breaks are confined to the
+application-facing SDK/package surface and the new declaration-bound collection
+setup workflow. Package identity advances to `0.1.0-beta.33`; operation
+transport remains v2, authorization binding v3, semantic capabilities v1, and
+durable mutation v1. The four controlled consumers and matching services move
+as one train, and beta.32 is retained only as immutable verification evidence.
