@@ -9,8 +9,8 @@ phase: 6
 depends_on: [Beta hardening 06 - management correctness, Beta hardening 07 - public SDK surface]
 tags: [beta, packaging, consumers, editor, workouts, pickle, tasknotes]
 created_at: 2026-08-04T17:48:28+10:00
-updated_at: 2026-08-05T10:52:05+10:00
-progress_summary: Reopened after the e1c candidate audit found that the documented independent compatibility axes were not enforced by the live wire. The correction and cross-version fixtures are now complete locally: Editor speaks transport v2; system and relay E2E sign binding v3 requirements; relay hello advertises structured support; operation transport v2 and grant encryption v1 remain distinct; Windows watcher teardown is bounded; and migration 0026 upgrades beta.28 notification grants. Windows durability and previous-provider recovery are green in Server CI run 30964080966; the corrected relay suite passes locally and replacement CI remains before the fresh immutable candidate and four consumer repins.
+updated_at: 2026-08-05T11:04:54+10:00
+progress_summary: Reopened after the e1c candidate audit found that the documented independent compatibility axes were not enforced by the live wire. The correction and all discovered cross-version/system fixtures are complete locally. Replacement Server CI 30964684133 proves the relay, Windows durability, and beta.28 provider recovery corrections, then exposed the hosted provider's generic operation wrapper and notification grant projection; both now carry exact transport-v2/binding-v3 requirements while file/sync v1 remain independent. The complete hosted-provider E2E passes locally. One final replacement CI remains before the fresh immutable candidate and four consumer repins.
 type: task
 ---
 
@@ -199,6 +199,17 @@ artifacts remain useful migration evidence but are not release candidates.
   transport v2 for plain requests and responses, and independently retains
   grant encryption v1. The exact multi-instance NATS relay system suite passes
   locally; replacement CI is required before closing the slice.
+- Replacement Server CI run `30964684133` passes the corrected relay suite,
+  cross-platform durability, and previous-provider migration. Its next provider
+  stage exposed two more stale hosted fixtures: the generic operation request
+  wrapper still emitted control protocol v1, and the runtime notification grant
+  omitted its explicit compatibility ceiling.
+- Hosted operation requests now use the canonical operation transport v2 while
+  file, sync, import, and grant-encryption v1 messages remain independently
+  unchanged. The mutation-capable notification grant derives exact binding-v3
+  requirements. The complete hosted-provider E2E passes locally through
+  notification recovery, quotas, authority transfer, browser/SDK, files,
+  restart, backup/restore, token rotation, revocation, and body limits.
 
 The slice closes again only after one immutable post-correction Connect commit
 produces all six packages, all four consumer PRs pin exactly those artifacts,

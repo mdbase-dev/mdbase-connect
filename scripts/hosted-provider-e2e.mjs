@@ -19,8 +19,10 @@ import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { chromium, expect } from "@playwright/test";
 import {
+  authorizationContractRequirements,
   MDBASE_RECORD_CREATED_CONTRACT,
-  MDBASE_TIMER_FIRED_CONTRACT
+  MDBASE_TIMER_FIRED_CONTRACT,
+  OPERATION_TRANSPORT_PROTOCOL_VERSION
 } from "../packages/protocol/dist/index.js";
 import { availableTcpPort, delay } from "./lib/test-runtime.mjs";
 import { portableHostedFileE2E } from "./system/provider/portable-hosted-file.mjs";
@@ -826,6 +828,11 @@ schema:
         collection_id: notificationCollectionId,
         collection_name: "Notification tasks",
         operations: ["changes", "list_timers", "reconcile_timers"],
+        contracts: authorizationContractRequirements([
+          "changes",
+          "list_timers",
+          "reconcile_timers"
+        ]),
         scope: { contracts: notificationContracts, access: "contract" },
         notification_criteria: [
           {
@@ -4245,7 +4252,7 @@ async function rawRequest(url, path, options = {}) {
   } else if (options.body !== undefined) {
     const value = path.includes("/operations/")
       ? {
-          protocol_version: 1,
+          protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
           request_id: options.requestId ?? crypto.randomUUID(),
           input: options.body
         }
