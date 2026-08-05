@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.0-beta.36
+
+Beta.36 simplifies the application access decision without changing the
+authorization protocol or collection semantics.
+
+- Requests with several compatible collections now require an explicit
+  collection choice before access can be reviewed.
+- The default review summarizes concrete capabilities and keeps delete and
+  collection-structure access visible while exact operations remain editable.
+- Mandatory type and configuration setup is described as a collection change;
+  expert identifiers and meaningful type-mapping choices remain available on
+  demand.
+- In-progress collection and permission choices survive a browser refresh for
+  the lifetime of the authorization request.
+
 ## 0.1.0-beta.35
 
 Beta.35 is a production hotfix for application approval against hosted
