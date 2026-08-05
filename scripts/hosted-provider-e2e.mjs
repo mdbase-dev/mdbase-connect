@@ -3887,11 +3887,11 @@ async function authorizeHostedApplicationByCreating(authorizationUrl, cookie, re
     await page.getByRole("button", { name: "Create hosted collection" }).click();
     await page.getByLabel("New collection name").fill("Workout records");
     await page.getByRole("button", { name: "Create collection" }).click();
-    const collection = page.getByRole("radio", {
-      name: /Workout records.*Hosted by mdbase.*Setup review/
-    });
-    await expect(collection).toBeVisible();
-    await expect(collection).toBeChecked();
+    const collection = page.locator(".selected-collection-summary");
+    await expect(collection).toContainText("Using");
+    await expect(collection).toContainText("Workout records");
+    await expect(collection).toContainText("Hosted by mdbase");
+    await expect(collection.getByRole("button", { name: "Change" })).toBeVisible();
     await expect(page.getByText(
       "Workout Inline E2E needs a workout type"
     )).toBeVisible();
