@@ -221,7 +221,8 @@ try {
     .getByRole("heading", { name: "Docker fixture consumer" })
     .waitFor();
   await portalPage
-    .getByRole("radio", { name: /Docker fixture/ })
+    .locator(".selected-collection-summary")
+    .filter({ hasText: "Docker fixture" })
     .waitFor({ state: "attached", timeout: 15_000 });
   await portalPage
     .getByRole("button", { name: "Allow Docker fixture consumer" })
