@@ -1,6 +1,6 @@
 ---
 title: SDK and authority beta hardening
-status: in_progress
+status: done
 priority: critical
 owner: codex
 tags:
@@ -14,8 +14,8 @@ tags:
   - user-experience
   - consumers
 created_at: 2026-08-04T10:51:42+10:00
-updated_at: 2026-08-06T02:32:00+10:00
-progress_summary: Phases 0-6 and both expanded successor tasks are complete. Immutable beta.33 packages from 9335459694ec0d1ad550f30bad9c8cd500666e41 are live in all four ordered consumers; beta.34 source ea56354739626c55f05a485cd707164740b2c391 is a runtime-only observability correction with no SDK or protocol change. Staging activation, restore-tested checkpoint, two automatic rollback exercises, Workouts/Editor/Pickle/TaskNotes canaries, fleet manifest verification, privacy-safe observations, and the broker recovery drill are green. The required 60-minute soak and production pre-migration checkpoint are running; production remains beta.31 and the external-beta gate remains closed.
+updated_at: 2026-08-06T03:28:00+10:00
+progress_summary: Complete. Phases 0-7 plus application-declared configuration provisioning and final SDK polish are shipped. All four consumers use exact beta.33 SDK artifacts; staging and production run exact signed beta.34 runtime images from ea56354739626c55f05a485cd707164740b2c391. Restore-tested checkpoints, automatic whole-train rollback, ordered canaries, broker recovery, 60-minute zero-failure soak, production promotion, independent acceptance, and post-promotion privacy-safe observations are green. Every external-beta invitation criterion is satisfied; invitations were not sent as part of this engineering program.
 type: task
 ---
 
@@ -602,3 +602,31 @@ public API redesign, a large file split, and a consumer migration in one review.
   Production remains on beta.31 while workflow `31024842803` creates the fresh
   encrypted, restore-tested pre-migration checkpoint. The external-beta gate is
   deliberately still closed.
+
+## Program completion — 2026-08-06
+
+- Soak workflow `31024686507` ran for 3,600 seconds with 110 samples, 660
+  endpoint checks, zero transient failures, and two complete signed acceptance
+  runs.
+- Production checkpoint workflow `31024842803` retained encrypted artifact
+  `encrypted-production-backups-31024842803`; every PostgreSQL 17/18 export was
+  restored into a clean matching-major database before encryption.
+- Cloud-ops main `2cd2987fadf09e81ab30a9354c0648f91aa4625d`
+  records the exact production beta.34 images and three reviewed prerelease
+  reset waivers. Promotion workflow `31029549943` used the exact confirmation
+  token, recorded the previous live image set, applied broker/provider/Connect/
+  MCP in dependency order, reconciled entitlements, passed production OAuth,
+  live declarations, R2 CORS, and synthetic acceptance, and retained rollback
+  artifact `production-deployment-state-31029549943`.
+- Independent post-promotion `bin/verify-production` passed. Two consecutive
+  privacy-safe production journal snapshots contain completed state only, no
+  unfinished operations or failure events, and available PostgreSQL pool
+  capacity.
+- The checked changelog, SDK/outcome/recovery documentation, contract matrix,
+  examples, package exports, platform preview warnings, and beta release notes
+  describe the shipped guarantees and limitations. Every beta invitation item
+  is backed by the phase exit gates and rollout evidence above.
+
+All Phase 0-7 gates and both added successor tasks are complete. External beta
+invitations may now begin through the product's normal human-owned invitation
+process; this program did not send invitations or contact users.

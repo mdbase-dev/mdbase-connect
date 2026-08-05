@@ -1,6 +1,6 @@
 ---
 title: Beta hardening 10 - rollout and beta gate
-status: in_progress
+status: done
 priority: critical
 owner: codex
 parent: SDK and authority beta hardening
@@ -9,8 +9,8 @@ phase: 7
 depends_on: [Beta hardening 09 - candidate and consumer migrations]
 tags: [beta, deployment, canary, observability, rollback]
 created_at: 2026-08-04T17:48:28+10:00
-updated_at: 2026-08-06T02:32:00+10:00
-progress_summary: Staging beta.34 is live from exact signed images after two verified automatic whole-train rollbacks. Workouts, Editor, Pickle, and TaskNotes passed in order with clean privacy-safe observation; all four live declarations, OAuth v4, R2 CORS, and the broker outage/recovery drill are green. The required 60-minute soak and production restore-tested checkpoint are running. Production remains beta.31 and the external-beta invitation gate remains closed.
+updated_at: 2026-08-06T03:28:00+10:00
+progress_summary: Complete. Staging and production run exact signed beta.34 images after restore-tested checkpoints and verified automatic whole-train rollback. Workouts, Editor, Pickle, and TaskNotes passed in order with clean observations; broker recovery, a 60-minute zero-failure soak, production acceptance, retained rollback evidence, and two clean post-promotion snapshots are green. The external-beta invitation gate is satisfied; no invitations were sent by this task.
 type: task
 ---
 
@@ -67,3 +67,27 @@ rollback target before activating any schema that it cannot reopen.
   soak. Production promotion is committed in cloud-ops main
   `2cd2987fadf09e81ab30a9354c0648f91aa4625d`, but deployment is held until the
   soak and production checkpoint workflow `31024842803` both succeed.
+
+## Production rollout and gate closure — 2026-08-06
+
+- Soak workflow `31024686507` passed its complete 3,600-second window with 110
+  samples, 660 endpoint checks, zero transient failures, and full signed
+  acceptance at both boundaries.
+- Production checkpoint workflow `31024842803` encrypted and restore-tested all
+  three databases and retained artifact
+  `encrypted-production-backups-31024842803` for the destructive prerelease
+  migration rollback boundary.
+- Promotion workflow `31029549943` deployed the exact staged beta.34 image set
+  from cloud-ops main `2cd2987fadf09e81ab30a9354c0648f91aa4625d`.
+  The three exact production reset waivers passed, prior live digests were
+  recorded, all four services reached live in dependency order, and rollback
+  artifact `production-deployment-state-31029549943` is retained.
+- Workflow and independent production acceptance passed exact image identity,
+  health/readiness, OAuth device and semantic web writes, all four public
+  declarations, R2 browser CORS, and entitlement reconciliation.
+- Two consecutive privacy-safe production journal snapshots show completed
+  state only, no unfinished age or failure events, and available pool capacity.
+
+All rollout, rollback, observation, documentation, and external-beta invitation
+criteria are satisfied. Invitations were deliberately left to the normal
+human-owned product process rather than being sent by this engineering task.
