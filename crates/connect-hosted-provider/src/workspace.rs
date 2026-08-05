@@ -71,12 +71,17 @@ impl WorkingSet {
         })?;
         let current_path = self.paths_by_record_id.get(&mutation.record_id).cloned();
         let (input, primary_before_path) = operation_input(mutation, current_path.as_deref())?;
-        let envelope = match mutation.operation {
-            SyncMutationOperation::Create => operations.create(&input),
-            SyncMutationOperation::Update => operations.update(&input),
-            SyncMutationOperation::Rename => operations.rename(&input),
-            SyncMutationOperation::Delete => operations.delete(&input),
+        let operation = match mutation.operation {
+            SyncMutationOperation::Create => "create",
+            SyncMutationOperation::Update => "update",
+            SyncMutationOperation::Rename => "rename",
+            SyncMutationOperation::Delete => "delete",
         };
+        // This workspace is already an isolated disposable stage backed by the
+        // provider's database transaction. The provider invalidates the cache
+        // before execution, so any rejected operation or failed commit forces
+        // a fresh materialization from durable state.
+        let envelope = operations.execute_staged_mutation(operation, &input);
         if !envelope.valid {
             return Ok(Execution {
                 envelope,
