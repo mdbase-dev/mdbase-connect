@@ -9,8 +9,8 @@ phase: 6
 depends_on: [Beta hardening 06 - management correctness, Beta hardening 07 - public SDK surface]
 tags: [beta, packaging, consumers, editor, workouts, pickle, tasknotes]
 created_at: 2026-08-04T17:48:28+10:00
-updated_at: 2026-08-05T10:40:31+10:00
-progress_summary: Reopened after the e1c candidate audit found that the documented independent compatibility axes were not enforced by the live wire. The live correction is complete and locally green. PR CI then exposed three cross-version fixture defects: Editor's v1 envelope is fixed and green; the stale system authorization fixture now signs binding v3 and passes end to end; Windows teardown now releases watcher owners before bounded cleanup; and migration 0026 derives explicit compatibility ceilings for persisted beta.28 notification grants. Focused Rust/provider tests pass; a fresh immutable candidate and four consumer repins remain after replacement CI.
+updated_at: 2026-08-05T10:52:05+10:00
+progress_summary: Reopened after the e1c candidate audit found that the documented independent compatibility axes were not enforced by the live wire. The correction and cross-version fixtures are now complete locally: Editor speaks transport v2; system and relay E2E sign binding v3 requirements; relay hello advertises structured support; operation transport v2 and grant encryption v1 remain distinct; Windows watcher teardown is bounded; and migration 0026 upgrades beta.28 notification grants. Windows durability and previous-provider recovery are green in Server CI run 30964080966; the corrected relay suite passes locally and replacement CI remains before the fresh immutable candidate and four consumer repins.
 type: task
 ---
 
@@ -190,6 +190,15 @@ artifacts remain useful migration evidence but are not release candidates.
   program asserts `2|3|1|1` for its mutation-capable fixture. Hosted-provider
   unit tests, shell syntax, workspace formatting, and the embedded migration
   build pass locally.
+- Server CI run `30964080966` proves migration `0026` through the complete
+  beta.28 previous-provider notification-recovery path and proves the watcher
+  lifecycle correction on Windows 2025 as well as Linux and macOS. Its hosted
+  provider job then exposed the remaining stale multi-instance relay fixture.
+- The relay fixture now signs exact binding-v3 contract requirements,
+  advertises `CONNECT_CONTRACT_SUPPORT` in its control-v1 hello, uses operation
+  transport v2 for plain requests and responses, and independently retains
+  grant encryption v1. The exact multi-instance NATS relay system suite passes
+  locally; replacement CI is required before closing the slice.
 
 The slice closes again only after one immutable post-correction Connect commit
 produces all six packages, all four consumer PRs pin exactly those artifacts,
