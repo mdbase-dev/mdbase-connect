@@ -6,6 +6,7 @@ use mdbase_connect_protocol::{
     ContractSetupChoice, ContractSetupMode, TypePackManifest, TypePackManifestResource,
     TypePackProvision, TypePackSourceResource,
 };
+use sha2::{Digest, Sha256};
 
 fn work_item_provision() -> TypePackProvision {
     let contract = r#"---
