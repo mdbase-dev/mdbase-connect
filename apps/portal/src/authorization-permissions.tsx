@@ -1,6 +1,45 @@
 import { groupAuthorizationOperations } from "@mdbase/connect-ui/access";
 import type { PendingAuthorization } from "./api";
 
+export function PermissionCapabilitySummary({
+  groups,
+  selected,
+  files
+}: {
+  groups: ReturnType<typeof groupAuthorizationOperations>;
+  selected: ReadonlySet<string>;
+  files?: PendingAuthorization["requirements"]["files"];
+}) {
+  const capabilities = groups.flatMap((group) => {
+    const selectedOperations = group.operations.filter((operation) => selected.has(operation.id));
+    return selectedOperations.length > 0 ? [{
+      id: group.id,
+      label: group.label,
+      description: group.description,
+      higherImpact: group.id === "delete" || group.id === "manage"
+    }] : [];
+  });
+  if (files) {
+    capabilities.push({
+      id: "files",
+      label: files.actions.includes("delete") ? "Manage and delete files" : "Work with files",
+      description: files.scope.kind === "collection"
+        ? "Use the requested file actions in every visible folder."
+        : `Use the requested file actions in ${files.scope.folders.join(", ")}.`,
+      higherImpact: files.actions.includes("delete")
+    });
+  }
+  return (
+    <ul className="permission-capabilities" aria-label="What this application can do">
+      {capabilities.map((capability) => <li className={capability.higherImpact ? "higher-impact" : undefined} key={capability.id}>
+        <span className="capability-mark" aria-hidden="true">{capability.higherImpact ? "!" : "\u2713"}</span>
+        <span><strong>{capability.label}</strong><small>{capability.description}</small></span>
+        {capability.higherImpact && <b>Higher impact</b>}
+      </li>)}
+    </ul>
+  );
+}
+
 export function PermissionChoices({
   groups,
   selected,
@@ -24,7 +63,7 @@ export function PermissionChoices({
   return (
     <details className="permission-review">
       <summary>
-        <span><strong>{selectedGroups.map((group) => group.label).join(" · ")}</strong><small>{selectedTotal} of {total} specific actions selected. Open details to narrow access.</small></span>
+        <span><strong>Review exact permissions</strong><small>{selectedTotal} of {total} requested actions selected{selectedGroups.length > 0 ? ` across ${selectedGroups.length} ${selectedGroups.length === 1 ? "capability" : "capabilities"}` : ""}.</small></span>
         <b>Details</b>
       </summary>
       <div className="permission-groups">{groups.map((group) => (
@@ -68,7 +107,7 @@ export function FilePermissionSummary({ files }: {
   return (
     <details className="permission-review file-permission-review">
       <summary>
-        <span><strong>Files</strong><small>{files.actions.length} requested {files.actions.length === 1 ? "action" : "actions"}. {scope}</small></span>
+        <span><strong>Review exact file permissions</strong><small>{files.actions.length} required {files.actions.length === 1 ? "action" : "actions"}. {scope}</small></span>
         <b>Details</b>
       </summary>
       <div className="permission-groups">

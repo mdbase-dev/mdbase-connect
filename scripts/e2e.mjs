@@ -270,11 +270,7 @@ secret: connector scope test
   const collection = dashboard.collections[0];
 
   await onboardingPage.goto(`${serverUrl}/authorize/${authorizationId}`);
-  const collectionChoice = onboardingPage.locator(
-    `.collection-choice-list input[value="${collection.id}"]`
-  );
-  await collectionChoice.waitFor({ state: "visible" });
-  await collectionChoice.check();
+  await onboardingPage.getByText(collection.display_name, { exact: true }).waitFor();
   await onboardingPage.getByRole("button", { name: "Allow MVP Workout App" }).click();
   const callback = await finishSignedWebAuthorization(initialAuthorization);
   await onboardingContext.close();
@@ -573,13 +569,14 @@ implements:
     await setupPage.locator(
       `.collection-choice-list input[value="${collection.id}"]`
     ).click();
+    await setupPage.getByRole("button", { name: "Review access" }).click();
     const editor = setupPage.locator(".contract-setup-editor");
     await editor.getByText("Help Planning E2E understand planning item").waitFor();
     const setupOptions = await editor.locator(".contract-setup-mode > label").allTextContents();
-    if (!setupOptions[0]?.includes("Add Planning E2E’s starter type")) {
+    if (!setupOptions[0]?.includes("Add a new planning item type")) {
       throw new Error(`The default starter setup was not presented first: ${setupOptions}`);
     }
-    if (!await editor.getByLabel("Add Planning E2E’s starter type").isChecked()) {
+    if (!await editor.getByLabel("Add a new planning item type").isChecked()) {
       throw new Error("The approval UI did not default to the application-provided starter type.");
     }
     await editor.getByLabel("Use an existing type").check();
@@ -753,7 +750,8 @@ implements:
     await taskNotesPage.locator(
       `.collection-choice-list input[value="${collection.id}"]`
     ).click();
-    await taskNotesPage.getByText("Review collection settings").waitFor();
+    await taskNotesPage.getByRole("button", { name: "Review access" }).click();
+    await taskNotesPage.getByText("Collection changes").waitFor();
     await taskNotesPage.getByText("x-obsidian → bases → include").waitFor();
     await taskNotesPage.getByText("views/tasknotes/**/*.base").waitFor();
     await taskNotesPage.getByRole("button", {

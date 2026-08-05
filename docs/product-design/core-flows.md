@@ -64,19 +64,30 @@ offer a retry rather than restarting silently.
 Goal: let the user make one informed decision about one application and one
 collection.
 
-The decision reads from identity to consequence:
+The decision adapts to the number of compatible collections. When one valid
+collection is available, open directly on the compact access review. When
+several are available, ask the user to choose one first and do not preselect an
+ambiguous target. Creation, desktop handoff, and unavailable collections stay
+under `Need a different collection?` until required.
+
+The review reads from identity to consequence:
 
 1. Application name, origin, and request expiry.
 2. Compatible collection and its authority.
-3. Requested operations, grouped in plain language.
-4. Contract-derived scope and any setup that approval will add.
+3. Requested capabilities, grouped in plain language. Delete and structural
+   access remain visible without opening exact permissions.
+4. Contract-derived scope and any collection changes that approval will add.
 5. Optional content-free notification rules.
 6. A sentence stating what the application will use and how long access lasts.
 7. `Deny` and `Allow [application]`.
 
-Start with all requested operations selected, then let the user narrow them.
-The collapsed state still shows `n of n selected`. An unavailable collection
-stays explainable, but cannot be selected.
+Start with all requested operations selected, then let the user narrow them
+under `Review exact permissions`. The collapsed state still shows `n of n
+selected`. Describe mandatory type or configuration setup as a consequence,
+not a choice. Show type mapping controls only when the collection offers a real
+existing-type alternative; keep contract identifiers under `Expert details`.
+An unavailable collection stays explainable, but cannot be selected. Preserve
+the in-progress collection and permission review for the browser session.
 
 Approval returns the user to the requesting application. Denial is a complete
 outcome, not an error.

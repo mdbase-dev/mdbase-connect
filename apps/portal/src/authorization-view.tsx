@@ -26,6 +26,7 @@ import { configurationSetupSummary } from "./application-setup";
 import {
   FilePermissionSummary,
   NotificationAccess,
+  PermissionCapabilitySummary,
   PermissionChoices
 } from "./authorization-permissions";
 import {
@@ -34,7 +35,6 @@ import {
   initials,
   message,
   neededProvisions,
-  provisionNames,
   relativeTime,
   scopeDescription
 } from "./portal-model";
@@ -209,7 +209,7 @@ export function Authorization({ requestId }: { requestId: string }) {
             onReviewHere={() => continueInDesktop(false)}
           />
         ) : status === "pending" ? <>
-          <p>{authorization.application_name} is asking to use one collection. Choose where it can work and review what it can do.</p>
+          <p>{authorization.application_name} wants to use one collection.</p>
           {error && <div className="message error">{error}</div>}
           <ApprovalForm
             request={authorization}
@@ -239,19 +239,19 @@ export function RequestIdentity({ request, large = false }: { request: PendingAu
       <div>
         {large && <p className="eyebrow">Application access</p>}
         {large ? <h1>{request.application_name}</h1> : <strong>{request.application_name}</strong>}
-        <small>{request.distribution === "portable"
+        <small className="request-metadata">{request.distribution === "portable"
           ? `Downloaded HTML file${request.project_url ? ` · ${host(request.project_url)}` : ""}`
           : host(request.homepage)} · expires {relativeTime(request.expires_at)}</small>
         {request.distribution !== "portable" && (
-          <small>Only continue if you recognize this exact site. An approved application can use the selected data until you revoke it.</small>
+          <small className="request-guidance">Only continue if you recognize this exact site. An approved application can use the selected data until you revoke it.</small>
         )}
         {request.requirements.access === "full_collection" ? (
-          <small>Requests access to all record types in the selected collection.</small>
+          <small className="request-scope">Requests access to all record types in the selected collection.</small>
         ) : request.requirements.contracts.length > 0 && (
-          <small>{scopeDescription(request.requirements.contracts)}</small>
+          <small className="request-scope">{scopeDescription(request.requirements.contracts)}</small>
         )}
         {request.requirements.collection_kind === "hosted" && (
-          <small>Requires a collection hosted by mdbase</small>
+          <small className="request-scope">Requires a collection hosted by mdbase</small>
         )}
       </div>
     </div>
@@ -318,6 +318,7 @@ function ContractSetupEditor({
 }) {
   const suggestions = useMemo(() => suggestTypes(contract, types), [contract, types]);
   const canGuideExistingType = guidedBindingSupported(contract);
+  const canChooseExistingType = suggestions.length > 0 && canGuideExistingType;
   const selectedType = types.find((type) => type.name === value.typeName);
   const availableFields = selectedType ? typeFields(selectedType) : [];
   const fields = contractFields(contract);
@@ -333,26 +334,46 @@ function ContractSetupEditor({
     onChange({ ...value, typeName, fields: suggestion?.fields ?? {} });
   }
 
+  if (!canChooseExistingType) {
+    return (
+      <div className="contract-setup-consequence">
+        <span className="setup-change-mark" aria-hidden="true">+</span>
+        <div>
+          <strong>{applicationName} needs a {setupLabel(contract).toLocaleLowerCase()} type</strong>
+          <small>Allowing access adds a separate type supplied by {applicationName}. Existing records stay unchanged.</small>
+          <details className="contract-expert-details">
+            <summary>Expert details</summary>
+            <code>{contract.id} · {contract.version}</code>
+            {contract.description && <p>{contract.description}</p>}
+            {!canGuideExistingType && suggestions.length > 0 && <p>This application uses advanced behavior settings, so an existing type cannot be connected during approval.</p>}
+          </details>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="contract-setup-editor">
       <div className="contract-setup-heading">
         <div>
           <strong>Help {applicationName} understand {setupLabel(contract).toLocaleLowerCase()}</strong>
-          <small>{contract.description ?? "Choose whether to add the application’s starter type or use one of your existing types."}</small>
+          <small>{contract.description ?? `Choose whether to add a new ${setupLabel(contract).toLocaleLowerCase()} type or use one you already have.`}</small>
         </div>
-        <code>{contract.id} · {contract.version}</code>
+        <details className="contract-expert-details">
+          <summary>Expert details</summary>
+          <code>{contract.id} · {contract.version}</code>
+        </details>
       </div>
       <div className="contract-setup-mode" role="radiogroup" aria-label={`Setup for ${setupLabel(contract)}`}>
         <label className={value.mode === "starter" ? "selected" : undefined}>
           <input type="radio" name={`setup-${contract.id}-${contract.version}`} checked={value.mode === "starter"} disabled={disabled} onChange={() => onChange({ ...value, mode: "starter" })} />
-          <span><strong>Add {applicationName}’s starter type</strong><small>Create a separate type supplied by the application.</small></span>
+          <span><strong>Add a new {setupLabel(contract).toLocaleLowerCase()} type</strong><small>Create a separate type supplied by {applicationName}.</small></span>
         </label>
-        {suggestions.length > 0 && canGuideExistingType && <label className={value.mode === "existing" ? "selected" : undefined}>
+        <label className={value.mode === "existing" ? "selected" : undefined}>
           <input type="radio" name={`setup-${contract.id}-${contract.version}`} checked={value.mode === "existing"} disabled={disabled} onChange={() => onChange({ ...value, mode: "existing" })} />
           <span><strong>Use an existing type</strong><small>Keep your current records and explain which fields mean the same thing.</small></span>
-        </label>}
+        </label>
       </div>
-      {!canGuideExistingType && suggestions.length > 0 && <p className="field-note">This contract has advanced behavior settings. Add its starter type here, or connect an existing type later in mdbase editor.</p>}
       {value.mode === "existing" && canGuideExistingType && <div className="contract-mapping">
         <label className="contract-type-choice">
           <span>Existing type</span>
@@ -422,6 +443,43 @@ function initialSchemaValue(schema?: Record<string, unknown>): Record<string, un
   ));
 }
 
+interface StoredAuthorizationReview {
+  collectionId?: string;
+  operations?: string[];
+  reviewing?: boolean;
+}
+
+function authorizationReviewStorageKey(requestId: string): string {
+  return `mdbase:authorization-review:${requestId}`;
+}
+
+function storedAuthorizationReview(requestId: string): StoredAuthorizationReview | null {
+  try {
+    const stored = sessionStorage.getItem(authorizationReviewStorageKey(requestId));
+    if (!stored) return null;
+    const value = JSON.parse(stored) as StoredAuthorizationReview;
+    return value && typeof value === "object" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveAuthorizationReview(requestId: string, value: StoredAuthorizationReview): void {
+  try {
+    sessionStorage.setItem(authorizationReviewStorageKey(requestId), JSON.stringify(value));
+  } catch {
+    // Authorization still works when browser storage is unavailable.
+  }
+}
+
+function clearAuthorizationReview(requestId: string): void {
+  try {
+    sessionStorage.removeItem(authorizationReviewStorageKey(requestId));
+  } catch {
+    // Nothing else is required when browser storage is unavailable.
+  }
+}
+
 export function ApprovalForm({
   request,
   collections,
@@ -472,10 +530,22 @@ export function ApprovalForm({
     () => visibleChoices.filter((choice) => !choice.compatibility.compatible),
     [visibleChoices]
   );
-  const [collectionId, setCollectionId] = useState(
-    compatible[0]?.collection.id ?? ""
+  const savedReview = useMemo(() => storedAuthorizationReview(request.id), [request.id]);
+  const savedCollectionId = savedReview?.collectionId
+    && compatible.some((choice) => choice.collection.id === savedReview.collectionId)
+      ? savedReview.collectionId
+      : "";
+  const initialCollectionId = savedCollectionId
+    || (compatible.length === 1 ? compatible[0].collection.id : "");
+  const [collectionId, setCollectionId] = useState(initialCollectionId);
+  const [reviewing, setReviewing] = useState(
+    savedCollectionId ? savedReview?.reviewing === true : compatible.length === 1
   );
-  const [operations, setOperations] = useState(() => new Set(request.requested_operations));
+  const [operations, setOperations] = useState(() => new Set(
+    savedReview?.operations
+      ? savedReview.operations.filter((operation) => request.requested_operations.includes(operation))
+      : request.requested_operations
+  ));
   const [submitting, setSubmitting] = useState<"approved" | "denied" | "creating" | null>(null);
   const [creatingHosted, setCreatingHosted] = useState(false);
   const [collectionName, setCollectionName] = useState("");
@@ -519,12 +589,32 @@ export function ApprovalForm({
       count + group.operations.filter((operation) => operations.has(operation.id)).length,
     0
   );
+  const selectedPermissionGroups = permissionGroups.filter((group) =>
+    group.operations.some((operation) => operations.has(operation.id))
+  );
+  const higherImpactLabels = [
+    ...selectedPermissionGroups.flatMap((group) =>
+      group.id === "delete" || group.id === "manage" ? [group.label] : []
+    ),
+    ...(request.requirements.files?.actions.includes("delete") ? ["Delete files"] : []),
+    ...(hasSetup ? ["Changes collection setup"] : [])
+  ];
 
   useEffect(() => {
     if (!compatible.some((choice) => choice.collection.id === collectionId)) {
-      setCollectionId(compatible[0]?.collection.id ?? "");
+      const onlyCollectionId = compatible.length === 1 ? compatible[0].collection.id : "";
+      setCollectionId(onlyCollectionId);
+      setReviewing(Boolean(onlyCollectionId));
     }
   }, [collectionId, compatible]);
+
+  useEffect(() => {
+    saveAuthorizationReview(request.id, {
+      collectionId,
+      operations: [...operations],
+      reviewing
+    });
+  }, [collectionId, operations, request.id, reviewing]);
 
   useEffect(() => {
     setSetupChoices(Object.fromEntries(setupContracts.map((contract) => [
@@ -600,6 +690,7 @@ export function ApprovalForm({
           })
         } : {})
       });
+      clearAuthorizationReview(request.id);
       await onDecision(decision);
     } catch (decisionError) {
       if (preparingSetup) onSetupActivityChange?.(false);
@@ -634,6 +725,7 @@ export function ApprovalForm({
       setCreatedCollections((current) => [...current, collection]);
       onCollectionCreated(collection);
       setCollectionId(collection.id);
+      setReviewing(true);
       setCollectionName("");
       setCreatingHosted(false);
     } catch (creationError) {
@@ -655,14 +747,28 @@ export function ApprovalForm({
           ? `${host(request.project_url)} is a developer-supplied project link, not proof that the downloaded file came from that site.`
           : "A downloaded file has no website origin that mdbase can verify."}</p>
       </div>}
+      <div className="authorization-progress" aria-label="Application access review progress">
+        <span className={!reviewing ? "current" : "complete"}><b>1</b> Collection</span>
+        <span className={reviewing ? "current" : undefined}><b>2</b> Review access</span>
+      </div>
       <section className="approval-section">
         <div className="approval-section-intro">
-          <strong>Collection</strong>
-          <small>{request.collection_id
-            ? `${request.application_name} requested this specific collection.`
-            : `Choose where ${request.application_name} can work.`}</small>
+          <strong>{reviewing ? "Collection" : "Choose a collection"}</strong>
+          <small>{reviewing
+            ? `Where ${request.application_name} will work.`
+            : request.collection_id
+              ? `${request.application_name} requested this specific collection.`
+              : `Choose where ${request.application_name} can work.`}</small>
         </div>
         <div className="approval-section-content">
+          {reviewing && selected ? <div className="selected-collection-summary">
+            <div>
+              <span>Using</span>
+              <strong>{selected.display_name}</strong>
+              <small>{collectionLocations.get(selected.id)}</small>
+            </div>
+            {!request.collection_id && <button className="quiet-action" type="button" disabled={submitting !== null} onClick={() => setReviewing(false)}>Change</button>}
+          </div> : <>
           {compatible.length > 0 && <fieldset className="collection-choice-field">
             <legend>Collection and location</legend>
             <div className="collection-choice-list">
@@ -687,31 +793,38 @@ export function ApprovalForm({
               })}
             </div>
           </fieldset>}
-          {unavailable.length > 0 && <details className="collection-compatibility">
-            <summary>{compatible.length > 0
-              ? `${unavailable.length} other ${unavailable.length === 1 ? "collection is" : "collections are"} unavailable`
-              : `${unavailable.length} ${unavailable.length === 1 ? "collection is" : "collections are"} unavailable`}</summary>
-            <ul>{unavailable.map(({ collection, compatibility }) => <li key={collection.id}><span>{collection.display_name}</span><small>{compatibility.compatible ? "" : compatibility.detail}</small></li>)}</ul>
-          </details>}
-          {unavailableConnectors.length > 0 && <div className="field-note" role="status">
-            {unavailableConnectors.map((connector) => connector.reason === "paused"
-              ? `${connector.connector_name} has remote access paused.`
-              : `${connector.connector_name} is offline.`).join(" ")} Those local collections cannot be selected until their computer is available.
-          </div>}
-          {request.requirements.collection_kind !== "hosted"
-            && (compatible.length === 0 || unavailableConnectors.length > 0)
-            && <div className="desktop-collection-option">
-              <div>
-                <strong>Use a folder on this computer</strong>
-                <p>Open the desktop app to connect this computer, add a folder, and continue this same request.</p>
-              </div>
-              <a
-                className="button secondary link-button"
-                href={`mdbase-connect://authorize?request_id=${encodeURIComponent(request.id)}`}
-                onClick={onContinueInDesktop}
-              >Use a local folder</a>
-            </div>}
-          {canCreateHosted && !request.collection_id && (creatingHosted ? (
+          {compatible.length === 0 && <p className="field-note">{request.collection_id
+            ? "The collection requested by this application is not available."
+            : "No compatible collection is ready."}</p>}
+          {(unavailable.length > 0
+            || unavailableConnectors.length > 0
+            || (request.requirements.collection_kind !== "hosted" && !request.collection_id)
+            || (canCreateHosted && !request.collection_id)) && <details className="alternate-collection-options" open={compatible.length === 0 || creatingHosted ? true : undefined}>
+            <summary>{compatible.length > 0 ? "Need a different collection?" : "Choose another way"}</summary>
+            <div>
+              {unavailable.length > 0 && <div className="collection-compatibility">
+                <strong>{unavailable.length} {unavailable.length === 1 ? "collection is" : "collections are"} unavailable</strong>
+                <ul>{unavailable.map(({ collection, compatibility }) => <li key={collection.id}><span>{collection.display_name}</span><small>{compatibility.compatible ? "" : compatibility.detail}</small></li>)}</ul>
+              </div>}
+              {unavailableConnectors.length > 0 && <div className="field-note" role="status">
+                {unavailableConnectors.map((connector) => connector.reason === "paused"
+                  ? `${connector.connector_name} has remote access paused.`
+                  : `${connector.connector_name} is offline.`).join(" ")} Those local collections cannot be selected until their computer is available.
+              </div>}
+              {request.requirements.collection_kind !== "hosted"
+                && !request.collection_id
+                && <div className="desktop-collection-option">
+                  <div>
+                    <strong>Use a folder on this computer</strong>
+                    <p>Open the desktop app to connect this computer, add a folder, and continue this same request.</p>
+                  </div>
+                  <a
+                    className="button secondary link-button"
+                    href={`mdbase-connect://authorize?request_id=${encodeURIComponent(request.id)}`}
+                    onClick={onContinueInDesktop}
+                  >Use a local folder</a>
+                </div>}
+              {canCreateHosted && !request.collection_id && (creatingHosted ? (
             <form
               className="authorization-collection-create"
               id={`create-hosted-${request.id}`}
@@ -745,9 +858,8 @@ export function ApprovalForm({
                 </button>
               </div>
             </form>
-          ) : (
+              ) : (
             <div className="authorization-collection-action">
-              {compatible.length === 0 && <p className="field-note">No compatible collection is ready.</p>}
               <button
                 className="button secondary"
                 type="button"
@@ -759,23 +871,36 @@ export function ApprovalForm({
                 }}
               >Create hosted collection</button>
             </div>
-          ))}
-          {(!canCreateHosted || Boolean(request.collection_id)) && compatible.length === 0 && (
-            <p className="field-note">
-              {request.collection_id
-                ? "The collection requested by this application is not available."
-                : "No compatible collection is ready."}
-            </p>
-          )}
-          {setup.length > 0 && <p className="field-note">{setupTypes.length > 0
-            ? `Setup is required before access can become active. Add ${provisionNames(setup)}’s starter type below, or use an existing type.`
-            : `Setup is required before access can become active. Add ${provisionNames(setup)}’s starter type.`}</p>}
+              ))}
+            </div>
+          </details>}
+          <footer className="collection-step-actions">
+            <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? "Denying…" : "Deny"}</button>
+            <button className="button primary" type="button" disabled={submitting !== null || !collectionId} onClick={() => setReviewing(true)}>Review access</button>
+          </footer>
+          </>}
         </div>
       </section>
-      {setupContracts.length > 0 && <section className="approval-section contract-setup-section">
+      {reviewing && <section className="approval-section">
         <div className="approval-section-intro">
-          <strong>Choose type setup</strong>
-          <small>Add a starter type, or match meanings in one you already use. Nothing changes until you approve and the collection validates.</small>
+          <strong>What it can do</strong>
+          <small>{permissionCount} requested actions across {permissionCategoryCount} {permissionCategoryCount === 1 ? "capability" : "capabilities"}.</small>
+        </div>
+        <div className="approval-section-content authorization-permissions">
+          <PermissionCapabilitySummary groups={permissionGroups} selected={operations} files={request.requirements.files} />
+          {permissionGroups.length > 0 && <PermissionChoices
+            groups={permissionGroups}
+            selected={operations}
+            disabled={submitting !== null}
+            onToggle={toggleOperation}
+          />}
+          {request.requirements.files && <FilePermissionSummary files={request.requirements.files} />}
+        </div>
+      </section>}
+      {reviewing && hasSetup && <section className="approval-section collection-changes-section">
+        <div className="approval-section-intro">
+          <strong>Collection changes</strong>
+          <small>These happen only after you allow access and the collection validates them.</small>
         </div>
         <div className="approval-section-content contract-setup-list">
           {setupContracts.map((contract) => {
@@ -791,14 +916,7 @@ export function ApprovalForm({
               onChange={(next) => setSetupChoices((current) => ({ ...current, [key]: next }))}
             />;
           })}
-        </div>
-      </section>}
-      {configurationSetup.length > 0 && <section className="approval-section configuration-setup-section">
-        <div className="approval-section-intro">
-          <strong>Review collection settings</strong>
-          <small>The application may add only these declared values under an extension setting. Existing and unrelated settings are preserved.</small>
-        </div>
-        <div className="approval-section-content configuration-setup-list">
+          {configurationSetup.length > 0 && <div className="configuration-setup-list">
           {configurationSetup.map((provision) => {
             const summary = configurationSetupSummary(provision);
             return <div className="configuration-setup-item" key={`${provision.requirement}:${provision.path}`}>
@@ -810,34 +928,22 @@ export function ApprovalForm({
               </div>
             </div>;
           })}
+          </div>}
         </div>
       </section>}
-      <section className="approval-section">
-        <div className="approval-section-intro">
-          <strong>Permissions</strong>
-          <small>{permissionCount} specific actions across {permissionCategoryCount} {permissionCategoryCount === 1 ? "category" : "categories"}.</small>
+      {reviewing && <NotificationAccess notifications={request.notifications} />}
+      {error && <div className="message error compact" role="alert">{error}</div>}
+      {reviewing && <footer className="approval-footer">
+        <div className="approval-receipt">
+          <strong>{request.application_name} · {selected?.display_name}</strong>
+          {higherImpactLabels.length > 0 && <span>{higherImpactLabels.join(" · ")}</span>}
+          <small>Access continues until you revoke it in mdbase connect.</small>
         </div>
-        <div className="authorization-permissions">
-          {permissionGroups.length > 0 && <PermissionChoices
-            groups={permissionGroups}
-            selected={operations}
-            disabled={submitting !== null}
-            onToggle={toggleOperation}
-          />}
-          {request.requirements.files && <FilePermissionSummary files={request.requirements.files} />}
-        </div>
-      </section>
-      <NotificationAccess notifications={request.notifications} />
-      {error && <div className="message error compact">{error}</div>}
-      <footer className="approval-footer">
-        <p>{selected
-          ? `${request.application_name} will work in ${selected.display_name} at ${selected.connector_name}. You can revoke access at any time in mdbase connect.`
-          : `Choose a compatible collection before allowing ${request.application_name}.`}</p>
         <div className="approval-actions">
           <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? "Denying…" : "Deny"}</button>
           <button className="button primary" type="button" disabled={submitting !== null || !collectionId || (selectedPermissionCount === 0 && !request.requirements.files) || !setupReady} onClick={() => void decide("approved")}>{submitting === "approved" ? (hasSetup ? "Setting up and allowing…" : "Approving…") : hasSetup ? `Set up and allow ${request.application_name}` : `Allow ${request.application_name}`}</button>
         </div>
-      </footer>
+      </footer>}
     </div>
   );
 }

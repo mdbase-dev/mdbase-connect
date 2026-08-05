@@ -272,7 +272,23 @@ async function auditPortalColdStartAuthorization() {
       await route.fulfill({
         json: {
           authorization,
-          collections: [],
+          collections: [{
+            id: "44444444-4444-4444-8444-444444444444",
+            kind: "local",
+            connector_name: "Home computer",
+            display_name: "Personal notes",
+            spec_version: "0.3.0",
+            contracts: [],
+            types: []
+          }, {
+            id: "55555555-5555-4555-8555-555555555555",
+            kind: "hosted",
+            connector_name: "Hosted by mdbase",
+            display_name: "Shared notes",
+            spec_version: "0.3.0",
+            contracts: [],
+            types: []
+          }],
           hosted_collections_available: true,
           unavailable_connectors: []
         }
@@ -287,13 +303,18 @@ async function auditPortalColdStartAuthorization() {
   });
   await page.goto(`${servers[0].origin}/authorize/${requestId}`);
   await page.getByRole("heading", { name: "Workout journal" }).waitFor();
+  const reviewAccess = page.getByRole("button", { name: "Review access" });
+  assert.equal(await reviewAccess.isDisabled(), true, "portal authorization: multiple collections require a deliberate choice");
+  assert.equal(await page.getByRole("radio").count(), 2, "portal authorization: compatible collections are visible");
+  assert.equal(await page.getByRole("radio", { checked: true }).count(), 0, "portal authorization: no ambiguous collection is preselected");
+  assert.equal(await page.getByText("Delete records", { exact: true }).count(), 0, "portal authorization: permissions wait until collection choice");
+  await page.getByText("Need a different collection?", { exact: true }).click();
   const localFolder = page.getByRole("link", { name: "Use a local folder" });
   assert.equal(
     await localFolder.getAttribute("href"),
     `mdbase-connect://authorize?request_id=${requestId}`,
     "portal authorization: desktop link preserves request ID"
   );
-  await expectText(page, "View and find records · Create and edit records · Delete records");
   await localFolder.evaluate((element) => {
     element.addEventListener("click", (event) => event.preventDefault(), { once: true });
   });
@@ -306,12 +327,24 @@ async function auditPortalColdStartAuthorization() {
   );
   await auditPage(page, "portal desktop continuation", { keyboard: true });
   await page.getByRole("button", { name: "Review in this browser" }).click();
+  await page.getByText("Need a different collection?", { exact: true }).click();
   await localFolder.waitFor();
   assert.equal(
     new URL(page.url()).searchParams.has("continue_in_desktop"),
     false,
     "portal authorization: browser review remains available"
   );
+  await page.getByRole("radio", { name: /Personal notes.*Home computer/ }).check();
+  await reviewAccess.click();
+  await page.getByText("View and find records", { exact: true }).first().waitFor();
+  await page.getByText("Create and edit records", { exact: true }).first().waitFor();
+  await page.getByText("Delete records", { exact: true }).first().waitFor();
+  await page.getByText("Higher impact", { exact: true }).first().waitFor();
+  await page.reload();
+  await page.getByText("Personal notes", { exact: true }).first().waitFor();
+  await page.getByText("Delete records", { exact: true }).first().waitFor();
+  assert.equal(await page.getByRole("button", { name: "Allow Workout journal" }).count(), 1, "portal authorization: review state survives refresh");
+  await auditPage(page, "portal application access review", { keyboard: true });
   assert.deepEqual(errors, []);
   await page.close();
 }
