@@ -141,6 +141,7 @@ export class ConnectGateway {
       protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
       authorization_id: randomUUID(),
       application_id: application.id,
+      application_declaration_id: this.manifest.id,
       application_manifest_digest: application.manifestDigest,
       application_installation_id: await applicationInstallationId(installation),
       installation_signing_public_key: installation.signingPublicKey,

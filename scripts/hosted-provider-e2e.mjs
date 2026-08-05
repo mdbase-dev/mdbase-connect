@@ -206,6 +206,125 @@ try {
   );
   assert.equal(repeatedProvision.contracts.length, 1);
 
+  const taskNotesApplicationId = "dev.tasknotes.app";
+  const taskNotesDeclarationDigest = `sha256:${"a".repeat(64)}`;
+  const taskNotesSetup = {
+    application_id: taskNotesApplicationId,
+    declaration_digest: taskNotesDeclarationDigest,
+    requirements: {
+      configuration: [{
+        id: "tasknotes-base-sources",
+        path: "/x-obsidian/bases/include",
+        predicate: "contains",
+        value: "views/tasknotes/**/*.base"
+      }]
+    },
+    provisions: {
+      configuration: [{
+        requirement: "tasknotes-base-sources",
+        operation: "set_add",
+        path: "/x-obsidian/bases/include",
+        value: "views/tasknotes/**/*.base"
+      }],
+      type_packs: []
+    },
+    contract_setups: []
+  };
+  const setupReplicaToken = `setup-${crypto.randomUUID()}-${crypto.randomUUID()}`;
+  await internalRequest(
+    provider.url,
+    `/internal/v1/collections/${provisionCollectionId}/replicas`,
+    {
+      method: "POST",
+      body: {
+        replica_id: crypto.randomUUID(),
+        name: "TaskNotes setup",
+        purpose: "application",
+        mode: "read_write",
+        allowed_types: [],
+        contract_scope: [],
+        full_collection: true,
+        allowed_operations: ["assess_collection_setup", "apply_collection_setup"],
+        grant_id: crypto.randomUUID(),
+        application_declaration_id: taskNotesApplicationId,
+        application_declaration_digest: taskNotesDeclarationDigest,
+        token: setupReplicaToken
+      }
+    }
+  );
+  const setupAssessmentResponse = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/assess_collection_setup`,
+    { method: "POST", token: setupReplicaToken, body: taskNotesSetup }
+  );
+  assert.equal(
+    setupAssessmentResponse.status,
+    200,
+    JSON.stringify(setupAssessmentResponse.body)
+  );
+  const setupAssessment = setupAssessmentResponse.body.result;
+  assert.equal(setupAssessment.valid, true);
+  assert.equal(setupAssessment.result.status, "provision");
+  assert.equal(setupAssessment.result.configuration[0]?.action, "add");
+  const setupApplyInput = {
+    ...taskNotesSetup,
+    expected_assessment_digest: setupAssessment.result.assessment_digest,
+    expected_collection_revision: setupAssessment.result.collection_revision,
+    expected_provision_digest: setupAssessment.result.provision_digest,
+    allow_type_pack_downgrades: []
+  };
+  const setupApplyRequestId = crypto.randomUUID();
+  const appliedSetup = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/apply_collection_setup`,
+    {
+      method: "POST",
+      token: setupReplicaToken,
+      requestId: setupApplyRequestId,
+      body: setupApplyInput
+    }
+  );
+  assert.equal(
+    appliedSetup.status,
+    200,
+    `${JSON.stringify(appliedSetup.body)}\n${provider.logs()}`
+  );
+  assert.equal(appliedSetup.body.result.valid, true);
+  assert.equal(
+    appliedSetup.body.result.result.receipt.configuration[0]?.value,
+    "views/tasknotes/**/*.base"
+  );
+  const retriedSetup = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/apply_collection_setup`,
+    {
+      method: "POST",
+      token: setupReplicaToken,
+      requestId: setupApplyRequestId,
+      body: setupApplyInput
+    }
+  );
+  assert.deepEqual(retriedSetup.body, appliedSetup.body);
+  const currentSetupResponse = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/assess_collection_setup`,
+    { method: "POST", token: setupReplicaToken, body: taskNotesSetup }
+  );
+  assert.equal(currentSetupResponse.status, 200, JSON.stringify(currentSetupResponse.body));
+  assert.equal(currentSetupResponse.body.result.result.status, "current");
+  assert.equal(currentSetupResponse.body.result.result.configuration[0]?.action, "current");
+  const mismatchedSetup = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/apply_collection_setup`,
+    {
+      method: "POST",
+      token: setupReplicaToken,
+      body: { ...setupApplyInput, application_id: "dev.tasknotes.other" }
+    }
+  );
+  assert.equal(mismatchedSetup.status, 403, JSON.stringify(mismatchedSetup.body));
+  assert.equal(mismatchedSetup.body.error.code, "application_declaration_mismatch");
+
   const fullReplicaToken = `full-${crypto.randomUUID()}-${crypto.randomUUID()}`;
   const fullReplicaId = crypto.randomUUID();
   await internalRequest(
@@ -822,6 +941,8 @@ schema:
       body: {
         id: notificationGrantId,
         application_id: crypto.randomUUID(),
+        application_declaration_id: "dev.mdbase.tasks",
+        application_manifest_digest: `sha256:${"b".repeat(64)}`,
         application_name: "Tasks",
         application_homepage: "https://tasks.example",
         application_origin: "https://tasks.example",
@@ -2475,12 +2596,15 @@ schema:
         .map(({ id }) => id)
         .filter((id) => id !== "sync"),
       grant_id: crypto.randomUUID(),
+      application_declaration_id: "dev.mdbase.provider-conformance",
+      application_declaration_digest: `sha256:${"c".repeat(64)}`,
       token: conformanceToken
     }
   });
   const conformanceInputs = {
     update_type: { name: "missing", document: "invalid" },
     apply_type_pack: {},
+    apply_collection_setup: {},
     create_view_source: { document: "invalid" },
     update_view_source: { path: "Views/missing.md", document: "invalid" },
     delete_view_source: { path: "Views/missing.md" },
@@ -3756,7 +3880,7 @@ async function authorizeHostedApplicationByCreating(authorizationUrl, cookie, re
     await page.getByLabel("New collection name").fill("Workout records");
     await page.getByRole("button", { name: "Create collection" }).click();
     const collection = page.getByRole("radio", {
-      name: /Workout records.*Hosted by mdbase.*Setup needed/
+      name: /Workout records.*Hosted by mdbase.*Setup review/
     });
     await expect(collection).toBeVisible();
     await expect(collection).toBeChecked();

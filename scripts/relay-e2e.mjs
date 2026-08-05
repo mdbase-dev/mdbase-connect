@@ -448,6 +448,7 @@ async function seed(db, hash) {
     protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
     authorization_id: authorizationId,
     application_id: applicationId,
+    application_declaration_id: "dev.mdbase.relay-e2e",
     application_manifest_digest: "00".repeat(32),
     application_installation_id: await applicationInstallationId(installationKey),
     installation_signing_public_key: installationKey.signingPublicKey,

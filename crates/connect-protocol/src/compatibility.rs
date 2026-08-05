@@ -131,6 +131,7 @@ pub fn authorization_requires_durable_mutation(
                 | "create_type"
                 | "update_type"
                 | "apply_type_pack"
+                | "apply_collection_setup"
                 | "put_timer"
                 | "cancel_timer"
                 | "reconcile_timers"
@@ -178,6 +179,14 @@ mod tests {
         assert!(requirements
             .mismatch_problem("query", &serde_json::json!({}), "connector")
             .is_none());
+    }
+
+    #[test]
+    fn application_collection_setup_requires_the_durable_mutation_axis() {
+        assert!(authorization_requires_durable_mutation(
+            &["apply_collection_setup".to_string()],
+            None
+        ));
     }
 
     #[test]

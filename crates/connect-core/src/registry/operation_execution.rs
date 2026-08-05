@@ -468,6 +468,7 @@ pub(super) fn operation_invalidation(
         "create_type"
             | "update_type"
             | "apply_type_pack"
+            | "apply_collection_setup"
             | "create_view_source"
             | "update_view_source"
             | "delete_view_source"
@@ -527,6 +528,8 @@ pub(super) fn supported_operations(profile: SpecProfile) -> &'static [&'static s
         "update_type",
         "assess_type_pack",
         "apply_type_pack",
+        "assess_collection_setup",
+        "apply_collection_setup",
         "list_timers",
         "put_timer",
         "cancel_timer",

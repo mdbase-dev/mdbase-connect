@@ -636,6 +636,13 @@ fn application_setup_preserves_local_configuration_and_is_idempotent() {
     let root = parent.path().join("notes");
     let registry = CollectionRegistry::open(state.path()).unwrap();
     let collection = registry.create(&root, Some("Notes")).unwrap();
+    let description = registry.describe(collection.id).unwrap();
+    assert!(description
+        .operations
+        .contains(&"assess_collection_setup".to_string()));
+    assert!(description
+        .operations
+        .contains(&"apply_collection_setup".to_string()));
     let config_path = root.join("mdbase.yaml");
     let mut config: serde_yaml::Value =
         serde_yaml::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();

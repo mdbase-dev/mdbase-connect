@@ -656,6 +656,178 @@ implements:
   }
   await cliJson(["access", "revoke", setupToken.body.grant_id]);
 
+  const taskNotesSetup = {
+    application_id: "dev.tasknotes.app",
+    declaration_digest: "",
+    requirements: {
+      configuration: [{
+        id: "tasknotes-base-sources",
+        path: "/x-obsidian/bases/include",
+        predicate: "contains",
+        value: "views/tasknotes/**/*.base"
+      }]
+    },
+    provisions: {
+      configuration: [{
+        requirement: "tasknotes-base-sources",
+        operation: "set_add",
+        path: "/x-obsidian/bases/include",
+        value: "views/tasknotes/**/*.base"
+      }],
+      type_packs: []
+    }
+  };
+  const taskNotesApplication = await request("/v1/apps/register", {
+    method: "POST",
+    body: {
+      manifest: {
+        manifest_version: 1,
+        id: taskNotesSetup.application_id,
+        name: "TaskNotes setup E2E",
+        homepage: manifest.origin,
+        redirect_uris: [manifest.redirectUri],
+        requirements: {
+          access: "full_collection",
+          contracts: [],
+          configuration: taskNotesSetup.requirements.configuration,
+          capabilities: {
+            contract_version: 1,
+            required: [
+              "collection.inspect",
+              "records.query",
+              "collection.setup.apply"
+            ],
+            optional: []
+          }
+        },
+        provisions: taskNotesSetup.provisions,
+        notifications: { criteria: [] }
+      }
+    }
+  });
+  taskNotesSetup.declaration_digest =
+    `sha256:${taskNotesApplication.body.application.manifest_digest}`;
+  const taskNotesVerifier =
+    "tasknotes-setup-e2e-verifier-with-forty-three-characters";
+  const taskNotesAuthorization = await startSignedWebAuthorization({
+    application: taskNotesApplication.body.application,
+    redirectUri: manifest.redirectUri,
+    verifier: taskNotesVerifier,
+    state: "tasknotes-setup-e2e",
+    operations: [
+      "describe",
+      "query",
+      "assess_collection_setup",
+      "apply_collection_setup"
+    ],
+    cookie
+  });
+  const taskNotesRequest = await poll(async () => {
+    const current = await request(
+      `/v1/authorization-requests/${taskNotesAuthorization.id}`,
+      { cookie }
+    );
+    return current.body.collections?.some((candidate) => candidate.id === collection.id)
+      ? current
+      : null;
+  }, "TaskNotes setup collection offer did not reach the portal");
+  const taskNotesOffer = taskNotesRequest.body.collections.find(
+    (candidate) => candidate.id === collection.id
+  );
+  if (!taskNotesOffer?.offer_id) {
+    throw new Error("TaskNotes setup offer did not retain its local authority identity");
+  }
+  const taskNotesBrowser = await chromium.launch({ headless: true });
+  try {
+    const taskNotesContext = await taskNotesBrowser.newContext();
+    const cookieSeparator = cookie.indexOf("=");
+    await taskNotesContext.addCookies([{
+      name: cookie.slice(0, cookieSeparator),
+      value: cookie.slice(cookieSeparator + 1),
+      url: serverUrl
+    }]);
+    const taskNotesPage = await taskNotesContext.newPage();
+    await taskNotesPage.goto(
+      `${serverUrl}/authorize/${taskNotesAuthorization.id}`
+    );
+    await taskNotesPage.locator(
+      `.collection-choice-list input[value="${collection.id}"]`
+    ).click();
+    await taskNotesPage.getByText("Review collection settings").waitFor();
+    await taskNotesPage.getByText("x-obsidian → bases → include").waitFor();
+    await taskNotesPage.getByText("views/tasknotes/**/*.base").waitFor();
+    await taskNotesPage.getByRole("button", {
+      name: "Set up and allow TaskNotes setup E2E"
+    }).waitFor();
+    await taskNotesContext.close();
+  } finally {
+    await taskNotesBrowser.close();
+  }
+  await approvePortalAuthorization(taskNotesAuthorization.id, cookie, {
+    collection_id: taskNotesOffer.id,
+    offer_id: taskNotesOffer.offer_id,
+    operations: [
+      "describe",
+      "query",
+      "assess_collection_setup",
+      "apply_collection_setup"
+    ],
+    contract_setups: []
+  });
+  const taskNotesCallback = await finishSignedWebAuthorization(
+    taskNotesAuthorization
+  );
+  const taskNotesToken = await request("/oauth/token", {
+    method: "POST",
+    form: {
+      grant_type: "authorization_code",
+      code: taskNotesCallback.searchParams.get("code"),
+      client_id: taskNotesApplication.body.application.id,
+      redirect_uri: manifest.redirectUri,
+      code_verifier: taskNotesVerifier
+    }
+  });
+  const configuredCollection = await readFile(
+    join(collectionPath, "mdbase.yaml"),
+    "utf8"
+  );
+  if (!configuredCollection.includes("Views/**/*.base")
+      || !configuredCollection.includes("views/tasknotes/**/*.base")) {
+    throw new Error(
+      `TaskNotes setup did not preserve existing configuration: ${configuredCollection}`
+    );
+  }
+  const taskNotesAssessmentResponse = await signedGrantOperation(
+    taskNotesAuthorization,
+    taskNotesToken.body,
+    collection.id,
+    "assess_collection_setup",
+    taskNotesSetup
+  );
+  const taskNotesAssessment = await taskNotesAssessmentResponse.json();
+  if (taskNotesAssessmentResponse.status !== 200
+      || taskNotesAssessment.result?.valid !== true
+      || taskNotesAssessment.result?.result?.status !== "current") {
+    throw new Error(
+      `TaskNotes setup was not idempotently current: ${JSON.stringify(taskNotesAssessment)}`
+    );
+  }
+  const mismatchedTaskNotesSetup = await signedGrantOperation(
+    taskNotesAuthorization,
+    taskNotesToken.body,
+    collection.id,
+    "assess_collection_setup",
+    { ...taskNotesSetup, application_id: "dev.tasknotes.other" }
+  );
+  const mismatchedTaskNotesBody = await mismatchedTaskNotesSetup.json();
+  if (mismatchedTaskNotesSetup.status !== 403
+      || mismatchedTaskNotesBody.problem?.code !== "access_denied") {
+    throw new Error(
+      `TaskNotes setup accepted the wrong declaration: ${JSON.stringify(mismatchedTaskNotesBody)}`
+    );
+  }
+  await cliJson(["access", "revoke", taskNotesToken.body.grant_id]);
+
   relayContext = {
     store: applicationKeyStore,
     handle: applicationKey.handle,
@@ -1210,6 +1382,7 @@ async function startSignedWebAuthorization({
     protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
     authorization_id: authorizationId,
     application_id: application.id,
+    application_declaration_id: application.family_identity.replace(/^bundle:/u, ""),
     application_manifest_digest: application.manifest_digest,
     application_installation_id: await applicationInstallationId(installationKey),
     installation_signing_public_key: installationKey.signingPublicKey,

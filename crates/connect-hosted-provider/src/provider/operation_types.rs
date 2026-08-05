@@ -31,7 +31,7 @@ fn definition_changed_resources(
             {
                 changed.push(json!({
                     "target": "mdbase.yaml",
-                    "kind": "config",
+                    "kind": "configuration",
                     "action": "update"
                 }));
             }
