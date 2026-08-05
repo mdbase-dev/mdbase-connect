@@ -37,8 +37,8 @@
   },
   "devDependencies": {
     "@mdbase-dev/connect-webhooks": "workspace:*",
-    "@types/node": "^24.0.0",
-    "@types/pg": "^8.20.0",
+    "@types/node": "^26.1.2",
+    "@types/pg": "^8.20.3",
     "@types/web-push": "^3.6.4",
     "@types/ws": "^8.18.1",
     "tsx": "^4.23.1",
