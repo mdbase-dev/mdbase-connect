@@ -11,6 +11,10 @@ import {
   type ApplicationFileRequirement,
   type CollectionOperation
 } from "@mdbase-dev/connect-protocol";
+import {
+  APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
+  authorizationContractRequirements
+} from "@mdbase-dev/connect-protocol";
 import { z } from "zod";
 import { isP256PublicKey } from "./security.js";
 
@@ -36,7 +40,7 @@ const fileRequirementSchema = z.object({
 }).strict();
 
 const bindingSchema = z.object({
-  protocol_version: z.literal(2),
+  protocol_version: z.literal(APPLICATION_AUTHORIZATION_PROTOCOL_VERSION),
   authorization_id: z.uuid(),
   application_id: z.uuid(),
   application_manifest_digest: z.string().regex(/^[0-9a-f]{64}$/),
@@ -51,6 +55,12 @@ const bindingSchema = z.object({
   redirect_uri: z.string().max(2_048).optional(),
   state: z.string().max(500).optional(),
   code_challenge: z.string().min(43).max(128),
+  contracts: z.object({
+    operation_transport: z.number().int().positive(),
+    authorization_binding: z.number().int().positive(),
+    semantic_capabilities: z.number().int().positive(),
+    durable_mutation: z.number().int().positive().optional()
+  }).strict(),
   requested_operations: z.array(z.string().min(1).max(100)).max(100),
   requested_files: fileRequirementSchema.optional(),
   collection_id: z.uuid().optional()
@@ -81,6 +91,25 @@ export class ApplicationAuthorizationError extends Error {
   }
 }
 
+export class ApplicationContractMismatchError extends ApplicationAuthorizationError {
+  constructor(
+    public readonly code: "transport_protocol_incompatible"
+      | "authorization_binding_incompatible"
+      | "capability_contract_incompatible"
+      | "durable_mutation_unsupported",
+    public readonly details: {
+      contract: string;
+      required: number[];
+      supported: number[];
+      peer: "application";
+      operation?: string;
+    }
+  ) {
+    super("A required Connect contract is not supported by the application.");
+    this.name = "ApplicationContractMismatchError";
+  }
+}
+
 export function parseApplicationAuthorization(value: unknown): ApplicationAuthorizationProof {
   let decoded = value;
   if (typeof value === "string") {
@@ -92,6 +121,21 @@ export function parseApplicationAuthorization(value: unknown): ApplicationAuthor
     } catch {
       throw new ApplicationAuthorizationError();
     }
+  }
+  const rawBinding = decoded && typeof decoded === "object"
+    ? (decoded as { binding?: { protocol_version?: unknown } }).binding
+    : undefined;
+  if (typeof rawBinding?.protocol_version === "number"
+      && rawBinding.protocol_version !== APPLICATION_AUTHORIZATION_PROTOCOL_VERSION) {
+    throw new ApplicationContractMismatchError(
+      "authorization_binding_incompatible",
+      {
+        contract: "authorization_binding",
+        required: [APPLICATION_AUTHORIZATION_PROTOCOL_VERSION],
+        supported: [rawBinding.protocol_version],
+        peer: "application"
+      }
+    );
   }
   try {
     return proofSchema.parse(decoded) as ApplicationAuthorizationProof;
@@ -106,6 +150,11 @@ export async function verifyApplicationAuthorization(
 ): Promise<ApplicationAuthorizationProof> {
   const proof = parseApplicationAuthorization(value);
   const binding = proof.binding;
+  assertContractRequirements(
+    binding.contracts,
+    authorizationContractRequirements(expected.requestedOperations, expected.requestedFiles),
+    expected.requestedOperations[0]
+  );
   const now = (expected.now ?? new Date()).getTime();
   const issuedAt = Date.parse(binding.issued_at);
   const expiresAt = Date.parse(binding.expires_at);
@@ -122,6 +171,10 @@ export async function verifyApplicationAuthorization(
     || binding.redirect_uri !== expected.redirectUri
     || binding.state !== expected.state
     || binding.code_challenge !== expected.codeChallenge
+    || !isDeepStrictEqual(
+      binding.contracts,
+      authorizationContractRequirements(expected.requestedOperations, expected.requestedFiles)
+    )
     || !isDeepStrictEqual(binding.requested_operations, expected.requestedOperations)
     || !isDeepStrictEqual(binding.requested_files, expected.requestedFiles)
     || binding.collection_id !== expected.collectionId
@@ -172,6 +225,31 @@ export async function verifyApplicationAuthorization(
     throw new ApplicationAuthorizationError();
   }
   return proof;
+}
+
+function assertContractRequirements(
+  actual: ApplicationAuthorizationProof["binding"]["contracts"],
+  expected: ApplicationAuthorizationProof["binding"]["contracts"],
+  operation?: string
+): void {
+  const axes = [
+    ["operation_transport", "transport_protocol_incompatible"],
+    ["authorization_binding", "authorization_binding_incompatible"],
+    ["semantic_capabilities", "capability_contract_incompatible"],
+    ["durable_mutation", "durable_mutation_unsupported"]
+  ] as const;
+  for (const [contract, code] of axes) {
+    const required = expected[contract];
+    if (required !== undefined && actual[contract] !== required) {
+      throw new ApplicationContractMismatchError(code, {
+        contract,
+        required: [required],
+        supported: actual[contract] === undefined ? [] : [actual[contract]],
+        peer: "application",
+        ...(operation ? { operation } : {})
+      });
+    }
+  }
 }
 
 function canonicalSignature(value: string): Buffer {

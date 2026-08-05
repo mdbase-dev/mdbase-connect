@@ -272,6 +272,7 @@ impl DispatchAuthorizer for CountingAuthorizer {
 
 fn test_grant(collection_id: Uuid) -> GrantSummary {
     GrantSummary {
+        contracts: mdbase_connect_protocol::ConnectContractRequirements::current(true),
         id: Uuid::parse_str("0d57894d-9a5a-477a-95ac-a8b4d77839d9").expect("fixed UUID"),
         application_id: Uuid::parse_str("f9af383c-81ec-43bf-9cf5-65e02e595014")
             .expect("fixed UUID"),

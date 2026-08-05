@@ -14,8 +14,8 @@ tags:
   - user-experience
   - consumers
 created_at: 2026-08-04T10:51:42+10:00
-updated_at: 2026-08-05T08:49:15+10:00
-progress_summary: Phases 0-6 are independently green. The cross-authority recovery matrix passes 19 canonical mutators at six termination boundaries (114 cases); Server CI is green on Ubuntu, macOS, Windows, hosted/R2, upgrade, OAuth, and notification recovery; Editor CI and all Desktop Release targets are green; the architecture budget passes. One exact beta.32 artifact set from Connect e1c1f49cca00 is pinned in four pushed consumer draft PRs. Browser/live-authority dogfood is green in all four, and Pickle/TaskNotes Android 36 emulator smokes cover lifecycle, notifications, opaque push, and restart. Phase 7 guarded staging rollout is active; production is untouched.
+updated_at: 2026-08-05T09:58:36+10:00
+progress_summary: Phases 0-5 remain green; the Phase 7 audit reopened Phase 6 because e1c documented independent compatibility axes without live enforcement. The correction now independently versions and enforces operation transport v2, authorization binding v3, semantic capability v1, and durable mutation v1 before state; full Connect build/tests, Rust workspace tests/check, mixed-version fail-before-write, hosted readiness, and architecture gates pass locally. A new immutable candidate, four exact-artifact repins, staging rollout, rollback, canaries, soak, and final audit remain. Production is untouched.
 type: task
 ---
 

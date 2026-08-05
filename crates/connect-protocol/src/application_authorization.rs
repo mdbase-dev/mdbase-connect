@@ -1,6 +1,8 @@
 use crate::{
-    ApplicationFileRequirement, FileAction, FileCapabilityKind, FileScope, GrantPolicy,
+    authorization_requires_durable_mutation, ApplicationFileRequirement,
+    ConnectContractRequirements, FileAction, FileCapabilityKind, FileScope, GrantPolicy,
     APPLICATION_AUTHORIZATION_PROTOCOL_VERSION, FILE_PROTOCOL_VERSION,
+    GRANT_ENCRYPTION_PROTOCOL_VERSION,
 };
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -12,7 +14,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 const INSTALLATION_ID_DOMAIN: &[u8] = b"mdbase-connect application installation id v2\0";
-const AUTHORIZATION_PROOF_DOMAIN: &[u8] = b"mdbase-connect application authorization proof v2\0";
+const AUTHORIZATION_PROOF_DOMAIN: &[u8] = b"mdbase-connect application authorization proof v3\0";
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ApplicationAuthorizationError {
@@ -52,6 +54,7 @@ pub struct ApplicationAuthorizationBinding {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<String>,
     pub code_challenge: String,
+    pub contracts: ConnectContractRequirements,
     pub requested_operations: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requested_files: Option<ApplicationFileRequirement>,
@@ -77,6 +80,10 @@ impl ApplicationAuthorizationBinding {
             || self.expires_at.len() > 40
             || self.expires_at.as_bytes().contains(&0)
             || !is_hex_sha256(&self.application_manifest_digest)
+            || self.contracts.operation_transport == 0
+            || self.contracts.authorization_binding == 0
+            || self.contracts.semantic_capabilities == 0
+            || self.contracts.durable_mutation == Some(0)
             || (self.requested_operations.is_empty() && self.requested_files.is_none())
             || self
                 .requested_operations
@@ -135,6 +142,10 @@ impl ApplicationAuthorizationBinding {
         append_optional_string(&mut transcript, self.redirect_uri.as_deref());
         append_optional_string(&mut transcript, self.state.as_deref());
         append_field(&mut transcript, self.code_challenge.as_bytes());
+        transcript.extend_from_slice(&self.contracts.operation_transport.to_be_bytes());
+        transcript.extend_from_slice(&self.contracts.authorization_binding.to_be_bytes());
+        transcript.extend_from_slice(&self.contracts.semantic_capabilities.to_be_bytes());
+        append_optional_u32(&mut transcript, self.contracts.durable_mutation);
         transcript.extend_from_slice(&(self.requested_operations.len() as u32).to_be_bytes());
         for operation in &self.requested_operations {
             append_field(&mut transcript, operation.as_bytes());
@@ -166,6 +177,16 @@ impl ApplicationAuthorizationBinding {
             return Err(ApplicationAuthorizationError::InvalidPublicKey);
         }
         Ok(keys)
+    }
+}
+
+fn append_optional_u32(transcript: &mut Vec<u8>, value: Option<u32>) {
+    match value {
+        Some(value) => {
+            transcript.push(1);
+            transcript.extend_from_slice(&value.to_be_bytes());
+        }
+        None => transcript.push(0),
     }
 }
 
@@ -216,10 +237,16 @@ impl GrantPolicy {
             }
             _ => false,
         };
+        let expected_contracts =
+            ConnectContractRequirements::current(authorization_requires_durable_mutation(
+                &authorization.requested_operations,
+                authorization.requested_files.as_ref(),
+            ));
         if authorization.application_id != self.application_id
             || authorization.grant_agreement_public_key
                 != encryption.application_agreement_public_key
             || encryption.collection_id != self.collection_id
+            || encryption.protocol_version != GRANT_ENCRYPTION_PROTOCOL_VERSION
             || authorization
                 .collection_id
                 .is_some_and(|collection_id| collection_id != self.collection_id)
@@ -231,6 +258,7 @@ impl GrantPolicy {
             })
             || !flow_matches
             || !files_match
+            || authorization.contracts != expected_contracts
         {
             return Err(ApplicationAuthorizationError::InvalidProof);
         }
@@ -419,7 +447,7 @@ mod tests {
 
     fn fixture() -> (ApplicationAuthorizationBinding, serde_json::Value) {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../packages/protocol/test/fixtures/application-authorization-v2.json"
+            "../../../packages/protocol/test/fixtures/application-authorization-v3.json"
         ))
         .unwrap();
         let binding = serde_json::from_value(fixture["binding"].clone()).unwrap();

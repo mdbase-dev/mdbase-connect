@@ -108,6 +108,7 @@ export async function syncHostedNotificationGrant(
     notification_criteria: NotificationCriterion[];
     file_capability: FileCapability | null;
     created_at: string | Date;
+    application_authorization: import("@mdbase-dev/connect-protocol").ApplicationAuthorizationProof;
   }>(
     `SELECT g.id, g.application_id, a.name AS application_name,
             a.homepage AS application_homepage,
@@ -117,7 +118,7 @@ export async function syncHostedNotificationGrant(
             g.hosted_collection_id AS collection_id,
             hosted.display_name AS collection_name,
             g.operations, g.scope, g.notification_criteria, g.file_capability,
-            g.created_at
+            g.created_at, g.application_authorization
      FROM grants g
      JOIN applications a ON a.id = g.application_id
      JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
@@ -144,6 +145,7 @@ export async function syncHostedNotificationGrant(
     collection_name: row.collection_name,
     notification_criteria: row.notification_criteria,
     created_at: new Date(row.created_at).toISOString(),
+    contracts: row.application_authorization.binding.contracts,
     ...(row.file_capability ? { file_capability: row.file_capability } : {})
   };
   await provider.upsertNotificationGrant(row.collection_id, grant);

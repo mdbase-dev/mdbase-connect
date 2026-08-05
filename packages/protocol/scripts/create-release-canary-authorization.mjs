@@ -7,6 +7,8 @@ import {
 import { pathToFileURL } from "node:url";
 import {
   applicationInstallationIdFromPublicKey,
+  APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
+  authorizationContractRequirements,
   authorizationSigningMessage
 } from "../dist/index.js";
 
@@ -24,7 +26,7 @@ export async function createReleaseCanaryAuthorization(applicationId, manifestDi
   const codeChallenge = "A".repeat(43);
   const state = "release-canary";
   const binding = {
-    protocol_version: 2,
+    protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
     authorization_id: randomUUID(),
     application_id: applicationId,
     application_manifest_digest: manifestDigest,
@@ -41,6 +43,7 @@ export async function createReleaseCanaryAuthorization(applicationId, manifestDi
     redirect_uri: redirectUri,
     state,
     code_challenge: codeChallenge,
+    contracts: authorizationContractRequirements(["describe"]),
     requested_operations: ["describe"]
   };
   const signature = canonicalSignature(sign(

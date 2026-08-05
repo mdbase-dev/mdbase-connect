@@ -18,7 +18,8 @@ use mdbase_connect_protocol::{
     OperationRequest, OperationResponse, SyncChangesPage, SyncFileSnapshotPage, SyncMutation,
     SyncMutationReceipt, SyncSession, SyncSnapshotPage, TypePackProvision,
     AUTHORITY_PROOF_NONCE_HEADER, AUTHORITY_PROOF_SIGNATURE_HEADER,
-    AUTHORITY_PROOF_TIMESTAMP_HEADER, AUTHORITY_PROOF_VERSION_HEADER, CONTROL_PROTOCOL_VERSION,
+    AUTHORITY_PROOF_TIMESTAMP_HEADER, AUTHORITY_PROOF_VERSION_HEADER,
+    OPERATION_TRANSPORT_PROTOCOL_VERSION,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -356,6 +357,7 @@ async fn ready(State(state): State<AppState>) -> ApiResult<Json<Value>> {
         "provider": {
             "version": env!("CARGO_PKG_VERSION"),
             "capabilities": mdbase_connect_protocol::HOSTED_PROVIDER_CAPABILITIES,
+            "contract_support": mdbase_connect_protocol::ConnectContractSupport::default(),
         },
         "notifications": notifications
     })))
@@ -839,14 +841,21 @@ async fn operation(
     let request = serde_json::from_slice::<OperationRequest>(&body).map_err(|_| {
         ApiError::bad_request("invalid_json", "The hosted operation body is invalid.")
     })?;
-    if request.protocol_version != CONTROL_PROTOCOL_VERSION {
+    if request.protocol_version != OPERATION_TRANSPORT_PROTOCOL_VERSION {
         return Err(ApiError::bad_request(
-            "unsupported_protocol_version",
+            "transport_protocol_incompatible",
             format!(
                 "Operation protocol {} is unsupported; expected {}.",
-                request.protocol_version, CONTROL_PROTOCOL_VERSION
+                request.protocol_version, OPERATION_TRANSPORT_PROTOCOL_VERSION
             ),
-        ));
+        )
+        .with_details(json!({
+            "contract": "operation_transport",
+            "required": [OPERATION_TRANSPORT_PROTOCOL_VERSION],
+            "supported": [request.protocol_version],
+            "peer": "control_plane",
+            "operation": operation,
+        })));
     }
     let result = state
         .provider
@@ -861,7 +870,7 @@ async fn operation(
         .await?;
     Ok(Json(
         serde_json::to_value(OperationResponse {
-            protocol_version: CONTROL_PROTOCOL_VERSION,
+            protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
             request_id: request.request_id,
             ok: true,
             result: Some(result),

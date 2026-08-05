@@ -258,7 +258,7 @@ export function registerAccountOverviewRoute(
         last_seen_at: connector.last_seen_at,
         created_at: connector.created_at,
         connector_version: connector.connector_version,
-        compatibility: connector.incompatibility_code === "connector_upgrade_required"
+        compatibility: connector.incompatibility_code
           ? "upgrade_required" as const
           : connector.connector_version
             ? "compatible" as const

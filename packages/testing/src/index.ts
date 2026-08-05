@@ -1,5 +1,6 @@
 import {
   operationsForApplicationCapabilities,
+  GRANT_ENCRYPTION_PROTOCOL_VERSION,
   type ApplicationCapabilityRequirements,
   type CollectionOperation,
   type FileCapability,
@@ -248,7 +249,7 @@ async function writeSeed(seed: BrowserFixtureSeed): Promise<FixtureRelayBinding 
       }
       const grantId = crypto.randomUUID();
       const encryption: GrantEncryption = {
-        protocol_version: 1,
+        protocol_version: GRANT_ENCRYPTION_PROTOCOL_VERSION,
         suite: "P256-HKDF-SHA256-AES256GCM",
         key_id: `fixture-${crypto.randomUUID()}`,
         scope_epoch: 1,

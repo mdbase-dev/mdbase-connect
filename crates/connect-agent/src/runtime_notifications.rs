@@ -528,6 +528,7 @@ mod tests {
     #[test]
     fn compiled_workflows_keep_record_data_out_of_action_input() {
         let grant = GrantSummary {
+            contracts: mdbase_connect_protocol::ConnectContractRequirements::current(true),
             id: Uuid::new_v4(),
             application_id: Uuid::new_v4(),
             application_name: "Tasks".to_string(),
@@ -588,7 +589,7 @@ mod tests {
         let application = mdbase_connect_protocol::crypto::RelayIdentity::generate();
         let operations = vec!["changes".to_string()];
         let encryption = mdbase_connect_protocol::GrantEncryption {
-            protocol_version: mdbase_connect_protocol::ENCRYPTED_RELAY_PROTOCOL_VERSION,
+            protocol_version: mdbase_connect_protocol::GRANT_ENCRYPTION_PROTOCOL_VERSION,
             suite: mdbase_connect_protocol::RELAY_ENCRYPTION_SUITE.to_string(),
             key_id: "notification-test".to_string(),
             scope_epoch: 1,
@@ -807,7 +808,7 @@ mod tests {
         let application = mdbase_connect_protocol::crypto::RelayIdentity::generate();
         let operations = vec!["reconcile_timers".to_string()];
         let encryption = mdbase_connect_protocol::GrantEncryption {
-            protocol_version: mdbase_connect_protocol::ENCRYPTED_RELAY_PROTOCOL_VERSION,
+            protocol_version: mdbase_connect_protocol::GRANT_ENCRYPTION_PROTOCOL_VERSION,
             suite: mdbase_connect_protocol::RELAY_ENCRYPTION_SUITE.to_string(),
             key_id: "timer-test".to_string(),
             scope_epoch: 1,

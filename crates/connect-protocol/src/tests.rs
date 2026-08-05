@@ -30,7 +30,7 @@ fn mutation_fingerprint_v1_matches_the_shared_typescript_fixture() {
 
 fn fixture_application_authorization(application_id: Uuid) -> ApplicationAuthorizationProof {
     let fixture: Value = serde_json::from_str(include_str!(
-        "../../../packages/protocol/test/fixtures/application-authorization-v2.json"
+        "../../../packages/protocol/test/fixtures/application-authorization-v3.json"
     ))
     .unwrap();
     let mut proof = ApplicationAuthorizationProof {
@@ -104,7 +104,7 @@ fn assert_schema(reference: &str, value: Value) {
 
 fn assert_encrypted_schema(value: Value) {
     let schema: Value = serde_json::from_str(include_str!(
-        "../../../packages/protocol/schemas/encrypted-relay.v1.schema.json"
+        "../../../packages/protocol/schemas/encrypted-relay.v2.schema.json"
     ))
     .unwrap();
     let validator = jsonschema::JSONSchema::options()
@@ -481,7 +481,7 @@ fn rust_relay_messages_match_the_canonical_wire_schema() {
     ];
     let application_authorization = fixture_application_authorization(ids[3]);
     let encryption = GrantEncryption {
-        protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
+        protocol_version: GRANT_ENCRYPTION_PROTOCOL_VERSION,
         suite: RELAY_ENCRYPTION_SUITE.to_string(),
         key_id: "schema-key".to_string(),
         scope_epoch: 1,
@@ -495,6 +495,7 @@ fn rust_relay_messages_match_the_canonical_wire_schema() {
     };
     for message in [
         RelayMessage::RelayHello {
+            contract_support: ConnectContractSupport::default(),
             protocol_version: CONTROL_PROTOCOL_VERSION,
             connector_version: "0.1.0-beta.28".to_string(),
             capabilities: RELAY_CAPABILITIES
@@ -503,6 +504,7 @@ fn rust_relay_messages_match_the_canonical_wire_schema() {
                 .collect(),
         },
         RelayMessage::RelayWelcome {
+            contract_support: ConnectContractSupport::default(),
             protocol_version: CONTROL_PROTOCOL_VERSION,
             session_id: "42".to_string(),
             capabilities: RELAY_CAPABILITIES
@@ -545,7 +547,7 @@ fn rust_relay_messages_match_the_canonical_wire_schema() {
             error: None,
         },
         RelayMessage::OperationRequest {
-            protocol_version: CONTROL_PROTOCOL_VERSION,
+            protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
             request_id: ids[0],
             grant_id: ids[1],
             collection_id: ids[2],
@@ -554,7 +556,7 @@ fn rust_relay_messages_match_the_canonical_wire_schema() {
             input: serde_json::json!({"types": ["task"]}),
         },
         RelayMessage::OperationResponse {
-            protocol_version: CONTROL_PROTOCOL_VERSION,
+            protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
             request_id: ids[0],
             ok: true,
             result: Some(serde_json::json!({"valid": true})),

@@ -804,6 +804,7 @@ mod tests {
 
     fn file_grant(collection_id: Uuid, actions: Vec<FileAction>) -> GrantSummary {
         GrantSummary {
+            contracts: mdbase_connect_protocol::ConnectContractRequirements::current(true),
             id: Uuid::now_v7(),
             application_id: Uuid::now_v7(),
             application_name: "File application".to_string(),

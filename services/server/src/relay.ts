@@ -11,11 +11,14 @@ import type {
   GrantPolicy,
   GrantScope,
   ApplicationAuthorizationProof,
+  ConnectContractSupport,
   ConnectProblem,
   RelayFileFrame
 } from "@mdbase-dev/connect-protocol";
 import {
   CONTROL_PROTOCOL_VERSION,
+  CONNECT_CONTRACT_SUPPORT,
+  OPERATION_TRANSPORT_PROTOCOL_VERSION,
   CONTRACT_SETUP_CAPABILITY,
   isConnectProblem,
   MINIMUM_CONNECTOR_VERSION,
@@ -70,12 +73,14 @@ interface ConnectorSession {
   socket: WebSocket;
   binding: RelayBrokerBinding;
   capabilities: string[];
+  contractSupport: ConnectContractSupport;
 }
 
 interface RelayHello {
   protocol_version: number;
   connector_version: string;
   capabilities: string[];
+  contract_support: ConnectContractSupport;
 }
 
 export class RelayHub {
@@ -104,9 +109,12 @@ export class RelayHub {
     handshake: Promise<RelayHello | null> = receiveRelayHello(socket)
   ): Promise<void> {
     const hello = await handshake;
+    const contractMismatch = hello
+      ? relayContractMismatch(hello.contract_support)
+      : undefined;
     if (!hello
         || hello.protocol_version !== CONTROL_PROTOCOL_VERSION
-        || !connectorVersionAtLeast(hello.connector_version, MINIMUM_CONNECTOR_VERSION)
+        || contractMismatch
         || !RELAY_REQUIRED_CAPABILITIES.every((capability) => hello.capabilities.includes(capability))) {
       try {
         if (!this.isConnected(connectorId)) {
@@ -114,15 +122,21 @@ export class RelayHub {
             `UPDATE connectors
              SET connector_version = $2,
                  last_incompatible_at = now(),
-                 incompatibility_code = 'connector_upgrade_required',
-                 minimum_connector_version = $3,
-                 connector_update_url = $4
+                 incompatibility_code = $3,
+                 minimum_connector_version = $4,
+                 connector_update_url = $5
              WHERE id = $1`,
-            [connectorId, hello?.connector_version ?? null, MINIMUM_CONNECTOR_VERSION, CONNECTOR_UPDATE_URL]
+            [
+              connectorId,
+              hello?.connector_version ?? null,
+              contractMismatch?.code ?? "connector_upgrade_required",
+              MINIMUM_CONNECTOR_VERSION,
+              CONNECTOR_UPDATE_URL
+            ]
           );
         }
       } finally {
-        rejectIncompatibleRelay(socket);
+        rejectIncompatibleRelay(socket, contractMismatch);
       }
       return;
     }
@@ -162,7 +176,13 @@ export class RelayHub {
       socket.close(4001, "Replaced by a newer connector session");
       return;
     }
-    session = { generation, socket, binding, capabilities: [...hello.capabilities] };
+    session = {
+      generation,
+      socket,
+      binding,
+      capabilities: [...hello.capabilities],
+      contractSupport: hello.contract_support
+    };
 
     const previous = this.connectors.get(connectorId);
     this.connectors.set(connectorId, session);
@@ -342,7 +362,8 @@ export class RelayHub {
       type: "relay_welcome",
       protocol_version: CONTROL_PROTOCOL_VERSION,
       session_id: generation,
-      capabilities: [...RELAY_CAPABILITIES]
+      capabilities: [...RELAY_CAPABILITIES],
+      contract_support: CONNECT_CONTRACT_SUPPORT
     }));
     socket.once("close", () => {
       const current = this.connectors.get(connectorId);
@@ -462,7 +483,7 @@ export class RelayHub {
     const generation = await this.requireCurrentGeneration(input.connectorId);
     return this.deliver(input.connectorId, generation, {
       type: "operation_request",
-      protocol_version: CONTROL_PROTOCOL_VERSION,
+      protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
       request_id: input.requestId,
       grant_id: input.grantId,
       collection_id: input.localCollectionId,
@@ -800,10 +821,12 @@ async function receiveRelayHello(socket: WebSocket): Promise<RelayHello | null> 
           && typeof value.connector_version === "string"
           && Array.isArray(value.capabilities)
           && value.capabilities.every((capability) => typeof capability === "string")
+          && isContractSupport(value.contract_support)
           ? {
               protocol_version: value.protocol_version,
               connector_version: value.connector_version,
-              capabilities: value.capabilities as string[]
+              capabilities: value.capabilities as string[],
+              contract_support: value.contract_support
             }
           : null);
       } catch {
@@ -817,13 +840,63 @@ async function receiveRelayHello(socket: WebSocket): Promise<RelayHello | null> 
   });
 }
 
-function rejectIncompatibleRelay(socket: WebSocket): void {
+function isContractSupport(value: unknown): value is ConnectContractSupport {
+  if (!value || typeof value !== "object") return false;
+  const support = value as Record<string, unknown>;
+  return [
+    "operation_transport",
+    "authorization_binding",
+    "semantic_capabilities",
+    "durable_mutation"
+  ].every((axis) => Array.isArray(support[axis])
+    && (support[axis] as unknown[]).every((version) => Number.isInteger(version)));
+}
+
+interface RelayContractMismatch {
+  code: "transport_protocol_incompatible"
+    | "authorization_binding_incompatible"
+    | "capability_contract_incompatible"
+    | "durable_mutation_unsupported";
+  details: {
+    contract: string;
+    required: number[];
+    supported: number[];
+    peer: "connector";
+  };
+}
+
+function relayContractMismatch(
+  actual: ConnectContractSupport
+): RelayContractMismatch | undefined {
+  const axes = [
+    ["operation_transport", "transport_protocol_incompatible"],
+    ["authorization_binding", "authorization_binding_incompatible"],
+    ["semantic_capabilities", "capability_contract_incompatible"],
+    ["durable_mutation", "durable_mutation_unsupported"]
+  ] as const;
+  for (const [contract, code] of axes) {
+    const required = CONNECT_CONTRACT_SUPPORT[contract];
+    if (!required.every((version) => actual[contract].includes(version))) {
+      return {
+        code,
+        details: { contract, required: [...required], supported: actual[contract], peer: "connector" }
+      };
+    }
+  }
+  return undefined;
+}
+
+function rejectIncompatibleRelay(
+  socket: WebSocket,
+  mismatch?: RelayContractMismatch
+): void {
   if (socket.readyState !== 1) return;
   socket.send(JSON.stringify({
     type: "relay_incompatible",
     protocol_version: CONTROL_PROTOCOL_VERSION,
-    code: "connector_upgrade_required",
+    code: mismatch?.code ?? "connector_upgrade_required",
     message: "This mdbase Connect version is no longer compatible. Update the desktop app and reconnect.",
+    ...(mismatch ? { details: mismatch.details } : {}),
     minimum_connector_version: MINIMUM_CONNECTOR_VERSION,
     update_url: CONNECTOR_UPDATE_URL
   }), () => socket.close(INCOMPATIBLE_CLOSE_CODE, "Connector upgrade required"));

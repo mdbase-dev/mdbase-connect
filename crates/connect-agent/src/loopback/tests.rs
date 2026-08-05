@@ -6,7 +6,7 @@ use mdbase_connect_protocol::crypto::{RelayBinding, RelayDirection, RelayIdentit
 use mdbase_connect_protocol::{
     mutation_fingerprint, EncryptedRelayEnvelope, FileAction, FileCapability, FileCapabilityKind,
     FileScope, GrantEncryption, GrantPolicy, GrantScope, RelayMessage,
-    ENCRYPTED_RELAY_PROTOCOL_VERSION, MUTATING_OPERATION_IDENTIFIERS, RELAY_ENCRYPTION_SUITE,
+    MUTATING_OPERATION_IDENTIFIERS, RELAY_ENCRYPTION_SUITE,
 };
 use std::fs;
 use tower::ServiceExt;
@@ -888,7 +888,7 @@ fn fixture_for_origin(origin: &str, distribution: &str) -> Fixture {
     let origin = origin.to_string();
     let connector_id = Uuid::new_v4();
     let encryption = GrantEncryption {
-        protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
+        protocol_version: mdbase_connect_protocol::GRANT_ENCRYPTION_PROTOCOL_VERSION,
         suite: RELAY_ENCRYPTION_SUITE.to_string(),
         key_id: "direct-key".to_string(),
         scope_epoch: 1,

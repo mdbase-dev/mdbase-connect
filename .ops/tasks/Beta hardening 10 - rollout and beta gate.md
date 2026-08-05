@@ -1,6 +1,6 @@
 ---
 title: Beta hardening 10 - rollout and beta gate
-status: in_progress
+status: open
 priority: critical
 owner: codex
 parent: SDK and authority beta hardening
@@ -9,8 +9,8 @@ phase: 7
 depends_on: [Beta hardening 09 - candidate and consumer migrations]
 tags: [beta, deployment, canary, observability, rollback]
 created_at: 2026-08-04T17:48:28+10:00
-updated_at: 2026-08-05T08:49:15+10:00
-progress_summary: Phase 6 is independently green and the rollout gate is open. The immutable candidate is Connect e1c1f49cca00 with four exact-artifact consumer draft PRs. Next is guarded staging activation, compatibility and rollback proof, canaries in Workouts-Editor-Pickle-TaskNotes order, privacy-safe observation, and the final external-beta audit.
+updated_at: 2026-08-05T09:58:36+10:00
+progress_summary: Waiting for delivery slice 9 to reclose after the independent-contract audit invalidated e1c as a release candidate. Production and staging remain untouched. Resume only with one immutable post-correction Connect commit and four exact-artifact consumer repins, then perform guarded activation, rollback proof, ordered canaries, observation, and the final audit.
 type: task
 ---
 
@@ -24,7 +24,8 @@ privacy-safe observation, and satisfy every external-beta invitation gate.
 
 ## Gate state
 
-Opened 2026-08-05 after delivery slice 9 closed green. Production remains
-untouched. Staging must activate the complete release train behind explicit
-contract-aware readiness, prove whole-train rollback, and retain the documented
-canary order before any external-beta invitation.
+Initially opened 2026-08-05, then returned to `open` when the compatibility
+audit reopened delivery slice 9. Production and staging remain untouched.
+Staging must activate the complete release train behind explicit contract-aware
+readiness, prove whole-train rollback, and retain the documented canary order
+before any external-beta invitation.

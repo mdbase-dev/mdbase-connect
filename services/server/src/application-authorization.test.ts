@@ -4,12 +4,13 @@ import type { ApplicationAuthorizationProof } from "@mdbase-dev/connect-protocol
 import { describe, expect, it } from "vitest";
 import {
   ApplicationAuthorizationError,
+  ApplicationContractMismatchError,
   verifyApplicationAuthorization
 } from "./application-authorization.js";
 
 const fixture = JSON.parse(readFileSync(
   fileURLToPath(new URL(
-    "../../../packages/protocol/test/fixtures/application-authorization-v2.json",
+    "../../../packages/protocol/test/fixtures/application-authorization-v3.json",
     import.meta.url
   )),
   "utf8"
@@ -71,5 +72,66 @@ describe("application authorization proofs", () => {
       ...expected,
       now: new Date("2026-08-02T07:55:00.000Z")
     })).rejects.toBeInstanceOf(ApplicationAuthorizationError);
+  });
+
+  it("classifies every independently versioned authorization contract", async () => {
+    const cases = [
+      ["operation_transport", 99, "transport_protocol_incompatible"],
+      ["authorization_binding", 99, "authorization_binding_incompatible"],
+      ["semantic_capabilities", 99, "capability_contract_incompatible"]
+    ] as const;
+    for (const [axis, version, code] of cases) {
+      await expect(verifyApplicationAuthorization({
+        ...proof,
+        binding: {
+          ...proof.binding,
+          contracts: { ...proof.binding.contracts, [axis]: version }
+        }
+      }, expected)).rejects.toMatchObject({
+        code,
+        details: { contract: axis, required: [proof.binding.contracts[axis]] }
+      });
+    }
+  });
+
+  it("reports a v2 binding as incompatible instead of malformed", async () => {
+    const legacy = JSON.stringify({
+      ...proof,
+      binding: { ...proof.binding, protocol_version: 2 }
+    });
+    await expect(verifyApplicationAuthorization(legacy, expected))
+      .rejects.toBeInstanceOf(ApplicationContractMismatchError);
+    await expect(verifyApplicationAuthorization(legacy, expected)).rejects.toMatchObject({
+      code: "authorization_binding_incompatible",
+      details: {
+        contract: "authorization_binding",
+        required: [3],
+        supported: [2],
+        peer: "application"
+      }
+    });
+  });
+
+  it("requires durable mutation v1 only when the authorization can write", async () => {
+    await expect(verifyApplicationAuthorization({
+      ...proof,
+      binding: {
+        ...proof.binding,
+        requested_operations: ["create"],
+        contracts: { ...proof.binding.contracts }
+      }
+    }, {
+      ...expected,
+      requestedOperations: ["create"]
+    })).rejects.toMatchObject({
+      code: "durable_mutation_unsupported",
+      details: {
+        contract: "durable_mutation",
+        required: [1],
+        supported: [],
+        peer: "application",
+        operation: "create"
+      }
+    });
   });
 });

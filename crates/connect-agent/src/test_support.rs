@@ -2,8 +2,9 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use chrono::{Duration, SecondsFormat, Utc};
 use mdbase_connect_protocol::{
-    application_installation_id, ApplicationAuthorizationBinding, ApplicationAuthorizationFlow,
-    ApplicationAuthorizationProof, ApplicationFileRequirement, FileCapability,
+    application_installation_id, authorization_requires_durable_mutation,
+    ApplicationAuthorizationBinding, ApplicationAuthorizationFlow, ApplicationAuthorizationProof,
+    ApplicationFileRequirement, ConnectContractRequirements, FileCapability,
     APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
 };
 use p256::ecdsa::{signature::Signer, Signature, SigningKey};
@@ -25,6 +26,13 @@ pub(crate) struct TestApplicationSecurityParams<'a> {
 
 pub(crate) fn application_security(
     params: TestApplicationSecurityParams<'_>,
+) -> TestApplicationSecurity {
+    application_security_with_contracts(params, None)
+}
+
+pub(crate) fn application_security_with_contracts(
+    params: TestApplicationSecurityParams<'_>,
+    contracts: Option<ConnectContractRequirements>,
 ) -> TestApplicationSecurity {
     let TestApplicationSecurityParams {
         application_id,
@@ -55,6 +63,10 @@ pub(crate) fn application_security(
     } else {
         ApplicationAuthorizationFlow::AuthorizationCode
     };
+    let requested_files = file_capability.map(|capability| ApplicationFileRequirement {
+        actions: capability.actions.clone(),
+        scope: capability.scope.clone(),
+    });
     let binding = ApplicationAuthorizationBinding {
         protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
         authorization_id,
@@ -74,11 +86,14 @@ pub(crate) fn application_security(
             .then(|| "https://app.example/callback".to_string()),
         state: (distribution != "portable").then(|| "test-state".to_string()),
         code_challenge: URL_SAFE_NO_PAD.encode([8_u8; 32]),
-        requested_operations: operations.to_vec(),
-        requested_files: file_capability.map(|capability| ApplicationFileRequirement {
-            actions: capability.actions.clone(),
-            scope: capability.scope.clone(),
+        contracts: contracts.unwrap_or_else(|| {
+            ConnectContractRequirements::current(authorization_requires_durable_mutation(
+                operations,
+                requested_files.as_ref(),
+            ))
         }),
+        requested_operations: operations.to_vec(),
+        requested_files,
         collection_id: Some(collection_id),
     };
     let signature: Signature = installation_signing.sign(&binding.signing_message().unwrap());

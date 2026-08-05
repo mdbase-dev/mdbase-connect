@@ -1,8 +1,9 @@
 use crate::server::AgentState;
 use futures_util::{SinkExt, StreamExt};
 use mdbase_connect_protocol::{
-    AgentConnectionState, RelayFileFrame, RelayMessage, CONTROL_PROTOCOL_VERSION,
-    RELAY_CAPABILITIES, RELAY_HANDSHAKE_TIMEOUT_SECONDS, RELAY_REQUIRED_CAPABILITIES,
+    AgentConnectionState, ConnectContractSupport, RelayFileFrame, RelayMessage,
+    CONTROL_PROTOCOL_VERSION, RELAY_CAPABILITIES, RELAY_HANDSHAKE_TIMEOUT_SECONDS,
+    RELAY_REQUIRED_CAPABILITIES,
 };
 use reqwest::Client;
 use std::sync::Arc;
@@ -51,6 +52,7 @@ async fn connect_once(
                     .iter()
                     .map(|capability| (*capability).to_string())
                     .collect(),
+                contract_support: ConnectContractSupport::default(),
             })?
             .into(),
         ))
@@ -69,8 +71,10 @@ async fn connect_once(
         RelayMessage::RelayWelcome {
             protocol_version,
             capabilities,
+            contract_support,
             ..
         } if protocol_version == CONTROL_PROTOCOL_VERSION
+            && contract_support.supports_current()
             && RELAY_REQUIRED_CAPABILITIES
                 .iter()
                 .all(|required| capabilities.iter().any(|value| value == required)) => {}

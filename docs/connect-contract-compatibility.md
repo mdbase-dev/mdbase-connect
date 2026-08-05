@@ -20,7 +20,9 @@ contracts is unsupported.
 Local admin control, sync wire, file frame, relay file-frame, manifest, mdbase
 spec, and Connect problem versions remain at their current values unless their
 own payload contract changes during implementation. They are not bumped merely
-because beta.32 ships.
+because beta.32 ships. Grant encryption profile v1 also remains unchanged: it
+describes the key agreement and AEAD binding, while operation transport v2
+independently versions the encrypted request and response envelope.
 
 ## Mismatch details
 

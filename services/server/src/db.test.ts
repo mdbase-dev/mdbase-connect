@@ -49,7 +49,8 @@ describe("database migrations", () => {
       "0011_application_authorization_trust",
       "0012_notification_contract_digests",
       "0013_signed_tofu_application_identity",
-      "0014_connector_compatibility"
+      "0014_connector_compatibility",
+      "0015_authorization_binding_v3"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -70,6 +71,113 @@ describe("database migrations", () => {
       "SELECT id FROM schema_migrations ORDER BY id"
     );
     expect(repeated.rows).toEqual(applied.rows);
+  });
+
+  it("preserves v2 local grants as revoked reauthorization records during the v3 break", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    await db.query(
+      "ALTER TABLE grants DROP CONSTRAINT grants_local_application_authorization_required"
+    );
+    await db.query("ALTER TABLE grants DROP COLUMN reauthorization_required_at");
+    await db.query("ALTER TABLE grants DROP COLUMN reauthorization_reason");
+    await db.query(
+      "DELETE FROM schema_migrations WHERE id = '0015_authorization_binding_v3'"
+    );
+
+    const userId = randomUUID();
+    const connectorId = randomUUID();
+    const collectionId = randomUUID();
+    const applicationId = randomUUID();
+    const installationId = randomUUID();
+    const grantId = randomUUID();
+    const auditId = randomUUID();
+    await db.query(
+      "INSERT INTO users (id, email, name) VALUES ($1, $2, 'Owner')",
+      [userId, `${userId}@example.com`]
+    );
+    await db.query(
+      `INSERT INTO connectors (id, user_id, name, token_hash)
+       VALUES ($1, $2, 'Laptop', $3)`,
+      [connectorId, userId, randomUUID()]
+    );
+    await db.query(
+      `INSERT INTO collections
+         (id, user_id, connector_id, local_id, display_name, spec_version)
+       VALUES ($1, $2, $3, $4, 'Notes', '0.3.0')`,
+      [collectionId, userId, connectorId, randomUUID()]
+    );
+    await db.query(
+      `INSERT INTO applications
+         (id, canonical_identity, name, homepage, redirect_uris)
+       VALUES ($1, $2, 'Beta app', 'https://beta.example', '[]'::jsonb)`,
+      [applicationId, `web:https://beta.example/${applicationId}`]
+    );
+    const v2Proof = {
+      binding: {
+        protocol_version: 2,
+        application_installation_id: installationId
+      },
+      signature: "signed-v2-proof"
+    };
+    await db.query(
+      `INSERT INTO grants
+         (id, user_id, application_id, collection_id, operations,
+          application_installation_id, application_authorization)
+       VALUES ($1, $2, $3, $4, '["read"]'::jsonb, $5, $6::jsonb)`,
+      [
+        grantId,
+        userId,
+        applicationId,
+        collectionId,
+        installationId,
+        JSON.stringify(v2Proof)
+      ]
+    );
+    await db.query(
+      `INSERT INTO access_tokens (id, token_hash, grant_id, expires_at)
+       VALUES ($1, $2, $3, now() + interval '1 hour')`,
+      [randomUUID(), randomUUID(), grantId]
+    );
+    await db.query(
+      `INSERT INTO refresh_tokens (id, token_hash, grant_id, expires_at)
+       VALUES ($1, $2, $3, now() + interval '30 days')`,
+      [randomUUID(), randomUUID(), grantId]
+    );
+    await db.query(
+      `INSERT INTO audit_events (id, user_id, event_type, subject_id)
+       VALUES ($1, $2, 'grant.created', $3)`,
+      [auditId, userId, grantId]
+    );
+
+    await runControlPlaneMigrations(db);
+
+    const grant = await db.query<{
+      protocol_version: string;
+      revoked_at: Date | null;
+      reauthorization_required_at: Date | null;
+      reauthorization_reason: string | null;
+    }>(
+      `SELECT application_authorization->'binding'->>'protocol_version' AS protocol_version,
+              revoked_at, reauthorization_required_at, reauthorization_reason
+       FROM grants WHERE id = $1`,
+      [grantId]
+    );
+    expect(grant.rows).toHaveLength(1);
+    expect(grant.rows[0]).toMatchObject({
+      protocol_version: "2",
+      reauthorization_reason: "authorization_binding_v3_required"
+    });
+    expect(grant.rows[0]?.revoked_at).toBeInstanceOf(Date);
+    expect(grant.rows[0]?.reauthorization_required_at).toBeInstanceOf(Date);
+    expect((await db.query(
+      `SELECT revoked_at FROM access_tokens WHERE grant_id = $1
+       UNION ALL
+       SELECT revoked_at FROM refresh_tokens WHERE grant_id = $1`,
+      [grantId]
+    )).rows.every(({ revoked_at }) => revoked_at instanceof Date)).toBe(true);
+    expect((await db.query("SELECT id FROM audit_events WHERE id = $1", [auditId])).rows)
+      .toEqual([{ id: auditId }]);
   });
 
   it("invalidates v1 and malformed authorization state during the v2 identity break", async () => {
@@ -415,7 +523,8 @@ describe("database migrations", () => {
       "0011_application_authorization_trust",
       "0012_notification_contract_digests",
       "0013_signed_tofu_application_identity",
-      "0014_connector_compatibility"
+      "0014_connector_compatibility",
+      "0015_authorization_binding_v3"
     ]);
   });
 

@@ -19,7 +19,7 @@ interface Fixture {
 }
 
 const fixture = JSON.parse(readFileSync(
-  new URL("../../protocol/test/fixtures/application-authorization-v2.json", import.meta.url),
+  new URL("../../protocol/test/fixtures/application-authorization-v3.json", import.meta.url),
   "utf8"
 )) as Fixture;
 

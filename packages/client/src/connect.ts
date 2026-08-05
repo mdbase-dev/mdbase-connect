@@ -6,8 +6,10 @@ import type {
 } from "@mdbase-dev/connect-protocol";
 import {
   APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
+  authorizationContractRequirements,
   DEFAULT_LOOPBACK_PORT,
   ENCRYPTED_RELAY_PROTOCOL_VERSION,
+  GRANT_ENCRYPTION_PROTOCOL_VERSION,
   RELAY_ENCRYPTION_SUITE
 } from "@mdbase-dev/connect-protocol";
 import { abortableDelay } from "./async.js";
@@ -324,6 +326,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       redirect_uri: this.redirectUri,
       state,
       code_challenge: challenge,
+      contracts: authorizationContractRequirements(operations, application.requirements?.files),
       requested_operations: operations,
       ...(application.requirements?.files
         ? { requested_files: application.requirements.files }
@@ -444,6 +447,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       issued_at: issuedAt.toISOString(),
       expires_at: new Date(issuedAt.getTime() + 10 * 60 * 1_000).toISOString(),
       code_challenge: challenge,
+      contracts: authorizationContractRequirements(operations, application.requirements?.files),
       requested_operations: operations,
       ...(application.requirements?.files
         ? { requested_files: application.requirements.files }
@@ -591,7 +595,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         }
         const authority = validAuthorityTokenResponse(tokenBody.authority, tokenBody.collection_id);
         const localEncryption = tokenBody.encryption
-          && tokenBody.encryption.protocol_version === ENCRYPTED_RELAY_PROTOCOL_VERSION
+          && tokenBody.encryption.protocol_version === GRANT_ENCRYPTION_PROTOCOL_VERSION
           && tokenBody.encryption.suite === RELAY_ENCRYPTION_SUITE
           && tokenBody.encryption.application_agreement_public_key
             === grantKey.agreementPublicKey;

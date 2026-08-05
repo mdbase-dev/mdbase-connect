@@ -1,5 +1,86 @@
 use super::*;
 
+pub(super) fn operation_transport_rejection(
+    request_id: uuid::Uuid,
+    supported_version: u32,
+    operation: &str,
+) -> RelayMessage {
+    RelayMessage::OperationResponse {
+        protocol_version: mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
+        request_id,
+        ok: false,
+        result: None,
+        problem: Some(operation_transport_problem(supported_version, operation)),
+    }
+}
+
+pub(super) fn encrypted_operation_transport_rejection(
+    envelope: &mdbase_connect_protocol::EncryptedRelayEnvelope,
+) -> RelayMessage {
+    RelayMessage::EncryptedOperationRejected {
+        protocol_version: mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
+        request_id: envelope.request_id,
+        problem: operation_transport_problem(envelope.protocol_version, &envelope.operation),
+    }
+}
+
+fn operation_transport_problem(supported_version: u32, operation: &str) -> ConnectProblem {
+    ConnectProblem::new(
+        "transport_protocol_incompatible",
+        "The operation transport protocol is incompatible.",
+    )
+    .with_details(serde_json::json!({
+        "contract": "operation_transport",
+        "required": [mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION],
+        "supported": [supported_version],
+        "peer": "application",
+        "operation": operation,
+    }))
+    .with_operation_outcome(ConnectOperationOutcome::NotSent)
+}
+
+pub(super) fn mark_owned_mutation_unknown(
+    registry: &CollectionRegistry,
+    keys: &RelayKeys,
+    metadata: RelayMetadata<'_>,
+    lease: &MutationLease,
+    reason: &str,
+) -> RelayMessage {
+    metrics::outcome_unknown();
+    let problem = ConnectProblem::new("operation_outcome_unknown", reason)
+        .with_details(serde_json::json!({ "request_id": metadata.request_id }))
+        .with_operation_outcome(ConnectOperationOutcome::Unknown);
+    let body = serde_json::json!({ "ok": false, "problem": problem });
+    let Some((message, serialized)) = encrypted_response(keys, metadata, &body) else {
+        return encrypted_rejection(metadata.request_id);
+    };
+    if registry
+        .mark_mutation_outcome_unknown(lease, &serialized, Some(&body))
+        .is_err()
+    {
+        return pending_mutation_response(keys, metadata);
+    }
+    message
+}
+
+pub(super) fn local_mutation_evidence(
+    registry: &CollectionRegistry,
+    collection_id: uuid::Uuid,
+    operation: &str,
+) -> Result<serde_json::Value, ConnectError> {
+    if matches!(operation, "put_timer" | "cancel_timer" | "reconcile_timers") {
+        return Ok(serde_json::json!({
+            "kind": "timer_authority",
+            "collection_id": collection_id,
+        }));
+    }
+    let snapshot = registry.authority_snapshot(collection_id)?;
+    Ok(serde_json::json!({
+        "kind": "collection_manifest",
+        "manifest_digest": snapshot.manifest_digest,
+    }))
+}
+
 pub(super) fn encrypted_response(
     keys: &RelayKeys,
     metadata: RelayMetadata<'_>,

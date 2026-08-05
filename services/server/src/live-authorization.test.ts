@@ -6,6 +6,7 @@ import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import { pkceChallenge } from "./security.js";
 import { testApplicationAuthorization } from "./application-authorization.test-helper.js";
+import { CONNECT_CONTRACT_SUPPORT } from "@mdbase-dev/connect-protocol";
 
 const resources: Array<() => Promise<void>> = [];
 
@@ -123,11 +124,12 @@ describe("live connector-mediated authorization", () => {
         protocol_version: 1,
         connector_version: "0.1.0-test",
         capabilities: [
-          "application-authorization-v2",
+          "application-authorization-v3",
           "authorization-activation",
           "encrypted-relay",
           "policy-ack"
-        ]
+        ],
+        contract_support: CONNECT_CONTRACT_SUPPORT
       }));
     });
     socket.on("message", async (raw) => {
@@ -329,7 +331,7 @@ describe("live connector-mediated authorization", () => {
     expect(Number(pendingGrants.rows[0].count)).toBe(0);
   });
 
-  it("rejects a connector below the minimum version with an actionable upgrade response", async () => {
+  it("rejects incompatible contract axes but accepts a package-version-only difference", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
     const { app } = await buildApp({
@@ -368,13 +370,25 @@ describe("live connector-mediated authorization", () => {
         "authorization-activation",
         "encrypted-relay",
         "policy-ack"
-      ]
+      ],
+      contract_support: {
+        operation_transport: [1],
+        authorization_binding: [2],
+        semantic_capabilities: [1],
+        durable_mutation: []
+      }
     }));
     const [raw] = await messagePromise;
     expect(JSON.parse(raw.toString())).toMatchObject({
       type: "relay_incompatible",
       protocol_version: 1,
-      code: "connector_upgrade_required",
+      code: "transport_protocol_incompatible",
+      details: {
+        contract: "operation_transport",
+        required: [2],
+        supported: [1],
+        peer: "connector"
+      },
       minimum_connector_version: "0.1.0-beta.32",
       update_url: "https://github.com/mdbase-dev/mdbase-connect/releases/latest"
     });
@@ -393,7 +407,7 @@ describe("live connector-mediated authorization", () => {
     );
     expect(recorded.rows[0]).toEqual({
       connector_version: "0.1.0-beta.30",
-      incompatibility_code: "connector_upgrade_required",
+      incompatibility_code: "transport_protocol_incompatible",
       minimum_connector_version: "0.1.0-beta.32",
       connector_update_url: "https://github.com/mdbase-dev/mdbase-connect/releases/latest"
     });
@@ -415,13 +429,14 @@ describe("live connector-mediated authorization", () => {
     updatedSocket.send(JSON.stringify({
       type: "relay_hello",
       protocol_version: 1,
-      connector_version: "0.1.0-beta.32",
+      connector_version: "0.1.0-beta.30",
       capabilities: [
-        "application-authorization-v2",
+        "application-authorization-v3",
         "authorization-activation",
         "encrypted-relay",
         "policy-ack"
-      ]
+      ],
+      contract_support: CONNECT_CONTRACT_SUPPORT
     }));
     await policy;
     const recovered = await db.query<{
@@ -432,7 +447,7 @@ describe("live connector-mediated authorization", () => {
       [connector.connector.id]
     );
     expect(recovered.rows[0]).toEqual({
-      connector_version: "0.1.0-beta.32",
+      connector_version: "0.1.0-beta.30",
       incompatibility_code: null
     });
     updatedSocket.close();

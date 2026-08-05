@@ -15,7 +15,10 @@ import {
   HostedProviderUnavailableError
 } from "../hosted-provider.js";
 import { ApplicationManifestError } from "../manifest.js";
-import { ApplicationAuthorizationError } from "../application-authorization.js";
+import {
+  ApplicationAuthorizationError,
+  ApplicationContractMismatchError
+} from "../application-authorization.js";
 import {
   AuthenticationPolicyIncompleteError,
   InvalidInvitationError,
@@ -51,6 +54,9 @@ export function registerErrorHandler(app: FastifyInstance): void {
         error.message,
         { issues: error.issues }
       ));
+    }
+    if (error instanceof ApplicationContractMismatchError) {
+      return reply.code(409).send(apiError(error.code, error.message, error.details));
     }
     if (error instanceof ApplicationAuthorizationError) {
       return reply.code(400).send(apiError(

@@ -24,6 +24,34 @@
     "operation": {
       "enum": ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "create_view_source", "update_view_source", "delete_view_source", "validate", "create", "update", "delete", "rename", "read_type", "create_type", "update_type", "assess_type_pack", "apply_type_pack", "list_timers", "put_timer", "cancel_timer", "reconcile_timers", "sync"]
     },
+    "connectContractRequirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation_transport", "authorization_binding", "semantic_capabilities"],
+      "properties": {
+        "operation_transport": { "type": "integer", "minimum": 1 },
+        "authorization_binding": { "type": "integer", "minimum": 1 },
+        "semantic_capabilities": { "type": "integer", "minimum": 1 },
+        "durable_mutation": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "connectContractSupport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation_transport", "authorization_binding", "semantic_capabilities", "durable_mutation"],
+      "properties": {
+        "operation_transport": { "$ref": "#/$defs/versionSet" },
+        "authorization_binding": { "$ref": "#/$defs/versionSet" },
+        "semantic_capabilities": { "$ref": "#/$defs/versionSet" },
+        "durable_mutation": { "$ref": "#/$defs/versionSet" }
+      }
+    },
+    "versionSet": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "integer", "minimum": 1 }
+    },
     "contractRequirement": {
       "type": "object",
       "additionalProperties": false,
@@ -83,7 +111,7 @@
     "relayHello": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "protocol_version", "connector_version", "capabilities"],
+      "required": ["type", "protocol_version", "connector_version", "capabilities", "contract_support"],
       "properties": {
         "type": { "const": "relay_hello" },
         "protocol_version": { "const": 1 },
@@ -92,13 +120,14 @@
           "type": "array",
           "uniqueItems": true,
           "items": { "type": "string", "minLength": 1, "maxLength": 100 }
-        }
+        },
+        "contract_support": { "$ref": "#/$defs/connectContractSupport" }
       }
     },
     "relayWelcome": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "protocol_version", "session_id", "capabilities"],
+      "required": ["type", "protocol_version", "session_id", "capabilities", "contract_support"],
       "properties": {
         "type": { "const": "relay_welcome" },
         "protocol_version": { "const": 1 },
@@ -107,7 +136,8 @@
           "type": "array",
           "uniqueItems": true,
           "items": { "type": "string", "minLength": 1, "maxLength": 100 }
-        }
+        },
+        "contract_support": { "$ref": "#/$defs/connectContractSupport" }
       }
     },
     "relayIncompatible": {
@@ -117,8 +147,19 @@
       "properties": {
         "type": { "const": "relay_incompatible" },
         "protocol_version": { "const": 1 },
-        "code": { "const": "connector_upgrade_required" },
+        "code": { "enum": ["connector_upgrade_required", "transport_protocol_incompatible", "authorization_binding_incompatible", "capability_contract_incompatible", "durable_mutation_unsupported"] },
         "message": { "type": "string", "minLength": 1 },
+        "details": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["contract", "required", "supported", "peer"],
+          "properties": {
+            "contract": { "enum": ["operation_transport", "authorization_binding", "semantic_capabilities", "durable_mutation"] },
+            "required": { "$ref": "#/$defs/versionSet" },
+            "supported": { "type": "array", "uniqueItems": true, "items": { "type": "integer", "minimum": 1 } },
+            "peer": { "const": "connector" }
+          }
+        },
         "minimum_connector_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$" },
         "update_url": { "type": "string", "format": "uri", "pattern": "^https://" }
       }
@@ -129,7 +170,7 @@
       "required": ["type", "protocol_version", "request_id", "grant_id", "collection_id", "application_id", "operation", "input"],
       "properties": {
         "type": { "const": "operation_request" },
-        "protocol_version": { "const": 1 },
+        "protocol_version": { "const": 2 },
         "request_id": { "$ref": "#/$defs/uuid" },
         "grant_id": { "$ref": "#/$defs/uuid" },
         "collection_id": { "$ref": "#/$defs/uuid" },
@@ -143,7 +184,7 @@
       "additionalProperties": false,
       "required": ["protocol_version", "request_id", "input"],
       "properties": {
-        "protocol_version": { "const": 1 },
+        "protocol_version": { "const": 2 },
         "request_id": { "$ref": "#/$defs/uuid" },
         "input": true
       }
@@ -153,7 +194,7 @@
       "additionalProperties": false,
       "required": ["protocol_version", "request_id", "ok"],
       "properties": {
-        "protocol_version": { "const": 1 },
+        "protocol_version": { "const": 2 },
         "request_id": { "$ref": "#/$defs/uuid" },
         "ok": { "type": "boolean" },
         "result": true,
@@ -179,7 +220,7 @@
       "required": ["type", "protocol_version", "request_id", "ok"],
       "properties": {
         "type": { "const": "operation_response" },
-        "protocol_version": { "const": 1 },
+        "protocol_version": { "const": 2 },
         "request_id": { "$ref": "#/$defs/uuid" },
         "ok": { "type": "boolean" },
         "result": true,
@@ -248,9 +289,9 @@
     "applicationAuthorizationBinding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["protocol_version", "authorization_id", "application_id", "application_manifest_digest", "application_installation_id", "installation_signing_public_key", "grant_agreement_public_key", "grant_signing_public_key", "flow", "authorization_nonce", "issued_at", "expires_at", "code_challenge", "requested_operations"],
+      "required": ["protocol_version", "authorization_id", "application_id", "application_manifest_digest", "application_installation_id", "installation_signing_public_key", "grant_agreement_public_key", "grant_signing_public_key", "flow", "authorization_nonce", "issued_at", "expires_at", "code_challenge", "contracts", "requested_operations"],
       "properties": {
-        "protocol_version": { "const": 2 },
+        "protocol_version": { "const": 3 },
         "authorization_id": { "$ref": "#/$defs/uuid" },
         "application_id": { "$ref": "#/$defs/uuid" },
         "application_manifest_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
@@ -265,6 +306,7 @@
         "redirect_uri": { "type": "string", "format": "uri" },
         "state": { "type": "string", "maxLength": 500 },
         "code_challenge": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" },
+        "contracts": { "$ref": "#/$defs/connectContractRequirements" },
         "requested_operations": {
           "type": "array",
           "uniqueItems": true,

@@ -71,7 +71,7 @@ export function registerLocalFileRoutes(
       if (!grant.encryption) {
         return reply.code(426).send(apiError(
           "encryption_required",
-          "Local collection files require encrypted relay protocol 1."
+          "Local collection files require grant encryption profile 1."
         ));
       }
       let envelope: EncryptedRelayOperationRequest;
@@ -82,7 +82,7 @@ export function registerLocalFileRoutes(
       } catch {
         return reply.code(426).send(apiError(
           "encryption_required",
-          "Local collection files require encrypted relay protocol 1."
+          "Local collection files require grant encryption profile 1."
         ));
       }
       if (!matchesGrantEncryption(
@@ -255,7 +255,7 @@ function requireBinaryFileGrant(
   if (!grant.encryption) {
     reply.code(426).send(apiError(
       "encryption_required",
-      "Local collection files require encrypted relay protocol 1."
+      "Local collection files require grant encryption profile 1."
     ));
     return null;
   }

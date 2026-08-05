@@ -143,7 +143,8 @@ impl CollectionRegistry {
             "SELECT id, application_id, application_name, application_distribution,
                     application_homepage, application_project_url, application_origin,
                     application_icon, collection_id, collection_name, operations, scope,
-                    created_at, encryption, file_capability, notification_criteria
+                    created_at, encryption, file_capability, notification_criteria,
+                    application_authorization
              FROM grants ORDER BY application_name COLLATE NOCASE, collection_name COLLATE NOCASE",
         )?;
         let rows = statement.query_map([], |row| {
@@ -164,6 +165,7 @@ impl CollectionRegistry {
                 row.get::<_, Option<String>>(13)?,
                 row.get::<_, Option<String>>(14)?,
                 row.get::<_, String>(15)?,
+                row.get::<_, String>(16)?,
             ))
         })?;
         rows.map(|row| {
@@ -184,7 +186,10 @@ impl CollectionRegistry {
                 encryption,
                 file_capability,
                 notification_criteria,
+                application_authorization,
             ) = row?;
+            let proof: ApplicationAuthorizationProof =
+                serde_json::from_str(&application_authorization)?;
             Ok(GrantSummary {
                 id: parse_registry_uuid(&id)?,
                 application_id: parse_registry_uuid(&application_id)?,
@@ -208,6 +213,7 @@ impl CollectionRegistry {
                     .as_deref()
                     .map(serde_json::from_str)
                     .transpose()?,
+                contracts: proof.binding.contracts,
             })
         })
         .collect()
@@ -359,6 +365,7 @@ impl CollectionRegistry {
                     .as_deref()
                     .map(serde_json::from_str)
                     .transpose()?,
+                contracts: proof.binding.contracts.clone(),
             },
             revoked: true,
             application_installation_id: proof.binding.application_installation_id,

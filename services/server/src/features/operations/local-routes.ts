@@ -2,9 +2,7 @@ import type {
   EncryptedRelayOperationRequest,
   GrantEncryption
 } from "@mdbase-dev/connect-protocol";
-import {
-  CONTROL_PROTOCOL_VERSION
-} from "@mdbase-dev/connect-protocol";
+import { OPERATION_TRANSPORT_PROTOCOL_VERSION } from "@mdbase-dev/connect-protocol";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { COLLECTION_OPERATIONS } from "../../collection-access.js";
@@ -33,7 +31,7 @@ interface LocalOperationRoutesOptions {
 
 const operationSchema = z.enum(COLLECTION_OPERATIONS);
 const operationRequestSchema = z.object({
-  protocol_version: z.literal(CONTROL_PROTOCOL_VERSION),
+  protocol_version: z.literal(OPERATION_TRANSPORT_PROTOCOL_VERSION),
   request_id: z.uuid(),
   input: z.unknown()
 }).strict();
@@ -103,7 +101,7 @@ export function registerLocalOperationRoutes(
           } catch {
             return reply.code(426).send(apiError(
               "encryption_required",
-              "This grant requires encrypted relay protocol 1."
+              "This grant requires grant encryption profile 1."
             ));
           }
           if (!matchesGrantEncryption(
@@ -134,7 +132,7 @@ export function registerLocalOperationRoutes(
         ) {
           return reply.code(400).send(apiError(
             "encryption_not_configured",
-            "This grant was not authorized for encrypted relay protocol 1."
+            "This grant was not authorized for grant encryption profile 1."
           ));
         }
         const operationRequest = operationRequestSchema.parse(request.body);
@@ -149,7 +147,7 @@ export function registerLocalOperationRoutes(
           operationInput: operationRequest.input
         });
         return {
-          protocol_version: CONTROL_PROTOCOL_VERSION,
+          protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
           request_id: operationRequest.request_id,
           ok: true,
           result
@@ -166,7 +164,7 @@ export function registerLocalOperationRoutes(
             return reply.code(502).send(apiError(error.code, error.message));
           }
           return {
-            protocol_version: CONTROL_PROTOCOL_VERSION,
+            protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
             request_id: operationRequestId,
             ok: false,
             problem: error.problem

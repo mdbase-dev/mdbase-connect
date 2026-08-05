@@ -51,7 +51,8 @@ The SDK uses OAuth device authorization with PKCE:
    the operations.
 5. The SDK polls at the server-provided interval. Every successful response is
    bound to the opaque application origin `null`. A local grant must also
-   contain the application agreement public key and encrypted relay protocol 1;
+   contain the application agreement public key, operation transport v2, and
+   grant encryption profile v1;
    a hosted grant instead contains a scoped provider capability bound to the
    application signing public key.
 
@@ -62,7 +63,7 @@ being exchanged by another installation.
 
 For a local collection, the connector remains the final authorization boundary.
 It accepts the opaque `Origin: null` only when an active local grant has that
-exact origin and encrypted relay binding. Every operation must authenticate the
+exact origin and encrypted grant binding. Every operation must authenticate the
 grant, application, connector, collection, key ID, epoch, counter, request ID,
 and ciphertext.
 

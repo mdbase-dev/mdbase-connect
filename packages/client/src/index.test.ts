@@ -727,7 +727,7 @@ describe("provider-neutral collection client", () => {
         providerHeaders = init?.headers as Record<string, string>;
         const operation = JSON.parse(String(init?.body));
         return jsonResponse({
-          protocol_version: 1,
+          protocol_version: 2,
           request_id: operation.request_id,
           ok: true,
           result: { valid: true, result: { results: [] }, diagnostics: [] }
@@ -1190,7 +1190,7 @@ describe("actionable SDK errors", () => {
     fetchMock.mockImplementationOnce(async (_request, init) => {
       const request = JSON.parse(String(init?.body));
       return jsonResponse({
-        protocol_version: 1,
+        protocol_version: 2,
         request_id: request.request_id,
         ok: false,
         problem: {
@@ -1206,7 +1206,7 @@ describe("actionable SDK errors", () => {
     fetchMock.mockImplementationOnce(async (_request, init) => {
       const request = JSON.parse(String(init?.body));
       return jsonResponse({
-        protocol_version: 1,
+        protocol_version: 2,
         request_id: request.request_id,
         ok: false,
         problem: {
@@ -2424,7 +2424,7 @@ describe("authorization renewal", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_request, init) => {
       const operation = JSON.parse(String(init?.body));
       return new Response(JSON.stringify({
-        protocol_version: 1,
+        protocol_version: 2,
         request_id: operation.request_id,
         ok: true,
         result: { valid: true, result: { results: [] }, diagnostics: [] }
@@ -2545,7 +2545,7 @@ describe("authorization renewal", () => {
       .mockImplementationOnce(async (_request, init) => {
         const operation = JSON.parse(String(init?.body));
         return new Response(JSON.stringify({
-          protocol_version: 1,
+          protocol_version: 2,
           request_id: operation.request_id,
           ok: true,
           result: { valid: true, result: { results: [] }, diagnostics: [] }
@@ -2610,7 +2610,7 @@ describe("authorization renewal", () => {
       .mockImplementationOnce(async (_request, init) => {
         const operation = JSON.parse(String(init?.body));
         return new Response(JSON.stringify({
-          protocol_version: 1,
+          protocol_version: 2,
           request_id: operation.request_id,
           ok: true,
           result: { valid: true, result: { results: [] }, diagnostics: [] }
@@ -3007,7 +3007,7 @@ schema:
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       service: "mdbase-connect",
       loopback_protocol_version: 1,
-      encrypted_protocol_version: 1
+      encrypted_protocol_version: 2
     }), { status: 200, headers: { "content-type": "application/json" } }));
     const changes: string[] = [];
     fixture.connect.onConnectionChange((connection) => {
@@ -3032,7 +3032,7 @@ schema:
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       service: "mdbase-connect",
       loopback_protocol_version: 1,
-      encrypted_protocol_version: 1
+      encrypted_protocol_version: 2
     }), { status: 200, headers: { "content-type": "application/json" } }));
 
     await expect(fixture.connect.requestDirectAccess()).resolves.toMatchObject({
@@ -3120,7 +3120,7 @@ describe("bounded watch subscriptions", () => {
       .mockImplementationOnce(async (_input, init) => {
         const request = JSON.parse(String(init?.body));
         return jsonResponse({
-          protocol_version: 1,
+          protocol_version: 2,
           request_id: request.request_id,
           ok: true,
           result: { events: [change], cursor: 2, has_more: false }
@@ -3157,7 +3157,7 @@ describe("durable pending mutation handles", () => {
         bodies.push(body);
         const request = JSON.parse(body);
         return jsonResponse({
-          protocol_version: 1,
+          protocol_version: 2,
           request_id: request.request_id,
           ok: true,
           result: {
@@ -3200,7 +3200,7 @@ describe("durable pending mutation handles", () => {
         bodies.push(body);
         const request = JSON.parse(body);
         return jsonResponse({
-          protocol_version: 1,
+          protocol_version: 2,
           request_id: request.request_id,
           ok: true,
           result: {

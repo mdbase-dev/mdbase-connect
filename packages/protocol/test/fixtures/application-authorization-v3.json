@@ -1,6 +1,6 @@
 {
   "binding": {
-    "protocol_version": 2,
+    "protocol_version": 3,
     "authorization_id": "01911111-1111-7111-8111-111111111111",
     "application_id": "01922222-2222-7222-8222-222222222222",
     "application_manifest_digest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -15,14 +15,32 @@
     "redirect_uri": "http://127.0.0.1:4180/callback",
     "state": "fixture-state",
     "code_challenge": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8",
-    "requested_operations": ["describe", "read", "query"],
+    "requested_operations": [
+      "describe",
+      "read",
+      "query"
+    ],
     "requested_files": {
-      "actions": ["list", "read"],
-      "scope": { "kind": "selected_folders", "folders": ["assets", "media/images"] }
+      "actions": [
+        "list",
+        "read"
+      ],
+      "scope": {
+        "kind": "selected_folders",
+        "folders": [
+          "assets",
+          "media/images"
+        ]
+      }
     },
-    "collection_id": "01955555-5555-7555-8555-555555555555"
+    "collection_id": "01955555-5555-7555-8555-555555555555",
+    "contracts": {
+      "operation_transport": 2,
+      "authorization_binding": 3,
+      "semantic_capabilities": 1
+    }
   },
   "installation_signing_private_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM",
-  "signature": "js7N_NnBa1yau2GV7m44nED_MLqdj6-q1vgmuKH1iPgKl5StT2hRR57YiMI_h0iHdUJTIsWrU00OP1MU5574ww",
-  "signing_message_sha256": "1ca0eea69833f2ddd22136d42f68f14022f7a72758f7bdb2f1d9ac68d7e31905"
+  "signature": "NuGTmh-rB8wY91wkSYiYpNZPwxgD2QSuZukPYviKV9MGMAWBgYuMv_DS6H3qmFKWh-QiTZMcRUIXg8e2NaO3Hw",
+  "signing_message_sha256": "af046b3a978b929ccaa15f3016c532a1259c64ed56e4d6e7fa8ee1dc6c4fbc68"
 }

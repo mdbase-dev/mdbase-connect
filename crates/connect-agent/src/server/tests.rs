@@ -2,8 +2,8 @@ use super::*;
 use mdbase_connect_core::CollectionRegistry;
 use mdbase_connect_protocol::crypto::{RelayDirection, RelayMetadata};
 use mdbase_connect_protocol::{
-    ApplicationAccess, ApplicationProvisions, ApplicationRequirements, GrantEncryption,
-    GrantPolicy, GrantScope, RELAY_ENCRYPTION_SUITE,
+    ApplicationAccess, ApplicationProvisions, ApplicationRequirements, ConnectContractRequirements,
+    GrantEncryption, GrantPolicy, GrantScope, RELAY_ENCRYPTION_SUITE,
 };
 use std::fs;
 use tokio::net::UnixStream;
@@ -234,7 +234,7 @@ fn live_authorization_is_acknowledged_only_after_the_grant_is_stored() {
     let application_identity = RelayIdentity::generate();
     let operations = vec!["describe".to_string()];
     let encryption = GrantEncryption {
-        protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
+        protocol_version: mdbase_connect_protocol::GRANT_ENCRYPTION_PROTOCOL_VERSION,
         suite: RELAY_ENCRYPTION_SUITE.to_string(),
         key_id: "activation-test".to_string(),
         scope_epoch: 1,
@@ -322,7 +322,7 @@ fn encrypted_operations_round_trip_and_replays_return_the_durable_receipt() {
     let application_id = Uuid::new_v4();
     let grant_id = Uuid::new_v4();
     let encryption = GrantEncryption {
-        protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
+        protocol_version: mdbase_connect_protocol::GRANT_ENCRYPTION_PROTOCOL_VERSION,
         suite: RELAY_ENCRYPTION_SUITE.to_string(),
         key_id: "enc_round_trip".to_string(),
         scope_epoch: 1,
@@ -399,5 +399,132 @@ fn encrypted_operations_round_trip_and_replays_return_the_durable_receipt() {
         panic!("expected cached encrypted response")
     };
     assert_eq!(replay_envelope, envelope);
+    fs::remove_dir_all(test_root).unwrap();
+}
+
+#[test]
+fn incompatible_authenticated_mutation_fails_before_replay_or_collection_write() {
+    let test_root = std::env::temp_dir().join(format!(
+        "mdbase-connect-contract-order-test-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let state_dir = test_root.join("state");
+    let collection_dir = test_root.join("collection");
+    let registry = CollectionRegistry::open(&state_dir).unwrap();
+    let collection = registry
+        .create(&collection_dir, Some("Contract ordering"))
+        .unwrap();
+    let watcher = CollectionWatchService::start(registry.clone());
+    let connector_identity = RelayIdentity::generate();
+    let application_identity = RelayIdentity::generate();
+    let connector_id = Uuid::new_v4();
+    let application_id = Uuid::new_v4();
+    let grant_id = Uuid::new_v4();
+    let encryption = GrantEncryption {
+        protocol_version: mdbase_connect_protocol::GRANT_ENCRYPTION_PROTOCOL_VERSION,
+        suite: RELAY_ENCRYPTION_SUITE.to_string(),
+        key_id: "contract_ordering".to_string(),
+        scope_epoch: 1,
+        connector_id,
+        collection_id: collection.id,
+        application_agreement_public_key: application_identity.public_key(),
+        connector_agreement_public_key: connector_identity.public_key(),
+    };
+    let operations = vec!["create".to_string()];
+    let security_params = || crate::test_support::TestApplicationSecurityParams {
+        application_id,
+        authorization_id: Uuid::new_v4(),
+        collection_id: collection.id,
+        operations: &operations,
+        distribution: "web",
+        grant_agreement_public_key: application_identity.public_key(),
+        file_capability: None,
+    };
+    let compatible = crate::test_support::application_security(security_params());
+    registry
+        .replace_grants(&[GrantPolicy {
+            id: grant_id,
+            application_id,
+            collection_id: collection.id,
+            operations: operations.clone(),
+            scope: GrantScope::full_collection(),
+            application_name: "Mixed-version application".to_string(),
+            application_distribution: "web".to_string(),
+            application_homepage: "https://example.test".to_string(),
+            application_project_url: None,
+            application_origin: "https://example.test".to_string(),
+            application_icon: None,
+            collection_name: "Contract ordering".to_string(),
+            notification_criteria: Vec::new(),
+            created_at: "2026-08-05T00:00:00Z".to_string(),
+            encryption: Some(encryption.clone()),
+            file_capability: None,
+            application_authorization: compatible.proof,
+        }])
+        .unwrap();
+
+    // Simulate a durably stored grant signed by a peer on an unsupported
+    // contract axis. Normal activation rejects it; this fixture proves the
+    // operation boundary still fails before either replay or authority state.
+    let incompatible = crate::test_support::application_security_with_contracts(
+        security_params(),
+        Some(ConnectContractRequirements {
+            durable_mutation: Some(99),
+            ..ConnectContractRequirements::current(true)
+        }),
+    );
+    let database = rusqlite::Connection::open(state_dir.join("connector.sqlite")).unwrap();
+    database
+        .execute(
+            "UPDATE grants SET application_authorization = ?1 WHERE id = ?2",
+            rusqlite::params![
+                serde_json::to_string(&incompatible.proof).unwrap(),
+                grant_id.to_string()
+            ],
+        )
+        .unwrap();
+
+    let state = AgentState::with_identity(registry, watcher, None, connector_identity);
+    let binding = RelayBinding::from_grant(grant_id, application_id, &encryption);
+    let keys = application_identity
+        .derive(&encryption.connector_agreement_public_key, &binding)
+        .unwrap();
+    let metadata = RelayMetadata {
+        binding: &binding,
+        request_id: Uuid::new_v4(),
+        operation: "create",
+        counter: "1",
+    };
+    let ciphertext = keys
+        .encrypt_json(
+            RelayDirection::Request,
+            metadata,
+            &serde_json::json!({
+                "path": "must-not-exist.md",
+                "frontmatter": { "title": "Must not exist" }
+            }),
+        )
+        .unwrap();
+    let response = state
+        .handle_relay_message(RelayMessage::EncryptedOperationRequest {
+            envelope: metadata.envelope(ciphertext),
+        })
+        .unwrap();
+    let RelayMessage::EncryptedOperationResponse { envelope } = response else {
+        panic!("expected encrypted compatibility problem")
+    };
+    let body: serde_json::Value = keys
+        .decrypt_json(RelayDirection::Response, metadata, &envelope.ciphertext)
+        .unwrap();
+    assert_eq!(body["ok"], false);
+    assert_eq!(body["problem"]["code"], "durable_mutation_unsupported");
+    assert_eq!(body["problem"]["operation_outcome"], "not_sent");
+    let replay_rows: i64 = database
+        .query_row("SELECT COUNT(*) FROM grant_crypto_requests", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(replay_rows, 0);
+    assert!(!collection_dir.join("must-not-exist.md").exists());
     fs::remove_dir_all(test_root).unwrap();
 }

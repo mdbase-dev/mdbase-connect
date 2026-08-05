@@ -6,7 +6,6 @@ import type {
   MdbaseOperationRequest
 } from "@mdbase-dev/connect-protocol";
 import {
-  CONTROL_PROTOCOL_VERSION,
   ENCRYPTED_RELAY_PROTOCOL_VERSION,
   isConnectProblem,
   mutationOperationIdentifier
@@ -405,7 +404,8 @@ export class ConnectionTransport {
         throw error;
       }
     }
-    if (body?.protocol_version !== 1 || body?.request_id !== attempt.requestId) {
+    if (body?.protocol_version !== ENCRYPTED_RELAY_PROTOCOL_VERSION
+        || body?.request_id !== attempt.requestId) {
       if (attempt.pendingMutation) throw unknownMutationOutcome(attempt.requestId,
         new Error("Operation response protocol or request ID did not match.")
       );
@@ -632,7 +632,7 @@ export class ConnectionTransport {
       body = encryptedRequest;
     } else {
       const request: MdbaseOperationRequest = pending?.request ?? {
-          protocol_version: 1,
+          protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
           request_id: requestId,
           input: body
         };
@@ -808,7 +808,7 @@ export class ConnectionTransport {
       if (response.ok
           && body?.service === "mdbase-connect"
           && body?.loopback_protocol_version === 1
-          && body?.encrypted_protocol_version === 1) {
+          && body?.encrypted_protocol_version === ENCRYPTED_RELAY_PROTOCOL_VERSION) {
         this.markDirectAvailable();
         return "available";
       }

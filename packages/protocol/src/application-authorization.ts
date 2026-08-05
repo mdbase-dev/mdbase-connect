@@ -1,10 +1,11 @@
 import type { ApplicationFileRequirement } from "./files.js";
 import type { CollectionOperation } from "./operations.js";
+import type { ConnectContractRequirements } from "./compatibility.js";
 
 export type ApplicationAuthorizationFlow = "authorization_code" | "device_code";
 
 export interface ApplicationAuthorizationBinding {
-  protocol_version: 2;
+  protocol_version: 3;
   authorization_id: string;
   application_id: string;
   application_manifest_digest: string;
@@ -19,6 +20,7 @@ export interface ApplicationAuthorizationBinding {
   redirect_uri?: string;
   state?: string;
   code_challenge: string;
+  contracts: ConnectContractRequirements;
   requested_operations: CollectionOperation[];
   requested_files?: ApplicationFileRequirement;
   collection_id?: string;
@@ -33,7 +35,7 @@ const INSTALLATION_ID_DOMAIN = new TextEncoder().encode(
   "mdbase-connect application installation id v2\0"
 );
 const AUTHORIZATION_PROOF_DOMAIN = new TextEncoder().encode(
-  "mdbase-connect application authorization proof v2\0"
+  "mdbase-connect application authorization proof v3\0"
 );
 
 export async function applicationInstallationIdFromPublicKey(
@@ -70,13 +72,20 @@ export function authorizationSigningMessage(
   }
   const nonce = canonicalBase64(binding.authorization_nonce);
   const challenge = canonicalBase64(binding.code_challenge);
+  const contracts = binding.contracts;
   if (
-    binding.protocol_version !== 2
+    binding.protocol_version !== 3
     || nonce.byteLength !== 32
     || !/^[0-9a-f]{64}$/u.test(binding.application_manifest_digest)
     || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/u.test(binding.issued_at)
     || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/u.test(binding.expires_at)
     || challenge.byteLength !== 32
+    || ![
+      contracts.operation_transport,
+      contracts.authorization_binding,
+      contracts.semantic_capabilities,
+      contracts.durable_mutation ?? 1
+    ].every((version) => Number.isInteger(version) && version > 0)
     || (binding.requested_operations.length === 0 && binding.requested_files === undefined)
     || new Set(binding.requested_operations).size !== binding.requested_operations.length
     || binding.requested_operations.some((operation) => !operation || operation.includes("\0"))
@@ -106,11 +115,21 @@ export function authorizationSigningMessage(
     optionalString(binding.redirect_uri),
     optionalString(binding.state),
     field(new TextEncoder().encode(binding.code_challenge)),
+    u32(contracts.operation_transport),
+    u32(contracts.authorization_binding),
+    u32(contracts.semantic_capabilities),
+    optionalU32(contracts.durable_mutation),
     u32(operationFields.length),
     ...operationFields,
     requestedFiles(binding.requested_files),
     optionalUuid(binding.collection_id)
   ]);
+}
+
+function optionalU32(value: number | undefined): Uint8Array {
+  return value === undefined
+    ? new Uint8Array(1)
+    : concat([new Uint8Array([1]), u32(value)]);
 }
 
 function validateRequestedFiles(
@@ -132,7 +151,7 @@ function validateRequestedFiles(
 function requestedFiles(
   files: ApplicationAuthorizationBinding["requested_files"]
 ): Uint8Array {
-  if (files === undefined) return new Uint8Array([0]);
+  if (files === undefined) return new Uint8Array(1);
   const actions = files.actions.map((action) => field(new TextEncoder().encode(action)));
   return concat([
     new Uint8Array([1]),
@@ -150,13 +169,13 @@ function requestedFiles(
 
 function optionalString(value: string | undefined): Uint8Array {
   return value === undefined
-    ? new Uint8Array([0])
+    ? new Uint8Array(1)
     : concat([new Uint8Array([1]), field(new TextEncoder().encode(value))]);
 }
 
 function optionalUuid(value: string | undefined): Uint8Array {
   return value === undefined
-    ? new Uint8Array([0])
+    ? new Uint8Array(1)
     : concat([new Uint8Array([1]), field(uuidBytes(value))]);
 }
 

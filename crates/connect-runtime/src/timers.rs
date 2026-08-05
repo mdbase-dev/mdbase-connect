@@ -499,6 +499,7 @@ mod tests {
 
     fn grant(criterion_id: &str) -> GrantSummary {
         GrantSummary {
+            contracts: mdbase_connect_protocol::ConnectContractRequirements::current(true),
             id: Uuid::new_v4(),
             application_id: Uuid::new_v4(),
             application_name: "Tasks".to_string(),

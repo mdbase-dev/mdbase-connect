@@ -6,7 +6,11 @@ import type {
   GrantSummary,
   TypePackProvision
 } from "@mdbase-dev/connect-protocol";
-import { HOSTED_PROVIDER_REQUIRED_CAPABILITIES } from "@mdbase-dev/connect-protocol";
+import {
+  CONNECT_CONTRACT_SUPPORT,
+  HOSTED_PROVIDER_REQUIRED_CAPABILITIES,
+  type ConnectContractSupport
+} from "@mdbase-dev/connect-protocol";
 import { hostedReplicaCollectionOperations } from "./hosted-replica-policy.js";
 import { safeEqual } from "./security.js";
 
@@ -118,7 +122,7 @@ export class HostedProviderClient {
   async ready(): Promise<void> {
     const result = await this.request("GET", "/ready", undefined, false) as {
       status?: unknown;
-      provider?: { version?: unknown; capabilities?: unknown };
+      provider?: { version?: unknown; capabilities?: unknown; contract_support?: unknown };
     } | undefined;
     const capabilities = result?.provider?.capabilities;
     if (result?.status !== "ready"
@@ -127,7 +131,8 @@ export class HostedProviderClient {
         || !capabilities.every((capability) => typeof capability === "string")
         || !HOSTED_PROVIDER_REQUIRED_CAPABILITIES.every(
           (required) => capabilities.includes(required)
-        )) {
+        )
+        || !hostedContractSupportMatches(result.provider?.contract_support)) {
       throw new HostedProviderUnavailableError(
         new Error("Hosted provider capability report is incompatible.")
       );
@@ -474,6 +479,18 @@ export class HostedProviderClient {
     }
     throw new HostedProviderUnavailableError(unavailable);
   }
+}
+
+function hostedContractSupportMatches(value: unknown): value is ConnectContractSupport {
+  if (!value || typeof value !== "object") return false;
+  const support = value as Record<string, unknown>;
+  const includes = (axis: keyof ConnectContractSupport, required: readonly number[]) =>
+    Array.isArray(support[axis])
+    && required.every((version) => (support[axis] as unknown[]).includes(version));
+  return includes("operation_transport", CONNECT_CONTRACT_SUPPORT.operation_transport)
+    && includes("authorization_binding", CONNECT_CONTRACT_SUPPORT.authorization_binding)
+    && includes("semantic_capabilities", CONNECT_CONTRACT_SUPPORT.semantic_capabilities)
+    && includes("durable_mutation", CONNECT_CONTRACT_SUPPORT.durable_mutation);
 }
 
 export class HostedProviderResponseError extends Error {

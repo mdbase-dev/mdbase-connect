@@ -1,5 +1,6 @@
 import {
   ENCRYPTED_RELAY_PROTOCOL_VERSION,
+  GRANT_ENCRYPTION_PROTOCOL_VERSION,
   AUTHORITY_PROOF_DOMAIN,
   AUTHORITY_PROOF_HEADERS,
   AUTHORITY_PROOF_VERSION,
@@ -480,7 +481,7 @@ function sameEnvelopeMetadata(
 }
 
 export function validateGrantEncryption(encryption: GrantEncryption): void {
-  if (encryption.protocol_version !== ENCRYPTED_RELAY_PROTOCOL_VERSION
+  if (encryption.protocol_version !== GRANT_ENCRYPTION_PROTOCOL_VERSION
       || encryption.suite !== RELAY_ENCRYPTION_SUITE
       || !Number.isSafeInteger(encryption.scope_epoch)
       || encryption.scope_epoch <= 0

@@ -12,7 +12,7 @@ mod security_state;
 
 fn signed_test_grant(_registry: &CollectionRegistry, operations: Vec<String>) -> GrantPolicy {
     let fixture: Value = serde_json::from_str(include_str!(
-        "../../../../packages/protocol/test/fixtures/application-authorization-v2.json"
+        "../../../../packages/protocol/test/fixtures/application-authorization-v3.json"
     ))
     .unwrap();
     let binding: mdbase_connect_protocol::ApplicationAuthorizationBinding =
@@ -39,7 +39,7 @@ fn signed_test_grant(_registry: &CollectionRegistry, operations: Vec<String>) ->
         notification_criteria: Vec::new(),
         created_at: "2026-08-02T00:00:00Z".to_string(),
         encryption: Some(mdbase_connect_protocol::GrantEncryption {
-            protocol_version: mdbase_connect_protocol::ENCRYPTED_RELAY_PROTOCOL_VERSION,
+            protocol_version: mdbase_connect_protocol::GRANT_ENCRYPTION_PROTOCOL_VERSION,
             suite: mdbase_connect_protocol::RELAY_ENCRYPTION_SUITE.to_string(),
             key_id: "key-1".to_string(),
             scope_epoch: 1,

@@ -6,6 +6,8 @@ import {
 } from "node:crypto";
 import {
   applicationInstallationIdFromPublicKey,
+  APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
+  authorizationContractRequirements,
   authorizationSigningMessage,
   type ApplicationAuthorizationBinding,
   type ApplicationAuthorizationProof,
@@ -39,7 +41,7 @@ export async function testApplicationAuthorization(input: {
   const grantSigning = keyPair();
   const issuedAt = input.issuedAt ?? new Date();
   const binding: ApplicationAuthorizationBinding = {
-    protocol_version: 2,
+    protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
     authorization_id: input.authorizationId ?? randomUUID(),
     application_id: input.applicationId,
     application_manifest_digest: input.applicationManifestDigest,
@@ -56,6 +58,10 @@ export async function testApplicationAuthorization(input: {
     issued_at: issuedAt.toISOString(),
     expires_at: new Date(issuedAt.getTime() + 10 * 60 * 1_000).toISOString(),
     code_challenge: input.codeChallenge,
+    contracts: authorizationContractRequirements(
+      input.requestedOperations,
+      input.requestedFiles
+    ),
     requested_operations: input.requestedOperations,
     ...(input.requestedFiles ? { requested_files: input.requestedFiles } : {}),
     ...(input.redirectUri ? { redirect_uri: input.redirectUri } : {}),

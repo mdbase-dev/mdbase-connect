@@ -1,6 +1,6 @@
 ---
 title: Beta hardening 09 - candidate and consumer migrations
-status: done
+status: in_progress
 priority: critical
 owner: codex
 parent: SDK and authority beta hardening
@@ -9,8 +9,8 @@ phase: 6
 depends_on: [Beta hardening 06 - management correctness, Beta hardening 07 - public SDK surface]
 tags: [beta, packaging, consumers, editor, workouts, pickle, tasknotes]
 created_at: 2026-08-04T17:48:28+10:00
-updated_at: 2026-08-05T08:49:15+10:00
-progress_summary: Complete. One exact six-package beta.32 candidate from Connect commit e1c1f49cca00 is pinned with SHA-512 integrity in Editor, Workouts, Pickle, and TaskNotes. Their pushed draft PRs pass focused/full product verification, browser recovery dogfood, and production builds; Pickle and TaskNotes additionally pass configured Android 36 emulator lifecycle, notification, opaque-push, and process-restart smokes.
+updated_at: 2026-08-05T09:58:36+10:00
+progress_summary: Reopened after the e1c candidate audit found that the documented independent compatibility axes were not enforced by the live wire. Operation transport v2, authorization binding v3, semantic capability v1, and durable mutation v1 are now independently advertised, signed, checked, and typed before authority state. Connect build, full JS tests, Rust workspace tests/check, and architecture gates are green; the final immutable candidate and four consumer repins remain.
 type: task
 ---
 
@@ -105,7 +105,7 @@ durable response-loss recovery and every product-specific gate.
   only as immutable rejected evidence. They are superseded and must not be
   copied into another consumer.
 
-## Final candidate and exit evidence
+## Superseded candidate evidence
 
 - Artifact source: Connect commit `e1c1f49cca00bbae51e7f1d9ffb5e05c576bb753`.
   The Connect, Devkit, Protocol, Sync, Pickle, and Testing tarballs all report
@@ -137,4 +137,36 @@ durable response-loss recovery and every product-specific gate.
   release train completes Phase 7. No consumer mixes artifacts or sources from
   another Connect commit.
 
-Exit gate closed green on 2026-08-05. Phase 7 may begin.
+The gate was initially closed on 2026-08-05, then reopened when the Phase 7
+audit proved that package versions were described as diagnostic while the live
+relay still used them as the effective compatibility boundary. The `e1c1f49`
+artifacts remain useful migration evidence but are not release candidates.
+
+## Compatibility correction evidence
+
+- Operation transport is now v2 while grant encryption remains its independent
+  v1 key-agreement/AEAD profile. Authorization binding v3 signs the exact
+  operation transport, authorization, semantic capability, and conditional
+  durable-mutation requirements.
+- Relay hello/welcome and hosted readiness advertise structured support sets.
+  Compatibility uses version-set intersection, accepts a lower package version
+  when every required contract intersects, and returns the axis-specific typed
+  problem before authorization, read, replay-ledger, journal, or collection
+  state.
+- A mixed-version encrypted integration fixture authenticates an unsupported
+  durable mutation and proves `operation_outcome: not_sent`, zero replay-ledger
+  rows, and no collection file. Authorization and hosted-readiness tests cover
+  each axis independently.
+- The beta.32 control-plane migration removes incompatible pending requests,
+  revokes credentials for v2 local grants, and retains each grant and its audit
+  history with an explicit reauthorization marker. It preserves collection
+  data and never mechanically re-signs authorization intent.
+- Local verification on 2026-08-05: `pnpm run build`, the complete `pnpm run
+  test`, `cargo test --workspace`, `cargo check --workspace`, protocol/client/
+  server focused suites, daemon tests, and `pnpm run check:architecture` pass.
+  The browser SDK remains within its fixed 182,000-byte raw and 46,000-byte gzip
+  budgets at 181,097 and 45,997 bytes.
+
+The slice closes again only after one immutable post-correction Connect commit
+produces all six packages, all four consumer PRs pin exactly those artifacts,
+and their required product gates are rerun.

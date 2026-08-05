@@ -325,14 +325,22 @@ impl AgentState {
                 })
             }
             RelayMessage::OperationRequest {
+                protocol_version,
                 request_id,
                 grant_id,
                 collection_id,
                 application_id,
                 operation,
                 input,
-                ..
             } => {
+                if protocol_version != mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION
+                {
+                    return Some(operation_transport_rejection(
+                        request_id,
+                        protocol_version,
+                        &operation,
+                    ));
+                }
                 let context = self.registry.grant_context(grant_id).ok().flatten();
                 let application_name = context
                     .as_ref()
@@ -347,14 +355,15 @@ impl AgentState {
                     .is_some_and(|grant| grant.encryption.is_some())
                 {
                     return Some(RelayMessage::OperationResponse {
-                        protocol_version: CONTROL_PROTOCOL_VERSION,
+                        protocol_version:
+                            mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
                         request_id,
                         ok: false,
                         result: None,
                         problem: Some(
                             ConnectProblem::new(
                                 "encryption_required",
-                                "This grant requires encrypted relay protocol 1.",
+                                "This grant requires grant encryption profile 1.",
                             )
                             .with_operation_outcome(ConnectOperationOutcome::Rejected),
                         ),
@@ -371,7 +380,8 @@ impl AgentState {
                         Some("Remote access is paused"),
                     );
                     return Some(RelayMessage::OperationResponse {
-                        protocol_version: CONTROL_PROTOCOL_VERSION,
+                        protocol_version:
+                            mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
                         request_id,
                         ok: false,
                         result: None,
@@ -408,7 +418,8 @@ impl AgentState {
                         Some("Local grant did not allow this operation"),
                     );
                     return Some(RelayMessage::OperationResponse {
-                        protocol_version: CONTROL_PROTOCOL_VERSION,
+                        protocol_version:
+                            mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
                         request_id,
                         ok: false,
                         result: None,
@@ -436,14 +447,16 @@ impl AgentState {
                 );
                 Some(match result {
                     Ok(result) => RelayMessage::OperationResponse {
-                        protocol_version: CONTROL_PROTOCOL_VERSION,
+                        protocol_version:
+                            mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
                         request_id,
                         ok: true,
                         result: Some(result),
                         problem: None,
                     },
                     Err(error) => RelayMessage::OperationResponse {
-                        protocol_version: CONTROL_PROTOCOL_VERSION,
+                        protocol_version:
+                            mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
                         request_id,
                         ok: false,
                         result: None,
@@ -470,6 +483,11 @@ impl AgentState {
         &self,
         envelope: mdbase_connect_protocol::EncryptedRelayEnvelope,
     ) -> RelayMessage {
+        if envelope.protocol_version
+            != mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION
+        {
+            return encrypted_operation_transport_rejection(&envelope);
+        }
         let rejected = || encrypted_rejection(envelope.request_id);
         let Some(replay_context) = self
             .registry
@@ -528,6 +546,13 @@ impl AgentState {
         let Ok(input) = serde_json::from_slice::<serde_json::Value>(&plaintext) else {
             return rejected();
         };
+        if let Some(problem) =
+            context
+                .contracts
+                .mismatch_problem(&envelope.operation, &input, "connector")
+        {
+            return encrypted_problem_response(&keys, metadata, problem);
+        }
         let Ok(fingerprint) = encrypted_request_fingerprint(&envelope) else {
             return rejected();
         };
@@ -783,7 +808,8 @@ impl AgentState {
                 .and_then(|value| value.get("response_envelope"))
                 .and_then(serde_json::Value::as_str)
             else {
-                return self.mark_owned_mutation_unknown(
+                return mark_owned_mutation_unknown(
+                    &self.registry,
                     keys,
                     metadata,
                     &lease,
@@ -800,7 +826,8 @@ impl AgentState {
             return serialized_encrypted_response(receipt, metadata.request_id);
         }
 
-        let before = match self.local_mutation_evidence(context.collection_id, operation) {
+        let before = match local_mutation_evidence(&self.registry, context.collection_id, operation)
+        {
             Ok(evidence) => evidence,
             Err(error) => {
                 let body = serde_json::json!({
@@ -824,7 +851,8 @@ impl AgentState {
         if recovery.state == MutationJournalState::Prepared
             && recovery.before_evidence.as_ref() != Some(&before)
         {
-            return self.mark_owned_mutation_unknown(
+            return mark_owned_mutation_unknown(
+                &self.registry,
                 keys,
                 metadata,
                 &lease,
@@ -898,17 +926,19 @@ impl AgentState {
         };
         let result_metadata = serde_json::json!({ "response_envelope": serialized });
         if succeeded {
-            let after = match self.local_mutation_evidence(context.collection_id, operation) {
-                Ok(evidence) => evidence,
-                Err(_) => {
-                    return self.mark_owned_mutation_unknown(
-                        keys,
-                        metadata,
-                        &lease,
-                        "The mutation returned but post-apply evidence could not be persisted.",
-                    )
-                }
-            };
+            let after =
+                match local_mutation_evidence(&self.registry, context.collection_id, operation) {
+                    Ok(evidence) => evidence,
+                    Err(_) => {
+                        return mark_owned_mutation_unknown(
+                            &self.registry,
+                            keys,
+                            metadata,
+                            &lease,
+                            "The mutation returned but post-apply evidence could not be persisted.",
+                        )
+                    }
+                };
             if self
                 .registry
                 .mark_mutation_applied(&lease, Some(&after), Some(&result_metadata))
@@ -953,48 +983,5 @@ impl AgentState {
             return pending_mutation_response(keys, metadata);
         }
         message
-    }
-
-    fn mark_owned_mutation_unknown(
-        &self,
-        keys: &RelayKeys,
-        metadata: RelayMetadata<'_>,
-        lease: &MutationLease,
-        reason: &str,
-    ) -> RelayMessage {
-        metrics::outcome_unknown();
-        let problem = ConnectProblem::new("operation_outcome_unknown", reason)
-            .with_details(serde_json::json!({ "request_id": metadata.request_id }))
-            .with_operation_outcome(ConnectOperationOutcome::Unknown);
-        let body = serde_json::json!({ "ok": false, "problem": problem });
-        let Some((message, serialized)) = encrypted_response(keys, metadata, &body) else {
-            return encrypted_rejection(metadata.request_id);
-        };
-        if self
-            .registry
-            .mark_mutation_outcome_unknown(lease, &serialized, Some(&body))
-            .is_err()
-        {
-            return pending_mutation_response(keys, metadata);
-        }
-        message
-    }
-
-    fn local_mutation_evidence(
-        &self,
-        collection_id: uuid::Uuid,
-        operation: &str,
-    ) -> Result<serde_json::Value, ConnectError> {
-        if matches!(operation, "put_timer" | "cancel_timer" | "reconcile_timers") {
-            return Ok(serde_json::json!({
-                "kind": "timer_authority",
-                "collection_id": collection_id,
-            }));
-        }
-        let snapshot = self.registry.authority_snapshot(collection_id)?;
-        Ok(serde_json::json!({
-            "kind": "collection_manifest",
-            "manifest_digest": snapshot.manifest_digest,
-        }))
     }
 }

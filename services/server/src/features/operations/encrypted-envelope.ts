@@ -5,6 +5,7 @@ import type {
 } from "@mdbase-dev/connect-protocol";
 import {
   ENCRYPTED_RELAY_PROTOCOL_VERSION,
+  GRANT_ENCRYPTION_PROTOCOL_VERSION,
   RELAY_ENCRYPTION_SUITE
 } from "@mdbase-dev/connect-protocol";
 import { z } from "zod";
@@ -45,7 +46,8 @@ export function matchesGrantEncryption(
   operation: EncryptedRelayOperation
 ): boolean {
   const encryption = grant.encryption;
-  return envelope.protocol_version === encryption.protocol_version
+  return envelope.protocol_version === ENCRYPTED_RELAY_PROTOCOL_VERSION
+    && encryption.protocol_version === GRANT_ENCRYPTION_PROTOCOL_VERSION
     && envelope.suite === encryption.suite
     && envelope.grant_id === grant.grant_id
     && envelope.application_id === grant.application_id

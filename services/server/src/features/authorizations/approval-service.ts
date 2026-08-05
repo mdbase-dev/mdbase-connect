@@ -14,6 +14,7 @@ import type {
 } from "@mdbase-dev/connect-protocol";
 import {
   ENCRYPTED_RELAY_PROTOCOL_VERSION,
+  GRANT_ENCRYPTION_PROTOCOL_VERSION,
   RELAY_ENCRYPTION_SUITE
 } from "@mdbase-dev/connect-protocol";
 import {
@@ -217,7 +218,7 @@ export async function approvePortalAuthorization(
       );
     }
     const encryption: GrantEncryption = {
-      protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
+      protocol_version: GRANT_ENCRYPTION_PROTOCOL_VERSION,
       suite: RELAY_ENCRYPTION_SUITE,
       key_id: `enc_${randomUUID()}`,
       scope_epoch: 1,

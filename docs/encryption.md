@@ -26,12 +26,12 @@ switch.
 
 ## Current state
 
-New SDK authorizations use encrypted relay protocol 1 by default. The browser
-and connector derive separate request and response keys with P-256 ECDH and
-HKDF-SHA-256, then authenticate payloads and their routing context with
-AES-256-GCM. The control plane receives the operation name, grant and routing
-identifiers, counter, timing, sizes, and ciphertext. It cannot decode operation
-inputs, mdbase results, or connector diagnostics.
+New SDK authorizations use operation transport v2 with grant encryption profile
+v1 by default. The browser and connector derive separate request and response
+keys with P-256 ECDH and HKDF-SHA-256, then authenticate payloads and their
+routing context with AES-256-GCM. The control plane receives the operation name,
+grant and routing identifiers, counter, timing, sizes, and ciphertext. It cannot
+decode operation inputs, mdbase results, or connector diagnostics.
 
 The connector persists replay state before executing an operation. Duplicate
 request IDs, non-increasing counters, stale grant bindings, altered metadata,

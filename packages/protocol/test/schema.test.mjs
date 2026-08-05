@@ -12,7 +12,7 @@ const schema = JSON.parse(readFileSync(resolve(here, "../schemas/connect-protoco
 const manifestSchema = JSON.parse(readFileSync(resolve(here, "../schemas/mdbase-app.schema.json"), "utf8"));
 const notificationWebhookSchema = JSON.parse(readFileSync(resolve(here, "../schemas/notification-webhook.v1.schema.json"), "utf8"));
 const contractSchema = JSON.parse(readFileSync(resolve(here, "../schemas/data-contract.schema.json"), "utf8"));
-const encryptedRelaySchema = JSON.parse(readFileSync(resolve(here, "../schemas/encrypted-relay.v1.schema.json"), "utf8"));
+const encryptedRelaySchema = JSON.parse(readFileSync(resolve(here, "../schemas/encrypted-relay.v2.schema.json"), "utf8"));
 const filesSchema = JSON.parse(readFileSync(resolve(here, "../schemas/files.v1.schema.json"), "utf8"));
 const interopSchema = JSON.parse(readFileSync(resolve(here, "../schemas/interop/v0.1/profile.schema.json"), "utf8"));
 const syncSchema = JSON.parse(readFileSync(resolve(here, "../schemas/sync.v1.schema.json"), "utf8"));
@@ -643,7 +643,7 @@ test("encrypted relay envelopes expose routing metadata and reject payload-shape
   const validate = validator(encryptedRelaySchema.$id);
   const envelope = {
     type: "encrypted_operation_request",
-    protocol_version: 1,
+    protocol_version: 2,
     suite: "P256-HKDF-SHA256-AES256GCM",
     request_id: "01911111-1111-7111-8111-111111111111",
     grant_id: "01922222-2222-7222-8222-222222222222",
@@ -677,7 +677,13 @@ test("relay request and response discriminators reject malformed wire messages",
       "authorization-activation",
       "encrypted-relay",
       "policy-ack"
-    ]
+    ],
+    contract_support: {
+      operation_transport: [2],
+      authorization_binding: [3],
+      semantic_capabilities: [1],
+      durable_mutation: [1]
+    }
   };
   assert.equal(validate(hello), true, JSON.stringify(validate.errors));
   assert.equal(validate({ ...hello, capabilities: ["policy-ack", "policy-ack"] }), false);
@@ -685,7 +691,8 @@ test("relay request and response discriminators reject malformed wire messages",
     type: "relay_welcome",
     protocol_version: 1,
     session_id: "42",
-    capabilities: hello.capabilities
+    capabilities: hello.capabilities,
+    contract_support: hello.contract_support
   };
   assert.equal(validate(welcome), true, JSON.stringify(validate.errors));
   const incompatible = {
@@ -701,7 +708,7 @@ test("relay request and response discriminators reject malformed wire messages",
 
   const request = {
     type: "operation_request",
-    protocol_version: 1,
+    protocol_version: 2,
     request_id: "01911111-1111-7111-8111-111111111111",
     grant_id: "01922222-2222-7222-8222-222222222222",
     collection_id: "01933333-3333-7333-8333-333333333333",
@@ -710,12 +717,12 @@ test("relay request and response discriminators reject malformed wire messages",
     input: { types: ["task"] }
   };
   assert.equal(validate(request), true, JSON.stringify(validate.errors));
-  assert.equal(validate({ ...request, protocol_version: 2 }), false);
+  assert.equal(validate({ ...request, protocol_version: 1 }), false);
   assert.equal(validate({ ...request, local_path: "/private/vault" }), false);
 
   const response = {
     type: "operation_response",
-    protocol_version: 1,
+    protocol_version: 2,
     request_id: request.request_id,
     ok: false,
     problem: {
