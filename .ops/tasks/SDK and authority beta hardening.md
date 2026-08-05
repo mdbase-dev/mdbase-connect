@@ -14,8 +14,8 @@ tags:
   - user-experience
   - consumers
 created_at: 2026-08-04T10:51:42+10:00
-updated_at: 2026-08-05T10:17:54+10:00
-progress_summary: Phases 0-5 remain green; the Phase 7 audit reopened Phase 6 because e1c documented independent compatibility axes without live enforcement. The correction now independently versions and enforces operation transport v2, authorization binding v3, semantic capability v1, and durable mutation v1 before state; ambiguous encrypted-relay aliases are removed, storage/readiness name operation transport directly, and MCP uses signed authorization-binding v3 requests. Connect build, Rust workspace gates, mixed-version fail-before-write, hosted readiness, focused MCP tests, and architecture gates pass locally. A new immutable candidate, four exact-artifact repins, staging rollout, rollback, canaries, soak, and final audit remain. Production is untouched.
+updated_at: 2026-08-05T10:25:47+10:00
+progress_summary: Phases 0-5 remain green; the Phase 7 audit reopened Phase 6 because e1c documented independent compatibility axes without live enforcement. The correction now independently versions and enforces operation transport v2, authorization binding v3, semantic capability v1, and durable mutation v1 before state; ambiguous relay aliases are removed, MCP uses signed binding-v3 requests, and Editor hosted-authority Playwright speaks transport v2. Full local Editor Playwright passes 47/47 while the remaining PR checks finish. A new immutable candidate, four exact-artifact repins, staging rollout, rollback, canaries, soak, and final audit remain. Production is untouched.
 type: task
 ---
 

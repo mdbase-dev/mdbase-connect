@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
+import { OPERATION_TRANSPORT_PROTOCOL_VERSION } from "@mdbase-dev/connect-protocol";
 
 const collectionId = "10000000-0000-4000-8000-000000000001";
 const replicaId = "20000000-0000-4000-8000-000000000002";
@@ -225,7 +226,7 @@ class RemoteAuthorityHarness {
       request_id?: unknown;
       input?: unknown;
     };
-    expect(operationRequest.protocol_version).toBe(1);
+    expect(operationRequest.protocol_version).toBe(OPERATION_TRANSPORT_PROTOCOL_VERSION);
     expect(operationRequest.request_id).toEqual(expect.any(String));
     const requestId = String(operationRequest.request_id);
     const input = object(operationRequest.input);
@@ -404,7 +405,7 @@ function object(value: unknown): Record<string, unknown> {
 
 function providerResult(route: Route, requestId: string, result: unknown) {
   return json(route, {
-    protocol_version: 1,
+    protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
     request_id: requestId,
     ok: true,
     result,

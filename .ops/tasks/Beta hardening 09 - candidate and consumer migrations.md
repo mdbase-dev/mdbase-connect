@@ -9,8 +9,8 @@ phase: 6
 depends_on: [Beta hardening 06 - management correctness, Beta hardening 07 - public SDK surface]
 tags: [beta, packaging, consumers, editor, workouts, pickle, tasknotes]
 created_at: 2026-08-04T17:48:28+10:00
-updated_at: 2026-08-05T10:17:54+10:00
-progress_summary: Reopened after the e1c candidate audit found that the documented independent compatibility axes were not enforced by the live wire. Operation transport v2, authorization binding v3, semantic capability v1, and durable mutation v1 are now independently advertised, signed, checked, and typed before authority state. Ambiguous encrypted-relay aliases and readiness/database fields are removed, and the MCP gateway now creates signed v3 requests instead of the removed beta.28 browser query. Connect build, Rust gates, focused MCP tests, and architecture gates are green; the final immutable candidate and four consumer repins remain.
+updated_at: 2026-08-05T10:25:47+10:00
+progress_summary: Reopened after the e1c candidate audit found that the documented independent compatibility axes were not enforced by the live wire. Operation transport v2, authorization binding v3, semantic capability v1, and durable mutation v1 are now independently advertised, signed, checked, and typed before authority state. Ambiguous encrypted-relay aliases and readiness/database fields are removed, MCP uses signed v3 requests, and the in-repo Editor remote-authority harness now speaks operation transport v2. Full local Editor Playwright passes 47/47; the final immutable candidate and four consumer repins remain.
 type: task
 ---
 
@@ -174,6 +174,10 @@ artifacts remain useful migration evidence but are not release candidates.
   server focused suites, daemon tests, and `pnpm run check:architecture` pass.
   The browser SDK remains within its fixed 182,000-byte raw and 46,000-byte gzip
   budgets at 181,097 and 45,997 bytes.
+- PR Editor CI first exposed one remaining v1 operation-envelope assertion in
+  the remote hosted-authority Playwright harness. The harness now consumes the
+  canonical operation transport constant for requests and responses; the full
+  local Editor Playwright matrix passes 47/47.
 
 The slice closes again only after one immutable post-correction Connect commit
 produces all six packages, all four consumer PRs pin exactly those artifacts,
