@@ -9,8 +9,8 @@ phase: 6
 depends_on: [Beta hardening 06 - management correctness, Beta hardening 07 - public SDK surface]
 tags: [beta, packaging, consumers, editor, workouts, pickle, tasknotes]
 created_at: 2026-08-04T17:48:28+10:00
-updated_at: 2026-08-05T09:58:36+10:00
-progress_summary: Reopened after the e1c candidate audit found that the documented independent compatibility axes were not enforced by the live wire. Operation transport v2, authorization binding v3, semantic capability v1, and durable mutation v1 are now independently advertised, signed, checked, and typed before authority state. Connect build, full JS tests, Rust workspace tests/check, and architecture gates are green; the final immutable candidate and four consumer repins remain.
+updated_at: 2026-08-05T10:17:54+10:00
+progress_summary: Reopened after the e1c candidate audit found that the documented independent compatibility axes were not enforced by the live wire. Operation transport v2, authorization binding v3, semantic capability v1, and durable mutation v1 are now independently advertised, signed, checked, and typed before authority state. Ambiguous encrypted-relay aliases and readiness/database fields are removed, and the MCP gateway now creates signed v3 requests instead of the removed beta.28 browser query. Connect build, Rust gates, focused MCP tests, and architecture gates are green; the final immutable candidate and four consumer repins remain.
 type: task
 ---
 
@@ -162,6 +162,13 @@ artifacts remain useful migration evidence but are not release candidates.
   revokes credentials for v2 local grants, and retains each grant and its audit
   history with an explicit reauthorization marker. It preserves collection
   data and never mechanically re-signs authorization intent.
+- The obsolete `ENCRYPTED_RELAY_PROTOCOL_VERSION` façade is removed. Loopback
+  readiness, CLI diagnostics, and pending-authorization storage name operation
+  transport directly; migration 0015 copies the historical `relay_protocol`
+  column and drops it. The MCP gateway no longer emits the removed beta.28
+  `/oauth/authorize` query: it persists a distinct installation identity,
+  signs authorization binding v3 with the exact four-axis requirements, posts
+  `/oauth/authorization_request`, and follows only its opaque request URI.
 - Local verification on 2026-08-05: `pnpm run build`, the complete `pnpm run
   test`, `cargo test --workspace`, `cargo check --workspace`, protocol/client/
   server focused suites, daemon tests, and `pnpm run check:architecture` pass.

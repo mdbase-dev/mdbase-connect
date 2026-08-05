@@ -108,19 +108,27 @@ describe("mdbase MCP gateway", () => {
     expect(authorization.statusCode).toBe(302);
     const firstUpstream = new URL(authorization.headers.location!);
     expect(firstUpstream.origin).toBe("https://connect.example");
-    expect(firstUpstream.searchParams.get("operations")).toContain("create");
-    expect(firstUpstream.searchParams.get("relay_protocol")).toBe("1");
-    upstream.applicationAgreementPublicKeys.push(
-      firstUpstream.searchParams.get("application_agreement_public_key")!
-    );
-    upstream.applicationSigningPublicKeys.push(
-      firstUpstream.searchParams.get("application_signing_public_key")!
-    );
+    expect(firstUpstream.pathname).toBe("/oauth/authorize");
+    expect(firstUpstream.searchParams.get("request_id"))
+      .toBe(upstream.authorizationProofs[0]?.binding.authorization_id);
+    expect(upstream.authorizationProofs[0]?.binding).toMatchObject({
+      protocol_version: 3,
+      application_id: applicationId,
+      flow: "authorization_code",
+      contracts: {
+        operation_transport: 2,
+        authorization_binding: 3,
+        semantic_capabilities: 1,
+        durable_mutation: 1
+      }
+    });
+    expect(upstream.authorizationProofs[0]?.binding.requested_operations)
+      .toContain("create");
 
     const firstCallback = await app.inject({
       method: "GET",
       url: `/oauth/connect/callback?${new URLSearchParams({
-        state: firstUpstream.searchParams.get("state")!,
+        state: upstream.authorizationProofs[0]!.binding.state!,
         code: "first-upstream-code"
       })}`
     });
@@ -177,16 +185,12 @@ describe("mdbase MCP gateway", () => {
     const additional = await app.inject({ method: "GET", url: `${new URL(addUrl).pathname}${new URL(addUrl).search}` });
     expect(additional.statusCode).toBe(302);
     const secondUpstream = new URL(additional.headers.location!);
-    upstream.applicationAgreementPublicKeys.push(
-      secondUpstream.searchParams.get("application_agreement_public_key")!
-    );
-    upstream.applicationSigningPublicKeys.push(
-      secondUpstream.searchParams.get("application_signing_public_key")!
-    );
+    expect(secondUpstream.searchParams.get("request_id"))
+      .toBe(upstream.authorizationProofs[1]?.binding.authorization_id);
     const secondCallback = await app.inject({
       method: "GET",
       url: `/oauth/connect/callback?${new URLSearchParams({
-        state: secondUpstream.searchParams.get("state")!,
+        state: upstream.authorizationProofs[1]!.binding.state!,
         code: "second-upstream-code"
       })}`
     });
@@ -204,7 +208,9 @@ describe("mdbase MCP gateway", () => {
       url: `${new URL(reconnectUrl).pathname}${new URL(reconnectUrl).search}`
     });
     expect(reconnect.statusCode).toBe(302);
-    expect(new URL(reconnect.headers.location!).searchParams.get("collection_id"))
+    expect(new URL(reconnect.headers.location!).searchParams.get("request_id"))
+      .toBe(upstream.authorizationProofs[2]?.binding.authorization_id);
+    expect(upstream.authorizationProofs[2]?.binding.collection_id)
       .toBe(connections[0].collection_id);
 
     const stored = await db.query<{ credentials_ciphertext: string }>(
@@ -272,6 +278,16 @@ function testConfig(): McpRuntimeConfig {
 async function fakeUpstream(realFetch: typeof fetch) {
   const applicationAgreementPublicKeys: string[] = [];
   const applicationSigningPublicKeys: string[] = [];
+  const authorizationProofs: Array<{
+    binding: {
+      authorization_id: string;
+      state?: string;
+      grant_agreement_public_key: string;
+      grant_signing_public_key: string;
+      [key: string]: unknown;
+    };
+    signature: string;
+  }> = [];
   const operationAuthorizations: string[] = [];
   const operationOrigins: string[] = [];
   const localInputs: unknown[] = [];
@@ -286,7 +302,27 @@ async function fakeUpstream(realFetch: typeof fetch) {
   const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
     if (url.href === "https://connect.example/v1/apps/register") {
-      return Response.json({ application: { id: applicationId } });
+      return Response.json({
+        application: {
+          id: applicationId,
+          manifest_digest: "a".repeat(64)
+        }
+      });
+    }
+    if (url.href === "https://connect.example/oauth/authorization_request") {
+      const body = new URLSearchParams(String(init?.body));
+      const proof = JSON.parse(
+        body.get("application_authorization")!
+      ) as typeof authorizationProofs[number];
+      authorizationProofs.push(proof);
+      applicationAgreementPublicKeys.push(proof.binding.grant_agreement_public_key);
+      applicationSigningPublicKeys.push(proof.binding.grant_signing_public_key);
+      return Response.json({
+        authorization_id: proof.binding.authorization_id,
+        authorization_uri:
+          `https://connect.example/oauth/authorize?request_id=${proof.binding.authorization_id}`,
+        expires_in: 600
+      });
     }
     if (url.href === "https://connect.example/oauth/token") {
       const body = new URLSearchParams(String(init?.body));
@@ -358,6 +394,7 @@ async function fakeUpstream(realFetch: typeof fetch) {
     fetch: fetchMock,
     applicationAgreementPublicKeys,
     applicationSigningPublicKeys,
+    authorizationProofs,
     operationAuthorizations,
     operationOrigins,
     localInputs

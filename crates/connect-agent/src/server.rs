@@ -17,7 +17,7 @@ use mdbase_connect_protocol::{
     AuthorizationCollectionOffer, AuthorizationCollectionTypes, ConnectOperationOutcome,
     ConnectProblem, ContractSetupChoice, ControlCommand, ControlError, ControlRequest,
     ControlResponse, RelayMessage, SyncReplicaMode, CONTROL_PROTOCOL_VERSION,
-    ENCRYPTED_RELAY_PROTOCOL_VERSION, LOCAL_CONTROL_PROTOCOL_VERSION,
+    LOCAL_CONTROL_PROTOCOL_VERSION, OPERATION_TRANSPORT_PROTOCOL_VERSION,
 };
 use std::io;
 use std::sync::Arc;
@@ -240,7 +240,7 @@ fn elapsed_us(started: Instant) -> u64 {
 
 fn encrypted_rejection(request_id: uuid::Uuid) -> RelayMessage {
     RelayMessage::EncryptedOperationRejected {
-        protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
+        protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
         request_id,
         problem: ConnectProblem::new(
             "encrypted_relay_rejected",

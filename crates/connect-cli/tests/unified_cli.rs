@@ -535,7 +535,7 @@ fn reports_the_versions_of_every_embedded_compatibility_boundary() {
     assert_eq!(value["engine"], mdbase_command::engine_version());
     assert!(value["local_control_protocol"].as_u64().is_some());
     assert!(value["sync_protocol"].as_u64().is_some());
-    assert!(value["encrypted_relay_protocol"].as_u64().is_some());
+    assert!(value["operation_transport_protocol"].as_u64().is_some());
 }
 
 #[test]

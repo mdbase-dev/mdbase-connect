@@ -15,6 +15,16 @@ ALTER TABLE grants
   ADD COLUMN IF NOT EXISTS reauthorization_required_at timestamptz,
   ADD COLUMN IF NOT EXISTS reauthorization_reason text;
 
+ALTER TABLE authorization_requests
+  ADD COLUMN IF NOT EXISTS operation_transport_protocol integer;
+
+UPDATE authorization_requests
+SET operation_transport_protocol = relay_protocol
+WHERE operation_transport_protocol IS NULL;
+
+ALTER TABLE authorization_requests
+  DROP COLUMN IF EXISTS relay_protocol;
+
 DELETE FROM authorization_requests
 WHERE application_authorization IS NULL
    OR COALESCE(application_authorization->'binding'->>'protocol_version', '') <> '3';

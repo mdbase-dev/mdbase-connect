@@ -1,5 +1,5 @@
 use crate::{
-    EncryptedRelayEnvelope, GrantEncryption, ENCRYPTED_RELAY_PROTOCOL_VERSION,
+    EncryptedRelayEnvelope, GrantEncryption, OPERATION_TRANSPORT_PROTOCOL_VERSION,
     RELAY_ENCRYPTION_SUITE,
 };
 use aes_gcm::aead::{Aead, KeyInit, Payload};
@@ -131,7 +131,7 @@ impl RelayBinding {
     fn context(&self) -> String {
         format!(
             "mdbase-connect|{}|{}|{}|{}|{}|{}|{}|{}",
-            ENCRYPTED_RELAY_PROTOCOL_VERSION,
+            OPERATION_TRANSPORT_PROTOCOL_VERSION,
             self.suite,
             self.grant_id,
             self.application_id,
@@ -284,7 +284,7 @@ impl RelayMetadata<'_> {
 
     pub fn envelope(self, ciphertext: String) -> EncryptedRelayEnvelope {
         EncryptedRelayEnvelope {
-            protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
+            protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
             suite: self.binding.suite.clone(),
             request_id: self.request_id,
             grant_id: self.binding.grant_id,
@@ -306,7 +306,7 @@ pub fn validate_envelope(
 ) -> Result<(), RelayCryptoError> {
     binding.validate()?;
     parse_counter(&envelope.counter)?;
-    if envelope.protocol_version != ENCRYPTED_RELAY_PROTOCOL_VERSION
+    if envelope.protocol_version != OPERATION_TRANSPORT_PROTOCOL_VERSION
         || envelope.suite != binding.suite
         || envelope.grant_id != binding.grant_id
         || envelope.application_id != binding.application_id

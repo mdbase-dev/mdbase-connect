@@ -13,8 +13,8 @@ import type {
   GrantPolicy
 } from "@mdbase-dev/connect-protocol";
 import {
-  ENCRYPTED_RELAY_PROTOCOL_VERSION,
   GRANT_ENCRYPTION_PROTOCOL_VERSION,
+  OPERATION_TRANSPORT_PROTOCOL_VERSION,
   RELAY_ENCRYPTION_SUITE
 } from "@mdbase-dev/connect-protocol";
 import {
@@ -79,7 +79,7 @@ export async function approvePortalAuthorization(
       requirements: ApplicationRequirements;
       provisions: ApplicationProvisions;
       notifications: ApplicationNotifications;
-      relay_protocol: number | null;
+      operation_transport_protocol: number | null;
       application_agreement_public_key: string | null;
       application_signing_public_key: string | null;
       application_authorization: ApplicationAuthorizationProof | null;
@@ -93,7 +93,7 @@ export async function approvePortalAuthorization(
               a.distribution, a.homepage AS application_homepage,
               a.project_url AS application_project_url, a.icon AS application_icon,
               ar.requested_operations, a.requirements, a.provisions, a.notifications,
-              ar.relay_protocol, ar.application_agreement_public_key,
+              ar.operation_transport_protocol, ar.application_agreement_public_key,
               ar.application_signing_public_key, ar.application_authorization,
               ar.flow, ar.redirect_uri,
               ar.collection_id, ar.grant_id, ar.activation_started_at
@@ -136,7 +136,7 @@ export async function approvePortalAuthorization(
     }
     if (
       !pending.application_authorization
-      || pending.relay_protocol !== ENCRYPTED_RELAY_PROTOCOL_VERSION
+      || pending.operation_transport_protocol !== OPERATION_TRANSPORT_PROTOCOL_VERSION
       || !pending.application_agreement_public_key
       || !pending.application_signing_public_key
     ) {
@@ -508,7 +508,7 @@ export async function approveHostedAuthorization(
       requirements: ApplicationRequirements;
       provisions: ApplicationProvisions;
       notifications: ApplicationNotifications;
-      relay_protocol: number | null;
+      operation_transport_protocol: number | null;
       application_agreement_public_key: string | null;
       application_signing_public_key: string | null;
       application_authorization: ApplicationAuthorizationProof | null;
@@ -519,7 +519,7 @@ export async function approveHostedAuthorization(
               a.distribution, a.homepage AS application_homepage,
               ar.redirect_uri, ar.requested_operations,
               a.requirements, a.provisions, a.notifications,
-              ar.relay_protocol, ar.application_agreement_public_key,
+              ar.operation_transport_protocol, ar.application_agreement_public_key,
               ar.application_signing_public_key, ar.application_authorization, ar.flow,
               ar.collection_id
        FROM authorization_requests ar
@@ -547,7 +547,7 @@ export async function approveHostedAuthorization(
       pending.distribution === "portable"
       && (
         pending.flow !== "device_code"
-        || pending.relay_protocol !== ENCRYPTED_RELAY_PROTOCOL_VERSION
+        || pending.operation_transport_protocol !== OPERATION_TRANSPORT_PROTOCOL_VERSION
         || !pending.application_agreement_public_key
         || !pending.application_signing_public_key
       )
@@ -562,7 +562,7 @@ export async function approveHostedAuthorization(
       );
     }
     if (
-      pending.relay_protocol !== ENCRYPTED_RELAY_PROTOCOL_VERSION
+      pending.operation_transport_protocol !== OPERATION_TRANSPORT_PROTOCOL_VERSION
       || !pending.application_agreement_public_key
       || !pending.application_signing_public_key
       || !pending.application_authorization

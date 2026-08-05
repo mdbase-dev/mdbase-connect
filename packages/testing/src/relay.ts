@@ -1,5 +1,5 @@
 import {
-  ENCRYPTED_RELAY_PROTOCOL_VERSION,
+  OPERATION_TRANSPORT_PROTOCOL_VERSION,
   RELAY_ENCRYPTION_SUITE,
   type EncryptedRelayOperation,
   type EncryptedRelayOperationRequest,
@@ -94,7 +94,7 @@ function encryptedRequest(
   if (
     !request
     || request.type !== "encrypted_operation_request"
-    || request.protocol_version !== ENCRYPTED_RELAY_PROTOCOL_VERSION
+    || request.protocol_version !== OPERATION_TRANSPORT_PROTOCOL_VERSION
     || request.suite !== RELAY_ENCRYPTION_SUITE
     || request.grant_id !== binding.grantId
     || request.application_id !== binding.applicationId
@@ -151,7 +151,7 @@ function relayContext(binding: FixtureRelayBinding): string {
   const encryption = binding.encryption;
   return [
     "mdbase-connect",
-    ENCRYPTED_RELAY_PROTOCOL_VERSION,
+    OPERATION_TRANSPORT_PROTOCOL_VERSION,
     encryption.suite,
     binding.grantId,
     binding.applicationId,

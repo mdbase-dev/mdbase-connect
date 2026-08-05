@@ -8,7 +8,7 @@ import type {
   GrantEncryption,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
-import { ENCRYPTED_RELAY_PROTOCOL_VERSION } from "@mdbase-dev/connect-protocol";
+import { OPERATION_TRANSPORT_PROTOCOL_VERSION } from "@mdbase-dev/connect-protocol";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { verifyApplicationAuthorization } from "../../application-authorization.js";
@@ -161,7 +161,7 @@ export function registerAuthorizationRoutes(
     const inserted = await options.db.query(
       `INSERT INTO authorization_requests
          (id, user_id, application_id, flow, redirect_uri, state, code_challenge,
-          requested_operations, collection_id, relay_protocol,
+          requested_operations, collection_id, operation_transport_protocol,
           application_agreement_public_key, application_signing_public_key,
           application_authorization, application_installation_id,
           device_code_hash, user_code, user_code_hash,
@@ -177,7 +177,7 @@ export function registerAuthorizationRoutes(
         input.code_challenge,
         JSON.stringify(requestedOperations),
         input.collection_id ?? null,
-        ENCRYPTED_RELAY_PROTOCOL_VERSION,
+        OPERATION_TRANSPORT_PROTOCOL_VERSION,
         proof.binding.grant_agreement_public_key,
         proof.binding.grant_signing_public_key,
         JSON.stringify(proof),
@@ -414,7 +414,7 @@ export function registerAuthorizationRoutes(
     const inserted = await options.db.query(
       `INSERT INTO authorization_requests
          (id, user_id, application_id, redirect_uri, state, code_challenge,
-          requested_operations, collection_id, relay_protocol,
+          requested_operations, collection_id, operation_transport_protocol,
           application_agreement_public_key, application_signing_public_key,
           application_authorization, application_installation_id,
           expires_at)
@@ -431,7 +431,7 @@ export function registerAuthorizationRoutes(
         input.code_challenge,
         JSON.stringify(requestedOperations),
         input.collection_id ?? null,
-        ENCRYPTED_RELAY_PROTOCOL_VERSION,
+        OPERATION_TRANSPORT_PROTOCOL_VERSION,
         proof.binding.grant_agreement_public_key,
         proof.binding.grant_signing_public_key,
         JSON.stringify(proof),

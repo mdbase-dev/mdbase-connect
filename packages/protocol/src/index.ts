@@ -20,7 +20,6 @@ export * from "./application-authorization.js";
 export * from "./type-packs.js";
 
 export const CONTROL_PROTOCOL_VERSION = 1 as const;
-export { OPERATION_TRANSPORT_PROTOCOL_VERSION as ENCRYPTED_RELAY_PROTOCOL_VERSION } from "./compatibility.js";
 export { AUTHORIZATION_BINDING_PROTOCOL_VERSION as APPLICATION_AUTHORIZATION_PROTOCOL_VERSION } from "./compatibility.js";
 export const LOOPBACK_PROTOCOL_VERSION = 1 as const;
 export const DEFAULT_LOOPBACK_PORT = 28_485 as const;

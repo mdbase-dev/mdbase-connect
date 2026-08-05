@@ -1,7 +1,7 @@
 use super::*;
 use axum::routing::{get, post};
 use mdbase_connect_protocol::{
-    RelayMessage, ENCRYPTED_RELAY_PROTOCOL_VERSION, LOOPBACK_PROTOCOL_VERSION,
+    RelayMessage, LOOPBACK_PROTOCOL_VERSION, OPERATION_TRANSPORT_PROTOCOL_VERSION,
 };
 
 pub(super) fn routes() -> Router<LoopbackState> {
@@ -19,7 +19,7 @@ async fn ready(State(state): State<LoopbackState>, request: Request<Body>) -> Re
         Json(json!({
             "service": "mdbase-connect",
             "loopback_protocol_version": LOOPBACK_PROTOCOL_VERSION,
-            "encrypted_protocol_version": ENCRYPTED_RELAY_PROTOCOL_VERSION,
+            "operation_transport_protocol_version": OPERATION_TRANSPORT_PROTOCOL_VERSION,
         }))
         .into_response(),
         &origin,

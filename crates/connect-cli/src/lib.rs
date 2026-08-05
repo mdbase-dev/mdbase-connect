@@ -526,8 +526,8 @@ async fn execute(args: Args) -> Result<i32, CliError> {
                 "command_adapter": mdbase_command::VERSION,
                 "local_control_protocol": LOCAL_CONTROL_PROTOCOL_VERSION,
                 "sync_protocol": mdbase_connect_protocol::SYNC_PROTOCOL_VERSION,
-                "encrypted_relay_protocol":
-                    mdbase_connect_protocol::ENCRYPTED_RELAY_PROTOCOL_VERSION,
+                "operation_transport_protocol":
+                    mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
             });
             if args.json {
                 println!("{value}");

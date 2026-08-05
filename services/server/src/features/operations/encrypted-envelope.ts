@@ -4,7 +4,7 @@ import type {
   GrantEncryption
 } from "@mdbase-dev/connect-protocol";
 import {
-  ENCRYPTED_RELAY_PROTOCOL_VERSION,
+  OPERATION_TRANSPORT_PROTOCOL_VERSION,
   GRANT_ENCRYPTION_PROTOCOL_VERSION,
   RELAY_ENCRYPTION_SUITE
 } from "@mdbase-dev/connect-protocol";
@@ -13,7 +13,7 @@ import { COLLECTION_OPERATIONS } from "../../collection-access.js";
 
 export const encryptedRelayRequestSchema = z.object({
   type: z.literal("encrypted_operation_request"),
-  protocol_version: z.literal(ENCRYPTED_RELAY_PROTOCOL_VERSION),
+  protocol_version: z.literal(OPERATION_TRANSPORT_PROTOCOL_VERSION),
   suite: z.literal(RELAY_ENCRYPTION_SUITE),
   request_id: z.uuid(),
   grant_id: z.uuid(),
@@ -46,7 +46,7 @@ export function matchesGrantEncryption(
   operation: EncryptedRelayOperation
 ): boolean {
   const encryption = grant.encryption;
-  return envelope.protocol_version === ENCRYPTED_RELAY_PROTOCOL_VERSION
+  return envelope.protocol_version === OPERATION_TRANSPORT_PROTOCOL_VERSION
     && encryption.protocol_version === GRANT_ENCRYPTION_PROTOCOL_VERSION
     && envelope.suite === encryption.suite
     && envelope.grant_id === grant.grant_id
@@ -65,7 +65,7 @@ export function matchesGrantIdentity(
   grant: GrantIdentity,
   operation: EncryptedRelayOperation
 ): boolean {
-  return envelope.protocol_version === ENCRYPTED_RELAY_PROTOCOL_VERSION
+  return envelope.protocol_version === OPERATION_TRANSPORT_PROTOCOL_VERSION
     && envelope.suite === RELAY_ENCRYPTION_SUITE
     && envelope.grant_id === grant.grant_id
     && envelope.application_id === grant.application_id

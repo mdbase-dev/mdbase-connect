@@ -1,15 +1,20 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
+  applicationInstallationId,
   decryptRelayResponse,
   encryptRelayRequest,
+  signApplicationAuthorization,
+  type GrantKeyRecord,
   type GrantKeyStore
 } from "@mdbase-dev/connect/crypto";
-import type {
-  CollectionOperation,
-  EncryptedRelayOperationResponse,
-  GrantEncryption,
-  GrantScope,
-  MdbaseAppManifest
+import {
+  APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
+  authorizationContractRequirements,
+  type CollectionOperation,
+  type EncryptedRelayOperationResponse,
+  type GrantEncryption,
+  type GrantScope,
+  type MdbaseAppManifest
 } from "@mdbase-dev/connect-protocol";
 import { z } from "zod";
 import type { DatabasePool } from "./db.js";
@@ -101,17 +106,82 @@ export class ConnectGateway {
     this.applicationOrigin = new URL(callbackUrl).origin;
   }
 
-  async registerApplication(): Promise<{ id: string }> {
+  async registerApplication(): Promise<{ id: string; manifestDigest: string }> {
     const response = await fetch(`${this.connectUrl}/v1/apps/register`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ manifest: this.manifest })
     });
     const body = await response.json().catch(() => null);
-    if (!response.ok || typeof body?.application?.id !== "string") {
+    if (
+      !response.ok
+      || typeof body?.application?.id !== "string"
+      || typeof body?.application?.manifest_digest !== "string"
+      || !/^[0-9a-f]{64}$/u.test(body.application.manifest_digest)
+    ) {
       throw upstreamError(body, "Connect could not register the MCP application.");
     }
-    return { id: body.application.id };
+    return {
+      id: body.application.id,
+      manifestDigest: body.application.manifest_digest
+    };
+  }
+
+  async createAuthorizationRequest(input: {
+    state: string;
+    codeChallenge: string;
+    operations: CollectionOperation[];
+    collectionId: string | null;
+    grantKey: GrantKeyRecord;
+  }): Promise<string> {
+    const application = await this.registerApplication();
+    const installation = await this.applicationIdentity(application.id);
+    const issuedAt = new Date();
+    const proof = await signApplicationAuthorization({
+      protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
+      authorization_id: randomUUID(),
+      application_id: application.id,
+      application_manifest_digest: application.manifestDigest,
+      application_installation_id: await applicationInstallationId(installation),
+      installation_signing_public_key: installation.signingPublicKey,
+      grant_agreement_public_key: input.grantKey.agreementPublicKey,
+      grant_signing_public_key: input.grantKey.signingPublicKey,
+      flow: "authorization_code",
+      authorization_nonce: randomBytes(32).toString("base64url"),
+      issued_at: issuedAt.toISOString(),
+      expires_at: new Date(issuedAt.getTime() + 10 * 60_000).toISOString(),
+      redirect_uri: this.callbackUrl,
+      state: input.state,
+      code_challenge: input.codeChallenge,
+      contracts: authorizationContractRequirements(
+        input.operations,
+        this.manifest.requirements?.files
+      ),
+      requested_operations: input.operations,
+      ...(this.manifest.requirements?.files
+        ? { requested_files: this.manifest.requirements.files }
+        : {}),
+      ...(input.collectionId ? { collection_id: input.collectionId } : {})
+    }, installation);
+    const response = await fetch(`${this.connectUrl}/oauth/authorization_request`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: application.id,
+        redirect_uri: this.callbackUrl,
+        code_challenge: input.codeChallenge,
+        code_challenge_method: "S256",
+        state: input.state,
+        operations: input.operations.join(","),
+        ...(input.collectionId ? { collection_id: input.collectionId } : {}),
+        application_authorization: JSON.stringify(proof)
+      })
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok || typeof body?.authorization_uri !== "string") {
+      throw upstreamError(body, "Connect authorization could not be started.");
+    }
+    return z.url().parse(body.authorization_uri);
   }
 
   async exchangeAuthorization(input: {
@@ -138,6 +208,19 @@ export class ConnectGateway {
     await this.assertTokenBinding(token, input.keyHandle, input.applicationId);
     const connection = await this.saveConnection(input.connectionSetId, input.applicationId, input.keyHandle, token);
     return summary(connection);
+  }
+
+  private async applicationIdentity(applicationId: string): Promise<GrantKeyRecord> {
+    const handle = `mcp-application-identity:v3:${this.connectUrl}:${applicationId}`;
+    const existing = await this.keyStore.get(handle);
+    if (existing) return existing;
+    try {
+      return await this.keyStore.create(handle);
+    } catch (error) {
+      const raced = await this.keyStore.get(handle);
+      if (raced) return raced;
+      throw error;
+    }
   }
 
   async listConnections(connectionSetId: string): Promise<ConnectionSummary[]> {

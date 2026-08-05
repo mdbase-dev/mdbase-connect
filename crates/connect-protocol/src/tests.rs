@@ -653,7 +653,7 @@ fn portable_policy_keeps_v1_and_the_exact_opaque_origin() {
 #[test]
 fn rust_encrypted_relay_messages_match_the_canonical_wire_schema() {
     let envelope = EncryptedRelayEnvelope {
-        protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
+        protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
         suite: RELAY_ENCRYPTION_SUITE.to_string(),
         request_id: Uuid::parse_str("01911111-1111-7111-8111-111111111111").unwrap(),
         grant_id: Uuid::parse_str("01922222-2222-7222-8222-222222222222").unwrap(),

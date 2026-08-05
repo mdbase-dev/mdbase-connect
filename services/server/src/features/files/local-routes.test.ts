@@ -5,7 +5,7 @@ import type {
 } from "@mdbase-dev/connect-protocol";
 import {
   encodeFileFrame,
-  ENCRYPTED_RELAY_PROTOCOL_VERSION,
+  OPERATION_TRANSPORT_PROTOCOL_VERSION,
   FILE_TRANSFER_PROTOCOL_VERSION,
   MAX_FILE_FRAME_BYTES,
   RELAY_ENCRYPTION_SUITE
@@ -235,7 +235,7 @@ async function fixture(row = grant) {
 function encryptedEnvelope(): EncryptedRelayOperationRequest {
   return {
     type: "encrypted_operation_request",
-    protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
+    protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
     suite: RELAY_ENCRYPTION_SUITE,
     request_id: requestId,
     grant_id: grantId,

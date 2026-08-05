@@ -81,6 +81,10 @@ describe("database migrations", () => {
     );
     await db.query("ALTER TABLE grants DROP COLUMN reauthorization_required_at");
     await db.query("ALTER TABLE grants DROP COLUMN reauthorization_reason");
+    await db.query("ALTER TABLE authorization_requests ADD COLUMN relay_protocol integer");
+    await db.query(
+      "ALTER TABLE authorization_requests DROP COLUMN operation_transport_protocol"
+    );
     await db.query(
       "DELETE FROM schema_migrations WHERE id = '0015_authorization_binding_v3'"
     );

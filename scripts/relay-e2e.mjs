@@ -10,7 +10,7 @@ import {
   encodeFileFrame,
   encodeRelayFileFrame,
   FILE_TRANSFER_PROTOCOL_VERSION,
-  ENCRYPTED_RELAY_PROTOCOL_VERSION,
+  OPERATION_TRANSPORT_PROTOCOL_VERSION,
   RELAY_CAPABILITIES
 } from "../packages/protocol/dist/index.js";
 import {
@@ -189,7 +189,7 @@ try {
     "Concurrent cross-instance relay burst was incomplete");
 
   const encryption = {
-    protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
+    protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
     suite: "P256-HKDF-SHA256-AES256GCM",
     key_id: `enc_${randomUUID()}`,
     scope_epoch: 1,
@@ -282,7 +282,7 @@ try {
 
   const encryptedEnvelope = {
     type: "encrypted_operation_request",
-    protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
+    protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
     suite: encryption.suite,
     request_id: randomUUID(),
     grant_id: fixture.grantId,

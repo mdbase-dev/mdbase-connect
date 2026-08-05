@@ -3007,7 +3007,7 @@ schema:
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       service: "mdbase-connect",
       loopback_protocol_version: 1,
-      encrypted_protocol_version: 2
+      operation_transport_protocol_version: 2
     }), { status: 200, headers: { "content-type": "application/json" } }));
     const changes: string[] = [];
     fixture.connect.onConnectionChange((connection) => {
@@ -3032,7 +3032,7 @@ schema:
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       service: "mdbase-connect",
       loopback_protocol_version: 1,
-      encrypted_protocol_version: 2
+      operation_transport_protocol_version: 2
     }), { status: 200, headers: { "content-type": "application/json" } }));
 
     await expect(fixture.connect.requestDirectAccess()).resolves.toMatchObject({

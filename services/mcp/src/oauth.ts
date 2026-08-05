@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { DatabasePool } from "./db.js";
 import { ConnectGateway } from "./connect.js";
 import type { GrantKeyStore } from "@mdbase-dev/connect/crypto";
+import type { CollectionOperation } from "@mdbase-dev/connect-protocol";
 import { pkceChallenge, randomToken, safeEqual, tokenHash } from "./security.js";
 
 export const MCP_SCOPES = ["mdbase:read", "mdbase:write"] as const;
@@ -363,46 +364,40 @@ export class OAuthService {
     authorizationRequestId: string | null,
     collectionId: string | null
   ): Promise<string> {
-    const application = await this.gateway.registerApplication();
     const state = randomToken("state");
     const verifier = randomToken("pkce");
     const keyHandle = `mcp:${randomUUID()}`;
     const key = await this.keyStore.create(keyHandle);
-    await this.db.query(
-      `INSERT INTO mcp_upstream_authorizations
-         (id, state_hash, kind, authorization_request_id, connection_set_id,
-          scopes, code_verifier, key_handle, expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)`,
-      [
-        randomUUID(),
-        tokenHash(state),
-        kind,
-        authorizationRequestId,
-        connectionSetId,
-        JSON.stringify(scopes),
-        verifier,
-        keyHandle,
-        new Date(Date.now() + 10 * 60_000)
-      ]
-    );
-    const authorize = new URL(`${this.gateway.connectUrl}/oauth/authorize`);
-    authorize.searchParams.set("client_id", application.id);
-    authorize.searchParams.set("redirect_uri", this.gateway.callbackUrl);
-    authorize.searchParams.set("code_challenge", pkceChallenge(verifier));
-    authorize.searchParams.set("code_challenge_method", "S256");
-    authorize.searchParams.set("state", state);
-    authorize.searchParams.set("operations", operationsForScopes(scopes).join(","));
-    if (collectionId) authorize.searchParams.set("collection_id", collectionId);
-    authorize.searchParams.set("relay_protocol", "1");
-    authorize.searchParams.set(
-      "application_agreement_public_key",
-      key.agreementPublicKey
-    );
-    authorize.searchParams.set(
-      "application_signing_public_key",
-      key.signingPublicKey
-    );
-    return authorize.href;
+    try {
+      const authorizationUri = await this.gateway.createAuthorizationRequest({
+        state,
+        codeChallenge: pkceChallenge(verifier),
+        operations: operationsForScopes(scopes),
+        collectionId,
+        grantKey: key
+      });
+      await this.db.query(
+        `INSERT INTO mcp_upstream_authorizations
+           (id, state_hash, kind, authorization_request_id, connection_set_id,
+            scopes, code_verifier, key_handle, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)`,
+        [
+          randomUUID(),
+          tokenHash(state),
+          kind,
+          authorizationRequestId,
+          connectionSetId,
+          JSON.stringify(scopes),
+          verifier,
+          keyHandle,
+          new Date(Date.now() + 10 * 60_000)
+        ]
+      );
+      return authorizationUri;
+    } catch (error) {
+      await this.keyStore.delete(keyHandle);
+      throw error;
+    }
   }
 
   private async issueTokens(input: {
@@ -480,7 +475,7 @@ export class OAuthError extends Error {
   }
 }
 
-function operationsForScopes(scopes: McpScope[]): string[] {
+function operationsForScopes(scopes: McpScope[]): CollectionOperation[] {
   return scopes.includes("mdbase:write")
     ? [...READ_OPERATIONS, ...WRITE_OPERATIONS]
     : [...READ_OPERATIONS];
