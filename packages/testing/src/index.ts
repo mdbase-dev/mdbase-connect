@@ -8,6 +8,13 @@ import {
   type GrantScope,
   type MdbaseAppManifest
 } from "@mdbase-dev/connect-protocol";
+export {
+  connectError,
+  connectFailure,
+  connectProblem,
+  connectSuccess,
+  operationProblem
+} from "@mdbase-dev/connect/advanced";
 import {
   connectorRelayFixture,
   generateConnectorKey,

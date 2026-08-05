@@ -800,14 +800,6 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     );
   }
 
-  operation<Result>(
-    operation: CollectionOperation,
-    input: unknown,
-    options?: ConnectRequestOptions
-  ): Promise<ConnectOutcome<Result>> {
-    return this.collectionClient.operation(operation, input, options);
-  }
-
   private emitConnection(): void {
     const connection = this.info();
     for (const listener of this.connectionListeners) listener(connection);

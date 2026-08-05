@@ -7,9 +7,9 @@ import type {
 import {
   MdbaseApplicationSession,
   MdbaseMemorySelection,
-  MdbaseMemoryVerificationStore,
-  connectSuccess
+  MdbaseMemoryVerificationStore
 } from "./index.js";
+import { connectSuccess } from "./outcomes.js";
 
 const collectionId = "00000000-0000-0000-0000-000000000042";
 

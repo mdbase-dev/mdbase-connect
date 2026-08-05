@@ -2,6 +2,15 @@
 export { MdbaseCollectionClient } from "./collection-client.js";
 export type { MdbaseCollectionTransport } from "./operation-types.js";
 export { createPkce } from "./runtime-utils.js";
+export {
+  connectError,
+  connectProblem,
+  operationProblem
+} from "./errors.js";
+export {
+  connectFailure,
+  connectSuccess
+} from "./outcomes.js";
 export type {
   MdbaseApplicationVerificationStore,
   MdbaseApplicationSessionConnect

@@ -34,3 +34,25 @@ import { IndexedDbGrantKeyStore as RemovedRootKeyStore } from "@mdbase-dev/conne
 void RemovedRootClient;
 void RemovedRootPkce;
 void RemovedRootKeyStore;
+
+// @ts-expect-error outcome construction belongs to @mdbase-dev/connect-testing.
+import { connectSuccess as RemovedOutcomeBuilder } from "@mdbase-dev/connect";
+// @ts-expect-error problem construction belongs to @mdbase-dev/connect-testing.
+import { connectProblem as RemovedProblemBuilder } from "@mdbase-dev/connect";
+// @ts-expect-error outcome throwing adapters are not part of the typed golden path.
+import { unwrapConnectOutcome as RemovedOutcomeAdapter } from "@mdbase-dev/connect";
+// @ts-expect-error request budgets are internal implementation machinery.
+import type { RequestBudget as RemovedRequestBudget } from "@mdbase-dev/connect";
+// @ts-expect-error connection construction is an advanced/internal seam.
+import type { MdbaseConnectionInternals as RemovedConnectionInternals } from "@mdbase-dev/connect";
+// @ts-expect-error transport construction is only available from /advanced.
+import type { MdbaseCollectionTransport as RemovedCollectionTransport } from "@mdbase-dev/connect";
+
+declare const ordinaryConnection: MdbaseConnection;
+// @ts-expect-error ordinary application connections expose only typed operations.
+ordinaryConnection.operation("query", {});
+
+void RemovedOutcomeBuilder;
+void RemovedProblemBuilder;
+void RemovedOutcomeAdapter;
+void (null as RemovedRequestBudget | RemovedConnectionInternals | RemovedCollectionTransport | null);

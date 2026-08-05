@@ -40,7 +40,7 @@
     "test": "vitest run",
     "test:browser-storage": "pnpm build && node scripts/browser-storage.test.mjs",
     "test:consumer-spikes": "tsc -p tsconfig.consumer-spikes.json",
-    "test:public-api": "pnpm build && tsc -p tsconfig.public-api.json",
+    "test:public-api": "pnpm build && pnpm --filter @mdbase-dev/connect-protocol build && pnpm --filter @mdbase-dev/connect-testing build && tsc -p tsconfig.public-api.json && node scripts/check-public-api.mjs && node scripts/test-packed-api.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

@@ -3,15 +3,17 @@ import {
   MdbaseBrowserSelection,
   MdbaseConnect,
   MdbaseConnectError,
-  ConnectOutcomeError,
-  connectError,
-  connectSuccess,
   isRetryableConnectError,
   parseMdbaseNativeNotificationData,
   parseMdbasePushPayload,
-  showMdbasePushNotification,
-  unwrapConnectOutcome
+  showMdbasePushNotification
 } from "./index.js";
+import { connectError } from "./errors.js";
+import {
+  ConnectOutcomeError,
+  connectSuccess,
+  unwrapConnectOutcome
+} from "./outcomes.js";
 import { createPkce, MdbaseCollectionClient } from "./advanced.js";
 import {
   MemoryApplicationIdentityStore,
@@ -2885,7 +2887,7 @@ schema:
       throw new DOMException("The operation was aborted", "AbortError");
     });
 
-    await expect(fixture.connect.operation("create", input, {
+    await expect(fixture.connect.create(input, {
       signal: controller.signal
     })).resolves.toMatchObject({
       ok: false,

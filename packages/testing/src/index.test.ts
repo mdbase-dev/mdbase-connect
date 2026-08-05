@@ -5,7 +5,13 @@ import {
   encryptRelayRequest,
   MemoryGrantKeyStore
 } from "../../client/src/crypto.js";
-import { installMdbaseBrowserFixture, type MdbaseTestPage } from "./index.js";
+import {
+  connectFailure,
+  connectProblem,
+  connectSuccess,
+  installMdbaseBrowserFixture,
+  type MdbaseTestPage
+} from "./index.js";
 import { connectorRelayFixture, generateConnectorKey } from "./relay.js";
 
 class MemoryLocalStorage {
@@ -61,6 +67,17 @@ function fakeIndexedDb(): IDBFactory {
 }
 
 afterEach(() => vi.unstubAllGlobals());
+
+describe("typed outcome fixtures", () => {
+  it("constructs public success and failure outcomes outside the production root", () => {
+    const problem = connectProblem("operation_failed", "Test fault.");
+    expect(connectSuccess({ id: 42 })).toMatchObject({ ok: true, value: { id: 42 } });
+    expect(connectFailure(problem)).toMatchObject({
+      ok: false,
+      problem: { code: "operation_failed", message: "Test fault." }
+    });
+  });
+});
 
 describe("browser authorization fixture", () => {
   it("seeds, reduces, expires, reloads, and removes a production-shaped grant", async () => {

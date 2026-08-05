@@ -370,6 +370,9 @@ importers:
 
   packages/testing:
     dependencies:
+      '@mdbase-dev/connect':
+        specifier: workspace:*
+        version: link:../client
       '@mdbase-dev/connect-protocol':
         specifier: workspace:*
         version: link:../protocol
