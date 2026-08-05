@@ -1369,7 +1369,11 @@ schema:
   });
   const collectionId = created.collection.id;
   assert.equal(created.collection.sync_url, authoritySyncUrl(provider.url, collectionId));
-  await provisionTypes(provider.url, collectionId, [WORK_ITEM_PROVISION]);
+  const workItemTypes = await provisionTypes(
+    provider.url,
+    collectionId,
+    [WORK_ITEM_PROVISION]
+  );
   const other = await controlRequest(controlUrl, "/v1/hosted/collections", cookie, {
     method: "POST",
     body: { display_name: "Hosted writing", template: "mdbase" }
@@ -2529,6 +2533,8 @@ schema:
         grant_id: crypto.randomUUID(),
         mode: "read_only",
         allowed_types: ["task"],
+        contract_scope: workItemTypes.contracts,
+        full_collection: false,
         allowed_operations: ["read", "query"],
         token: benchmarkToken,
         token_ttl_seconds: 600
