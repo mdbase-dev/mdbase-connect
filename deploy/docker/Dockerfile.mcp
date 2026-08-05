@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim AS build
+FROM node:25-bookworm-slim AS build
 
 RUN corepack enable
 WORKDIR /app
@@ -18,7 +18,7 @@ RUN pnpm --filter @mdbase-dev/connect-protocol build \
  && pnpm --filter @mdbase-dev/connect build \
  && pnpm --filter @mdbase/connect-mcp build
 
-FROM node:24-bookworm-slim AS runtime
+FROM node:25-bookworm-slim AS runtime
 
 ARG MDBASE_CONNECT_REVISION
 ENV NODE_ENV=production \
