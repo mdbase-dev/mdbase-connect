@@ -309,29 +309,6 @@ fn daemon_lease_released(state_dir: &Path) -> bool {
     true
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn shutdown_waits_for_the_daemon_lease_after_the_socket_disappears() {
-        let temporary = tempfile::tempdir().unwrap();
-        assert!(daemon_lease_released(temporary.path()));
-
-        let lease = std::fs::OpenOptions::new()
-            .create(true)
-            .read(true)
-            .write(true)
-            .truncate(false)
-            .open(temporary.path().join("daemon.lock"))
-            .unwrap();
-        lease.try_lock_exclusive().unwrap();
-        assert!(!daemon_lease_released(temporary.path()));
-        lease.unlock().unwrap();
-        assert!(daemon_lease_released(temporary.path()));
-    }
-}
-
 pub(super) async fn wait_until_ready(endpoint: &str) -> Result<(), CliError> {
     for _ in 0..200 {
         if send(endpoint, ControlRequest::new(ControlCommand::Ping))
@@ -456,4 +433,27 @@ pub(super) fn control_request_timeout(command: &ControlCommand) -> std::time::Du
         _ => 30,
     };
     std::time::Duration::from_secs(seconds)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shutdown_waits_for_the_daemon_lease_after_the_socket_disappears() {
+        let temporary = tempfile::tempdir().unwrap();
+        assert!(daemon_lease_released(temporary.path()));
+
+        let lease = std::fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(false)
+            .open(temporary.path().join("daemon.lock"))
+            .unwrap();
+        lease.try_lock_exclusive().unwrap();
+        assert!(!daemon_lease_released(temporary.path()));
+        lease.unlock().unwrap();
+        assert!(daemon_lease_released(temporary.path()));
+    }
 }
