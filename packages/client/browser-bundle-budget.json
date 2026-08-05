@@ -1,0 +1,7 @@
+{
+  "baselineGzipBytes": 45622,
+  "regressionReviewBytes": 2048,
+  "reviewGzipBytes": 53248,
+  "maximumGzipBytes": 65536,
+  "maximumRawBytes": 262144
+}

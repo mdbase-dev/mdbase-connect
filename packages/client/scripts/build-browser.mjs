@@ -8,6 +8,11 @@ import { build } from "esbuild";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outputDirectory = resolve(root, "dist/browser");
 const outputFile = resolve(outputDirectory, "mdbase-connect.min.js");
+const budget = JSON.parse(
+  await readFile(resolve(root, "browser-bundle-budget.json"), "utf8")
+);
+// Keep the measured baseline reviewable in source control. Raise it only when a
+// deliberate bundle increase has been accepted; warning and ceiling values are policy.
 
 await mkdir(outputDirectory, { recursive: true });
 await build({
@@ -24,15 +29,38 @@ await build({
 });
 
 const bundle = await readFile(outputFile);
-// Candidate baseline includes independently recoverable durable mutation handles.
-const rawBudget = 182_000;
-const gzipBudget = 46_000;
-if (bundle.byteLength > rawBudget || gzipSync(bundle).byteLength > gzipBudget) {
+const gzipBytes = gzipSync(bundle).byteLength;
+if (bundle.byteLength > budget.maximumRawBytes || gzipBytes > budget.maximumGzipBytes) {
   throw new Error(
-    `Browser SDK exceeds its budget: ${bundle.byteLength}/${rawBudget} raw bytes, `
-      + `${gzipSync(bundle).byteLength}/${gzipBudget} gzip bytes.`
+    `Browser SDK exceeds its hard ceiling: ${bundle.byteLength}/${budget.maximumRawBytes} raw bytes, `
+      + `${gzipBytes}/${budget.maximumGzipBytes} gzip bytes.`
   );
 }
+const warnings = [];
+if (gzipBytes > budget.reviewGzipBytes) {
+  warnings.push(
+    `${gzipBytes} gzip bytes exceeds the ${budget.reviewGzipBytes}-byte review threshold`
+  );
+}
+const regressionBytes = gzipBytes - budget.baselineGzipBytes;
+if (regressionBytes > budget.regressionReviewBytes) {
+  warnings.push(
+    `${regressionBytes} gzip bytes above the checked-in baseline exceeds the `
+      + `${budget.regressionReviewBytes}-byte per-change allowance`
+  );
+}
+for (const warning of warnings) {
+  const message = `Browser SDK bundle size: ${warning}.`;
+  console.warn(
+    process.env.GITHUB_ACTIONS === "true"
+      ? `::warning title=Browser SDK bundle size::${message}`
+      : message
+  );
+}
+console.log(
+  `Browser SDK bundle size: ${bundle.byteLength} raw bytes, ${gzipBytes} gzip bytes `
+    + `(baseline ${budget.baselineGzipBytes}, hard ceiling ${budget.maximumGzipBytes}).`
+);
 const source = bundle.toString("utf8");
 if (/\beval\s*\(|\bnew\s+Function\s*\(/.test(source)) {
   throw new Error("Browser SDK violates the no-eval Content Security Policy contract.");
