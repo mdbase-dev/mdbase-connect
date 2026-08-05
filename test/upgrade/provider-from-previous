@@ -137,6 +137,23 @@ query_notification_contract() {
                WHERE grant_id = '22222222-2222-4222-8222-222222222222'"
 }
 
+query_connect_contracts() {
+  docker run --rm --network host \
+    --env PGPASSWORD=previous-provider-upgrade \
+    postgres:18-alpine \
+    psql --host 127.0.0.1 --username mdbase --dbname mdbase_provider_upgrade \
+    --set ON_ERROR_STOP=1 \
+    --tuples-only --no-align \
+    --command "SELECT concat(
+                 grant_json #>> '{contracts,operation_transport}', '|',
+                 grant_json #>> '{contracts,authorization_binding}', '|',
+                 grant_json #>> '{contracts,semantic_capabilities}', '|',
+                 grant_json #>> '{contracts,durable_mutation}'
+               )
+               FROM hosted_provider_notification_grants
+               WHERE grant_id = '22222222-2222-4222-8222-222222222222'"
+}
+
 upgrade_phase 'building candidate provider'
 docker build \
   --file "$repo_root/deploy/docker/Dockerfile.hosted-provider" \
@@ -214,6 +231,9 @@ fi
 contract=$(query_notification_contract true)
 printf 'Recovered notification contract: %s\n' "$contract"
 [[ $contract == "mdbase.runtime.timer.fired|1.0.0|sha256:41105be7a7abf33b31ced47e1e1965242236e40ccaea286b959b0a8c591f5642" ]]
+connect_contracts=$(query_connect_contracts)
+printf 'Recovered Connect compatibility contracts: %s\n' "$connect_contracts"
+[[ $connect_contracts == "2|3|1|1" ]]
 
 migration=$(query_sync_receipt_migration)
 printf 'Recovered sync receipt migration: %s\n' "$migration"

@@ -19,6 +19,10 @@ import {
   MdbaseConnect,
   unwrapConnectOutcome
 } from "../packages/client/dist/index.js";
+import {
+  APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
+  authorizationContractRequirements
+} from "../packages/protocol/dist/index.js";
 import { availableTcpPort, poll } from "./lib/test-runtime.mjs";
 
 process.env.NODE_ENV = "test";
@@ -1201,8 +1205,9 @@ async function startSignedWebAuthorization({
     ?? await applicationKeyStore.create(`e2e-grant:${authorizationId}`);
   const challenge = createHash("sha256").update(verifier).digest("base64url");
   const issuedAt = new Date();
+  const requestedFiles = application.requirements?.files;
   const proof = await signApplicationAuthorization({
-    protocol_version: 2,
+    protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
     authorization_id: authorizationId,
     application_id: application.id,
     application_manifest_digest: application.manifest_digest,
@@ -1217,7 +1222,9 @@ async function startSignedWebAuthorization({
     redirect_uri: redirectUri,
     state,
     code_challenge: challenge,
+    contracts: authorizationContractRequirements(operations, requestedFiles),
     requested_operations: operations,
+    ...(requestedFiles ? { requested_files: requestedFiles } : {}),
     ...(collectionId ? { collection_id: collectionId } : {})
   }, installationKey);
   const started = await request("/oauth/authorization_request", {

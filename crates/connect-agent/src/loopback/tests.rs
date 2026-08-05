@@ -333,7 +333,11 @@ async fn prepared_mutation_resumes_after_process_epoch_change_and_stale_owner_is
             .get("completed"),
         Some(&1)
     );
-    fs::remove_dir_all(fixture.root).unwrap();
+    let root = fixture.root.clone();
+    drop(app);
+    drop(restarted_registry);
+    drop(fixture);
+    remove_fixture_after_watchers_close(&root);
 }
 
 #[tokio::test]
@@ -377,7 +381,10 @@ async fn applied_but_unrecorded_filesystem_change_becomes_durable_unknown_not_re
             .complete_mutation(&stale_lease, "stale", None),
         Err(ConnectError::MutationFenceLost { .. })
     ));
-    fs::remove_dir_all(fixture.root).unwrap();
+    let root = fixture.root.clone();
+    drop(app);
+    drop(fixture);
+    remove_fixture_after_watchers_close(&root);
 }
 
 #[tokio::test]
@@ -992,6 +999,23 @@ fn fixture_for_origin(origin: &str, distribution: &str) -> Fixture {
         grant_id,
         encryption,
         connector,
+    }
+}
+
+fn remove_fixture_after_watchers_close(root: &std::path::Path) {
+    const ATTEMPTS: usize = 80;
+    for attempt in 0..ATTEMPTS {
+        match fs::remove_dir_all(root) {
+            Ok(()) => return,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+            Err(error) if attempt + 1 == ATTEMPTS => {
+                panic!(
+                    "failed to remove fixture after watcher shutdown at {}: {error}",
+                    root.display()
+                );
+            }
+            Err(_) => std::thread::sleep(std::time::Duration::from_millis(25)),
+        }
     }
 }
 

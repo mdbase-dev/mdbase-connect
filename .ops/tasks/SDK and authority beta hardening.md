@@ -14,8 +14,8 @@ tags:
   - user-experience
   - consumers
 created_at: 2026-08-04T10:51:42+10:00
-updated_at: 2026-08-05T10:25:47+10:00
-progress_summary: Phases 0-5 remain green; the Phase 7 audit reopened Phase 6 because e1c documented independent compatibility axes without live enforcement. The correction now independently versions and enforces operation transport v2, authorization binding v3, semantic capability v1, and durable mutation v1 before state; ambiguous relay aliases are removed, MCP uses signed binding-v3 requests, and Editor hosted-authority Playwright speaks transport v2. Full local Editor Playwright passes 47/47 while the remaining PR checks finish. A new immutable candidate, four exact-artifact repins, staging rollout, rollback, canaries, soak, and final audit remain. Production is untouched.
+updated_at: 2026-08-05T10:40:31+10:00
+progress_summary: Phases 0-5 remain green; the Phase 7 audit reopened Phase 6 because e1c documented independent compatibility axes without live enforcement. The live correction is complete. Follow-up CI defects are fixed without compatibility shims: the system E2E signs binding v3, Windows recovery tests release watcher ownership before bounded cleanup, and migration 0026 explicitly upgrades persisted beta.28 notification-grant compatibility ceilings. Focused provider/daemon tests, the system MVP E2E, build, formatting, and Editor Playwright 47/47 pass locally. Replacement CI, a new immutable candidate, four exact-artifact repins, staging rollout, rollback, canaries, soak, and final audit remain. Production is untouched.
 type: task
 ---
 

@@ -9,8 +9,8 @@ phase: 6
 depends_on: [Beta hardening 06 - management correctness, Beta hardening 07 - public SDK surface]
 tags: [beta, packaging, consumers, editor, workouts, pickle, tasknotes]
 created_at: 2026-08-04T17:48:28+10:00
-updated_at: 2026-08-05T10:25:47+10:00
-progress_summary: Reopened after the e1c candidate audit found that the documented independent compatibility axes were not enforced by the live wire. Operation transport v2, authorization binding v3, semantic capability v1, and durable mutation v1 are now independently advertised, signed, checked, and typed before authority state. Ambiguous encrypted-relay aliases and readiness/database fields are removed, MCP uses signed v3 requests, and the in-repo Editor remote-authority harness now speaks operation transport v2. Full local Editor Playwright passes 47/47; the final immutable candidate and four consumer repins remain.
+updated_at: 2026-08-05T10:40:31+10:00
+progress_summary: Reopened after the e1c candidate audit found that the documented independent compatibility axes were not enforced by the live wire. The live correction is complete and locally green. PR CI then exposed three cross-version fixture defects: Editor's v1 envelope is fixed and green; the stale system authorization fixture now signs binding v3 and passes end to end; Windows teardown now releases watcher owners before bounded cleanup; and migration 0026 derives explicit compatibility ceilings for persisted beta.28 notification grants. Focused Rust/provider tests pass; a fresh immutable candidate and four consumer repins remain after replacement CI.
 type: task
 ---
 
@@ -178,6 +178,18 @@ artifacts remain useful migration evidence but are not release candidates.
   the remote hosted-authority Playwright harness. The harness now consumes the
   canonical operation transport constant for requests and responses; the full
   local Editor Playwright matrix passes 47/47.
+- Replacement Server CI exposed three release-fixture lifecycle gaps rather
+  than product downgrades. The local system harness now signs binding v3 with
+  its exact compatibility requirements and passes the complete MVP E2E. The
+  Windows filesystem recovery tests explicitly drop every watcher-owning
+  registry before bounded fixture removal; both restart/fencing tests pass.
+- Hosted-provider migration `0026_notification_connect_contracts.sql` upgrades
+  persisted beta.28 notification-grant projections before strict Rust
+  deserialization. It derives the durable-mutation ceiling from the exact
+  stored operation and file permissions, and the previous-provider upgrade
+  program asserts `2|3|1|1` for its mutation-capable fixture. Hosted-provider
+  unit tests, shell syntax, workspace formatting, and the embedded migration
+  build pass locally.
 
 The slice closes again only after one immutable post-correction Connect commit
 produces all six packages, all four consumer PRs pin exactly those artifacts,

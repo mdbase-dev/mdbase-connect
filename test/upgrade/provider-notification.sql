@@ -19,7 +19,7 @@ VALUES (
     "application_origin":"https://example.test",
     "collection_id":"11111111-1111-4111-8111-111111111111",
     "collection_name":"Upgrade canary",
-    "operations":["changes"],
+    "operations":["changes","put_timer"],
     "scope":{"contracts":[],"access":"full_collection"},
     "notification_criteria":[{
       "id":"task.reminder",
