@@ -32,7 +32,7 @@ COPY --from=build /build/mdbase-connect/target/release/mdbase-hosted-backup-admi
 
 ENV HOST=0.0.0.0 \
     PORT=8790 \
-    RUST_LOG=mdbase_connect_hosted_provider=info,tower_http=debug \
+    RUST_LOG=mdbase_connect_hosted_provider=info,mdbase_connect::metrics=info,tower_http=debug \
     RENDER_GIT_COMMIT=${MDBASE_CONNECT_REVISION}
 
 EXPOSE 8790
