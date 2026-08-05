@@ -6,35 +6,61 @@ on:
       - Server CI
     types:
       - completed
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Full release commit to rebuild and attest
+        required: true
+        type: string
+      release_tag:
+        description: Annotated release tag that must resolve to source_commit
+        required: true
+        type: string
+      reason:
+        description: Audit reason for republishing unchanged runtime inputs
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: publish-server-images-${{ github.event.workflow_run.head_sha }}
+  group: publish-server-images-${{ github.event_name == 'workflow_dispatch' && inputs.source_commit || github.event.workflow_run.head_sha }}
   cancel-in-progress: false
+
+env:
+  SOURCE_COMMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.source_commit || github.event.workflow_run.head_sha }}
 
 jobs:
   changes:
     if: >-
-      github.event.workflow_run.event == 'push' &&
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'main' &&
-      github.event.workflow_run.conclusion == 'success'
+      github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-24.04
     outputs:
       publish: ${{ steps.diff.outputs.publish }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ env.SOURCE_COMMIT }}
           fetch-depth: 2
+          fetch-tags: true
           persist-credentials: false
 
       - id: diff
         name: Detect managed runtime changes
-        env:
-          SOURCE_COMMIT: ${{ github.event.workflow_run.head_sha }}
         run: |
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+            [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.-]+$ ]]
+            test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+            test "$(git rev-list -n 1 "$RELEASE_TAG")" = "$SOURCE_COMMIT"
+            test -n "$REPUBLISH_REASON"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           parent=$(git rev-parse "$SOURCE_COMMIT^")
           if git diff --quiet "$parent" "$SOURCE_COMMIT" -- \
             Cargo.toml \
@@ -59,6 +85,9 @@ jobs:
           else
             echo "publish=true" >> "$GITHUB_OUTPUT"
           fi
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          REPUBLISH_REASON: ${{ inputs.reason }}
 
   publish:
     needs: changes
@@ -84,7 +113,6 @@ jobs:
             dockerfile: deploy/docker/Dockerfile.mcp
     env:
       IMAGE: ghcr.io/mdbase-dev/${{ matrix.package }}
-      SOURCE_COMMIT: ${{ github.event.workflow_run.head_sha }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
