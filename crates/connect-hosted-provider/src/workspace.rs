@@ -26,6 +26,7 @@ pub use types::{Execution, StoredDocument};
 pub struct WorkingSet {
     directory: TempDir,
     records_by_path: BTreeMap<String, Uuid>,
+    paths_by_record_id: BTreeMap<Uuid, String>,
 }
 
 impl WorkingSet {
@@ -38,8 +39,10 @@ impl WorkingSet {
             write_document(directory.path(), &path, &document)?;
         }
         let mut records_by_path = BTreeMap::new();
+        let mut paths_by_record_id = BTreeMap::new();
         for record in records {
             write_document(directory.path(), &record.path, &record.document)?;
+            paths_by_record_id.insert(record.record_id, record.path.clone());
             records_by_path.insert(record.path, record.record_id);
         }
         Collection::open(directory.path()).map_err(|error| {
@@ -50,6 +53,7 @@ impl WorkingSet {
         Ok(Self {
             directory,
             records_by_path,
+            paths_by_record_id,
         })
     }
 
@@ -65,10 +69,7 @@ impl WorkingSet {
                 diagnostic.message
             ))
         })?;
-        let current_path = self
-            .records_by_path
-            .iter()
-            .find_map(|(path, id)| (*id == mutation.record_id).then(|| path.clone()));
+        let current_path = self.paths_by_record_id.get(&mutation.record_id).cloned();
         let (input, primary_before_path) = operation_input(mutation, current_path.as_deref())?;
         let envelope = match mutation.operation {
             SyncMutationOperation::Create => operations.create(&input),
@@ -136,10 +137,13 @@ impl WorkingSet {
         }
         changed.sort_by_key(|(record_id, _, _)| (*record_id != mutation.record_id, *record_id));
         for (record_id, after, _) in &changed {
-            self.records_by_path
-                .retain(|_, candidate| candidate != record_id);
+            if let Some(previous_path) = self.paths_by_record_id.remove(record_id) {
+                self.records_by_path.remove(&previous_path);
+            }
             if let Some(record) = after {
                 self.records_by_path.insert(record.path.clone(), *record_id);
+                self.paths_by_record_id
+                    .insert(*record_id, record.path.clone());
             }
         }
         Ok(Execution {
@@ -676,6 +680,90 @@ schema:
                 .get("status"),
             Some(&json!("done"))
         );
+    }
+
+    #[test]
+    fn keeps_record_and_path_indexes_consistent_across_mutations() {
+        let record_id = Uuid::new_v4();
+        let replica_id = Uuid::new_v4();
+        let mut workspace = WorkingSet::materialize(resources(), []).unwrap();
+        let created = workspace
+            .execute(&SyncMutation {
+                mutation_id: Uuid::new_v4(),
+                replica_id,
+                scope_epoch: 1,
+                operation: SyncMutationOperation::Create,
+                record_id,
+                base_revision: None,
+                input: Map::from_iter([
+                    ("path".to_string(), json!("tasks/indexed.md")),
+                    (
+                        "frontmatter".to_string(),
+                        json!({"type": "task", "title": "Indexed"}),
+                    ),
+                    ("body".to_string(), json!("")),
+                    ("types".to_string(), json!(["task"])),
+                ]),
+                created_at: "2026-07-21T00:00:00Z".to_string(),
+                causal_predecessor: None,
+            })
+            .unwrap();
+        let created_revision = created.changed[0].1.as_ref().unwrap().revision.clone();
+        assert_eq!(
+            workspace.records_by_path.get("tasks/indexed.md"),
+            Some(&record_id)
+        );
+        assert_eq!(
+            workspace
+                .paths_by_record_id
+                .get(&record_id)
+                .map(String::as_str),
+            Some("tasks/indexed.md")
+        );
+
+        let renamed = workspace
+            .execute(&SyncMutation {
+                mutation_id: Uuid::new_v4(),
+                replica_id,
+                scope_epoch: 1,
+                operation: SyncMutationOperation::Rename,
+                record_id,
+                base_revision: Some(created_revision),
+                input: Map::from_iter([("path".to_string(), json!("archive/indexed.md"))]),
+                created_at: "2026-07-21T00:00:01Z".to_string(),
+                causal_predecessor: None,
+            })
+            .unwrap();
+        let renamed_revision = renamed.changed[0].1.as_ref().unwrap().revision.clone();
+        assert!(!workspace.records_by_path.contains_key("tasks/indexed.md"));
+        assert_eq!(
+            workspace.records_by_path.get("archive/indexed.md"),
+            Some(&record_id)
+        );
+        assert_eq!(
+            workspace
+                .paths_by_record_id
+                .get(&record_id)
+                .map(String::as_str),
+            Some("archive/indexed.md")
+        );
+
+        let deleted = workspace
+            .execute(&SyncMutation {
+                mutation_id: Uuid::new_v4(),
+                replica_id,
+                scope_epoch: 1,
+                operation: SyncMutationOperation::Delete,
+                record_id,
+                base_revision: Some(renamed_revision),
+                input: Map::new(),
+                created_at: "2026-07-21T00:00:02Z".to_string(),
+                causal_predecessor: None,
+            })
+            .unwrap();
+        assert!(deleted.envelope.valid, "{:?}", deleted.envelope.diagnostics);
+        assert!(!workspace.records_by_path.contains_key("archive/indexed.md"));
+        assert!(!workspace.paths_by_record_id.contains_key(&record_id));
     }
 
     #[test]
