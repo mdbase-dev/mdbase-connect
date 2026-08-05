@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.0-beta.35
+
+Beta.35 is a production hotfix for application approval against hosted
+collections. It preserves beta.34's authority contracts and data formats.
+
+- Hosted notification grants now carry the exact declaration identity and
+  manifest digest already bound into the signed application authorization.
+  This fixes approval for applications such as TaskNotes that declare hosted
+  notification criteria.
+- Rust and TypeScript grant summaries now require the same application identity
+  fields, so an incomplete control-plane payload fails at build time.
+- Safe hosted-provider validation failures retain their HTTP 422 status and
+  structured problem instead of being reported as a generic storage failure.
+
 ## 0.1.0-beta.33
 
 Beta.33 is the single successor to the undeployed beta.32 candidate. It retains
