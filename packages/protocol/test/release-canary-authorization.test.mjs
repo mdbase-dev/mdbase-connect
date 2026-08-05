@@ -25,13 +25,14 @@ test("release canary uses the canonical signed authorization flow", async () => 
 
   assert.equal(canary.authorization_id, binding.authorization_id);
   assert.equal(canary.form.client_id, applicationId);
+  assert.equal(binding.application_declaration_id, "dev.mdbase.release-canary");
   assert.equal(binding.application_manifest_digest, manifestDigest);
   assert.equal(binding.redirect_uri, canary.form.redirect_uri);
   assert.equal(binding.code_challenge, canary.form.code_challenge);
   assert.deepEqual(binding.requested_operations, ["describe"]);
   assert.deepEqual(binding.contracts, {
     operation_transport: 2,
-    authorization_binding: 3,
+    authorization_binding: 4,
     semantic_capabilities: 1
   });
   assert.equal(

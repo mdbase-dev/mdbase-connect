@@ -17,6 +17,7 @@ const filesSchema = JSON.parse(readFileSync(resolve(here, "../schemas/files.v1.s
 const interopSchema = JSON.parse(readFileSync(resolve(here, "../schemas/interop/v0.1/profile.schema.json"), "utf8"));
 const syncSchema = JSON.parse(readFileSync(resolve(here, "../schemas/sync.v1.schema.json"), "utf8"));
 const problemSchema = JSON.parse(readFileSync(resolve(here, "../schemas/connect-problem.v1.schema.json"), "utf8"));
+const querySchema = JSON.parse(readFileSync(resolve(here, "../schemas/mdbase-query.v0.3.schema.json"), "utf8"));
 const EXACT_DIGEST = `sha256:${"0".repeat(64)}`;
 // JSON Schema permits `required` to name properties declared by an enclosing
 // schema. Keep every other strict check, but do not reject that standard
@@ -32,6 +33,7 @@ ajv.addSchema(filesSchema);
 ajv.addSchema(interopSchema);
 ajv.addSchema(syncSchema);
 ajv.addSchema(problemSchema);
+ajv.addSchema(querySchema);
 
 function validator(reference) {
   const validate = ajv.getSchema(reference);
@@ -49,6 +51,28 @@ test("all canonical schemas compile as strict JSON Schema 2020-12", () => {
   assert.ok(validator(interopSchema.$id));
   assert.ok(validator(syncSchema.$id));
   assert.ok(validator(problemSchema.$id));
+  assert.ok(validator(querySchema.$id));
+});
+
+test("the shared mdbase v0.3 query contract rejects drift and malformed queries", () => {
+  const validate = validator(querySchema.$id);
+  const query = {
+    types: ["note"],
+    projections: { age_days: { expr: "days_between(file.mtime, now())" } },
+    where: "status == 'open'",
+    select: ["file.path", { name: "age", expr: "age_days", label: "Age" }],
+    order_by: [{ field: "file.mtime", direction: "desc" }],
+    group_by: [{ field: "status" }],
+    summary_functions: { open_count: { expr: "count()" } },
+    summaries: [{ field: "status", function: "open_count" }],
+    include_body: false,
+    frontmatter_mode: "both"
+  };
+
+  assert.equal(validate(query), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ ...query, orderBy: query.order_by }), false);
+  assert.equal(validate({ ...query, where: { status: "open" } }), false);
+  assert.equal(validate({ ...query, incldue_body: true }), false);
 });
 
 test("the protocol schema exposes the executable collection operation contract", () => {

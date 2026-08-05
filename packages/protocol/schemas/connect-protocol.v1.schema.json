@@ -448,7 +448,12 @@
         "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
         "path": { "type": "string", "pattern": "^/x-[^/]+(?:/.*)?$", "maxLength": 1024 },
         "predicate": { "const": "contains" },
-        "value": { "type": ["string", "number", "boolean", "null"] }
+        "value": { "oneOf": [
+          { "type": "string" },
+          { "type": "number" },
+          { "type": "boolean" },
+          { "type": "null" }
+        ] }
       }
     },
     "configurationProvision": {
@@ -459,7 +464,12 @@
         "requirement": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
         "operation": { "const": "set_add" },
         "path": { "type": "string", "pattern": "^/x-[^/]+(?:/.*)?$", "maxLength": 1024 },
-        "value": { "type": ["string", "number", "boolean", "null"] }
+        "value": { "oneOf": [
+          { "type": "string" },
+          { "type": "number" },
+          { "type": "boolean" },
+          { "type": "null" }
+        ] }
       }
     },
     "authorizationOfferRequest": {

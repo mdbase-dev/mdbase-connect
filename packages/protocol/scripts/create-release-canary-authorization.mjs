@@ -29,6 +29,7 @@ export async function createReleaseCanaryAuthorization(applicationId, manifestDi
     protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
     authorization_id: randomUUID(),
     application_id: applicationId,
+    application_declaration_id: "dev.mdbase.release-canary",
     application_manifest_digest: manifestDigest,
     application_installation_id: await applicationInstallationIdFromPublicKey(
       installationSigning.publicKey
