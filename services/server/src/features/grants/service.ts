@@ -99,7 +99,9 @@ export async function syncHostedNotificationGrant(
     id: string;
     application_id: string;
     application_name: string;
+    application_distribution: "web" | "portable";
     application_homepage: string;
+    application_project_url: string | null;
     application_origin: string;
     application_icon: string | null;
     collection_id: string;
@@ -112,7 +114,9 @@ export async function syncHostedNotificationGrant(
     application_authorization: import("@mdbase-dev/connect-protocol").ApplicationAuthorizationProof;
   }>(
     `SELECT g.id, g.application_id, a.name AS application_name,
+            a.distribution AS application_distribution,
             a.homepage AS application_homepage,
+            a.project_url AS application_project_url,
             CASE WHEN g.application_origin = '' THEN a.homepage
                  ELSE g.application_origin END AS application_origin,
             a.icon AS application_icon,
@@ -136,11 +140,19 @@ export async function syncHostedNotificationGrant(
   const grant: GrantSummary = {
     id: row.id,
     application_id: row.application_id,
+    application_declaration_id:
+      row.application_authorization.binding.application_declaration_id,
+    application_manifest_digest:
+      row.application_authorization.binding.application_manifest_digest,
     collection_id: row.collection_id,
     operations: row.operations as GrantSummary["operations"],
     scope: row.scope,
     application_name: row.application_name,
+    application_distribution: row.application_distribution,
     application_homepage: row.application_homepage,
+    ...(row.application_project_url
+      ? { application_project_url: row.application_project_url }
+      : {}),
     application_origin: row.application_origin,
     ...(row.application_icon ? { application_icon: row.application_icon } : {}),
     collection_name: row.collection_name,

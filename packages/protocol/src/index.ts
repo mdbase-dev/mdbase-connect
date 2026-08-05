@@ -288,6 +288,10 @@ export type MdbaseOperationResponse<Result = unknown> =
 export interface GrantPolicy {
   id: string;
   application_id: string;
+  /** Stable declaration identity bound into the exact application authorization. */
+  application_declaration_id: string;
+  /** Unprefixed SHA-256 digest of the exact approved application manifest. */
+  application_manifest_digest: string;
   collection_id: string;
   operations: CollectionOperation[];
   scope: GrantScope;

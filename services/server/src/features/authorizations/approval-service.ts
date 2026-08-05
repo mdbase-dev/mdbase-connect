@@ -285,6 +285,8 @@ export async function approvePortalAuthorization(
     grant = {
       id: grantId,
       application_id: pending.application_id,
+      application_declaration_id: applicationDeclarationId,
+      application_manifest_digest: applicationManifestDigest,
       collection_id: selected.local_id,
       operations: operations as GrantPolicy["operations"],
       scope,

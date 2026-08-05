@@ -105,7 +105,7 @@ export function registerErrorHandler(app: FastifyInstance): void {
       return reply.code(denied ? 403 : 400).send(apiError(error.code, error.message));
     }
     if (error instanceof HostedProviderResponseError) {
-      if ([400, 404, 409, 429].includes(error.status)) {
+      if ([400, 404, 409, 422, 429].includes(error.status)) {
         return reply.code(error.status).send(apiError(error.code, error.message));
       }
       request.log.error(
