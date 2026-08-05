@@ -3893,7 +3893,7 @@ async function authorizeHostedApplicationByCreating(authorizationUrl, cookie, re
     await expect(collection).toContainText("Hosted by mdbase");
     await expect(collection.getByRole("button", { name: "Change" })).toBeVisible();
     await expect(page.getByText(
-      "Workout Inline E2E needs a workout type"
+      "Workout Inline E2E needs a record type"
     )).toBeVisible();
     await expect(page.getByText(
       "Allowing access adds a separate type supplied by Workout Inline E2E. Existing records stay unchanged."
