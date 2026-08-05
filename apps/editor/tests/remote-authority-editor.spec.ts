@@ -141,6 +141,7 @@ class RemoteAuthorityHarness {
       return json(route, {
         application: {
           id: "40000000-0000-4000-8000-000000000004",
+          family_identity: "bundle:dev.mdbase.editor",
           manifest_digest: "0".repeat(64),
           name: "mdbase editor",
           homepage: "http://127.0.0.1:4174/",

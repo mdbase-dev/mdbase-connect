@@ -29,6 +29,7 @@ test("recovers from a stale local grant without bypassing the connector", async 
       await json(route, {
         application: {
           id: "20000000-0000-4000-8000-000000000002",
+          family_identity: "bundle:dev.mdbase.editor",
           manifest_digest: "0".repeat(64),
           name: "mdbase editor",
           homepage: "http://127.0.0.1",
