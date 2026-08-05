@@ -77,6 +77,54 @@ describe("PKCE", () => {
 });
 
 describe("provider-neutral collection client", () => {
+  it("maps collection descriptors without rewriting canonical configuration data", async () => {
+    const client = new MdbaseCollectionClient({
+      async operation<Result>() {
+        return {
+          protocol_version: 1,
+          collection_id: TEST_COLLECTION_ID,
+          display_name: "Notes",
+          spec_version: "0.3.0",
+          operations: ["describe", "query"],
+          change_cursor: 7,
+          types: [],
+          contracts: [{
+            contract_type: "record",
+            id: "example.note",
+            version: "1.0.0",
+            digest: `sha256:${"1".repeat(64)}`,
+            schema: { type: "object" },
+            binding_schema: { type: "object" },
+            implementations: [{
+              type_name: "note",
+              type_version: 1,
+              type_path: "_types/note.md",
+              digest: `sha256:${"2".repeat(64)}`,
+              fields: { title: "title" }
+            }]
+          }],
+          configuration: { spec_version: "0.3.0", x_custom: { snake_key: true } }
+        } as Result;
+      }
+    });
+
+    const description = unwrapConnectOutcome(await client.describe());
+
+    expect(description).toMatchObject({
+      protocolVersion: 1,
+      collectionId: TEST_COLLECTION_ID,
+      displayName: "Notes",
+      specVersion: "0.3.0",
+      changeCursor: 7,
+      contracts: [{
+        contractType: "record",
+        bindingSchema: { type: "object" },
+        implementations: [{ typeName: "note", typeVersion: 1, typePath: "_types/note.md" }]
+      }],
+      configuration: { spec_version: "0.3.0", x_custom: { snake_key: true } }
+    });
+  });
+
   it("creates body-only records without manufacturing an empty frontmatter object", async () => {
     const calls: Array<{ operation: string; input: unknown }> = [];
     const client = new MdbaseCollectionClient({

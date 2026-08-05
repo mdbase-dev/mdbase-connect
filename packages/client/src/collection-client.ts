@@ -1,7 +1,7 @@
 import type {
   CollectionChange as WireCollectionChange,
   CollectionChangesPage as WireCollectionChangesPage,
-  CollectionDescription,
+  CollectionDescription as WireCollectionDescription,
   CollectionOperation,
   ConnectProblemCode,
   CollectionTypeDocument,
@@ -54,6 +54,7 @@ import type {
   ChangesInput,
   CollectionChange,
   CollectionChangesPage,
+  CollectionDescription,
   CollectionSetupApplyResult,
   CollectionSetupAssessment,
   AssessCollectionSetupInput,
@@ -126,8 +127,9 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
     );
   }
 
-  describe(options?: ConnectRequestOptions): Promise<ConnectOutcome<CollectionDescription, CollectionDescriptionProblemCode>> {
-    return this.rawOperation("describe", {}, COLLECTION_DESCRIPTION_PROBLEM_CODES, options);
+  async describe(options?: ConnectRequestOptions): Promise<ConnectOutcome<CollectionDescription, CollectionDescriptionProblemCode>> {
+    const outcome = await this.rawOperation<WireCollectionDescription, CollectionDescriptionProblemCode>("describe", {}, COLLECTION_DESCRIPTION_PROBLEM_CODES, options);
+    return mapOutcome(outcome, wireCollectionDescription);
   }
 
   async changes(
@@ -949,6 +951,35 @@ function wireChangesPage(value: WireCollectionChangesPage): CollectionChangesPag
     cursor: value.cursor,
     hasMore: value.has_more,
     reset: value.reset
+  };
+}
+
+function wireCollectionDescription(value: WireCollectionDescription): CollectionDescription {
+  return {
+    protocolVersion: value.protocol_version,
+    collectionId: value.collection_id,
+    displayName: value.display_name,
+    specVersion: value.spec_version,
+    operations: value.operations,
+    changeCursor: value.change_cursor,
+    types: value.types,
+    contracts: value.contracts.map((contract) => ({
+      contractType: contract.contract_type,
+      id: contract.id,
+      version: contract.version,
+      digest: contract.digest,
+      schema: contract.schema,
+      ...(contract.binding_schema ? { bindingSchema: contract.binding_schema } : {}),
+      implementations: contract.implementations.map((implementation) => ({
+        typeName: implementation.type_name,
+        typeVersion: implementation.type_version,
+        ...(implementation.type_path ? { typePath: implementation.type_path } : {}),
+        digest: implementation.digest,
+        fields: implementation.fields,
+        ...(implementation.binding ? { binding: implementation.binding } : {})
+      }))
+    })),
+    ...(value.configuration ? { configuration: value.configuration } : {})
   };
 }
 

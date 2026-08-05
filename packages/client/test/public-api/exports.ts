@@ -4,6 +4,7 @@ import {
   externalStore,
   type ConnectRequestOptions,
   type CollectionFileDescriptor,
+  type CollectionDescription,
   type MdbaseConnection,
   type MdbaseDesiredTimer,
   type QueryInput,
@@ -54,10 +55,21 @@ const file: CollectionFileDescriptor = {
   mediaClass: "image",
   modifiedAt: "2026-08-06T00:00:00Z"
 };
+const description: CollectionDescription = {
+  protocolVersion: 1,
+  collectionId: "01911111-1111-7111-8111-111111111111",
+  displayName: "Notes",
+  specVersion: "0.3.0",
+  operations: ["describe"],
+  changeCursor: 0,
+  types: [],
+  contracts: []
+};
 void canonicalQuery;
 void revisionSafeUpdate;
 void timer;
 void file;
+void description;
 
 // @ts-expect-error wire spelling is rejected at the application boundary.
 const wireQueryTypo: QueryInput = { order_by: [{ field: "file.path" }] };
@@ -69,11 +81,14 @@ const misspelledQuery: QueryInput = { incldueBody: true };
 const wireUpdateTypo: UpdateInput = { path: "one.md", patch: {}, if_revision: "old" };
 // @ts-expect-error file identities use camelCase at the SDK boundary.
 const wireFileTypo: CollectionFileDescriptor = { file_id: "one" };
+// @ts-expect-error collection descriptions are mapped at the SDK boundary.
+const wireDescriptionTypo: CollectionDescription = { protocol_version: 1 };
 void wireQueryTypo;
 void malformedWhere;
 void misspelledQuery;
 void wireUpdateTypo;
 void wireFileTypo;
+void wireDescriptionTypo;
 
 // @ts-expect-error low-level clients do not belong to the golden-path root.
 import { MdbaseCollectionClient as RemovedRootClient } from "@mdbase-dev/connect";

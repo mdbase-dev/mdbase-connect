@@ -1683,7 +1683,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   function requestForgetCurrentCollection() {
     const connection = connectionSummary;
-    if (connection) requestForgetConnection(connection, description?.display_name);
+    if (connection) requestForgetConnection(connection, description?.displayName);
   }
 
   useEffect(() => {
@@ -1818,8 +1818,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     } as CSSProperties}
   >
     {(!layout.collectionCollapsed || mobileLayout) && <CollectionRail
-      collectionId={description.collection_id}
-      name={description.display_name}
+      collectionId={description.collectionId}
+      name={description.displayName}
       count={collectionTotal ?? allNotes.length}
       types={description.types}
       activeFilter={noteFilter}
@@ -1866,7 +1866,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         searchContexts={searchContexts}
         sort={noteSort}
         scopeLabel={filterScopeLabel(noteFilter)}
-        collectionName={filterLabel(noteFilter, description.display_name)}
+        collectionName={filterLabel(noteFilter, description.displayName)}
         onSearch={setSearch}
         onSort={setNoteSort}
         onClearScope={() => setNoteFilter(undefined)}
@@ -2141,7 +2141,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     {collectionSwitcherOpen && <CollectionSwitcher
       activeCollectionId={connectionSummary?.collectionId}
       connections={sessionSnapshot.connections}
-      displayName={description.display_name}
+      displayName={description.displayName}
       onOpen={requestOpenSavedCollection}
       onConnect={requestConnectAnotherCollection}
       onClose={() => setCollectionSwitcherOpen(false)}

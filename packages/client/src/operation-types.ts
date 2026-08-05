@@ -89,6 +89,50 @@ export interface RecordDocument<Frontmatter extends JsonObject = JsonObject> {
   contract?: DataContractViewIdentity;
 }
 
+export interface CollectionTypeDescriptor {
+  name: string;
+  version?: number;
+  description?: string;
+  revision?: string;
+  path?: string;
+  definition?: JsonObject;
+  schema: JsonObject;
+  collection?: JsonObject;
+  lifecycle?: JsonObject;
+  extensions: Record<string, unknown>;
+}
+
+export interface CollectionContractImplementationDescriptor {
+  typeName: string;
+  typeVersion: number;
+  typePath?: string;
+  digest: string;
+  fields: Record<string, string>;
+  binding?: JsonObject;
+}
+
+export interface CollectionContractDescriptor {
+  contractType: "record";
+  id: string;
+  version: string;
+  digest: string;
+  schema: JsonObject;
+  bindingSchema?: JsonObject;
+  implementations: CollectionContractImplementationDescriptor[];
+}
+
+export interface CollectionDescription {
+  protocolVersion: 1;
+  collectionId: string;
+  displayName: string;
+  specVersion: string;
+  operations: CollectionOperation[];
+  changeCursor: number;
+  types: CollectionTypeDescriptor[];
+  contracts: CollectionContractDescriptor[];
+  configuration?: JsonObject;
+}
+
 export interface QueryProjection {
   expression: string;
   description?: string;

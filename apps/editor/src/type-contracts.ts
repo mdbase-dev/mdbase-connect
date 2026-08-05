@@ -347,8 +347,8 @@ export function validateTypeContractImplementations(
     }
 
     const binding = record(implementation.binding);
-    if (contract.binding_schema) {
-      const bindingIssue = validateBinding(contract.binding_schema, binding, contractId);
+    if (contract.bindingSchema) {
+      const bindingIssue = validateBinding(contract.bindingSchema, binding, contractId);
       if (bindingIssue) {
         issues.push({
           level: "error",

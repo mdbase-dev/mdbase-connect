@@ -100,7 +100,7 @@ describe("type contract authoring", () => {
   it("validates complete nested binding values against the contract JSON Schema", () => {
     const configurable: CollectionContractDescriptor = {
       ...personContract,
-      binding_schema: {
+      bindingSchema: {
         type: "object",
         required: ["status"],
         properties: {
@@ -225,7 +225,7 @@ implements:
 });
 
 const contactContract: CollectionContractDescriptor = {
-  contract_type: "record",
+  contractType: "record",
   id: "standards.jscontact.card",
   version: "1.0.0",
   digest: `sha256:${"1".repeat(64)}`,
@@ -247,15 +247,15 @@ const contactContract: CollectionContractDescriptor = {
     }
   },
   implementations: [{
-    type_name: "contact",
-    type_version: 1,
+    typeName: "contact",
+    typeVersion: 1,
     digest: `sha256:${"2".repeat(64)}`,
     fields: { "/@type": "/card/@type", version: "card.version" }
   }]
 };
 
 const personContract: CollectionContractDescriptor = {
-  contract_type: "record",
+  contractType: "record",
   id: "example.person",
   version: "1.0.0",
   digest: `sha256:${"3".repeat(64)}`,
@@ -268,8 +268,8 @@ const personContract: CollectionContractDescriptor = {
     }
   },
   implementations: [{
-    type_name: "legacy-person",
-    type_version: 1,
+    typeName: "legacy-person",
+    typeVersion: 1,
     digest: `sha256:${"4".repeat(64)}`,
     fields: { name: "name" }
   }]

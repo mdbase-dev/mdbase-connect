@@ -49,8 +49,8 @@ export function SettingsView({ description, connection, noteCount, preferences, 
 
       <section>
         <div className="settings-intro"><h2>Collection</h2><p>The collection you chose in mdbase connect.</p></div>
-        <FactRow label="Name" value={description.display_name} />
-        <FactRow label="Specification" value={description.spec_version} />
+        <FactRow label="Name" value={description.displayName} />
+        <FactRow label="Specification" value={description.specVersion} />
         <FactRow label="Records" value={String(noteCount)} />
         <FactRow label="Types" value={String(description.types.length)} />
         <FactRow label="Types folder" value={stringValue(settings.types_folder, "_types")} />
@@ -64,7 +64,7 @@ export function SettingsView({ description, connection, noteCount, preferences, 
         <FactRow label="Route" value={connectionRouteLabel(connection)} />
         <DirectAccessRow connection={connection} busy={directAccessBusy} onRequest={onRequestDirectAccess} />
         <FactRow label="Operations" value={description.operations.join(", ")} mono />
-        <FactRow label="Collection ID" value={description.collection_id} mono />
+        <FactRow label="Collection ID" value={description.collectionId} mono />
         <div className="setting-row connection-action">
           <div><h3>Saved access</h3><p>Remove this collection from the editor without changing its files.</p></div>
           <button className="settings-danger-action" onClick={onForget}><Trash2 aria-hidden="true" />Forget from this browser</button>

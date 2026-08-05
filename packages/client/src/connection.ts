@@ -1,11 +1,10 @@
 import type {
-  CollectionDescription,
   CollectionOperation,
   CollectionTypeDocument,
   FileCapability,
   GrantScope,
   JsonObject,
-  MdbaseOperationEnvelope,
+  MdbaseOperationEnvelope
 } from "@mdbase-dev/connect-protocol";
 import { MdbaseCollectionClient } from "./collection-client.js";
 import {
@@ -53,6 +52,7 @@ import type {
   ChangesInput,
   CollectionChange,
   CollectionChangesPage,
+  CollectionDescription,
   CollectionSetupApplyResult,
   CollectionSetupAssessment,
   ApplyCollectionSetupInput,

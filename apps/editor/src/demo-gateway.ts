@@ -91,12 +91,12 @@ export class DemoCollectionGateway implements CollectionGateway {
   async describe(): Promise<CollectionDescription> {
     if (this.openingDelay) await delay(this.openingDelay);
     return {
-      protocol_version: 1,
-      collection_id: "00000000-0000-4000-8000-000000000001",
-      display_name: "Writing",
-      spec_version: "0.3.0",
+      protocolVersion: 1,
+      collectionId: "00000000-0000-4000-8000-000000000001",
+      displayName: "Writing",
+      specVersion: "0.3.0",
       operations: ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename", "read_type", "create_type", "update_type", "apply_type_pack"],
-      change_cursor: this.sequence,
+      changeCursor: this.sequence,
       types: this.typeDocuments.map((document) => typeDescriptor(document, this.packResources)),
       contracts: clone(this.contractDescriptors),
       configuration: {
@@ -681,9 +681,9 @@ function demoContractDescriptor(
           .filter((entry): entry is [string, string] => typeof entry[1] === "string"))
         : {};
       return [{
-        type_name: document.name,
-        type_version: typeof type.version === "number" ? type.version : 1,
-        type_path: document.path,
+        typeName: document.name,
+        typeVersion: typeof type.version === "number" ? type.version : 1,
+        typePath: document.path,
         digest: resource.digest,
         fields,
         ...(isObject(candidate.binding) ? { binding: candidate.binding } : {})
@@ -691,13 +691,13 @@ function demoContractDescriptor(
     });
   });
   return {
-    contract_type: "record",
+    contractType: "record",
     id,
     version,
     digest,
     schema: resolvedSchema(definition.record_schema, path, documents),
     ...(isObject(definition.binding_schema)
-      ? { binding_schema: resolvedSchema(definition.binding_schema, path, documents) }
+      ? { bindingSchema: resolvedSchema(definition.binding_schema, path, documents) }
       : {}),
     implementations
   };

@@ -170,7 +170,11 @@ export type {
   WatchInput,
   MdbaseWatchSubscription,
   CollectionChange,
-  CollectionChangesPage
+  CollectionChangesPage,
+  CollectionDescription,
+  CollectionContractDescriptor,
+  CollectionContractImplementationDescriptor,
+  CollectionTypeDescriptor
 } from "./operation-types.js";
 export { externalStore } from "./external-store.js";
 export type { MdbaseExternalStore } from "./external-store.js";
@@ -198,12 +202,9 @@ export type {
   ApplicationNotifications,
   ApplicationAuthorizationBinding,
   ApplicationAuthorizationProof,
-  CollectionContractDescriptor,
-  CollectionDescription,
   FileAction,
   FileCapability,
   CollectionOperation as MdbaseOperation,
-  CollectionTypeDescriptor,
   CollectionTypeDocument,
   ConnectOperationOutcome,
   ConnectProblem,

@@ -175,14 +175,14 @@ export function resolvePickleContract(
   }
   const implementations = descriptor.implementations.map((implementation) => {
     const requestType = description.types.find(
-      (candidate) => candidate.name === implementation.type_name
+      (candidate) => candidate.name === implementation.typeName
     );
     if (!requestType)
       throw new PickleContractError(
-        `The Pickle request type ${implementation.type_name} is missing from this collection.`
+        `The Pickle request type ${implementation.typeName} is missing from this collection.`
       );
     return {
-      typeName: implementation.type_name,
+      typeName: implementation.typeName,
       fields: parseFields(implementation.fields),
       binding: implementation.binding,
       requestType

@@ -706,7 +706,7 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
                 <button onClick={onOpenYaml}>Open YAML</button>
               </div>}
             </details>
-            {contract.binding_schema && <details
+            {contract.bindingSchema && <details
               className="contract-settings"
               open={bindingIssues.length > 0 || openSettings.has(implementationKey)}
               onToggle={(event) => {
@@ -736,8 +736,8 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
                 {implementation.binding || openSettings.has(implementationKey)
                   ? <SchemaValueEditor
                       name={`${implementation.contract} settings`}
-                      schema={contract.binding_schema}
-                      rootSchema={contract.binding_schema}
+                      schema={contract.bindingSchema}
+                      rootSchema={contract.bindingSchema}
                       value={implementation.binding ?? {}}
                       required
                       hideLabel
@@ -754,7 +754,7 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
                   : <div className="contract-settings-empty">
                       <p>Set the contract’s required behavior choices before saving this type.</p>
                       <button type="button" onClick={() => {
-                        const initial = schemaInitialValue(contract.binding_schema, contract.binding_schema);
+                        const initial = schemaInitialValue(contract.bindingSchema, contract.bindingSchema);
                         if (!isJsonObject(initial)) return;
                         setOpenSettings((current) => new Set(current).add(implementationKey));
                         onChange((current) => setTypeContractBinding(

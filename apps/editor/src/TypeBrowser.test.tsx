@@ -620,7 +620,7 @@ const typeDocument: TypeDocument = {
 };
 
 const personContract: CollectionContractDescriptor = {
-  contract_type: "record",
+  contractType: "record",
   id: "example.person",
   version: "1.0.0",
   digest: `sha256:${"1".repeat(64)}`,
@@ -633,8 +633,8 @@ const personContract: CollectionContractDescriptor = {
     }
   },
   implementations: [{
-    type_name: "legacy-person",
-    type_version: 1,
+    typeName: "legacy-person",
+    typeVersion: 1,
     digest: `sha256:${"2".repeat(64)}`,
     fields: { name: "name" }
   }]
@@ -708,7 +708,7 @@ const workflowContract: CollectionContractDescriptor = {
       name: { type: "string", description: "Name shown to the application." }
     }
   },
-  binding_schema: {
+  bindingSchema: {
     type: "object",
     required: ["status"],
     properties: {
