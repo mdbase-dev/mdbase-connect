@@ -15,7 +15,7 @@ export function editableNote(
   const body = note.body ?? "";
   if (field && fieldReferencePath(field)) {
     const value = readFieldReference(note.frontmatter, field)
-      ?? readFieldReference(note.effective_frontmatter, field);
+      ?? readFieldReference(note.effectiveFrontmatter, field);
     return {
       title: typeof value === "string" && value.trim()
         ? value.trim()
@@ -48,11 +48,11 @@ export function titlePatch(title: string, source: TitleSource, frontmatter: Json
 }
 
 export function noteTitle(
-  note: Pick<NoteDocument, "path" | "effective_frontmatter" | "types"> & { body?: string },
+  note: Pick<NoteDocument, "path" | "effectiveFrontmatter" | "types"> & { body?: string },
   types: CollectionTypeDescriptor[] = []
 ): string {
   const field = recordDisplayField(note.types, types, "name_field");
-  const value = readFieldReference(note.effective_frontmatter, field);
+  const value = readFieldReference(note.effectiveFrontmatter, field);
   if (typeof value === "string" && value.trim()) return value.trim();
   const heading = markdownHeading(note.body ?? "");
   if (heading) return heading;
@@ -61,7 +61,7 @@ export function noteTitle(
 
 export function notePreview(note: NoteSummary, types: CollectionTypeDescriptor[] = []): string {
   const field = recordDisplayField(note.types, types, "description_field");
-  const description = readFieldReference(note.effective_frontmatter, field);
+  const description = readFieldReference(note.effectiveFrontmatter, field);
   if (typeof description === "string" && description.trim()) return description.trim();
   if (note.types.length) return note.types.join(" · ");
   return folder(note.path) || "Markdown";
@@ -147,9 +147,9 @@ export function folders(notes: NoteSummary[]): Array<{ name: string; count: numb
 
 export function noteTags(note: NoteSummary): string[] {
   const fileTags = Array.isArray(note.file.tags) ? note.file.tags.filter((tag): tag is string => typeof tag === "string") : [];
-  const frontmatterTags = Array.isArray(note.effective_frontmatter.tags)
-    ? note.effective_frontmatter.tags.filter((tag): tag is string => typeof tag === "string")
-    : typeof note.effective_frontmatter.tags === "string" ? [note.effective_frontmatter.tags] : [];
+  const frontmatterTags = Array.isArray(note.effectiveFrontmatter.tags)
+    ? note.effectiveFrontmatter.tags.filter((tag): tag is string => typeof tag === "string")
+    : typeof note.effectiveFrontmatter.tags === "string" ? [note.effectiveFrontmatter.tags] : [];
   return [...new Set([...fileTags, ...frontmatterTags].map((tag) => tag.replace(/^#/, "").trim()).filter(Boolean))];
 }
 

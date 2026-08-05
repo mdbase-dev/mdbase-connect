@@ -15,7 +15,7 @@ MdbaseConnect -> MdbaseApplicationSession -> MdbaseConnection
 - `MdbaseConnect` owns configuration, durable application identity, manifest
   loading, storage, request defaults, and the saved grant registry.
 - `MdbaseApplicationSession` owns one application lifecycle: selection,
-  authorization/callback, definition verification, and one subscribable
+  authorization/callback, application-declared collection setup verification, and one subscribable
   snapshot.
 - `MdbaseConnection` owns a selected grant/authority route and exposes typed
   collection, file, sync, notification, watch, and mutation-recovery methods.

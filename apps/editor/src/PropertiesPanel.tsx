@@ -191,7 +191,7 @@ export function PropertiesPanel({
       <StructuredPropertiesEditor
         value={draft}
         contract={contract}
-        effectiveValues={note.effective_frontmatter}
+        effectiveValues={note.effectiveFrontmatter}
         recordPaths={recordPaths}
         onChange={change}
         onValidityChange={setStructuredFieldsValid}

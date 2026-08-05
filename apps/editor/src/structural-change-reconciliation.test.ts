@@ -6,7 +6,7 @@ function change(type: string, payload: CollectionChange["payload"], cursor = 1):
   return {
     cursor,
     type,
-    occurred_at: "2026-08-03T00:00:00.000Z",
+    occurredAt: "2026-08-03T00:00:00.000Z",
     payload
   };
 }

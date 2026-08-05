@@ -62,7 +62,7 @@ export function buildNoteSearchIndex(
 
 function buildNoteSearchEntry(note: NoteSummary, types: CollectionTypeDescriptor[]): NoteSearchEntry {
   const metadata: string[] = [...note.types, ...noteTags(note)];
-  collectSearchValues(note.effective_frontmatter, metadata);
+  collectSearchValues(note.effectiveFrontmatter, metadata);
   const metadataText = readableMetadata(note);
   return {
     note,
@@ -240,7 +240,7 @@ function readableMetadata(note: NoteSummary): string {
     ...note.types,
     ...noteTags(note).map((tag) => `#${tag}`)
   ];
-  collectReadableMetadata(note.effective_frontmatter, values);
+  collectReadableMetadata(note.effectiveFrontmatter, values);
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))].join(" · ");
 }
 

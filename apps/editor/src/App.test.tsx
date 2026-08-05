@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { ConnectOutcomeError, connectProblem, type CollectionChange, type DirectAccessStatus, type WatchStatus } from "@mdbase-dev/connect";
+import { MdbaseConnectError, type CollectionChange, type DirectAccessStatus, type WatchStatus } from "@mdbase-dev/connect";
+import { connectProblem } from "@mdbase-dev/connect-testing";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
 import type {
@@ -1240,7 +1241,7 @@ class ResettingCursorGateway extends DemoCollectionGateway {
     onStatus?.({ state: "connecting" });
     if (this.watchCalls === 1) {
       const problem = connectProblem("change_cursor_reset", "Refresh collection state.");
-      const error = new ConnectOutcomeError(problem);
+      const error = new MdbaseConnectError(problem);
       onStatus?.({ state: "reset_required", cursor: 1, problem });
       throw error;
     }
@@ -1310,7 +1311,7 @@ class RemoteChangeGateway extends DemoCollectionGateway {
     this.listener?.({
       cursor: 2,
       type: "mdbase.record.modified",
-      occurred_at: new Date().toISOString(),
+      occurredAt: new Date().toISOString(),
       payload: { path: current.path, types: current.types }
     });
   }
@@ -1407,7 +1408,7 @@ class CountingGateway extends DemoCollectionGateway {
     this.listener?.({
       cursor: 1,
       type: "mdbase.record.created",
-      occurred_at: new Date().toISOString(),
+      occurredAt: new Date().toISOString(),
       payload: { path: created.path, types: created.types }
     });
     return created;
@@ -1418,7 +1419,7 @@ class CountingGateway extends DemoCollectionGateway {
     this.listener?.({
       cursor: 2,
       type: "mdbase.record.renamed",
-      occurred_at: new Date().toISOString(),
+      occurredAt: new Date().toISOString(),
       payload: { from, to, types: renamed.types }
     });
     return renamed;
@@ -1430,7 +1431,7 @@ class CountingGateway extends DemoCollectionGateway {
     this.listener?.({
       cursor: 3,
       type: "mdbase.record.deleted",
-      occurred_at: new Date().toISOString(),
+      occurredAt: new Date().toISOString(),
       payload: { path, previous_types: [] }
     });
   }
@@ -1463,7 +1464,7 @@ class SaveCountingGateway extends DemoCollectionGateway {
     this.listener?.({
       cursor: 1,
       type: "mdbase.record.modified",
-      occurred_at: new Date().toISOString(),
+      occurredAt: new Date().toISOString(),
       payload: { path: updated.path, types: updated.types }
     });
     return updated;
@@ -1592,7 +1593,7 @@ class CancellableRenameGateway extends DemoCollectionGateway {
         estimate: { affectedRecords: updateRefs ? 1 : 0, totalUnits: updateRefs ? 2 : 1, warnings: 0 }
       });
       this.markStarted?.();
-      await new Promise<void>((_resolve, reject) => options.signal?.addEventListener("abort", () => reject(new ConnectOutcomeError(connectProblem(
+      await new Promise<void>((_resolve, reject) => options.signal?.addEventListener("abort", () => reject(new MdbaseConnectError(connectProblem(
         "operation_outcome_unknown",
         "Waiting was cancelled after the mutation was sent. Resume the pending mutation to recover its authoritative result.",
         { operationOutcome: "unknown", details: { request_id: "rename-request" } }

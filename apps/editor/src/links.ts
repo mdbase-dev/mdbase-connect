@@ -214,8 +214,8 @@ function isSubsequence(query: string, value: string): boolean {
 
 function noteAliases(note: NoteSummary): string[] {
   const values = [
-    note.effective_frontmatter.aliases,
-    note.effective_frontmatter.alias
+    note.effectiveFrontmatter.aliases,
+    note.effectiveFrontmatter.alias
   ];
   const aliases = values.flatMap((value) => {
     if (typeof value === "string") return value.split(",");
@@ -290,7 +290,7 @@ function linkIndex(notes: NoteSummary[]): LinkIndex {
   for (const note of notes) {
     index.paths.set(note.path, note);
     index.foldedPaths.set(note.path.toLocaleLowerCase(), note);
-    const id = note.effective_frontmatter.id;
+    const id = note.effectiveFrontmatter.id;
     if (typeof id === "string") appendIndex(index.ids, id, note);
     appendIndex(index.filenames, basename(note.path), note);
   }

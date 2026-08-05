@@ -22,7 +22,7 @@ export type NoteFrontmatter = JsonObject;
 
 export interface NoteSummary extends QueryRecord<NoteFrontmatter> {
   frontmatter: NoteFrontmatter;
-  effective_frontmatter: NoteFrontmatter;
+  effectiveFrontmatter: NoteFrontmatter;
 }
 
 export type NoteDocument = RecordDocument<NoteFrontmatter>;

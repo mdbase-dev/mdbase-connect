@@ -43,14 +43,14 @@ export async function reviewCatalogPackInstallation(
 
   const conflicts = assessment.resources.filter(({ action }) => action === "conflict");
   const adoptable = conflicts.filter((resource) =>
-    resource.mode === "managed" && resource.current_digest && !resource.installed_digest);
+    resource.mode === "managed" && resource.currentDigest && !resource.installedDigest);
   if (!adoptable.length || adoptable.length !== conflicts.length) {
     throw new Error(conflicts[0]?.reason ?? "This pack conflicts with collection definitions.");
   }
 
   const adoptions = Object.fromEntries(adoptable.map((resource) => [
     resource.target,
-    resource.current_digest!
+    resource.currentDigest!
   ]));
   callbacks.confirm({
     title: `Let “${pack.displayName}” manage these definitions?`,

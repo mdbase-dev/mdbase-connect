@@ -187,6 +187,9 @@ importers:
       '@mdbase-dev/connect-dev':
         specifier: workspace:*
         version: link:../../packages/devkit
+      '@mdbase-dev/connect-testing':
+        specifier: workspace:*
+        version: link:../../packages/testing
       '@playwright/test':
         specifier: ^1.61.1
         version: 1.61.1
@@ -313,13 +316,13 @@ importers:
       '@mdbase-dev/connect':
         specifier: workspace:*
         version: link:../client
-      '@mdbase-dev/connect-protocol':
-        specifier: workspace:*
-        version: link:../protocol
     devDependencies:
       '@mdbase-dev/connect-dev':
         specifier: workspace:*
         version: link:../devkit
+      '@mdbase-dev/connect-testing':
+        specifier: workspace:*
+        version: link:../testing
       typescript:
         specifier: ^7.0.2
         version: 7.0.2

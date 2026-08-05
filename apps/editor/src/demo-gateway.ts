@@ -180,7 +180,7 @@ export class DemoCollectionGateway implements CollectionGateway {
     if (this.notes.some((candidate) => candidate.path === input.path)) throw new Error("A note already uses that path.");
     const note = demoDocument(input.path, input.title, "", this.sequence++);
     note.frontmatter = { ...input.properties, ...(input.type ? { type: input.type } : {}) };
-    note.effective_frontmatter = structuredClone(note.frontmatter);
+    note.effectiveFrontmatter = structuredClone(note.frontmatter);
     note.types = input.type ? [input.type] : [];
     note.body = input.titleField
       ? input.body
@@ -215,8 +215,8 @@ export class DemoCollectionGateway implements CollectionGateway {
     this.assertRevision(note, input.revision);
     note.body = persistedBody(input.title, input.body, input.source);
     note.frontmatter = { ...note.frontmatter, ...titlePatch(input.title, input.source, input.frontmatter) };
-    note.effective_frontmatter = {
-      ...note.effective_frontmatter,
+    note.effectiveFrontmatter = {
+      ...note.effectiveFrontmatter,
       ...titlePatch(input.title, input.source, input.frontmatter)
     };
     note.document = composeRecordSource(note.frontmatter, note.body ?? "");
@@ -230,7 +230,7 @@ export class DemoCollectionGateway implements CollectionGateway {
     const parsed = parseRecordSource(document);
     note.document = document;
     note.frontmatter = parsed.frontmatter;
-    note.effective_frontmatter = structuredClone(parsed.frontmatter);
+    note.effectiveFrontmatter = structuredClone(parsed.frontmatter);
     note.body = parsed.body;
     this.bump(note);
     return clone(note);
@@ -242,10 +242,10 @@ export class DemoCollectionGateway implements CollectionGateway {
     for (const [key, value] of Object.entries(patch)) {
       if (value === null) {
         delete note.frontmatter[key];
-        delete note.effective_frontmatter[key];
+        delete note.effectiveFrontmatter[key];
       } else {
         note.frontmatter[key] = value;
-        note.effective_frontmatter[key] = value;
+        note.effectiveFrontmatter[key] = value;
       }
     }
     note.document = composeRecordSource(note.frontmatter, note.body ?? "");
@@ -264,9 +264,9 @@ export class DemoCollectionGateway implements CollectionGateway {
       operation: {
         from,
         to,
-        dry_run: true,
-        would_rename: true,
-        references_affected: affectedPaths.map((path) => ({ path, location: "body" }))
+        dryRun: true,
+        wouldRename: true,
+        referencesAffected: affectedPaths.map((path) => ({ path, location: "body" }))
       }
     };
   }
@@ -310,9 +310,9 @@ export class DemoCollectionGateway implements CollectionGateway {
       operation: {
         path,
         deleted: false,
-        dry_run: true,
-        would_delete: true,
-        broken_links: brokenLinkPaths.map((brokenPath) => ({ path: brokenPath }))
+        dryRun: true,
+        wouldDelete: true,
+        brokenLinks: brokenLinkPaths.map((brokenPath) => ({ path: brokenPath }))
       }
     };
   }
@@ -403,7 +403,7 @@ export class DemoCollectionGateway implements CollectionGateway {
       id: provision.manifest.id,
       version: provision.manifest.version,
       digest: packDigest,
-      installed_by: "dev.mdbase.editor.demo",
+      installedBy: "dev.mdbase.editor.demo",
       resources: provision.manifest.resources.map(({ kind, mode, source, target, digest }) => ({
         kind, mode, source, target, digest
       }))
@@ -412,11 +412,11 @@ export class DemoCollectionGateway implements CollectionGateway {
     return {
       status: conflict ? "conflict" : resources.every(({ action }) => action === "unchanged") ? "current" : "install",
       applicable: !conflict,
-      assessment_digest: packDigest,
+      assessmentDigest: packDigest,
       desired,
       resources,
       lock: { target: "mdbase.lock.yaml", action: "update", digest: packDigest },
-      contract_setups: { choices: [], resources: [] }
+      contractSetups: { choices: [], resources: [] }
     };
   }
 
@@ -426,7 +426,7 @@ export class DemoCollectionGateway implements CollectionGateway {
     _adoptResources: Record<string, string> = {}
   ): Promise<TypePackApplyResult> {
     const currentAssessment = await this.assessTypePack(provision);
-    if (currentAssessment.assessment_digest !== assessment.assessment_digest) {
+    if (currentAssessment.assessmentDigest !== assessment.assessmentDigest) {
       throw new Error("The type-pack assessment is stale. Review it again.");
     }
     if (!currentAssessment.applicable) {
@@ -493,7 +493,7 @@ export class DemoCollectionGateway implements CollectionGateway {
       id: provision.manifest.id,
       version: provision.manifest.version,
       digest: packDigest,
-      installed_by: "dev.mdbase.editor.demo",
+      installedBy: "dev.mdbase.editor.demo",
       resources: provision.manifest.resources.map(({ kind, mode, source, target, digest }) => ({
         kind,
         mode,
@@ -505,7 +505,7 @@ export class DemoCollectionGateway implements CollectionGateway {
     return {
       status: planned.every(({ action }) => action === "unchanged") ? "current" : "install",
       applicable: true,
-      assessment_digest: packDigest,
+      assessmentDigest: packDigest,
       desired: receipt,
       resources: planned.map(({ definition, action }) => ({
         kind: definition.kind,
@@ -520,9 +520,9 @@ export class DemoCollectionGateway implements CollectionGateway {
         action: "update",
         digest: packDigest
       },
-      contract_setups: { choices: [], resources: [] },
+      contractSetups: { choices: [], resources: [] },
       receipt,
-      cleanup_deferred: false
+      cleanupDeferred: false
     };
   }
 
@@ -564,7 +564,7 @@ export class DemoCollectionGateway implements CollectionGateway {
     const change: CollectionChange = {
       cursor: ++this.changeCursor,
       type,
-      occurred_at: new Date().toISOString(),
+      occurredAt: new Date().toISOString(),
       payload
     };
     for (const listener of this.listeners) listener(change);
@@ -771,7 +771,7 @@ function demoDocument(path: string, title: string, body: string, sequence: numbe
   return {
     path,
     frontmatter,
-    effective_frontmatter: structuredClone(frontmatter),
+    effectiveFrontmatter: structuredClone(frontmatter),
     body: persisted,
     document: composeRecordSource(frontmatter, persisted),
     types: sequence % 4 === 0 ? ["note"] : [],

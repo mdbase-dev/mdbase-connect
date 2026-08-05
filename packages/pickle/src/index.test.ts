@@ -1,4 +1,4 @@
-import { connectFailure, connectProblem, connectSuccess } from "@mdbase-dev/connect";
+import { connectFailure, connectProblem, connectSuccess } from "@mdbase-dev/connect-testing";
 import { createSandbox } from "@mdbase-dev/connect-dev";
 import { describe, expect, it, vi } from "vitest";
 

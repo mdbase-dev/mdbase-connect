@@ -27,11 +27,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@mdbase-dev/connect": "workspace:*",
-    "@mdbase-dev/connect-protocol": "workspace:*"
+    "@mdbase-dev/connect": "workspace:*"
   },
   "devDependencies": {
     "@mdbase-dev/connect-dev": "workspace:*",
+    "@mdbase-dev/connect-testing": "workspace:*",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   }

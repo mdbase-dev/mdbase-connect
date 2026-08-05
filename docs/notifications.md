@@ -84,10 +84,10 @@ the desired namespace whenever application state changes:
 ```ts
 await connection.reconcileTimers({
   namespace: "task-reminders",
-  criterion_id: "task.reminder",
+  criterionId: "task.reminder",
   timers: [{
     id: "task-123:reminder-1",
-    fire_at: "2026-07-25T10:00:00Z",
+    fireAt: "2026-07-25T10:00:00Z",
     data: { kind: "task_reminder" }
   }]
 });

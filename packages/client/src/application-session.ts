@@ -3,11 +3,8 @@ import {
   operationsForApplicationCapabilities,
   type ApplicationCapabilityId,
   type ApplicationCapabilityRequirements,
-  type CollectionSetupAssessment,
-  type ConfigurationSetupAssessment,
   type JsonObject,
   type MdbaseAppManifest,
-  type TypePackAssessment,
   type TypePackProvision
 } from "@mdbase-dev/connect-protocol";
 /* The versioned protocol package is the sole capability-to-operation compiler. */
@@ -29,7 +26,12 @@ import {
   type SessionProblemCode
 } from "./outcomes.js";
 import type { MdbaseApplicationSelection, MdbaseSelectionHistory } from "./selection.js";
-import type { ConnectRequestOptions } from "./operation-types.js";
+import type {
+  CollectionSetupAssessment,
+  ConfigurationSetupAssessment,
+  ConnectRequestOptions,
+  TypePackAssessment
+} from "./operation-types.js";
 import {
   createRequestBudget,
   requestAbortReason,
@@ -88,7 +90,7 @@ export interface MdbaseDefinitionUpdate {
   currentVersion?: string;
   desiredVersion: string;
   resources: TypePackAssessment["resources"];
-  contractSetups: TypePackAssessment["contract_setups"];
+  contractSetups: TypePackAssessment["contractSetups"];
   canApply: boolean;
   reason: string;
 }
@@ -388,10 +390,10 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     const assessment = this.setupAssessment;
     const input = {
       ...this.collectionSetupInput(),
-      expected_assessment_digest: assessment.assessment_digest,
-      expected_collection_revision: assessment.collection_revision,
-      expected_provision_digest: assessment.provision_digest,
-      allow_type_pack_downgrades: assessment.type_packs
+      expectedAssessmentDigest: assessment.assessmentDigest,
+      expectedCollectionRevision: assessment.collectionRevision,
+      expectedProvisionDigest: assessment.provisionDigest,
+      allowTypePackDowngrades: assessment.typePacks
         .filter((pack) => pack.status === "downgrade")
         .map((pack) => pack.desired.id)
     };
@@ -485,14 +487,14 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     const manifest = this.requireManifest();
     const application = this.requireApplication();
     return {
-      application_id: declarationIdFromFamilyIdentity(application.family_identity),
-      declaration_digest: `sha256:${application.manifest_digest}`,
+      applicationId: declarationIdFromFamilyIdentity(application.family_identity),
+      declarationDigest: `sha256:${application.manifest_digest}`,
       requirements: {
         configuration: manifest.requirements?.configuration ?? []
       },
       provisions: {
         configuration: manifest.provisions?.configuration ?? [],
-        type_packs: manifest.provisions?.type_packs ?? []
+        typePacks: manifest.provisions?.type_packs ?? []
       }
     };
   }
@@ -556,11 +558,11 @@ function definitionUpdate(
     name: provision.manifest.name ?? assessment.desired.id,
     status: assessment.status,
     applicable: assessment.applicable,
-    assessmentDigest: assessment.assessment_digest,
+    assessmentDigest: assessment.assessmentDigest,
     ...(assessment.current ? { currentVersion: assessment.current.version } : {}),
     desiredVersion: assessment.desired.version,
     resources: assessment.resources,
-    contractSetups: assessment.contract_setups,
+    contractSetups: assessment.contractSetups,
     canApply: assessment.applicable,
     reason: statusReason
   };
@@ -570,7 +572,7 @@ function collectionSetupUpdate(
   assessment: CollectionSetupAssessment,
   provisions: TypePackProvision[]
 ): MdbaseCollectionSetupUpdate {
-  const typePacks = assessment.type_packs.map((pack) => {
+  const typePacks = assessment.typePacks.map((pack) => {
     const provision = provisions.find((candidate) => candidate.manifest.id === pack.desired.id);
     if (!provision) {
       throw new Error(`Collection setup returned undeclared type pack '${pack.desired.id}'.`);
@@ -586,9 +588,9 @@ function collectionSetupUpdate(
   return {
     status: assessment.status,
     applicable: assessment.applicable,
-    assessmentDigest: assessment.assessment_digest,
-    collectionRevision: assessment.collection_revision,
-    provisionDigest: assessment.provision_digest,
+    assessmentDigest: assessment.assessmentDigest,
+    collectionRevision: assessment.collectionRevision,
+    provisionDigest: assessment.provisionDigest,
     configuration: assessment.configuration,
     typePacks,
     canApply: assessment.applicable,

@@ -21,14 +21,14 @@ export async function editorSpike(connection: MdbaseConnection<NoteFrontmatter>)
   await connection.delete({ path: "Notes/three.md" });
   await connection.readType({ name: "note" });
   await connection.createType({ path: "types/note.yaml", document: "name: note\n" });
-  await connection.updateType({ name: "note", document: "name: note\n", if_revision: "sha256:old" });
+  await connection.updateType({ name: "note", document: "name: note\n", ifRevision: "sha256:old" });
   await connection.assessTypePack({
     provision: {
       manifest: { kind: "mdbase.type-pack", id: "notes", name: "Notes", version: "1.0.0", resources: [] },
       resources: [],
       provides: []
     },
-    installed_by: "dev.mdbase.editor"
+    installedBy: "dev.mdbase.editor"
   });
   await connection.listViews();
   await connection.createViewSource({ name: "all", document: "name: all\n" });

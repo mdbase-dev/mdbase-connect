@@ -1,14 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  ConnectOutcomeError,
-  connectFailure,
-  connectProblem,
-  connectSuccess,
+  MdbaseConnectError,
   type MdbaseApplicationSessionSnapshot,
   type DirectAccessStatus,
   type MdbaseConnection,
   type MdbaseConnectionInfo
 } from "@mdbase-dev/connect";
+import { connectFailure, connectProblem, connectSuccess } from "@mdbase-dev/connect-testing";
 import { MdbaseCollectionClient } from "@mdbase-dev/connect/advanced";
 import { ConnectCollectionGateway, gatewayError } from "./gateway";
 import type { NoteDocument, NoteListProgress, NoteSummary } from "./model";
@@ -134,7 +132,7 @@ describe("ConnectCollectionGateway recovery operations", () => {
   });
 
   it("turns stale connector grants into a clear authorization action", () => {
-    expect(gatewayError(new ConnectOutcomeError(connectProblem(
+    expect(gatewayError(new MdbaseConnectError(connectProblem(
       "direct_operation_rejected",
       "The local connector rejected this operation."
     )))).toBe("This collection needs authorization again. Choose the collection to continue.");
@@ -169,7 +167,7 @@ describe("ConnectCollectionGateway recovery operations", () => {
     });
     await gateway.authorize("selected");
     expect(session.authorize).toHaveBeenCalledWith("selected");
-    await expect(gateway.read("Notes/invalid.md")).rejects.toBeInstanceOf(ConnectOutcomeError);
+    await expect(gateway.read("Notes/invalid.md")).rejects.toBeInstanceOf(MdbaseConnectError);
     await expect(gateway.read("Notes/invalid.md")).rejects.toMatchObject({
       problem: {
         details: {
@@ -184,7 +182,7 @@ describe("ConnectCollectionGateway recovery operations", () => {
     const document: NoteDocument = {
       path: "Notes/restored.md",
       frontmatter: { title: "Original title", custom: true },
-      effective_frontmatter: { title: "Resolved title", custom: true },
+      effectiveFrontmatter: { title: "Resolved title", custom: true },
       body: "# Restored\n\nExact body.\n",
       types: ["note"],
       revision: "before-delete",
@@ -202,14 +200,14 @@ describe("ConnectCollectionGateway recovery operations", () => {
       path: document.path,
       frontmatter: document.frontmatter,
       body: document.body,
-      include_document: true
+      includeDocument: true
     });
     expect(renameWithProgress).toHaveBeenCalledWith({
       from: document.path,
       to: "Archive/restored.md",
-      if_revision: document.revision,
-      update_refs: false,
-      include_document: true
+      ifRevision: document.revision,
+      updateRefs: false,
+      includeDocument: true
     }, {});
   });
 
@@ -217,7 +215,7 @@ describe("ConnectCollectionGateway recovery operations", () => {
     const document: NoteDocument = {
       path: "Notes/drafted.md",
       frontmatter: { title: "Drafted" },
-      effective_frontmatter: { title: "Drafted" },
+      effectiveFrontmatter: { title: "Drafted" },
       body: "Written before creation.",
       types: ["note"],
       revision: "created",
@@ -247,13 +245,13 @@ describe("ConnectCollectionGateway recovery operations", () => {
       type: "note",
       frontmatter: { title: "Drafted" },
       body: "Written before creation.",
-      include_document: true
+      includeDocument: true
     });
     expect(create).toHaveBeenNthCalledWith(2, {
       path: "Heading note.md",
       frontmatter: {},
       body: "# Heading note\n\nAlso written before creation.",
-      include_document: true
+      includeDocument: true
     });
   });
 
@@ -263,7 +261,7 @@ describe("ConnectCollectionGateway recovery operations", () => {
       frontmatter: {
         profile: { display_name: "Augusta Ada King", timezone: "Europe/London" }
       },
-      effective_frontmatter: {
+      effectiveFrontmatter: {
         profile: { display_name: "Augusta Ada King", timezone: "Europe/London" }
       },
       body: "",
@@ -293,8 +291,8 @@ describe("ConnectCollectionGateway recovery operations", () => {
         profile: { display_name: "Augusta Ada King", timezone: "Europe/London" }
       },
       body: "",
-      if_revision: "revision:1",
-      include_document: true
+      ifRevision: "revision:1",
+      includeDocument: true
     });
   });
 
@@ -304,7 +302,7 @@ describe("ConnectCollectionGateway recovery operations", () => {
       value: {
         status: "install",
         applicable: true,
-        assessment_digest: `sha256:${"2".repeat(64)}`,
+        assessmentDigest: `sha256:${"2".repeat(64)}`,
         desired: {},
         resources: []
       },
@@ -323,7 +321,7 @@ describe("ConnectCollectionGateway recovery operations", () => {
           action: "create",
           digest: `sha256:${"1".repeat(64)}`
         }],
-        cleanup_deferred: false
+        cleanupDeferred: false
       }
     }));
     const provision = {
@@ -362,7 +360,7 @@ describe("ConnectCollectionGateway recovery operations", () => {
       valid: true,
       diagnostics: [],
       result: {
-        references_affected: [
+        referencesAffected: [
           { path: "Notes/linking.md", location: "body" },
           { path: "Notes/linking.md", field: "related" }
         ],
@@ -372,7 +370,7 @@ describe("ConnectCollectionGateway recovery operations", () => {
     const preflightDelete = vi.fn(async () => ({
       valid: true,
       diagnostics: [],
-      result: { broken_links: [{ path: "Notes/linking.md" }, { path: "Notes/linking.md" }] }
+      result: { brokenLinks: [{ path: "Notes/linking.md" }, { path: "Notes/linking.md" }] }
     }));
     const gateway = new ConnectCollectionGateway("https://connect.example");
     injectConnection(gateway, { preflightRename, preflightDelete });
@@ -387,10 +385,10 @@ describe("ConnectCollectionGateway recovery operations", () => {
     expect(preflightRename).toHaveBeenCalledWith({
       from: "Notes/source.md",
       to: "Archive/source.md",
-      if_revision: "revision:1",
-      update_refs: true
+      ifRevision: "revision:1",
+      updateRefs: true
     });
-    expect(preflightDelete).toHaveBeenCalledWith({ path: "Notes/source.md", if_revision: "revision:1" });
+    expect(preflightDelete).toHaveBeenCalledWith({ path: "Notes/source.md", ifRevision: "revision:1" });
   });
 });
 
@@ -398,7 +396,7 @@ function summary(path: string): NoteSummary {
   return {
     path,
     frontmatter: {},
-    effective_frontmatter: {},
+    effectiveFrontmatter: {},
     types: [],
     file: {
       path,

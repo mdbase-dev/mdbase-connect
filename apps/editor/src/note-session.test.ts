@@ -9,7 +9,7 @@ function document(path: string): NoteDocument {
     body: `# ${path}\n`,
     types: [],
     frontmatter: {},
-    effective_frontmatter: {},
+    effectiveFrontmatter: {},
     file: { path }
   };
 }

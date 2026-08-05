@@ -64,7 +64,7 @@ function note(path: string, title: string, mtime: string): NoteSummary {
   return {
     path,
     frontmatter: {},
-    effective_frontmatter: { title },
+    effectiveFrontmatter: { title },
     types: ["note"],
     file: {
       path,

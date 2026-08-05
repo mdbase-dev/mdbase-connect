@@ -121,7 +121,7 @@ function document(frontmatter: Record<string, unknown>, body: string, noteTypes:
   return {
     path: "Notes/note.md",
     frontmatter,
-    effective_frontmatter: structuredClone(frontmatter),
+    effectiveFrontmatter: structuredClone(frontmatter),
     body,
     types: noteTypes,
     revision: "rev-1",
@@ -160,7 +160,7 @@ function summary(path: string, frontmatter: Record<string, unknown>, noteTypes: 
   return {
     path,
     frontmatter,
-    effective_frontmatter: structuredClone(frontmatter),
+    effectiveFrontmatter: structuredClone(frontmatter),
     types: noteTypes,
     file: { path, name: path.split("/").at(-1)!, folder: "", size: 0, mtime: "", tags: fileTags }
   };

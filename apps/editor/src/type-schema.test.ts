@@ -523,7 +523,7 @@ function noteSummary(
   return {
     path,
     frontmatter,
-    effective_frontmatter: structuredClone(frontmatter),
+    effectiveFrontmatter: structuredClone(frontmatter),
     types,
     file: {
       path,

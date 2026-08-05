@@ -129,7 +129,7 @@ const eventNote: NoteDocument = {
     event_date: "2026-07-21",
     starts_at: "2026-07-21T05:15:30.000Z"
   },
-  effective_frontmatter: {
+  effectiveFrontmatter: {
     event_date: "2026-07-21",
     starts_at: "2026-07-21T05:15:30.000Z"
   },
@@ -171,7 +171,7 @@ const contactNote: NoteDocument = {
     profile: { display_name: "Ada" },
     contacts: [{ kind: "email", value: "ada@example.com" }]
   },
-  effective_frontmatter: {
+  effectiveFrontmatter: {
     profile: { display_name: "Ada" },
     contacts: [{ kind: "email", value: "ada@example.com" }]
   },
@@ -198,7 +198,7 @@ const schemaLedType: CollectionTypeDescriptor = {
 const schemaLedNote: NoteDocument = {
   path: "Notes/missing.md",
   frontmatter: {},
-  effective_frontmatter: { status: "draft" },
+  effectiveFrontmatter: { status: "draft" },
   body: "",
   types: ["note"],
   revision: "revision-3",
@@ -209,14 +209,14 @@ const invalidNote: NoteDocument = {
   ...schemaLedNote,
   path: "Notes/invalid.md",
   frontmatter: { title: "Valid", nullable: null },
-  effective_frontmatter: { title: "Valid", nullable: null, status: "draft" },
+  effectiveFrontmatter: { title: "Valid", nullable: null, status: "draft" },
   revision: "revision-4"
 };
 
 const sourceNote: NoteDocument = {
   path: "Notes/source.md",
   frontmatter: { title: "Quoted" },
-  effective_frontmatter: { title: "Quoted" },
+  effectiveFrontmatter: { title: "Quoted" },
   body: "Body  \r\n",
   document: "\u{feff}---\r\ntitle: \"Quoted\" # keep\r\n---\r\nBody  \r\n",
   types: [],

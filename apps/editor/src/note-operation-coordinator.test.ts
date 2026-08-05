@@ -10,7 +10,7 @@ function document(revision = "1"): NoteDocument {
     body: "# Note\n",
     types: [],
     frontmatter: {},
-    effective_frontmatter: {},
+    effectiveFrontmatter: {},
     file: { path: "note.md" }
   };
 }

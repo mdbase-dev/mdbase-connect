@@ -29,7 +29,7 @@ function summary(
   return {
     path,
     frontmatter,
-    effective_frontmatter: structuredClone(frontmatter),
+    effectiveFrontmatter: structuredClone(frontmatter),
     types,
     body,
     file: {

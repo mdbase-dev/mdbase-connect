@@ -1,29 +1,28 @@
 import type {
-  CollectionChange,
   CollectionOperation,
   ConnectProblem,
+  ContractRequirement,
   JsonObject,
   MutationOperationIdentifier,
-  QueryRecord,
-  RecordDocument
+  TypePackProvision
 } from "@mdbase-dev/connect-protocol";
 
 export interface MdbaseDesiredTimer {
   /** Stable within the timer namespace. */
   id: string;
   /** RFC 3339 instant at which the authority should fire the timer. */
-  fire_at: string;
+  fireAt: string;
   /** Private application data retained by the collection authority. */
   data?: unknown;
 }
 
 export interface MdbaseTimer extends MdbaseDesiredTimer {
-  criterion_id: string;
+  criterionId: string;
   generation: number;
   status: "scheduled" | "firing" | "fired" | "cancelled";
-  created_at: string;
-  updated_at: string;
-  fired_at: string | null;
+  createdAt: string;
+  updatedAt: string;
+  firedAt: string | null;
 }
 
 export interface MdbaseTimerList {
@@ -32,7 +31,7 @@ export interface MdbaseTimerList {
 }
 
 export interface MdbaseTimerReconciliation extends MdbaseTimerList {
-  cancelled_ids: string[];
+  cancelledIds: string[];
 }
 
 export interface ReadInput {
@@ -40,7 +39,7 @@ export interface ReadInput {
   /** Select an exact approved contract view when more than one is possible. */
   contract?: DataContractSelector;
   /** Include the exact UTF-8 Markdown source; requires full-collection access. */
-  include_document?: boolean;
+  includeDocument?: boolean;
 }
 
 export interface DataContractSelector {
@@ -50,34 +49,102 @@ export interface DataContractSelector {
   type?: string;
 }
 
+export interface CollectionFileMetadata extends JsonObject {
+  name: string;
+  folder: string;
+  size: number;
+  mtime: string;
+  tags?: string[];
+  links?: unknown[];
+  embeds?: unknown[];
+}
+
+export interface DataContractViewIdentity {
+  id: string;
+  version: string;
+  digest: string;
+  type: string;
+  implementationDigest: string;
+}
+
+export interface QueryRecord<Frontmatter extends JsonObject = JsonObject> {
+  path: string;
+  frontmatter?: Frontmatter;
+  effectiveFrontmatter?: Frontmatter;
+  body?: string;
+  types: string[];
+  file: Partial<CollectionFileMetadata> & { path?: string };
+  contract?: DataContractViewIdentity;
+}
+
+export interface RecordDocument<Frontmatter extends JsonObject = JsonObject> {
+  path: string;
+  revision: string;
+  types: string[];
+  frontmatter: Frontmatter;
+  effectiveFrontmatter: Frontmatter;
+  body?: string;
+  document?: string;
+  file: Partial<CollectionFileMetadata> & { path?: string };
+  contract?: DataContractViewIdentity;
+}
+
+export interface QueryProjection {
+  expression: string;
+  description?: string;
+}
+
+export interface QuerySelectionExpression {
+  name: string;
+  expression: string;
+  label?: string;
+  description?: string;
+}
+
+export interface QueryOrder {
+  field: string;
+  direction?: "asc" | "desc";
+}
+
+export interface QuerySummary {
+  field: string;
+  function: string;
+  name?: string;
+  label?: string;
+}
+
+/** Application-facing form of the canonical mdbase v0.3 query schema. */
 export interface QueryInput {
   /**
    * Contract-scoped queries accept only `types`, pagination,
-   * `frontmatter_mode`, and `contract`; filter normalized fields in the app.
+   * `frontmatterMode`, and `contract`; filter normalized fields in the app.
    */
   types?: string[];
-  where?: unknown;
-  order_by?: unknown;
+  context?: { this: { path: string } };
+  projections?: Record<string, QueryProjection>;
+  where?: string;
+  select?: Array<string | QuerySelectionExpression>;
+  orderBy?: QueryOrder[];
+  groupBy?: QueryOrder[];
+  summaryFunctions?: Record<string, QueryProjection>;
+  summaries?: QuerySummary[];
   limit?: number;
   offset?: number;
   /** Opaque token returned by the first metadata page for consistent, fast pagination. */
   snapshot?: string;
-  include_body?: boolean;
-  frontmatter_mode?: "effective" | "persisted" | "both";
+  includeBody?: boolean;
+  frontmatterMode?: "effective" | "persisted" | "both";
   /** Narrow a contract-scoped query to one exact contract/provider view. */
   contract?: DataContractSelector;
-  [key: string]: unknown;
 }
 
 export interface QueryResult<Record extends JsonObject = JsonObject> {
-  results: Array<QueryRecord<Record> & JsonObject>;
+  results: Array<QueryRecord<Record>>;
   meta?: {
-    total_count: number;
-    has_more: boolean;
+    totalCount: number;
+    hasMore: boolean;
     snapshot?: string;
-    [key: string]: unknown;
   };
-  [key: string]: unknown;
 }
 
 export interface QueryPagesOptions<Record extends JsonObject = JsonObject> {
@@ -165,17 +232,17 @@ export interface CreateInput<Frontmatter extends JsonObject = JsonObject> {
   frontmatter?: Partial<Frontmatter> & JsonObject;
   /** Requires full-collection access; contract creates are frontmatter-only. */
   body?: string;
-  if_revision?: string;
+  ifRevision?: string;
   /** Include the resulting exact Markdown source in `result.document`. */
-  include_document?: boolean;
+  includeDocument?: boolean;
 }
 
 interface UpdateInputBase {
   path: string;
   contract?: DataContractSelector;
-  if_revision?: string;
+  ifRevision?: string;
   /** Include the resulting exact Markdown source; requires full-collection access. */
-  include_document?: boolean;
+  includeDocument?: boolean;
 }
 
 export type UpdateInput<Frontmatter extends JsonObject = JsonObject> = UpdateInputBase & (
@@ -187,7 +254,7 @@ export type UpdateInput<Frontmatter extends JsonObject = JsonObject> = UpdateInp
   | {
     /**
      * Replace the complete Markdown source. This is mutually exclusive with
-     * `patch` and `body`, and implies `include_document`.
+     * `patch` and `body`, and implies `includeDocument`.
      */
     document: string;
     patch?: never;
@@ -198,46 +265,46 @@ export type UpdateInput<Frontmatter extends JsonObject = JsonObject> = UpdateInp
 export interface DeleteInput {
   path: string;
   contract?: DataContractSelector;
-  check_backlinks?: boolean;
-  if_revision?: string;
+  checkBacklinks?: boolean;
+  ifRevision?: string;
 }
 
 export interface DeleteResult {
   path: string;
   deleted: boolean;
-  broken_links?: Array<{ path: string }>;
+  brokenLinks?: Array<{ path: string }>;
 }
 
 export interface DeletePreflightResult {
   path: string;
   deleted: false;
-  dry_run: true;
-  would_delete: true;
-  broken_links?: Array<{ path: string }>;
+  dryRun: true;
+  wouldDelete: true;
+  brokenLinks?: Array<{ path: string }>;
 }
 
 export interface RenameInput {
   from: string;
   to: string;
   contract?: DataContractSelector;
-  update_refs?: boolean;
-  if_revision?: string;
+  updateRefs?: boolean;
+  ifRevision?: string;
   /** Include the resulting exact Markdown source in `result.document`. */
-  include_document?: boolean;
+  includeDocument?: boolean;
 }
 
 export interface RenameResult extends RecordDocument {
   from: string;
   to: string;
-  references_updated?: JsonObject[];
+  referencesUpdated?: JsonObject[];
 }
 
 export interface RenamePreflightResult {
   from: string;
   to: string;
-  dry_run: true;
-  would_rename: true;
-  references_affected?: Array<{ path: string; field?: string; location?: string }>;
+  dryRun: true;
+  wouldRename: true;
+  referencesAffected?: Array<{ path: string; field?: string; location?: string }>;
   warnings?: Array<{ path: string; message: string }>;
 }
 
@@ -253,7 +320,248 @@ export interface CreateTypeInput {
 
 export interface UpdateTypeInput extends ReadTypeInput {
   document: string;
-  if_revision: string;
+  ifRevision: string;
+}
+
+export interface ReadViewSourceInput { path: string; }
+
+export interface CreateViewSourceInput {
+  document: string;
+  path?: string;
+  format?: string;
+  name?: string;
+}
+
+export interface UpdateViewSourceInput {
+  path: string;
+  document: string;
+  ifRevision?: string;
+}
+
+export interface DeleteViewSourceInput { path: string; ifRevision?: string; }
+
+export interface DeleteViewSourceResult { path: string; deleted: boolean; }
+
+export interface ExecuteViewInput {
+  path: string;
+  view: string;
+  context?: { path: string } | null;
+  limit?: number;
+  offset?: number;
+  render?: boolean;
+}
+
+export interface SavedViewPresentation extends JsonObject {
+  type: string;
+  fallback?: string;
+  mappings?: Record<string, string>;
+  options?: JsonObject;
+}
+
+export interface SavedViewSource {
+  path: string;
+  format: string;
+  revision: string;
+  writable: boolean;
+}
+
+export interface SavedViewProperty {
+  key: string;
+  label?: string;
+  description?: string;
+  format?: string;
+  hidden?: boolean;
+}
+
+export interface SavedNamedView {
+  id: string;
+  name: string;
+  properties: SavedViewProperty[];
+  presentation?: SavedViewPresentation;
+}
+
+export interface SavedViewDocument {
+  id: string;
+  name: string;
+  source: SavedViewSource;
+  views: SavedNamedView[];
+}
+
+export interface SavedViewList {
+  views: SavedViewDocument[];
+  meta: { totalCount: number };
+}
+
+export interface SavedViewSourceDocument {
+  path: string;
+  format: string;
+  revision: string;
+  document: string;
+}
+
+export interface SavedViewRecord<Frontmatter extends JsonObject = JsonObject>
+  extends Omit<QueryRecord<Frontmatter>, "effectiveFrontmatter"> {
+  effectiveFrontmatter: Frontmatter;
+  values?: JsonObject;
+}
+
+export interface SavedViewExecution<Frontmatter extends JsonObject = JsonObject> {
+  results: Array<SavedViewRecord<Frontmatter>>;
+  meta: {
+    totalCount: number;
+    hasMore: boolean;
+    view: { path: string; id: string };
+    context?: { path: string };
+    groups?: Array<{ values: JsonObject; count: number; summaries: JsonObject }>;
+  };
+}
+
+export type ContractSetupChoice =
+  | { contract: ContractRequirement; mode: "starter" }
+  | {
+      contract: ContractRequirement;
+      mode: "existing";
+      typeName: string;
+      typeRevision: string;
+      fields: Record<string, string>;
+      binding?: Record<string, unknown>;
+    };
+
+export interface TypePackResourceDiff {
+  source: string;
+  target: string;
+  kind: "contract" | "type" | "schema";
+  mode: "managed" | "seed";
+  action: "create" | "update" | "delete" | "adopt" | "unchanged" | "preserve" | "conflict";
+  digest: string;
+  currentDigest?: string;
+  installedDigest?: string;
+  adoptedFromDigest?: string;
+  reason?: string;
+}
+
+export interface TypePackReceipt {
+  id: string;
+  version: string;
+  digest: string;
+  installedBy: string;
+  resources: Array<Omit<TypePackResourceDiff, "action" | "currentDigest" | "installedDigest" | "reason">>;
+}
+
+export interface TypePackAssessment {
+  status: "current" | "install" | "upgrade" | "downgrade" | "reconfigure" | "conflict";
+  applicable: boolean;
+  assessmentDigest: string;
+  current?: TypePackReceipt;
+  desired: TypePackReceipt;
+  resources: TypePackResourceDiff[];
+  lock: { target: "mdbase.lock.yaml"; action: "create" | "update" | "unchanged"; digest: string };
+  contractSetups: { choices: ContractSetupChoice[]; resources: TypePackResourceDiff[] };
+}
+
+export interface TypePackApplyResult extends TypePackAssessment {
+  receipt: TypePackReceipt;
+  cleanupDeferred: boolean;
+}
+
+export type ConfigurationContributionValue = string | number | boolean | null;
+
+export interface ConfigurationRequirement {
+  id: string;
+  path: string;
+  predicate: "contains";
+  value: ConfigurationContributionValue;
+}
+
+export interface ConfigurationProvision {
+  requirement: string;
+  operation: "set_add";
+  path: string;
+  value: ConfigurationContributionValue;
+}
+
+export interface ApplicationCollectionSetupRequirements {
+  configuration: ConfigurationRequirement[];
+}
+
+export interface ApplicationCollectionSetupProvisions {
+  configuration: ConfigurationProvision[];
+  typePacks: TypePackProvision[];
+}
+
+export interface ConfigurationSetupConflict {
+  code: "configuration_path_conflict" | "configuration_type_conflict";
+  path: string;
+  expected: "mapping" | "sequence";
+  observed: "null" | "boolean" | "number" | "string" | "sequence" | "mapping" | "tagged";
+  message: string;
+}
+
+export interface ConfigurationSetupAssessment {
+  requirement: string;
+  path: string;
+  value: ConfigurationContributionValue;
+  action: "current" | "add" | "conflict";
+  conflict?: ConfigurationSetupConflict;
+}
+
+export interface CollectionSetupAssessment {
+  status: "current" | "provision" | "conflict";
+  applicable: boolean;
+  applicationId: string;
+  declarationDigest: string;
+  provisionDigest: string;
+  collectionRevision: string;
+  finalCollectionRevision: string;
+  configuration: ConfigurationSetupAssessment[];
+  typePacks: TypePackAssessment[];
+  finalResourceRevisions: Record<string, string>;
+  assessmentDigest: string;
+}
+
+export interface CollectionSetupReceipt {
+  applicationId: string;
+  declarationDigest: string;
+  provisionDigest: string;
+  assessmentDigest: string;
+  collectionRevision: string;
+  configuration: Array<{ requirement: string; path: string; value: ConfigurationContributionValue }>;
+  typePacks: TypePackReceipt[];
+  cleanupDeferred: boolean;
+}
+
+export interface CollectionSetupApplyResult {
+  assessment: CollectionSetupAssessment;
+  receipt: CollectionSetupReceipt;
+}
+
+export interface AssessTypePackInput {
+  provision: TypePackProvision;
+  installedBy: string;
+  adoptResources?: Record<string, string>;
+  preserveSeedTargets?: string[];
+  targetOverrides?: Record<string, string>;
+  contractSetups?: ContractSetupChoice[];
+}
+
+export interface ApplyTypePackInput extends AssessTypePackInput {
+  expectedAssessmentDigest: string;
+  allowDowngrade?: boolean;
+}
+
+export interface AssessCollectionSetupInput {
+  applicationId: string;
+  declarationDigest: string;
+  requirements: ApplicationCollectionSetupRequirements;
+  provisions: ApplicationCollectionSetupProvisions;
+  contractSetups?: ContractSetupChoice[];
+}
+
+export interface ApplyCollectionSetupInput extends AssessCollectionSetupInput {
+  expectedAssessmentDigest: string;
+  expectedCollectionRevision: string;
+  expectedProvisionDigest: string;
+  allowTypePackDowngrades?: string[];
 }
 
 export interface ChangesInput {
@@ -304,6 +612,20 @@ export interface MdbaseWatchSubscription {
     onProblem?: (problem: ConnectProblem) => void
   ): () => void;
   close(): void;
+}
+
+export interface CollectionChange {
+  cursor: number;
+  type: string;
+  occurredAt: string;
+  payload: JsonObject;
+}
+
+export interface CollectionChangesPage {
+  events: CollectionChange[];
+  cursor: number;
+  hasMore: boolean;
+  reset: boolean;
 }
 
 /** Provider-neutral operation transport used by the typed collection client. */

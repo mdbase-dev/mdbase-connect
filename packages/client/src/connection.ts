@@ -1,31 +1,11 @@
 import type {
-  CollectionChange,
-  CollectionChangesPage,
   CollectionDescription,
   CollectionOperation,
   CollectionTypeDocument,
-  CreateViewSourceInput,
-  DeleteViewSourceInput,
-  DeleteViewSourceResult,
-  ExecuteViewInput,
   FileCapability,
   GrantScope,
   JsonObject,
   MdbaseOperationEnvelope,
-  ReadViewSourceInput,
-  RecordDocument,
-  SavedViewExecution,
-  SavedViewList,
-  SavedViewSourceDocument,
-  ApplyCollectionSetupInput,
-  ApplyTypePackInput,
-  AssessCollectionSetupInput,
-  AssessTypePackInput,
-  CollectionSetupApplyResult,
-  CollectionSetupAssessment,
-  TypePackApplyResult,
-  TypePackAssessment,
-  UpdateViewSourceInput
 } from "@mdbase-dev/connect-protocol";
 import { MdbaseCollectionClient } from "./collection-client.js";
 import {
@@ -71,12 +51,24 @@ import {
 } from "./operation-helpers.js";
 import type {
   ChangesInput,
+  CollectionChange,
+  CollectionChangesPage,
+  CollectionSetupApplyResult,
+  CollectionSetupAssessment,
+  ApplyCollectionSetupInput,
+  ApplyTypePackInput,
+  AssessCollectionSetupInput,
+  AssessTypePackInput,
   CreateInput,
   CreateTypeInput,
+  CreateViewSourceInput,
   DeleteInput,
   DeletePreflightResult,
   DeleteProgressOptions,
   DeleteResult,
+  DeleteViewSourceInput,
+  DeleteViewSourceResult,
+  ExecuteViewInput,
   MdbaseDesiredTimer,
   MdbaseTimer,
   MdbaseTimerList,
@@ -92,12 +84,20 @@ import type {
   QueryResult,
   ReadInput,
   ReadTypeInput,
+  ReadViewSourceInput,
   RenameInput,
   RenamePreflightResult,
   RenameProgressOptions,
   RenameResult,
+  RecordDocument,
+  SavedViewExecution,
+  SavedViewList,
+  SavedViewSourceDocument,
+  TypePackApplyResult,
+  TypePackAssessment,
   UpdateInput,
   UpdateTypeInput,
+  UpdateViewSourceInput,
   MdbaseWatchSubscription,
   WatchInput,
   WatchStatus
@@ -749,7 +749,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
 
   putTimer(input: {
     namespace: string;
-    criterion_id: string;
+    criterionId: string;
     timer: MdbaseDesiredTimer;
   }, options?: ConnectRequestOptions): Promise<ConnectOutcome<MdbaseTimer, CollectionMutationProblemCode>> {
     return this.collectionClient.putTimer(input, options);
@@ -765,7 +765,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
 
   reconcileTimers(input: {
     namespace: string;
-    criterion_id: string;
+    criterionId: string;
     timers: MdbaseDesiredTimer[];
   }, options?: ConnectRequestOptions): Promise<ConnectOutcome<MdbaseTimerReconciliation, CollectionMutationProblemCode>> {
     return this.collectionClient.reconcileTimers(input, options);

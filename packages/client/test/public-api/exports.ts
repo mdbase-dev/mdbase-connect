@@ -3,7 +3,10 @@ import {
   MdbaseConnect,
   externalStore,
   type ConnectRequestOptions,
-  type MdbaseConnection
+  type MdbaseConnection,
+  type MdbaseDesiredTimer,
+  type QueryInput,
+  type UpdateInput
 } from "@mdbase-dev/connect";
 import {
   MdbaseCollectionClient,
@@ -23,6 +26,40 @@ void createPkce;
 void IndexedDbGrantKeyStore;
 void MemoryApplicationIdentityStore;
 void (null as ConnectRequestOptions | MdbaseConnection | MdbaseCollectionTransport | null);
+
+const canonicalQuery: QueryInput = {
+  types: ["note"],
+  where: "status == 'open'",
+  orderBy: [{ field: "file.mtime", direction: "desc" }],
+  includeBody: false,
+  frontmatterMode: "both"
+};
+const revisionSafeUpdate: UpdateInput = {
+  path: "Notes/one.md",
+  patch: { status: "done" },
+  ifRevision: "sha256:old",
+  includeDocument: true
+};
+const timer: MdbaseDesiredTimer = {
+  id: "note:one",
+  fireAt: "2026-08-06T00:00:00Z"
+};
+void canonicalQuery;
+void revisionSafeUpdate;
+void timer;
+
+// @ts-expect-error wire spelling is rejected at the application boundary.
+const wireQueryTypo: QueryInput = { order_by: [{ field: "file.path" }] };
+// @ts-expect-error canonical queries use a CEL string, not an untyped filter object.
+const malformedWhere: QueryInput = { where: { status: "open" } };
+// @ts-expect-error unknown query keys no longer compile.
+const misspelledQuery: QueryInput = { incldueBody: true };
+// @ts-expect-error mutation preconditions use camelCase.
+const wireUpdateTypo: UpdateInput = { path: "one.md", patch: {}, if_revision: "old" };
+void wireQueryTypo;
+void malformedWhere;
+void misspelledQuery;
+void wireUpdateTypo;
 
 // @ts-expect-error low-level clients do not belong to the golden-path root.
 import { MdbaseCollectionClient as RemovedRootClient } from "@mdbase-dev/connect";

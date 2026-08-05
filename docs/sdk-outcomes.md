@@ -1,6 +1,6 @@
 # SDK outcomes and recovery
 
-`@mdbase/connect` returns expected failures as typed data. Network outages,
+`@mdbase-dev/connect` returns expected failures as typed data. Network outages,
 authorization changes, invalid collection setup, incompatible versions, user
 cancellation, validation failures, and uncertain writes do not need exception
 handling.
@@ -11,10 +11,9 @@ type ConnectOutcome<Value, Code> =
   | { ok: false; problem: ConnectProblem<Code> };
 ```
 
-Exceptions are reserved for programming errors and broken SDK invariants. A
-narrow script or adapter that deliberately prefers exception flow can call
-`unwrapConnectOutcome()`; application UI should normally handle the outcome
-directly.
+Exceptions are reserved for programming errors and broken SDK invariants.
+Application code handles the discriminated outcome directly; the root package
+does not expose a throwing outcome adapter.
 
 ## Handling a problem
 
@@ -135,6 +134,8 @@ Application tests should cover at least:
 - malformed configuration and invalid type-file diagnostics;
 - an uncertain mutation that must be reconciled rather than repeated.
 
-Use `MdbaseCollectionClient` with a small fake transport for component tests.
+Use problem/outcome builders from `@mdbase-dev/connect-testing` for application
+fixtures. Protocol-author tests can import `MdbaseCollectionClient` from
+`@mdbase-dev/connect/advanced` with a small fake transport.
 Keep connector/server integration fixtures for the wire boundary, where the
 canonical problem object is schema-validated before the SDK accepts it.

@@ -10,7 +10,7 @@ import {
   WarningCircleIcon as CircleAlert,
   XIcon as X
 } from "./icons";
-import { ConnectOutcomeError, type CollectionChange, type CollectionDescription, type CollectionTypeDescriptor, type MutationProgress } from "@mdbase-dev/connect";
+import { MdbaseConnectError, type CollectionChange, type CollectionDescription, type CollectionTypeDescriptor, type MutationProgress } from "@mdbase-dev/connect";
 import {
   useCallback,
   useDeferredValue,
@@ -1214,7 +1214,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     } catch (error) {
       const message = gatewayError(error);
       session.error = message;
-      if (error instanceof ConnectOutcomeError && error.problem.operation_outcome === "unknown") {
+      if (error instanceof MdbaseConnectError && error.problem.operation_outcome === "unknown") {
         setPendingRenameRecovery({ plan, updateRefs });
         if (noteSessions.current.active === session) {
           setPathDraft(to);

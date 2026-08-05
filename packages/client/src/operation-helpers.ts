@@ -103,7 +103,7 @@ export function isCancellation(error: unknown, signal?: AbortSignal): boolean {
 }
 
 export function assertRenamePreview(input: RenameInput, preview: RenamePreflightResult): void {
-  if (preview.dry_run !== true || preview.would_rename !== true
+  if (preview.dryRun !== true || preview.wouldRename !== true
       || preview.from !== input.from || preview.to !== input.to) {
     throw connectError(
       "invalid_preflight",
@@ -113,7 +113,7 @@ export function assertRenamePreview(input: RenameInput, preview: RenamePreflight
 }
 
 export function assertDeletePreview(input: DeleteInput, preview: DeletePreflightResult): void {
-  if (preview.dry_run !== true || preview.would_delete !== true || preview.path !== input.path) {
+  if (preview.dryRun !== true || preview.wouldDelete !== true || preview.path !== input.path) {
     throw connectError(
       "invalid_preflight",
       "The delete preview does not match this mutation. Run the preview again."
@@ -122,10 +122,10 @@ export function assertDeletePreview(input: DeleteInput, preview: DeletePreflight
 }
 
 export function renameEstimate(input: RenameInput, preview: RenamePreflightResult): MutationEstimate {
-  if (input.update_refs === false) {
+  if (input.updateRefs === false) {
     return { affectedRecords: 0, totalUnits: 1, warnings: 0 };
   }
-  const references = preview.references_affected ?? [];
+  const references = preview.referencesAffected ?? [];
   return {
     affectedRecords: new Set(references.map((reference) => reference.path)).size,
     totalUnits: 1 + references.length,
@@ -135,7 +135,7 @@ export function renameEstimate(input: RenameInput, preview: RenamePreflightResul
 
 export function deleteEstimate(preview: DeletePreflightResult): MutationEstimate {
   return {
-    affectedRecords: new Set((preview.broken_links ?? []).map((reference) => reference.path)).size,
+    affectedRecords: new Set((preview.brokenLinks ?? []).map((reference) => reference.path)).size,
     totalUnits: 1,
     warnings: 0
   };

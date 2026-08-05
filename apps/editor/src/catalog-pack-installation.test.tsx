@@ -47,7 +47,7 @@ describe("catalog pack installation review", () => {
   it("requires digest-pinned confirmation before adopting unmanaged definitions", async () => {
     const conflict = packAssessment(false, {
       action: "conflict",
-      current_digest: `sha256:${"1".repeat(64)}`
+      currentDigest: `sha256:${"1".repeat(64)}`
     });
     const reviewed = packAssessment(true, { action: "adopt" });
     const gateway = gatewayWithAssessments([conflict, reviewed]);
@@ -58,7 +58,7 @@ describe("catalog pack installation review", () => {
     expect(callbacks.confirm).toHaveBeenCalledOnce();
     expect(gateway.applyTypePack).not.toHaveBeenCalled();
     await vi.mocked(callbacks.confirm).mock.calls[0]![0].onConfirm();
-    const adoptions = { "_contracts/contact.md": conflict.resources[0]!.current_digest! };
+    const adoptions = { "_contracts/contact.md": conflict.resources[0]!.currentDigest! };
     expect(gateway.assessTypePack).toHaveBeenLastCalledWith(provision, adoptions);
     expect(gateway.applyTypePack).toHaveBeenCalledWith(provision, reviewed, adoptions);
   });
@@ -70,7 +70,7 @@ function gatewayWithAssessments(assessments: TypePackAssessment[]): CollectionGa
     applyTypePack: vi.fn(async (_provision, assessment) => ({
       ...assessment,
       receipt: assessment.desired,
-      cleanup_deferred: false
+      cleanupDeferred: false
     } satisfies TypePackApplyResult))
   } as unknown as CollectionGateway;
 }
@@ -95,13 +95,13 @@ function packAssessment(
     id: "contacts",
     version: "1.0.0",
     digest: `sha256:${"2".repeat(64)}`,
-    installed_by: "mdbase-editor",
+    installedBy: "mdbase-editor",
     resources: []
   };
   return {
     status: applicable ? "install" : "conflict",
     applicable,
-    assessment_digest: `sha256:${"3".repeat(64)}`,
+    assessmentDigest: `sha256:${"3".repeat(64)}`,
     desired: receipt,
     resources: [{
       source: "contracts/contact.md",
@@ -117,6 +117,6 @@ function packAssessment(
       action: "create",
       digest: `sha256:${"5".repeat(64)}`
     },
-    contract_setups: { choices: [], resources: [] }
+    contractSetups: { choices: [], resources: [] }
   };
 }

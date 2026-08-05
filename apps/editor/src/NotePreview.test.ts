@@ -46,7 +46,7 @@ describe("note previews", () => {
       path: "Notes/Ada.md",
       body: "A useful preview.",
       frontmatter: {},
-      effective_frontmatter: { title: "Ada" },
+      effectiveFrontmatter: { title: "Ada" },
       types: ["person"],
       file: { path: "Notes/Ada.md" }
     } as NoteSummary;

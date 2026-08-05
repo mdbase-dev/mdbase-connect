@@ -8,7 +8,7 @@ function note(path: string, body?: string): NoteSummary {
     body,
     types: [],
     frontmatter: {},
-    effective_frontmatter: {},
+    effectiveFrontmatter: {},
     file: { path }
   };
 }

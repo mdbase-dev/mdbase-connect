@@ -2,8 +2,7 @@ import {
   MdbaseBrowserSelection,
   MdbaseConnect,
   MdbaseConnectError,
-  ConnectOutcomeError,
-  unwrapConnectOutcome,
+  type ConnectOutcome,
   type CollectionDescription,
   type MdbaseConnection,
   type MdbaseConnectionInfo,
@@ -98,7 +97,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
   }
 
   async startSession(): Promise<CollectionSessionSnapshot> {
-    return summarizeSession(unwrapConnectOutcome(await this.session.start()));
+    return summarizeSession(requireOutcome(await this.session.start()));
   }
 
   onSessionChange(listener: (snapshot: CollectionSessionSnapshot) => void): () => void {
@@ -109,7 +108,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
   }
 
   selectConnection(collectionId: string): ConnectionSummary {
-    unwrapConnectOutcome(this.session.select(collectionId, { history: "replace" }));
+    requireOutcome(this.session.select(collectionId, { history: "replace" }));
     const snapshot = this.sessionSnapshot();
     if (snapshot.status !== "ready") {
       throw new Error("The selected collection is not ready.");
@@ -120,14 +119,14 @@ export class ConnectCollectionGateway implements CollectionGateway {
   async checkDirectAccess(): Promise<ConnectionSummary | null> {
     const connection = this.activeConnection();
     if (!connection) return null;
-    unwrapConnectOutcome(await connection.checkDirectAccess());
+    requireOutcome(await connection.checkDirectAccess());
     return this.readySummary();
   }
 
   async requestDirectAccess(): Promise<ConnectionSummary | null> {
     const connection = this.activeConnection();
     if (!connection) return null;
-    unwrapConnectOutcome(await connection.requestDirectAccess());
+    requireOutcome(await connection.requestDirectAccess());
     return this.readySummary();
   }
 
@@ -135,7 +134,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
     target: CollectionAuthorizationTarget,
     options: CollectionAuthorizationOptions = {}
   ): Promise<void> {
-    unwrapConnectOutcome(await this.session.authorize(target, options));
+    requireOutcome(await this.session.authorize(target, options));
   }
 
   forgetConnection(collectionId: string): void {
@@ -143,18 +142,18 @@ export class ConnectCollectionGateway implements CollectionGateway {
   }
 
   async describe(): Promise<CollectionDescription> {
-    return unwrapConnectOutcome(await this.requireConnection().describe());
+    return requireOutcome(await this.requireConnection().describe());
   }
 
   async list({ signal, onProgress }: NoteIndexRequest = {}): Promise<NoteIndexResult> {
     const notes: NoteSummary[] = [];
     let snapshot: string | undefined;
     for await (const outcome of this.requireConnection().queryPages({
-        order_by: [{ field: "file.mtime", direction: "desc" }],
-        include_body: false,
-        frontmatter_mode: "both"
+        orderBy: [{ field: "file.mtime", direction: "desc" }],
+        includeBody: false,
+        frontmatterMode: "both"
       }, { firstPageSize: FIRST_PAGE_SIZE, pageSize: PAGE_SIZE, signal })) {
-      const page = unwrapConnectOutcome(outcome);
+      const page = requireOutcome(outcome);
       notes.push(...page.results.map(completeSummary));
       snapshot = page.snapshot;
       onProgress?.({
@@ -164,7 +163,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
         complete: page.complete,
         contentComplete: notes.length === 0,
         contentLoaded: 0,
-        total: page.meta?.total_count
+        total: page.meta?.totalCount
       });
     }
 
@@ -175,12 +174,12 @@ export class ConnectCollectionGateway implements CollectionGateway {
     const notes: NoteSummary[] = [];
     let snapshot = requestedSnapshot;
     for await (const outcome of this.requireConnection().queryPages({
-        order_by: [{ field: "file.mtime", direction: "desc" }],
+        orderBy: [{ field: "file.mtime", direction: "desc" }],
         ...(snapshot ? { snapshot } : {}),
-        include_body: true,
-        frontmatter_mode: "both"
+        includeBody: true,
+        frontmatterMode: "both"
       }, { firstPageSize: FIRST_PAGE_SIZE, pageSize: PAGE_SIZE, signal })) {
-      const page = unwrapConnectOutcome(outcome);
+      const page = requireOutcome(outcome);
       notes.push(...page.results.map(completeSummary));
       snapshot = page.snapshot;
       onProgress?.({
@@ -190,69 +189,69 @@ export class ConnectCollectionGateway implements CollectionGateway {
         complete: page.complete,
         contentComplete: page.complete,
         contentLoaded: notes.length,
-        total: page.meta?.total_count
+        total: page.meta?.totalCount
       });
     }
     return { notes, snapshot };
   }
 
   async read(path: string): Promise<NoteDocument> {
-    return unwrapConnectOutcome(await this.requireConnection().read({ path, include_document: true }));
+    return requireOutcome(await this.requireConnection().read({ path, includeDocument: true }));
   }
 
   async create(input: CreateNoteInput): Promise<NoteDocument> {
-    return unwrapConnectOutcome(await this.requireConnection().create({
+    return requireOutcome(await this.requireConnection().create({
       path: input.path,
       ...(input.type ? { type: input.type } : {}),
       frontmatter: input.properties,
       body: input.titleField
         ? input.body
         : persistedBody(input.title, input.body, { kind: "heading" }),
-      include_document: true
+      includeDocument: true
     }));
   }
 
   async restore(document: NoteDocument): Promise<NoteDocument> {
-    return unwrapConnectOutcome(await this.requireConnection().create({
+    return requireOutcome(await this.requireConnection().create({
       path: document.path,
       frontmatter: document.frontmatter,
       body: document.body,
-      include_document: true
+      includeDocument: true
     }));
   }
 
   async update(input: SaveNoteInput): Promise<NoteDocument> {
-    return unwrapConnectOutcome(await this.requireConnection().update({
+    return requireOutcome(await this.requireConnection().update({
       path: input.path,
       patch: titlePatch(input.title, input.source, input.frontmatter),
       body: persistedBody(input.title, input.body, input.source),
-      if_revision: input.revision,
-      include_document: true
+      ifRevision: input.revision,
+      includeDocument: true
     }));
   }
 
   async updateProperties(path: string, patch: JsonObject, revision: string): Promise<NoteDocument> {
-    return unwrapConnectOutcome(await this.requireConnection().update({ path, patch, if_revision: revision, include_document: true }));
+    return requireOutcome(await this.requireConnection().update({ path, patch, ifRevision: revision, includeDocument: true }));
   }
 
   async updateDocument(path: string, document: string, revision: string): Promise<NoteDocument> {
-    return unwrapConnectOutcome(await this.requireConnection().update({
+    return requireOutcome(await this.requireConnection().update({
       path,
       document,
-      if_revision: revision
+      ifRevision: revision
     }));
   }
 
   async preflightRename(from: string, to: string, revision: string): Promise<RenamePreflight> {
-    const result = unwrapConnectOutcome(await this.requireConnection().preflightRename({
+    const result = requireOutcome(await this.requireConnection().preflightRename({
       from,
       to,
-      if_revision: revision,
-      update_refs: true
+      ifRevision: revision,
+      updateRefs: true
     }));
     this.renamePreflights.set(mutationKey(from, to, revision), result);
     return {
-      affectedPaths: uniquePaths(result.references_affected),
+      affectedPaths: uniquePaths(result.referencesAffected),
       warnings: [...new Set(result.warnings?.map((warning) => warning.message) ?? [])],
       operation: result
     };
@@ -262,12 +261,12 @@ export class ConnectCollectionGateway implements CollectionGateway {
     const key = mutationKey(from, to, revision);
     let retainPreflight = false;
     try {
-      return unwrapConnectOutcome(await this.requireConnection().renameWithProgress({
+      return requireOutcome(await this.requireConnection().renameWithProgress({
         from,
         to,
-        if_revision: revision,
-        update_refs: updateRefs,
-        include_document: true
+        ifRevision: revision,
+        updateRefs: updateRefs,
+        includeDocument: true
       }, {
         ...(this.renamePreflights.get(key) ? { preflight: this.renamePreflights.get(key) } : {}),
         ...(options.signal ? { signal: options.signal } : {}),
@@ -282,19 +281,19 @@ export class ConnectCollectionGateway implements CollectionGateway {
   }
 
   async preflightDelete(path: string, revision: string): Promise<DeletePreflight> {
-    const result = unwrapConnectOutcome(await this.requireConnection().preflightDelete({ path, if_revision: revision }));
+    const result = requireOutcome(await this.requireConnection().preflightDelete({ path, ifRevision: revision }));
     this.deletePreflights.set(mutationKey(path, "", revision), result);
-    return { brokenLinkPaths: uniquePaths(result.broken_links), operation: result };
+    return { brokenLinkPaths: uniquePaths(result.brokenLinks), operation: result };
   }
 
   async delete(path: string, revision: string, options: MutationOperationOptions = {}): Promise<void> {
     const key = mutationKey(path, "", revision);
     let retainPreflight = false;
     try {
-      unwrapConnectOutcome(await this.requireConnection().deleteWithProgress({
+      requireOutcome(await this.requireConnection().deleteWithProgress({
         path,
-        if_revision: revision,
-        check_backlinks: true
+        ifRevision: revision,
+        checkBacklinks: true
       }, {
         ...(this.deletePreflights.get(key) ? { preflight: this.deletePreflights.get(key) } : {}),
         ...(options.signal ? { signal: options.signal } : {}),
@@ -310,23 +309,23 @@ export class ConnectCollectionGateway implements CollectionGateway {
 
   async validate(path: string): Promise<MdbaseDiagnostic[]> {
     const response = await this.requireConnection().validate({ path });
-    if (!response.ok) throw new ConnectOutcomeError(response.problem);
+    if (!response.ok) throw new MdbaseConnectError(response.problem);
     return response.diagnostics;
   }
 
   async readType(name: string) {
-    return unwrapConnectOutcome(await this.requireConnection().readType({ name }));
+    return requireOutcome(await this.requireConnection().readType({ name }));
   }
 
   async createType(document: string) {
-    return unwrapConnectOutcome(await this.requireConnection().createType({ document }));
+    return requireOutcome(await this.requireConnection().createType({ document }));
   }
 
   async updateType(current: import("./model").TypeDocument, document: string) {
-    return unwrapConnectOutcome(await this.requireConnection().updateType({
+    return requireOutcome(await this.requireConnection().updateType({
       path: current.path,
       document,
-      if_revision: current.revision
+      ifRevision: current.revision
     }));
   }
 
@@ -335,10 +334,10 @@ export class ConnectCollectionGateway implements CollectionGateway {
     adoptResources: Record<string, string> = {}
   ): Promise<TypePackAssessment> {
     const connection = this.requireConnection();
-    return unwrapConnectOutcome(await connection.assessTypePack({
+    return requireOutcome(await connection.assessTypePack({
       provision,
-      installed_by: "dev.mdbase.editor",
-      adopt_resources: adoptResources
+      installedBy: "dev.mdbase.editor",
+      adoptResources: adoptResources
     }));
   }
 
@@ -348,16 +347,16 @@ export class ConnectCollectionGateway implements CollectionGateway {
     adoptResources: Record<string, string> = {}
   ): Promise<TypePackApplyResult> {
     const connection = this.requireConnection();
-    return unwrapConnectOutcome(await connection.applyTypePack({
+    return requireOutcome(await connection.applyTypePack({
       provision,
-      installed_by: "dev.mdbase.editor",
-      adopt_resources: adoptResources,
-      expected_assessment_digest: assessment.assessment_digest
+      installedBy: "dev.mdbase.editor",
+      adoptResources: adoptResources,
+      expectedAssessmentDigest: assessment.assessmentDigest
     }));
   }
 
   async watch(onChange: (change: import("@mdbase-dev/connect").CollectionChange) => void, signal: AbortSignal, onStatus?: (status: import("@mdbase-dev/connect").WatchStatus) => void): Promise<void> {
-    const opened = unwrapConnectOutcome(await this.requireConnection().watch({
+    const opened = requireOutcome(await this.requireConnection().watch({
       pollIntervalMs: 1_500,
       lifetimeSignal: signal
     }));
@@ -441,7 +440,7 @@ function mutationKey(from: string, to: string, revision: string): string {
 }
 
 function completeSummary(record: QueryRecord<NoteFrontmatter>): NoteSummary {
-  if (!record.frontmatter || !record.effective_frontmatter) {
+  if (!record.frontmatter || !record.effectiveFrontmatter) {
     throw new Error(
       `Query result ${record.path} did not include both frontmatter projections.`
     );
@@ -449,20 +448,14 @@ function completeSummary(record: QueryRecord<NoteFrontmatter>): NoteSummary {
   return {
     ...record,
     frontmatter: record.frontmatter,
-    effective_frontmatter: record.effective_frontmatter
+    effectiveFrontmatter: record.effectiveFrontmatter
   };
 }
 
 export function gatewayError(error: unknown): string {
-  if (error instanceof ConnectOutcomeError) {
+  if (error instanceof MdbaseConnectError) {
     if (error.problem.code === "connector_offline") return "The computer holding this collection is offline.";
     if (error.problem.recovery === "reauthorize") {
-      return "This collection needs authorization again. Choose the collection to continue.";
-    }
-  }
-  if (error instanceof MdbaseConnectError) {
-    if (error.code === "connector_offline") return "The computer holding this collection is offline.";
-    if (error.requiresAuthorization) {
       return "This collection needs authorization again. Choose the collection to continue.";
     }
   }
@@ -471,7 +464,12 @@ export function gatewayError(error: unknown): string {
 }
 
 function operationOutcomeUnknown(error: unknown): boolean {
-  return error instanceof ConnectOutcomeError && error.problem.operation_outcome === "unknown";
+  return error instanceof MdbaseConnectError && error.problem.operation_outcome === "unknown";
+}
+
+function requireOutcome<Value>(outcome: ConnectOutcome<Value>): Value {
+  if (!outcome.ok) throw new MdbaseConnectError(outcome.problem);
+  return outcome.value;
 }
 
 export type { QueryResult };

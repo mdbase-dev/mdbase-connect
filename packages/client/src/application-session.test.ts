@@ -1,13 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import type {
-  CollectionSetupAssessment,
-  MdbaseAppManifest,
-  TypePackAssessment
-} from "@mdbase-dev/connect-protocol";
+import type { MdbaseAppManifest } from "@mdbase-dev/connect-protocol";
 import {
   MdbaseApplicationSession,
   MdbaseMemorySelection,
-  MdbaseMemoryVerificationStore
+  MdbaseMemoryVerificationStore,
+  type CollectionSetupAssessment,
+  type TypePackAssessment
 } from "./index.js";
 import { connectSuccess } from "./outcomes.js";
 
@@ -42,14 +40,14 @@ function connection(
     return connectSuccess({
       assessment: currentAssessment!,
       receipt: {
-        application_id: currentAssessment!.application_id,
-        declaration_digest: currentAssessment!.declaration_digest,
-        provision_digest: currentAssessment!.provision_digest,
-        assessment_digest: currentAssessment!.assessment_digest,
-        collection_revision: currentAssessment!.final_collection_revision,
+        applicationId: currentAssessment!.applicationId,
+        declarationDigest: currentAssessment!.declarationDigest,
+        provisionDigest: currentAssessment!.provisionDigest,
+        assessmentDigest: currentAssessment!.assessmentDigest,
+        collectionRevision: currentAssessment!.finalCollectionRevision,
         configuration: [],
-        type_packs: [],
-        cleanup_deferred: false
+        typePacks: [],
+        cleanupDeferred: false
       }
     });
   });
@@ -260,31 +258,31 @@ describe("MdbaseApplicationSession", () => {
       id: "dev.mdbase.tasks",
       version: "2.0.0",
       digest: `sha256:${"a".repeat(64)}`,
-      installed_by: "dev.mdbase.session-test",
+      installedBy: "dev.mdbase.session-test",
       resources: []
     };
     const typePackAssessment: TypePackAssessment = {
       status: "upgrade",
       applicable: true,
-      assessment_digest: `sha256:${"b".repeat(64)}`,
+      assessmentDigest: `sha256:${"b".repeat(64)}`,
       current: { ...desired, version: "1.0.0" },
       desired,
       resources: [],
       lock: { target: "mdbase.lock.yaml", action: "update", digest: `sha256:${"c".repeat(64)}` },
-      contract_setups: { choices: [], resources: [] }
+      contractSetups: { choices: [], resources: [] }
     };
     const assessment: CollectionSetupAssessment = {
       status: "provision",
       applicable: true,
-      application_id: "dev.mdbase.session-test",
-      declaration_digest: `sha256:${"a".repeat(64)}`,
-      provision_digest: `sha256:${"d".repeat(64)}`,
-      collection_revision: `sha256:${"e".repeat(64)}`,
-      final_collection_revision: `sha256:${"f".repeat(64)}`,
+      applicationId: "dev.mdbase.session-test",
+      declarationDigest: `sha256:${"a".repeat(64)}`,
+      provisionDigest: `sha256:${"d".repeat(64)}`,
+      collectionRevision: `sha256:${"e".repeat(64)}`,
+      finalCollectionRevision: `sha256:${"f".repeat(64)}`,
       configuration: [],
-      type_packs: [typePackAssessment],
-      final_resource_revisions: {},
-      assessment_digest: `sha256:${"b".repeat(64)}`
+      typePacks: [typePackAssessment],
+      finalResourceRevisions: {},
+      assessmentDigest: `sha256:${"b".repeat(64)}`
     };
     const declaration = manifest({
       requirements: {
@@ -321,8 +319,8 @@ describe("MdbaseApplicationSession", () => {
 
     expect(applied.ok && applied.value.status).toBe("ready");
     expect(fixture.applyCollectionSetup).toHaveBeenCalledWith(expect.objectContaining({
-      application_id: "dev.mdbase.session-test",
-      expected_assessment_digest: assessment.assessment_digest
+      applicationId: "dev.mdbase.session-test",
+      expectedAssessmentDigest: assessment.assessmentDigest
     }), expect.objectContaining({ signal: expect.any(AbortSignal), timeoutMs: null }));
   });
 });
