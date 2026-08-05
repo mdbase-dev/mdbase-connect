@@ -48,6 +48,8 @@ export type { ConnectErrorContext } from "./errors.js";
 export { MdbaseFileClient } from "./files.js";
 export type {
   MdbaseFileSource,
+  CollectionFileDescriptor,
+  MdbaseFileDeleteReceipt,
   MdbaseFileStreamSource,
   MdbaseFileProgress,
   MdbaseFileListOptions,
@@ -198,7 +200,6 @@ export type {
   ApplicationAuthorizationProof,
   CollectionContractDescriptor,
   CollectionDescription,
-  CollectionFileDescriptor,
   FileAction,
   FileCapability,
   CollectionOperation as MdbaseOperation,

@@ -1,7 +1,7 @@
 import type {
-  CollectionFileDescriptor,
+  CollectionFileDescriptor as WireCollectionFileDescriptor,
   CommitFileUploadReceipt,
-  DeleteFileReceipt,
+  DeleteFileReceipt as WireDeleteFileReceipt,
   FileCapability,
   FileTransferSession,
   ListFilesPage,
@@ -44,6 +44,26 @@ import {
 } from "./request-budget.js";
 
 export type MdbaseFileSource = FileSource;
+
+export interface CollectionFileDescriptor {
+  fileId: string;
+  path: string;
+  revision: string;
+  contentDigest: `sha256:${string}`;
+  size: number;
+  mediaType?: string;
+  mediaClass: import("@mdbase-dev/connect-protocol").FileMediaClass;
+  modifiedAt: string;
+}
+
+export interface MdbaseFileDeleteReceipt {
+  protocolVersion: 1;
+  type: "file_deleted";
+  mutationId: string;
+  fileId: string;
+  previousPath: string;
+  revision: string;
+}
 
 export interface MdbaseFileStreamSource {
   /** Exact plaintext byte length. */
@@ -167,7 +187,7 @@ export class MdbaseFileClient {
       }
       for (const file of page.files) {
         throwIfAborted(signal);
-        yield file;
+        yield clientFileDescriptor(file);
       }
       after = page.next;
     } while (after);
@@ -330,7 +350,7 @@ export class MdbaseFileClient {
         );
         if (replay) {
           committed = true;
-          return replay.file;
+          return clientFileDescriptor(replay.file);
         }
       }
       const received = new Set(session.received);
@@ -395,7 +415,7 @@ export class MdbaseFileClient {
         throw connectError("invalid_operation_response", "The authority returned an invalid file receipt.");
       }
       committed = true;
-      return receipt.file;
+      return clientFileDescriptor(receipt.file);
     } catch (error) {
       throw normalizeFileError(error);
     } finally {
@@ -426,7 +446,7 @@ export class MdbaseFileClient {
       const copy = new Uint8Array(chunk.byteLength);
       copy.set(chunk);
       return copy.buffer;
-    }), { type: file.media_type ?? "" });
+    }), { type: file.mediaType ?? "" });
   }
 
   /** Download and verify a file with network backpressure and bounded buffering. */
@@ -453,7 +473,7 @@ export class MdbaseFileClient {
         protocol_version: FILE_PROTOCOL_VERSION,
         type: "open_file_download",
         transfer_id: transferId,
-        file_id: file.file_id,
+        file_id: file.fileId,
         revision: file.revision
       }, startupSignal);
       requireTransferSession(session, transferId, "download");
@@ -491,7 +511,7 @@ export class MdbaseFileClient {
       await this.abort(transferId);
     };
     const verify = () => {
-      if (receivedBytes !== file.size || `sha256:${hash.digestHex()}` !== file.content_digest) {
+      if (receivedBytes !== file.size || `sha256:${hash.digestHex()}` !== file.contentDigest) {
         throw connectError("invalid_operation_response", "Downloaded file bytes failed integrity verification.");
       }
     };
@@ -628,12 +648,12 @@ export class MdbaseFileClient {
     try {
       receipt = await this.request<MoveFileReceipt>(
         "POST",
-        `${encodeURIComponent(file.file_id)}/move`,
+        `${encodeURIComponent(file.fileId)}/move`,
         {
           protocol_version: FILE_PROTOCOL_VERSION,
           type: "move_file",
           mutation_id: mutationId,
-          file_id: file.file_id,
+          file_id: file.fileId,
           if_revision: options.ifRevision ?? file.revision,
           from_path: file.path,
           path,
@@ -650,18 +670,18 @@ export class MdbaseFileClient {
       receipt.protocol_version !== 1
       || receipt.type !== "file_moved"
       || receipt.mutation_id !== mutationId
-      || receipt.file.file_id !== file.file_id
+      || receipt.file.file_id !== file.fileId
       || receipt.file.path !== path
     ) {
       throw connectError("invalid_operation_response", "The authority returned an invalid file move receipt.");
     }
-    return receipt.file;
+    return clientFileDescriptor(receipt.file);
   }
 
   async delete(
     file: CollectionFileDescriptor,
     options: MdbaseFileDeleteOptions = {}
-  ): Promise<DeleteFileReceipt> {
+  ): Promise<MdbaseFileDeleteReceipt> {
     return withCooperativeRequestBudget(options, this.timeouts.requestMs, (budget) =>
       this.deleteWithinBudget(file, { ...options, signal: budget.signal, timeoutMs: null })
     );
@@ -670,19 +690,19 @@ export class MdbaseFileClient {
   private async deleteWithinBudget(
     file: CollectionFileDescriptor,
     options: MdbaseFileDeleteOptions
-  ): Promise<DeleteFileReceipt> {
+  ): Promise<MdbaseFileDeleteReceipt> {
     this.requireAction("delete");
     const mutationId = options.mutationId ?? crypto.randomUUID();
-    let receipt: DeleteFileReceipt;
+    let receipt: WireDeleteFileReceipt;
     try {
-      receipt = await this.request<DeleteFileReceipt>(
+      receipt = await this.request<WireDeleteFileReceipt>(
         "POST",
-        `${encodeURIComponent(file.file_id)}/delete`,
+        `${encodeURIComponent(file.fileId)}/delete`,
         {
           protocol_version: FILE_PROTOCOL_VERSION,
           type: "delete_file",
           mutation_id: mutationId,
-          file_id: file.file_id,
+          file_id: file.fileId,
           if_revision: options.ifRevision ?? file.revision,
           path: file.path
         },
@@ -695,12 +715,19 @@ export class MdbaseFileClient {
       receipt.protocol_version !== 1
       || receipt.type !== "file_deleted"
       || receipt.mutation_id !== mutationId
-      || receipt.file_id !== file.file_id
+      || receipt.file_id !== file.fileId
       || receipt.previous_path !== file.path
     ) {
       throw connectError("invalid_operation_response", "The authority returned an invalid file delete receipt.");
     }
-    return receipt;
+    return {
+      protocolVersion: receipt.protocol_version,
+      type: receipt.type,
+      mutationId: receipt.mutation_id,
+      fileId: receipt.file_id,
+      previousPath: receipt.previous_path,
+      revision: receipt.revision
+    };
   }
 
   private async uploadPart(
@@ -806,4 +833,17 @@ export class MdbaseFileClient {
       `transfers/${encodeURIComponent(transferId)}`
     ).catch(() => undefined);
   }
+}
+
+function clientFileDescriptor(file: WireCollectionFileDescriptor): CollectionFileDescriptor {
+  return {
+    fileId: file.file_id,
+    path: file.path,
+    revision: file.revision,
+    contentDigest: file.content_digest,
+    size: file.size,
+    ...(file.media_type ? { mediaType: file.media_type } : {}),
+    mediaClass: file.media_class,
+    modifiedAt: file.modified_at
+  };
 }

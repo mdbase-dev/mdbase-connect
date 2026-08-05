@@ -372,16 +372,19 @@ consistently across browsers, proxies, and local encrypted transports.
 
 Record-link helpers can build on this file API without redefining storage
 paths. Protocol 1 intentionally does not impose a field schema on records, so
-applications currently store the returned `file_id` or `path` through their
+applications currently store the returned `fileId` or `path` through their
 ordinary record operation:
 
 ```ts
 const photo = await connection.files.upload("Photos/today.jpg", browserFile);
-await connection.execute("journal.set-photo", {
-  record: "Journal/today.md",
-  fileId: photo.file_id,
-  path: photo.path
+const journal = await connection.read({ path: "Journal/today.md" });
+if (!journal.ok) return renderProblem(journal.problem);
+const updated = await connection.update({
+  path: journal.value.path,
+  patch: { photo_file_id: photo.fileId, photo_path: photo.path },
+  ifRevision: journal.value.revision
 });
+if (!updated.ok) renderProblem(updated.problem);
 ```
 
 A schema-aware `attachments.add(...)` convenience API belongs in an
