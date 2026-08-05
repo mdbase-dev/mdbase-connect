@@ -48,6 +48,8 @@ mod files;
 mod metrics;
 mod operation_responses;
 mod operations;
+mod scoped_operations;
+mod setup_binding;
 
 impl AgentState {
     #[cfg(test)]

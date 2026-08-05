@@ -2,7 +2,7 @@ use axum::{
     body::Bytes,
     extract::{DefaultBodyLimit, OriginalUri, Path, Query, Request, State},
     http::{
-        header::{AUTHORIZATION, CONTENT_TYPE, ORIGIN},
+        header::{AUTHORIZATION, CONTENT_TYPE},
         HeaderMap, HeaderName, Method, StatusCode, Uri,
     },
     middleware::{self, Next},
@@ -37,16 +37,18 @@ use uuid::Uuid;
 use crate::{
     error::{ApiError, ApiResult},
     provider::{
-        validate_limit, AuthorityRequestProof, HostedProvider, PrepareAuthorityImport,
-        PrepareAuthorityTransfer, RegisterReplica, UpdateApplicationReplica,
+        validate_limit, HostedProvider, PrepareAuthorityImport, PrepareAuthorityTransfer,
+        RegisterReplica, UpdateApplicationReplica,
     },
 };
 
 mod accounts;
+mod authentication;
 mod authority_import_files;
 mod files;
 
 use accounts::account_routes;
+use authentication::{bearer, request_origin, request_proof};
 use authority_import_files::{
     commit_authority_import_file_upload, open_authority_import_file_upload,
     prepare_authority_import_file_part,
@@ -938,85 +940,6 @@ async fn operation(
             ))
         })?,
     ))
-}
-
-fn request_origin(headers: &HeaderMap) -> Option<&str> {
-    headers.get(ORIGIN).and_then(|value| value.to_str().ok())
-}
-
-fn request_proof(
-    headers: &HeaderMap,
-    method: Method,
-    uri: &Uri,
-    body: &[u8],
-) -> ApiResult<Option<AuthorityRequestProof>> {
-    let values = [
-        header_text(headers, AUTHORITY_PROOF_VERSION_HEADER),
-        header_text(headers, AUTHORITY_PROOF_TIMESTAMP_HEADER),
-        header_text(headers, AUTHORITY_PROOF_NONCE_HEADER),
-        header_text(headers, AUTHORITY_PROOF_SIGNATURE_HEADER),
-    ];
-    if values.iter().all(Option::is_none) {
-        return Ok(None);
-    }
-    let [Some(version), Some(timestamp), Some(nonce), Some(signature)] = values else {
-        return Err(ApiError::unauthorized(
-            "invalid_authority_proof",
-            "The authority request proof is incomplete.",
-        ));
-    };
-    let version = version.parse::<u32>().map_err(|_| {
-        ApiError::unauthorized(
-            "invalid_authority_proof",
-            "The authority request proof version is invalid.",
-        )
-    })?;
-    let timestamp = timestamp.parse::<i64>().map_err(|_| {
-        ApiError::unauthorized(
-            "invalid_authority_proof",
-            "The authority request proof timestamp is invalid.",
-        )
-    })?;
-    let nonce = Uuid::parse_str(nonce).map_err(|_| {
-        ApiError::unauthorized(
-            "invalid_authority_proof",
-            "The authority request proof nonce is invalid.",
-        )
-    })?;
-    if signature.is_empty() {
-        return Err(ApiError::unauthorized(
-            "invalid_authority_proof",
-            "The authority request proof signature is invalid.",
-        ));
-    }
-    Ok(Some(AuthorityRequestProof {
-        version,
-        timestamp,
-        nonce,
-        signature: signature.to_string(),
-        method: method.to_string(),
-        target: uri
-            .path_and_query()
-            .map(|value| value.as_str())
-            .unwrap_or_else(|| uri.path())
-            .to_string(),
-        body: body.to_vec(),
-    }))
-}
-
-fn header_text<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
-    headers.get(name).and_then(|value| value.to_str().ok())
-}
-
-fn bearer(headers: &HeaderMap) -> ApiResult<&str> {
-    headers
-        .get(AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .filter(|token| !token.is_empty())
-        .ok_or_else(|| {
-            ApiError::unauthorized("missing_bearer_token", "A bearer credential is required.")
-        })
 }
 
 #[cfg(test)]

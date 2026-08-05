@@ -103,6 +103,7 @@ import {
   DEFAULT_REQUEST_TIMEOUT_MS,
   requestAbortReason
 } from "./request-budget.js";
+import { watchRetryPolicy } from "./watch-policy.js";
 
 /**
  * Typed collection operations independent of OAuth, HTTP, or storage.
@@ -983,22 +984,6 @@ function wireCollectionDescription(value: WireCollectionDescription): Collection
   };
 }
 
-interface ResolvedWatchRetryOptions {
-  initialDelayMs: number;
-  maxDelayMs: number;
-  multiplier: number;
-  maxAttempts?: number;
-}
-
-function watchRetryPolicy(options: WatchOptions["retry"]): ResolvedWatchRetryOptions | undefined {
-  if (options === false) return undefined;
-  return {
-    initialDelayMs: Math.max(0, options?.initialDelayMs ?? 500),
-    maxDelayMs: Math.max(0, options?.maxDelayMs ?? 15_000),
-    multiplier: Math.max(1, options?.multiplier ?? 2),
-    ...(options?.maxAttempts === undefined ? {} : { maxAttempts: Math.max(0, options.maxAttempts) })
-  };
-}
 
 function nonNegativeInteger(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : fallback;

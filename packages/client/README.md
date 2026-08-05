@@ -98,6 +98,12 @@ reserved for programming errors and broken SDK invariants. See
 [typed outcomes and recovery](../../docs/sdk-outcomes.md) for the complete
 problem model, setup failures, mutation uncertainty, and UI guidance.
 
+SDK call options, operation inputs, results, descriptors, and progress events
+use camelCase. The client translates canonical snake_case protocol payloads at
+the authority boundary. Versioned JSON documents such as `MdbaseAppManifest`
+and `TypePackProvision`, problem detail objects, diagnostics, and user-owned
+frontmatter retain the exact field names defined by their own schemas.
+
 React applications can use the same session without introducing another state
 owner:
 

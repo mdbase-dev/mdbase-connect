@@ -90,6 +90,49 @@ void wireUpdateTypo;
 void wireFileTypo;
 void wireDescriptionTypo;
 
+export async function compiledQuickstart(
+  connect: InstanceType<typeof MdbaseConnect>,
+  lifetime: AbortController
+): Promise<void> {
+  const session = connect.application({ selection: new MdbaseBrowserSelection() });
+  const started = await session.start({ signal: lifetime.signal, timeoutMs: 20_000 });
+  if (!started.ok) {
+    void started.problem.recovery;
+    return;
+  }
+  if (session.getSnapshot().status === "unselected") {
+    const authorized = await session.authorize("choose", {
+      signal: lifetime.signal,
+      timeoutMs: 20_000
+    });
+    if (!authorized.ok) return;
+  }
+  const connection = session.connection();
+  if (!connection) return;
+  const queried = await connection.query({ types: ["workout"] }, {
+    signal: lifetime.signal,
+    timeoutMs: 8_000
+  });
+  if (!queried.ok || !queried.value.results[0]) return;
+  const current = await connection.read({ path: queried.value.results[0].path });
+  if (!current.ok) return;
+  const updated = await connection.update({
+    path: current.value.path,
+    patch: { completed: true },
+    ifRevision: current.value.revision
+  });
+  if (!updated.ok && updated.problem.operation_outcome === "unknown") {
+    for (const pending of connection.pendingMutations()) {
+      await pending.recover({ signal: lifetime.signal, timeoutMs: 30_000 });
+    }
+  }
+  const watched = await connection.watch(
+    { lifetimeSignal: lifetime.signal },
+    { signal: lifetime.signal, timeoutMs: 20_000 }
+  );
+  watched.ok && watched.value.close();
+}
+
 // @ts-expect-error low-level clients do not belong to the golden-path root.
 import { MdbaseCollectionClient as RemovedRootClient } from "@mdbase-dev/connect";
 // @ts-expect-error PKCE plumbing is an advanced concern.

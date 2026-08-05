@@ -34,11 +34,15 @@ import {
 import type { MdbaseConnectOptions } from "./connect-options.js";
 import type { MdbaseConnectionInfo } from "./connection-types.js";
 import {
+  authorizationAbort,
+  declarationIdFromFamilyIdentity
+} from "./connect-authorization-helpers.js";
+import {
   IndexedDbGrantKeyStore,
   MemoryGrantKeyStore,
   type GrantKeyStore
 } from "./crypto.js";
-import { MdbaseConnectError, connectError, serverConnectError } from "./errors.js";
+import { connectError, serverConnectError } from "./errors.js";
 import {
   DEFAULT_OPERATIONS,
   type Application,
@@ -985,21 +989,4 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     const connections = this.connections();
     for (const listener of this.listeners) listener(connections);
   }
-}
-
-function declarationIdFromFamilyIdentity(familyIdentity: string): string {
-  const prefix = "bundle:";
-  if (!familyIdentity.startsWith(prefix) || familyIdentity.length === prefix.length) {
-    throw new Error("The registered application has no valid declaration identity.");
-  }
-  return familyIdentity.slice(prefix.length);
-}
-
-function authorizationAbort(
-  signal: AbortSignal,
-  message: string,
-  cause?: unknown
-): MdbaseConnectError {
-  if (signal.reason instanceof MdbaseConnectError) return signal.reason;
-  return connectError("authorization_cancelled", message, { cause });
 }
