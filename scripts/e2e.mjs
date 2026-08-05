@@ -16,9 +16,9 @@ import {
   signApplicationAuthorization
 } from "../packages/client/dist/crypto-entry.js";
 import {
-  MdbaseConnect,
-  unwrapConnectOutcome
+  MdbaseConnect
 } from "../packages/client/dist/index.js";
+import { requireConnectSuccess } from "../packages/testing/dist/index.js";
 import {
   APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
   authorizationContractRequirements
@@ -906,10 +906,10 @@ implements:
     if (!connection) {
       throw new Error("Browser SDK did not restore the saved collection connection");
     }
-    if (unwrapConnectOutcome(await connection.requestDirectAccess()) !== "available") {
+    if (requireConnectSuccess(await connection.requestDirectAccess()) !== "available") {
       throw new Error("Browser SDK did not discover the direct connector");
     }
-    const sdkQuery = unwrapConnectOutcome(await connection.query({ limit: 1_100 }));
+    const sdkQuery = requireConnectSuccess(await connection.query({ limit: 1_100 }));
     if (sdkQuery.results.length !== 1_000 || connection.route !== "direct") {
       throw new Error(
         "Browser SDK did not complete the 1,000-record query directly: " +
@@ -1083,6 +1083,10 @@ implements:
     manifest,
     loopbackUrl: ${JSON.stringify(loopbackUrl)}
   });
+  const requireConnectSuccess = (outcome) => {
+    if (!outcome.ok) throw Object.assign(new Error(outcome.problem.message), { problem: outcome.problem });
+    return outcome.value;
+  };
   globalThis.portableHarness = {
     environment: manager.environment(),
     initialConnections: manager.connections().length
@@ -1096,12 +1100,12 @@ implements:
       },
       openVerification() {}
     }).then(async (authorizationOutcome) => {
-      const { connection } = MdbaseConnect.unwrapConnectOutcome(authorizationOutcome);
-      const description = MdbaseConnect.unwrapConnectOutcome(await connection.describe());
-      const query = MdbaseConnect.unwrapConnectOutcome(await connection.query({ limit: 2 }));
+      const { connection } = requireConnectSuccess(authorizationOutcome);
+      const description = requireConnectSuccess(await connection.describe());
+      const query = requireConnectSuccess(await connection.query({ limit: 2 }));
       globalThis.portableHarness.result = {
         collectionId: connection.collectionId,
-        displayName: description.display_name,
+        displayName: description.displayName,
         records: query.results.length,
         route: connection.route,
         connections: manager.connections().length
@@ -1729,8 +1733,12 @@ async function openApplicationServer(name, contracts, access) {
 <meta charset="utf-8">
 <script type="importmap">{"imports":{"@mdbase-dev/connect-protocol":"${origin}/protocol/index.js"}}</script>
 <script type="module">
-  import { MdbaseConnect, unwrapConnectOutcome } from "${origin}/client/index.js";
+  import { MdbaseConnect } from "${origin}/client/index.js";
   import { MemoryGrantKeyStore } from "${origin}/client/crypto-entry.js";
+  const requireConnectSuccess = (outcome) => {
+    if (!outcome.ok) throw Object.assign(new Error(outcome.problem.message), { problem: outcome.problem });
+    return outcome.value;
+  };
   const keyStore = new MemoryGrantKeyStore();
   const key = await keyStore.create("browser-e2e-grant");
   globalThis.directHarness = {
@@ -1755,27 +1763,27 @@ async function openApplicationServer(name, contracts, access) {
       });
       const connection = connect.connection(config.token.collectionId);
       if (!connection) throw new Error("Saved browser connection was not restored");
-      const status = unwrapConnectOutcome(await connection.requestDirectAccess());
-      const description = unwrapConnectOutcome(await connection.describe());
-      const created = unwrapConnectOutcome(await connection.create({
+      const status = requireConnectSuccess(await connection.requestDirectAccess());
+      const description = requireConnectSuccess(await connection.describe());
+      const created = requireConnectSuccess(await connection.create({
         path: "browser/direct.md",
         frontmatter: { type: "workout", title: "Real browser direct", status: "open" },
         body: "Created in Chromium."
       }));
       const revision = created.revision;
-      const read = unwrapConnectOutcome(await connection.read({ path: "browser/direct.md" }));
-      const updated = unwrapConnectOutcome(await connection.update({
+      const read = requireConnectSuccess(await connection.read({ path: "browser/direct.md" }));
+      const updated = requireConnectSuccess(await connection.update({
         path: "browser/direct.md",
         patch: { status: "done" },
-        if_revision: revision
+        ifRevision: revision
       }));
-      const readUpdated = unwrapConnectOutcome(await connection.read({ path: "browser/direct.md" }));
-      const renamed = unwrapConnectOutcome(await connection.rename({
+      const readUpdated = requireConnectSuccess(await connection.read({ path: "browser/direct.md" }));
+      const renamed = requireConnectSuccess(await connection.rename({
         from: "browser/direct.md",
         to: "browser/renamed.md"
       }));
-      const query = unwrapConnectOutcome(await connection.query({ limit: 1_100 }));
-      unwrapConnectOutcome(await connection.validate());
+      const query = requireConnectSuccess(await connection.query({ limit: 1_100 }));
+      requireConnectSuccess(await connection.validate());
       const typeDocument = \`---
 kind: mdbase.type
 name: browsernote
@@ -1789,20 +1797,20 @@ schema:
       title: { type: string }
 ---
 \`;
-      const createdType = unwrapConnectOutcome(await connection.createType({ document: typeDocument }));
-      const readType = unwrapConnectOutcome(await connection.readType({ name: "browsernote" }));
-      const updatedType = unwrapConnectOutcome(await connection.updateType({
+      const createdType = requireConnectSuccess(await connection.createType({ document: typeDocument }));
+      const readType = requireConnectSuccess(await connection.readType({ name: "browsernote" }));
+      const updatedType = requireConnectSuccess(await connection.updateType({
         name: "browsernote",
         document: typeDocument.replace("Browser note", "Updated browser note"),
-        if_revision: readType.revision
+        ifRevision: readType.revision
       }));
-      const views = unwrapConnectOutcome(await connection.listViews());
-      const executedView = unwrapConnectOutcome(await connection.executeView({
+      const views = requireConnectSuccess(await connection.listViews());
+      const executedView = requireConnectSuccess(await connection.executeView({
         path: "Views/workouts.base",
         view: "open-workouts"
       }));
-      const changed = unwrapConnectOutcome(await connection.changes({ after: description.change_cursor }));
-      const deleted = unwrapConnectOutcome(await connection.delete({ path: "browser/renamed.md" }));
+      const changed = requireConnectSuccess(await connection.changes({ after: description.changeCursor }));
+      const deleted = requireConnectSuccess(await connection.delete({ path: "browser/renamed.md" }));
       return {
         status,
         route: connection.route,

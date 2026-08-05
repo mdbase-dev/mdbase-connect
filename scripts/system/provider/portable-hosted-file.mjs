@@ -42,6 +42,10 @@ export async function portableHostedFileE2E({
     environment: manager.environment(),
     initialConnections: manager.connections().length
   };
+  const requireConnectSuccess = (outcome) => {
+    if (!outcome.ok) throw Object.assign(new Error(outcome.problem.message), { problem: outcome.problem });
+    return outcome.value;
+  };
   const nativeFetch = globalThis.fetch.bind(globalThis);
   globalThis.fetch = async (input, init = {}) => {
     const url = String(input);
@@ -64,20 +68,20 @@ export async function portableHostedFileE2E({
         document.querySelector("#code").textContent = authorization.userCode;
       }
     }).then(async (authorizationOutcome) => {
-      const { connection } = MdbaseConnect.unwrapConnectOutcome(authorizationOutcome);
-      const created = MdbaseConnect.unwrapConnectOutcome(await connection.create({
+      const { connection } = requireConnectSuccess(authorizationOutcome);
+      const created = requireConnectSuccess(await connection.create({
         path: "portable-hosted-e2e.md",
         frontmatter: { title: "Created from a downloaded file" },
         body: "Direct to the hosted provider."
       }));
-      const description = MdbaseConnect.unwrapConnectOutcome(await connection.describe());
-      const records = MdbaseConnect.unwrapConnectOutcome(await connection.query({
+      const description = requireConnectSuccess(await connection.describe());
+      const records = requireConnectSuccess(await connection.query({
         where: 'file.path == "portable-hosted-e2e.md"'
       }));
       globalThis.portableHarness.result = {
         route: connection.route,
         collectionId: connection.collectionId,
-        displayName: description.display_name,
+        displayName: description.displayName,
         created: created.path === "portable-hosted-e2e.md",
         records: records.results.length,
         syncAvailable: connection.sync() !== null,
@@ -207,4 +211,3 @@ export async function portableHostedFileE2E({
     await browser.close();
   }
 }
-

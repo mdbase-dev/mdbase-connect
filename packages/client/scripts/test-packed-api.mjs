@@ -34,10 +34,13 @@ import {
   connectFailure as testingFailure,
   connectProblem as testingProblem,
   connectSuccess as testingSuccess,
-  installMdbaseBrowserFixture
+  ConnectTestOutcomeError,
+  installMdbaseBrowserFixture,
+  requireConnectSuccess
 } from "@mdbase-dev/connect-testing";
 void testingFailure(testingProblem("operation_failed", "fixture"));
-void testingSuccess({ packed: true });
+void requireConnectSuccess(testingSuccess({ packed: true }));
+void ConnectTestOutcomeError;
 void installMdbaseBrowserFixture;
 `);
   await writeFile(resolve(temporary, "tsconfig.json"), JSON.stringify({

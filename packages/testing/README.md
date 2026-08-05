@@ -23,4 +23,9 @@ Application unit tests can import `connectSuccess`, `connectFailure`,
 build typed SDK outcomes and faults. These constructors are intentionally not
 part of the production `@mdbase-dev/connect` root.
 
+System tests that prefer throwing assertions can use `requireConnectSuccess`.
+Failures throw `ConnectTestOutcomeError` with the original typed problem on its
+`problem` property; production application code should branch on outcomes
+instead.
+
 The fixture grants no production backdoor and is intended only for test builds.

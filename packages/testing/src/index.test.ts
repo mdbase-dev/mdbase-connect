@@ -9,7 +9,9 @@ import {
   connectFailure,
   connectProblem,
   connectSuccess,
+  ConnectTestOutcomeError,
   installMdbaseBrowserFixture,
+  requireConnectSuccess,
   type MdbaseTestPage
 } from "./index.js";
 import { connectorRelayFixture, generateConnectorKey } from "./relay.js";
@@ -76,6 +78,13 @@ describe("typed outcome fixtures", () => {
       ok: false,
       problem: { code: "operation_failed", message: "Test fault." }
     });
+  });
+
+  it("requires successful outcomes with a typed test-only error", () => {
+    expect(requireConnectSuccess(connectSuccess({ id: 42 }))).toEqual({ id: 42 });
+    const problem = connectProblem("operation_failed", "Test fault.");
+    expect(() => requireConnectSuccess(connectFailure(problem)))
+      .toThrow(ConnectTestOutcomeError);
   });
 });
 

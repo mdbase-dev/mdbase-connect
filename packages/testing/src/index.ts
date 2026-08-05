@@ -8,6 +8,7 @@ import {
   type GrantScope,
   type MdbaseAppManifest
 } from "@mdbase-dev/connect-protocol";
+import type { ConnectOutcome, ConnectProblem } from "@mdbase-dev/connect";
 export {
   connectError,
   connectFailure,
@@ -26,6 +27,20 @@ export type {
   MdbaseConnectorRelayFixture,
   MdbaseFixtureRelayOperation
 } from "./relay.js";
+
+/** Test-only throwing adapter for concise assertions around typed SDK outcomes. */
+export class ConnectTestOutcomeError extends Error {
+  constructor(readonly problem: ConnectProblem) {
+    super(problem.message);
+    this.name = "ConnectTestOutcomeError";
+  }
+}
+
+/** Require a successful SDK outcome in a test without adding a production adapter. */
+export function requireConnectSuccess<Value>(outcome: ConnectOutcome<Value>): Value {
+  if (!outcome.ok) throw new ConnectTestOutcomeError(outcome.problem);
+  return outcome.value;
+}
 
 export interface MdbaseTestPage {
   evaluate<Result, Argument>(

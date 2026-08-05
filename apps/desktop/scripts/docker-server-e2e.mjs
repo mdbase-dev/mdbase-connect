@@ -13,9 +13,9 @@ import {
   waitForReady
 } from "../../../scripts/lib/connect-test-environment.mjs";
 import {
-  MdbaseConnect,
-  unwrapConnectOutcome
+  MdbaseConnect
 } from "../../../packages/client/dist/index.js";
+import { requireConnectSuccess } from "../../../packages/testing/dist/index.js";
 import {
   MemoryApplicationIdentityStore,
   MemoryGrantKeyStore
@@ -229,14 +229,14 @@ try {
   await portalPage.waitForURL("https://desktop-docker-e2e.example/callback**", {
     timeout: 15_000
   });
-  assert.deepEqual(unwrapConnectOutcome(await authorization), { kind: "redirecting" });
-  const authorized = unwrapConnectOutcome(
+  assert.deepEqual(requireConnectSuccess(await authorization), { kind: "redirecting" });
+  const authorized = requireConnectSuccess(
     await consumer.completeAuthorization(portalPage.url())
   );
-  const described = unwrapConnectOutcome(
+  const described = requireConnectSuccess(
     await authorized.connection.describe()
   );
-  assert.equal(described.display_name, "Docker fixture");
+  assert.equal(described.displayName, "Docker fixture");
   const token = consumerStorage.token();
   assert.match(token.accessToken, /^mdb_/);
   assert.ok(token.grantId);
