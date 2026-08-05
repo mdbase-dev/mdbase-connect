@@ -5,7 +5,7 @@ import {
 } from "./operations.js";
 
 export const OPERATION_TRANSPORT_PROTOCOL_VERSION = 2 as const;
-export const AUTHORIZATION_BINDING_PROTOCOL_VERSION = 3 as const;
+export const AUTHORIZATION_BINDING_PROTOCOL_VERSION = 4 as const;
 export const SEMANTIC_CAPABILITY_CONTRACT_VERSION = 1 as const;
 export const DURABLE_MUTATION_CONTRACT_VERSION = 1 as const;
 

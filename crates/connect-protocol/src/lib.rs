@@ -49,13 +49,13 @@ pub const HOSTED_PROVIDER_CAPABILITIES: &[&str] = &[
 pub const CONTRACT_SETUP_CAPABILITY: &str = "contract-setup-v1";
 pub const FILE_RELAY_CAPABILITY: &str = "file-relay-v1";
 pub const RELAY_REQUIRED_CAPABILITIES: &[&str] = &[
-    "application-authorization-v3",
+    "application-authorization-v4",
     "authorization-activation",
     "encrypted-relay",
     "policy-ack",
 ];
 pub const RELAY_CAPABILITIES: &[&str] = &[
-    "application-authorization-v3",
+    "application-authorization-v4",
     "authorization-activation",
     "encrypted-relay",
     "policy-ack",

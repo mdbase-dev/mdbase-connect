@@ -1,4 +1,6 @@
 import type {
+  ApplicationProvisions,
+  ApplicationRequirements,
   CollectionContractDescriptor,
   CollectionTypeDescriptor,
   ContractSetupChoice,
@@ -94,6 +96,8 @@ export interface HostedAuthorityTransfer {
 export interface HostedContractSetupResult {
   contracts: CollectionContractDescriptor[];
   contractSetups: ContractSetupChoice[];
+  setupAssessment?: unknown;
+  provisionReceipt?: unknown;
 }
 
 export interface AuthorityImport {
@@ -238,6 +242,40 @@ export class HostedProviderClient {
     return {
       contracts: result?.contracts ?? [],
       contractSetups: result?.contract_setups ?? []
+    };
+  }
+
+  async provisionApplicationSetup(
+    collectionId: string,
+    input: {
+      applicationId: string;
+      declarationDigest: string;
+      requirements: ApplicationRequirements;
+      provisions: ApplicationProvisions;
+      contractSetups?: ContractSetupChoice[];
+    }
+  ): Promise<HostedContractSetupResult> {
+    const result = await this.request(
+      "POST",
+      `/internal/v1/collections/${encodeURIComponent(collectionId)}/application-setup`,
+      {
+        application_id: input.applicationId,
+        declaration_digest: input.declarationDigest,
+        requirements: input.requirements,
+        provisions: input.provisions,
+        contract_setups: input.contractSetups ?? []
+      }
+    ) as {
+      contracts?: CollectionContractDescriptor[];
+      contract_setups?: ContractSetupChoice[];
+      setup_assessment?: unknown;
+      provision_receipt?: unknown;
+    } | undefined;
+    return {
+      contracts: result?.contracts ?? [],
+      contractSetups: result?.contract_setups ?? [],
+      setupAssessment: result?.setup_assessment,
+      provisionReceipt: result?.provision_receipt
     };
   }
 

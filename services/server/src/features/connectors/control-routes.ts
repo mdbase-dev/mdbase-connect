@@ -56,6 +56,8 @@ export function registerConnectorControlRoutes(
       [key: string]: unknown;
     }>(
       `SELECT ar.id, ar.application_id, a.name AS application_name,
+              a.family_identity AS application_family_identity,
+              a.manifest_digest AS application_manifest_digest,
               a.distribution AS application_distribution,
               a.homepage AS application_homepage,
               a.project_url AS application_project_url,
@@ -119,7 +121,7 @@ export function registerConnectorControlRoutes(
       applicationId: z.uuid()
     }).parse(request.params);
     const application = await options.db.query(
-      `SELECT id, distribution, name, homepage, project_url, icon,
+      `SELECT id, family_identity, manifest_digest, distribution, name, homepage, project_url, icon,
               requirements, provisions, notifications
        FROM applications WHERE id = $1`,
       [applicationId]

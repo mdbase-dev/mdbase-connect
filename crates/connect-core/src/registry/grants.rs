@@ -193,6 +193,8 @@ impl CollectionRegistry {
             Ok(GrantSummary {
                 id: parse_registry_uuid(&id)?,
                 application_id: parse_registry_uuid(&application_id)?,
+                application_declaration_id: proof.binding.application_declaration_id,
+                application_manifest_digest: proof.binding.application_manifest_digest,
                 application_name,
                 application_distribution,
                 application_homepage,
@@ -348,6 +350,8 @@ impl CollectionRegistry {
             grant: GrantSummary {
                 id: grant_id,
                 application_id: parse_registry_uuid(&application_id)?,
+                application_declaration_id: proof.binding.application_declaration_id.clone(),
+                application_manifest_digest: proof.binding.application_manifest_digest.clone(),
                 application_name,
                 application_distribution,
                 application_homepage,

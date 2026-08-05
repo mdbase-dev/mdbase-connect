@@ -1,7 +1,10 @@
 use super::*;
 use mdbase_connect_protocol::{
-    ContractRequirement, ContractSetupChoice, ContractSetupMode, TypePackManifest,
-    TypePackManifestResource, TypePackProvision, TypePackSourceResource,
+    ApplicationCollectionSetupProvisions, ApplicationCollectionSetupRequirements,
+    ApplyCollectionSetupInput, AssessCollectionSetupInput, ConfigurationOperation,
+    ConfigurationPredicate, ConfigurationProvision, ConfigurationRequirement, ContractRequirement,
+    ContractSetupChoice, ContractSetupMode, TypePackManifest, TypePackManifestResource,
+    TypePackProvision, TypePackSourceResource,
 };
 
 fn work_item_provision() -> TypePackProvision {
@@ -82,6 +85,63 @@ implements:
             digest: format!("sha256:{:x}", Sha256::digest(contract.as_bytes())),
         }],
     }
+}
+
+#[test]
+fn applies_hosted_configuration_and_receipt_as_one_setup() {
+    let workspace = WorkingSet::materialize(super::tests::resources(), []).unwrap();
+    let setup = AssessCollectionSetupInput {
+        application_id: "dev.mdbase.tasknotes".to_string(),
+        declaration_digest: format!("sha256:{}", "a".repeat(64)),
+        requirements: ApplicationCollectionSetupRequirements {
+            configuration: vec![ConfigurationRequirement {
+                id: "tasknotes-base-sources".to_string(),
+                path: "/x-obsidian/bases/include".to_string(),
+                predicate: ConfigurationPredicate::Contains,
+                value: Value::String("views/tasknotes/**/*.base".to_string()),
+            }],
+        },
+        provisions: ApplicationCollectionSetupProvisions {
+            configuration: vec![ConfigurationProvision {
+                requirement: "tasknotes-base-sources".to_string(),
+                operation: ConfigurationOperation::SetAdd,
+                path: "/x-obsidian/bases/include".to_string(),
+                value: Value::String("views/tasknotes/**/*.base".to_string()),
+            }],
+            type_packs: Vec::new(),
+        },
+        contract_setups: Vec::new(),
+    };
+    let assessment = workspace.assess_collection_setup(&setup).unwrap();
+    assert!(assessment.valid, "{:?}", assessment.diagnostics);
+    assert_eq!(assessment.result["status"], "provision");
+    let applied = workspace
+        .apply_collection_setup(&ApplyCollectionSetupInput {
+            setup: setup.clone(),
+            expected_assessment_digest: assessment.result["assessment_digest"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+            expected_collection_revision: assessment.result["collection_revision"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+            expected_provision_digest: assessment.result["provision_digest"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+            allow_type_pack_downgrades: BTreeSet::new(),
+        })
+        .unwrap();
+    assert!(applied.valid, "{:?}", applied.diagnostics);
+    let config = workspace.resource_document("mdbase.yaml").unwrap();
+    assert!(config.contains("views/tasknotes/**/*.base"));
+    let receipt = workspace
+        .resource_document("mdbase.provisions.yaml")
+        .unwrap();
+    assert!(receipt.contains("dev.mdbase.tasknotes"));
+    let retried = workspace.assess_collection_setup(&setup).unwrap();
+    assert_eq!(retried.result["status"], "current");
 }
 
 #[test]

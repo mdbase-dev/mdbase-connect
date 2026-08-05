@@ -3,6 +3,8 @@ import {
   operationsForApplicationCapabilities,
   type ApplicationCapabilityId,
   type ApplicationCapabilityRequirements,
+  type CollectionSetupAssessment,
+  type ConfigurationSetupAssessment,
   type JsonObject,
   type MdbaseAppManifest,
   type TypePackAssessment,
@@ -34,6 +36,7 @@ import {
   withRequestBudget
 } from "./request-budget.js";
 import { defaultCallbackUrl } from "./runtime-utils.js";
+import type { Application } from "./internal-types.js";
 import {
   MdbaseSession,
   type MdbaseSessionConnect,
@@ -42,6 +45,7 @@ import {
 
 export interface MdbaseApplicationSessionConnect<Frontmatter extends JsonObject = JsonObject>
   extends MdbaseSessionConnect<Frontmatter> {
+  register(options?: ConnectRequestOptions): Promise<ConnectOutcome<Application, RegistrationProblemCode>>;
   manifest(options?: ConnectRequestOptions): Promise<ConnectOutcome<MdbaseAppManifest, RegistrationProblemCode>>;
 }
 
@@ -87,9 +91,16 @@ export interface MdbaseDefinitionUpdate {
   reason: string;
 }
 
-interface DefinitionReviewEntry {
-  provision: TypePackProvision;
-  assessment: TypePackAssessment;
+export interface MdbaseCollectionSetupUpdate {
+  status: CollectionSetupAssessment["status"];
+  applicable: boolean;
+  assessmentDigest: string;
+  collectionRevision: string;
+  provisionDigest: string;
+  configuration: ConfigurationSetupAssessment[];
+  typePacks: MdbaseDefinitionUpdate[];
+  canApply: boolean;
+  reason: string;
 }
 
 interface ApplicationSessionContext {
@@ -103,8 +114,8 @@ export type MdbaseApplicationSessionSnapshot =
   | { status: "opening"; connections: MdbaseConnectionInfo[] }
   | { status: "unselected"; connections: MdbaseConnectionInfo[] }
   | ({ status: "authorization_required" } & ApplicationSessionContext)
-  | ({ status: "checking_definitions" } & ApplicationSessionContext)
-  | ({ status: "definition_review_required"; updates: MdbaseDefinitionUpdate[] } & ApplicationSessionContext)
+  | ({ status: "checking_setup" } & ApplicationSessionContext)
+  | ({ status: "setup_review_required"; update: MdbaseCollectionSetupUpdate } & ApplicationSessionContext)
   | ({ status: "ready"; verification: "cached" | "verified" } & ApplicationSessionContext)
   | {
       status: "unavailable";
@@ -120,16 +131,17 @@ export type MdbaseApplicationSessionSnapshot =
 /**
  * The application-level lifecycle boundary. It derives authorization from the
  * bundled manifest, exposes semantic capabilities, and never mutates collection
- * definitions without an explicit `applyDefinitionUpdates` call.
+ * setup without an explicit `applyCollectionSetup` call.
  */
 export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObject> {
   private readonly listeners = new Set<() => void>();
   private readonly verificationStore: MdbaseApplicationVerificationStore;
   private snapshot: MdbaseApplicationSessionSnapshot = { status: "opening", connections: [] };
   private manifest: MdbaseAppManifest | null = null;
+  private application: Application | null = null;
   private base: MdbaseSession<Frontmatter> | null = null;
   private stopBase?: () => void;
-  private reviewEntries: DefinitionReviewEntry[] = [];
+  private setupAssessment: CollectionSetupAssessment | null = null;
   private verificationGeneration = 0;
 
   constructor(
@@ -147,6 +159,8 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
   }
 
   private async startWithinBudget(options: ConnectRequestOptions): Promise<ConnectOutcome<MdbaseApplicationSessionSnapshot, SessionProblemCode>> {
+    const registration = await this.connect.register(options);
+    if (!registration.ok) return registration;
     const manifest = await this.connect.manifest(options);
     if (!manifest.ok) return manifest;
     const capabilities = manifest.value.requirements?.capabilities;
@@ -166,6 +180,7 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
         }
       ));
     }
+    this.application = registration.value;
     this.manifest = manifest.value;
     this.base = new MdbaseSession(this.connect, {
       selection: this.options.selection,
@@ -274,40 +289,42 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     return this.requireBase().ensureOperations(operationsForIds(capabilities));
   }
 
-  async applyDefinitionUpdates(options?: ConnectRequestOptions): Promise<ConnectOutcome<
+  async applyCollectionSetup(options?: ConnectRequestOptions): Promise<ConnectOutcome<
     MdbaseApplicationSessionSnapshot,
     CollectionTypeProblemCode | "collection_not_ready"
   >> {
-    if (this.snapshot.status !== "definition_review_required" || this.reviewEntries.length === 0) {
+    if (this.snapshot.status !== "setup_review_required" || !this.setupAssessment) {
       return connectFailure(connectProblem(
         "collection_not_ready",
-        "There are no reviewed definition updates to apply."
+        "There is no reviewed collection setup to apply."
       ));
     }
-    if (this.reviewEntries.some(({ assessment }) => !assessment.applicable)) {
+    if (!this.setupAssessment.applicable) {
       return connectFailure(connectProblem(
         "collection_not_ready",
-        "Resolve the definition conflicts before applying this update."
+        "Resolve the collection setup conflicts before applying this update."
       ));
     }
     const connection = this.connection();
     if (!connection) {
       return connectFailure(connectProblem("collection_not_ready", "The collection is not ready."));
     }
-    for (const { provision, assessment } of this.reviewEntries) {
-      const input = {
-        provision,
-        installed_by: this.requireManifest().id,
-        expected_assessment_digest: assessment.assessment_digest,
-        ...(assessment.status === "downgrade" ? { allow_downgrade: true } : {})
-      };
-      const applied = options
-        ? await connection.applyTypePack(input, options)
-        : await connection.applyTypePack(input);
-      if (!applied.ok) return applied;
-    }
-    this.reviewEntries = [];
-    await this.verifyDefinitions(this.context(connection), ++this.verificationGeneration, options);
+    const assessment = this.setupAssessment;
+    const input = {
+      ...this.collectionSetupInput(),
+      expected_assessment_digest: assessment.assessment_digest,
+      expected_collection_revision: assessment.collection_revision,
+      expected_provision_digest: assessment.provision_digest,
+      allow_type_pack_downgrades: assessment.type_packs
+        .filter((pack) => pack.status === "downgrade")
+        .map((pack) => pack.desired.id)
+    };
+    const applied = options
+      ? await connection.applyCollectionSetup(input, options)
+      : await connection.applyCollectionSetup(input);
+    if (!applied.ok) return applied;
+    this.setupAssessment = null;
+    await this.verifySetup(this.context(connection), ++this.verificationGeneration, options);
     return connectSuccess(this.snapshot);
   }
 
@@ -316,7 +333,7 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     const current = this.base.getSnapshot();
     this.verificationGeneration += 1;
     const generation = this.verificationGeneration;
-    this.reviewEntries = [];
+    this.setupAssessment = null;
     if (current.status === "unselected") {
       this.publish({ status: "unselected", connections: current.connections });
       return;
@@ -330,12 +347,9 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
       this.publish({ status: "authorization_required", ...context });
       return;
     }
-    const managesDefinitions = this.manifest.requirements?.capabilities?.required
-      .includes("definitions.type-pack.apply") ?? false;
-    const provisions = managesDefinitions
-      ? this.manifest.provisions?.type_packs ?? []
-      : [];
-    if (provisions.length === 0) {
+    const managesSetup = this.manifest.requirements?.capabilities?.required
+      .includes("collection.setup.apply") ?? false;
+    if (!managesSetup) {
       this.publish({ status: "ready", verification: "verified", ...context });
       return;
     }
@@ -343,13 +357,13 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     if (this.verificationStore.read(key) === verificationValue(this.manifest)) {
       this.publish({ status: "ready", verification: "cached", ...context });
     } else {
-      this.publish({ status: "checking_definitions", ...context });
+      this.publish({ status: "checking_setup", ...context });
     }
-    const verification = this.verifyDefinitions(context, generation, options);
+    const verification = this.verifySetup(context, generation, options);
     if (awaitVerification) await verification;
   }
 
-  private async verifyDefinitions(
+  private async verifySetup(
     context: ApplicationSessionContext,
     generation: number,
     options?: ConnectRequestOptions
@@ -357,33 +371,21 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     const connection = this.connection();
     const manifest = this.requireManifest();
     if (!connection || connection.collectionId !== context.collectionId) return;
-    const entries: DefinitionReviewEntry[] = [];
-    const managesDefinitions = manifest.requirements?.capabilities?.required
-      .includes("definitions.type-pack.apply") ?? false;
-    for (const provision of managesDefinitions ? manifest.provisions?.type_packs ?? [] : []) {
-      const input = {
-        provision,
-        installed_by: manifest.id
-      };
-      const outcome = options
-        ? await connection.assessTypePack(input, options)
-        : await connection.assessTypePack(input);
-      if (generation !== this.verificationGeneration) return;
-      if (!outcome.ok) {
-        this.publish({ status: "blocked", problem: outcome.problem, ...context });
-        return;
-      }
-      if (outcome.value.status !== "current") {
-        entries.push({ provision, assessment: outcome.value });
-      }
+    const outcome = options
+      ? await connection.assessCollectionSetup(this.collectionSetupInput(), options)
+      : await connection.assessCollectionSetup(this.collectionSetupInput());
+    if (generation !== this.verificationGeneration) return;
+    if (!outcome.ok) {
+      this.publish({ status: "blocked", problem: outcome.problem, ...context });
+      return;
     }
     if (generation !== this.verificationGeneration) return;
-    if (entries.length > 0) {
-      this.reviewEntries = entries;
+    if (outcome.value.status !== "current") {
+      this.setupAssessment = outcome.value;
       this.verificationStore.remove(verificationKey(manifest, context.collectionId));
       this.publish({
-        status: "definition_review_required",
-        updates: entries.map(definitionUpdate),
+        status: "setup_review_required",
+        update: collectionSetupUpdate(outcome.value, manifest.provisions?.type_packs ?? []),
         ...context
       });
       return;
@@ -393,6 +395,22 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
       verificationValue(manifest)
     );
     this.publish({ status: "ready", verification: "verified", ...context });
+  }
+
+  private collectionSetupInput() {
+    const manifest = this.requireManifest();
+    const application = this.requireApplication();
+    return {
+      application_id: declarationIdFromFamilyIdentity(application.family_identity),
+      declaration_digest: `sha256:${application.manifest_digest}`,
+      requirements: {
+        configuration: manifest.requirements?.configuration ?? []
+      },
+      provisions: {
+        configuration: manifest.provisions?.configuration ?? [],
+        type_packs: manifest.provisions?.type_packs ?? []
+      }
+    };
   }
 
   private context(connection: MdbaseConnection<Frontmatter>): ApplicationSessionContext {
@@ -424,6 +442,11 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     if (!this.manifest) throw new Error("Start the application session before using it.");
     return this.manifest;
   }
+
+  private requireApplication(): Application {
+    if (!this.application) throw new Error("Start the application session before using it.");
+    return this.application;
+  }
 }
 
 function operationsForSession(requirements: ApplicationCapabilityRequirements) {
@@ -435,8 +458,10 @@ function operationsForIds(capabilities: ApplicationCapabilityId[]) {
   return [...new Set(definitions)];
 }
 
-function definitionUpdate(entry: DefinitionReviewEntry): MdbaseDefinitionUpdate {
-  const { assessment } = entry;
+function definitionUpdate(
+  provision: TypePackProvision,
+  assessment: TypePackAssessment
+): MdbaseDefinitionUpdate {
   const statusReason = assessment.status === "conflict"
     ? "Existing user-owned resources conflict with this application definition pack."
     : assessment.status === "install"
@@ -444,7 +469,7 @@ function definitionUpdate(entry: DefinitionReviewEntry): MdbaseDefinitionUpdate 
       : `This collection has a ${assessment.status} definition change to review.`;
   return {
     id: assessment.desired.id,
-    name: entry.provision.manifest.name ?? assessment.desired.id,
+    name: provision.manifest.name ?? assessment.desired.id,
     status: assessment.status,
     applicable: assessment.applicable,
     assessmentDigest: assessment.assessment_digest,
@@ -457,6 +482,36 @@ function definitionUpdate(entry: DefinitionReviewEntry): MdbaseDefinitionUpdate 
   };
 }
 
+function collectionSetupUpdate(
+  assessment: CollectionSetupAssessment,
+  provisions: TypePackProvision[]
+): MdbaseCollectionSetupUpdate {
+  const typePacks = assessment.type_packs.map((pack) => {
+    const provision = provisions.find((candidate) => candidate.manifest.id === pack.desired.id);
+    if (!provision) {
+      throw new Error(`Collection setup returned undeclared type pack '${pack.desired.id}'.`);
+    }
+    return definitionUpdate(provision, pack);
+  });
+  const configurationChanges = assessment.configuration.filter(
+    (entry) => entry.action !== "current"
+  ).length;
+  const reason = assessment.status === "conflict"
+    ? "Existing collection policy conflicts with this application's required setup."
+    : `This application requires ${configurationChanges} configuration change${configurationChanges === 1 ? "" : "s"} and ${typePacks.length} definition update${typePacks.length === 1 ? "" : "s"}.`;
+  return {
+    status: assessment.status,
+    applicable: assessment.applicable,
+    assessmentDigest: assessment.assessment_digest,
+    collectionRevision: assessment.collection_revision,
+    provisionDigest: assessment.provision_digest,
+    configuration: assessment.configuration,
+    typePacks,
+    canApply: assessment.applicable,
+    reason
+  };
+}
+
 function verificationKey(manifest: MdbaseAppManifest, collectionId: string): string {
   return `mdbase-application-session:v1:${manifest.id}:${collectionId}`;
 }
@@ -464,8 +519,17 @@ function verificationKey(manifest: MdbaseAppManifest, collectionId: string): str
 function verificationValue(manifest: MdbaseAppManifest): string {
   return JSON.stringify({
     capabilities: manifest.requirements?.capabilities,
-    provisions: manifest.provisions?.type_packs ?? []
+    requirements: manifest.requirements?.configuration ?? [],
+    provisions: manifest.provisions ?? {}
   });
+}
+
+function declarationIdFromFamilyIdentity(familyIdentity: string): string {
+  const prefix = "bundle:";
+  if (!familyIdentity.startsWith(prefix) || familyIdentity.length === prefix.length) {
+    throw new Error("The registered application has no valid declaration identity.");
+  }
+  return familyIdentity.slice(prefix.length);
 }
 
 function defaultVerificationStore(): MdbaseApplicationVerificationStore {

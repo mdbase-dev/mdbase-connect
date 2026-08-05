@@ -268,7 +268,8 @@ impl AgentState {
         let contracts = self
             .ensure_application_types(
                 params.collection_id,
-                pending.application_id,
+                &pending.application_family_identity,
+                &pending.application_manifest_digest,
                 &pending.requirements,
                 &pending.provisions,
                 &params.contract_setups,
@@ -286,7 +287,8 @@ impl AgentState {
         let contracts = self
             .ensure_application_types(
                 params.collection_id,
-                application.id,
+                &application.family_identity,
+                &application.manifest_digest,
                 &application.requirements,
                 &application.provisions,
                 &[],
@@ -298,7 +300,8 @@ impl AgentState {
     pub(super) async fn ensure_application_types(
         &self,
         collection_id: uuid::Uuid,
-        application_id: uuid::Uuid,
+        application_family_identity: &str,
+        application_manifest_digest: &str,
         requirements: &mdbase_connect_protocol::ApplicationRequirements,
         provisions: &mdbase_connect_protocol::ApplicationProvisions,
         contract_setups: &[ContractSetupChoice],
@@ -309,16 +312,17 @@ impl AgentState {
                 "This collection is disabled on its computer.".to_string(),
             ));
         }
-        let contracts = self.registry.provision_type_packs(
+        let setup = self.registry.provision_application_setup(
             collection_id,
-            &format!("app.{application_id}"),
+            declaration_id_from_family_identity(application_family_identity)?,
+            &engine_declaration_digest(application_manifest_digest)?,
             requirements,
-            &provisions.type_packs,
+            provisions,
             contract_setups,
         )?;
         self.watcher.rescan(collection_id);
         let mut collection = self.registry.get(collection_id)?;
-        collection.contracts = contracts;
+        collection.contracts = setup.contracts;
         Ok(collection.contracts)
     }
 
@@ -420,4 +424,30 @@ impl AgentState {
         }
         serde_json::to_value(snapshot).map_err(ConnectError::from)
     }
+}
+
+pub(super) fn declaration_id_from_family_identity(
+    family_identity: &str,
+) -> Result<&str, ConnectError> {
+    family_identity
+        .strip_prefix("bundle:")
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| {
+            ConnectError::InvalidInput(
+                "The registered application has no valid declaration identity.".to_string(),
+            )
+        })
+}
+
+pub(super) fn engine_declaration_digest(manifest_digest: &str) -> Result<String, ConnectError> {
+    if manifest_digest.len() != 64
+        || !manifest_digest
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    {
+        return Err(ConnectError::InvalidInput(
+            "The registered application manifest digest is invalid.".to_string(),
+        ));
+    }
+    Ok(format!("sha256:{manifest_digest}"))
 }

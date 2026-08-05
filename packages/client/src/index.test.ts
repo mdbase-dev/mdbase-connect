@@ -43,8 +43,9 @@ function registeredApplication(
   overrides: Record<string, unknown> = {}
 ): Record<string, unknown> {
   return {
-    id: TEST_APPLICATION_ID,
-    manifest_digest: TEST_MANIFEST_DIGEST,
+  id: TEST_APPLICATION_ID,
+  family_identity: "bundle:dev.mdbase.test",
+  manifest_digest: TEST_MANIFEST_DIGEST,
     name: "Tasks",
     homepage: "https://tasks.example/",
     requirements: { contracts: [] },

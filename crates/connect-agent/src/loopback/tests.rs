@@ -919,6 +919,8 @@ fn fixture_for_origin(origin: &str, distribution: &str) -> Fixture {
         "update_type",
         "assess_type_pack",
         "apply_type_pack",
+        "assess_collection_setup",
+        "apply_collection_setup",
         "list_views",
         "execute_view",
         "read_view_source",

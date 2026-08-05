@@ -31,7 +31,7 @@ export const SYNC_PROTOCOL_VERSION = 1 as const;
 export const CONTRACT_SETUP_CAPABILITY = "contract-setup-v1" as const;
 export const FILE_RELAY_CAPABILITY = "file-relay-v1" as const;
 export const RELAY_REQUIRED_CAPABILITIES = [
-  "application-authorization-v3",
+  "application-authorization-v4",
   "authorization-activation",
   "encrypted-relay",
   "policy-ack"
@@ -636,6 +636,8 @@ export interface AuthorizationActivationResponse {
   contracts: CollectionContractDescriptor[];
   /** Exact setup plan applied by the authority. */
   contract_setups: ContractSetupChoice[];
+  setup_assessment?: unknown;
+  provision_receipt?: unknown;
   error?: {
     code: string;
     message: string;

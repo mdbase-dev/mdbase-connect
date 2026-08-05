@@ -71,6 +71,7 @@ pub(crate) fn application_security_with_contracts(
         protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
         authorization_id,
         application_id,
+        application_declaration_id: "dev.mdbase.test".to_string(),
         application_manifest_digest: "00".repeat(32),
         application_installation_id: application_installation_id(&installation_signing_public_key)
             .unwrap(),

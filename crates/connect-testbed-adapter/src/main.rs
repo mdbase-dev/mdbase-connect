@@ -276,6 +276,8 @@ fn test_grant(collection_id: Uuid) -> GrantSummary {
         id: Uuid::parse_str("0d57894d-9a5a-477a-95ac-a8b4d77839d9").expect("fixed UUID"),
         application_id: Uuid::parse_str("f9af383c-81ec-43bf-9cf5-65e02e595014")
             .expect("fixed UUID"),
+        application_declaration_id: "dev.mdbase.testbed".to_string(),
+        application_manifest_digest: "00".repeat(32),
         application_name: "Testbed notes".to_string(),
         application_distribution: "web".to_string(),
         application_homepage: "https://testbed.example".to_string(),

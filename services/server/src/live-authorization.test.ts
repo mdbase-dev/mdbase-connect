@@ -128,7 +128,7 @@ describe("live connector-mediated authorization", () => {
         protocol_version: 1,
         connector_version: "0.1.0-test",
         capabilities: [
-          "application-authorization-v3",
+          "application-authorization-v4",
           "authorization-activation",
           "encrypted-relay",
           "policy-ack"
@@ -455,7 +455,7 @@ describe("live connector-mediated authorization", () => {
       protocol_version: 1,
       connector_version: "0.1.0-beta.30",
       capabilities: [
-        "application-authorization-v3",
+        "application-authorization-v4",
         "authorization-activation",
         "encrypted-relay",
         "policy-ack"
@@ -495,6 +495,7 @@ async function createAuthorizationRequest(
   const state = `live-${suffix}`;
   const proof = await testApplicationAuthorization({
     applicationId,
+    applicationDeclarationId: "dev.mdbase.live-test",
     applicationManifestDigest: manifestDigest,
     flow: "authorization_code",
     redirectUri: "http://localhost:4180/callback",

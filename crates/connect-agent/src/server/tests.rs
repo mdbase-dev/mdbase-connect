@@ -278,6 +278,16 @@ fn live_authorization_is_acknowledged_only_after_the_grant_is_stored() {
         protocol_version: CONTROL_PROTOCOL_VERSION,
         request_id: activation_request_id,
         authorization_id,
+        application_declaration_id: grant
+            .application_authorization
+            .binding
+            .application_declaration_id
+            .clone(),
+        application_manifest_digest: grant
+            .application_authorization
+            .binding
+            .application_manifest_digest
+            .clone(),
         collection_id: collection.id,
         requirements: ApplicationRequirements {
             contracts: Vec::new(),

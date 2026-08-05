@@ -289,11 +289,12 @@
     "applicationAuthorizationBinding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["protocol_version", "authorization_id", "application_id", "application_manifest_digest", "application_installation_id", "installation_signing_public_key", "grant_agreement_public_key", "grant_signing_public_key", "flow", "authorization_nonce", "issued_at", "expires_at", "code_challenge", "contracts", "requested_operations"],
+      "required": ["protocol_version", "authorization_id", "application_id", "application_declaration_id", "application_manifest_digest", "application_installation_id", "installation_signing_public_key", "grant_agreement_public_key", "grant_signing_public_key", "flow", "authorization_nonce", "issued_at", "expires_at", "code_challenge", "contracts", "requested_operations"],
       "properties": {
-        "protocol_version": { "const": 3 },
+        "protocol_version": { "const": 4 },
         "authorization_id": { "$ref": "#/$defs/uuid" },
         "application_id": { "$ref": "#/$defs/uuid" },
+        "application_declaration_id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$" },
         "application_manifest_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "application_installation_id": { "$ref": "#/$defs/uuid" },
         "installation_signing_public_key": { "$ref": "#/$defs/p256PublicKey" },
@@ -351,6 +352,11 @@
           "type": "array",
           "maxItems": 20,
           "items": { "$ref": "#/$defs/contractRequirement" }
+        },
+        "configuration": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/configurationRequirement" }
         },
         "access": { "enum": ["contract", "full_collection"] },
         "collection_kind": { "const": "hosted" },
@@ -426,7 +432,34 @@
           "type": "array",
           "maxItems": 100,
           "items": { "$ref": "#/$defs/typePackProvision" }
+        },
+        "configuration": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/configurationProvision" }
         }
+      }
+    },
+    "configurationRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "predicate", "value"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
+        "path": { "type": "string", "pattern": "^/x-[^/]+(?:/.*)?$", "maxLength": 1024 },
+        "predicate": { "const": "contains" },
+        "value": { "type": ["string", "number", "boolean", "null"] }
+      }
+    },
+    "configurationProvision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requirement", "operation", "path", "value"],
+      "properties": {
+        "requirement": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
+        "operation": { "const": "set_add" },
+        "path": { "type": "string", "pattern": "^/x-[^/]+(?:/.*)?$", "maxLength": 1024 },
+        "value": { "type": ["string", "number", "boolean", "null"] }
       }
     },
     "authorizationOfferRequest": {
@@ -461,12 +494,14 @@
     "authorizationActivationRequest": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "protocol_version", "request_id", "authorization_id", "collection_id", "requirements", "provisions", "contract_setups", "grant"],
+      "required": ["type", "protocol_version", "request_id", "authorization_id", "application_declaration_id", "application_manifest_digest", "collection_id", "requirements", "provisions", "contract_setups", "grant"],
       "properties": {
         "type": { "const": "authorization_activation_request" },
         "protocol_version": { "const": 1 },
         "request_id": { "$ref": "#/$defs/uuid" },
         "authorization_id": { "$ref": "#/$defs/uuid" },
+        "application_declaration_id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$" },
+        "application_manifest_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "collection_id": { "$ref": "#/$defs/uuid" },
         "requirements": { "$ref": "#/$defs/applicationRequirements" },
         "provisions": { "$ref": "#/$defs/applicationProvisions" },
@@ -497,6 +532,8 @@
           "maxItems": 20,
           "items": { "$ref": "#/$defs/contractSetupChoice" }
         },
+        "setup_assessment": true,
+        "provision_receipt": true,
         "error": {
           "type": "object",
           "additionalProperties": false,

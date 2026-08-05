@@ -446,7 +446,7 @@ async function notificationFixture(
         operations, scope, application_origin, notification_criteria,
         application_authorization, application_installation_id)
      VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb,
-             '{"binding":{"protocol_version":3}}'::jsonb, $9)`,
+             '{"binding":{"protocol_version":4}}'::jsonb, $9)`,
     [
       grantId,
       userId,

@@ -10,7 +10,7 @@ import {
 
 const fixture = JSON.parse(readFileSync(
   fileURLToPath(new URL(
-    "../../../packages/protocol/test/fixtures/application-authorization-v3.json",
+    "../../../packages/protocol/test/fixtures/application-authorization-v4.json",
     import.meta.url
   )),
   "utf8"
@@ -22,6 +22,7 @@ const proof: ApplicationAuthorizationProof = {
 
 const expected = {
   applicationId: fixture.binding.application_id,
+  applicationDeclarationId: fixture.binding.application_declaration_id,
   applicationManifestDigest: fixture.binding.application_manifest_digest,
   flow: fixture.binding.flow,
   redirectUri: fixture.binding.redirect_uri,
@@ -41,7 +42,8 @@ describe("application authorization proofs", () => {
 
   it("rejects every substituted security boundary", async () => {
     const mutations: ApplicationAuthorizationProof[] = [
-      { ...proof, signature: `${fixture.signature.slice(0, -1)}A` },
+      { ...proof, signature: `${fixture.signature.slice(0, -1)}B` },
+      { ...proof, binding: { ...fixture.binding, application_declaration_id: "dev.mdbase.other" } },
       { ...proof, binding: { ...fixture.binding, application_manifest_digest: "f".repeat(64) } },
       { ...proof, binding: { ...fixture.binding, requested_operations: ["describe"] } },
       { ...proof, binding: { ...fixture.binding, collection_id: undefined } }
@@ -105,7 +107,7 @@ describe("application authorization proofs", () => {
       code: "authorization_binding_incompatible",
       details: {
         contract: "authorization_binding",
-        required: [3],
+        required: [4],
         supported: [2],
         peer: "application"
       }

@@ -5,7 +5,11 @@ import type {
   CollectionOperation,
   CollectionTypeDocument,
   ApplyTypePackInput,
+  ApplyCollectionSetupInput,
   AssessTypePackInput,
+  AssessCollectionSetupInput,
+  CollectionSetupApplyResult,
+  CollectionSetupAssessment,
   CreateViewSourceInput,
   DeleteViewSourceInput,
   DeleteViewSourceResult,
@@ -269,6 +273,14 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
 
   applyTypePack(input: ApplyTypePackInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<TypePackApplyResult, CollectionTypeProblemCode>> {
     return this.envelopeOperation("apply_type_pack", input, COLLECTION_TYPE_PROBLEM_CODES, options);
+  }
+
+  assessCollectionSetup(input: AssessCollectionSetupInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<CollectionSetupAssessment, CollectionTypeProblemCode>> {
+    return this.envelopeOperation("assess_collection_setup", input, COLLECTION_TYPE_PROBLEM_CODES, options);
+  }
+
+  applyCollectionSetup(input: ApplyCollectionSetupInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<CollectionSetupApplyResult, CollectionTypeProblemCode>> {
+    return this.envelopeOperation("apply_collection_setup", input, COLLECTION_TYPE_PROBLEM_CODES, options);
   }
 
   listTimers(namespace: string, options?: ConnectRequestOptions): Promise<ConnectOutcome<MdbaseTimerList, CollectionReadProblemCode>> {

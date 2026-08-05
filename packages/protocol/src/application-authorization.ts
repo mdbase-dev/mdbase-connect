@@ -5,9 +5,10 @@ import type { ConnectContractRequirements } from "./compatibility.js";
 export type ApplicationAuthorizationFlow = "authorization_code" | "device_code";
 
 export interface ApplicationAuthorizationBinding {
-  protocol_version: 3;
+  protocol_version: 4;
   authorization_id: string;
   application_id: string;
+  application_declaration_id: string;
   application_manifest_digest: string;
   application_installation_id: string;
   installation_signing_public_key: string;
@@ -35,7 +36,7 @@ const INSTALLATION_ID_DOMAIN = new TextEncoder().encode(
   "mdbase-connect application installation id v2\0"
 );
 const AUTHORIZATION_PROOF_DOMAIN = new TextEncoder().encode(
-  "mdbase-connect application authorization proof v3\0"
+  "mdbase-connect application authorization proof v4\0"
 );
 
 export async function applicationInstallationIdFromPublicKey(
@@ -74,8 +75,9 @@ export function authorizationSigningMessage(
   const challenge = canonicalBase64(binding.code_challenge);
   const contracts = binding.contracts;
   if (
-    binding.protocol_version !== 3
+    binding.protocol_version !== 4
     || nonce.byteLength !== 32
+    || !/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$/u.test(binding.application_declaration_id)
     || !/^[0-9a-f]{64}$/u.test(binding.application_manifest_digest)
     || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/u.test(binding.issued_at)
     || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/u.test(binding.expires_at)
@@ -105,6 +107,7 @@ export function authorizationSigningMessage(
     u32(binding.protocol_version),
     field(uuidBytes(binding.application_id)),
     field(uuidBytes(binding.authorization_id)),
+    field(new TextEncoder().encode(binding.application_declaration_id)),
     field(hexBytes(binding.application_manifest_digest)),
     field(uuidBytes(binding.application_installation_id)),
     ...keys.map(field),

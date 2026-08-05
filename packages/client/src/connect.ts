@@ -313,6 +313,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
       authorization_id: authorizationId,
       application_id: application.id,
+      application_declaration_id: declarationIdFromFamilyIdentity(application.family_identity),
       application_manifest_digest: application.manifest_digest,
       application_installation_id: await applicationInstallationId(installation),
       installation_signing_public_key: installation.signingPublicKey,
@@ -436,6 +437,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
       authorization_id: authorizationId,
       application_id: application.id,
+      application_declaration_id: declarationIdFromFamilyIdentity(application.family_identity),
       application_manifest_digest: application.manifest_digest,
       application_installation_id: await applicationInstallationId(installation),
       installation_signing_public_key: installation.signingPublicKey,
@@ -983,6 +985,14 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     const connections = this.connections();
     for (const listener of this.listeners) listener(connections);
   }
+}
+
+function declarationIdFromFamilyIdentity(familyIdentity: string): string {
+  const prefix = "bundle:";
+  if (!familyIdentity.startsWith(prefix) || familyIdentity.length === prefix.length) {
+    throw new Error("The registered application has no valid declaration identity.");
+  }
+  return familyIdentity.slice(prefix.length);
 }
 
 function authorizationAbort(

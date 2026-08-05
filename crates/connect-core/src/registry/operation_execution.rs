@@ -27,6 +27,34 @@ pub(super) fn execute_loaded(
     input: &Value,
 ) -> Result<Value, ConnectError> {
     if collection.spec_profile() == SpecProfile::V03 {
+        if operation == "assess_collection_setup" || operation == "apply_collection_setup" {
+            let result = if operation == "assess_collection_setup" {
+                let request = serde_json::from_value::<AssessCollectionSetupInput>(input.clone())
+                    .map_err(|error| {
+                    ConnectError::InvalidInput(format!(
+                        "The collection setup assessment is invalid: {error}"
+                    ))
+                })?;
+                collection.assess_collection_setup(&engine_collection_setup(&request)?)
+            } else {
+                let request = serde_json::from_value::<ApplyCollectionSetupInput>(input.clone())
+                    .map_err(|error| {
+                        ConnectError::InvalidInput(format!(
+                            "The collection setup apply request is invalid: {error}"
+                        ))
+                    })?;
+                collection.apply_collection_setup(
+                    &engine_collection_setup(&request.setup)?,
+                    &mdbase::v03::CollectionSetupApplyOptions {
+                        expected_assessment_digest: request.expected_assessment_digest,
+                        expected_collection_revision: request.expected_collection_revision,
+                        expected_provision_digest: request.expected_provision_digest,
+                        allow_type_pack_downgrades: request.allow_type_pack_downgrades,
+                    },
+                )
+            };
+            return serde_json::to_value(result).map_err(ConnectError::from);
+        }
         if operation == "assess_type_pack" || operation == "apply_type_pack" {
             let (
                 provision,
@@ -160,6 +188,98 @@ pub(super) fn execute_loaded(
         other => return Err(ConnectError::UnsupportedOperation(other.to_string())),
     };
     Ok(result)
+}
+
+fn engine_collection_setup(
+    input: &AssessCollectionSetupInput,
+) -> Result<mdbase::v03::CollectionSetup, ConnectError> {
+    let type_packs = input
+        .provisions
+        .type_packs
+        .iter()
+        .map(|provision| {
+            let provision_setups = input
+                .contract_setups
+                .iter()
+                .filter(|setup| provision.provides.contains(&setup.contract))
+                .collect::<Vec<_>>();
+            let has_existing = provision_setups
+                .iter()
+                .any(|setup| matches!(setup.mode, ContractSetupMode::Existing { .. }));
+            let has_starter = provision_setups
+                .iter()
+                .any(|setup| matches!(setup.mode, ContractSetupMode::Starter));
+            if has_existing
+                && has_starter
+                && provision
+                    .manifest
+                    .resources
+                    .iter()
+                    .any(|resource| resource.mode == "seed")
+            {
+                return Err(ConnectError::InvalidInput(
+                    "A type pack with shared seed resources cannot mix starter and existing-type setup. Split the pack by contract."
+                        .to_string(),
+                ));
+            }
+            let preserve_seed_targets = if has_existing {
+                provision
+                    .manifest
+                    .resources
+                    .iter()
+                    .filter(|resource| resource.mode == "seed")
+                    .map(|resource| resource.target.clone())
+                    .collect()
+            } else {
+                Default::default()
+            };
+            Ok(mdbase::v03::CollectionSetupTypePack {
+                provision: CollectionRegistry::engine_type_pack_provision(provision)?,
+                options: mdbase::v03::CollectionSetupTypePackOptions {
+                    preserve_seed_targets,
+                    contract_setups: provision_setups
+                        .into_iter()
+                        .filter(|setup| {
+                            matches!(setup.mode, ContractSetupMode::Existing { .. })
+                        })
+                        .map(CollectionRegistry::engine_contract_setup)
+                        .collect(),
+                    ..Default::default()
+                },
+            })
+        })
+        .collect::<Result<Vec<_>, ConnectError>>()?;
+    Ok(mdbase::v03::CollectionSetup {
+        application_id: input.application_id.clone(),
+        declaration_digest: input.declaration_digest.clone(),
+        requirements: mdbase::v03::CollectionSetupRequirements {
+            configuration: input
+                .requirements
+                .configuration
+                .iter()
+                .map(|requirement| mdbase::v03::ConfigurationRequirement {
+                    id: requirement.id.clone(),
+                    path: requirement.path.clone(),
+                    predicate: mdbase::v03::ConfigurationPredicate::Contains,
+                    value: requirement.value.clone(),
+                })
+                .collect(),
+        },
+        provisions: mdbase::v03::CollectionSetupProvisions {
+            configuration: input
+                .provisions
+                .configuration
+                .iter()
+                .map(|provision| mdbase::v03::ConfigurationProvision {
+                    requirement: provision.requirement.clone(),
+                    operation: mdbase::v03::ConfigurationOperation::SetAdd,
+                    path: provision.path.clone(),
+                    value: provision.value.clone(),
+                })
+                .collect(),
+            type_packs,
+        },
+    })
 }
 
 pub(super) fn typed_result<Request, Output>(

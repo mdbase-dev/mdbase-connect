@@ -3,13 +3,13 @@ use mdbase::runtime::FilesystemProvider;
 use mdbase::{Collection, SpecProfile};
 use mdbase_connect_protocol::is_mutating_operation;
 use mdbase_connect_protocol::{
-    ActivityEntry, ApplicationAuthorizationProof, ApplicationRequirements, ApplyTypePackInput,
-    AssessTypePackInput, AuthoritySnapshot, CollectionChange, CollectionChangesPage,
-    CollectionContractDescriptor, CollectionDescription, CollectionSummary,
-    CollectionTypeDescriptor, ContractRequirement, ContractSetupChoice, ContractSetupMode,
-    EncryptedRelayEnvelope, GrantPolicy, GrantScope, GrantSummary, SyncCollectionResources,
-    SyncMutation, SyncMutationReceipt, SyncResourceDocument, TypePackProvision,
-    CONTROL_PROTOCOL_VERSION,
+    ActivityEntry, ApplicationAuthorizationProof, ApplicationProvisions, ApplicationRequirements,
+    ApplyCollectionSetupInput, ApplyTypePackInput, AssessCollectionSetupInput, AssessTypePackInput,
+    AuthoritySnapshot, CollectionChange, CollectionChangesPage, CollectionContractDescriptor,
+    CollectionDescription, CollectionSummary, CollectionTypeDescriptor, ContractRequirement,
+    ContractSetupChoice, ContractSetupMode, EncryptedRelayEnvelope, GrantPolicy, GrantScope,
+    GrantSummary, SyncCollectionResources, SyncMutation, SyncMutationReceipt, SyncResourceDocument,
+    TypePackProvision, CONTROL_PROTOCOL_VERSION,
 };
 use mdbase_connect_runtime::contract_scope::{ContractScope, ContractScopeError};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
@@ -24,6 +24,13 @@ use std::sync::{Arc, Mutex};
 use tempfile::NamedTempFile;
 use thiserror::Error;
 use uuid::Uuid;
+
+#[derive(Debug, Clone)]
+pub struct ApplicationSetupResult {
+    pub contracts: Vec<CollectionContractDescriptor>,
+    pub assessment: Value,
+    pub receipt: Value,
+}
 
 const CONNECT_EXTENSION: &str = "x-mdbase-connect";
 const CONNECT_COLLECTION_ID: &str = "collection_id";

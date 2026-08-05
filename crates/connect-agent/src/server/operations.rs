@@ -12,6 +12,12 @@ impl AgentState {
         let synchronize_us = std::cell::Cell::new(0_u64);
         if matches!(
             operation,
+            "assess_collection_setup" | "apply_collection_setup"
+        ) {
+            validate_collection_setup_binding(input, grant)?;
+        }
+        if matches!(
+            operation,
             "list_timers" | "put_timer" | "cancel_timer" | "reconcile_timers"
         ) {
             let result = self
@@ -216,6 +222,8 @@ impl AgentState {
             RelayMessage::AuthorizationActivationRequest {
                 request_id,
                 authorization_id,
+                application_declaration_id,
+                application_manifest_digest,
                 collection_id,
                 requirements,
                 provisions,
@@ -223,14 +231,20 @@ impl AgentState {
                 mut grant,
                 ..
             } => {
-                if let Err(error) = self.validate_activation_authorization(authorization_id, &grant)
-                {
+                if let Err(error) = self.validate_activation_authorization(
+                    authorization_id,
+                    &application_declaration_id,
+                    &application_manifest_digest,
+                    &grant,
+                ) {
                     return Some(RelayMessage::AuthorizationActivationResponse {
                         protocol_version: CONTROL_PROTOCOL_VERSION,
                         request_id,
                         ok: false,
                         contracts: Vec::new(),
                         contract_setups: Vec::new(),
+                        setup_assessment: None,
+                        provision_receipt: None,
                         error: Some(ControlError {
                             code: error.code().to_string(),
                             message: error.to_string(),
@@ -274,18 +288,20 @@ impl AgentState {
                             before.display_name
                         )));
                     }
-                    let contracts = self.registry.provision_type_packs(
+                    let setup = self.registry.provision_application_setup(
                         collection_id,
-                        &format!("app.{}", grant.application_id),
+                        &application_declaration_id,
+                        &super::account::engine_declaration_digest(&application_manifest_digest)?,
                         &requirements,
-                        &provisions.type_packs,
+                        &provisions,
                         &contract_setups,
                     )?;
                     grant.scope.contracts =
                         if grant.scope.access == ApplicationAccess::FullCollection {
                             Vec::new()
                         } else {
-                            contracts
+                            setup
+                                .contracts
                                 .iter()
                                 .filter(|available| {
                                     requirements.contracts.iter().any(|required| {
@@ -299,15 +315,17 @@ impl AgentState {
                         };
                     self.watcher.rescan(collection_id);
                     self.registry.upsert_grant(&grant)?;
-                    Ok(contracts)
+                    Ok(setup)
                 })();
                 Some(match result {
-                    Ok(contracts) => RelayMessage::AuthorizationActivationResponse {
+                    Ok(setup) => RelayMessage::AuthorizationActivationResponse {
                         protocol_version: CONTROL_PROTOCOL_VERSION,
                         request_id,
                         ok: true,
-                        contracts,
+                        contracts: setup.contracts,
                         contract_setups: contract_setups.clone(),
+                        setup_assessment: Some(setup.assessment),
+                        provision_receipt: Some(setup.receipt),
                         error: None,
                     },
                     Err(error) => RelayMessage::AuthorizationActivationResponse {
@@ -316,6 +334,8 @@ impl AgentState {
                         ok: false,
                         contracts: Vec::new(),
                         contract_setups: Vec::new(),
+                        setup_assessment: None,
+                        provision_receipt: None,
                         error: Some(ControlError {
                             code: error.code().to_string(),
                             message: error.to_string(),
@@ -984,4 +1004,27 @@ impl AgentState {
         }
         message
     }
+}
+
+fn validate_collection_setup_binding(
+    input: &serde_json::Value,
+    grant: &mdbase_connect_protocol::GrantSummary,
+) -> Result<(), ConnectError> {
+    let setup = if input.get("setup").is_some() {
+        &input["setup"]
+    } else {
+        input
+    };
+    let application_id = setup["application_id"].as_str();
+    let declaration_digest = setup["declaration_digest"].as_str();
+    if application_id != Some(grant.application_declaration_id.as_str())
+        || declaration_digest
+            != Some(format!("sha256:{}", grant.application_manifest_digest).as_str())
+    {
+        return Err(ConnectError::AccessDenied(
+            "Collection setup must match the exact application declaration bound to this grant."
+                .to_string(),
+        ));
+    }
+    Ok(())
 }

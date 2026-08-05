@@ -151,8 +151,15 @@ impl HostedProvider {
         match operation {
             "describe" => self.describe_operation(collection_id, replica).await,
             "changes" => self.changes_operation(collection_id, replica, &input).await,
-            "read" | "query" | "validate" | "read_type" | "assess_type_pack" | "list_views"
-            | "execute_view" | "read_view_source" => {
+            "read"
+            | "query"
+            | "validate"
+            | "read_type"
+            | "assess_type_pack"
+            | "assess_collection_setup"
+            | "list_views"
+            | "execute_view"
+            | "read_view_source" => {
                 let (scoped_input, selector) = match (&contract_scope, operation) {
                     (Some(scope), "query") => scope.query_input(&input).map_err(scope_error)?,
                     (Some(scope), "read") => scope.read_input(&input).map_err(scope_error)?,
@@ -280,6 +287,18 @@ impl HostedProvider {
                         )
                     })?;
                 self.write_type_pack_apply_operation(collection_id, &request, mutation_lease)
+                    .await
+            }
+            "apply_collection_setup" => {
+                let request = serde_json::from_value::<ApplyCollectionSetupInput>(input).map_err(
+                    |error| {
+                        ApiError::bad_request(
+                            "invalid_collection_setup",
+                            format!("The collection setup apply request is invalid: {error}"),
+                        )
+                    },
+                )?;
+                self.write_collection_setup_apply_operation(collection_id, &request, mutation_lease)
                     .await
             }
             "create_view_source" | "update_view_source" | "delete_view_source" => {
@@ -516,6 +535,161 @@ impl HostedProvider {
             ));
         }
         Ok((resources.contracts, effective_setups))
+    }
+
+    pub async fn provision_application_setup(
+        &self,
+        collection_id: Uuid,
+        application_id: &str,
+        declaration_digest: &str,
+        requirements: ApplicationRequirements,
+        provisions: ApplicationProvisions,
+        contract_setups: Vec<ContractSetupChoice>,
+    ) -> ApiResult<(
+        Vec<CollectionContractDescriptor>,
+        Vec<ContractSetupChoice>,
+        Value,
+        Value,
+    )> {
+        let resources = self.collection_resources(collection_id).await?;
+        let missing = requirements
+            .contracts
+            .iter()
+            .filter(|required| {
+                !resources.contracts.iter().any(|available| {
+                    available.id == required.id
+                        && available.version == required.version
+                        && available.digest == required.digest
+                })
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if missing.iter().any(|required| {
+            !provisions
+                .type_packs
+                .iter()
+                .any(|provision| provision.provides.contains(required))
+        }) {
+            return Err(ApiError::bad_request(
+                "collection_setup_unavailable",
+                "This collection is missing a required contract that the application cannot install.",
+            ));
+        }
+        let missing_contracts = missing
+            .iter()
+            .map(|contract| {
+                (
+                    contract.id.clone(),
+                    contract.version.clone(),
+                    contract.digest.clone(),
+                )
+            })
+            .collect::<BTreeSet<_>>();
+        let setup_contracts = contract_setups
+            .iter()
+            .map(|setup| {
+                (
+                    setup.contract.id.clone(),
+                    setup.contract.version.clone(),
+                    setup.contract.digest.clone(),
+                )
+            })
+            .collect::<BTreeSet<_>>();
+        validate_contract_setup_targets(&setup_contracts, &missing_contracts)?;
+        let effective_setups = if contract_setups.is_empty() {
+            missing
+                .iter()
+                .cloned()
+                .map(|contract| ContractSetupChoice {
+                    contract,
+                    mode: ContractSetupMode::Starter,
+                })
+                .collect::<Vec<_>>()
+        } else {
+            contract_setups
+        };
+        let selected_type_packs = provisions
+            .type_packs
+            .into_iter()
+            .filter(|provision| {
+                provision.provides.iter().any(|provided| {
+                    missing_contracts.contains(&(
+                        provided.id.clone(),
+                        provided.version.clone(),
+                        provided.digest.clone(),
+                    ))
+                })
+            })
+            .collect();
+        let setup = AssessCollectionSetupInput {
+            application_id: application_id.to_string(),
+            declaration_digest: declaration_digest.to_string(),
+            requirements: ApplicationCollectionSetupRequirements {
+                configuration: requirements.configuration,
+            },
+            provisions: ApplicationCollectionSetupProvisions {
+                configuration: provisions.configuration,
+                type_packs: selected_type_packs,
+            },
+            contract_setups: effective_setups.clone(),
+        };
+        let assessment = self
+            .execute_read_operation(
+                collection_id,
+                "assess_collection_setup",
+                &serde_json::to_value(&setup).map_err(|error| {
+                    ApiError::internal(format!(
+                        "Collection setup assessment input could not serialize: {error}"
+                    ))
+                })?,
+            )
+            .await?;
+        if !assessment.valid || assessment.result["applicable"].as_bool() != Some(true) {
+            return Err(type_pack_provision_error(&assessment));
+        }
+        let required = |key: &str| {
+            assessment.result[key]
+                .as_str()
+                .map(str::to_string)
+                .ok_or_else(|| {
+                    ApiError::internal(format!("Collection setup assessment returned no {key}."))
+                })
+        };
+        let applied = self
+            .write_collection_setup_apply_operation(
+                collection_id,
+                &ApplyCollectionSetupInput {
+                    setup,
+                    expected_assessment_digest: required("assessment_digest")?,
+                    expected_collection_revision: required("collection_revision")?,
+                    expected_provision_digest: required("provision_digest")?,
+                    allow_type_pack_downgrades: BTreeSet::new(),
+                },
+                None,
+            )
+            .await?;
+        if applied.get("valid").and_then(Value::as_bool) != Some(true) {
+            return Err(type_pack_envelope_error(&applied));
+        }
+        let resources = self.collection_resources(collection_id).await?;
+        if missing.iter().any(|required| {
+            !resources.contracts.iter().any(|available| {
+                available.id == required.id
+                    && available.version == required.version
+                    && available.digest == required.digest
+            })
+        }) {
+            return Err(ApiError::bad_request(
+                "collection_setup_failed",
+                "Application setup did not provide every required contract.",
+            ));
+        }
+        Ok((
+            resources.contracts,
+            effective_setups,
+            applied["result"]["assessment"].clone(),
+            applied["result"]["receipt"].clone(),
+        ))
     }
 
     pub async fn collection_type_candidates(

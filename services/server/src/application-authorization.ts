@@ -43,6 +43,7 @@ const bindingSchema = z.object({
   protocol_version: z.literal(APPLICATION_AUTHORIZATION_PROTOCOL_VERSION),
   authorization_id: z.uuid(),
   application_id: z.uuid(),
+  application_declaration_id: z.string().regex(/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$/),
   application_manifest_digest: z.string().regex(/^[0-9a-f]{64}$/),
   application_installation_id: z.uuid(),
   installation_signing_public_key: z.string().min(80).max(200),
@@ -73,6 +74,7 @@ const proofSchema = z.object({
 
 export interface ExpectedApplicationAuthorization {
   applicationId: string;
+  applicationDeclarationId: string;
   applicationManifestDigest: string;
   flow: ApplicationAuthorizationFlow;
   redirectUri?: string;
@@ -166,6 +168,7 @@ export async function verifyApplicationAuthorization(
     || expiresAt <= issuedAt
     || expiresAt - issuedAt > MAX_AUTHORIZATION_LIFETIME_MS
     || binding.application_id !== expected.applicationId
+    || binding.application_declaration_id !== expected.applicationDeclarationId
     || binding.application_manifest_digest !== expected.applicationManifestDigest
     || binding.flow !== expected.flow
     || binding.redirect_uri !== expected.redirectUri

@@ -807,6 +807,8 @@ mod tests {
             contracts: mdbase_connect_protocol::ConnectContractRequirements::current(true),
             id: Uuid::now_v7(),
             application_id: Uuid::now_v7(),
+            application_declaration_id: "dev.mdbase.test".to_string(),
+            application_manifest_digest: "00".repeat(32),
             application_name: "File application".to_string(),
             application_distribution: "portable".to_string(),
             application_homepage: "https://example.test".to_string(),

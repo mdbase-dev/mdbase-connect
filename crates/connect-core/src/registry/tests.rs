@@ -12,7 +12,7 @@ mod security_state;
 
 fn signed_test_grant(_registry: &CollectionRegistry, operations: Vec<String>) -> GrantPolicy {
     let fixture: Value = serde_json::from_str(include_str!(
-        "../../../../packages/protocol/test/fixtures/application-authorization-v3.json"
+        "../../../../packages/protocol/test/fixtures/application-authorization-v4.json"
     ))
     .unwrap();
     let binding: mdbase_connect_protocol::ApplicationAuthorizationBinding =

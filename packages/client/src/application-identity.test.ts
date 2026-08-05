@@ -19,7 +19,7 @@ interface Fixture {
 }
 
 const fixture = JSON.parse(readFileSync(
-  new URL("../../protocol/test/fixtures/application-authorization-v3.json", import.meta.url),
+  new URL("../../protocol/test/fixtures/application-authorization-v4.json", import.meta.url),
   "utf8"
 )) as Fixture;
 
@@ -60,6 +60,7 @@ describe("application authorization identity", () => {
     const store = new MemoryApplicationIdentityStore();
     const application = {
       id: "01922222-2222-7222-8222-222222222222",
+      family_identity: "bundle:dev.mdbase.identity-test",
       manifest_digest: "ab".repeat(32),
       name: "Identity test",
       requirements: { contracts: [] }

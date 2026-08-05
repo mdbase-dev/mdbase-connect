@@ -5,6 +5,8 @@ impl AgentState {
     pub(super) fn validate_activation_authorization(
         &self,
         authorization_id: uuid::Uuid,
+        application_declaration_id: &str,
+        application_manifest_digest: &str,
         grant: &GrantPolicy,
     ) -> Result<(), ConnectError> {
         grant.validate_application_security().map_err(|error| {
@@ -14,6 +16,18 @@ impl AgentState {
         if authorization.authorization_id != authorization_id {
             return Err(ConnectError::AccessDenied(
                 "The activation names a different application authorization request.".to_string(),
+            ));
+        }
+        if authorization.application_manifest_digest != application_manifest_digest {
+            return Err(ConnectError::AccessDenied(
+                "The activation setup is not bound to the signed application declaration."
+                    .to_string(),
+            ));
+        }
+        if authorization.application_declaration_id != application_declaration_id {
+            return Err(ConnectError::AccessDenied(
+                "The activation setup names a different signed application declaration."
+                    .to_string(),
             ));
         }
         let encryption = grant.encryption.as_ref().ok_or_else(|| {

@@ -30,7 +30,7 @@ fn mutation_fingerprint_v1_matches_the_shared_typescript_fixture() {
 
 fn fixture_application_authorization(application_id: Uuid) -> ApplicationAuthorizationProof {
     let fixture: Value = serde_json::from_str(include_str!(
-        "../../../packages/protocol/test/fixtures/application-authorization-v3.json"
+        "../../../packages/protocol/test/fixtures/application-authorization-v4.json"
     ))
     .unwrap();
     let mut proof = ApplicationAuthorizationProof {
@@ -544,6 +544,8 @@ fn rust_relay_messages_match_the_canonical_wire_schema() {
             ok: true,
             contracts: Vec::new(),
             contract_setups: Vec::new(),
+            setup_assessment: None,
+            provision_receipt: None,
             error: None,
         },
         RelayMessage::OperationRequest {

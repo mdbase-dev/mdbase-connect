@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import type { MdbaseAppManifest, TypePackAssessment } from "@mdbase-dev/connect-protocol";
+import type {
+  CollectionSetupAssessment,
+  MdbaseAppManifest,
+  TypePackAssessment
+} from "@mdbase-dev/connect-protocol";
 import {
   MdbaseApplicationSession,
   MdbaseMemorySelection,
@@ -30,12 +34,24 @@ function manifest(overrides: Partial<MdbaseAppManifest> = {}): MdbaseAppManifest
 
 function connection(
   operations = ["describe", "read", "update"],
-  assessment?: TypePackAssessment
+  assessment?: CollectionSetupAssessment
 ) {
   let currentAssessment = assessment;
-  const applyTypePack = vi.fn(async (input) => {
+  const applyCollectionSetup = vi.fn(async () => {
     if (currentAssessment) currentAssessment = { ...currentAssessment, status: "current" };
-    return connectSuccess({ ...currentAssessment, receipt: currentAssessment!.desired, cleanup_deferred: false });
+    return connectSuccess({
+      assessment: currentAssessment!,
+      receipt: {
+        application_id: currentAssessment!.application_id,
+        declaration_digest: currentAssessment!.declaration_digest,
+        provision_digest: currentAssessment!.provision_digest,
+        assessment_digest: currentAssessment!.assessment_digest,
+        collection_revision: currentAssessment!.final_collection_revision,
+        configuration: [],
+        type_packs: [],
+        cleanup_deferred: false
+      }
+    });
   });
   const value = {
     collectionId,
@@ -57,20 +73,27 @@ function connection(
     }),
     onConnectionChange: () => () => undefined,
     forget: vi.fn(),
-    assessTypePack: vi.fn(async () => connectSuccess(currentAssessment!)),
-    applyTypePack
+    assessCollectionSetup: vi.fn(async () => connectSuccess(currentAssessment!)),
+    applyCollectionSetup
   };
-  return { value, applyTypePack };
+  return { value, applyCollectionSetup };
 }
 
 function connectFixture(
   declaration: MdbaseAppManifest,
   grantedOperations?: string[],
-  assessment?: TypePackAssessment
+  assessment?: CollectionSetupAssessment
 ) {
   const connected = connection(grantedOperations, assessment);
   const authorize = vi.fn(async () => connectSuccess({ kind: "redirect", url: "https://connect.example" }));
   const facade = {
+    register: async () => connectSuccess({
+      id: "01922222-2222-7222-8222-222222222222",
+      family_identity: `bundle:${declaration.id}`,
+      manifest_digest: "ab".repeat(32),
+      name: declaration.name,
+      requirements: declaration.requirements ?? { contracts: [] }
+    }),
     manifest: async () => connectSuccess(declaration),
     connections: () => [connected.value.info()],
     connection: (id: string) => id === collectionId ? connected.value : null,
@@ -128,7 +151,7 @@ describe("MdbaseApplicationSession", () => {
       installed_by: "dev.mdbase.session-test",
       resources: []
     };
-    const assessment: TypePackAssessment = {
+    const typePackAssessment: TypePackAssessment = {
       status: "upgrade",
       applicable: true,
       assessment_digest: `sha256:${"b".repeat(64)}`,
@@ -138,12 +161,25 @@ describe("MdbaseApplicationSession", () => {
       lock: { target: "mdbase.lock.yaml", action: "update", digest: `sha256:${"c".repeat(64)}` },
       contract_setups: { choices: [], resources: [] }
     };
+    const assessment: CollectionSetupAssessment = {
+      status: "provision",
+      applicable: true,
+      application_id: "dev.mdbase.session-test",
+      declaration_digest: `sha256:${"a".repeat(64)}`,
+      provision_digest: `sha256:${"d".repeat(64)}`,
+      collection_revision: `sha256:${"e".repeat(64)}`,
+      final_collection_revision: `sha256:${"f".repeat(64)}`,
+      configuration: [],
+      type_packs: [typePackAssessment],
+      final_resource_revisions: {},
+      assessment_digest: `sha256:${"b".repeat(64)}`
+    };
     const declaration = manifest({
       requirements: {
         contracts: [],
         capabilities: {
           contract_version: 1,
-          required: ["collection.inspect", "records.read", "definitions.type-pack.apply"]
+          required: ["collection.inspect", "records.read", "collection.setup.apply"]
         }
       },
       provisions: {
@@ -152,7 +188,7 @@ describe("MdbaseApplicationSession", () => {
     });
     const fixture = connectFixture(
       declaration,
-      ["describe", "read", "assess_type_pack", "apply_type_pack"],
+      ["describe", "read", "assess_collection_setup", "apply_collection_setup"],
       assessment
     );
     const session = new MdbaseApplicationSession(fixture.facade as never, {
@@ -162,15 +198,18 @@ describe("MdbaseApplicationSession", () => {
 
     await session.start();
     expect(session.getSnapshot()).toMatchObject({
-      status: "definition_review_required",
-      updates: [{ status: "upgrade", desiredVersion: "2.0.0", canApply: true }]
+      status: "setup_review_required",
+      update: {
+        status: "provision",
+        typePacks: [{ status: "upgrade", desiredVersion: "2.0.0", canApply: true }]
+      }
     });
 
-    const applied = await session.applyDefinitionUpdates();
+    const applied = await session.applyCollectionSetup();
 
     expect(applied.ok && applied.value.status).toBe("ready");
-    expect(fixture.applyTypePack).toHaveBeenCalledWith(expect.objectContaining({
-      installed_by: "dev.mdbase.session-test",
+    expect(fixture.applyCollectionSetup).toHaveBeenCalledWith(expect.objectContaining({
+      application_id: "dev.mdbase.session-test",
       expected_assessment_digest: assessment.assessment_digest
     }));
   });

@@ -1,4 +1,8 @@
 use super::*;
+use mdbase_connect_protocol::{
+    ConfigurationOperation, ConfigurationPredicate, ConfigurationProvision,
+    ConfigurationRequirement,
+};
 
 #[test]
 fn portable_mutation_results_produce_targeted_invalidations() {
@@ -457,18 +461,22 @@ schema:
         Err(ConnectError::AccessDenied(_))
     ));
 
-    let provisions = [provision];
+    let provisions = ApplicationProvisions {
+        type_packs: vec![provision],
+        configuration: Vec::new(),
+    };
 
     let contracts = registry
-        .provision_type_packs(
+        .provision_application_setup(
             collection.id,
             "dev.mdbase.tests",
+            &format!("sha256:{}", "0".repeat(64)),
             &requirements,
             &provisions,
             &[],
         )
         .unwrap();
-    assert!(contracts.iter().any(|contract| {
+    assert!(contracts.contracts.iter().any(|contract| {
         contract.id == requirements.contracts[0].id
             && contract.version == requirements.contracts[0].version
     }));
@@ -476,9 +484,10 @@ schema:
     assert!(root.join("_types/workout.md").is_file());
     assert!(root.join("_types/workout_note.md").is_file());
     registry
-        .provision_type_packs(
+        .provision_application_setup(
             collection.id,
             "dev.mdbase.tests",
+            &format!("sha256:{}", "0".repeat(64)),
             &requirements,
             &provisions,
             &[],
@@ -536,11 +545,15 @@ This body is documentation and must remain byte-for-byte intact.
     };
 
     let contracts = registry
-        .provision_type_packs(
+        .provision_application_setup(
             collection.id,
             "dev.mdbase.tests",
+            &format!("sha256:{}", "0".repeat(64)),
             &requirements,
-            &[provision],
+            &ApplicationProvisions {
+                type_packs: vec![provision],
+                configuration: Vec::new(),
+            },
             &[setup],
         )
         .unwrap();
@@ -552,10 +565,10 @@ This body is documentation and must remain byte-for-byte intact.
         .ends_with("---\nThis body is documentation and must remain byte-for-byte intact.\n"));
     assert!(document.contains("contract: example.work-item"));
     assert!(document.contains("title: heading"));
-    assert_eq!(contracts.len(), 1);
-    assert_eq!(contracts[0].implementations.len(), 1);
-    assert_eq!(contracts[0].implementations[0].type_name, "note");
-    assert_eq!(contracts[0].implementations[0].type_version, 3);
+    assert_eq!(contracts.contracts.len(), 1);
+    assert_eq!(contracts.contracts[0].implementations.len(), 1);
+    assert_eq!(contracts.contracts[0].implementations[0].type_name, "note");
+    assert_eq!(contracts.contracts[0].implementations[0].type_version, 3);
 }
 
 #[test]
@@ -593,11 +606,15 @@ schema:
     };
 
     let error = registry
-        .provision_type_packs(
+        .provision_application_setup(
             collection.id,
             "dev.mdbase.tests",
+            &format!("sha256:{}", "0".repeat(64)),
             &requirements,
-            &[provision],
+            &ApplicationProvisions {
+                type_packs: vec![provision],
+                configuration: Vec::new(),
+            },
             &[setup],
         )
         .unwrap_err();
@@ -610,6 +627,78 @@ schema:
     );
     assert!(!root.join("_contracts/example.work-item.md").exists());
     assert!(!root.join("_types/work_item.md").exists());
+}
+
+#[test]
+fn application_setup_preserves_local_configuration_and_is_idempotent() {
+    let state = tempdir().unwrap();
+    let parent = tempdir().unwrap();
+    let root = parent.path().join("notes");
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let collection = registry.create(&root, Some("Notes")).unwrap();
+    let config_path = root.join("mdbase.yaml");
+    let mut config: serde_yaml::Value =
+        serde_yaml::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+    let mut user_extension = serde_yaml::Mapping::new();
+    user_extension.insert(
+        serde_yaml::Value::String("display_name".to_string()),
+        serde_yaml::Value::String("Notes".to_string()),
+    );
+    config.as_mapping_mut().unwrap().insert(
+        serde_yaml::Value::String("x-unrelated".to_string()),
+        serde_yaml::Value::Mapping(user_extension),
+    );
+    fs::write(&config_path, serde_yaml::to_string(&config).unwrap()).unwrap();
+    let requirements = ApplicationRequirements {
+        contracts: Vec::new(),
+        configuration: vec![ConfigurationRequirement {
+            id: "tasknotes-base-sources".to_string(),
+            path: "/x-obsidian/bases/include".to_string(),
+            predicate: ConfigurationPredicate::Contains,
+            value: Value::String("views/tasknotes/**/*.base".to_string()),
+        }],
+        ..Default::default()
+    };
+    let provisions = ApplicationProvisions {
+        type_packs: Vec::new(),
+        configuration: vec![ConfigurationProvision {
+            requirement: "tasknotes-base-sources".to_string(),
+            operation: ConfigurationOperation::SetAdd,
+            path: "/x-obsidian/bases/include".to_string(),
+            value: Value::String("views/tasknotes/**/*.base".to_string()),
+        }],
+    };
+    let digest = format!("sha256:{}", "a".repeat(64));
+    let first = registry
+        .provision_application_setup(
+            collection.id,
+            "dev.mdbase.tasknotes",
+            &digest,
+            &requirements,
+            &provisions,
+            &[],
+        )
+        .unwrap();
+    assert_eq!(first.assessment["status"], "provision");
+    let config = fs::read_to_string(root.join("mdbase.yaml")).unwrap();
+    assert!(config.contains("views/tasknotes/**/*.base"));
+    assert!(config.contains("x-unrelated:"), "{config}");
+    assert!(config.contains("display_name: Notes"), "{config}");
+    let second = registry
+        .provision_application_setup(
+            collection.id,
+            "dev.mdbase.tasknotes",
+            &digest,
+            &requirements,
+            &provisions,
+            &[],
+        )
+        .unwrap();
+    assert_eq!(second.assessment["status"], "current");
+    assert_eq!(
+        fs::read_to_string(root.join("mdbase.yaml")).unwrap(),
+        config
+    );
 }
 
 #[test]

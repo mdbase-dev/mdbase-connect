@@ -68,14 +68,15 @@ impl CollectionRegistry {
         }))
     }
 
-    pub fn provision_type_packs(
+    pub fn provision_application_setup(
         &self,
         id: Uuid,
-        installed_by: &str,
+        application_id: &str,
+        declaration_digest: &str,
         requirements: &ApplicationRequirements,
-        provisions: &[TypePackProvision],
+        provisions: &ApplicationProvisions,
         contract_setups: &[ContractSetupChoice],
-    ) -> Result<Vec<CollectionContractDescriptor>, ConnectError> {
+    ) -> Result<ApplicationSetupResult, ConnectError> {
         let description = self.describe(id)?;
         let missing = requirements
             .contracts
@@ -85,6 +86,7 @@ impl CollectionRegistry {
             .collect::<Vec<_>>();
         if missing.iter().any(|required| {
             !provisions
+                .type_packs
                 .iter()
                 .any(|provision| provision.provides.contains(required))
         }) {
@@ -133,99 +135,127 @@ impl CollectionRegistry {
         } else {
             contract_setups.to_vec()
         };
-        if !effective_setups.is_empty() {
-            let relevant = effective_setups
-                .iter()
-                .map(|setup| (setup.contract.id.as_str(), setup.contract.version.as_str()))
-                .collect::<BTreeSet<_>>();
-            let selected_provisions = provisions
-                .iter()
-                .filter(|provision| {
-                    provision.provides.iter().any(|provided| {
-                        relevant.contains(&(provided.id.as_str(), provided.version.as_str()))
-                    })
+        let relevant_contracts = missing
+            .iter()
+            .map(|contract| (contract.id.as_str(), contract.version.as_str()))
+            .collect::<BTreeSet<_>>();
+        let type_packs = provisions
+            .type_packs
+            .iter()
+            .filter(|provision| {
+                provision.provides.iter().any(|provided| {
+                    relevant_contracts
+                        .contains(&(provided.id.as_str(), provided.version.as_str()))
                 })
-                .collect::<Vec<_>>();
-            let registered = self.get(id)?;
-            let provider = self.provider_for(&registered)?;
-            provider.with_collection(|collection| {
-                for provision in selected_provisions {
-                    let provision_setups = effective_setups
+            })
+            .map(|provision| {
+                let provision_setups = effective_setups
+                    .iter()
+                    .filter(|setup| provision.provides.contains(&setup.contract))
+                    .collect::<Vec<_>>();
+                let has_existing = provision_setups
+                    .iter()
+                    .any(|setup| matches!(setup.mode, ContractSetupMode::Existing { .. }));
+                let has_starter = provision_setups
+                    .iter()
+                    .any(|setup| matches!(setup.mode, ContractSetupMode::Starter));
+                if has_existing
+                    && has_starter
+                    && provision
+                        .manifest
+                        .resources
                         .iter()
-                        .filter(|setup| provision.provides.contains(&setup.contract))
-                        .collect::<Vec<_>>();
-                    let has_existing = provision_setups.iter().any(|setup| {
-                        matches!(setup.mode, ContractSetupMode::Existing { .. })
-                    });
-                    let has_starter = provision_setups
-                        .iter()
-                        .any(|setup| matches!(setup.mode, ContractSetupMode::Starter));
-                    let existing_setups = provision_setups
-                        .iter()
-                        .filter(|setup| matches!(setup.mode, ContractSetupMode::Existing { .. }))
-                        .map(|setup| Self::engine_contract_setup(setup))
-                        .collect::<Vec<_>>();
-                    let preserve_seed_targets = if has_existing {
-                        if has_starter
-                            && provision
-                                .manifest
-                                .resources
-                                .iter()
-                                .any(|resource| resource.mode == "seed")
-                        {
-                            return Err(ConnectError::InvalidInput(
-                                "A type pack with shared seed resources cannot mix starter and existing-type setup. Split the pack by contract."
-                                    .to_string(),
-                            ));
-                        }
-                        provision
-                            .manifest
-                            .resources
-                            .iter()
-                            .filter(|resource| resource.mode == "seed")
-                            .map(|resource| resource.target.clone())
-                            .collect::<BTreeSet<_>>()
-                    } else {
-                        BTreeSet::new()
-                    };
-                    let provision = Self::engine_type_pack_provision(provision)?;
-                    let assessment = collection.assess_type_pack(
-                        &provision,
-                        &mdbase::v03::TypePackAssessmentOptions {
-                            installed_by: installed_by.to_string(),
-                            adopt_resources: BTreeMap::new(),
-                            preserve_seed_targets: preserve_seed_targets.clone(),
-                            target_overrides: BTreeMap::new(),
-                            contract_setups: existing_setups.clone(),
-                        },
-                    );
-                    if !assessment.valid || assessment.result["applicable"].as_bool() != Some(true) {
-                        return Err(type_pack_setup_error(&assessment));
-                    }
-                    let digest = assessment.result["assessment_digest"]
-                        .as_str()
-                        .ok_or_else(|| ConnectError::InvalidInput(
-                            "Type-pack assessment returned no digest.".to_string(),
-                        ))?;
-                    let applied = collection.apply_type_pack(
-                        &provision,
-                        &mdbase::v03::TypePackApplyOptions {
-                            installed_by: installed_by.to_string(),
-                            expected_assessment_digest: digest.to_string(),
-                            allow_downgrade: false,
-                            adopt_resources: BTreeMap::new(),
-                            preserve_seed_targets,
-                            target_overrides: BTreeMap::new(),
-                            contract_setups: existing_setups.clone(),
-                        },
-                    );
-                    if !applied.valid {
-                        return Err(type_pack_setup_error(&applied));
-                    }
+                        .any(|resource| resource.mode == "seed")
+                {
+                    return Err(ConnectError::InvalidInput(
+                        "A type pack with shared seed resources cannot mix starter and existing-type setup. Split the pack by contract."
+                            .to_string(),
+                    ));
                 }
-                Ok(())
-            })?;
-        }
+                let preserve_seed_targets = if has_existing {
+                    provision
+                        .manifest
+                        .resources
+                        .iter()
+                        .filter(|resource| resource.mode == "seed")
+                        .map(|resource| resource.target.clone())
+                        .collect::<BTreeSet<_>>()
+                } else {
+                    BTreeSet::new()
+                };
+                Ok(mdbase::v03::CollectionSetupTypePack {
+                    provision: Self::engine_type_pack_provision(provision)?,
+                    options: mdbase::v03::CollectionSetupTypePackOptions {
+                        adopt_resources: BTreeMap::new(),
+                        preserve_seed_targets,
+                        target_overrides: BTreeMap::new(),
+                        contract_setups: provision_setups
+                            .into_iter()
+                            .filter(|setup| {
+                                matches!(setup.mode, ContractSetupMode::Existing { .. })
+                            })
+                            .map(Self::engine_contract_setup)
+                            .collect(),
+                    },
+                })
+            })
+            .collect::<Result<Vec<_>, ConnectError>>()?;
+        let setup = mdbase::v03::CollectionSetup {
+            application_id: application_id.to_string(),
+            declaration_digest: declaration_digest.to_string(),
+            requirements: mdbase::v03::CollectionSetupRequirements {
+                configuration: requirements
+                    .configuration
+                    .iter()
+                    .map(|requirement| mdbase::v03::ConfigurationRequirement {
+                        id: requirement.id.clone(),
+                        path: requirement.path.clone(),
+                        predicate: mdbase::v03::ConfigurationPredicate::Contains,
+                        value: requirement.value.clone(),
+                    })
+                    .collect(),
+            },
+            provisions: mdbase::v03::CollectionSetupProvisions {
+                configuration: provisions
+                    .configuration
+                    .iter()
+                    .map(|provision| mdbase::v03::ConfigurationProvision {
+                        requirement: provision.requirement.clone(),
+                        operation: mdbase::v03::ConfigurationOperation::SetAdd,
+                        path: provision.path.clone(),
+                        value: provision.value.clone(),
+                    })
+                    .collect(),
+                type_packs,
+            },
+        };
+        let registered = self.get(id)?;
+        let provider = self.provider_for(&registered)?;
+        let applied = provider.with_collection(|collection| {
+            let assessment = collection.assess_collection_setup(&setup);
+            if !assessment.valid || assessment.result["applicable"].as_bool() != Some(true) {
+                return Err(type_pack_setup_error(&assessment));
+            }
+            let expected_assessment_digest =
+                required_setup_string(&assessment.result, "assessment_digest")?;
+            let expected_collection_revision =
+                required_setup_string(&assessment.result, "collection_revision")?;
+            let expected_provision_digest =
+                required_setup_string(&assessment.result, "provision_digest")?;
+            let result = collection.apply_collection_setup(
+                &setup,
+                &mdbase::v03::CollectionSetupApplyOptions {
+                    expected_assessment_digest,
+                    expected_collection_revision,
+                    expected_provision_digest,
+                    allow_type_pack_downgrades: BTreeSet::new(),
+                },
+            );
+            if !result.valid {
+                return Err(type_pack_setup_error(&result));
+            }
+            Ok(result.result)
+        })?;
 
         let description = self.describe(id)?;
         if requirements
@@ -238,10 +268,14 @@ impl CollectionRegistry {
                     .to_string(),
             ));
         }
-        Ok(description.contracts)
+        Ok(ApplicationSetupResult {
+            contracts: description.contracts,
+            assessment: applied["assessment"].clone(),
+            receipt: applied["receipt"].clone(),
+        })
     }
 
-    fn engine_type_pack_provision(
+    pub(super) fn engine_type_pack_provision(
         provision: &TypePackProvision,
     ) -> Result<mdbase::v03::TypePackProvision, ConnectError> {
         Ok(mdbase::v03::TypePackProvision {
@@ -806,4 +840,10 @@ fn type_pack_setup_error(result: &mdbase::v03::OperationResult) -> ConnectError 
             })
             .unwrap_or_else(|| "Contract setup was rejected.".to_string()),
     )
+}
+
+fn required_setup_string(result: &Value, key: &str) -> Result<String, ConnectError> {
+    result[key].as_str().map(str::to_string).ok_or_else(|| {
+        ConnectError::InvalidInput(format!("Collection setup assessment returned no {key}."))
+    })
 }

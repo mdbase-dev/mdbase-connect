@@ -17,8 +17,12 @@ import type {
   SavedViewExecution,
   SavedViewList,
   SavedViewSourceDocument,
+  ApplyCollectionSetupInput,
   ApplyTypePackInput,
+  AssessCollectionSetupInput,
   AssessTypePackInput,
+  CollectionSetupApplyResult,
+  CollectionSetupAssessment,
   TypePackApplyResult,
   TypePackAssessment,
   UpdateViewSourceInput
@@ -713,6 +717,14 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
 
   applyTypePack(input: ApplyTypePackInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<TypePackApplyResult, CollectionTypeProblemCode>> {
     return this.collectionClient.applyTypePack(input, options);
+  }
+
+  assessCollectionSetup(input: AssessCollectionSetupInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<CollectionSetupAssessment, CollectionTypeProblemCode>> {
+    return this.collectionClient.assessCollectionSetup(input, options);
+  }
+
+  applyCollectionSetup(input: ApplyCollectionSetupInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<CollectionSetupApplyResult, CollectionTypeProblemCode>> {
+    return this.collectionClient.applyCollectionSetup(input, options);
   }
 
   listTimers(namespace: string, options?: ConnectRequestOptions): Promise<ConnectOutcome<MdbaseTimerList, CollectionReadProblemCode>> {

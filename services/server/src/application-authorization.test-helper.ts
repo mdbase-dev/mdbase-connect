@@ -23,6 +23,7 @@ const P256_HALF_ORDER = P256_ORDER / 2n;
 export async function testApplicationAuthorization(input: {
   applicationId: string;
   applicationManifestDigest: string;
+  applicationDeclarationId: string;
   flow: "authorization_code" | "device_code";
   codeChallenge: string;
   requestedOperations: CollectionOperation[];
@@ -44,6 +45,7 @@ export async function testApplicationAuthorization(input: {
     protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
     authorization_id: input.authorizationId ?? randomUUID(),
     application_id: input.applicationId,
+    application_declaration_id: input.applicationDeclarationId,
     application_manifest_digest: input.applicationManifestDigest,
     application_installation_id: await applicationInstallationIdFromPublicKey(
       installationSigning.publicKey

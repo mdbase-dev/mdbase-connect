@@ -13,6 +13,7 @@ import { encryptRelayRequest } from "./crypto.js";
 
 export interface Application {
   id: string;
+  family_identity: string;
   manifest_digest: string;
   name: string;
   distribution?: "web" | "portable";

@@ -11,15 +11,15 @@ use axum::{
     Json, Router,
 };
 use mdbase_connect_protocol::{
-    AbortFileTransferRequest, AbortFileTransferRequestKind, AuthorityImportManifest,
-    AuthorityImportRecordPage, ContractSetupChoice, DeleteFileReceipt, DeleteFileRequest,
-    FileTransferStatus, GrantSummary, ListFilesPage, ListFilesRequest, ListFilesRequestKind,
-    MoveFileReceipt, MoveFileRequest, OpenFileDownloadRequest, OpenFileUploadRequest,
-    OperationRequest, OperationResponse, SyncChangesPage, SyncFileSnapshotPage, SyncMutation,
-    SyncMutationReceipt, SyncSession, SyncSnapshotPage, TypePackProvision,
-    AUTHORITY_PROOF_NONCE_HEADER, AUTHORITY_PROOF_SIGNATURE_HEADER,
-    AUTHORITY_PROOF_TIMESTAMP_HEADER, AUTHORITY_PROOF_VERSION_HEADER,
-    OPERATION_TRANSPORT_PROTOCOL_VERSION,
+    AbortFileTransferRequest, AbortFileTransferRequestKind, ApplicationProvisions,
+    ApplicationRequirements, AuthorityImportManifest, AuthorityImportRecordPage,
+    ContractSetupChoice, DeleteFileReceipt, DeleteFileRequest, FileTransferStatus, GrantSummary,
+    ListFilesPage, ListFilesRequest, ListFilesRequestKind, MoveFileReceipt, MoveFileRequest,
+    OpenFileDownloadRequest, OpenFileUploadRequest, OperationRequest, OperationResponse,
+    SyncChangesPage, SyncFileSnapshotPage, SyncMutation, SyncMutationReceipt, SyncSession,
+    SyncSnapshotPage, TypePackProvision, AUTHORITY_PROOF_NONCE_HEADER,
+    AUTHORITY_PROOF_SIGNATURE_HEADER, AUTHORITY_PROOF_TIMESTAMP_HEADER,
+    AUTHORITY_PROOF_VERSION_HEADER, OPERATION_TRANSPORT_PROTOCOL_VERSION,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -126,6 +126,16 @@ struct ContractSetupRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct ApplicationSetupRequest {
+    application_id: String,
+    declaration_digest: String,
+    requirements: ApplicationRequirements,
+    provisions: ApplicationProvisions,
+    #[serde(default)]
+    contract_setups: Vec<ContractSetupChoice>,
+}
+
+#[derive(Debug, Deserialize)]
 struct CompleteAuthorityTransferRequest {
     manifest_digest: String,
 }
@@ -202,6 +212,10 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/internal/v1/collections/{collection_id}/contract-setup",
             post(setup_contracts),
+        )
+        .route(
+            "/internal/v1/collections/{collection_id}/application-setup",
+            post(setup_application),
         )
         .route(
             "/internal/v1/collections/{collection_id}/types",
@@ -810,6 +824,48 @@ async fn setup_contracts(
     Ok(Json(json!({
         "contracts": contracts,
         "contract_setups": contract_setups,
+    })))
+}
+
+async fn setup_application(
+    State(state): State<AppState>,
+    Path(collection_id): Path<Uuid>,
+    Json(input): Json<ApplicationSetupRequest>,
+) -> ApiResult<Json<Value>> {
+    if input.provisions.type_packs.len() > 20 {
+        return Err(ApiError::bad_request(
+            "too_many_type_pack_provisions",
+            "An application may provision at most 20 type packs.",
+        ));
+    }
+    if input.contract_setups.len() > 20 {
+        return Err(ApiError::bad_request(
+            "too_many_contract_setups",
+            "An application may configure at most 20 contracts.",
+        ));
+    }
+    if input.provisions.configuration.len() > 100 || input.requirements.configuration.len() > 100 {
+        return Err(ApiError::bad_request(
+            "too_many_configuration_provisions",
+            "An application may declare at most 100 configuration requirements and provisions.",
+        ));
+    }
+    let (contracts, contract_setups, assessment, receipt) = state
+        .provider
+        .provision_application_setup(
+            collection_id,
+            &input.application_id,
+            &input.declaration_digest,
+            input.requirements,
+            input.provisions,
+            input.contract_setups,
+        )
+        .await?;
+    Ok(Json(json!({
+        "contracts": contracts,
+        "contract_setups": contract_setups,
+        "setup_assessment": assessment,
+        "provision_receipt": receipt,
     })))
 }
 

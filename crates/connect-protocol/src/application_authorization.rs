@@ -14,7 +14,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 const INSTALLATION_ID_DOMAIN: &[u8] = b"mdbase-connect application installation id v2\0";
-const AUTHORIZATION_PROOF_DOMAIN: &[u8] = b"mdbase-connect application authorization proof v3\0";
+const AUTHORIZATION_PROOF_DOMAIN: &[u8] = b"mdbase-connect application authorization proof v4\0";
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ApplicationAuthorizationError {
@@ -40,6 +40,7 @@ pub struct ApplicationAuthorizationBinding {
     pub protocol_version: u32,
     pub authorization_id: Uuid,
     pub application_id: Uuid,
+    pub application_declaration_id: String,
     pub application_manifest_digest: String,
     pub application_installation_id: Uuid,
     pub installation_signing_public_key: String,
@@ -80,6 +81,7 @@ impl ApplicationAuthorizationBinding {
             || self.expires_at.len() > 40
             || self.expires_at.as_bytes().contains(&0)
             || !is_hex_sha256(&self.application_manifest_digest)
+            || !is_application_declaration_id(&self.application_declaration_id)
             || self.contracts.operation_transport == 0
             || self.contracts.authorization_binding == 0
             || self.contracts.semantic_capabilities == 0
@@ -121,6 +123,7 @@ impl ApplicationAuthorizationBinding {
         transcript.extend_from_slice(&self.protocol_version.to_be_bytes());
         append_field(&mut transcript, self.application_id.as_bytes());
         append_field(&mut transcript, self.authorization_id.as_bytes());
+        append_field(&mut transcript, self.application_declaration_id.as_bytes());
         append_field(
             &mut transcript,
             &hex_sha256(&self.application_manifest_digest)?,
@@ -422,6 +425,28 @@ fn is_hex_sha256(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
 }
 
+fn is_application_declaration_id(value: &str) -> bool {
+    let mut saw_separator = false;
+    for (index, segment) in value
+        .split(|character| {
+            let separator = matches!(character, '.' | '_' | '-');
+            saw_separator |= separator;
+            separator
+        })
+        .enumerate()
+    {
+        if segment.is_empty()
+            || (index == 0 && !segment.as_bytes()[0].is_ascii_lowercase())
+            || !segment
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        {
+            return false;
+        }
+    }
+    saw_separator
+}
+
 fn hex_sha256(value: &str) -> Result<[u8; 32], ApplicationAuthorizationError> {
     if !is_hex_sha256(value) {
         return Err(ApplicationAuthorizationError::InvalidProof);
@@ -447,7 +472,7 @@ mod tests {
 
     fn fixture() -> (ApplicationAuthorizationBinding, serde_json::Value) {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../packages/protocol/test/fixtures/application-authorization-v3.json"
+            "../../../packages/protocol/test/fixtures/application-authorization-v4.json"
         ))
         .unwrap();
         let binding = serde_json::from_value(fixture["binding"].clone()).unwrap();

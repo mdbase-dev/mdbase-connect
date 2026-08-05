@@ -1,6 +1,113 @@
 use super::mutation_journal::HostedMutationLease;
 use super::*;
 
+#[derive(Clone, Copy)]
+enum DefinitionMutation<'a> {
+    TypePack(&'a ApplyTypePackInput),
+    CollectionSetup(&'a ApplyCollectionSetupInput),
+}
+
+fn definition_changed_resources(
+    envelope: &OperationResult,
+    mutation: &DefinitionMutation<'_>,
+) -> ApiResult<Vec<Value>> {
+    let mut changed = Vec::new();
+    match mutation {
+        DefinitionMutation::TypePack(_) => {
+            append_type_pack_changes(&mut changed, &envelope.result)?
+        }
+        DefinitionMutation::CollectionSetup(_) => {
+            let assessment = envelope.result.get("assessment").ok_or_else(|| {
+                ApiError::internal("Collection setup returned no applied assessment.")
+            })?;
+            if assessment
+                .get("configuration")
+                .and_then(Value::as_array)
+                .is_some_and(|entries| {
+                    entries
+                        .iter()
+                        .any(|entry| entry.get("action").and_then(Value::as_str) == Some("add"))
+                })
+            {
+                changed.push(json!({
+                    "target": "mdbase.yaml",
+                    "kind": "config",
+                    "action": "update"
+                }));
+            }
+            if assessment.get("status").and_then(Value::as_str) == Some("provision")
+                && envelope
+                    .result
+                    .pointer("/receipt/configuration")
+                    .and_then(Value::as_array)
+                    .is_some_and(|entries| !entries.is_empty())
+            {
+                changed.push(json!({
+                    "target": "mdbase.provisions.yaml",
+                    "kind": "lock",
+                    "action": "update"
+                }));
+            }
+            for pack in assessment
+                .get("type_packs")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                append_type_pack_changes(&mut changed, pack)?;
+            }
+        }
+    }
+    let mut unique = BTreeMap::new();
+    for resource in changed {
+        let target = resource
+            .get("target")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ApiError::internal("Definition setup returned an invalid target."))?;
+        unique.insert(target.to_string(), resource);
+    }
+    Ok(unique.into_values().collect())
+}
+
+fn append_type_pack_changes(changed: &mut Vec<Value>, plan: &Value) -> ApiResult<()> {
+    let resources = plan
+        .get("resources")
+        .and_then(Value::as_array)
+        .ok_or_else(|| ApiError::internal("Contract setup returned no resource plan."))?;
+    changed.extend(
+        resources
+            .iter()
+            .filter(|resource| changed_resource(resource))
+            .cloned(),
+    );
+    changed.extend(
+        plan.pointer("/contract_setups/resources")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|resource| changed_resource(resource))
+            .cloned(),
+    );
+    if let Some(lock) = plan.get("lock").and_then(Value::as_object) {
+        if matches!(
+            lock.get("action").and_then(Value::as_str),
+            Some("create" | "update")
+        ) {
+            let mut lock = lock.clone();
+            lock.insert("kind".to_string(), Value::String("lock".to_string()));
+            changed.push(Value::Object(lock));
+        }
+    }
+    Ok(())
+}
+
+fn changed_resource(resource: &&Value) -> bool {
+    matches!(
+        resource.get("action").and_then(Value::as_str),
+        Some("create" | "update" | "replace" | "delete")
+    )
+}
+
 impl HostedProvider {
     pub(super) async fn write_type_operation(
         &self,
@@ -236,14 +343,32 @@ impl HostedProvider {
         input: &ApplyTypePackInput,
         mutation_lease: Option<&HostedMutationLease>,
     ) -> ApiResult<Value> {
-        self.write_definition_mutation(collection_id, input, mutation_lease)
-            .await
+        self.write_definition_mutation(
+            collection_id,
+            DefinitionMutation::TypePack(input),
+            mutation_lease,
+        )
+        .await
+    }
+
+    pub(super) async fn write_collection_setup_apply_operation(
+        &self,
+        collection_id: Uuid,
+        input: &ApplyCollectionSetupInput,
+        mutation_lease: Option<&HostedMutationLease>,
+    ) -> ApiResult<Value> {
+        self.write_definition_mutation(
+            collection_id,
+            DefinitionMutation::CollectionSetup(input),
+            mutation_lease,
+        )
+        .await
     }
 
     async fn write_definition_mutation(
         &self,
         collection_id: Uuid,
-        input: &ApplyTypePackInput,
+        input: DefinitionMutation<'_>,
         mutation_lease: Option<&HostedMutationLease>,
     ) -> ApiResult<Value> {
         let mut transaction = self.pool.begin().await?;
@@ -266,12 +391,21 @@ impl HostedProvider {
             collection.get::<i64, _>("max_document_bytes"),
             "maximum document size",
         )?;
-        let provisions = std::slice::from_ref(&input.provision);
-        if provisions
-            .iter()
-            .flat_map(|provision| provision.resources.iter())
-            .any(|resource| resource.document.len() as u64 > max_document_bytes)
-        {
+        let oversized_resource = match input {
+            DefinitionMutation::TypePack(input) => input
+                .provision
+                .resources
+                .iter()
+                .any(|resource| resource.document.len() as u64 > max_document_bytes),
+            DefinitionMutation::CollectionSetup(input) => input
+                .setup
+                .provisions
+                .type_packs
+                .iter()
+                .flat_map(|provision| provision.resources.iter())
+                .any(|resource| resource.document.len() as u64 > max_document_bytes),
+        };
+        if oversized_resource {
             return Err(ApiError::bad_request(
                 "document_quota_exceeded",
                 "A type pack resource exceeds the hosted document size limit.",
@@ -310,52 +444,19 @@ impl HostedProvider {
         let cached = cached
             .as_mut()
             .expect("hosted working set was initialized above");
-        let envelope = cached.workspace.apply_type_pack(input)?;
+        let envelope = match input {
+            DefinitionMutation::TypePack(input) => cached.workspace.apply_type_pack(input)?,
+            DefinitionMutation::CollectionSetup(input) => {
+                cached.workspace.apply_collection_setup(input)?
+            }
+        };
         if !envelope.valid {
             transaction.commit().await?;
             return serde_json::to_value(envelope).map_err(|error| {
                 ApiError::internal(format!("Hosted type pack could not serialize: {error}"))
             });
         }
-        let mut changed_resources = envelope
-            .result
-            .get("resources")
-            .and_then(Value::as_array)
-            .ok_or_else(|| ApiError::internal("Contract setup returned no resource plan."))?
-            .iter()
-            .filter(|resource| {
-                matches!(
-                    resource.get("action").and_then(Value::as_str),
-                    Some("create" | "update" | "replace" | "delete")
-                )
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        changed_resources.extend(
-            envelope
-                .result
-                .pointer("/contract_setups/resources")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter(|resource| {
-                    matches!(
-                        resource.get("action").and_then(Value::as_str),
-                        Some("create" | "update" | "replace" | "delete")
-                    )
-                })
-                .cloned(),
-        );
-        if let Some(lock) = envelope.result.get("lock").and_then(Value::as_object) {
-            if matches!(
-                lock.get("action").and_then(Value::as_str),
-                Some("create" | "update")
-            ) {
-                let mut lock = lock.clone();
-                lock.insert("kind".to_string(), Value::String("lock".to_string()));
-                changed_resources.push(Value::Object(lock));
-            }
-        }
+        let changed_resources = definition_changed_resources(&envelope, &input)?;
         if changed_resources.iter().any(|resource| {
             // The lockfile is connector-generated metadata, bounded by the
             // protocol's type-pack limits, and cannot be made smaller by the

@@ -6,7 +6,8 @@ use std::{
 
 use mdbase::{runtime::CollectionSnapshot, v03::OperationResult, Collection};
 use mdbase_connect_protocol::{
-    ApplyTypePackInput, AssessTypePackInput, SyncMutation, SyncMutationOperation, SyncRecord,
+    ApplyCollectionSetupInput, ApplyTypePackInput, AssessCollectionSetupInput, AssessTypePackInput,
+    SyncMutation, SyncMutationOperation, SyncRecord,
 };
 use mdbase_connect_runtime::contract_scope::{ContractScope, ContractSelector};
 use serde_json::{Map, Value};
@@ -18,7 +19,7 @@ use crate::error::{ApiError, ApiResult};
 
 mod type_packs;
 mod types;
-use type_packs::{engine_contract_setup, engine_type_pack_provision};
+use type_packs::{engine_collection_setup, engine_contract_setup, engine_type_pack_provision};
 pub use types::{Execution, StoredDocument};
 
 pub struct WorkingSet {
@@ -194,6 +195,16 @@ impl WorkingSet {
                     })?;
                 self.assess_type_pack(&request)
             }
+            "assess_collection_setup" => {
+                let request = serde_json::from_value::<AssessCollectionSetupInput>(input.clone())
+                    .map_err(|error| {
+                    ApiError::bad_request(
+                        "invalid_collection_setup",
+                        format!("The collection setup assessment is invalid: {error}"),
+                    )
+                })?;
+                self.assess_collection_setup(&request)
+            }
             "delete" if input.get("dry_run").and_then(Value::as_bool) == Some(true) => {
                 Ok(operations.delete(input))
             }
@@ -326,6 +337,38 @@ impl WorkingSet {
                 preserve_seed_targets: input.preserve_seed_targets.clone(),
                 target_overrides: input.target_overrides.clone(),
                 contract_setups,
+            },
+        ))
+    }
+
+    pub fn assess_collection_setup(
+        &self,
+        input: &AssessCollectionSetupInput,
+    ) -> ApiResult<OperationResult> {
+        let collection = Collection::open(self.directory.path()).map_err(|error| {
+            ApiError::internal(format!(
+                "The hosted collection working set is invalid: {error:?}"
+            ))
+        })?;
+        Ok(collection.assess_collection_setup(&engine_collection_setup(input)?))
+    }
+
+    pub fn apply_collection_setup(
+        &self,
+        input: &ApplyCollectionSetupInput,
+    ) -> ApiResult<OperationResult> {
+        let collection = Collection::open(self.directory.path()).map_err(|error| {
+            ApiError::internal(format!(
+                "The hosted collection working set is invalid: {error:?}"
+            ))
+        })?;
+        Ok(collection.apply_collection_setup(
+            &engine_collection_setup(&input.setup)?,
+            &mdbase::v03::CollectionSetupApplyOptions {
+                expected_assessment_digest: input.expected_assessment_digest.clone(),
+                expected_collection_revision: input.expected_collection_revision.clone(),
+                expected_provision_digest: input.expected_provision_digest.clone(),
+                allow_type_pack_downgrades: input.allow_type_pack_downgrades.clone(),
             },
         ))
     }

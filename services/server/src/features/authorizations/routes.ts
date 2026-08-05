@@ -113,10 +113,11 @@ export function registerAuthorizationRoutes(
     const application = await options.db.query<{
       id: string;
       distribution: "web" | "portable";
+      family_identity: string;
       manifest_digest: string | null;
       requirements: ApplicationRequirements;
     }>(
-      "SELECT id, distribution, manifest_digest, requirements FROM applications WHERE id = $1",
+      "SELECT id, distribution, family_identity, manifest_digest, requirements FROM applications WHERE id = $1",
       [input.client_id]
     );
     if (
@@ -147,6 +148,9 @@ export function registerAuthorizationRoutes(
       input.application_authorization,
       {
         applicationId: input.client_id,
+        applicationDeclarationId: declarationIdFromFamilyIdentity(
+          application.rows[0].family_identity
+        ),
         applicationManifestDigest: application.rows[0].manifest_digest,
         flow: "device_code",
         codeChallenge: input.code_challenge,
@@ -242,6 +246,7 @@ export function registerAuthorizationRoutes(
     const application = await options.db.query<{
       id: string;
       distribution: "web" | "portable";
+      family_identity: string;
       homepage: string;
       requirements: ApplicationRequirements;
       notifications: ApplicationNotifications;
@@ -371,11 +376,12 @@ export function registerAuthorizationRoutes(
     const application = await options.db.query<{
       id: string;
       distribution: "web" | "portable";
+      family_identity: string;
       manifest_digest: string | null;
       redirect_uris: string[];
       requirements: ApplicationRequirements;
     }>(
-      "SELECT id, distribution, manifest_digest, redirect_uris, requirements FROM applications WHERE id = $1",
+      "SELECT id, distribution, family_identity, manifest_digest, redirect_uris, requirements FROM applications WHERE id = $1",
       [input.client_id]
     );
     if (
@@ -400,6 +406,9 @@ export function registerAuthorizationRoutes(
       input.application_authorization,
       {
         applicationId: input.client_id,
+        applicationDeclarationId: declarationIdFromFamilyIdentity(
+          application.rows[0].family_identity
+        ),
         applicationManifestDigest: application.rows[0].manifest_digest,
         flow: "authorization_code",
         redirectUri: input.redirect_uri,
@@ -728,6 +737,14 @@ export function registerAuthorizationRoutes(
   });
 
   registerAuthorizationPollingRoutes(app, options);
+}
+
+function declarationIdFromFamilyIdentity(familyIdentity: string): string {
+  const prefix = "bundle:";
+  if (!familyIdentity.startsWith(prefix) || familyIdentity.length === prefix.length) {
+    throw new Error("Registered application family identity is invalid.");
+  }
+  return familyIdentity.slice(prefix.length);
 }
 
 async function hostedTypeCandidates(

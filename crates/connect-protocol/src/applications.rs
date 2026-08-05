@@ -2,6 +2,8 @@ use super::*;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApplicationSummary {
     pub id: Uuid,
+    pub family_identity: String,
+    pub manifest_digest: String,
     pub name: String,
     pub homepage: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -281,6 +283,8 @@ impl GrantScope {
 pub struct GrantSummary {
     pub id: Uuid,
     pub application_id: Uuid,
+    pub application_declaration_id: String,
+    pub application_manifest_digest: String,
     pub application_name: String,
     #[serde(default = "default_application_distribution")]
     pub application_distribution: String,
@@ -310,6 +314,8 @@ pub struct GrantSummary {
 pub struct PendingAuthorization {
     pub id: Uuid,
     pub application_id: Uuid,
+    pub application_family_identity: String,
+    pub application_manifest_digest: String,
     pub application_name: String,
     #[serde(default = "default_application_distribution")]
     pub application_distribution: String,

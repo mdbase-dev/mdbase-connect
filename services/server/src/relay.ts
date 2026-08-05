@@ -546,6 +546,8 @@ export class RelayHub {
     connectorId: string,
     input: {
       authorizationId: string;
+      applicationDeclarationId: string;
+      applicationManifestDigest: string;
       collectionId: string;
       requirements: ApplicationRequirements;
       provisions: ApplicationProvisions;
@@ -560,6 +562,8 @@ export class RelayHub {
       protocol_version: CONTROL_PROTOCOL_VERSION,
       request_id: requestId,
       authorization_id: input.authorizationId,
+      application_declaration_id: input.applicationDeclarationId,
+      application_manifest_digest: input.applicationManifestDigest,
       collection_id: input.collectionId,
       requirements: input.requirements,
       provisions: input.provisions,

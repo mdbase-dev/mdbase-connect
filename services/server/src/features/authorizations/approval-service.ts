@@ -64,12 +64,16 @@ export async function approvePortalAuthorization(
   let authorityRowId = "";
   let requirements: ApplicationRequirements;
   let provisions: ApplicationProvisions;
+  let applicationDeclarationId = "";
+  let applicationManifestDigest = "";
   let grant: GrantPolicy;
   let grantAccess: CollectionAccessContext;
   try {
     await connection.query("BEGIN");
     const authorization = await connection.query<{
       application_id: string;
+      application_family_identity: string;
+      application_manifest_digest: string;
       application_name: string;
       distribution: "web" | "portable";
       application_homepage: string;
@@ -89,7 +93,10 @@ export async function approvePortalAuthorization(
       grant_id: string | null;
       activation_started_at: string | Date | null;
     }>(
-      `SELECT ar.application_id, a.name AS application_name,
+      `SELECT ar.application_id,
+              a.family_identity AS application_family_identity,
+              a.manifest_digest AS application_manifest_digest,
+              a.name AS application_name,
               a.distribution, a.homepage AS application_homepage,
               a.project_url AS application_project_url, a.icon AS application_icon,
               ar.requested_operations, a.requirements, a.provisions, a.notifications,
@@ -270,6 +277,10 @@ export async function approvePortalAuthorization(
     authorityRowId = selected.authority_row_id;
     requirements = pending.requirements;
     provisions = pending.provisions;
+    applicationDeclarationId = declarationIdFromFamilyIdentity(
+      pending.application_family_identity
+    );
+    applicationManifestDigest = pending.application_manifest_digest;
     grant = {
       id: grantId,
       application_id: pending.application_id,
@@ -303,6 +314,8 @@ export async function approvePortalAuthorization(
   try {
     activation = await relay.activateAuthorization(connectorId, {
       authorizationId: input.requestId,
+      applicationDeclarationId,
+      applicationManifestDigest,
       collectionId: localCollectionId,
       requirements: requirements!,
       provisions: provisions!,
@@ -378,6 +391,16 @@ export async function approvePortalAuthorization(
     source: "portal_live_offer"
   });
   return true;
+}
+
+function declarationIdFromFamilyIdentity(familyIdentity: string): string {
+  const prefix = "bundle:";
+  if (!familyIdentity.startsWith(prefix) || familyIdentity.length === prefix.length) {
+    throw new RequestValidationError(
+      "The registered application has no valid declaration identity."
+    );
+  }
+  return familyIdentity.slice(prefix.length);
 }
 
 async function abandonPendingAuthorizationGrant(
@@ -500,6 +523,8 @@ export async function approveHostedAuthorization(
     await connection.query("BEGIN");
     const authorization = await connection.query<{
       application_id: string;
+      application_family_identity: string;
+      application_manifest_digest: string;
       application_name: string;
       application_homepage: string;
       distribution: "web" | "portable";
@@ -515,7 +540,10 @@ export async function approveHostedAuthorization(
       flow: "authorization_code" | "device_code";
       collection_id: string | null;
     }>(
-      `SELECT ar.application_id, a.name AS application_name,
+      `SELECT ar.application_id,
+              a.family_identity AS application_family_identity,
+              a.manifest_digest AS application_manifest_digest,
+              a.name AS application_name,
               a.distribution, a.homepage AS application_homepage,
               ar.redirect_uri, ar.requested_operations,
               a.requirements, a.provisions, a.notifications,
@@ -589,20 +617,25 @@ export async function approveHostedAuthorization(
         "This hosted collection does not provide the contracts required by the application."
       );
     }
-    if (provisions.length > 0) {
+    const hasApplicationSetup = provisions.length > 0
+      || (pending.provisions.configuration?.length ?? 0) > 0;
+    if (hasApplicationSetup) {
       requireCollectionAction(input.access, "schema.manage");
-      const setupResult = input.contractSetups.length
-          ? await provider.provisionTypePacks(
-              input.collectionId,
-              provisions,
-              `app.${pending.application_id}`,
-              input.contractSetups
-            )
-        : await provider.provisionTypePacks(
-            input.collectionId,
-            provisions,
-            `app.${pending.application_id}`
-          );
+      const setupResult = await provider.provisionApplicationSetup(
+        input.collectionId,
+        {
+          applicationId: declarationIdFromFamilyIdentity(
+            pending.application_family_identity
+          ),
+          declarationDigest: `sha256:${pending.application_manifest_digest}`,
+          requirements: pending.requirements,
+          provisions: {
+            ...pending.provisions,
+            type_packs: provisions
+          },
+          contractSetups: input.contractSetups
+        }
+      );
       if (input.contractSetups.length > 0) {
         verifyContractSetupAcknowledgement(
           input.contractSetups,
@@ -617,7 +650,7 @@ export async function approveHostedAuthorization(
         [input.collectionId, JSON.stringify(availableDescriptors)]
       );
     }
-    if (provisions.length === 0 && input.contractSetups.length > 0) {
+    if (!hasApplicationSetup && input.contractSetups.length > 0) {
       throw new RequestValidationError(
         "Contract setup may only implement a missing contract installed by this application."
       );

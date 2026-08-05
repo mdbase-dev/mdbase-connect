@@ -50,7 +50,8 @@ describe("database migrations", () => {
       "0012_notification_contract_digests",
       "0013_signed_tofu_application_identity",
       "0014_connector_compatibility",
-      "0015_authorization_binding_v3"
+      "0015_authorization_binding_v3",
+      "0016_authorization_binding_v4"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -528,7 +529,8 @@ describe("database migrations", () => {
       "0012_notification_contract_digests",
       "0013_signed_tofu_application_identity",
       "0014_connector_compatibility",
-      "0015_authorization_binding_v3"
+      "0015_authorization_binding_v3",
+      "0016_authorization_binding_v4"
     ]);
   });
 
