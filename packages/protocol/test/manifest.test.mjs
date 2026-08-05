@@ -31,7 +31,7 @@ function manifest() {
       contracts: [],
       capabilities: {
         contract_version: 1,
-        required: ["collection.inspect", "definitions.type-pack.apply"],
+        required: ["collection.inspect", "collection.setup.apply"],
         optional: ["records.query"]
       },
       access: "full_collection"
@@ -82,6 +82,10 @@ test("semantic capabilities and provision ownership share one canonical validato
 test("generic editors may apply user-selected packs without bundling one", () => {
   const editor = manifest();
   editor.provisions.type_packs = [];
+  editor.requirements.capabilities.required = [
+    "collection.inspect",
+    "definitions.type-pack.apply"
+  ];
   assert.deepEqual(validateAppManifest(editor), { valid: true, issues: [] });
 
   const missingCapability = manifest();
@@ -90,7 +94,7 @@ test("generic editors may apply user-selected packs without bundling one", () =>
   assert.equal(result.valid, false);
   assert.ok(result.issues.some((issue) =>
     issue.path === "/requirements/capabilities/required"
-    && issue.keyword === "typePackCapability"
+    && issue.keyword === "collectionSetupCapability"
   ));
 });
 
@@ -110,8 +114,8 @@ test("portable declarations validate without inventing a web origin", () => {
     id: "dev.example.portable",
     name: "Portable app"
   });
-  assert.deepEqual(parsed.requirements, { contracts: [] });
-  assert.deepEqual(parsed.provisions, { type_packs: [] });
+  assert.deepEqual(parsed.requirements, { contracts: [], configuration: [] });
+  assert.deepEqual(parsed.provisions, { type_packs: [], configuration: [] });
   assert.deepEqual(parsed.notifications, { criteria: [] });
 });
 
@@ -165,4 +169,40 @@ test("runtime callers cannot smuggle non-JSON values through extension fields", 
     result.issues.map(({ path, keyword }) => ({ path, keyword })),
     [{ path: "/provisions/type_packs/0/manifest/x-example", keyword: "json" }]
   );
+});
+
+test("configuration requirements are pointer-safe and exactly provisioned", () => {
+  const declaration = manifest();
+  declaration.requirements.configuration = [{
+    id: "tasknotes-base-sources",
+    path: "/x-obsidian/bases/include",
+    predicate: "contains",
+    value: "views/tasknotes/**/*.base"
+  }];
+  declaration.provisions.configuration = [{
+    requirement: "tasknotes-base-sources",
+    operation: "set_add",
+    path: "/x-obsidian/bases/include",
+    value: "views/tasknotes/**/*.base"
+  }];
+  assert.deepEqual(validateAppManifest(declaration), { valid: true, issues: [] });
+
+  const corePath = structuredClone(declaration);
+  corePath.requirements.configuration[0].path = "/settings/validation/include";
+  corePath.provisions.configuration[0].path = "/settings/validation/include";
+  const coreResult = validateAppManifest(corePath);
+  assert.equal(coreResult.valid, false);
+  assert.ok(coreResult.issues.some((issue) =>
+    issue.path === "/requirements/configuration/0/path"
+    && issue.keyword === "configurationPointer"
+  ));
+
+  const mismatched = structuredClone(declaration);
+  mismatched.provisions.configuration[0].value = "other/**/*.base";
+  const mismatchResult = validateAppManifest(mismatched);
+  assert.equal(mismatchResult.valid, false);
+  assert.ok(mismatchResult.issues.some((issue) =>
+    issue.path === "/provisions/configuration/0/value"
+    && issue.keyword === "configurationRequirement"
+  ));
 });

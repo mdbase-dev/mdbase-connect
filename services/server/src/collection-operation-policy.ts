@@ -57,6 +57,15 @@ const COLLECTION_OPERATION_POLICIES = {
     requiresPortableProfile: true,
     requiresWriteReplica: true
   }),
+  assess_collection_setup: policy({
+    requiresFullCollection: true,
+    requiresPortableProfile: true
+  }),
+  apply_collection_setup: policy({
+    requiresFullCollection: true,
+    requiresPortableProfile: true,
+    requiresWriteReplica: true
+  }),
   list_timers: policy(),
   put_timer: policy({ requiresWriteReplica: true }),
   cancel_timer: policy({ requiresWriteReplica: true }),

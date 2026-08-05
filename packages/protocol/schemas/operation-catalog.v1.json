@@ -21,6 +21,8 @@
     { "id": "update_type", "input_schema_version": 1, "mutation": "always" },
     { "id": "assess_type_pack", "input_schema_version": 1, "mutation": "never" },
     { "id": "apply_type_pack", "input_schema_version": 1, "mutation": "always" },
+    { "id": "assess_collection_setup", "input_schema_version": 1, "mutation": "never" },
+    { "id": "apply_collection_setup", "input_schema_version": 1, "mutation": "always" },
     { "id": "list_timers", "input_schema_version": 1, "mutation": "never" },
     { "id": "put_timer", "input_schema_version": 1, "mutation": "always" },
     { "id": "cancel_timer", "input_schema_version": 1, "mutation": "always" },

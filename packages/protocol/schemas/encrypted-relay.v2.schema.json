@@ -14,7 +14,7 @@
       "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
     },
     "operation": {
-      "enum": ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "create_view_source", "update_view_source", "delete_view_source", "validate", "create", "update", "delete", "rename", "read_type", "create_type", "update_type", "assess_type_pack", "apply_type_pack", "list_timers", "put_timer", "cancel_timer", "reconcile_timers", "sync", "file_control"]
+      "enum": ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "create_view_source", "update_view_source", "delete_view_source", "validate", "create", "update", "delete", "rename", "read_type", "create_type", "update_type", "assess_type_pack", "apply_type_pack", "assess_collection_setup", "apply_collection_setup", "list_timers", "put_timer", "cancel_timer", "reconcile_timers", "sync", "file_control"]
     },
     "envelope": {
       "type": "object",

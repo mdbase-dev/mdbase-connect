@@ -221,6 +221,7 @@ implements:
     (
         ApplicationRequirements {
             contracts: vec![requirement],
+            configuration: Vec::new(),
             access: Some(mdbase_connect_protocol::ApplicationAccess::Contract),
             collection_kind: None,
             files: None,

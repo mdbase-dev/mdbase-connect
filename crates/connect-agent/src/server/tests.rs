@@ -281,6 +281,7 @@ fn live_authorization_is_acknowledged_only_after_the_grant_is_stored() {
         collection_id: collection.id,
         requirements: ApplicationRequirements {
             contracts: Vec::new(),
+            configuration: Vec::new(),
             access: Some(ApplicationAccess::FullCollection),
             collection_kind: None,
             files: None,

@@ -54,6 +54,8 @@ pub struct AuthorizationCollectionTypes {
 pub struct ApplicationRequirements {
     #[serde(default)]
     pub contracts: Vec<ContractRequirement>,
+    #[serde(default)]
+    pub configuration: Vec<ConfigurationRequirement>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<ApplicationCapabilityRequirements>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -90,6 +92,71 @@ pub enum ApplicationCollectionKind {
 pub struct ApplicationProvisions {
     #[serde(default)]
     pub type_packs: Vec<TypePackProvision>,
+    #[serde(default)]
+    pub configuration: Vec<ConfigurationProvision>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfigurationRequirement {
+    pub id: String,
+    pub path: String,
+    pub predicate: ConfigurationPredicate,
+    pub value: Value,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfigurationPredicate {
+    Contains,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfigurationProvision {
+    pub requirement: String,
+    pub operation: ConfigurationOperation,
+    pub path: String,
+    pub value: Value,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfigurationOperation {
+    SetAdd,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApplicationCollectionSetupRequirements {
+    #[serde(default)]
+    pub configuration: Vec<ConfigurationRequirement>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApplicationCollectionSetupProvisions {
+    #[serde(default)]
+    pub configuration: Vec<ConfigurationProvision>,
+    #[serde(default)]
+    pub type_packs: Vec<TypePackProvision>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssessCollectionSetupInput {
+    pub application_id: String,
+    pub declaration_digest: String,
+    pub requirements: ApplicationCollectionSetupRequirements,
+    pub provisions: ApplicationCollectionSetupProvisions,
+    #[serde(default)]
+    pub contract_setups: Vec<ContractSetupChoice>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApplyCollectionSetupInput {
+    #[serde(flatten)]
+    pub setup: AssessCollectionSetupInput,
+    pub expected_assessment_digest: String,
+    pub expected_collection_revision: String,
+    pub expected_provision_digest: String,
+    #[serde(default)]
+    pub allow_type_pack_downgrades: std::collections::BTreeSet<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

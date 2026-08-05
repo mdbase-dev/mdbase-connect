@@ -39,6 +39,11 @@
       "additionalProperties": false,
       "required": ["type_packs"],
       "properties": {
+        "configuration": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/configurationProvision" }
+        },
         "type_packs": {
           "type": "array",
           "maxItems": 20,
@@ -118,6 +123,11 @@
           "description": "Require a durable provider-backed collection with direct sync support."
         },
         "files": { "$ref": "#/$defs/fileRequirement" },
+        "configuration": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/configurationRequirement" }
+        },
         "contracts": {
           "type": "array",
           "maxItems": 20,
@@ -146,6 +156,46 @@
         }
       }
     },
+    "configurationValue": {
+      "anyOf": [
+        { "type": "string" },
+        { "type": "number" },
+        { "type": "boolean" },
+        { "type": "null" }
+      ]
+    },
+    "configurationRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "predicate", "value"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+        },
+        "path": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "predicate": { "const": "contains" },
+        "value": { "$ref": "#/$defs/configurationValue" }
+      }
+    },
+    "configurationProvision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requirement", "operation", "path", "value"],
+      "properties": {
+        "requirement": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+        },
+        "operation": { "const": "set_add" },
+        "path": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "value": { "$ref": "#/$defs/configurationValue" }
+      }
+    },
     "applicationCapability": {
       "enum": [
         "collection.inspect",
@@ -169,6 +219,7 @@
         "definitions.update",
         "definitions.type-pack.inspect",
         "definitions.type-pack.apply",
+        "collection.setup.apply",
         "timers.list",
         "timers.put",
         "timers.cancel",

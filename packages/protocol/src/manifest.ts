@@ -94,7 +94,8 @@ export function validateAppManifest(
   const issues = [
     ...validateManifestOrigins(value, options.allowLocal === true),
     ...validateCapabilityRequirements(value),
-    ...validateProvisionRequirements(value)
+    ...validateProvisionRequirements(value),
+    ...validateConfigurationSetup(value)
   ];
   return issues.length === 0 ? { valid: true, issues: [] } : invalid(issues);
 }
@@ -109,8 +110,16 @@ export function parseAppManifest(
   const manifest = structuredClone(value) as MdbaseAppManifest;
   return {
     ...manifest,
-    requirements: manifest.requirements ?? { contracts: [] },
-    provisions: manifest.provisions ?? { type_packs: [] },
+    requirements: {
+      contracts: [],
+      configuration: [],
+      ...manifest.requirements
+    },
+    provisions: {
+      type_packs: [],
+      configuration: [],
+      ...manifest.provisions
+    },
     notifications: manifest.notifications ?? { criteria: [] }
   } as ValidatedAppManifest;
 }
@@ -377,6 +386,132 @@ function validateProvisionRequirements(value: unknown): ManifestValidationIssue[
   return issues;
 }
 
+function validateConfigurationSetup(value: unknown): ManifestValidationIssue[] {
+  const manifest = asObject(value);
+  const requirements = asObject(manifest.requirements);
+  const provisions = asObject(manifest.provisions);
+  const requiredValues = Array.isArray(requirements.configuration)
+    ? requirements.configuration
+    : [];
+  const provisionValues = Array.isArray(provisions.configuration)
+    ? provisions.configuration
+    : [];
+  const issues: ManifestValidationIssue[] = [];
+  const required = new Map<string, { path: string; value: unknown; index: number }>();
+  for (const [index, candidate] of requiredValues.entries()) {
+    const requirement = asObject(candidate);
+    const id = String(requirement.id);
+    const path = String(requirement.path);
+    const pathError = configurationPointerError(path);
+    if (pathError) {
+      issues.push(issue(
+        `/requirements/configuration/${index}/path`,
+        "configurationPointer",
+        pathError
+      ));
+    }
+    if (required.has(id)) {
+      issues.push(issue(
+        `/requirements/configuration/${index}/id`,
+        "uniqueRequirement",
+        `duplicates configuration requirement ${id}`
+      ));
+    } else {
+      required.set(id, { path, value: requirement.value, index });
+    }
+  }
+  const linked = new Set<string>();
+  const contributionKeys = new Set<string>();
+  for (const [index, candidate] of provisionValues.entries()) {
+    const provision = asObject(candidate);
+    const requirementId = String(provision.requirement);
+    const path = String(provision.path);
+    const pathError = configurationPointerError(path);
+    if (pathError) {
+      issues.push(issue(
+        `/provisions/configuration/${index}/path`,
+        "configurationPointer",
+        pathError
+      ));
+    }
+    const requirement = required.get(requirementId);
+    if (!requirement) {
+      issues.push(issue(
+        `/provisions/configuration/${index}/requirement`,
+        "configurationRequirement",
+        `references unknown configuration requirement ${requirementId}`
+      ));
+      continue;
+    }
+    if (linked.has(requirementId)) {
+      issues.push(issue(
+        `/provisions/configuration/${index}/requirement`,
+        "uniqueProvision",
+        `configuration requirement ${requirementId} may have exactly one provision`
+      ));
+    }
+    linked.add(requirementId);
+    if (path !== requirement.path) {
+      issues.push(issue(
+        `/provisions/configuration/${index}/path`,
+        "configurationRequirement",
+        `must equal /requirements/configuration/${requirement.index}/path`
+      ));
+    }
+    if (JSON.stringify(provision.value) !== JSON.stringify(requirement.value)) {
+      issues.push(issue(
+        `/provisions/configuration/${index}/value`,
+        "configurationRequirement",
+        `must equal /requirements/configuration/${requirement.index}/value`
+      ));
+    }
+    const contributionKey = `${path}\0${JSON.stringify(provision.value)}`;
+    if (contributionKeys.has(contributionKey)) {
+      issues.push(issue(
+        `/provisions/configuration/${index}`,
+        "uniqueContribution",
+        "duplicates another configuration path and value contribution"
+      ));
+    }
+    contributionKeys.add(contributionKey);
+  }
+  for (const [id, requirement] of required) {
+    if (!linked.has(id)) {
+      issues.push(issue(
+        `/requirements/configuration/${requirement.index}`,
+        "configurationProvision",
+        `requires one provision linked by id ${id}`
+      ));
+    }
+  }
+  return issues;
+}
+
+function configurationPointerError(path: string): string | undefined {
+  if (!path.startsWith("/") || new TextEncoder().encode(path).byteLength > 1024) {
+    return "must be a bounded RFC 6901 JSON pointer";
+  }
+  const encoded = path.slice(1).split("/");
+  if (encoded.length < 2 || encoded.length > 16) {
+    return "must address a value below an x-* extension namespace";
+  }
+  const segments: string[] = [];
+  for (const value of encoded) {
+    if (/~(?:[^01]|$)/u.test(value)) return "contains an invalid RFC 6901 escape";
+    const segment = value.replaceAll("~1", "/").replaceAll("~0", "~");
+    if (
+      segment.length === 0
+      || segment === "-"
+      || /^\d+$/u.test(segment)
+      || [...segment].some((character) => /\p{Cc}/u.test(character))
+    ) return "contains a disallowed object-key segment";
+    segments.push(segment);
+  }
+  return /^x-[a-z0-9][a-z0-9-]*$/u.test(segments[0]!)
+    ? undefined
+    : "must be inside a top-level x-* extension namespace";
+}
+
 function validateCapabilityRequirements(value: unknown): ManifestValidationIssue[] {
   const manifest = asObject(value);
   const requirements = asObject(manifest.requirements);
@@ -423,13 +558,40 @@ function validateCapabilityRequirements(value: unknown): ManifestValidationIssue
   if (
     Array.isArray(provisions.type_packs)
     && provisions.type_packs.length > 0
-    && !required.includes("definitions.type-pack.apply")
+    && !required.includes("collection.setup.apply")
   ) {
       issues.push(issue(
         "/requirements/capabilities/required",
-        "typePackCapability",
-        "must require definitions.type-pack.apply when bundled type packs are declared"
+        "collectionSetupCapability",
+        "must require collection.setup.apply when bundled type packs are declared"
       ));
+  }
+  const hasConfigurationProvisions = Array.isArray(provisions.configuration)
+    && provisions.configuration.length > 0;
+  const hasSetupProvisions = hasConfigurationProvisions
+    || (Array.isArray(provisions.type_packs) && provisions.type_packs.length > 0);
+  if (hasConfigurationProvisions && !required.includes("collection.setup.apply")) {
+    issues.push(issue(
+      "/requirements/capabilities/required",
+      "collectionSetupCapability",
+      "must require collection.setup.apply when configuration provisions are declared"
+    ));
+  }
+  if (declared.has("collection.setup.apply")) {
+    if (requirements.access !== "full_collection") {
+      issues.push(issue(
+        "/requirements/access",
+        "collectionSetupAccess",
+        "must be full_collection for collection.setup.apply"
+      ));
+    }
+    if (!hasSetupProvisions) {
+      issues.push(issue(
+        "/provisions",
+        "collectionSetupProvision",
+        "must declare a configuration provision or type pack for collection.setup.apply"
+      ));
+    }
   }
   if (
     declared.has("notifications.background-delivery")

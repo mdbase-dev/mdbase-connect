@@ -28,6 +28,7 @@ export const APPLICATION_CAPABILITY_DEFINITIONS = {
   "definitions.update": ["update_type"],
   "definitions.type-pack.inspect": ["assess_type_pack"],
   "definitions.type-pack.apply": ["assess_type_pack", "apply_type_pack"],
+  "collection.setup.apply": ["assess_collection_setup", "apply_collection_setup"],
   "timers.list": ["list_timers"],
   "timers.put": ["put_timer"],
   "timers.cancel": ["cancel_timer"],

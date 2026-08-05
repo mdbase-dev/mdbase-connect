@@ -7,6 +7,7 @@ import type {
 import type { CollectionOperation } from "./operations.js";
 import type { ApplicationCapabilityRequirements } from "./capabilities.js";
 import type { ContractRequirement, ContractSetupChoice, TypePackProvision } from "./type-packs.js";
+import type { ConfigurationProvision, ConfigurationRequirement } from "./collection-setup.js";
 import type {
   ApplicationAuthorizationProof
 } from "./application-authorization.js";
@@ -18,6 +19,7 @@ export * from "./compatibility.js";
 export * from "./capabilities.js";
 export * from "./application-authorization.js";
 export * from "./type-packs.js";
+export * from "./collection-setup.js";
 
 export const CONTROL_PROTOCOL_VERSION = 1 as const;
 export { AUTHORIZATION_BINDING_PROTOCOL_VERSION as APPLICATION_AUTHORIZATION_PROTOCOL_VERSION } from "./compatibility.js";
@@ -208,6 +210,8 @@ export interface NotificationWebhook {
 
 export interface ApplicationRequirements {
   contracts: ContractRequirement[];
+  /** Collection extension values required before the application is ready. */
+  configuration?: ConfigurationRequirement[];
   /** Versioned semantic intent compiled by Connect into exact operations. */
   capabilities?: ApplicationCapabilityRequirements;
   /** Access boundary requested after compatibility and provisioning checks. */
@@ -220,6 +224,8 @@ export interface ApplicationRequirements {
 
 export interface ApplicationProvisions {
   type_packs: TypePackProvision[];
+  /** Narrow semantic changes that may satisfy configuration requirements. */
+  configuration?: ConfigurationProvision[];
 }
 
 export interface GrantScope {

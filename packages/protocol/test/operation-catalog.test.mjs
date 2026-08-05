@@ -22,6 +22,7 @@ test("the generated catalogue classifies every public mutation", () => {
       "create_type",
       "update_type",
       "apply_type_pack",
+      "apply_collection_setup",
       "put_timer",
       "cancel_timer",
       "reconcile_timers"
@@ -56,6 +57,7 @@ test("file-control mutations share the canonical recovery identifiers", () => {
     "create_type",
     "update_type",
     "apply_type_pack",
+    "apply_collection_setup",
     "put_timer",
     "cancel_timer",
     "reconcile_timers",
