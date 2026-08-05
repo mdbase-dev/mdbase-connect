@@ -41,7 +41,12 @@ pub fn open_url(url: &str) -> Result<(), String> {
     platform::open_url(url)
 }
 
-pub fn spawn_detached(executable: &Path, state_dir: &Path, endpoint: &str) -> Result<(), String> {
+pub fn spawn_detached(
+    executable: &Path,
+    state_dir: &Path,
+    endpoint: &str,
+    loopback_port: Option<u16>,
+) -> Result<(), String> {
     let mut command = Command::new(executable);
     std::fs::create_dir_all(state_dir)
         .map_err(|error| format!("Could not create {}: {error}", state_dir.display()))?;
@@ -71,7 +76,11 @@ pub fn spawn_detached(executable: &Path, state_dir: &Path, endpoint: &str) -> Re
         .arg(state_dir)
         .arg("--endpoint")
         .arg(endpoint)
-        .args(["connect", "daemon", "run"])
+        .args(["connect", "daemon", "run"]);
+    if let Some(port) = loopback_port {
+        command.args(["--loopback-port", &port.to_string()]);
+    }
+    command
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(error_log));

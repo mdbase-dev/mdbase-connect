@@ -62,6 +62,82 @@ fn wait_for_daemon(endpoint: &Path) {
 }
 
 #[test]
+fn isolated_restart_preserves_the_bound_loopback_port() {
+    let scratch = tempfile::tempdir().unwrap();
+    let state = scratch.path().join("state");
+    let endpoint = scratch.path().join("control.sock");
+    let state_string = state.to_string_lossy().into_owned();
+    let endpoint_string = endpoint.to_string_lossy().into_owned();
+
+    let child = Command::new(binary())
+        .args([
+            "--state-dir",
+            &state_string,
+            "--endpoint",
+            &endpoint_string,
+            "connect",
+            "daemon",
+            "run",
+            "--loopback-port",
+            "0",
+        ])
+        .env("MDBASE_CONNECT_ENV", "test")
+        .env("MDBASE_CONNECT_SECRET_BACKEND", "insecure-test-file")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("start daemon");
+    let _daemon = Daemon { child };
+    wait_for_daemon(&endpoint);
+
+    let status_arguments = [
+        "--state-dir",
+        &state_string,
+        "--endpoint",
+        &endpoint_string,
+        "--json",
+        "connect",
+        "status",
+    ];
+    let before = run(&status_arguments);
+    assert!(before.status.success(), "{:#}", json(&before));
+    let port = json(&before)["loopback_port"].as_u64().unwrap();
+    assert_ne!(port, 0);
+
+    let restarted = run(&[
+        "--state-dir",
+        &state_string,
+        "--endpoint",
+        &endpoint_string,
+        "--json",
+        "connect",
+        "daemon",
+        "restart",
+    ]);
+    assert!(
+        restarted.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&restarted.stdout),
+        String::from_utf8_lossy(&restarted.stderr)
+    );
+    let after = run(&status_arguments);
+    assert!(after.status.success(), "{:#}", json(&after));
+    assert_eq!(json(&after)["loopback_port"].as_u64(), Some(port));
+
+    let stopped = run(&[
+        "--state-dir",
+        &state_string,
+        "--endpoint",
+        &endpoint_string,
+        "connect",
+        "daemon",
+        "stop",
+    ]);
+    assert!(stopped.status.success());
+}
+
+#[test]
 fn direct_and_connected_data_commands_share_one_executable_and_result_contract() {
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path().join("notes");

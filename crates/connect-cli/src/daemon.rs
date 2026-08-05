@@ -1,4 +1,5 @@
 use super::*;
+use fs2::FileExt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum DaemonTarget {
@@ -95,7 +96,7 @@ pub(super) async fn execute_daemon_command(
                 .is_ok_and(|response| response.ok);
             if installed {
                 match service::stop() {
-                    Ok(()) if running => wait_until_stopped(endpoint).await?,
+                    Ok(()) if running => wait_until_stopped(state_dir, endpoint).await?,
                     Ok(()) => {}
                     Err(error) if running => return Err(CliError::internal(error)),
                     Err(_) => {}
@@ -114,7 +115,7 @@ pub(super) async fn execute_daemon_command(
                             .unwrap_or_else(|| "The daemon refused to stop.".to_string()),
                     ));
                 }
-                wait_until_stopped(endpoint).await?;
+                wait_until_stopped(state_dir, endpoint).await?;
             }
             service::install(&executable, state_dir)
                 .map_err(CliError::internal)
@@ -139,7 +140,7 @@ pub(super) async fn execute_daemon_command(
             if target == DaemonTarget::InstalledService && service::installed() {
                 service::start().map_err(CliError::internal)?;
             } else {
-                service::spawn_detached(&executable, state_dir, endpoint)
+                service::spawn_detached(&executable, state_dir, endpoint, None)
                     .map_err(CliError::internal)?;
             }
             wait_until_ready(endpoint).await?;
@@ -163,11 +164,12 @@ pub(super) async fn execute_daemon_command(
                     ));
                 }
             }
-            wait_until_stopped(endpoint).await?;
+            wait_until_stopped(state_dir, endpoint).await?;
             Ok(serde_json::json!({"stopped": true}))
         }
         DaemonCommand::Restart => {
-            restart_daemon(state_dir, endpoint, target).await?;
+            let loopback_port = current_loopback_port(endpoint).await;
+            restart_daemon(state_dir, endpoint, target, loopback_port).await?;
             Ok(serde_json::json!({"restarted": true}))
         }
         DaemonCommand::Status => {
@@ -239,6 +241,7 @@ pub(super) async fn restart_daemon(
     state_dir: &Path,
     endpoint: &str,
     target: DaemonTarget,
+    loopback_port: Option<u16>,
 ) -> Result<(), CliError> {
     if target == DaemonTarget::InstalledService && service::installed() {
         service::restart().map_err(CliError::internal)?;
@@ -248,20 +251,36 @@ pub(super) async fn restart_daemon(
             ControlRequest::new(ControlCommand::DaemonShutdown),
         )
         .await;
-        wait_until_stopped(endpoint).await?;
+        wait_until_stopped(state_dir, endpoint).await?;
         let executable = std::env::current_exe().map_err(|error| {
             CliError::internal(format!("Could not locate this executable: {error}"))
         })?;
-        service::spawn_detached(&executable, state_dir, endpoint).map_err(CliError::internal)?;
+        service::spawn_detached(&executable, state_dir, endpoint, loopback_port)
+            .map_err(CliError::internal)?;
     }
     wait_until_ready(endpoint).await
 }
 
-pub(super) async fn wait_until_stopped(endpoint: &str) -> Result<(), CliError> {
+pub(super) async fn current_loopback_port(endpoint: &str) -> Option<u16> {
+    let response = send(endpoint, ControlRequest::new(ControlCommand::Status))
+        .await
+        .ok()?;
+    if !response.ok {
+        return None;
+    }
+    response
+        .result?
+        .get("loopback_port")?
+        .as_u64()
+        .and_then(|port| u16::try_from(port).ok())
+}
+
+pub(super) async fn wait_until_stopped(state_dir: &Path, endpoint: &str) -> Result<(), CliError> {
     for _ in 0..100 {
         if send(endpoint, ControlRequest::new(ControlCommand::Ping))
             .await
             .is_err()
+            && daemon_lease_released(state_dir)
         {
             return Ok(());
         }
@@ -270,6 +289,47 @@ pub(super) async fn wait_until_stopped(endpoint: &str) -> Result<(), CliError> {
     Err(CliError::unavailable(
         "The Connect daemon did not stop within five seconds.",
     ))
+}
+
+fn daemon_lease_released(state_dir: &Path) -> bool {
+    let path = state_dir.join("daemon.lock");
+    let file = match std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return true,
+        Err(_) => return false,
+    };
+    if file.try_lock_exclusive().is_err() {
+        return false;
+    }
+    let _ = file.unlock();
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shutdown_waits_for_the_daemon_lease_after_the_socket_disappears() {
+        let temporary = tempfile::tempdir().unwrap();
+        assert!(daemon_lease_released(temporary.path()));
+
+        let lease = std::fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(false)
+            .open(temporary.path().join("daemon.lock"))
+            .unwrap();
+        lease.try_lock_exclusive().unwrap();
+        assert!(!daemon_lease_released(temporary.path()));
+        lease.unlock().unwrap();
+        assert!(daemon_lease_released(temporary.path()));
+    }
 }
 
 pub(super) async fn wait_until_ready(endpoint: &str) -> Result<(), CliError> {

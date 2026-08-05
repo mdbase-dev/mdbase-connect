@@ -144,6 +144,7 @@ pub(super) async fn login(
                 let token = exchange.token.ok_or_else(|| {
                     CliError::internal("Connect returned no connector credential.")
                 })?;
+                let loopback_port = current_loopback_port(endpoint).await;
                 let configured = send(
                     endpoint,
                     ControlRequest::new(ControlCommand::AccountConfigure(
@@ -159,7 +160,7 @@ pub(super) async fn login(
                     configure_cloud(state_dir, &configuration, &token)
                         .map_err(|error| CliError::internal(error.to_string()))?;
                 }
-                restart_daemon(state_dir, endpoint, target).await?;
+                restart_daemon(state_dir, endpoint, target, loopback_port).await?;
                 return Ok(serde_json::json!({
                     "configured": true,
                     "server_url": configuration.server_url,

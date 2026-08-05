@@ -6,7 +6,8 @@ mod service;
 
 use control::{control_command, successful_result};
 use daemon::{
-    connect_paths, doctor, execute_daemon_command, restart_daemon, send, ConnectPaths, DaemonTarget,
+    connect_paths, current_loopback_port, doctor, execute_daemon_command, restart_daemon, send,
+    ConnectPaths, DaemonTarget,
 };
 use login::login;
 use output::{print_result, render_connect_profile, render_data_result, OutputKind};
@@ -689,12 +690,13 @@ async fn execute_connect(
             Ok(())
         }
         ConnectCommand::Logout => {
+            let loopback_port = current_loopback_port(&endpoint).await;
             let response = send(&endpoint, ControlRequest::new(ControlCommand::AccountClear)).await;
             if !response.is_ok_and(|response| response.ok) {
                 disconnect_cloud(&state_dir)
                     .map_err(|error| CliError::internal(error.to_string()))?;
             }
-            restart_daemon(&state_dir, &endpoint, target).await?;
+            restart_daemon(&state_dir, &endpoint, target, loopback_port).await?;
             print_result(
                 json,
                 OutputKind::Account,

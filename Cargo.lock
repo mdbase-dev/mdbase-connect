@@ -2572,6 +2572,7 @@ version = "0.1.0-beta.33"
 dependencies = [
  "clap",
  "directories",
+ "fs2",
  "libc",
  "mdbase-command",
  "mdbase-connect-core",
