@@ -45,6 +45,7 @@ import {
 import { tokenHash } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
 import { RequestValidationError, apiError } from "../../platform/http-errors.js";
+import { declarationIdFromFamilyIdentity } from "../applications/identity.js";
 import { bearerToken } from "../../platform/request-authentication.js";
 import {
   recoverExpiredAuthorityTransfers
@@ -541,10 +542,15 @@ export async function narrowHostedGrantForUser(
     file_capability: FileCapability | null;
     application_origin: string;
     proof_public_key: string;
+    application_family_identity: string;
+    application_manifest_digest: string;
   }>(
     `SELECT g.id, g.hosted_replica_id, g.operations, g.scope, g.file_capability,
             g.application_origin, g.proof_public_key,
-            a.requirements, h.template,
+            a.requirements,
+            a.family_identity AS application_family_identity,
+            a.manifest_digest AS application_manifest_digest,
+            h.template,
             h.contracts AS hosted_contracts
      FROM grants g
      JOIN applications a ON a.id = g.application_id
@@ -579,6 +585,7 @@ export async function narrowHostedGrantForUser(
     "create_type",
     "update_type",
     "apply_type_pack",
+    "apply_collection_setup",
     "create_view_source",
     "update_view_source",
     "delete_view_source",
@@ -607,7 +614,11 @@ export async function narrowHostedGrantForUser(
       allowedOperations: hostedReplicaCollectionOperations(operations),
       fileCapability: current.file_capability ?? undefined,
       allowedOrigin: current.application_origin,
-      proofPublicKey: current.proof_public_key
+      proofPublicKey: current.proof_public_key,
+      applicationDeclarationId: declarationIdFromFamilyIdentity(
+        current.application_family_identity
+      ),
+      applicationDeclarationDigest: `sha256:${current.application_manifest_digest}`
     }
   );
   const updated = await options.db.query<{

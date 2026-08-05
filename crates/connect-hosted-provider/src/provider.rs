@@ -212,6 +212,10 @@ pub struct RegisterReplica {
     pub proof_public_key: Option<String>,
     #[serde(default)]
     pub grant_id: Option<Uuid>,
+    #[serde(default)]
+    pub application_declaration_id: Option<String>,
+    #[serde(default)]
+    pub application_declaration_digest: Option<String>,
     pub token: String,
     #[serde(default)]
     pub token_ttl_seconds: Option<u64>,
@@ -234,6 +238,8 @@ pub struct UpdateApplicationReplica {
     pub allowed_origin: Option<String>,
     #[serde(default)]
     pub proof_public_key: Option<String>,
+    pub application_declaration_id: String,
+    pub application_declaration_digest: String,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]

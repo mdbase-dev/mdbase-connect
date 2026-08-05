@@ -1,3 +1,4 @@
+use super::operation_dispatch::ensure_collection_setup_declaration_binding;
 use super::*;
 use mdbase_connect_protocol::CollectionFileDescriptor;
 use serde_json::Map;
@@ -309,6 +310,8 @@ fn application_capabilities_bind_operations_mode_and_origin() {
         allowed_origin: Some("https://tasks.example".to_string()),
         proof_public_key: None,
         grant_id: Some(Uuid::new_v4()),
+        application_declaration_id: Some("dev.mdbase.tasks".to_string()),
+        application_declaration_digest: Some(format!("sha256:{}", "a".repeat(64))),
         token: "x".repeat(40),
         token_ttl_seconds: Some(3600),
     };
@@ -467,6 +470,54 @@ fn application_capabilities_bind_operations_mode_and_origin() {
 }
 
 #[test]
+fn collection_setup_capabilities_require_and_enforce_their_declaration_binding() {
+    let mut capability = RegisterReplica {
+        replica_id: Uuid::new_v4(),
+        name: "Tasks app".to_string(),
+        purpose: ReplicaPurpose::Application,
+        mode: SyncReplicaMode::ReadWrite,
+        allowed_types: Vec::new(),
+        contract_scope: Vec::new(),
+        full_collection: true,
+        allowed_operations: vec!["apply_collection_setup".to_string()],
+        file_capability: None,
+        allowed_origin: Some("https://tasks.example".to_string()),
+        proof_public_key: None,
+        grant_id: Some(Uuid::new_v4()),
+        application_declaration_id: None,
+        application_declaration_digest: None,
+        token: "x".repeat(40),
+        token_ttl_seconds: Some(3600),
+    };
+    assert_eq!(
+        validate_replica_capability(&capability).unwrap_err().code,
+        "application_declaration_required"
+    );
+
+    capability.application_declaration_id = Some("dev.mdbase.tasks".to_string());
+    capability.application_declaration_digest = Some(format!("sha256:{}", "a".repeat(64)));
+    validate_replica_capability(&capability).unwrap();
+    ensure_collection_setup_declaration_binding(
+        capability.application_declaration_id.as_deref(),
+        capability.application_declaration_digest.as_deref(),
+        "dev.mdbase.tasks",
+        &format!("sha256:{}", "a".repeat(64)),
+    )
+    .unwrap();
+    assert_eq!(
+        ensure_collection_setup_declaration_binding(
+            capability.application_declaration_id.as_deref(),
+            capability.application_declaration_digest.as_deref(),
+            "dev.mdbase.other",
+            &format!("sha256:{}", "a".repeat(64)),
+        )
+        .unwrap_err()
+        .code,
+        "application_declaration_mismatch"
+    );
+}
+
+#[test]
 fn authority_request_proofs_bind_the_body_credential_and_timestamp() {
     use p256::ecdsa::{signature::Signer, SigningKey};
 
@@ -574,6 +625,8 @@ fn rejects_write_operations_on_read_only_application_capabilities() {
         allowed_origin: Some("https://tasks.example".to_string()),
         proof_public_key: None,
         grant_id: Some(Uuid::new_v4()),
+        application_declaration_id: None,
+        application_declaration_digest: None,
         token: "x".repeat(40),
         token_ttl_seconds: Some(3600),
     };
@@ -605,6 +658,8 @@ fn file_capabilities_are_independent_scoped_and_mode_checked() {
         allowed_origin: Some("https://assets.example".to_string()),
         proof_public_key: None,
         grant_id: Some(Uuid::new_v4()),
+        application_declaration_id: None,
+        application_declaration_digest: None,
         token: "x".repeat(40),
         token_ttl_seconds: Some(3600),
     };

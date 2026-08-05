@@ -57,6 +57,7 @@ impl HostedProvider {
             r#"SELECT collection_id, name, purpose, mode, allowed_types, contract_scope,
                       full_collection,
                       allowed_operations, file_capability, allowed_origin, proof_public_key, grant_id,
+                      application_declaration_id, application_declaration_digest,
                       token_hash, revoked_at
                FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE"#,
         )
@@ -83,6 +84,14 @@ impl HostedProvider {
                     .as_deref()
                     == input.proof_public_key.as_deref()
                 && existing.get::<Option<Uuid>, _>("grant_id") == input.grant_id
+                && existing
+                    .get::<Option<String>, _>("application_declaration_id")
+                    .as_deref()
+                    == input.application_declaration_id.as_deref()
+                && existing
+                    .get::<Option<String>, _>("application_declaration_digest")
+                    .as_deref()
+                    == input.application_declaration_digest.as_deref()
                 && existing
                     .get::<Option<chrono::DateTime<Utc>>, _>("revoked_at")
                     .is_none()
@@ -113,10 +122,11 @@ impl HostedProvider {
             r#"INSERT INTO hosted_provider_replicas
                  (id, collection_id, name, purpose, mode, allowed_types, contract_scope,
                   full_collection,
-                  allowed_operations, file_capability, allowed_origin, proof_public_key, grant_id, token_hash,
+                  allowed_operations, file_capability, allowed_origin, proof_public_key, grant_id,
+                  application_declaration_id, application_declaration_digest, token_hash,
                   token_expires_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                       $14, now() + ($15 * interval '1 second'))"#,
+                       $14, $15, $16, now() + ($17 * interval '1 second'))"#,
         )
         .bind(input.replica_id)
         .bind(collection_id)
@@ -131,6 +141,8 @@ impl HostedProvider {
         .bind(input.allowed_origin)
         .bind(input.proof_public_key)
         .bind(input.grant_id)
+        .bind(input.application_declaration_id)
+        .bind(input.application_declaration_digest)
         .bind(requested_token_hash)
         .bind(to_i64(token_ttl_seconds, "replica credential lifetime")?)
         .execute(&mut *transaction)
@@ -346,6 +358,8 @@ impl HostedProvider {
             allowed_origin: input.allowed_origin.clone(),
             proof_public_key: input.proof_public_key.clone(),
             grant_id: Some(input.grant_id),
+            application_declaration_id: Some(input.application_declaration_id.clone()),
+            application_declaration_digest: Some(input.application_declaration_digest.clone()),
             token: "unused".to_owned(),
             token_ttl_seconds: None,
         })?;
@@ -374,6 +388,8 @@ impl HostedProvider {
                        OR grant_id IS DISTINCT FROM $8
                        OR allowed_origin IS DISTINCT FROM $9
                        OR proof_public_key IS DISTINCT FROM $10
+                       OR application_declaration_id IS DISTINCT FROM $11
+                       OR application_declaration_digest IS DISTINCT FROM $12
                      THEN 1 ELSE 0 END,
                    mode = $2,
                    allowed_types = $3,
@@ -383,7 +399,9 @@ impl HostedProvider {
                    file_capability = $7,
                    grant_id = $8,
                    allowed_origin = $9,
-                   proof_public_key = $10
+                   proof_public_key = $10,
+                   application_declaration_id = $11,
+                   application_declaration_digest = $12
                WHERE id = $1 AND purpose = 'application' AND revoked_at IS NULL"#,
         )
         .bind(replica_id)
@@ -396,6 +414,8 @@ impl HostedProvider {
         .bind(input.grant_id)
         .bind(input.allowed_origin)
         .bind(input.proof_public_key)
+        .bind(input.application_declaration_id)
+        .bind(input.application_declaration_digest)
         .execute(&mut *transaction)
         .await?;
         if result.rows_affected() == 0 {

@@ -124,6 +124,8 @@ pub(super) fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<
                 || input.allowed_origin.is_some()
                 || input.proof_public_key.is_some()
                 || input.grant_id.is_some()
+                || input.application_declaration_id.is_some()
+                || input.application_declaration_digest.is_some()
                 || input.full_collection
                 || !input.contract_scope.is_empty()
                 || input.file_capability.is_some()
@@ -135,6 +137,7 @@ pub(super) fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<
             }
         }
         ReplicaPurpose::Application => {
+            validate_application_declaration_binding(input)?;
             if input.allowed_operations.is_empty() && input.file_capability.is_none() {
                 return Err(ApiError::bad_request(
                     "invalid_application_capability",
@@ -206,6 +209,63 @@ pub(super) fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<
         }
     }
     Ok(())
+}
+
+fn validate_application_declaration_binding(input: &RegisterReplica) -> ApiResult<()> {
+    let setup_allowed = input
+        .allowed_operations
+        .iter()
+        .any(|operation| operation == "apply_collection_setup");
+    match (
+        input.application_declaration_id.as_deref(),
+        input.application_declaration_digest.as_deref(),
+    ) {
+        (Some(id), Some(digest))
+            if valid_application_declaration_id(id) && valid_sha256_digest(digest) =>
+        {
+            Ok(())
+        }
+        (None, None) if !setup_allowed => Ok(()),
+        (None, None) => Err(ApiError::bad_request(
+            "application_declaration_required",
+            "Collection setup capabilities require an application declaration binding.",
+        )),
+        _ => Err(ApiError::bad_request(
+            "invalid_application_declaration",
+            "Application declaration bindings require a valid declaration id and sha256 digest.",
+        )),
+    }
+}
+
+fn valid_sha256_digest(value: &str) -> bool {
+    value.strip_prefix("sha256:").is_some_and(|digest| {
+        digest.len() == 64
+            && digest
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    })
+}
+
+fn valid_application_declaration_id(value: &str) -> bool {
+    let mut saw_separator = false;
+    for (index, segment) in value
+        .split(|character| {
+            let separator = matches!(character, '.' | '_' | '-');
+            saw_separator |= separator;
+            separator
+        })
+        .enumerate()
+    {
+        if segment.is_empty()
+            || (index == 0 && !segment.as_bytes()[0].is_ascii_lowercase())
+            || !segment
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        {
+            return false;
+        }
+    }
+    saw_separator
 }
 
 pub(super) fn validate_file_capability(
@@ -313,6 +373,8 @@ pub(super) fn is_full_collection_operation(operation: &str) -> bool {
             | "update_type"
             | "assess_type_pack"
             | "apply_type_pack"
+            | "assess_collection_setup"
+            | "apply_collection_setup"
             | "list_views"
             | "execute_view"
             | "read_view_source"
@@ -338,6 +400,8 @@ pub(super) fn validate_operations(operations: &[String], mode: SyncReplicaMode) 
         "update_type",
         "assess_type_pack",
         "apply_type_pack",
+        "assess_collection_setup",
+        "apply_collection_setup",
         "list_views",
         "execute_view",
         "read_view_source",
@@ -357,6 +421,7 @@ pub(super) fn validate_operations(operations: &[String], mode: SyncReplicaMode) 
         "create_type",
         "update_type",
         "apply_type_pack",
+        "apply_collection_setup",
         "create_view_source",
         "update_view_source",
         "delete_view_source",

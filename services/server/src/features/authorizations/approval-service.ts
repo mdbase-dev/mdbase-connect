@@ -44,6 +44,7 @@ import {
   applicationOriginForRedirect,
   normalizedApplicationOrigin
 } from "./redirects.js";
+import { declarationIdFromFamilyIdentity } from "../applications/identity.js";
 
 export async function approvePortalAuthorization(
   db: DatabasePool,
@@ -393,16 +394,6 @@ export async function approvePortalAuthorization(
   return true;
 }
 
-function declarationIdFromFamilyIdentity(familyIdentity: string): string {
-  const prefix = "bundle:";
-  if (!familyIdentity.startsWith(prefix) || familyIdentity.length === prefix.length) {
-    throw new RequestValidationError(
-      "The registered application has no valid declaration identity."
-    );
-  }
-  return familyIdentity.slice(prefix.length);
-}
-
 async function abandonPendingAuthorizationGrant(
   db: DatabasePool,
   authorizationId: string,
@@ -732,7 +723,11 @@ export async function approveHostedAuthorization(
       allowedOperations: hostedReplicaCollectionOperations(operations),
       fileCapability: plan.fileCapability,
       allowedOrigin,
-      proofPublicKey: pending.application_signing_public_key
+      proofPublicKey: pending.application_signing_public_key,
+      applicationDeclarationId: declarationIdFromFamilyIdentity(
+        pending.application_family_identity
+      ),
+      applicationDeclarationDigest: `sha256:${pending.application_manifest_digest}`
     };
     if (retained) {
       await provider.updateApplicationReplica(replicaId, replicaPolicy);

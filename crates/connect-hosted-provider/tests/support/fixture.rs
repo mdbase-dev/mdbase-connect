@@ -83,6 +83,8 @@ impl FileLifecycleFixture {
                     allowed_origin: None,
                     proof_public_key: None,
                     grant_id: None,
+                    application_declaration_id: None,
+                    application_declaration_digest: None,
                     token: token.clone(),
                     token_ttl_seconds: None,
                 },

@@ -298,6 +298,8 @@ impl HostedProvider {
                         )
                     },
                 )?;
+                self.authorize_collection_setup_declaration(replica.id, &request)
+                    .await?;
                 self.write_collection_setup_apply_operation(collection_id, &request, mutation_lease)
                     .await
             }
@@ -310,6 +312,34 @@ impl HostedProvider {
                 "The hosted provider does not support that collection operation.",
             )),
         }
+    }
+
+    async fn authorize_collection_setup_declaration(
+        &self,
+        replica_id: Uuid,
+        request: &ApplyCollectionSetupInput,
+    ) -> ApiResult<()> {
+        let binding = sqlx::query(
+            r#"SELECT application_declaration_id, application_declaration_digest
+               FROM hosted_provider_replicas
+               WHERE id = $1 AND purpose = 'application' AND revoked_at IS NULL"#,
+        )
+        .bind(replica_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(binding) = binding else {
+            return Err(collection_setup_declaration_mismatch());
+        };
+        ensure_collection_setup_declaration_binding(
+            binding
+                .get::<Option<String>, _>("application_declaration_id")
+                .as_deref(),
+            binding
+                .get::<Option<String>, _>("application_declaration_digest")
+                .as_deref(),
+            &request.setup.application_id,
+            &request.setup.declaration_digest,
+        )
     }
 
     pub(super) async fn contract_scope(
@@ -734,4 +764,26 @@ impl HostedProvider {
             &resources_aad(collection_id),
         )
     }
+}
+
+pub(super) fn ensure_collection_setup_declaration_binding(
+    expected_application_id: Option<&str>,
+    expected_declaration_digest: Option<&str>,
+    requested_application_id: &str,
+    requested_declaration_digest: &str,
+) -> ApiResult<()> {
+    if expected_application_id == Some(requested_application_id)
+        && expected_declaration_digest == Some(requested_declaration_digest)
+    {
+        Ok(())
+    } else {
+        Err(collection_setup_declaration_mismatch())
+    }
+}
+
+fn collection_setup_declaration_mismatch() -> ApiError {
+    ApiError::forbidden(
+        "application_declaration_mismatch",
+        "Collection setup must exactly match the application declaration bound to this capability.",
+    )
 }

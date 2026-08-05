@@ -19,6 +19,7 @@ import { fileCapabilityForRequirements } from "../../grant-planner.js";
 import { hostedReplicaCollectionOperations } from "../../hosted-replica-policy.js";
 import { RelayHub } from "../../relay.js";
 import { audit } from "../../platform/audit-events.js";
+import { declarationIdFromFamilyIdentity } from "../applications/identity.js";
 import {
   allowedTypesForRequirements,
   collectionSupportsOperations,
@@ -157,6 +158,8 @@ export async function reconcileApplicationGrants(
   hostedProvider: HostedProviderClient | undefined,
   application: {
     id: string;
+    family_identity: string;
+    manifest_digest: string;
     requirements: ApplicationRequirements;
     notifications: ApplicationNotifications;
   }
@@ -281,6 +284,7 @@ export async function reconcileApplicationGrants(
             "create_type",
             "update_type",
             "apply_type_pack",
+            "apply_collection_setup",
             "create_view_source",
             "update_view_source",
             "delete_view_source",
@@ -300,7 +304,11 @@ export async function reconcileApplicationGrants(
           allowedOperations: hostedReplicaCollectionOperations(grant.operations),
           fileCapability: desiredFileCapability,
           allowedOrigin: grant.application_origin,
-          proofPublicKey: grant.proof_public_key
+          proofPublicKey: grant.proof_public_key,
+          applicationDeclarationId: declarationIdFromFamilyIdentity(
+            application.family_identity
+          ),
+          applicationDeclarationDigest: `sha256:${application.manifest_digest}`
         });
         await db.query(
           "UPDATE hosted_replicas SET allowed_types = $2::jsonb, mode = $3 WHERE id = $1",

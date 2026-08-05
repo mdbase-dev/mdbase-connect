@@ -35,6 +35,8 @@ export interface HostedReplicaEnrollment {
   allowedOrigin?: string;
   proofPublicKey?: string;
   grantId?: string;
+  applicationDeclarationId?: string;
+  applicationDeclarationDigest?: string;
   token: string;
   tokenTtlSeconds?: number;
 }
@@ -306,6 +308,12 @@ export class HostedProviderClient {
         ...(replica.allowedOrigin ? { allowed_origin: replica.allowedOrigin } : {}),
         ...(replica.proofPublicKey ? { proof_public_key: replica.proofPublicKey } : {}),
         ...(replica.grantId ? { grant_id: replica.grantId } : {}),
+        ...(replica.applicationDeclarationId
+          ? { application_declaration_id: replica.applicationDeclarationId }
+          : {}),
+        ...(replica.applicationDeclarationDigest
+          ? { application_declaration_digest: replica.applicationDeclarationDigest }
+          : {}),
         token: replica.token,
         ...(replica.tokenTtlSeconds ? { token_ttl_seconds: replica.tokenTtlSeconds } : {})
       }
@@ -355,6 +363,8 @@ export class HostedProviderClient {
       fileCapability?: FileCapability;
       allowedOrigin: string | undefined;
       proofPublicKey: string;
+      applicationDeclarationId: string;
+      applicationDeclarationDigest: string;
     }
   ): Promise<void> {
     await this.request(
@@ -371,7 +381,9 @@ export class HostedProviderClient {
         ),
         ...(policy.fileCapability ? { file_capability: policy.fileCapability } : {}),
         allowed_origin: policy.allowedOrigin,
-        proof_public_key: policy.proofPublicKey
+        proof_public_key: policy.proofPublicKey,
+        application_declaration_id: policy.applicationDeclarationId,
+        application_declaration_digest: policy.applicationDeclarationDigest
       }
     );
   }

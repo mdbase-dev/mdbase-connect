@@ -54,6 +54,7 @@ import {
   requiresHostedCollection,
   rotateGrantEncryption
 } from "../grants/policy.js";
+import { declarationIdFromFamilyIdentity } from "../applications/identity.js";
 import { createOrUpdateGrant } from "../grants/service.js";
 import { liveAuthorizationCollections } from "./local-collections.js";
 import {
@@ -303,10 +304,15 @@ export function registerAuthorizationRoutes(
       file_capability: FileCapability | null;
       application_origin: string;
       proof_public_key: string;
+      application_family_identity: string;
+      application_manifest_digest: string;
     }>(
       `SELECT g.id, g.operations, g.encryption, g.scope, g.file_capability,
               g.application_origin, g.proof_public_key,
-              a.requirements, col.connector_id,
+              a.requirements,
+              a.family_identity AS application_family_identity,
+              a.manifest_digest AS application_manifest_digest,
+              col.connector_id,
               g.hosted_replica_id, hosted.template, hosted.contracts AS hosted_contracts
        FROM grants g
        JOIN applications a ON a.id = g.application_id
@@ -330,7 +336,7 @@ export function registerAuthorizationRoutes(
       if (!options.hostedProvider) {
         return reply.code(503).send(apiError("hosted_provider_unavailable", "Hosted application access is temporarily unavailable."));
       }
-      const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type", "apply_type_pack", "create_view_source", "update_view_source", "delete_view_source", "put_timer", "cancel_timer", "reconcile_timers"].includes(operation))
+      const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type", "apply_type_pack", "apply_collection_setup", "create_view_source", "update_view_source", "delete_view_source", "put_timer", "cancel_timer", "reconcile_timers"].includes(operation))
         || current.file_capability?.actions.some((action) => ["add", "replace", "move", "delete"].includes(action)) === true;
       await options.hostedProvider.updateApplicationReplica(current.hosted_replica_id, {
         grantId,
@@ -344,7 +350,11 @@ export function registerAuthorizationRoutes(
         allowedOperations: hostedReplicaCollectionOperations(operations),
         fileCapability: current.file_capability ?? undefined,
         allowedOrigin: current.application_origin,
-        proofPublicKey: current.proof_public_key
+        proofPublicKey: current.proof_public_key,
+        applicationDeclarationId: declarationIdFromFamilyIdentity(
+          current.application_family_identity
+        ),
+        applicationDeclarationDigest: `sha256:${current.application_manifest_digest}`
       });
     }
     const updated = await options.db.query<{ id: string; operations: string[] }>(
@@ -737,14 +747,6 @@ export function registerAuthorizationRoutes(
   });
 
   registerAuthorizationPollingRoutes(app, options);
-}
-
-function declarationIdFromFamilyIdentity(familyIdentity: string): string {
-  const prefix = "bundle:";
-  if (!familyIdentity.startsWith(prefix) || familyIdentity.length === prefix.length) {
-    throw new Error("Registered application family identity is invalid.");
-  }
-  return familyIdentity.slice(prefix.length);
 }
 
 async function hostedTypeCandidates(

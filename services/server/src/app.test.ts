@@ -1323,7 +1323,9 @@ describe("mdbase connect server", () => {
         fullCollection: true,
         allowedOperations: ["describe", "query", "create", "update"],
         allowedOrigin: "null",
-        proofPublicKey: applicationSigningPublicKey
+        proofPublicKey: applicationSigningPublicKey,
+        applicationDeclarationId: manifest.id,
+        applicationDeclarationDigest: `sha256:${applicationManifestDigest}`
       })
     );
     const token = await pollDeviceToken(app, {
@@ -1491,7 +1493,9 @@ describe("mdbase connect server", () => {
       expect.objectContaining({
         grantId: token.json().grant_id,
         allowedOrigin: "null",
-        proofPublicKey: secondSigningPublicKey
+        proofPublicKey: secondSigningPublicKey,
+        applicationDeclarationId: manifest.id,
+        applicationDeclarationDigest: `sha256:${applicationManifestDigest}`
       })
     );
     const activeCapabilities = await db.query<{
@@ -1828,7 +1832,9 @@ describe("mdbase connect server", () => {
         purpose: "application",
         allowedTypes: [],
         fullCollection: true,
-        allowedOperations: ["describe", "query", "create", "update"]
+        allowedOperations: ["describe", "query", "create", "update"],
+        applicationDeclarationId: manifestServer.manifest.id,
+        applicationDeclarationDigest: `sha256:${applicationManifestDigest}`
       })
     );
 
@@ -1855,7 +1861,9 @@ describe("mdbase connect server", () => {
         fullCollection: true,
         allowedOperations: ["describe", "query", "create", "update"],
         allowedOrigin: "http://localhost:4173",
-        proofPublicKey: expect.any(String)
+        proofPublicKey: expect.any(String),
+        applicationDeclarationId: manifestServer.manifest.id,
+        applicationDeclarationDigest: `sha256:${applicationManifestDigest}`
       })
     );
     const reconciled = await db.query<{ allowed_types: string[] }>(
@@ -1884,7 +1892,9 @@ describe("mdbase connect server", () => {
         mode: "read_only",
         allowedOperations: ["describe", "query"],
         allowedOrigin: "http://localhost:4173",
-        proofPublicKey: expect.any(String)
+        proofPublicKey: expect.any(String),
+        applicationDeclarationId: manifestServer.manifest.id,
+        applicationDeclarationDigest: `sha256:${applicationManifestDigest}`
       })
     );
     const broadened = await app.inject({
