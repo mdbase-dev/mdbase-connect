@@ -23,6 +23,7 @@ UPGRADE_GRANT_ID=55555555-5555-4555-8555-555555555555
 UPGRADE_MUTATION_ID=66666666-6666-4666-8666-666666666666
 UPGRADE_RECORD_ID=77777777-7777-4777-8777-777777777777
 UPGRADE_REPLICA_TOKEN=previous-provider-upgrade-replica-token
+UPGRADE_DATABASE_PORT=${UPGRADE_DATABASE_PORT:-5432}
 export PROVIDER_INTERNAL_TOKEN PROVIDER_MASTER_KEY
 export MDBASE_CONNECT_R2_ENDPOINT MDBASE_CONNECT_R2_BUCKET
 export MDBASE_CONNECT_R2_ACCESS_KEY_ID MDBASE_CONNECT_R2_SECRET_ACCESS_KEY
@@ -104,7 +105,7 @@ query_sync_receipt_migration() {
   docker run --rm --network host \
     --env PGPASSWORD=previous-provider-upgrade \
     postgres:18-alpine \
-    psql --host 127.0.0.1 --username mdbase --dbname mdbase_provider_upgrade \
+    psql --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT" --username mdbase --dbname mdbase_provider_upgrade \
     --set ON_ERROR_STOP=1 --tuples-only --no-align \
     --command "SELECT concat(journal.operation_kind, '|', journal.fingerprint_schema_version, '|', journal.state, '|', archive.migrated_at IS NOT NULL)
                FROM hosted_provider_mutation_journal journal
@@ -124,7 +125,7 @@ query_notification_contract() {
   docker run --rm --network host \
     --env PGPASSWORD=previous-provider-upgrade \
     postgres:18-alpine \
-    psql --host 127.0.0.1 --username mdbase --dbname mdbase_provider_upgrade \
+    psql --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT" --username mdbase --dbname mdbase_provider_upgrade \
     --set ON_ERROR_STOP=1 \
     --tuples-only --no-align \
     --command "SELECT concat(
@@ -141,7 +142,7 @@ query_connect_contracts() {
   docker run --rm --network host \
     --env PGPASSWORD=previous-provider-upgrade \
     postgres:18-alpine \
-    psql --host 127.0.0.1 --username mdbase --dbname mdbase_provider_upgrade \
+    psql --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT" --username mdbase --dbname mdbase_provider_upgrade \
     --set ON_ERROR_STOP=1 \
     --tuples-only --no-align \
     --command "SELECT concat(
@@ -149,6 +150,21 @@ query_connect_contracts() {
                  grant_json #>> '{contracts,authorization_binding}', '|',
                  grant_json #>> '{contracts,semantic_capabilities}', '|',
                  grant_json #>> '{contracts,durable_mutation}'
+               )
+               FROM hosted_provider_notification_grants
+               WHERE grant_id = '22222222-2222-4222-8222-222222222222'"
+}
+
+query_notification_application_binding() {
+  docker run --rm --network host \
+    --env PGPASSWORD=previous-provider-upgrade \
+    postgres:18-alpine \
+    psql --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT" --username mdbase --dbname mdbase_provider_upgrade \
+    --set ON_ERROR_STOP=1 \
+    --tuples-only --no-align \
+    --command "SELECT concat(
+                 grant_json ->> 'application_declaration_id', '|',
+                 grant_json ->> 'application_manifest_digest'
                )
                FROM hosted_provider_notification_grants
                WHERE grant_id = '22222222-2222-4222-8222-222222222222'"
@@ -184,7 +200,7 @@ upgrade_phase 'seeding the persisted previous-release notification shape'
 docker run --rm --interactive --network host \
   --env PGPASSWORD=previous-provider-upgrade \
   postgres:18-alpine \
-  psql --host 127.0.0.1 --username mdbase --dbname mdbase_provider_upgrade \
+  psql --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT" --username mdbase --dbname mdbase_provider_upgrade \
   --set ON_ERROR_STOP=1 \
   <"$repo_root/test/upgrade/provider-notification.sql"
 
@@ -234,6 +250,9 @@ printf 'Recovered notification contract: %s\n' "$contract"
 connect_contracts=$(query_connect_contracts)
 printf 'Recovered Connect compatibility contracts: %s\n' "$connect_contracts"
 [[ $connect_contracts == "2|3|1|1" ]]
+application_binding=$(query_notification_application_binding)
+printf 'Recovered legacy application binding: %s\n' "$application_binding"
+[[ $application_binding == "legacy.unbound.33333333333343338333333333333333|sha256:$(printf '0%.0s' {1..64})" ]]
 
 migration=$(query_sync_receipt_migration)
 printf 'Recovered sync receipt migration: %s\n' "$migration"
