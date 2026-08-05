@@ -84,7 +84,15 @@ export interface QueryPagesOptions<Record extends JsonObject = JsonObject> {
   firstPageSize?: number;
   pageSize?: number;
   signal?: AbortSignal;
-  timeoutMs?: number | null;
+  /** Independent budget for each page requested by this caller-driven iterator. */
+  pageTimeoutMs?: number | null;
+  onProgress?: (page: QueryPage<Record>) => void;
+}
+
+export interface QueryAllOptions<Record extends JsonObject = JsonObject>
+  extends ConnectRequestOptions {
+  firstPageSize?: number;
+  pageSize?: number;
   onProgress?: (page: QueryPage<Record>) => void;
 }
 

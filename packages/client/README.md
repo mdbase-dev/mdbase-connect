@@ -471,6 +471,9 @@ the value, carries revision tokens in typed record results, and accepts
 JSON Schemas, portable type definitions, canonical collection settings, and
 first-class data contracts. `watch()` resumes from a local collection cursor;
 the Connect server does not store the change feed.
+`queryAll()` treats `timeoutMs` as one deadline for the complete paginated
+query. The caller-driven `queryPages()` iterator instead accepts
+`pageTimeoutMs`, an independent budget for each page, plus a lifetime `signal`.
 `preflightRename()` and `preflightDelete()` run the canonical collection
 operation without changing records or advancing the change cursor, so an app
 can show authoritative reference impact before asking for confirmation.

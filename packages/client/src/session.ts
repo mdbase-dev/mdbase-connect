@@ -222,7 +222,8 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
   }
 
   async ensureOperations(
-    requiredOperations: CollectionOperation[]
+    requiredOperations: CollectionOperation[],
+    options?: ConnectRequestOptions
   ): Promise<ConnectOutcome<
     MdbaseAuthorizationOutcome<Frontmatter>
     | { kind: "unchanged"; connection: MdbaseConnection<Frontmatter> },
@@ -243,6 +244,7 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
     this.transactionDepth += 1;
     try {
       const outcome = await this.connect.authorize({
+        ...options,
         operations: uniqueOperations([...capabilities.grantedOperations, ...capabilities.missingOperations]),
         target: { kind: "collection", collectionId: current.collectionId },
         returnTo: this.selection.authorizationReturnTo()

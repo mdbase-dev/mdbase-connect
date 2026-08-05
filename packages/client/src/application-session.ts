@@ -31,6 +31,8 @@ import {
 import type { MdbaseApplicationSelection, MdbaseSelectionHistory } from "./selection.js";
 import type { ConnectRequestOptions } from "./operation-types.js";
 import {
+  createRequestBudget,
+  requestAbortReason,
   resolveConnectTimeouts,
   type ResolvedConnectTimeouts,
   withRequestBudget
@@ -143,6 +145,13 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
   private stopBase?: () => void;
   private setupAssessment: CollectionSetupAssessment | null = null;
   private verificationGeneration = 0;
+  private lifecycleGeneration = 0;
+  private startOperation: {
+    promise: Promise<ConnectOutcome<MdbaseApplicationSessionSnapshot, SessionProblemCode>>;
+    controller: AbortController;
+    waiters: number;
+    generation: number;
+  } | null = null;
 
   constructor(
     private readonly connect: MdbaseApplicationSessionConnect<Frontmatter>,
@@ -153,12 +162,45 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
   }
 
   start(options?: ConnectRequestOptions): Promise<ConnectOutcome<MdbaseApplicationSessionSnapshot, SessionProblemCode>> {
-    return withRequestBudget(options, this.timeouts.watchStartMs, (budget) =>
-      this.startWithinBudget({ signal: budget.signal, timeoutMs: null })
-    );
+    if (this.base && !this.startOperation) return Promise.resolve(connectSuccess(this.snapshot));
+    const operation = this.startOperation ?? this.beginStart();
+    operation.waiters += 1;
+    return withRequestBudget(options, this.timeouts.watchStartMs, () => operation.promise)
+      .finally(() => {
+        operation.waiters -= 1;
+        if (operation.waiters === 0 && this.startOperation === operation) {
+          operation.controller.abort();
+          this.startOperation = null;
+          this.lifecycleGeneration += 1;
+        }
+      });
   }
 
-  private async startWithinBudget(options: ConnectRequestOptions): Promise<ConnectOutcome<MdbaseApplicationSessionSnapshot, SessionProblemCode>> {
+  private beginStart() {
+    this.snapshot = { status: "opening", connections: [] };
+    const controller = new AbortController();
+    const generation = ++this.lifecycleGeneration;
+    const operation = {
+      promise: this.startWithinBudget(
+        { signal: controller.signal, timeoutMs: null },
+        generation
+      ),
+      controller,
+      waiters: 0,
+      generation
+    };
+    this.startOperation = operation;
+    const settled = () => {
+      if (this.startOperation === operation) this.startOperation = null;
+    };
+    operation.promise.then(settled, settled);
+    return operation;
+  }
+
+  private async startWithinBudget(
+    options: ConnectRequestOptions,
+    generation: number
+  ): Promise<ConnectOutcome<MdbaseApplicationSessionSnapshot, SessionProblemCode>> {
     const registration = await this.connect.register(options);
     if (!registration.ok) return registration;
     const manifest = await this.connect.manifest(options);
@@ -180,25 +222,58 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
         }
       ));
     }
+    if (generation !== this.lifecycleGeneration || options.signal?.aborted) {
+      throw requestAbortReason(options.signal ?? new AbortController().signal);
+    }
     this.application = registration.value;
     this.manifest = manifest.value;
-    this.base = new MdbaseSession(this.connect, {
+    const base = new MdbaseSession(this.connect, {
       selection: this.options.selection,
       autoSelect: this.options.autoSelect,
       operations: operationsForSession(capabilities)
     });
-    this.stopBase = this.base.subscribe(() => this.refresh());
-    const started = await this.base.start(options);
-    if (!started.ok) return started;
-    await this.refresh(true, options);
-    return connectSuccess(this.snapshot);
+    this.base = base;
+    this.stopBase = base.subscribe(() => {
+      if (this.base === base) void this.refresh();
+    });
+    try {
+      const started = await base.start(options);
+      if (!started.ok) {
+        this.cleanupBase(base);
+        return started;
+      }
+      if (generation !== this.lifecycleGeneration || options.signal?.aborted) {
+        throw requestAbortReason(options.signal ?? new AbortController().signal);
+      }
+      await this.refresh(true, options);
+      if (generation !== this.lifecycleGeneration || options.signal?.aborted) {
+        throw requestAbortReason(options.signal ?? new AbortController().signal);
+      }
+      return connectSuccess(this.snapshot);
+    } catch (error) {
+      this.cleanupBase(base);
+      throw error;
+    }
   }
 
   destroy(): void {
+    this.lifecycleGeneration += 1;
     this.verificationGeneration += 1;
+    this.startOperation?.controller.abort();
+    this.startOperation = null;
+    if (this.base) this.cleanupBase(this.base);
+    this.application = null;
+    this.manifest = null;
+    this.setupAssessment = null;
+    this.snapshot = { status: "opening", connections: [] };
+    this.listeners.clear();
+  }
+
+  private cleanupBase(base: MdbaseSession<Frontmatter>): void {
+    if (this.base !== base) return;
     this.stopBase?.();
     this.stopBase = undefined;
-    this.base?.destroy();
+    base.destroy();
     this.base = null;
   }
 
@@ -256,7 +331,8 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
   }
 
   ensureCapabilities(
-    capabilities: ApplicationCapabilityId[]
+    capabilities: ApplicationCapabilityId[],
+    options?: ConnectRequestOptions
   ): Promise<ConnectOutcome<
     MdbaseAuthorizationOutcome<Frontmatter>
     | { kind: "unchanged"; connection: MdbaseConnection<Frontmatter> },
@@ -286,7 +362,7 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
         }
       )));
     }
-    return this.requireBase().ensureOperations(operationsForIds(capabilities));
+    return this.requireBase().ensureOperations(operationsForIds(capabilities), options);
   }
 
   async applyCollectionSetup(options?: ConnectRequestOptions): Promise<ConnectOutcome<
@@ -319,13 +395,21 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
         .filter((pack) => pack.status === "downgrade")
         .map((pack) => pack.desired.id)
     };
-    const applied = options
-      ? await connection.applyCollectionSetup(input, options)
-      : await connection.applyCollectionSetup(input);
-    if (!applied.ok) return applied;
-    this.setupAssessment = null;
-    await this.verifySetup(this.context(connection), ++this.verificationGeneration, options);
-    return connectSuccess(this.snapshot);
+    const budget = createRequestBudget(options, this.timeouts.requestMs);
+    const requestOptions = { signal: budget.signal, timeoutMs: null };
+    try {
+      const applied = await connection.applyCollectionSetup(input, requestOptions);
+      if (!applied.ok) return applied;
+      this.setupAssessment = null;
+      await this.verifySetup(
+        this.context(connection),
+        ++this.verificationGeneration,
+        requestOptions
+      );
+      return connectSuccess(this.snapshot);
+    } finally {
+      budget.dispose();
+    }
   }
 
   private async refresh(awaitVerification = false, options?: ConnectRequestOptions): Promise<void> {

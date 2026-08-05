@@ -354,6 +354,52 @@ describe("provider-neutral collection client", () => {
     ]);
   });
 
+  it("uses one total queryAll deadline while queryPages keeps an explicit per-page budget", async () => {
+    vi.useFakeTimers();
+    const requestOptions: Array<{ signal?: AbortSignal; timeoutMs?: number | null }> = [];
+    let page = 0;
+    const client = new MdbaseCollectionClient({
+      async operation<Result>(
+        _operation: string,
+        _input: unknown,
+        options?: { signal?: AbortSignal; timeoutMs?: number | null }
+      ) {
+        requestOptions.push(options ?? {});
+        page += 1;
+        if (page === 1) {
+          return {
+            valid: true,
+            diagnostics: [],
+            result: {
+              results: [{ path: "one.md", frontmatter: {}, types: [] }],
+              meta: { total_count: 2, has_more: true, snapshot: "total-budget" }
+            }
+          } as Result;
+        }
+        return new Promise<Result>((_resolve, reject) => {
+          const abort = () => reject(options?.signal?.reason);
+          if (options?.signal?.aborted) abort();
+          else options?.signal?.addEventListener("abort", abort, { once: true });
+        });
+      }
+    });
+
+    const outcome = client.queryAll({}, {
+      firstPageSize: 1,
+      pageSize: 1,
+      timeoutMs: 50
+    });
+    await vi.advanceTimersByTimeAsync(50);
+
+    await expect(outcome).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "timeout", operation_outcome: "not_sent" }
+    });
+    expect(requestOptions).toHaveLength(2);
+    expect(requestOptions[0]?.signal).toBe(requestOptions[1]?.signal);
+    expect(requestOptions.map(({ timeoutMs }) => timeoutMs)).toEqual([null, null]);
+  });
+
   it("rejects a changed snapshot instead of mixing query generations", async () => {
     let call = 0;
     const client = new MdbaseCollectionClient({
@@ -1635,6 +1681,38 @@ describe("long mutation progress", () => {
 
     expect(rename).not.toHaveBeenCalled();
     expect(states).toEqual(["preflighting", "ready", "cancelled"]);
+  });
+
+  it("shares one monotonic timeout across progress preflight and apply", async () => {
+    vi.useFakeTimers();
+    const connect = progressConnection();
+    let preflightOptions: { signal?: AbortSignal; timeoutMs?: number | null } | undefined;
+    let applyOptions: { signal?: AbortSignal; timeoutMs?: number | null } | undefined;
+    vi.spyOn(connect, "preflightRename").mockImplementation(async (_input, options) => {
+      preflightOptions = options;
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      return connectSuccess(renamePreview);
+    });
+    vi.spyOn(connect, "rename").mockImplementation((_input, options) => {
+      applyOptions = options;
+      return new Promise((_resolve, reject) => {
+        const abort = () => reject(options?.signal?.reason);
+        if (options?.signal?.aborted) abort();
+        else options?.signal?.addEventListener("abort", abort, { once: true });
+      });
+    });
+
+    const pending = connect.renameWithProgress(renameInput, { timeoutMs: 100 });
+    await vi.advanceTimersByTimeAsync(60);
+    await vi.advanceTimersByTimeAsync(40);
+
+    await expect(pending).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "timeout", operation_outcome: "not_sent" }
+    });
+    expect(preflightOptions).toMatchObject({ timeoutMs: null });
+    expect(applyOptions).toMatchObject({ timeoutMs: null });
+    expect(preflightOptions?.signal).toBe(applyOptions?.signal);
   });
 
   it("rejects a reused preflight for a different mutation", async () => {

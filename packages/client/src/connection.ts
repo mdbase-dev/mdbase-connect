@@ -85,6 +85,7 @@ import type {
   MutationProgressState,
   ConnectRequestOptions,
   PendingMutation,
+  QueryAllOptions,
   QueryInput,
   QueryPage,
   QueryPagesOptions,
@@ -126,6 +127,7 @@ import {
 import type { MdbaseDeviceAuthorization } from "./authorization-types.js";
 import {
   type ResolvedConnectTimeouts,
+  withCooperativeRequestBudget,
   withRequestBudget
 } from "./request-budget.js";
 
@@ -231,7 +233,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     this.collectionClient = new MdbaseCollectionClient({
       operation: (operation, input, requestOptions) =>
         this.transport.performOperation(operation, input, requestOptions)
-    });
+    }, internals.timeouts.requestMs);
     this.notifications = new ConnectionNotifications({
       serverUrl: internals.serverUrl,
       storage: internals.storage,
@@ -506,7 +508,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     return this.collectionClient.queryPages(input, options);
   }
 
-  queryAll(input: QueryInput = {}, options: QueryPagesOptions<Frontmatter> = {}): Promise<ConnectOutcome<QueryResult<Frontmatter>, CollectionQueryProblemCode>> {
+  queryAll(input: QueryInput = {}, options: QueryAllOptions<Frontmatter> = {}): Promise<ConnectOutcome<QueryResult<Frontmatter>, CollectionQueryProblemCode>> {
     return this.collectionClient.queryAll(input, options);
   }
 
@@ -562,102 +564,116 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     input: RenameInput,
     options: RenameProgressOptions = {}
   ): Promise<ConnectOutcome<RenameResult, CollectionMutationProblemCode>> {
-    const started = Date.now();
-    const resumed = false;
-    let estimate: MutationEstimate | undefined;
-    const emit = (state: MutationProgressState, cancellable: boolean, completedUnits = 0) => {
-      options.onProgress?.({
-        operation: "rename",
-        state,
-        elapsedMs: Date.now() - started,
-        cancellable,
-        resumed,
-        completedUnits,
-        ...(estimate ? { estimate } : {})
-      });
-    };
-    try {
-      throwIfCancelled(options.signal);
-      emit("preflighting", true);
-      const previewOutcome = options.preflight
-        ? connectSuccess(options.preflight)
-        : await this.preflightRename(input, { signal: options.signal });
-      if (!previewOutcome.ok) return previewOutcome;
-      const preview = previewOutcome.value;
+    return withCooperativeRequestBudget(options, this.internals.timeouts.requestMs, async (budget) => {
+      const started = Date.now();
+      const resumed = false;
+      let estimate: MutationEstimate | undefined;
+      const emit = (state: MutationProgressState, cancellable: boolean, completedUnits = 0) => {
+        options.onProgress?.({
+          operation: "rename",
+          state,
+          elapsedMs: Date.now() - started,
+          cancellable,
+          resumed,
+          completedUnits,
+          ...(estimate ? { estimate } : {})
+        });
+      };
       try {
-        assertRenamePreview(input, preview);
+        throwIfCancelled(budget.signal);
+        emit("preflighting", true);
+        const previewOutcome = options.preflight
+          ? connectSuccess(options.preflight)
+          : await this.preflightRename(input, { signal: budget.signal, timeoutMs: null });
+        if (!previewOutcome.ok) return previewOutcome;
+        const preview = previewOutcome.value;
+        try {
+          assertRenamePreview(input, preview);
+        } catch (error) {
+          if (error instanceof MdbaseConnectError) {
+            return connectFailure(error.problem) as ConnectOutcome<RenameResult, CollectionMutationProblemCode>;
+          }
+          throw error;
+        }
+        estimate = renameEstimate(input, preview);
+        emit("ready", true);
+        throwIfCancelled(budget.signal);
+        const cancellable = this.transport.hasResumableMutationTransport();
+        emit("applying", cancellable);
+        const result = await this.rename(
+          input,
+          cancellable
+            ? { signal: budget.signal, timeoutMs: null }
+            : { timeoutMs: remainingTimeout(budget.remainingMs()) }
+        );
+        if (result.ok) emit("completed", false, estimate.totalUnits);
+        return result;
       } catch (error) {
+        if (isCancellation(error, budget.signal)) emit("cancelled", false);
         if (error instanceof MdbaseConnectError) {
           return connectFailure(error.problem) as ConnectOutcome<RenameResult, CollectionMutationProblemCode>;
         }
         throw error;
       }
-      estimate = renameEstimate(input, preview);
-      emit("ready", true);
-      throwIfCancelled(options.signal);
-      const cancellable = this.transport.hasResumableMutationTransport();
-      emit("applying", cancellable);
-      const result = await this.rename(input, cancellable ? { signal: options.signal } : undefined);
-      if (result.ok) emit("completed", false, estimate.totalUnits);
-      return result;
-    } catch (error) {
-      if (isCancellation(error, options.signal)) emit("cancelled", false);
-      if (error instanceof MdbaseConnectError) {
-        return connectFailure(error.problem) as ConnectOutcome<RenameResult, CollectionMutationProblemCode>;
-      }
-      throw error;
-    }
+    });
   }
 
   async deleteWithProgress(
     input: DeleteInput,
     options: DeleteProgressOptions = {}
   ): Promise<ConnectOutcome<DeleteResult, CollectionMutationProblemCode>> {
-    const started = Date.now();
-    const resumed = false;
-    let estimate: MutationEstimate | undefined;
-    const emit = (state: MutationProgressState, cancellable: boolean, completedUnits = 0) => {
-      options.onProgress?.({
-        operation: "delete",
-        state,
-        elapsedMs: Date.now() - started,
-        cancellable,
-        resumed,
-        completedUnits,
-        ...(estimate ? { estimate } : {})
-      });
-    };
-    try {
-      throwIfCancelled(options.signal);
-      emit("preflighting", true);
-      const previewOutcome = options.preflight
-        ? connectSuccess(options.preflight)
-        : await this.preflightDelete(input, { signal: options.signal });
-      if (!previewOutcome.ok) return previewOutcome;
-      const preview = previewOutcome.value;
+    return withCooperativeRequestBudget(options, this.internals.timeouts.requestMs, async (budget) => {
+      const started = Date.now();
+      const resumed = false;
+      let estimate: MutationEstimate | undefined;
+      const emit = (state: MutationProgressState, cancellable: boolean, completedUnits = 0) => {
+        options.onProgress?.({
+          operation: "delete",
+          state,
+          elapsedMs: Date.now() - started,
+          cancellable,
+          resumed,
+          completedUnits,
+          ...(estimate ? { estimate } : {})
+        });
+      };
       try {
-        assertDeletePreview(input, preview);
+        throwIfCancelled(budget.signal);
+        emit("preflighting", true);
+        const previewOutcome = options.preflight
+          ? connectSuccess(options.preflight)
+          : await this.preflightDelete(input, { signal: budget.signal, timeoutMs: null });
+        if (!previewOutcome.ok) return previewOutcome;
+        const preview = previewOutcome.value;
+        try {
+          assertDeletePreview(input, preview);
+        } catch (error) {
+          if (error instanceof MdbaseConnectError) {
+            return connectFailure(error.problem) as ConnectOutcome<DeleteResult, CollectionMutationProblemCode>;
+          }
+          throw error;
+        }
+        estimate = deleteEstimate(preview);
+        emit("ready", true);
+        throwIfCancelled(budget.signal);
+        const cancellable = this.transport.hasResumableMutationTransport();
+        emit("applying", cancellable);
+        const result = await this.delete(
+          input,
+          cancellable
+            ? { signal: budget.signal, timeoutMs: null }
+            : { timeoutMs: remainingTimeout(budget.remainingMs()) }
+        );
+        if (result.ok) emit("completed", false, estimate.totalUnits);
+        return result;
       } catch (error) {
+        if (isCancellation(error, budget.signal)) emit("cancelled", false);
         if (error instanceof MdbaseConnectError) {
           return connectFailure(error.problem) as ConnectOutcome<DeleteResult, CollectionMutationProblemCode>;
         }
         throw error;
       }
-      estimate = deleteEstimate(preview);
-      emit("ready", true);
-      throwIfCancelled(options.signal);
-      const cancellable = this.transport.hasResumableMutationTransport();
-      emit("applying", cancellable);
-      const result = await this.delete(input, cancellable ? { signal: options.signal } : undefined);
-      if (result.ok) emit("completed", false, estimate.totalUnits);
-      return result;
-    } catch (error) {
-      if (isCancellation(error, options.signal)) emit("cancelled", false);
-      if (error instanceof MdbaseConnectError) {
-        return connectFailure(error.problem) as ConnectOutcome<DeleteResult, CollectionMutationProblemCode>;
-      }
-      throw error;
-    }
+    });
   }
 
   pendingMutations<Result = unknown>(): readonly PendingMutation<Result>[] {
@@ -913,4 +929,8 @@ function syncRequestOptions(
     ...options,
     timeoutMs: options?.timeoutMs === undefined ? defaultTimeoutMs : options.timeoutMs
   };
+}
+
+function remainingTimeout(remainingMs: number | null): number | null {
+  return remainingMs === null ? null : Math.max(1, Math.ceil(remainingMs));
 }

@@ -28,6 +28,7 @@ import type {
 } from "@mdbase-dev/connect-protocol";
 import { abortableDelay } from "./async.js";
 import {
+  MdbaseConnectError,
   connectError,
   connectProblem,
   operationProblem
@@ -65,6 +66,7 @@ import type {
   MdbaseTimerList,
   MdbaseTimerReconciliation,
   ConnectRequestOptions,
+  QueryAllOptions,
   QueryInput,
   QueryPage,
   QueryPagesOptions,
@@ -78,6 +80,11 @@ import type {
   UpdateTypeInput,
   WatchOptions
 } from "./operation-types.js";
+import {
+  createRequestBudget,
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  requestAbortReason
+} from "./request-budget.js";
 
 /**
  * Typed collection operations independent of OAuth, HTTP, or storage.
@@ -86,7 +93,10 @@ import type {
  * sandbox, or another provider without changing its record logic.
  */
 export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject> {
-  constructor(private readonly transport: MdbaseCollectionTransport) {}
+  constructor(
+    private readonly transport: MdbaseCollectionTransport,
+    private readonly requestTimeoutMs: number | null = DEFAULT_REQUEST_TIMEOUT_MS
+  ) {}
 
   operation<Result>(
     operation: CollectionOperation,
@@ -144,7 +154,7 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
         offset,
         limit: pageNumber === 0 ? firstPageSize : pageSize,
         ...(snapshot ? { snapshot } : {})
-      }, { signal: options.signal, timeoutMs: options.timeoutMs });
+      }, { signal: options.signal, timeoutMs: options.pageTimeoutMs });
       if (!queried.ok) {
         yield queried;
         return;
@@ -180,27 +190,47 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
 
   async queryAll(
     input: QueryInput = {},
-    options: QueryPagesOptions<Frontmatter> = {}
+    options: QueryAllOptions<Frontmatter> = {}
   ): Promise<ConnectOutcome<QueryResult<Frontmatter>, CollectionQueryProblemCode>> {
+    const budget = createRequestBudget(options, this.requestTimeoutMs);
     const results: QueryResult<Frontmatter>["results"] = [];
     let finalPage: QueryPage<Frontmatter> | undefined;
     const diagnostics: MdbaseDiagnostic[] = [];
-    for await (const outcome of this.queryPages(input, options)) {
-      if (!outcome.ok) return outcome;
-      const page = outcome.value;
-      results.push(...page.results);
-      finalPage = page;
-      diagnostics.push(...outcome.diagnostics);
-    }
-    return connectSuccess({
-      results,
-      meta: {
-        ...(finalPage?.meta ?? {}),
-        total_count: finalPage?.meta?.total_count ?? results.length,
-        has_more: finalPage ? !finalPage.complete : false,
-        ...(finalPage?.snapshot ? { snapshot: finalPage.snapshot } : {})
+    try {
+      for await (const outcome of this.queryPages(input, {
+        firstPageSize: options.firstPageSize,
+        pageSize: options.pageSize,
+        signal: budget.signal,
+        pageTimeoutMs: null,
+        onProgress: options.onProgress
+      })) {
+        if (!outcome.ok) return outcome;
+        const page = outcome.value;
+        results.push(...page.results);
+        finalPage = page;
+        diagnostics.push(...outcome.diagnostics);
       }
-    }, diagnostics);
+      if (budget.signal.aborted) throw requestAbortReason(budget.signal);
+      return connectSuccess({
+        results,
+        meta: {
+          ...(finalPage?.meta ?? {}),
+          total_count: finalPage?.meta?.total_count ?? results.length,
+          has_more: finalPage ? !finalPage.complete : false,
+          ...(finalPage?.snapshot ? { snapshot: finalPage.snapshot } : {})
+        }
+      }, diagnostics);
+    } catch (error) {
+      if (error instanceof MdbaseConnectError) {
+        return connectFailure(error.problem) as ConnectOutcome<
+          QueryResult<Frontmatter>,
+          CollectionQueryProblemCode
+        >;
+      }
+      throw error;
+    } finally {
+      budget.dispose();
+    }
   }
 
   listViews(options?: ConnectRequestOptions): Promise<ConnectOutcome<SavedViewList, CollectionReadProblemCode>> {

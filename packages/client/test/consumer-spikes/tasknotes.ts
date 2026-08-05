@@ -8,9 +8,8 @@ export async function tasknotesSpike(connection: MdbaseConnection<JsonObject>): 
   const sync = connection.sync();
   if (sync) void sync.transport.openSession();
   for await (const listed of connection.files.list({ timeoutMs: 20_000 })) {
-    if (!listed.ok) break;
-    const downloaded = await connection.files.downloadBytes(listed.value, { timeoutMs: 120_000 });
-    if (!downloaded.ok) break;
+    const downloaded = await connection.files.downloadBytes(listed, { timeoutMs: 120_000 });
+    if (downloaded.byteLength === 0) break;
   }
   const pending: readonly PendingMutation[] = connection.pendingMutations();
   for (const mutation of pending) await mutation.recover({ timeoutMs: 30_000 });
