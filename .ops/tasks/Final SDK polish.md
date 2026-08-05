@@ -1,6 +1,6 @@
 ---
 title: Final SDK polish
-status: open
+status: done
 priority: high
 owner: codex
 parent: SDK and authority beta hardening
@@ -14,7 +14,7 @@ tags:
   - lifecycle
   - consumers
 created_at: 2026-08-05T12:12:48+10:00
-updated_at: 2026-08-05T20:05:39+10:00
+updated_at: 2026-08-05T22:23:00+10:00
 type: task
 ---
 
@@ -216,3 +216,36 @@ behavioral changes from surface cleanup.
 - The task remains open for the immutable artifact freeze, exact one-time pin
   in Editor, Workouts, Pickle Android, and TaskNotes, consumer-specific proof,
   and the single successor rollout/canary/soak cycle.
+
+## Completion — 2026-08-05
+
+- Final source commit `55b536aafa9a1ae1031171fa7e39ae99fa4530f0`
+  passes the complete JavaScript and Rust workspaces, release-readiness and
+  architecture checks, public/negative packed API fixtures, package audit,
+  compiled documentation, CSP and governed browser bundle checks, and the
+  local/relay/hosted/files/sync/stress/platform suites recorded above.
+- One monotonic budget now spans composite operations; application-session
+  startup/destroy/restart is coalesced and lifecycle-safe; pagination semantics
+  are explicit; and black-hole, cancellation, Strict Mode remount, progress,
+  and listener-cleanup fixtures are green.
+- The root export inventory is explicit. Removed builders, adapters, raw
+  operation escape hatches, and wire construction seams fail packed negative
+  fixtures; supported testing builders live in `@mdbase-dev/connect-testing`,
+  while `/advanced` and `/crypto` retain deliberate low-level seams.
+- Application inputs/results are camelCase at the SDK boundary, query/filter/
+  order types reject misspellings, heterogeneous record generics remain
+  representable, and round-trip wire fixtures preserve the canonical protocol.
+- The immutable beta.33 packages are pinned in Editor `eb48e42`, Workouts
+  `fa5684c`, Pickle `5e3cbe0`, and TaskNotes `6febc15`. Exact byte-length and
+  SHA-512 verification passes across all four consumers. Ordinary application
+  code no longer imports protocol internals for SDK concepts; TaskNotes retains
+  one explicit low-level authority fixture.
+- Editor passes typecheck, 240 tests, build, bundle/CSP and its 45-case browser
+  matrix; Workouts passes typecheck, 24 tests, manifest/build, 10 browser cases,
+  and real authority dogfood; Pickle passes full verify, 8/8 browser, Android
+  smoke, and response-loss recovery; TaskNotes passes full 356-test verify,
+  8/8 browser, production and Android smokes, conformance, setup, and exact
+  response-loss recovery.
+
+All exit gates are satisfied. Rollout remains in the parent Phase 7 task so the
+deployment, rollback proof, ordered canaries, and soak still occur exactly once.

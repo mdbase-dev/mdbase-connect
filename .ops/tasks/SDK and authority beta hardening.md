@@ -14,8 +14,8 @@ tags:
   - user-experience
   - consumers
 created_at: 2026-08-04T10:51:42+10:00
-updated_at: 2026-08-05T20:05:39+10:00
-progress_summary: Phases 0-6 are green at immutable beta.32 commit d5560b792b8f4728125ce7b1c4a00b923c0b0f2c; exact packages, signed images, desktop artifacts, and all four repinned consumers passed their full relevant gates. Staging activation stopped before any service or database change when the migration-safety gate required an explicit recovery checkpoint. The user then expanded the goal with application-declared collection configuration provisioning and Final SDK polish so only one production-shaped deployment is required. beta.32 remains undeployed; the successor train will complete both new child tasks, repack and reverify all consumers, then run Phase 7 activation, rollback, ordered canaries, soak, and final audit. Production is untouched.
+updated_at: 2026-08-05T22:23:00+10:00
+progress_summary: Phases 0-6 and both expanded successor tasks are complete on immutable beta.33 source 55b536aafa9a1ae1031171fa7e39ae99fa4530f0. Exact packages are SHA-512 verified in Editor eb48e42, Workouts fa5684c, Pickle 5e3cbe0, and TaskNotes 6febc15; all consumer, native, conformance, setup, and real-authority recovery gates are green. No staging or production deployment has occurred. Phase 7 is now the only remaining work: exact image audit and recovery checkpoint, one guarded activation, rollback proof, ordered canaries, privacy-safe soak, final audit, and the external-beta invitation decision.
 type: task
 ---
 

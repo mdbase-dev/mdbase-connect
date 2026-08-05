@@ -1,6 +1,6 @@
 ---
 title: Beta hardening 09 - candidate and consumer migrations
-status: in_progress
+status: done
 priority: critical
 owner: codex
 parent: SDK and authority beta hardening
@@ -9,8 +9,8 @@ phase: 6
 depends_on: [Beta hardening 06 - management correctness, Beta hardening 07 - public SDK surface]
 tags: [beta, packaging, consumers, editor, workouts, pickle, tasknotes]
 created_at: 2026-08-04T17:48:28+10:00
-updated_at: 2026-08-05T11:59:45+10:00
-progress_summary: Candidate 62513b927384 passed complete CI and signed image publication, but exact packed-artifact validation rejected it before tagging or deployment. Connect PR #185 carries grant encryption v1 explicitly in the Playwright-serialized seed with a serialization/IndexedDB/WebCrypto regression. Exact 7f689ed697f2 tarballs pass Editor authorization recovery, both remote-authority flows, and the full 45-test browser matrix; Editor commit ae6aad7 uses the canonical operation-transport constant. Replacement CI, one immutable main commit, exact repack, four repins, and every downstream gate remain required. Production is untouched.
+updated_at: 2026-08-05T22:23:00+10:00
+progress_summary: Delivery slice 9 is complete on immutable beta.33 source 55b536aafa9a1ae1031171fa7e39ae99fa4530f0. Exact SHA-512-verified packages are pinned in Editor eb48e42, Workouts fa5684c, Pickle 5e3cbe0, and TaskNotes 6febc15; every product-specific compile, unit, browser/native, manifest/build, and real-authority recovery gate is green. Application configuration provisioning and Final SDK polish are also complete in this same train. No staging or production deployment has occurred; Phase 7 is the only remaining program slice.
 type: task
 ---
 
@@ -214,6 +214,28 @@ artifacts remain useful migration evidence but are not release candidates.
 The slice closes again only after one immutable post-correction Connect commit
 produces all six packages, all four consumer PRs pin exactly those artifacts,
 and their required product gates are rerun.
+
+## Final beta.33 candidate — 2026-08-05
+
+- Artifact source: `55b536aafa9a1ae1031171fa7e39ae99fa4530f0`.
+  Connect, Devkit, Protocol, Sync, Pickle, and Testing are all beta.33 packages
+  from that exact revision. `pnpm check:consumer-artifacts` verifies the
+  declared byte lengths, SHA-512 digests, package files, and lockfile references
+  in every consumer.
+- Final consumer heads are Editor `eb48e42`, Workouts `fa5684c`, Pickle
+  `5e3cbe0`, and TaskNotes `6febc15`. All worktrees are clean and pushed.
+- TaskNotes, the final and strongest integration gate, found and fixed an
+  application-owned Today-view date comparison during fresh-collection setup.
+  Repeated live relay dogfood then proved reviewed configuration plus type-pack
+  setup, namespaced view creation/execution, lost-response recovery, and one
+  logical write.
+- The final candidate passed `cargo check --workspace`, `cargo test
+  --workspace`, the full JavaScript test/typecheck train, architecture and
+  release-readiness checks, and package audit. Earlier rejected beta.32
+  artifacts remain evidence only and must not be deployed.
+
+Slice 9 is closed. Phase 7 may use only this release train (or a newly frozen
+replacement if deployment discovers a correctness defect).
 
 ## Rejected packed candidate `62513b927384`
 

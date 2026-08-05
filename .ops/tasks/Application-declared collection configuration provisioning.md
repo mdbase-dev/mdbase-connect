@@ -1,6 +1,6 @@
 ---
 title: Application-declared collection configuration provisioning
-status: open
+status: done
 priority: high
 owner: codex
 parent: SDK and authority beta hardening
@@ -16,7 +16,7 @@ tags:
   - relay
   - developer-experience
 created_at: 2026-08-05T12:01:29+10:00
-updated_at: 2026-08-05T20:05:39+10:00
+updated_at: 2026-08-05T22:23:00+10:00
 type: task
 ---
 
@@ -176,3 +176,34 @@ shared semantics once the contract is settled.
   frozen, avoiding a second consumer/deployment cycle.
 - The task remains open until that exact TaskNotes artifact migration and its
   local, hosted, consumer-CI, and release-acceptance proof are complete.
+
+## Completion — 2026-08-05
+
+- Canonical assessment, merge, conflict, receipt, contribution ownership, and
+  atomic apply semantics live in mdbase-rs (`179cf4a`) and are consumed by both
+  filesystem and hosted authorities. Connect does not carry a second merge
+  implementation, and the generic hosted template remains free of TaskNotes or
+  Obsidian policy.
+- Connect commit `55b536aafa9a1ae1031171fa7e39ae99fa4530f0` freezes the
+  beta.33 manifest schema, `collection.setup.apply` capability, signed
+  assessment/apply operations, relay and hosted routing, reviewed setup session
+  API, diagnostics, idempotency, conflict, receipt, restart, and cross-authority
+  fixtures.
+- TaskNotes commit `6febc15` pins only that immutable artifact set. Its
+  declaration requests `views/tasknotes/**/*.base`, its setup UI distinguishes
+  review from access, and its five ordinary editable sources use explicit
+  `views/tasknotes/*.base` paths.
+- Fresh relay-backed live acceptance applied the reviewed setup to collection
+  `84ad01aa-268f-4f21-88ea-8e9e22600c74`, preserved generic collection
+  ownership, wrote the one namespaced include, created all five sources, and
+  executed the Today view. The run also dropped a successful create response,
+  reloaded, recovered the original durable request, and proved exactly one
+  task. It exposed and fixed a date-string comparison in the application-owned
+  Today source before release.
+- TaskNotes' 356-test verification, manifest registration/validation,
+  desktop/mobile 8/8 matrix, seven production checks, Android notification and
+  process-restart smoke, and repeated real-authority dogfood are green. The
+  unit/system suites cover already-compatible, missing, declined, conflicting,
+  retried, upgraded, hosted, and relay-backed setup paths.
+
+All acceptance criteria are satisfied. No intermediate deployment occurred.
