@@ -99,6 +99,36 @@ export function assertNoPhysicalPathAliases(paths: Iterable<string>): void {
   }
 }
 
+export function* projectedPhysicalPaths(
+  state: MirrorState,
+  recordChanges: Map<string, string | null>,
+  fileChanges: Map<string, string | null>
+): Iterable<string> {
+  const resources = state.resources ?? {};
+  for (const path in resources) {
+    if (Object.hasOwn(resources, path)) yield path;
+  }
+  for (const id in state.records) {
+    if (!Object.hasOwn(state.records, id)) continue;
+    const changed = recordChanges.get(id);
+    if (changed !== null) yield changed ?? state.records[id]!.path;
+    recordChanges.delete(id);
+  }
+  for (const path of recordChanges.values()) {
+    if (path !== null) yield path;
+  }
+  const files = state.files ?? {};
+  for (const id in files) {
+    if (!Object.hasOwn(files, id)) continue;
+    const changed = fileChanges.get(id);
+    if (changed !== null) yield changed ?? files[id]!.file.path;
+    fileChanges.delete(id);
+  }
+  for (const path of fileChanges.values()) {
+    if (path !== null) yield path;
+  }
+}
+
 /**
  * Proves that a complete change page is physically consistent with the
  * transitions this mirror can actually apply. Records deferred by a local

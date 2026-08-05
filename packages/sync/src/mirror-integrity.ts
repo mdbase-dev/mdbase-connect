@@ -15,7 +15,9 @@ export async function assertMirrorUndiverged(
   fileSystem: MirrorFileSystem,
   digest: (value: string) => string
 ): Promise<void> {
-  for (const [recordId, entry] of Object.entries(state.records)) {
+  for (const recordId in state.records) {
+    if (!Object.hasOwn(state.records, recordId)) continue;
+    const entry = state.records[recordId]!;
     validateRecordPath(entry.path, pathPolicy);
     const value = await fileSystem.read(entry.path);
     if (value === null || digest(value) !== entry.hash) {

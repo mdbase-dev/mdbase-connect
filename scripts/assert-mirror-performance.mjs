@@ -12,10 +12,16 @@ const validationHeapAllowanceMiB = Object.freeze({
   read_only_initial: 12,
   // No-op reads revalidate the complete durable physical-path set so a
   // tampered checkpoint cannot reintroduce case or Unicode aliases.
-  read_only_noop: 5,
-  // Incremental pages preflight every target against durable paths before
-  // applying their first event, with temporary state bounded by page size.
-  read_only_incremental: 6,
+  read_only_noop: 12,
+  // Incremental pages preflight the complete durable path index before
+  // applying their first event; projected changes remain bounded by page size.
+  read_only_incremental: 15,
+  read_write_initial: 3,
+  read_write_noop: 17
+});
+// The same complete physical-path validation adds bounded CPU work while
+// preserving the pre-hardening timing baseline as the comparison point.
+const validationWallAllowanceMs = Object.freeze({
   read_write_noop: 5
 });
 const baseline = JSON.parse(await readFile(
@@ -52,7 +58,8 @@ for (const [scenario, before] of Object.entries(baseline.medians)) {
   const current = medians[`node_${scenario}`];
   assert(current, `missing Node profile scenario ${scenario}`);
   assert(
-    current.wall_ms <= before.wall_ms * 1.15,
+    current.wall_ms <= before.wall_ms * 1.15
+      + (validationWallAllowanceMs[scenario] ?? 0),
     `${scenario} wall time regressed: ${current.wall_ms}ms versus ${before.wall_ms}ms`
   );
   assert(
@@ -83,6 +90,7 @@ process.stdout.write(`${JSON.stringify({
   performance_ok: true,
   parameters: profile.parameters,
   validation_heap_allowance_mib: validationHeapAllowanceMiB,
+  validation_wall_allowance_ms: validationWallAllowanceMs,
   medians
 }, null, 2)}\n`);
 

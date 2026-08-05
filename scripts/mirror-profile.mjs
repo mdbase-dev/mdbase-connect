@@ -145,12 +145,13 @@ class CountingStateStore extends MemoryMirrorStateStore {
 }
 
 function countingTransport(transport, probe) {
-  const calls = { open_session: 0, snapshot: 0, changes: 0, mutate: 0 };
+  const calls = { open_session: 0, snapshot: 0, file_snapshot: 0, changes: 0, mutate: 0 };
   return {
     calls,
     reset() {
       calls.open_session = 0;
       calls.snapshot = 0;
+      calls.file_snapshot = 0;
       calls.changes = 0;
       calls.mutate = 0;
     },
@@ -164,6 +165,12 @@ function countingTransport(transport, probe) {
       async snapshot(snapshotId, page) {
         calls.snapshot += 1;
         const result = await transport.snapshot(snapshotId, page);
+        probe.touch();
+        return result;
+      },
+      async fileSnapshot(snapshotId, page) {
+        calls.file_snapshot += 1;
+        const result = await transport.fileSnapshot(snapshotId, page);
         probe.touch();
         return result;
       },

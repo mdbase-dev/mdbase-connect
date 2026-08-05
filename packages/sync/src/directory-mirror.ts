@@ -56,7 +56,8 @@ import { buildAuthorityPromotionManifest } from "./mirror-promotion.js";
 import {
   assertNoPhysicalPathAliases,
   physicalMirrorPathKey,
-  preflightChangePhysicalPaths
+  preflightChangePhysicalPaths,
+  projectedPhysicalPaths
 } from "./mirror-physical-path.js";
 import { openMirrorSnapshot, rebuildMirror } from "./mirror-rebuild.js";
 import {
@@ -174,7 +175,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
           state
         );
       }
-      this.preflightProjectedPaths(state, page.events);
+      if (page.events.length > 0) this.preflightProjectedPaths(state, page.events);
       for (const event of page.events) {
         if (event.type === "file_put" && fileSelected(this.selectiveSync, event.file)) {
           if (!this.blobStore) {
@@ -959,27 +960,19 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     state: MirrorState,
     events: Array<SyncChange<Frontmatter>>
   ): void {
-    const records = new Map(
-      Object.entries(state.records).map(([id, entry]) => [id, entry.path])
-    );
-    const files = new Map(
-      Object.entries(state.files ?? {}).map(([id, entry]) => [id, entry.file.path])
-    );
+    const records = new Map<string, string | null>();
+    const files = new Map<string, string | null>();
     for (const event of events) {
       if (event.type === "put") {
         if (pathSelected(this.selectiveSync, event.record.path)) {
           records.set(event.record.record_id, event.record.path);
-        } else records.delete(event.record.record_id);
-      } else if (event.type === "remove") records.delete(event.record_id);
+        } else records.set(event.record.record_id, null);
+      } else if (event.type === "remove") records.set(event.record_id, null);
       else if (event.type === "file_put") {
         if (fileSelected(this.selectiveSync, event.file)) files.set(event.file.file_id, event.file.path);
-        else files.delete(event.file.file_id);
-      } else files.delete(event.file_id);
+        else files.set(event.file.file_id, null);
+      } else files.set(event.file_id, null);
     }
-    assertNoPhysicalPathAliases([
-      ...Object.keys(state.resources ?? {}),
-      ...records.values(),
-      ...files.values()
-    ]);
+    assertNoPhysicalPathAliases(projectedPhysicalPaths(state, records, files));
   }
 }

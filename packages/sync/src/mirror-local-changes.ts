@@ -52,17 +52,13 @@ export async function captureMirrorLocalChanges({
     await fileSystem.listMarkdown(resourcePaths),
     pathPolicy
   ).filter(pathSelected);
-  assertNoPhysicalPathAliases([
-    ...resourcePaths,
-    ...files,
-    ...Object.values(state.files ?? {}).map((entry) => entry.file.path)
-  ]);
-  const managedPaths = new Map(
-    Object.entries(state.records).map(([recordId, entry]) => [
-      entry.path,
-      recordId
-    ])
-  );
+  assertNoPhysicalPathAliases(localPhysicalPaths(resourcePaths, files, state));
+  const managedPaths = new Map<string, string>();
+  for (const recordId in state.records) {
+    if (Object.hasOwn(state.records, recordId)) {
+      managedPaths.set(state.records[recordId]!.path, recordId);
+    }
+  }
   const local = new Map<string, { document?: string; hash: string }>();
   for (const path of files) {
     const document = await fileSystem.read(path);
@@ -73,14 +69,14 @@ export async function captureMirrorLocalChanges({
       && state.records[managed]?.hash === hash;
     local.set(path, unchanged ? { hash } : { document, hash });
   }
-  const untracked = new Set(
-    [...local.keys()].filter((path) => !managedPaths.has(path))
-  );
-  const missing = new Set(
-    Object.entries(state.records)
-      .filter(([, entry]) => !local.has(entry.path))
-      .map(([recordId]) => recordId)
-  );
+  const untracked = new Set(local.keys());
+  const missing = new Set<string>();
+  for (const recordId in state.records) {
+    if (!Object.hasOwn(state.records, recordId)) continue;
+    const path = state.records[recordId]!.path;
+    if (local.has(path)) untracked.delete(path);
+    else missing.add(recordId);
+  }
   const pending: PendingMirrorMutation[] = [];
   const localIssues: Record<string, StoredMirrorLocalIssue> = {};
   const parseLocal = (
@@ -194,4 +190,19 @@ export async function captureMirrorLocalChanges({
     }, path, value.hash);
   }
   return { pending, localIssues };
+}
+
+function* localPhysicalPaths(
+  resourcePaths: Iterable<string>,
+  recordPaths: Iterable<string>,
+  state: MirrorState
+): Iterable<string> {
+  yield* resourcePaths;
+  yield* recordPaths;
+  const files = state.files ?? {};
+  for (const fileId in files) {
+    if (Object.hasOwn(files, fileId)) {
+      yield files[fileId]!.file.path;
+    }
+  }
 }
