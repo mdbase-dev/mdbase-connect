@@ -14,7 +14,7 @@ tags:
   - user-experience
   - consumers
 created_at: 2026-08-04T10:51:42+10:00
-updated_at: 2026-08-05T13:23:00+10:00
+updated_at: 2026-08-05T20:05:39+10:00
 progress_summary: Phases 0-6 are green at immutable beta.32 commit d5560b792b8f4728125ce7b1c4a00b923c0b0f2c; exact packages, signed images, desktop artifacts, and all four repinned consumers passed their full relevant gates. Staging activation stopped before any service or database change when the migration-safety gate required an explicit recovery checkpoint. The user then expanded the goal with application-declared collection configuration provisioning and Final SDK polish so only one production-shaped deployment is required. beta.32 remains undeployed; the successor train will complete both new child tasks, repack and reverify all consumers, then run Phase 7 activation, rollback, ordered canaries, soak, and final audit. Production is untouched.
 type: task
 ---
@@ -562,3 +562,18 @@ Keep pull requests and commits reviewable in this order:
 
 Each slice must leave the repository green. Do not combine a schema change, a
 public API redesign, a large file split, and a consumer migration in one review.
+
+## Current execution evidence — 2026-08-05
+
+- The active train is committed and pushed through Connect `2dd725b`, with the
+  required mdbase-rs staged-mutation API merged at `b09f5d6`.
+- The final hosted 10,003-record performance proof is green: mutation p95
+  84.01 ms against the unchanged 200 ms hard limit; snapshot 1.334 s;
+  change-page p95 27.38 ms; warm-read p95 46.72 ms; warm-query p95 27.5 ms.
+  Restart, logical backup restore, credential rotation, revocation, and body
+  limit checks passed in the same system run.
+- Application-declared provisioning and final SDK polish remain part of this
+  release unit. No successor artifact has been frozen or deployed yet. Next is
+  release-readiness/package verification, followed by one immutable artifact
+  set across Editor, Workouts, Pickle Android, and TaskNotes, then one staged
+  activation/canary/rollback/soak program.

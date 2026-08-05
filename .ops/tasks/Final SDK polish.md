@@ -14,7 +14,7 @@ tags:
   - lifecycle
   - consumers
 created_at: 2026-08-05T12:12:48+10:00
-updated_at: 2026-08-05T13:23:00+10:00
+updated_at: 2026-08-05T20:05:39+10:00
 type: task
 ---
 
@@ -193,3 +193,26 @@ removal or rename into a compile-negative fixture before implementation, then
 migrate all four consumers in the same release train. Keep correctness fixes
 separate from mechanical naming and export movement so review can distinguish
 behavioral changes from surface cleanup.
+
+## Progress — 2026-08-05
+
+- The request-budget, concurrent application-session lifecycle, reviewed root
+  and subpath exports, camelCase SDK boundary, precise query types, testing
+  package ownership, compiled documentation, CSP, and browser bundle work is
+  implemented on `agent/beta33-hardening` through Connect commit `2dd725b`.
+- The complete local/relay/sync/provider/files/container/desktop system train,
+  stress regression suites, architecture budgets, strict Rust linting, and the
+  10k mirror profiles were green before the final hosted large-collection
+  optimization.
+- The exact 10,003-record hosted gate now passes without relaxing a budget:
+  mutation p95 84.01 ms, snapshot 1.334 s, change-page p95 27.38 ms,
+  warm-read p95 46.72 ms, and warm-query p95 27.5 ms. The fix replaced
+  collection-wide record-index scans with paired indexes and moved hosted
+  writes onto mdbase-rs's explicit caller-owned staged-mutation boundary.
+  Ordinary filesystem mutations retain their atomic shadow transaction.
+- mdbase-rs PR #41 merged as `b09f5d6`; its Linux, macOS, Windows, PostgreSQL,
+  packaging, dependency-policy, docs/features, full conformance, and strict
+  clippy gates are green.
+- The task remains open for the immutable artifact freeze, exact one-time pin
+  in Editor, Workouts, Pickle Android, and TaskNotes, consumer-specific proof,
+  and the single successor rollout/canary/soak cycle.

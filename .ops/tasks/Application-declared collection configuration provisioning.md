@@ -16,7 +16,7 @@ tags:
   - relay
   - developer-experience
 created_at: 2026-08-05T12:01:29+10:00
-updated_at: 2026-08-05T13:23:00+10:00
+updated_at: 2026-08-05T20:05:39+10:00
 type: task
 ---
 
@@ -163,3 +163,16 @@ Start by specifying the canonical `mdbase-rs` assessment and apply contract,
 including merge algebra, receipts, conflicts, and transaction boundaries. Do
 not begin with TaskNotes UI or a hosted-only endpoint; those should consume the
 shared semantics once the contract is settled.
+
+## Progress — 2026-08-05
+
+- The canonical atomic assessment/apply contract and receipts merged in
+  mdbase-rs PR #40 at `179cf4a`; Connect's declaration binding, hosted setup,
+  relay/local semantics, and authorization coverage are implemented on the
+  beta-hardening train.
+- TaskNotes has a preliminary collection-setup migration checkpoint, but it is
+  intentionally not the final pin. It will consume the same immutable successor
+  artifact set as the other three applications after release readiness is
+  frozen, avoiding a second consumer/deployment cycle.
+- The task remains open until that exact TaskNotes artifact migration and its
+  local, hosted, consumer-CI, and release-acceptance proof are complete.
