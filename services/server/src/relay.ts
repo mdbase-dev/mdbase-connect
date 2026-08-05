@@ -220,7 +220,12 @@ export class RelayHub {
           contracts?: unknown[];
           revision?: string;
         };
-        if (message.protocol_version !== CONTROL_PROTOCOL_VERSION) {
+        const expectedProtocol = message.type === "operation_response"
+          || message.type === "encrypted_operation_response"
+          || message.type === "encrypted_operation_rejected"
+          ? OPERATION_TRANSPORT_PROTOCOL_VERSION
+          : CONTROL_PROTOCOL_VERSION;
+        if (message.protocol_version !== expectedProtocol) {
           rejectIncompatibleRelay(socket);
           return;
         }

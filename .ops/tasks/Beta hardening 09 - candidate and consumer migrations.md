@@ -152,7 +152,8 @@ artifacts remain useful migration evidence but are not release candidates.
   Compatibility uses version-set intersection, accepts a lower package version
   when every required contract intersects, and returns the axis-specific typed
   problem before authorization, read, replay-ledger, journal, or collection
-  state.
+  state. A live WebSocket regression proves control responses remain v1 while
+  operation requests and responses independently round-trip on transport v2.
 - A mixed-version encrypted integration fixture authenticates an unsupported
   durable mutation and proves `operation_outcome: not_sent`, zero replay-ledger
   rows, and no collection file. Authorization and hosted-readiness tests cover

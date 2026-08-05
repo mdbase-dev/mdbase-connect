@@ -18,7 +18,7 @@ describe("live connector-mediated authorization", () => {
   it("offers only live local collections and activates a grant after connector acknowledgement", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
-    const { app } = await buildApp({
+    const { app, relay } = await buildApp({
       db,
       devAuth: true,
       publicUrl: "http://connect.test",
@@ -112,11 +112,15 @@ describe("live connector-mediated authorization", () => {
     let holdActivation = true;
     let releaseActivation!: () => void;
     let activationReceived!: () => void;
+    let policyObserved!: () => void;
     const activationGate = new Promise<void>((resolve) => {
       releaseActivation = resolve;
     });
     const activationStarted = new Promise<void>((resolve) => {
       activationReceived = resolve;
+    });
+    const policyReady = new Promise<void>((resolve) => {
+      policyObserved = resolve;
     });
     socket.on("open", () => {
       socket.send(JSON.stringify({
@@ -136,12 +140,22 @@ describe("live connector-mediated authorization", () => {
       const message = JSON.parse(raw.toString()) as Record<string, unknown>;
       relayMessages.push(message);
       if (message.type === "policy_snapshot") {
+        policyObserved();
         socket.send(JSON.stringify({
           type: "policy_applied",
           protocol_version: 1,
           request_id: message.request_id,
           revision: message.revision,
           ok: true
+        }));
+      }
+      if (message.type === "operation_request") {
+        socket.send(JSON.stringify({
+          type: "operation_response",
+          protocol_version: 2,
+          request_id: message.request_id,
+          ok: true,
+          result: { display_name: "Current notes" }
         }));
       }
       if (message.type === "authorization_offer_request") {
@@ -182,6 +196,16 @@ describe("live connector-mediated authorization", () => {
       }
     });
     await once(socket, "open");
+    await policyReady;
+    await expect(relay.route({
+      connectorId: connector.connector.id,
+      localCollectionId,
+      requestId: "425cc8cf-dad5-4fc9-b0bc-a1c92e99f3ed",
+      grantId: "525cc8cf-dad5-4fc9-b0bc-a1c92e99f3ed",
+      applicationId,
+      operation: "describe",
+      operationInput: {}
+    })).resolves.toEqual({ display_name: "Current notes" });
 
     const firstRequestId = await createAuthorizationRequest(
       app,
