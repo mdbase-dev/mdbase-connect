@@ -149,6 +149,7 @@ export interface CollectionContractDescriptor extends ContractRequirement {
 
 export interface ApplicationRequirements {
   contracts: ContractRequirement[];
+  configuration?: ConfigurationRequirement[];
   access?: "contract" | "full_collection";
   collection_kind?: "local" | "hosted";
   files?: {
@@ -179,6 +180,23 @@ export interface TypePackProvision {
 
 export interface ApplicationProvisions {
   type_packs: TypePackProvision[];
+  configuration?: ConfigurationProvision[];
+}
+
+export type ConfigurationContributionValue = string | number | boolean | null;
+
+export interface ConfigurationRequirement {
+  id: string;
+  path: string;
+  predicate: "contains";
+  value: ConfigurationContributionValue;
+}
+
+export interface ConfigurationProvision {
+  requirement: string;
+  operation: "set_add";
+  path: string;
+  value: ConfigurationContributionValue;
 }
 
 export interface NotificationCriterion {

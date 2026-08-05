@@ -2039,10 +2039,24 @@ describe("mdbase connect server", () => {
           { id: "athlete.profile", version: "1.0.0", digest: TEST_CONTRACT_DIGEST },
           { id: "workout.record", version: "1.0.0", digest: TEST_CONTRACT_DIGEST }
         ],
-        access: "full_collection"
+        access: "full_collection",
+        configuration: [{
+          id: "workout-base-sources",
+          path: "/x-obsidian/bases/include",
+          predicate: "contains",
+          value: "views/workouts/**/*.base"
+        }]
       },
       "Workout Tracker",
-      { type_packs: [pack] }
+      {
+        type_packs: [pack],
+        configuration: [{
+          requirement: "workout-base-sources",
+          operation: "set_add",
+          path: "/x-obsidian/bases/include",
+          value: "views/workouts/**/*.base"
+        }]
+      }
     );
     const discovered = await app.inject({
       method: "POST",
@@ -2073,6 +2087,12 @@ describe("mdbase connect server", () => {
     expect(pending.json().authorization.provisions.type_packs[0].provides).toEqual([
       { id: "workout.record", version: "1.0.0", digest: TEST_CONTRACT_DIGEST }
     ]);
+    expect(pending.json().authorization.provisions.configuration).toEqual([{
+      requirement: "workout-base-sources",
+      operation: "set_add",
+      path: "/x-obsidian/bases/include",
+      value: "views/workouts/**/*.base"
+    }]);
     expect(pending.json().collections[0].types).toEqual([typeCandidate]);
     const setup = {
       contract: {
@@ -2138,6 +2158,15 @@ describe("mdbase connect server", () => {
       expect.objectContaining({
         applicationId: "dev.mdbase.workouts",
         declarationDigest: `sha256:${applicationManifestDigest}`,
+        requirements: expect.objectContaining({
+          configuration: [expect.objectContaining({ id: "workout-base-sources" })]
+        }),
+        provisions: expect.objectContaining({
+          configuration: [expect.objectContaining({
+            operation: "set_add",
+            value: "views/workouts/**/*.base"
+          })]
+        }),
         contractSetups: [setup]
       })
     );

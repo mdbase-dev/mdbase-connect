@@ -22,6 +22,7 @@ import {
   type UnavailableConnector
 } from "./api";
 import { collectionCompatibility } from "./compatibility";
+import { configurationSetupSummary } from "./application-setup";
 import {
   formatDeviceCode,
   host,
@@ -175,7 +176,7 @@ export function Authorization({ requestId }: { requestId: string }) {
 
   if (!request) return <Loading error={error} />;
   const authorization = request.authorization;
-  const preparingStructure = structuralSetupRequested || authorizationNeedsTypeSetup(
+  const preparingStructure = structuralSetupRequested || authorizationNeedsSetup(
     authorization,
     request.collections
   );
@@ -476,6 +477,8 @@ export function ApprovalForm({
   const [error, setError] = useState("");
   const selected = compatible.find((choice) => choice.collection.id === collectionId)?.collection;
   const setup = selected ? neededProvisions(request, selected) : [];
+  const configurationSetup = request.provisions.configuration ?? [];
+  const hasSetup = setup.length > 0 || configurationSetup.length > 0;
   const setupContracts = useMemo(() => selected
     ? request.requirements.contracts.flatMap((required) => {
         if (selected.contracts.some((contract) =>
@@ -575,8 +578,9 @@ export function ApprovalForm({
   }
 
   async function decide(decision: "approved" | "denied") {
-    const preparingTypeSetup = decision === "approved" && contractSetups.length > 0;
-    if (preparingTypeSetup) onSetupActivityChange?.(true);
+    const preparingSetup = decision === "approved"
+      && (contractSetups.length > 0 || configurationSetup.length > 0);
+    if (preparingSetup) onSetupActivityChange?.(true);
     setSubmitting(decision);
     setError("");
     try {
@@ -593,7 +597,7 @@ export function ApprovalForm({
       });
       await onDecision(decision);
     } catch (decisionError) {
-      if (preparingTypeSetup) onSetupActivityChange?.(false);
+      if (preparingSetup) onSetupActivityChange?.(false);
       setError(message(decisionError));
       setSubmitting(null);
     }
@@ -672,7 +676,8 @@ export function ApprovalForm({
                     <strong>{collection.display_name}</strong>
                     <small>{collectionLocations.get(collection.id)}</small>
                   </span>
-                  {provisions.length > 0 && <b>Setup needed</b>}
+                  {(provisions.length > 0 || configurationSetup.length > 0)
+                    && <b>Setup review</b>}
                 </label>;
               })}
             </div>
@@ -783,6 +788,25 @@ export function ApprovalForm({
           })}
         </div>
       </section>}
+      {configurationSetup.length > 0 && <section className="approval-section configuration-setup-section">
+        <div className="approval-section-intro">
+          <strong>Review collection settings</strong>
+          <small>The application may add only these declared values under an extension setting. Existing and unrelated settings are preserved.</small>
+        </div>
+        <div className="approval-section-content configuration-setup-list">
+          {configurationSetup.map((provision) => {
+            const summary = configurationSetupSummary(provision);
+            return <div className="configuration-setup-item" key={`${provision.requirement}:${provision.path}`}>
+              <span aria-hidden="true">+</span>
+              <div>
+                <strong>Ensure <code>{summary.setting}</code> includes:</strong>
+                <code>{summary.value}</code>
+                <small>If the value is already present, mdbase leaves the collection unchanged. Conflicting settings stop setup without overwriting policy.</small>
+              </div>
+            </div>;
+          })}
+        </div>
+      </section>}
       <section className="approval-section">
         <div className="approval-section-intro">
           <strong>Permissions</strong>
@@ -806,27 +830,28 @@ export function ApprovalForm({
           : `Choose a compatible collection before allowing ${request.application_name}.`}</p>
         <div className="approval-actions">
           <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? "Denying…" : "Deny"}</button>
-          <button className="button primary" type="button" disabled={submitting !== null || !collectionId || (selectedPermissionCount === 0 && !request.requirements.files) || !setupReady} onClick={() => void decide("approved")}>{submitting === "approved" ? (setup.length > 0 ? "Setting up and allowing…" : "Approving…") : setup.length > 0 ? `Set up and allow ${request.application_name}` : `Allow ${request.application_name}`}</button>
+          <button className="button primary" type="button" disabled={submitting !== null || !collectionId || (selectedPermissionCount === 0 && !request.requirements.files) || !setupReady} onClick={() => void decide("approved")}>{submitting === "approved" ? (hasSetup ? "Setting up and allowing…" : "Approving…") : hasSetup ? `Set up and allow ${request.application_name}` : `Allow ${request.application_name}`}</button>
         </div>
       </footer>
     </div>
   );
 }
 
-function authorizationNeedsTypeSetup(
+function authorizationNeedsSetup(
   request: PendingAuthorization,
   collections: AvailableCollection[]
 ): boolean {
   if (!request.collection_id) return false;
   const collection = collections.find((candidate) => candidate.id === request.collection_id);
   if (!collection) return false;
-  return request.requirements.contracts.some((required) =>
-    !collection.contracts.some((contract) =>
-      contract.id === required.id
-        && contract.version === required.version
-        && contract.digest === required.digest
-    ) && Boolean(provisionedContract(required, request.provisions.type_packs))
-  );
+  return (request.provisions.configuration?.length ?? 0) > 0
+    || request.requirements.contracts.some((required) =>
+      !collection.contracts.some((contract) =>
+        contract.id === required.id
+          && contract.version === required.version
+          && contract.digest === required.digest
+      ) && Boolean(provisionedContract(required, request.provisions.type_packs))
+    );
 }
 
 function disambiguatedCollectionLocations(

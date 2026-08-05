@@ -1019,6 +1019,57 @@ h1 {
   min-width: 0;
 }
 
+.configuration-setup-list {
+  border-top: 1px solid var(--line);
+}
+
+.configuration-setup-item {
+  display: grid;
+  grid-template-columns: 1.35rem minmax(0, 1fr);
+  gap: 0.65rem;
+  padding: 0.8rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.configuration-setup-item > span {
+  display: grid;
+  width: 1.35rem;
+  height: 1.35rem;
+  place-items: center;
+  color: var(--connected);
+  background: color-mix(in srgb, var(--connected) 10%, transparent);
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.configuration-setup-item > div {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.configuration-setup-item strong,
+.configuration-setup-item code {
+  overflow-wrap: anywhere;
+  font-size: 0.74rem;
+}
+
+.configuration-setup-item > div > code {
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.25rem 0.4rem;
+  color: var(--ink);
+  background: var(--paper-hover);
+}
+
+.configuration-setup-item small {
+  color: var(--ink-muted);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
 .authorization-collection-action {
   display: flex;
   align-items: center;
