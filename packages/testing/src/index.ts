@@ -81,6 +81,7 @@ interface BrowserFixtureSeed {
   authorityKind: MdbaseFixtureAuthority["kind"];
   connectorAgreementPublicKey?: string;
   directAccess?: "enabled" | "disabled";
+  grantEncryptionProtocolVersion: GrantEncryption["protocol_version"];
   token: Record<string, unknown>;
 }
 
@@ -138,6 +139,7 @@ function fixtureSeed(
     collectionId: options.collection.id,
     keyHandle: `fixture:${options.application.manifest.id}:${options.collection.id}`,
     authorityKind: options.authority.kind,
+    grantEncryptionProtocolVersion: GRANT_ENCRYPTION_PROTOCOL_VERSION,
     ...(connectorAgreementPublicKey ? { connectorAgreementPublicKey } : {}),
     ...(options.directAccess ? { directAccess: options.directAccess } : {}),
     token: {
@@ -249,7 +251,7 @@ async function writeSeed(seed: BrowserFixtureSeed): Promise<FixtureRelayBinding 
       }
       const grantId = crypto.randomUUID();
       const encryption: GrantEncryption = {
-        protocol_version: GRANT_ENCRYPTION_PROTOCOL_VERSION,
+        protocol_version: seed.grantEncryptionProtocolVersion,
         suite: "P256-HKDF-SHA256-AES256GCM",
         key_id: `fixture-${crypto.randomUUID()}`,
         scope_epoch: 1,

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { randomUUID, webcrypto } from "node:crypto";
 import {
   decryptRelayResponse,
   encryptRelayRequest,
@@ -14,13 +15,49 @@ class MemoryLocalStorage {
   removeItem(key: string) { this.values.delete(key); }
 }
 
-class FixturePage implements MdbaseTestPage {
+class SerializedFixturePage implements MdbaseTestPage {
   async evaluate<Result, Argument>(
     script: (argument: Argument) => Result | Promise<Result>,
     argument: Argument
   ): Promise<Result> {
-    return script(argument);
+    const serialized = Function(`"use strict"; return (${script.toString()});`)() as typeof script;
+    return serialized(argument);
   }
+}
+
+function fakeIndexedDb(): IDBFactory {
+  const database = {
+    objectStoreNames: { contains: () => false },
+    createObjectStore: vi.fn(),
+    transaction: () => {
+      const transaction = {
+        objectStore: () => ({ put: vi.fn(), delete: vi.fn() }),
+        error: null,
+        onerror: null as ((event: Event) => void) | null,
+        onabort: null as ((event: Event) => void) | null,
+        oncomplete: null as ((event: Event) => void) | null
+      };
+      queueMicrotask(() => transaction.oncomplete?.(new Event("complete")));
+      return transaction;
+    },
+    close: vi.fn()
+  };
+  return {
+    open: () => {
+      const request = {
+        result: database,
+        error: null,
+        onupgradeneeded: null as ((event: Event) => void) | null,
+        onerror: null as ((event: Event) => void) | null,
+        onsuccess: null as ((event: Event) => void) | null
+      };
+      queueMicrotask(() => {
+        request.onupgradeneeded?.(new Event("upgradeneeded"));
+        request.onsuccess?.(new Event("success"));
+      });
+      return request;
+    }
+  } as unknown as IDBFactory;
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -30,7 +67,7 @@ describe("browser authorization fixture", () => {
     const storage = new MemoryLocalStorage();
     vi.stubGlobal("localStorage", storage);
     vi.stubGlobal("location", { origin: "https://tasks.example" });
-    const page = new FixturePage();
+    const page = new SerializedFixturePage();
     const controller = await installMdbaseBrowserFixture(page, {
       serverUrl: "https://connect.example/",
       application: {
@@ -75,6 +112,41 @@ describe("browser authorization fixture", () => {
     expect(JSON.parse(storage.getItem(tokenKey)!).expiresAt).toBeLessThan(Date.now());
     await controller.remove(page);
     expect(storage.getItem(tokenKey)).toBeNull();
+  });
+
+  it("serializes connector grant versions into the browser execution realm", async () => {
+    const storage = new MemoryLocalStorage();
+    vi.stubGlobal("localStorage", storage);
+    vi.stubGlobal("location", { origin: "https://tasks.example" });
+    vi.stubGlobal("indexedDB", fakeIndexedDb());
+    vi.stubGlobal("crypto", { subtle: webcrypto.subtle, randomUUID });
+
+    const controller = await installMdbaseBrowserFixture(new SerializedFixturePage(), {
+      serverUrl: "https://connect.example/",
+      application: {
+        manifest: {
+          manifest_version: 1,
+          id: "dev.example.tasks",
+          name: "Tasks",
+          homepage: "https://tasks.example/",
+          redirect_uris: ["https://tasks.example/callback"],
+          requirements: {
+            contracts: [],
+            capabilities: {
+              contract_version: 1,
+              required: ["collection.inspect", "records.read"],
+              optional: []
+            }
+          }
+        }
+      },
+      collection: { id: "collection-1", name: "Tasks" },
+      authority: { kind: "connector" }
+    });
+
+    expect(controller.relay).toBeDefined();
+    const tokenKey = [...storage.values.keys()].find((key) => key.includes(":token:"))!;
+    expect(JSON.parse(storage.getItem(tokenKey)!).encryption.protocol_version).toBe(1);
   });
 
   it("decrypts and responds through the production encrypted relay profile", async () => {
