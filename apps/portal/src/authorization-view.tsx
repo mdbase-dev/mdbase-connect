@@ -24,6 +24,11 @@ import {
 import { collectionCompatibility } from "./compatibility";
 import { configurationSetupSummary } from "./application-setup";
 import {
+  clearAuthorizationReview,
+  saveAuthorizationReview,
+  storedAuthorizationReview
+} from "./authorization-review-state";
+import {
   FilePermissionSummary,
   NotificationAccess,
   PermissionCapabilitySummary,
@@ -441,43 +446,6 @@ function initialSchemaValue(schema?: Record<string, unknown>): Record<string, un
       return "default" in value ? [[key, structuredClone(value.default)]] : [];
     }
   ));
-}
-
-interface StoredAuthorizationReview {
-  collectionId?: string;
-  operations?: string[];
-  reviewing?: boolean;
-}
-
-function authorizationReviewStorageKey(requestId: string): string {
-  return `mdbase:authorization-review:${requestId}`;
-}
-
-function storedAuthorizationReview(requestId: string): StoredAuthorizationReview | null {
-  try {
-    const stored = sessionStorage.getItem(authorizationReviewStorageKey(requestId));
-    if (!stored) return null;
-    const value = JSON.parse(stored) as StoredAuthorizationReview;
-    return value && typeof value === "object" ? value : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveAuthorizationReview(requestId: string, value: StoredAuthorizationReview): void {
-  try {
-    sessionStorage.setItem(authorizationReviewStorageKey(requestId), JSON.stringify(value));
-  } catch {
-    // Authorization still works when browser storage is unavailable.
-  }
-}
-
-function clearAuthorizationReview(requestId: string): void {
-  try {
-    sessionStorage.removeItem(authorizationReviewStorageKey(requestId));
-  } catch {
-    // Nothing else is required when browser storage is unavailable.
-  }
 }
 
 export function ApprovalForm({
