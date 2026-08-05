@@ -302,6 +302,23 @@ fn rust_file_messages_match_the_canonical_wire_schema() {
         serde_json::to_value(session).unwrap(),
     );
 
+    let status = FileTransferStatus {
+        protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
+        message_type: FileTransferStatusKind::FileTransferStatus,
+        transfer_id: Uuid::parse_str("01922222-2222-7222-8222-222222222222").unwrap(),
+        state: FileTransferState::Open,
+        received: vec![0],
+        received_bytes: 8 * 1024 * 1024,
+        uploaded_parts: vec![UploadedFilePart {
+            part_number: 1,
+            etag: "object-part-etag".to_string(),
+        }],
+    };
+    assert_file_schema(
+        "/$defs/transferStatus",
+        serde_json::to_value(status).unwrap(),
+    );
+
     let prepared_part = PreparedFilePart {
         protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
         message_type: PreparedFilePartKind::FilePart,

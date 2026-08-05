@@ -330,6 +330,9 @@ pub struct FileTransferStatus {
     pub state: FileTransferState,
     pub received: Vec<u64>,
     pub received_bytes: u64,
+    /// Object-store receipts for the currently durable multipart parts.
+    /// Empty for framed transfers, single PUTs, and downloads.
+    pub uploaded_parts: Vec<UploadedFilePart>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

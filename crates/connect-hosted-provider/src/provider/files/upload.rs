@@ -280,7 +280,8 @@ impl HostedProvider {
                 Some(&transfer.intent.path),
                 request_origin,
             )?;
-            let (received, received_bytes) = self.upload_progress(&transfer).await?;
+            let (received, received_bytes, uploaded_parts) =
+                self.upload_progress(&transfer).await?;
             return Ok(FileTransferStatus {
                 protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
                 message_type: FileTransferStatusKind::FileTransferStatus,
@@ -288,6 +289,7 @@ impl HostedProvider {
                 state: transfer_state(&transfer)?,
                 received,
                 received_bytes,
+                uploaded_parts,
             });
         }
         let transfer = self
@@ -310,6 +312,7 @@ impl HostedProvider {
             state: download_transfer_state(&transfer)?,
             received: Vec::new(),
             received_bytes: 0,
+            uploaded_parts: Vec::new(),
         })
     }
 
@@ -478,60 +481,6 @@ impl HostedProvider {
         }
         self.file_transfer_status(collection_id, token, transfer.id, request_origin)
             .await
-    }
-
-    async fn upload_progress(&self, transfer: &HostedFileTransfer) -> ApiResult<(Vec<u64>, u64)> {
-        if transfer.state == "committed" {
-            return Ok((
-                (0..upload_part_count(transfer, self.blob_store.upload_part_size())).collect(),
-                transfer.expected_size,
-            ));
-        }
-        let received = match transfer.strategy.as_str() {
-            "object_put" => {
-                if self
-                    .blob_store
-                    .object_exists(&transfer.staging_object_key)
-                    .await?
-                {
-                    vec![0]
-                } else {
-                    Vec::new()
-                }
-            }
-            "object_multipart" if transfer.state == "completing" => transfer
-                .completion_parts
-                .as_deref()
-                .unwrap_or_default()
-                .iter()
-                .map(|part| u64::from(part.part_number - 1))
-                .collect(),
-            "object_multipart" => self
-                .blob_store
-                .list_multipart_parts(
-                    &transfer.staging_object_key,
-                    transfer
-                        .multipart_upload_id
-                        .as_deref()
-                        .ok_or_else(|| ApiError::internal("Multipart upload ID is missing."))?,
-                )
-                .await?
-                .into_iter()
-                .map(|part| (part.part_number - 1) as u64)
-                .collect(),
-            _ => return Err(ApiError::internal("Stored upload strategy is invalid.")),
-        };
-        let mut received_bytes = 0_u64;
-        for index in &received {
-            received_bytes = received_bytes
-                .checked_add(part_length(
-                    transfer.expected_size,
-                    strategy_part_size(transfer, self.blob_store.upload_part_size())?,
-                    *index,
-                )?)
-                .ok_or_else(|| ApiError::internal("Uploaded byte count overflowed."))?;
-        }
-        Ok((received, received_bytes))
     }
 
     async fn validate_upload_completion(

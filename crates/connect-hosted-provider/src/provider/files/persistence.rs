@@ -112,66 +112,92 @@ impl HostedProvider {
         .transpose()
     }
 
+    pub(super) async fn upload_progress(
+        &self,
+        transfer: &HostedFileTransfer,
+    ) -> ApiResult<(Vec<u64>, u64, Vec<UploadedFilePart>)> {
+        if transfer.state == "committed" {
+            let uploaded_parts = if transfer.strategy == "object_multipart" {
+                transfer.completion_parts.clone().unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            return Ok((
+                (0..upload_part_count(transfer, self.blob_store.upload_part_size())).collect(),
+                transfer.expected_size,
+                uploaded_parts,
+            ));
+        }
+        let mut uploaded_parts = Vec::new();
+        let received = match transfer.strategy.as_str() {
+            "object_put" => {
+                if self
+                    .blob_store
+                    .object_exists(&transfer.staging_object_key)
+                    .await?
+                {
+                    vec![0]
+                } else {
+                    Vec::new()
+                }
+            }
+            "object_multipart" if transfer.state == "completing" => {
+                uploaded_parts = transfer.completion_parts.clone().unwrap_or_default();
+                uploaded_parts
+                    .iter()
+                    .map(|part| u64::from(part.part_number - 1))
+                    .collect()
+            }
+            "object_multipart" => {
+                uploaded_parts =
+                    self.blob_store
+                        .list_multipart_parts(
+                            &transfer.staging_object_key,
+                            transfer.multipart_upload_id.as_deref().ok_or_else(|| {
+                                ApiError::internal("Multipart upload ID is missing.")
+                            })?,
+                        )
+                        .await?
+                        .into_iter()
+                        .map(|part| {
+                            if part.etag.is_empty() || part.etag.len() > 255 {
+                                return Err(ApiError::internal(
+                                    "Stored multipart part ETag is invalid.",
+                                ));
+                            }
+                            Ok(UploadedFilePart {
+                                part_number: u16::try_from(part.part_number).map_err(|_| {
+                                    ApiError::internal("Stored multipart part number is invalid.")
+                                })?,
+                                etag: part.etag,
+                            })
+                        })
+                        .collect::<ApiResult<Vec<_>>>()?;
+                uploaded_parts
+                    .iter()
+                    .map(|part| u64::from(part.part_number - 1))
+                    .collect()
+            }
+            _ => return Err(ApiError::internal("Stored upload strategy is invalid.")),
+        };
+        let mut received_bytes = 0_u64;
+        for index in &received {
+            received_bytes = received_bytes
+                .checked_add(part_length(
+                    transfer.expected_size,
+                    strategy_part_size(transfer, self.blob_store.upload_part_size())?,
+                    *index,
+                )?)
+                .ok_or_else(|| ApiError::internal("Uploaded byte count overflowed."))?;
+        }
+        Ok((received, received_bytes, uploaded_parts))
+    }
+
     pub(super) async fn upload_session(
         &self,
         transfer: &HostedFileTransfer,
     ) -> ApiResult<FileTransferSession> {
-        let uploaded_parts = if transfer.strategy == "object_multipart" {
-            if matches!(transfer.state.as_str(), "completing" | "committed") {
-                transfer.completion_parts.clone().unwrap_or_default()
-            } else {
-                self.blob_store
-                    .list_multipart_parts(
-                        &transfer.staging_object_key,
-                        transfer
-                            .multipart_upload_id
-                            .as_deref()
-                            .ok_or_else(|| ApiError::internal("Multipart upload ID is missing."))?,
-                    )
-                    .await?
-                    .into_iter()
-                    .map(|part| {
-                        if part.etag.is_empty() || part.etag.len() > 255 {
-                            return Err(ApiError::internal(
-                                "Stored multipart part ETag is invalid.",
-                            ));
-                        }
-                        Ok(UploadedFilePart {
-                            part_number: u16::try_from(part.part_number).map_err(|_| {
-                                ApiError::internal("Stored multipart part number is invalid.")
-                            })?,
-                            etag: part.etag,
-                        })
-                    })
-                    .collect::<ApiResult<Vec<_>>>()?
-            }
-        } else {
-            Vec::new()
-        };
-        let received = if transfer.state == "committed" {
-            (0..upload_part_count(transfer, self.blob_store.upload_part_size())).collect()
-        } else if transfer.strategy == "object_multipart" {
-            uploaded_parts
-                .iter()
-                .map(|part| u64::from(part.part_number - 1))
-                .collect()
-        } else {
-            match transfer.strategy.as_str() {
-                "object_put" => {
-                    if self
-                        .blob_store
-                        .object_exists(&transfer.staging_object_key)
-                        .await?
-                    {
-                        vec![0]
-                    } else {
-                        Vec::new()
-                    }
-                }
-                "object_multipart" => unreachable!("multipart progress handled above"),
-                _ => return Err(ApiError::internal("Stored upload strategy is invalid.")),
-            }
-        };
+        let (received, _, uploaded_parts) = self.upload_progress(transfer).await?;
         Ok(FileTransferSession {
             protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
             message_type: FileTransferSessionKind::FileTransfer,

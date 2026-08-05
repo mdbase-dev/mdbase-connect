@@ -638,6 +638,7 @@ fn transfer_status(
         },
         received: chunks.iter().map(|(index, _)| *index).collect(),
         received_bytes: chunks.iter().map(|(_, length)| *length).sum(),
+        uploaded_parts: Vec::new(),
     })
 }
 

@@ -74,18 +74,13 @@ fn append_type_pack_changes(changed: &mut Vec<Value>, plan: &Value) -> ApiResult
         .get("resources")
         .and_then(Value::as_array)
         .ok_or_else(|| ApiError::internal("Contract setup returned no resource plan."))?;
-    changed.extend(
-        resources
-            .iter()
-            .filter(|resource| changed_resource(resource))
-            .cloned(),
-    );
+    changed.extend(resources.iter().filter(changed_resource).cloned());
     changed.extend(
         plan.pointer("/contract_setups/resources")
             .and_then(Value::as_array)
             .into_iter()
             .flatten()
-            .filter(|resource| changed_resource(resource))
+            .filter(changed_resource)
             .cloned(),
     );
     if let Some(lock) = plan.get("lock").and_then(Value::as_object) {

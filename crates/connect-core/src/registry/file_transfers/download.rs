@@ -285,6 +285,7 @@ pub(super) fn download_transfer_status(
         },
         received: Vec::new(),
         received_bytes: 0,
+        uploaded_parts: Vec::new(),
     })
 }
 

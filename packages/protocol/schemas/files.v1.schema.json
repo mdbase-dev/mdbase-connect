@@ -323,7 +323,7 @@
     "transferStatus": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["protocol_version", "type", "transfer_id", "state", "received", "received_bytes"],
+      "required": ["protocol_version", "type", "transfer_id", "state", "received", "received_bytes", "uploaded_parts"],
       "properties": {
         "protocol_version": { "const": 1 },
         "type": { "const": "file_transfer_status" },
@@ -334,7 +334,12 @@
           "uniqueItems": true,
           "items": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
         },
-        "received_bytes": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+        "received_bytes": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "uploaded_parts": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": { "$ref": "#/$defs/uploadedPart" }
+        }
       }
     },
     "prepareUploadPartRequest": {

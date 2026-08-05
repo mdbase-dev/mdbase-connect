@@ -175,6 +175,8 @@ export interface FileTransferStatus {
   state: FileTransferState;
   received: number[];
   received_bytes: number;
+  /** Object-store receipts for the currently durable multipart parts. */
+  uploaded_parts: UploadedFilePart[];
 }
 
 export interface PrepareFileUploadPartRequest {

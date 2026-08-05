@@ -4,6 +4,7 @@ import type {
   DeleteFileReceipt as WireDeleteFileReceipt,
   FileCapability,
   FileTransferSession,
+  FileTransferStatus,
   ListFilesPage,
   MoveFileReceipt,
   PreparedFilePart,
@@ -25,6 +26,7 @@ import {
   normalizeFileError,
   requirePreparedPart,
   requireTransferSession,
+  requireTransferStatus,
   retryChunk,
   sourceBlob,
   throwIfAborted,
@@ -341,11 +343,24 @@ export class MdbaseFileClient {
       const partCount = session.strategy.kind === "object_put"
         ? 1
         : Math.ceil(size / partSize);
+      const status = await this.request<FileTransferStatus>(
+        "GET",
+        `transfers/${encodeURIComponent(transferId)}`,
+        undefined,
+        options.signal
+      );
+      requireTransferStatus(status, session);
+      if (status.state !== "open" && status.state !== "committed") {
+        throw connectError(
+          "invalid_operation_response",
+          `The authority cannot resume a ${status.state} file transfer.`
+        );
+      }
       prepareSource?.(partSize);
-      if (!framed && session.received.length === partCount) {
+      if (!framed && status.received.length === partCount) {
         const replay = await this.tryReplayUploadCommit(
           transferId,
-          session.strategy.kind === "object_multipart" ? session.uploaded_parts : undefined,
+          session.strategy.kind === "object_multipart" ? status.uploaded_parts : undefined,
           options.signal
         );
         if (replay) {
@@ -353,9 +368,9 @@ export class MdbaseFileClient {
           return clientFileDescriptor(replay.file);
         }
       }
-      const received = new Set(session.received);
+      const received = new Set(status.received);
       const uploadedParts = new Map(
-        (session.uploaded_parts ?? []).map((part) => [part.part_number - 1, part])
+        status.uploaded_parts.map((part) => [part.part_number - 1, part])
       );
       let transferredBytes = [...received].reduce(
         (total, index) => total + chunkLength(size, partSize, index),

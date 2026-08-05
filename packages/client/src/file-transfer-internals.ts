@@ -1,4 +1,8 @@
-import type { FileTransferSession, PreparedFilePart } from "@mdbase-dev/connect-protocol";
+import type {
+  FileTransferSession,
+  FileTransferStatus,
+  PreparedFilePart
+} from "@mdbase-dev/connect-protocol";
 import { MdbaseConnectError, connectError } from "./errors.js";
 import { IncrementalSha256 } from "./file-sha256.js";
 
@@ -116,6 +120,57 @@ export function requireTransferSession(
       : uploadedParts.length !== 0)
   ) {
     throw connectError("invalid_operation_response", "The authority returned invalid uploaded part receipts.");
+  }
+}
+
+export function requireTransferStatus(
+  status: FileTransferStatus,
+  session: FileTransferSession
+): void {
+  const partSize = session.strategy.kind === "framed_chunks"
+    ? session.strategy.chunk_size
+    : session.strategy.kind === "object_put"
+      ? Math.max(1, session.total_size)
+      : session.strategy.part_size;
+  const partCount = session.strategy.kind === "object_put"
+    ? 1
+    : Math.ceil(session.total_size / partSize);
+  if (
+    status?.protocol_version !== 1
+    || status.type !== "file_transfer_status"
+    || status.transfer_id !== session.transfer_id
+    || !["open", "committed", "aborted", "expired"].includes(status.state)
+    || !Array.isArray(status.received)
+    || new Set(status.received).size !== status.received.length
+    || status.received.some((index) =>
+      !Number.isSafeInteger(index) || index < 0 || index >= partCount)
+    || !Number.isSafeInteger(status.received_bytes)
+    || status.received_bytes < 0
+    || status.received_bytes > session.total_size
+    || status.received.reduce(
+      (total, index) => total + chunkLength(session.total_size, partSize, index),
+      0
+    ) !== status.received_bytes
+  ) {
+    throw connectError("invalid_operation_response", "The authority returned invalid transfer status.");
+  }
+  const uploadedParts = status.uploaded_parts;
+  if (
+    !Array.isArray(uploadedParts)
+    || uploadedParts.some((part, index) =>
+      !Number.isSafeInteger(part?.part_number)
+      || part.part_number < 1
+      || part.part_number > partCount
+      || typeof part.etag !== "string"
+      || part.etag.length === 0
+      || part.etag.length > 255
+      || (index > 0 && uploadedParts[index - 1]!.part_number >= part.part_number))
+    || (session.strategy.kind === "object_multipart"
+      ? uploadedParts.length !== status.received.length
+        || uploadedParts.some((part, index) => part.part_number - 1 !== status.received[index])
+      : uploadedParts.length !== 0)
+  ) {
+    throw connectError("invalid_operation_response", "The authority returned invalid uploaded part status.");
   }
 }
 

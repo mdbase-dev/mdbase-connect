@@ -117,11 +117,11 @@ describe("MdbaseFileClient", () => {
     const preparedParts: number[] = [];
     const client = fileClient(async (_method, path, input) => {
       if (path === "uploads") {
-        return {
-          ...uploadSession(input.transfer_id, { kind: "object_multipart", part_size: 8 }, content.length),
-          received: [1],
-          uploaded_parts: [{ part_number: 2, etag: "etag-existing" }]
-        };
+        return uploadSession(
+          input.transfer_id,
+          { kind: "object_multipart", part_size: 8 },
+          content.length
+        );
       }
       if (path?.endsWith("/parts")) {
         const index = input.part_number - 1;
@@ -149,7 +149,15 @@ describe("MdbaseFileClient", () => {
         };
       }
       throw new Error(`Unexpected control path ${path}`);
-    });
+    }, undefined, undefined, (transferId) => ({
+      protocol_version: 1,
+      type: "file_transfer_status",
+      transfer_id: transferId,
+      state: "open",
+      received: [1],
+      received_bytes: 8,
+      uploaded_parts: [{ part_number: 2, etag: "etag-existing" }]
+    }));
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request) => {
       const index = Number(String(request).split("/").at(-1));
       return new Response(undefined, { status: 200, headers: { etag: `etag-${index}` } });
@@ -960,12 +968,43 @@ describe("MdbaseFileClient", () => {
 function fileClient(
   handler: (method: "GET" | "POST" | "DELETE", path?: string, input?: any) => Promise<any>,
   framed?: MdbaseFramedFileTransport,
-  hosted?: MdbaseHostedFileTransport
+  hosted?: MdbaseHostedFileTransport,
+  status?: (transferId: string, session: any) => Promise<any> | any
 ): MdbaseFileClient {
+  const sessions = new Map<string, any>();
   return new MdbaseFileClient(
     () => capability,
-    async <Result>(method: "GET" | "POST" | "DELETE", path?: string, input?: unknown) =>
-      await handler(method, path, input) as Result,
+    async <Result>(method: "GET" | "POST" | "DELETE", path?: string, input?: unknown) => {
+      const statusMatch = method === "GET" ? path?.match(/^transfers\/(.+)$/u) : undefined;
+      if (statusMatch) {
+        const transferId = decodeURIComponent(statusMatch[1]!);
+        const session = sessions.get(transferId);
+        if (session && status) return await status(transferId, session) as Result;
+        if (session) {
+          const partSize = session.strategy.kind === "object_put"
+            ? Math.max(1, session.total_size)
+            : session.strategy.part_size ?? session.strategy.chunk_size;
+          return {
+            protocol_version: 1,
+            type: "file_transfer_status",
+            transfer_id: transferId,
+            state: "open",
+            received: session.received,
+            received_bytes: session.received.reduce(
+              (total: number, index: number) =>
+                total + Math.min(partSize, Math.max(0, session.total_size - index * partSize)),
+              0
+            ),
+            uploaded_parts: session.uploaded_parts ?? []
+          } as Result;
+        }
+      }
+      const result = await handler(method, path, input);
+      if (method === "POST" && path === "uploads" && result?.type === "file_transfer") {
+        sessions.set(result.transfer_id, result);
+      }
+      return result as Result;
+    },
     framed,
     hosted
   );

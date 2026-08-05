@@ -77,45 +77,50 @@ try {
   const sdk = fileSdk(provider.url, collectionId, writer.token);
   const sdkBytes = Buffer.from("uploaded and verified through the public SDK");
   const sdkFile = await sdk.upload("Assets/sdk.bin", sdkBytes);
-  assert.equal(sdkFile.content_digest, digest(sdkBytes));
+  assert.equal(sdkFile.contentDigest, digest(sdkBytes));
   assert.deepEqual(Buffer.from(await sdk.downloadBytes(sdkFile)), sdkBytes);
 
-  const sdkObjectKey = await pg(`SELECT object_key FROM hosted_provider_files WHERE file_id = '${sdkFile.file_id}'`);
+  const sdkObjectKey = await pg(`SELECT object_key FROM hosted_provider_files WHERE file_id = '${sdkFile.fileId}'`);
   const moveMutationId = randomUUID();
-  const [moved, concurrentReplay] = await Promise.all([
+  const [moved, concurrentAttempt] = await Promise.all([
     sdk.move(sdkFile, "Archive/sdk-renamed.bin", { mutationId: moveMutationId }),
     sdk.move(sdkFile, "Archive/sdk-renamed.bin", { mutationId: moveMutationId })
+      .catch((error) => error)
   ]);
-  assert.deepEqual(concurrentReplay, moved);
-  assert.equal(moved.file_id, sdkFile.file_id);
+  if (concurrentAttempt instanceof Error) {
+    assert.equal(concurrentAttempt.code, "temporarily_unavailable");
+  } else {
+    assert.deepEqual(concurrentAttempt, moved);
+  }
+  assert.equal(moved.fileId, sdkFile.fileId);
   assert.notEqual(moved.revision, sdkFile.revision);
   assert.deepEqual(await sdk.move(sdkFile, moved.path, { mutationId: moveMutationId }), moved);
-  assert.equal(await pg(`SELECT object_key FROM hosted_provider_files WHERE file_id = '${sdkFile.file_id}'`), sdkObjectKey);
+  assert.equal(await pg(`SELECT object_key FROM hosted_provider_files WHERE file_id = '${sdkFile.fileId}'`), sdkObjectKey);
   assert.deepEqual(Buffer.from(await sdk.downloadBytes(moved)), sdkBytes);
 
   const conflict = await request(provider.url,
-    `/v1/authorities/${collectionId}/files/${sdkFile.file_id}/move`, {
+    `/v1/authorities/${collectionId}/files/${sdkFile.fileId}/move`, {
       method: "POST", token: writer.token,
       body: { protocol_version: 1, type: "move_file", mutation_id: moveMutationId,
-        file_id: sdkFile.file_id, if_revision: sdkFile.revision, from_path: sdkFile.path,
+        file_id: sdkFile.fileId, if_revision: sdkFile.revision, from_path: sdkFile.path,
         path: "Archive/different.bin", update_references: false }
     });
   assert.equal(conflict.status, 409);
-  assert.equal(conflict.body.error.code, "file_mutation_conflict");
+  assert.equal(conflict.body.error.code, "mutation_request_conflict");
   const stale = await request(provider.url,
-    `/v1/authorities/${collectionId}/files/${moved.file_id}/move`, {
+    `/v1/authorities/${collectionId}/files/${moved.fileId}/move`, {
       method: "POST", token: writer.token,
       body: { protocol_version: 1, type: "move_file", mutation_id: randomUUID(),
-        file_id: moved.file_id, if_revision: sdkFile.revision, from_path: moved.path,
+        file_id: moved.fileId, if_revision: sdkFile.revision, from_path: moved.path,
         path: "Archive/stale.bin", update_references: false }
     });
   assert.equal(stale.status, 409);
   assert.equal(stale.body.error.code, "stale_file_revision");
   const hiddenMove = await request(provider.url,
-    `/v1/authorities/${collectionId}/files/${moved.file_id}/move`, {
+    `/v1/authorities/${collectionId}/files/${moved.fileId}/move`, {
       method: "POST", token: writer.token,
       body: { protocol_version: 1, type: "move_file", mutation_id: randomUUID(),
-        file_id: moved.file_id, if_revision: moved.revision, from_path: moved.path,
+        file_id: moved.fileId, if_revision: moved.revision, from_path: moved.path,
         path: ".hidden/sdk.bin", update_references: false }
     });
   assert.equal(hiddenMove.status, 400);
@@ -127,10 +132,10 @@ try {
     allowed_operations: [], token: readOnly.token
   });
   const deniedDelete = await request(provider.url,
-    `/v1/authorities/${collectionId}/files/${moved.file_id}/delete`, {
+    `/v1/authorities/${collectionId}/files/${moved.fileId}/delete`, {
       method: "POST", token: readOnly.token,
       body: { protocol_version: 1, type: "delete_file", mutation_id: randomUUID(),
-        file_id: moved.file_id, if_revision: moved.revision, path: moved.path }
+        file_id: moved.fileId, if_revision: moved.revision, path: moved.path }
     });
   assert.equal(deniedDelete.status, 403);
 
@@ -172,10 +177,15 @@ try {
 
   const deleteMutationId = randomUUID();
   const deleted = await sdk.delete(moved, { mutationId: deleteMutationId });
-  assert.equal(deleted.previous_path, moved.path);
+  assert.equal(deleted.previousPath, moved.path);
   assert.deepEqual(await sdk.delete(moved, { mutationId: deleteMutationId }), deleted);
-  assert.equal(await pg(`SELECT count(*) FROM hosted_provider_files WHERE file_id = '${moved.file_id}'`), "0");
-  assert.deepEqual(await download(provider.url, collectionId, writer.token, moved), sdkBytes);
+  assert.equal(await pg(`SELECT count(*) FROM hosted_provider_files WHERE file_id = '${moved.fileId}'`), "0");
+  assert.deepEqual(await download(provider.url, collectionId, writer.token, {
+    file_id: moved.fileId,
+    revision: moved.revision,
+    size: moved.size,
+    content_digest: moved.contentDigest
+  }), sdkBytes);
 
   const listed = await ok(request(provider.url,
     `/v1/authorities/${collectionId}/files?protocol_version=1`, { token: writer.token }));
@@ -257,17 +267,32 @@ async function upload(url, collectionId, token, path, bytes) {
       protocol_version: 1, type: "prepare_file_upload_part", transfer_id: transferId,
       part_number: number, content_length: chunk.length
     });
+    const preparedUrl = new URL(prepared.url);
+    if (open.strategy.kind === "object_multipart") {
+      assert.equal(preparedUrl.searchParams.get("partNumber"), String(number));
+      assert.ok(preparedUrl.searchParams.get("uploadId"));
+    }
     const response = await fetch(prepared.url, { method: prepared.method, headers: prepared.headers, body: chunk });
     assert.ok(response.ok, await response.text());
+    assert.ok(response.headers.get("etag"));
     if (open.strategy.kind === "object_multipart") {
       if (number === 1) {
-        const resumed = await json(
-          url,
-          `/v1/authorities/${collectionId}/files/uploads`,
-          token,
-          body
+        assert.deepEqual(
+          await json(url, `/v1/authorities/${collectionId}/files/uploads`, token, body),
+          open,
+          "an identical mutating retry must replay its original receipt"
         );
-        assert.deepEqual(resumed.received, [0]);
+        let resumed;
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          resumed = await ok(request(
+            url,
+            `/v1/authorities/${collectionId}/files/transfers/${transferId}`,
+            { method: "GET", token }
+          ));
+          if (resumed.received.includes(0)) break;
+          await delay(25);
+        }
+        assert.deepEqual(resumed.received, [0], JSON.stringify(resumed));
         assert.deepEqual(resumed.uploaded_parts, [{
           part_number: 1,
           etag: response.headers.get("etag")

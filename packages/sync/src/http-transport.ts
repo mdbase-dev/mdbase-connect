@@ -4,6 +4,7 @@ import type {
   DeleteFileReceipt,
   DeleteFileRequest,
   FileTransferSession,
+  FileTransferStatus,
   JsonObject,
   MoveFileReceipt,
   MoveFileRequest,
@@ -156,11 +157,27 @@ export class HttpSyncTransport<Frontmatter extends JsonObject = JsonObject> impl
     }
     const reader = new BinaryPartReader(source);
     const count = Math.max(1, Math.ceil(request.size / partSize));
+    const status = await this.fileRequest<FileTransferStatus>(
+      "GET",
+      `transfers/${encodeURIComponent(request.transfer_id)}`
+    );
     if (
-      session.received.some((index) => !Number.isSafeInteger(index) || index < 0 || index >= count)
-      || new Set(session.received).size !== session.received.length
+      status?.protocol_version !== 1
+      || status.type !== "file_transfer_status"
+      || status.transfer_id !== request.transfer_id
+      || status.state !== "open" && status.state !== "committed"
+      || !Array.isArray(status.received)
+      || status.received.some((index) => !Number.isSafeInteger(index) || index < 0 || index >= count)
+      || new Set(status.received).size !== status.received.length
+      || !Number.isSafeInteger(status.received_bytes)
+      || status.received_bytes < 0
+      || status.received_bytes > request.size
+      || status.received.reduce(
+        (total, index) => total + Math.min(partSize, Math.max(0, request.size - index * partSize)),
+        0
+      ) !== status.received_bytes
     ) throw new SyncError("invalid_sync_response", "Authority returned invalid upload progress.");
-    const uploadedParts = session.uploaded_parts ?? [];
+    const uploadedParts = status.uploaded_parts;
     if (
       !Array.isArray(uploadedParts)
       || uploadedParts.some((part, index) =>
@@ -172,14 +189,14 @@ export class HttpSyncTransport<Frontmatter extends JsonObject = JsonObject> impl
         || part.etag.length > 255
         || (index > 0 && uploadedParts[index - 1]!.part_number >= part.part_number))
       || (session.strategy.kind === "object_multipart"
-        ? uploadedParts.length !== session.received.length
-          || uploadedParts.some((part, index) => part.part_number - 1 !== session.received[index])
+        ? uploadedParts.length !== status.received.length
+          || uploadedParts.some((part, index) => part.part_number - 1 !== status.received[index])
         : uploadedParts.length !== 0)
     ) throw new SyncError("invalid_sync_response", "Authority returned invalid uploaded part receipts.");
-    if (session.received.length === count) {
+    if (status.received.length === count) {
       return this.commitUpload(request.transfer_id, uploadedParts);
     }
-    const received = new Set(session.received);
+    const received = new Set(status.received);
     const parts: Array<UploadedFilePart | undefined> = Array(count);
     for (const part of uploadedParts) parts[part.part_number - 1] = part;
     for (let index = 0; index < count; index += 1) {
