@@ -14,8 +14,8 @@ tags:
   - user-experience
   - consumers
 created_at: 2026-08-04T10:51:42+10:00
-updated_at: 2026-08-05T11:53:42+10:00
-progress_summary: Phases 0-5 remain green, while the Phase 7 audit keeps Phase 6 open until exact packed artifacts pass every consumer. Candidate 62513b927384 passed complete CI and signed image publication but packed Editor validation exposed a testing-package closure across Playwright's serialization boundary plus two stale external-harness transport assertions. The release train stopped before tagging or deployment. A serialized-seed regression and correction are green locally; a replacement main commit, six-package repack, four exact repins, staging rollout, rollback, canaries, soak, and final audit remain. Production is untouched.
+updated_at: 2026-08-05T11:59:45+10:00
+progress_summary: Phases 0-5 remain green, while Phase 6 stays open until exact packed artifacts pass every consumer. Candidate 62513b927384 passed complete CI and signed image publication but packed Editor validation exposed a Playwright-serialization closure and stale harness assertions, stopping the train before tagging or deployment. Connect PR #185 and Editor ae6aad7 correct both boundaries; exact 7f689ed697f2 tarballs pass the full 45-test Editor browser matrix. Replacement CI, one immutable main commit, six-package repack, four exact repins, staging rollout, rollback, canaries, soak, and final audit remain. Production is untouched.
 type: task
 ---
 

@@ -9,8 +9,8 @@ phase: 6
 depends_on: [Beta hardening 06 - management correctness, Beta hardening 07 - public SDK surface]
 tags: [beta, packaging, consumers, editor, workouts, pickle, tasknotes]
 created_at: 2026-08-04T17:48:28+10:00
-updated_at: 2026-08-05T11:53:42+10:00
-progress_summary: Candidate 62513b927384 passed the complete Server, Desktop release, Editor, and image-publish workflows, but exact packed-artifact consumer validation rejected it before tagging or deployment. The packed testing package serialized a browser fixture that closed over an imported grant-encryption constant, and Editor's external authority harness retained stale operation-transport-v1 assertions. The testing boundary now carries grant encryption v1 explicitly in its serialized seed with a real serialization/IndexedDB/WebCrypto regression. A replacement immutable main commit, exact repack, all four repins, and every downstream gate remain required. Production is untouched.
+updated_at: 2026-08-05T11:59:45+10:00
+progress_summary: Candidate 62513b927384 passed complete CI and signed image publication, but exact packed-artifact validation rejected it before tagging or deployment. Connect PR #185 carries grant encryption v1 explicitly in the Playwright-serialized seed with a serialization/IndexedDB/WebCrypto regression. Exact 7f689ed697f2 tarballs pass Editor authorization recovery, both remote-authority flows, and the full 45-test browser matrix; Editor commit ae6aad7 uses the canonical operation-transport constant. Replacement CI, one immutable main commit, exact repack, four repins, and every downstream gate remain required. Production is untouched.
 type: task
 ---
 
@@ -241,3 +241,12 @@ and their required product gates are rerun.
   serializes the function into an isolated realm and executes the connector
   path through IndexedDB and WebCrypto; package test, typecheck, and build pass
   under Node 24.13.0.
+- Draft Connect PR `mdbase-dev/mdbase-connect#185` packages committed source
+  `7f689ed697f2`. The packed Testing output resolves the imported constant while
+  constructing the seed and reads only `seed.grantEncryptionProtocolVersion`
+  inside the serialized callback.
+- Editor commit `ae6aad7` replaces only operation request/response envelope
+  literals with `OPERATION_TRANSPORT_PROTOCOL_VERSION`; independent file and
+  encryption v1 fixtures remain unchanged. Exact `7f689ed697f2` artifacts pass
+  the focused authorization/remote-authority run 3/3 and the complete browser
+  matrix 45/45, including 10,000-note performance and accessibility.
