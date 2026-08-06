@@ -7,7 +7,6 @@ import type {
   SyncResourceDocument
 } from "@mdbase-dev/connect-protocol";
 import { SyncError } from "./sync-error.js";
-import { parseMarkdown } from "./mirror-format.js";
 import {
   ensureFileBlob,
   fileSelected,
@@ -40,9 +39,7 @@ import {
 import type {
   InspectionIssue,
   InspectionSummary,
-  ObservedObject,
-  PayloadCapability,
-  PayloadSet
+  ObservedObject
 } from "./sync-inspection-model.js";
 import {
   MIRROR_ENGINE_PROFILE,
@@ -56,7 +53,7 @@ import { assertRecordSyncChange } from "./record-sync-change.js";
 export interface PlanOnlyInspection<Frontmatter extends JsonObject> {
   summary: InspectionSummary;
   plan: ReconciliationPlan;
-  payloads: PayloadSet;
+  /** Private revision-bound payload capabilities sealed by this inspection. */
   durable_payloads: DurableSyncPayloads;
   prior: MirrorState | null;
   snapshot?: LoadedMirrorSnapshot<Frontmatter>;
@@ -69,7 +66,6 @@ interface LocalInspection {
   documents: Map<string, string>;
   binary: Map<string, { size: number; content_digest: `sha256:${string}` }>;
   issues: InspectionIssue[];
-  deferred_identities: Set<string>;
 }
 
 export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject> {
@@ -87,8 +83,8 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
     ) => Promise<MirrorRecordPathPolicy>
   ) {}
 
-  async inspect(): Promise<PlanOnlyInspection<Frontmatter>> {
-    const state = await this.readState();
+  async inspect(suppliedState?: MirrorState | null): Promise<PlanOnlyInspection<Frontmatter>> {
+    const state = suppliedState === undefined ? await this.readState() : suppliedState;
     if (!state) return this.inspectSnapshot("initial", null);
     if (state.batch) {
       throw new SyncError(
@@ -239,7 +235,22 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
     const documents = new Map<string, string>();
     const binary = new Map<string, { size: number; content_digest: `sha256:${string}` }>();
     const issues: InspectionIssue[] = [];
-    const deferredIdentities = new Set<string>();
+    const priorRecordsByPath = new Map(
+      Object.entries(state?.records ?? {}).map(([identity, entry]) => [entry.path, [identity, entry] as const])
+    );
+    const recordConflictsByPath = new Map(
+      Object.entries(state?.planned_conflicts ?? {})
+        .filter(([, conflict]) => conflict.entity === "record" && conflict.local.state === "exact")
+        .map(([identity, conflict]) => [
+          conflict.local.state === "exact" ? conflict.local.object.path : "",
+          identity
+        ])
+    );
+    const recordBindingsByPath = new Map(
+      Object.entries(state?.local_bindings ?? {})
+        .filter(([, binding]) => binding.entity === "record")
+        .map(([identity, binding]) => [binding.path, identity])
+    );
     const resourcePaths = new Set([
       ...Object.keys(state?.resources ?? {}),
       ...resources.map((resource) => resource.path)
@@ -281,34 +292,9 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
       const document = await this.fileSystem.read(path);
       if (document === null) continue;
       const revision = `sha256:${this.runtime.digest(document)}`;
-      try {
-        parseMarkdown(document, path);
-      } catch (error) {
-        const value = error instanceof Error ? error : new Error(String(error));
-        const prior = Object.entries(state?.records ?? {}).find(([, entry]) => entry.path === path);
-        issues.push({
-          code: "invalid_frontmatter",
-          message: value.message,
-          path,
-          blocking: false
-        });
-        if (prior) {
-          observations.push({
-            stable_identity: true,
-            object: textRef("record", prior[0], path, revision)
-          });
-          deferredIdentities.add(prior[0]);
-        }
-        continue;
-      }
-      const conflictIdentity = Object.entries(state?.planned_conflicts ?? {})
-        .find(([, conflict]) => conflict.entity === "record"
-          && conflict.local.state === "exact"
-          && conflict.local.object.path === path)?.[0];
-      const boundIdentity = Object.entries(state?.local_bindings ?? {})
-        .find(([, binding]) => binding.entity === "record" && binding.path === path)?.[0];
-      const priorIdentity = Object.entries(state?.records ?? {})
-        .find(([, entry]) => entry.path === path)?.[0];
+      const conflictIdentity = recordConflictsByPath.get(path);
+      const boundIdentity = recordBindingsByPath.get(path);
+      const priorIdentity = priorRecordsByPath.get(path)?.[0];
       const identity = conflictIdentity ?? boundIdentity ?? priorIdentity ?? "";
       observations.push({
         stable_identity: identity !== "",
@@ -322,18 +308,30 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
         throw new SyncError("file_storage_unavailable", "Selected files require binary enumeration.");
       }
       const managedFilePaths = new Set(Object.values(state?.files ?? {}).map((entry) => entry.file.path));
+      const priorFilesByPath = new Map(
+        Object.entries(state?.files ?? {}).map(([identity, entry]) => [entry.file.path, [identity, entry] as const])
+      );
+      const fileConflictsByPath = new Map(
+        Object.entries(state?.planned_conflicts ?? {})
+          .filter(([, conflict]) => conflict.entity === "file" && conflict.local.state === "exact")
+          .map(([identity, conflict]) => [
+            conflict.local.state === "exact" ? conflict.local.object.path : "",
+            identity
+          ])
+      );
+      const fileBindingsByPath = new Map(
+        Object.entries(state?.local_bindings ?? {})
+          .filter(([, binding]) => binding.entity === "file")
+          .map(([identity, binding]) => [binding.path, identity])
+      );
       const paths = (await this.fileSystem.listBinary(resourcePaths))
         .filter((path) => pathFileSelected(this.selectiveSync, path) || managedFilePaths.has(path));
       for (const path of paths) {
         const info = await this.fileSystem.inspectBinary(path);
         if (!info) continue;
-        const conflictIdentity = Object.entries(state?.planned_conflicts ?? {})
-          .find(([, conflict]) => conflict.entity === "file"
-            && conflict.local.state === "exact"
-            && conflict.local.object.path === path)?.[0];
-        const boundIdentity = Object.entries(state?.local_bindings ?? {})
-          .find(([, binding]) => binding.entity === "file" && binding.path === path)?.[0];
-        const prior = Object.entries(state?.files ?? {}).find(([, entry]) => entry.file.path === path);
+        const conflictIdentity = fileConflictsByPath.get(path);
+        const boundIdentity = fileBindingsByPath.get(path);
+        const prior = priorFilesByPath.get(path);
         const identity = conflictIdentity ?? boundIdentity ?? prior?.[0] ?? "";
         observations.push({
           stable_identity: identity !== "",
@@ -365,7 +363,7 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
         blocking: true
       });
     }
-    return { observations, documents, binary, issues, deferred_identities: deferredIdentities };
+    return { observations, documents, binary, issues };
   }
 
   private async finish(options: {
@@ -402,10 +400,6 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
     }
     const issues = [...local.issues];
     for (const object of objects) {
-      if (
-        local.deferred_identities.has(object.identity)
-        && sameObjectState(object.remote, object.base)
-      ) object.local = object.base;
       if (
         (options.kind === "initial" || options.kind === "rebuild")
         && object.base.state === "absent"
@@ -489,56 +483,9 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
       options.remoteResources,
       options.remoteFiles
     );
-    const capabilities: PayloadCapability[] = [];
-    for (const [actionId, document] of Object.entries(durable.documents)) {
-      const action = plan.actions.find((candidate) => candidate.action_id === actionId)!;
-      capabilities.push(Object.freeze({
-        kind: "text",
-        revision: "payload_revision" in action ? action.payload_revision : "",
-        provenance: "local",
-        document
-      }));
-    }
-    for (const [actionId, record] of Object.entries(durable.records)) {
-      const action = plan.actions.find((candidate) => candidate.action_id === actionId)!;
-      capabilities.push(Object.freeze({
-        kind: "text",
-        revision: "payload_revision" in action ? action.payload_revision : record.revision,
-        provenance: "authority",
-        document: record.document
-      }));
-    }
-    for (const [actionId, resource] of Object.entries(durable.resources)) {
-      const action = plan.actions.find((candidate) => candidate.action_id === actionId)!;
-      capabilities.push(Object.freeze({
-        kind: "text",
-        revision: "payload_revision" in action ? action.payload_revision : resource.revision,
-        provenance: "authority",
-        document: resource.document
-      }));
-    }
-    for (const file of [...Object.values(durable.files), ...Object.values(durable.local_files)]) {
-      capabilities.push(Object.freeze({
-        kind: "binary",
-        revision: file.content_digest,
-        provenance: "file_id" in file ? "authority" : "local",
-        content_digest: file.content_digest,
-        size: file.size
-      }));
-    }
-    const byRevision = new Map<string, PayloadCapability[]>();
-    for (const capability of capabilities) {
-      const bucket = byRevision.get(capability.revision) ?? [];
-      bucket.push(capability);
-      byRevision.set(capability.revision, bucket);
-    }
     return {
       summary,
       plan,
-      payloads: {
-        inspection_fingerprint: plan.fingerprint,
-        by_revision: byRevision
-      },
       durable_payloads: durable,
       prior,
       snapshot: options.snapshot,

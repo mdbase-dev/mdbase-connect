@@ -144,6 +144,8 @@ export interface MirrorProgress {
 }
 
 export interface MirrorFileSystem {
+  /** True when any filesystem entry occupies this exact portable path. */
+  exists(path: string): Promise<boolean>;
   read(path: string): Promise<string | null>;
   write(path: string, value: string): Promise<void>;
   /** Atomically rename one managed path without changing its bytes. */
@@ -317,7 +319,7 @@ export function normalizeMirrorState(
   if (state.engine_version !== 3) {
     throw new SyncError(
       "mirror_state_upgrade_required",
-      "Rebuild this prerelease mirror with the exact-document sync engine."
+      "Rebuild this prerelease mirror with the plan-only exact-document sync engine."
     );
   }
   if (state.protocol_version !== 1 || state.replica_id !== replicaId) throw new Error();

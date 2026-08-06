@@ -52,26 +52,3 @@ export interface ObjectUniverse {
   local: ObservedObject[];
   remote: SyncObjectRef[];
 }
-
-export type TextPayloadCapability = Readonly<{
-  kind: "text";
-  revision: string;
-  provenance: "local" | "authority";
-  document: string;
-}>;
-
-export type BinaryPayloadCapability = Readonly<{
-  kind: "binary";
-  revision: string;
-  provenance: "local" | "authority";
-  content_digest: `sha256:${string}`;
-  size: number;
-}>;
-
-export type PayloadCapability = TextPayloadCapability | BinaryPayloadCapability;
-
-/** Private, immutable capabilities sealed to the inspection that created them. */
-export interface PayloadSet {
-  inspection_fingerprint: string;
-  by_revision: ReadonlyMap<string, readonly PayloadCapability[]>;
-}

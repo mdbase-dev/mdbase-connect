@@ -83,9 +83,7 @@ export class PlanRevalidator {
   }
 
   private async pathExists(path: string): Promise<boolean> {
-    if (await this.fileSystem.read(path) !== null) return true;
-    return typeof this.fileSystem.inspectBinary === "function"
-      && await this.fileSystem.inspectBinary(path) !== null;
+    return this.fileSystem.exists(path);
   }
 }
 

@@ -79,9 +79,23 @@ class CountingFileSystem {
     return this.files.get(path) ?? null;
   }
 
+  async exists(path) {
+    this.reads += 1;
+    this.probe.touch();
+    return this.files.has(path);
+  }
+
   async write(path, value) {
     this.writes += 1;
     this.files.set(path, value);
+    this.probe.touch();
+  }
+
+  async move(source, target) {
+    const value = this.files.get(source);
+    if (value === undefined) throw new Error(`missing move source: ${source}`);
+    this.files.set(target, value);
+    this.files.delete(source);
     this.probe.touch();
   }
 
@@ -97,6 +111,14 @@ class CountingFileSystem {
     return [...this.files.keys()]
       .filter((path) => path.endsWith(".md") && !excluded.has(path))
       .sort();
+  }
+
+  async inspectBinary() {
+    return null;
+  }
+
+  async writeBinary() {
+    throw new Error("binary writes are outside this profile");
   }
 
   metrics() {
@@ -228,7 +250,10 @@ async function measure(name, operation, probe, fileSystem, stateStore, transport
   const before = process.memoryUsage();
   probe.reset();
   const started = performance.now();
-  await operation();
+  const outcome = await operation();
+  if (outcome?.status !== "applied") {
+    throw new Error(`${name} did not apply: ${JSON.stringify(outcome)}`);
+  }
   const wallMs = performance.now() - started;
   probe.touch();
   const after = process.memoryUsage();

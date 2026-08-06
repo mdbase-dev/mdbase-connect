@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
 import { normalizeSelectiveSyncPolicy } from "./mirror-files.js";
 import { portableMirrorRuntime } from "./mirror-state.js";
 import type { InspectionSummary, InspectedObject } from "./sync-inspection-model.js";
@@ -19,6 +20,7 @@ import type { MirrorFileSystem } from "./mirror-state.js";
 
 class InspectorFileSystem implements MirrorFileSystem {
   readonly files = new Map<string, string>();
+  async exists(path: string): Promise<boolean> { return this.files.has(path); }
   async read(path: string): Promise<string | null> { return this.files.get(path) ?? null; }
   async write(path: string, value: string): Promise<void> { this.files.set(path, value); }
   async move(source: string, target: string): Promise<void> {
@@ -90,6 +92,22 @@ function inspected(
 }
 
 describe("pure exact-document planner", () => {
+  it("matches the shared cross-runtime canonical plan fixture", async () => {
+    const identity = "22222222-2222-4222-8222-222222222222";
+    const base = ref(identity, "notes/parity.md", "base");
+    const local = ref(identity, "notes/parity.md", "local");
+    const plan = planReconciliation(summary([
+      inspected(identity, exact(base), exact(local), exact(base))
+    ]), digest);
+    const expected = JSON.parse(await readFile(
+      new URL("../../../test-fixtures/sync-plan-parity.json", import.meta.url),
+      "utf8"
+    ));
+    expect({
+      action_ids: plan.actions.map((action) => action.action_id),
+      fingerprint: plan.fingerprint
+    }).toEqual(expected);
+  });
   it("keeps inspection I/O separate from the pure plan", async () => {
     const authority = new MemoryAuthority();
     authority.seed([{
@@ -190,8 +208,10 @@ describe("pure exact-document planner", () => {
     const localA = ref("a", "moved/a.md", "new a");
     const baseB = ref("b", "b.md", "old b");
     const remoteB = ref("b", "b.md", "new b");
+    const movedA = inspected("a", exact(baseA), exact(localA), exact(baseA));
+    movedA.remote_target_owner = { state: "absent" };
     const objects = [
-      inspected("a", exact(baseA), exact(localA), exact(baseA)),
+      movedA,
       inspected("b", exact(baseB), exact(baseB), exact(remoteB))
     ];
 
@@ -209,7 +229,7 @@ describe("pure exact-document planner", () => {
     expect(first.fingerprint).toMatch(/^sha256:[0-9a-f]{64}$/u);
 
     const changed = structuredClone(summary(objects));
-    changed.objects[0]!.remote_target_owner = { state: "absent" };
+    changed.objects[0]!.remote_target_owner = exact(baseB);
     expect(planReconciliation(changed, digest).fingerprint).not.toBe(first.fingerprint);
   });
 
@@ -240,5 +260,155 @@ describe("pure exact-document planner", () => {
       expect.objectContaining({ command: "put_remote", expected_remote: { state: "absent" } }),
       expect.objectContaining({ command: "delete_remote", expected_remote: exact(deleted) })
     ]));
+  });
+
+  it("breaks local rename cycles with a deterministic staged move", async () => {
+    const a = ref("a", "a.md", "exact a");
+    const b = ref("b", "b.md", "exact b");
+    const remoteA = { ...a, path: "b.md" };
+    const remoteB = { ...b, path: "a.md" };
+    const objectA = inspected("a", exact(a), exact(a), exact(remoteA));
+    objectA.local_target_owner = exact(b);
+    const objectB = inspected("b", exact(b), exact(b), exact(remoteB));
+    objectB.local_target_owner = exact(a);
+
+    const plan = planReconciliation(summary([objectA, objectB]), digest);
+    expect(plan.actions.map((action) => action.command)).toEqual([
+      "move_local",
+      "move_local",
+      "move_local",
+      "advance_checkpoint"
+    ]);
+    const [stage, moveB, moveA] = plan.actions;
+    expect(stage).toMatchObject({
+      command: "move_local",
+      source: a,
+      expected_target_owner: { state: "absent" }
+    });
+    expect(stage && "target_path" in stage ? stage.target_path : "")
+      .toMatch(/^\.mdbase-sync-stage-[0-9a-f]{16}\.md$/u);
+    expect(moveB?.depends_on).toContain(stage?.action_id);
+    expect(moveA?.depends_on).toEqual(expect.arrayContaining([
+      stage?.action_id,
+      moveB?.action_id
+    ]));
+
+    const files = new InspectorFileSystem();
+    files.files.set("a.md", "exact a");
+    files.files.set("b.md", "exact b");
+    const store = new (await import("./mirror-state.js")).MemoryMirrorStateStore();
+    const state = await prepareSyncBatch({
+      engine_version: 3,
+      replica_id: plan.replica_id,
+      mode: "read_write",
+      cursor: 11,
+      scope_epoch: 7,
+      generation: 3,
+      selective_sync: normalizeSelectiveSyncPolicy(),
+      records: {
+        a: { path: "a.md", revision: a.revision, hash: a.revision.slice(7) },
+        b: { path: "b.md", revision: b.revision, hash: b.revision.slice(7) }
+      }
+    }, plan, { records: {}, resources: {}, files: {}, local_files: {}, documents: {}, mutations: {} }, store);
+    const authority = new MemoryAuthority();
+    const replica = authority.registerReplica({ name: "cycle", mode: "read_write" });
+    const result = await new PlanOnlySyncExecutor({
+      transport: authority.transport(replica),
+      fileSystem: files,
+      runtime: portableMirrorRuntime,
+      mode: "read_write",
+      store
+    }).execute(state);
+
+    expect(result.status).toBe("effects_complete");
+    expect(files.files.get("a.md")).toBe("exact b");
+    expect(files.files.get("b.md")).toBe("exact a");
+    expect([...files.files.keys()]).toEqual(["a.md", "b.md"]);
+  });
+
+  it("plans path occupancy as a conflict when no action can vacate it", () => {
+    const a = ref("a", "a.md", "a");
+    const b = ref("b", "b.md", "b");
+    const changedB = ref("b", "b.md", "changed b");
+    const remoteA = { ...a, path: "b.md" };
+    const objectA = inspected("a", exact(a), exact(a), exact(remoteA));
+    objectA.local_target_owner = exact(changedB);
+    const objectB = inspected("b", exact(b), exact(changedB), { state: "absent" });
+
+    const plan = planReconciliation(summary([objectA, objectB]), digest);
+    expect(plan.actions.filter((action) => action.command === "move_local")).toHaveLength(0);
+    expect(plan.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        command: "record_conflict",
+        identity: "a",
+        conflict_kind: "path_occupied"
+      }),
+      expect.objectContaining({
+        command: "record_conflict",
+        identity: "b",
+        conflict_kind: "delete_vs_change"
+      })
+    ]));
+  });
+
+  it("propagates an unvacatable destination through the path graph", () => {
+    const a = ref("a", "a.md", "a");
+    const b = ref("b", "b.md", "b");
+    const c = ref("c", "c.md", "c");
+    const changedC = ref("c", "c.md", "changed c");
+    const objectA = inspected("a", exact(a), exact(a), exact({ ...a, path: "b.md" }));
+    objectA.local_target_owner = exact(b);
+    const objectB = inspected("b", exact(b), exact(b), exact({ ...b, path: "c.md" }));
+    objectB.local_target_owner = exact(changedC);
+    const objectC = inspected("c", exact(c), exact(changedC), { state: "absent" });
+
+    const plan = planReconciliation(summary([objectA, objectB, objectC]), digest);
+    expect(plan.actions.filter((action) => action.command === "move_local")).toHaveLength(0);
+    expect(plan.actions.filter((action) =>
+      action.command === "record_conflict" && action.conflict_kind === "path_occupied"
+    ).map((action) => "identity" in action ? action.identity : "")).toEqual(["a", "b"]);
+  });
+
+  it("orders remote vacancy dependencies without confusing receipt dependencies", () => {
+    const baseA = ref("a", "a.md", "old a");
+    const localA = ref("a", "b.md", "new a");
+    const baseB = ref("b", "b.md", "b");
+    const objectA = inspected("a", exact(baseA), exact(localA), exact(baseA));
+    objectA.remote_target_owner = exact(baseB);
+    const objectB = inspected("b", exact(baseB), { state: "absent" }, exact(baseB));
+
+    const plan = planReconciliation(summary([objectA, objectB]), digest);
+    expect(plan.actions.map((action) => action.command)).toEqual([
+      "put_remote",
+      "delete_remote",
+      "move_remote",
+      "advance_checkpoint"
+    ]);
+    const [put, remove, move] = plan.actions;
+    expect(move?.depends_on).toEqual(expect.arrayContaining([
+      put?.action_id,
+      remove?.action_id
+    ]));
+    expect(move && "revision_from_dependency" in move
+      ? move.revision_from_dependency
+      : undefined).toBe(put?.action_id);
+    expect(move).toMatchObject({ expected_target_owner: { state: "absent" } });
+  });
+
+  it("makes remote rename cycles explicit path conflicts", () => {
+    const a = ref("a", "a.md", "a");
+    const b = ref("b", "b.md", "b");
+    const localA = { ...a, path: "b.md" };
+    const localB = { ...b, path: "a.md" };
+    const objectA = inspected("a", exact(a), exact(localA), exact(a));
+    objectA.remote_target_owner = exact(b);
+    const objectB = inspected("b", exact(b), exact(localB), exact(b));
+    objectB.remote_target_owner = exact(a);
+
+    const plan = planReconciliation(summary([objectA, objectB]), digest);
+    expect(plan.actions.filter((action) => action.command === "move_remote")).toHaveLength(0);
+    expect(plan.actions.filter((action) =>
+      action.command === "record_conflict" && action.conflict_kind === "path_occupied"
+    )).toHaveLength(2);
   });
 });

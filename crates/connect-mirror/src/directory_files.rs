@@ -170,146 +170,50 @@ impl DirectoryMirror {
         }
     }
 
-    pub(super) async fn stage_file_changes(
-        &self,
-        events: &[SyncChange],
-    ) -> Result<(), MirrorError> {
-        for event in events {
-            if let SyncChange::FilePut { file, .. } = event {
-                if self.file_selected(file) {
-                    self.ensure_file_blob(file).await?;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    pub(super) fn apply_file_change(
-        &self,
-        state: &mut DurableMirrorState,
-        event: SyncChange,
-    ) -> Result<(), MirrorError> {
-        match event {
-            SyncChange::FilePut { file, .. } if self.file_selected(&file) => {
-                self.put_materialized_file(state, file)
-            }
-            SyncChange::FilePut { file, .. } => self.remove_materialized_file(state, file.file_id),
-            SyncChange::FileRemove { file_id, .. } => self.remove_materialized_file(state, file_id),
-            _ => Err(MirrorError::new(
-                "invalid_sync_response",
-                "A record change was sent to the file materializer.",
-            )),
-        }
-    }
-
-    pub(super) fn assert_files_undiverged(
-        &self,
-        state: &DurableMirrorState,
-    ) -> Result<(), MirrorError> {
-        for entry in state.files.values() {
-            if self.file_digest(&entry.file.path)?.as_deref()
-                != Some(entry.file.content_digest.as_str())
-            {
-                return Err(MirrorError::new(
-                    "mirror_diverged",
-                    format!(
-                        "Local edits at {} must be resolved before the mirror can continue.",
-                        entry.file.path
-                    ),
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    fn put_materialized_file(
-        &self,
-        state: &mut DurableMirrorState,
-        file: CollectionFileDescriptor,
-    ) -> Result<(), MirrorError> {
-        self.validate_file_descriptor(&file)?;
-        let prior = state.files.get(&file.file_id).cloned();
-        let target_digest = self.file_digest(&file.path)?;
-        let target_is_prior = prior
-            .as_ref()
-            .is_some_and(|entry| entry.file.path == file.path);
-        let prior_digest = prior
-            .as_ref()
-            .map(|entry| entry.file.content_digest.as_str());
-        if target_digest.as_deref().is_some_and(|digest| {
-            digest != file.content_digest && !(target_is_prior && Some(digest) == prior_digest)
-        }) {
-            return Err(MirrorError::new(
-                "mirror_diverged",
-                format!(
-                    "Local file {} differs from the authority and was not overwritten.",
-                    file.path
-                ),
-            ));
-        }
-        if let Some(prior) = &prior {
-            if prior.file.path != file.path {
-                let prior_local = self.file_digest(&prior.file.path)?;
-                if prior_local
-                    .as_deref()
-                    .is_some_and(|digest| digest != prior.file.content_digest)
-                {
-                    return Err(MirrorError::new(
-                        "mirror_diverged",
-                        format!(
-                            "Local file {} changed while the authority moved it.",
-                            prior.file.path
-                        ),
-                    ));
-                }
-            }
-        }
-        if target_digest.as_deref() != Some(file.content_digest.as_str()) {
-            self.install_file_blob(&file)?;
-        }
-        if let Some(prior) = &prior {
-            if prior.file.path != file.path {
-                self.remove_file(&prior.file.path)?;
-            }
-        }
-        state.files.insert(file.file_id, MirrorFileEntry { file });
-        Ok(())
-    }
-
-    fn remove_materialized_file(
-        &self,
-        state: &mut DurableMirrorState,
-        file_id: Uuid,
-    ) -> Result<(), MirrorError> {
-        let Some(entry) = state.files.get(&file_id).cloned() else {
-            return Ok(());
-        };
-        if self
-            .file_digest(&entry.file.path)?
-            .as_deref()
-            .is_some_and(|digest| digest != entry.file.content_digest)
-        {
-            return Err(MirrorError::new(
-                "mirror_diverged",
-                format!(
-                    "Local file {} changed while the authority removed it.",
-                    entry.file.path
-                ),
-            ));
-        }
-        self.remove_file(&entry.file.path)?;
-        state.files.remove(&file_id);
-        Ok(())
-    }
-
     fn file_cache_path(&self, file: &CollectionFileDescriptor) -> Result<PathBuf, MirrorError> {
-        let digest = file.content_digest.strip_prefix("sha256:").ok_or_else(|| {
+        self.blob_path(&file.content_digest)
+    }
+
+    pub(super) fn blob_path(&self, content_digest: &str) -> Result<PathBuf, MirrorError> {
+        let digest = content_digest.strip_prefix("sha256:").ok_or_else(|| {
             MirrorError::new("invalid_snapshot", "Collection file digest is invalid.")
         })?;
+        if digest.len() != 64
+            || !digest
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(MirrorError::new(
+                "invalid_snapshot",
+                "Collection file digest is invalid.",
+            ));
+        }
         let parent = self.state_file.parent().ok_or_else(|| {
             MirrorError::new("invalid_mirror_state_path", "Mirror state path is invalid.")
         })?;
         Ok(parent.join("file-blobs").join(digest))
+    }
+
+    pub(super) fn stage_local_blob(
+        &self,
+        relative: &str,
+        content_digest: &str,
+        size: u64,
+    ) -> Result<PathBuf, MirrorError> {
+        let source = safe_path(&self.root, relative)?;
+        let target = self.blob_path(content_digest)?;
+        if target.exists() && verify_blob(&target, content_digest, size)? {
+            return Ok(target);
+        }
+        atomic_copy(&source, &target)?;
+        if !verify_blob(&target, content_digest, size)? {
+            let _ = fs::remove_file(&target);
+            return Err(MirrorError::new(
+                "file_integrity_failed",
+                format!("Local file {relative} changed while its sync plan was sealed."),
+            ));
+        }
+        Ok(target)
     }
 
     pub(super) fn prune_file_cache(&self) -> Result<(), MirrorError> {
@@ -322,18 +226,14 @@ impl DirectoryMirror {
                     .strip_prefix("sha256:")
                     .map(str::to_string)
             }));
-        }
-        if let Some(plan) = self.read_rebuild_plan()? {
-            retained.extend(plan.files.iter().filter_map(|file| {
-                file.content_digest
-                    .strip_prefix("sha256:")
-                    .map(str::to_string)
-            }));
-            if let Some(prior) = plan.prior {
-                retained.extend(prior.files.values().filter_map(|entry| {
-                    entry
-                        .file
-                        .content_digest
+            if let Some(batch) = state.batch {
+                retained.extend(batch.payloads.files.values().filter_map(|file| {
+                    file.content_digest
+                        .strip_prefix("sha256:")
+                        .map(str::to_string)
+                }));
+                retained.extend(batch.payloads.local_files.values().filter_map(|file| {
+                    file.content_digest
                         .strip_prefix("sha256:")
                         .map(str::to_string)
                 }));
@@ -374,6 +274,22 @@ impl DirectoryMirror {
             })?;
         }
         Ok(())
+    }
+}
+
+pub(super) fn classify_file_media(path: &str) -> FileMediaClass {
+    match path
+        .rsplit_once('.')
+        .map(|(_, extension)| extension.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("avif" | "bmp" | "gif" | "jpeg" | "jpg" | "png" | "svg" | "webp") => {
+            FileMediaClass::Image
+        }
+        Some("flac" | "m4a" | "mp3" | "oga" | "ogg" | "opus" | "wav") => FileMediaClass::Audio,
+        Some("3gp" | "mkv" | "mov" | "mp4" | "webm") => FileMediaClass::Video,
+        Some("pdf") => FileMediaClass::Pdf,
+        _ => FileMediaClass::Other,
     }
 }
 
@@ -421,6 +337,16 @@ pub(super) fn verify_file(
     match sha256_file(path) {
         Ok((size, digest)) => {
             Ok(size == file.size && format!("sha256:{digest}") == file.content_digest)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(MirrorError::io("Could not verify", path, error)),
+    }
+}
+
+fn verify_blob(path: &Path, content_digest: &str, expected_size: u64) -> Result<bool, MirrorError> {
+    match sha256_file(path) {
+        Ok((size, digest)) => {
+            Ok(size == expected_size && format!("sha256:{digest}") == content_digest)
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(error) => Err(MirrorError::io("Could not verify", path, error)),

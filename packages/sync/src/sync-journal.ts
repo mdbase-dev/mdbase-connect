@@ -50,13 +50,13 @@ export async function prepareSyncBatch(
     plan.selective_sync
   );
   state.scope_epoch = plan.scope_epoch;
-  state.selective_sync = structuredClone(plan.selective_sync);
+  state.selective_sync = plan.selective_sync;
   state.batch = {
     phase: "prepared",
-    plan: structuredClone(plan),
+    plan,
     next_action: 0,
     receipts: [],
-    payloads: structuredClone(payloads),
+    payloads,
     checkpoint_before: {
       generation: plan.checkpoint_generation,
       cursor: plan.base_cursor

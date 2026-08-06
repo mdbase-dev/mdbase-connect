@@ -306,6 +306,76 @@ impl SyncTransport for FakeAuthority {
             .map_err(|error| MirrorError::io("Could not write", destination, error))
     }
 
+    async fn upload_file(
+        &self,
+        request: &OpenFileUploadRequest,
+        source: &Path,
+    ) -> Result<CommitFileUploadReceipt, MirrorError> {
+        let bytes =
+            fs::read(source).map_err(|error| MirrorError::io("Could not read", source, error))?;
+        if bytes.len() as u64 != request.size
+            || format!("sha256:{}", digest_bytes(&bytes)) != request.content_digest
+        {
+            return Err(MirrorError::new(
+                "file_integrity_failed",
+                "Fake upload bytes differ.",
+            ));
+        }
+        let mut files = self.files.lock().unwrap();
+        let prior_id = files
+            .iter()
+            .find(|(_, (file, _))| file.path == request.path)
+            .map(|(id, _)| *id);
+        let mut descriptor = test_file(&request.path, &bytes, classify_test_file(&request.path));
+        if let Some(id) = prior_id {
+            descriptor.file_id = id;
+        }
+        descriptor.media_type.clone_from(&request.media_type);
+        files.insert(descriptor.file_id, (descriptor.clone(), bytes));
+        Ok(CommitFileUploadReceipt {
+            protocol_version: FILE_PROTOCOL_VERSION,
+            message_type: CommitFileUploadReceiptKind::FileUploadCommitted,
+            transfer_id: request.transfer_id,
+            file: descriptor,
+        })
+    }
+
+    async fn move_file(&self, request: &MoveFileRequest) -> Result<MoveFileReceipt, MirrorError> {
+        let mut files = self.files.lock().unwrap();
+        let (mut file, bytes) = files
+            .remove(&request.file_id)
+            .ok_or_else(|| MirrorError::new("file_not_found", "Fake file is unavailable."))?;
+        file.path.clone_from(&request.path);
+        file.revision = format!("{}-moved", file.revision);
+        files.insert(file.file_id, (file.clone(), bytes));
+        Ok(MoveFileReceipt {
+            protocol_version: FILE_PROTOCOL_VERSION,
+            message_type: MoveFileReceiptKind::FileMoved,
+            mutation_id: request.mutation_id,
+            file,
+        })
+    }
+
+    async fn delete_file(
+        &self,
+        request: &DeleteFileRequest,
+    ) -> Result<DeleteFileReceipt, MirrorError> {
+        let (file, _) = self
+            .files
+            .lock()
+            .unwrap()
+            .remove(&request.file_id)
+            .ok_or_else(|| MirrorError::new("file_not_found", "Fake file is unavailable."))?;
+        Ok(DeleteFileReceipt {
+            protocol_version: FILE_PROTOCOL_VERSION,
+            message_type: DeleteFileReceiptKind::FileDeleted,
+            mutation_id: request.mutation_id,
+            file_id: request.file_id,
+            previous_path: file.path,
+            revision: file.revision,
+        })
+    }
+
     async fn changes(&self, after: u64, _limit: usize) -> Result<SyncChangesPage, MirrorError> {
         let events = self
             .changes
@@ -433,10 +503,6 @@ fn record(path: &str, title: &str) -> SyncRecord {
     record
 }
 
-fn snapshot_record(record: SyncRecord) -> mdbase_connect_protocol::SyncSnapshotRecord {
-    mdbase_connect_protocol::SyncSnapshotRecord { record }
-}
-
 fn refresh_revision(record: &mut SyncRecord) {
     let mapping = mdbase::frontmatter::parser::json_to_yaml_mapping(&Value::Object(
         record.frontmatter.clone(),
@@ -467,6 +533,22 @@ fn test_file(path: &str, bytes: &[u8], media_class: FileMediaClass) -> Collectio
         },
         media_class,
         modified_at: Utc::now().to_rfc3339(),
+    }
+}
+
+fn classify_test_file(path: &str) -> FileMediaClass {
+    match path
+        .rsplit('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "png" | "jpg" | "jpeg" | "gif" | "svg" | "webp" => FileMediaClass::Image,
+        "mp3" | "wav" | "ogg" => FileMediaClass::Audio,
+        "mp4" | "mov" | "webm" => FileMediaClass::Video,
+        "pdf" => FileMediaClass::Pdf,
+        _ => FileMediaClass::Other,
     }
 }
 
@@ -706,6 +788,64 @@ async fn writable_mirrors_never_upload_markdown_from_excluded_folders() {
         fs::read_to_string(mirror.root().join("drafts/local.md")).unwrap(),
         "private draft"
     );
+}
+
+#[tokio::test]
+async fn writable_file_sync_uploads_updates_moves_and_deletes() {
+    let replica_id = Uuid::new_v4();
+    let authority = FakeAuthority::new(replica_id, SyncReplicaMode::ReadWrite, Vec::new());
+    let policy = SelectiveSyncPolicy {
+        file_classes: vec![FileMediaClass::Image],
+        excluded_folders: Vec::new(),
+    };
+    let (_temporary, mirror, authority) = custom_harness_with_selective_sync(authority, policy);
+    mirror.sync().await.unwrap();
+    fs::create_dir_all(mirror.root().join("assets")).unwrap();
+    fs::write(mirror.root().join("assets/new.png"), b"first").unwrap();
+
+    mirror.sync().await.unwrap();
+    let uploaded = authority
+        .files
+        .lock()
+        .unwrap()
+        .values()
+        .find(|(file, _)| file.path == "assets/new.png")
+        .unwrap()
+        .0
+        .clone();
+    assert_eq!(
+        uploaded.content_digest,
+        format!("sha256:{}", digest_bytes(b"first"))
+    );
+
+    fs::write(mirror.root().join("assets/new.png"), b"second").unwrap();
+    mirror.sync().await.unwrap();
+    let updated = authority.files.lock().unwrap()[&uploaded.file_id].0.clone();
+    assert_eq!(
+        updated.content_digest,
+        format!("sha256:{}", digest_bytes(b"second"))
+    );
+
+    fs::create_dir_all(mirror.root().join("archive")).unwrap();
+    fs::rename(
+        mirror.root().join("assets/new.png"),
+        mirror.root().join("archive/new.png"),
+    )
+    .unwrap();
+    mirror.sync().await.unwrap();
+    assert_eq!(
+        authority.files.lock().unwrap()[&uploaded.file_id].0.path,
+        "archive/new.png"
+    );
+
+    fs::remove_file(mirror.root().join("archive/new.png")).unwrap();
+    mirror.sync().await.unwrap();
+    assert!(!authority
+        .files
+        .lock()
+        .unwrap()
+        .contains_key(&uploaded.file_id));
+    assert!(mirror.read_state().unwrap().unwrap().files.is_empty());
 }
 
 #[tokio::test]
@@ -959,45 +1099,6 @@ async fn changing_folder_exclusions_reconciles_markdown_without_deleting_authori
 }
 
 #[tokio::test]
-async fn interrupted_file_rebuild_resumes_from_verified_content_cache() {
-    let replica_id = Uuid::new_v4();
-    let authority = FakeAuthority::new(replica_id, SyncReplicaMode::ReadOnly, Vec::new());
-    let file = authority.put_file(
-        "assets/photo.png",
-        b"cached image bytes",
-        FileMediaClass::Image,
-    );
-    let policy = SelectiveSyncPolicy {
-        file_classes: vec![FileMediaClass::Image],
-        excluded_folders: Vec::new(),
-    };
-    let (_temporary, mirror, authority) =
-        custom_harness_with_selective_sync(authority, policy.clone());
-    mirror.ensure_file_blob(&file).await.unwrap();
-    let plan = DurableRebuildPlan {
-        protocol_version: SYNC_PROTOCOL_VERSION,
-        engine_version: MIRROR_ENGINE_VERSION,
-        replica_id,
-        mode: SyncReplicaMode::ReadOnly,
-        session: authority.session.clone(),
-        records: Vec::new(),
-        files: vec![file.clone()],
-        sync_policy: policy,
-        prior: None,
-    };
-    mirror.write_rebuild_plan(&plan).unwrap();
-    authority.files.lock().unwrap().clear();
-
-    mirror.sync().await.unwrap();
-
-    assert_eq!(
-        fs::read(mirror.root().join(&file.path)).unwrap(),
-        b"cached image bytes"
-    );
-    assert!(!mirror.rebuild_plan_file().exists());
-}
-
-#[tokio::test]
 async fn successful_sync_prunes_only_unreferenced_complete_file_blobs() {
     let replica_id = Uuid::new_v4();
     let authority = FakeAuthority::new(replica_id, SyncReplicaMode::ReadOnly, Vec::new());
@@ -1175,6 +1276,61 @@ async fn lost_mutation_response_replays_the_durable_mutation_id_after_restart() 
 }
 
 #[tokio::test]
+async fn action_journal_is_append_only_replayable_and_ignores_a_torn_tail() {
+    let source = record("one.md", "One");
+    let (_temporary, mirror, _authority) = harness(SyncReplicaMode::ReadOnly, vec![source]);
+    let inspection = mirror.inspect_plan().await.unwrap();
+    let mut state = mirror.prepare_batch(inspection).unwrap();
+    let compact = fs::read(&mirror.state_file).unwrap();
+    let action = state.batch.as_ref().unwrap().plan.actions[0].clone();
+    let SyncAction::WriteLocal { action_id, .. } = action else {
+        panic!("first exact snapshot action should materialize the record");
+    };
+    let record = state.batch.as_ref().unwrap().payloads.records[&action_id].clone();
+    mirror.put_record(&mut state, record.clone(), None).unwrap();
+    mirror
+        .journal_receipt(
+            &mut state,
+            DurableReceipt {
+                action_id,
+                status: "completed".into(),
+                record: Some(record),
+                file: None,
+            },
+        )
+        .unwrap();
+
+    assert_eq!(fs::read(&mirror.state_file).unwrap(), compact);
+    let journal = mirror.state_file.with_extension("journal.ndjson");
+    assert!(fs::metadata(&journal).unwrap().len() > 0);
+    let replayed = mirror.read_state().unwrap().unwrap();
+    assert_eq!(replayed.batch.as_ref().unwrap().next_action, 1);
+    assert_eq!(replayed.records.len(), 1);
+
+    OpenOptions::new()
+        .append(true)
+        .open(&journal)
+        .unwrap()
+        .write_all(b"{\"event\":\"receipt\"")
+        .unwrap();
+    assert_eq!(
+        mirror
+            .read_state()
+            .unwrap()
+            .unwrap()
+            .batch
+            .as_ref()
+            .unwrap()
+            .next_action,
+        1
+    );
+
+    mirror.sync().await.unwrap();
+    assert_eq!(mirror.status().unwrap().state, MirrorStatusState::UpToDate);
+    assert_eq!(fs::metadata(journal).unwrap().len(), 0);
+}
+
+#[tokio::test]
 async fn an_existing_folder_lease_refuses_a_second_sync() {
     let (_temporary, mirror, _authority) = harness(SyncReplicaMode::ReadOnly, Vec::new());
     let _lease = MirrorLease::acquire(&mirror.lock_file).unwrap();
@@ -1227,8 +1383,9 @@ async fn inspection_is_deterministic_read_only_and_apply_rejects_a_stale_plan() 
         "exact local bytes\r\n",
     )
     .unwrap();
-    let error = mirror.apply(&first).await.unwrap_err();
-    assert_eq!(error.code, "sync_plan_stale");
+    let stale = mirror.apply(&first).await.unwrap();
+    assert_eq!(stale.status, "stale");
+    assert_eq!(stale.failure.unwrap().code, "sync_plan_stale");
     assert!(authority.mutations().is_empty());
     assert!(!mirror.state_file.exists());
 
@@ -1269,177 +1426,6 @@ async fn reviewed_plan_materializes_the_authority_document_byte_for_byte() {
 }
 
 #[tokio::test]
-async fn interrupted_initial_snapshot_resumes_from_its_durable_plan() {
-    let first = record("tasks/one.md", "One");
-    let second = record("tasks/two.md", "Two");
-    let (_temporary, mirror, authority) = harness(
-        SyncReplicaMode::ReadOnly,
-        vec![first.clone(), second.clone()],
-    );
-    let plan = DurableRebuildPlan {
-        protocol_version: SYNC_PROTOCOL_VERSION,
-        engine_version: MIRROR_ENGINE_VERSION,
-        replica_id: authority.session.replica_id,
-        mode: SyncReplicaMode::ReadOnly,
-        session: authority.session.clone(),
-        records: vec![
-            snapshot_record(first.clone()),
-            snapshot_record(second.clone()),
-        ],
-        files: Vec::new(),
-        sync_policy: SelectiveSyncPolicy::default(),
-        prior: None,
-    };
-    mirror.write_rebuild_plan(&plan).unwrap();
-    mirror
-        .write_file(
-            &authority.session.resources.documents[0].path,
-            authority.session.resources.documents[0].document.as_bytes(),
-        )
-        .unwrap();
-    mirror
-        .write_file(
-            &first.path,
-            record_markdown_document(&first).unwrap().as_bytes(),
-        )
-        .unwrap();
-
-    mirror.sync().await.unwrap();
-
-    assert_eq!(
-        fs::read_to_string(mirror.root().join(&second.path)).unwrap(),
-        record_markdown_document(&second).unwrap()
-    );
-    assert!(!mirror.rebuild_plan_file().exists());
-    assert_eq!(mirror.status().unwrap().state, MirrorStatusState::UpToDate);
-}
-
-#[tokio::test]
-async fn reset_snapshot_removes_old_paths_after_a_remote_rename_and_delete() {
-    let first = record("tasks/one.md", "One");
-    let removed = record("tasks/remove.md", "Remove");
-    let (_temporary, mirror, authority) = harness(
-        SyncReplicaMode::ReadOnly,
-        vec![first.clone(), removed.clone()],
-    );
-    mirror.sync().await.unwrap();
-    let mut renamed = first.clone();
-    renamed.path = "archive/one.md".to_string();
-    renamed.body = "# Renamed\n".to_string();
-    refresh_revision(&mut renamed);
-    let mut session = authority.session.clone();
-    session.scope_epoch = 2;
-    session.head = 2;
-    session.snapshot_id = Uuid::new_v4();
-    let plan = DurableRebuildPlan {
-        protocol_version: SYNC_PROTOCOL_VERSION,
-        engine_version: MIRROR_ENGINE_VERSION,
-        replica_id: authority.session.replica_id,
-        mode: SyncReplicaMode::ReadOnly,
-        session,
-        records: vec![snapshot_record(renamed.clone())],
-        files: Vec::new(),
-        sync_policy: SelectiveSyncPolicy::default(),
-        prior: mirror.read_state().unwrap(),
-    };
-    mirror.write_rebuild_plan(&plan).unwrap();
-
-    mirror
-        .apply_rebuild(mirror.read_rebuild_plan().unwrap().unwrap())
-        .unwrap();
-
-    assert!(!mirror.root().join(&first.path).exists());
-    assert!(!mirror.root().join(&removed.path).exists());
-    assert_eq!(
-        fs::read_to_string(mirror.root().join(&renamed.path)).unwrap(),
-        record_markdown_document(&renamed).unwrap()
-    );
-}
-
-#[tokio::test]
-async fn reset_snapshot_rejects_a_same_record_case_only_rename() {
-    let source = record("Notes/Example.md", "Original");
-    let (_temporary, mirror, authority) = harness(SyncReplicaMode::ReadOnly, vec![source.clone()]);
-    mirror.sync().await.unwrap();
-    let mut renamed = source.clone();
-    renamed.path = "notes/example.md".to_string();
-    renamed.body = "# Updated after reset\n".to_string();
-    refresh_revision(&mut renamed);
-    let mut session = authority.session.clone();
-    session.scope_epoch = 2;
-    session.head = 2;
-    session.snapshot_id = Uuid::new_v4();
-    let plan = DurableRebuildPlan {
-        protocol_version: SYNC_PROTOCOL_VERSION,
-        engine_version: MIRROR_ENGINE_VERSION,
-        replica_id: authority.session.replica_id,
-        mode: SyncReplicaMode::ReadOnly,
-        session,
-        records: vec![snapshot_record(renamed.clone())],
-        files: Vec::new(),
-        sync_policy: SelectiveSyncPolicy::default(),
-        prior: mirror.read_state().unwrap(),
-    };
-
-    let error = mirror.apply_rebuild(plan).unwrap_err();
-
-    assert_eq!(error.code, "invalid_record_path");
-    assert!(mirror.root().join(&source.path).exists());
-    assert!(!mirror.root().join(&renamed.path).exists());
-}
-
-#[tokio::test]
-async fn reset_snapshot_can_atomically_swap_managed_record_paths() {
-    let first = record("first.md", "First");
-    let second = record("second.md", "Second");
-    let (_temporary, mirror, authority) = harness(
-        SyncReplicaMode::ReadOnly,
-        vec![first.clone(), second.clone()],
-    );
-    mirror.sync().await.unwrap();
-    let mut swapped_first = first.clone();
-    swapped_first.path = second.path.clone();
-    swapped_first.body = "# First after swap\n".to_string();
-    refresh_revision(&mut swapped_first);
-    let mut swapped_second = second.clone();
-    swapped_second.path = first.path.clone();
-    swapped_second.body = "# Second after swap\n".to_string();
-    refresh_revision(&mut swapped_second);
-    let mut session = authority.session.clone();
-    session.scope_epoch = 2;
-    session.head = 2;
-    session.snapshot_id = Uuid::new_v4();
-    let plan = DurableRebuildPlan {
-        protocol_version: SYNC_PROTOCOL_VERSION,
-        engine_version: MIRROR_ENGINE_VERSION,
-        replica_id: authority.session.replica_id,
-        mode: SyncReplicaMode::ReadOnly,
-        session,
-        records: vec![
-            snapshot_record(swapped_first.clone()),
-            snapshot_record(swapped_second.clone()),
-        ],
-        files: Vec::new(),
-        sync_policy: SelectiveSyncPolicy::default(),
-        prior: mirror.read_state().unwrap(),
-    };
-    mirror.write_rebuild_plan(&plan).unwrap();
-
-    mirror
-        .apply_rebuild(mirror.read_rebuild_plan().unwrap().unwrap())
-        .unwrap();
-
-    assert_eq!(
-        fs::read_to_string(mirror.root().join(&swapped_first.path)).unwrap(),
-        record_markdown_document(&swapped_first).unwrap()
-    );
-    assert_eq!(
-        fs::read_to_string(mirror.root().join(&swapped_second.path)).unwrap(),
-        record_markdown_document(&swapped_second).unwrap()
-    );
-}
-
-#[tokio::test]
 async fn duplicate_snapshot_paths_fail_before_materialization() {
     let first = record("tasks/same.md", "One");
     let mut second = record("tasks/same.md", "Two");
@@ -1451,7 +1437,6 @@ async fn duplicate_snapshot_paths_fail_before_materialization() {
     assert_eq!(error.code, "invalid_snapshot");
     assert!(!mirror.root().join("mdbase.yaml").exists());
     assert!(!mirror.root().join("tasks/same.md").exists());
-    assert!(!mirror.rebuild_plan_file().exists());
 }
 
 #[test]
@@ -1479,6 +1464,260 @@ fn portable_path_policy_matches_the_shared_cross_platform_fixtures() {
             "{} and {} should share one physical path key",
             alias.left,
             alias.right
+        );
+    }
+}
+
+#[test]
+fn rust_planner_matches_the_shared_cross_runtime_canonical_fixture() {
+    let identity = "22222222-2222-4222-8222-222222222222";
+    let object = |document: &str| SyncObjectRef {
+        entity: SyncObjectKind::Record,
+        identity: identity.into(),
+        path: "notes/parity.md".into(),
+        revision: format!("sha256:{}", digest(document)),
+        payload_revision: format!("sha256:{}", digest(document)),
+        size: None,
+    };
+    let base = ExpectedObjectState::Exact {
+        object: object("base"),
+    };
+    let local = ExpectedObjectState::Exact {
+        object: object("local"),
+    };
+    let plan = crate::sync_planner::plan_reconciliation(crate::sync_planner::InspectionSummary {
+        boundary: crate::sync_planner::InspectionBoundary {
+            replica_id: "11111111-1111-4111-8111-111111111111".into(),
+            scope_epoch: 7,
+            authority_cursor: 19,
+            checkpoint: SyncCheckpoint {
+                generation: 3,
+                cursor: Some(11),
+            },
+        },
+        mode: SyncReplicaMode::ReadWrite,
+        kind: "incremental".into(),
+        selective_sync: SelectiveSyncPolicy::default(),
+        objects: vec![crate::sync_planner::InspectedObject {
+            entity: SyncObjectKind::Record,
+            identity: identity.into(),
+            base: base.clone(),
+            local: local.clone(),
+            remote: base.clone(),
+            local_target_owner: local,
+            remote_target_owner: base,
+            frozen_conflict: None,
+        }],
+        issues: Vec::new(),
+    })
+    .unwrap();
+    let expected: Value =
+        serde_json::from_str(include_str!("../../../test-fixtures/sync-plan-parity.json")).unwrap();
+    assert_eq!(
+        serde_json::json!({
+            "action_ids": plan.actions.iter().map(SyncAction::action_id).collect::<Vec<_>>(),
+            "fingerprint": plan.fingerprint,
+        }),
+        expected
+    );
+}
+
+#[test]
+fn rust_planner_breaks_local_rename_cycles_with_the_same_staged_graph() {
+    let object = |identity: &str, path: &str, document: &str| SyncObjectRef {
+        entity: SyncObjectKind::Record,
+        identity: identity.into(),
+        path: path.into(),
+        revision: format!("sha256:{}", digest(document)),
+        payload_revision: format!("sha256:{}", digest(document)),
+        size: None,
+    };
+    let a = object("a", "a.md", "exact a");
+    let b = object("b", "b.md", "exact b");
+    let remote_a = SyncObjectRef {
+        path: "b.md".into(),
+        ..a.clone()
+    };
+    let remote_b = SyncObjectRef {
+        path: "a.md".into(),
+        ..b.clone()
+    };
+    let exact = |object| ExpectedObjectState::Exact { object };
+    let plan = crate::sync_planner::plan_reconciliation(crate::sync_planner::InspectionSummary {
+        boundary: crate::sync_planner::InspectionBoundary {
+            replica_id: "11111111-1111-4111-8111-111111111111".into(),
+            scope_epoch: 7,
+            authority_cursor: 19,
+            checkpoint: SyncCheckpoint {
+                generation: 3,
+                cursor: Some(11),
+            },
+        },
+        mode: SyncReplicaMode::ReadWrite,
+        kind: "incremental".into(),
+        selective_sync: SelectiveSyncPolicy::default(),
+        objects: vec![
+            crate::sync_planner::InspectedObject {
+                entity: SyncObjectKind::Record,
+                identity: "a".into(),
+                base: exact(a.clone()),
+                local: exact(a.clone()),
+                remote: exact(remote_a),
+                local_target_owner: exact(b.clone()),
+                remote_target_owner: exact(a.clone()),
+                frozen_conflict: None,
+            },
+            crate::sync_planner::InspectedObject {
+                entity: SyncObjectKind::Record,
+                identity: "b".into(),
+                base: exact(b.clone()),
+                local: exact(b.clone()),
+                remote: exact(remote_b),
+                local_target_owner: exact(a.clone()),
+                remote_target_owner: exact(b),
+                frozen_conflict: None,
+            },
+        ],
+        issues: vec![],
+    })
+    .unwrap();
+
+    assert_eq!(plan.actions.len(), 4);
+    let SyncAction::MoveLocal {
+        target_path,
+        expected_target_owner,
+        ..
+    } = &plan.actions[0]
+    else {
+        panic!("first cycle action should be the staging move");
+    };
+    assert!(target_path.starts_with(".mdbase-sync-stage-"));
+    assert!(target_path.ends_with(".md"));
+    assert_eq!(expected_target_owner, &ExpectedObjectState::Absent);
+    assert!(matches!(plan.actions[1], SyncAction::MoveLocal { .. }));
+    assert!(matches!(plan.actions[2], SyncAction::MoveLocal { .. }));
+    assert!(matches!(
+        plan.actions[3],
+        SyncAction::AdvanceCheckpoint { .. }
+    ));
+    assert!(plan.actions[1]
+        .depends_on()
+        .contains(&plan.actions[0].action_id().to_string()));
+    assert!(plan.actions[2]
+        .depends_on()
+        .contains(&plan.actions[1].action_id().to_string()));
+}
+
+#[test]
+fn rust_planner_orders_remote_vacancy_and_receipt_dependencies_separately() {
+    let object = |identity: &str, path: &str, document: &str| SyncObjectRef {
+        entity: SyncObjectKind::Record,
+        identity: identity.into(),
+        path: path.into(),
+        revision: format!("sha256:{}", digest(document)),
+        payload_revision: format!("sha256:{}", digest(document)),
+        size: None,
+    };
+    let base_a = object("a", "a.md", "old a");
+    let local_a = object("a", "b.md", "new a");
+    let base_b = object("b", "b.md", "b");
+    let exact = |object| ExpectedObjectState::Exact { object };
+    let plan = crate::sync_planner::plan_reconciliation(crate::sync_planner::InspectionSummary {
+        boundary: crate::sync_planner::InspectionBoundary {
+            replica_id: "11111111-1111-4111-8111-111111111111".into(),
+            scope_epoch: 7,
+            authority_cursor: 19,
+            checkpoint: SyncCheckpoint {
+                generation: 3,
+                cursor: Some(11),
+            },
+        },
+        mode: SyncReplicaMode::ReadWrite,
+        kind: "incremental".into(),
+        selective_sync: SelectiveSyncPolicy::default(),
+        objects: vec![
+            crate::sync_planner::InspectedObject {
+                entity: SyncObjectKind::Record,
+                identity: "a".into(),
+                base: exact(base_a.clone()),
+                local: exact(local_a.clone()),
+                remote: exact(base_a.clone()),
+                local_target_owner: exact(local_a),
+                remote_target_owner: exact(base_b.clone()),
+                frozen_conflict: None,
+            },
+            crate::sync_planner::InspectedObject {
+                entity: SyncObjectKind::Record,
+                identity: "b".into(),
+                base: exact(base_b.clone()),
+                local: ExpectedObjectState::Absent,
+                remote: exact(base_b.clone()),
+                local_target_owner: ExpectedObjectState::Absent,
+                remote_target_owner: exact(base_b),
+                frozen_conflict: None,
+            },
+        ],
+        issues: vec![],
+    })
+    .unwrap();
+
+    assert!(matches!(plan.actions[0], SyncAction::PutRemote { .. }));
+    assert!(matches!(plan.actions[1], SyncAction::DeleteRemote { .. }));
+    let SyncAction::MoveRemote {
+        depends_on,
+        revision_from_dependency,
+        expected_target_owner,
+        ..
+    } = &plan.actions[2]
+    else {
+        panic!("third action should be the now-vacant remote move");
+    };
+    assert!(depends_on.contains(&plan.actions[0].action_id().to_string()));
+    assert!(depends_on.contains(&plan.actions[1].action_id().to_string()));
+    assert_eq!(
+        revision_from_dependency.as_deref(),
+        Some(plan.actions[0].action_id())
+    );
+    assert_eq!(expected_target_owner, &ExpectedObjectState::Absent);
+}
+
+#[test]
+fn rust_plan_only_architecture_has_enforced_responsibility_boundaries() {
+    let planner = include_str!("sync_planner.rs");
+    assert!(!planner.contains("DirectoryMirror"));
+    assert!(!planner.contains("std::fs"));
+    assert!(!planner.contains("transport"));
+    assert!(!planner.contains("async fn"));
+
+    let executor = include_str!("sync_executor.rs");
+    for forbidden in [
+        "inspect_plan",
+        "plan_reconciliation",
+        "open_session",
+        ".snapshot(",
+        ".changes(",
+    ] {
+        assert!(
+            !executor.contains(forbidden),
+            "executor gained {forbidden} capability"
+        );
+    }
+
+    for (name, source) in [
+        ("directory_plan", include_str!("directory_plan.rs")),
+        ("directory_sync", include_str!("directory_sync.rs")),
+        ("sync_inspector", include_str!("sync_inspector.rs")),
+        ("sync_executor", executor),
+        ("sync_journal", include_str!("sync_journal.rs")),
+        ("sync_revalidator", include_str!("sync_revalidator.rs")),
+    ] {
+        assert!(
+            !source.contains("action: SyncAction::"),
+            "{name} constructed a command outside the pure planner"
+        );
+        assert!(
+            !source.contains("state.cursor =") && !source.contains("state.generation ="),
+            "{name} advanced a checkpoint outside checkpoint authority"
         );
     }
 }
@@ -1551,57 +1790,6 @@ async fn incremental_pages_are_preflighted_before_writing_aliased_records() {
 }
 
 #[tokio::test]
-async fn incremental_preflight_reserves_paths_for_deferred_records() {
-    for conflict in [true, false] {
-        let source = record("occupied.md", "Managed");
-        let (_temporary, mirror, authority) =
-            harness(SyncReplicaMode::ReadOnly, vec![source.clone()]);
-        mirror.sync().await.unwrap();
-        let mut state = mirror.read_state().unwrap().unwrap();
-        if conflict {
-            state.conflicts.insert(
-                source.record_id,
-                SyncMutationReceipt::Rejected {
-                    mutation_id: Uuid::new_v4(),
-                    error: SyncMutationError {
-                        code: "blocked".to_string(),
-                        message: "Needs a decision.".to_string(),
-                    },
-                },
-            );
-        } else {
-            state.local_issues.insert(
-                source.path.clone(),
-                StoredLocalIssue {
-                    path: source.path.clone(),
-                    code: "invalid_frontmatter".to_string(),
-                    message: "Fix the local file.".to_string(),
-                    hash: state.records[&source.record_id].hash.clone(),
-                },
-            );
-        }
-        mirror.write_state(&state).unwrap();
-        let mut moved = source.clone();
-        moved.path = "moved.md".to_string();
-        refresh_revision(&mut moved);
-        authority.emit_put(moved);
-        let mut replacement = record("occupied.md", "Replacement");
-        replacement.record_id = Uuid::new_v4();
-        authority.emit_put(replacement);
-
-        let error = mirror.sync().await.unwrap_err();
-
-        assert_eq!(error.code, "invalid_record_path");
-        assert_eq!(
-            fs::read_to_string(mirror.root().join("occupied.md")).unwrap(),
-            record_markdown_document(&source).unwrap()
-        );
-        assert!(!mirror.root().join("moved.md").exists());
-        assert_eq!(mirror.read_state().unwrap().unwrap().cursor, 1);
-    }
-}
-
-#[tokio::test]
 async fn writable_capture_rejects_local_cross_platform_aliases_before_upload() {
     let (_temporary, mirror, authority) = harness(SyncReplicaMode::ReadWrite, Vec::new());
     fs::create_dir_all(mirror.root().join("Notes")).unwrap();
@@ -1670,59 +1858,6 @@ async fn authority_configuration_cannot_enable_executable_record_extensions() {
     assert!(!mirror.root().join("mdbase.yaml").exists());
 }
 
-#[test]
-fn snapshot_rejects_inconsistent_record_documents_before_materialization() {
-    let replica_id = Uuid::new_v4();
-    let authority = FakeAuthority::new(replica_id, SyncReplicaMode::ReadOnly, Vec::new());
-    let (_temporary, mirror, authority) = custom_harness(authority);
-    let source = record("notes/example.md", "Declared");
-    let hostile_document = "# Different\n";
-    let mut hostile = snapshot_record(source);
-    hostile.record.document = hostile_document.to_string();
-    hostile.record.revision = format!("sha256:{}", digest(hostile_document));
-    let plan = DurableRebuildPlan {
-        protocol_version: SYNC_PROTOCOL_VERSION,
-        engine_version: MIRROR_ENGINE_VERSION,
-        replica_id,
-        mode: SyncReplicaMode::ReadOnly,
-        session: authority.session.clone(),
-        records: vec![hostile],
-        files: Vec::new(),
-        sync_policy: SelectiveSyncPolicy::default(),
-        prior: None,
-    };
-
-    let error = mirror.apply_rebuild(plan).unwrap_err();
-
-    assert_eq!(error.code, "invalid_snapshot");
-    assert!(!mirror.root().join("mdbase.yaml").exists());
-    assert!(!mirror.root().join("notes/example.md").exists());
-}
-
-#[test]
-fn snapshot_rejects_inconsistent_resource_revisions_before_materialization() {
-    let replica_id = Uuid::new_v4();
-    let mut authority = FakeAuthority::new(replica_id, SyncReplicaMode::ReadOnly, Vec::new());
-    authority.session.resources.documents[0].revision = format!("sha256:{}", "0".repeat(64));
-    let (_temporary, mirror, authority) = custom_harness(authority);
-    let plan = DurableRebuildPlan {
-        protocol_version: SYNC_PROTOCOL_VERSION,
-        engine_version: MIRROR_ENGINE_VERSION,
-        replica_id,
-        mode: SyncReplicaMode::ReadOnly,
-        session: authority.session.clone(),
-        records: Vec::new(),
-        files: Vec::new(),
-        sync_policy: SelectiveSyncPolicy::default(),
-        prior: None,
-    };
-
-    let error = mirror.apply_rebuild(plan).unwrap_err();
-
-    assert_eq!(error.code, "invalid_snapshot");
-    assert!(!mirror.root().join("mdbase.yaml").exists());
-}
-
 #[tokio::test]
 async fn snapshot_resource_kinds_cannot_write_arbitrary_json_files() {
     let replica_id = Uuid::new_v4();
@@ -1781,11 +1916,9 @@ async fn incremental_record_puts_recheck_the_live_collection_policy() {
     hostile.body = "malware".to_string();
     refresh_revision(&mut hostile);
 
-    let error = mirror
-        .put(&mut state, hostile, PutOptions::default())
-        .unwrap_err();
+    let error = mirror.put_record(&mut state, hostile, None).unwrap_err();
 
-    assert_eq!(error.code, "invalid_record_path");
+    assert_eq!(error.code, "invalid_sync_plan");
     assert!(!mirror.root().join("payload.exe").exists());
     assert!(mirror.root().join("notes/one.md").exists());
 }

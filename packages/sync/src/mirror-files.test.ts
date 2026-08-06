@@ -37,6 +37,10 @@ class BinaryFileSystem implements MirrorFileSystem {
   binaryWrites = 0;
   maxWriteChunk = 0;
 
+  async exists(path: string): Promise<boolean> {
+    return this.files.has(path);
+  }
+
   async read(path: string): Promise<string | null> {
     const value = this.files.get(path);
     return value ? text.decode(value) : null;

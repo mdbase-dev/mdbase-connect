@@ -57,6 +57,8 @@ interface ExecutorPorts {
  */
 export class PlanOnlySyncExecutor {
   private readonly materializer: MirrorMaterializer;
+  private readonly ownersByPath = new Map<string, SyncObjectRef>();
+  private readonly pathsByOwner = new Map<string, string>();
 
   constructor(private readonly ports: ExecutorPorts) {
     this.materializer = new MirrorMaterializer(
@@ -69,6 +71,8 @@ export class PlanOnlySyncExecutor {
 
   async execute(state: MirrorState, signal?: AbortSignal): Promise<SyncExecutionResult> {
     const batch = requireBatch(state);
+    this.indexPathOwners(state);
+    const completedActions = new Set(batch.receipts.map((receipt) => receipt.action_id));
     await beginApplying(state, this.ports.store);
     while (batch.next_action < batch.plan.actions.length) {
       const action = batch.plan.actions[batch.next_action]!;
@@ -82,7 +86,7 @@ export class PlanOnlySyncExecutor {
         return { status: "cancelled", completed: batch.next_action, failure };
       }
       const missingDependency = action.depends_on.find((dependency) =>
-        !batch.receipts.some((receipt) => receipt.action_id === dependency)
+        !completedActions.has(dependency)
       );
       if (missingDependency) {
         const failure = {
@@ -96,6 +100,7 @@ export class PlanOnlySyncExecutor {
       try {
         const receipt = await this.dispatch(state, action);
         await recordActionReceipt(state, receipt, this.ports.store);
+        completedActions.add(receipt.action_id);
         this.ports.onProgress?.(batch.next_action, batch.plan.actions.length - 1);
       } catch (error) {
         const failure = failureFrom(error, action.action_id);
@@ -189,15 +194,23 @@ export class PlanOnlySyncExecutor {
     state: MirrorState,
     action: Extract<SyncAction, { command: "write_local" }>
   ): Promise<DurableSyncReceipt> {
-    await this.assertLocal(action.expected_local);
-    await this.assertPathOwner(state, action.target.path, action.expected_path_owner);
+    const targetOccupied = await this.ports.fileSystem.exists(action.target.path);
+    if (!targetOccupied || !await this.matchesRef(action.target)) {
+      await this.assertLocal(action.expected_local);
+      await this.assertPathOwner(
+        action.target.path,
+        action.expected_path_owner,
+        targetOccupied
+      );
+    }
     const payloads = requireBatch(state).payloads;
     if (action.target.entity === "record") {
       const record = payloads.records[action.action_id];
       if (!record || record.revision !== action.payload_revision) throw missingPayload(action);
       assertExactDocument(record, this.ports.runtime, action.payload_revision);
-      await this.materializer.put(state, record, { physicalPathPreflighted: true });
-      return { action_id: action.action_id, status: "completed", record };
+      await this.materializer.put(state, record, { inspectionPreflighted: true });
+      this.installPathOwner(action.target);
+      return { action_id: action.action_id, status: "completed" };
     }
     if (action.target.entity === "resource") {
       const resource = payloads.resources[action.action_id];
@@ -206,12 +219,14 @@ export class PlanOnlySyncExecutor {
         throw missingPayload(action);
       }
       await this.materializer.putResource(state, resource, state);
+      this.installPathOwner(action.target);
       return { action_id: action.action_id, status: "completed" };
     }
     const file = payloads.files[action.action_id];
     if (!file || file.content_digest !== action.payload_revision) throw missingPayload(action);
     await this.materializer.putFile(state, file, state);
-    return { action_id: action.action_id, status: "completed", file };
+    this.installPathOwner(action.target);
+    return { action_id: action.action_id, status: "completed" };
   }
 
   private async moveLocal(
@@ -221,10 +236,11 @@ export class PlanOnlySyncExecutor {
     const alreadyMoved = await this.matchesRef({ ...action.source, path: action.target_path });
     if (!alreadyMoved) {
       await this.assertLocal(action.expected_source_owner);
-      await this.assertPathOwner(state, action.target_path, action.expected_target_owner);
+      await this.assertPathOwner(action.target_path, action.expected_target_owner);
       await this.ports.fileSystem.move(action.source.path, action.target_path);
     }
     moveStateEntry(state, action.source, action.target_path);
+    this.installPathOwner({ ...action.source, path: action.target_path });
     return { action_id: action.action_id, status: "completed" };
   }
 
@@ -236,7 +252,12 @@ export class PlanOnlySyncExecutor {
     if (exists) {
       await this.assertLocal(action.expected_local);
       if (action.target.entity === "record") {
-        await this.materializer.remove(state, action.target.identity, action.target.path);
+        await this.materializer.remove(
+          state,
+          action.target.identity,
+          action.target.path,
+          { inspectionPreflighted: true }
+        );
       } else if (action.target.entity === "resource") {
         const entry = state.resources?.[action.target.identity];
         if (entry) await this.materializer.removeResource(state, action.target.path, entry);
@@ -247,6 +268,7 @@ export class PlanOnlySyncExecutor {
     } else {
       removeStateEntry(state, action.target);
     }
+    this.removePathOwner(action.target);
     return { action_id: action.action_id, status: "completed" };
   }
 
@@ -297,9 +319,9 @@ export class PlanOnlySyncExecutor {
       || receipt.file.size !== local.size
     ) throw invalidReceipt(action);
     state.files ??= {};
-      state.files[receipt.file.file_id] = { file: receipt.file };
-      delete state.local_bindings?.[action.target.identity];
-      return { action_id: action.action_id, status: "completed", file: receipt.file };
+    state.files[receipt.file.file_id] = { file: receipt.file };
+    delete state.local_bindings?.[action.target.identity];
+    return { action_id: action.action_id, status: "completed", file: receipt.file };
   }
 
   private async moveRemote(
@@ -473,13 +495,13 @@ export class PlanOnlySyncExecutor {
   }
 
   private async assertPathOwner(
-    state: MirrorState,
     path: string,
-    expected: ExpectedObjectState
+    expected: ExpectedObjectState,
+    observedExists?: boolean
   ): Promise<void> {
-    const owner = stateOwnerAtPath(state, path);
+    const owner = this.ownersByPath.get(path);
     if (expected.state === "absent") {
-      if (owner || await this.pathExists(path)) {
+      if (owner || (observedExists ?? await this.pathExists(path))) {
         throw new SyncError("sync_plan_stale", `${path} is no longer vacant.`);
       }
       return;
@@ -502,42 +524,56 @@ export class PlanOnlySyncExecutor {
   }
 
   private async pathExists(path: string): Promise<boolean> {
-    if (await this.ports.fileSystem.read(path) !== null) return true;
-    return typeof this.ports.fileSystem.inspectBinary === "function"
-      && await this.ports.fileSystem.inspectBinary(path) !== null;
+    return this.ports.fileSystem.exists(path);
   }
-}
 
-function stateOwnerAtPath(state: MirrorState, path: string): SyncObjectRef | undefined {
-  for (const [identity, entry] of Object.entries(state.records)) {
-    if (entry.path === path) return {
-      entity: "record",
-      identity,
-      path,
-      revision: entry.revision,
-      payload_revision: `sha256:${entry.hash}`
-    };
+  private indexPathOwners(state: MirrorState): void {
+    this.ownersByPath.clear();
+    this.pathsByOwner.clear();
+    for (const [identity, entry] of Object.entries(state.records)) {
+      this.installPathOwner({
+        entity: "record",
+        identity,
+        path: entry.path,
+        revision: entry.revision,
+        payload_revision: `sha256:${entry.hash}`
+      });
+    }
+    for (const [identity, entry] of Object.entries(state.resources ?? {})) {
+      this.installPathOwner({
+        entity: "resource",
+        identity,
+        path: entry.path,
+        revision: entry.revision,
+        payload_revision: `sha256:${entry.hash}`
+      });
+    }
+    for (const [identity, entry] of Object.entries(state.files ?? {})) {
+      this.installPathOwner({
+        entity: "file",
+        identity,
+        path: entry.file.path,
+        revision: entry.file.revision,
+        payload_revision: entry.file.content_digest,
+        size: entry.file.size
+      });
+    }
   }
-  for (const [identity, entry] of Object.entries(state.resources ?? {})) {
-    if (entry.path === path) return {
-      entity: "resource",
-      identity,
-      path,
-      revision: entry.revision,
-      payload_revision: `sha256:${entry.hash}`
-    };
+
+  private installPathOwner(ref: SyncObjectRef): void {
+    const key = `${ref.entity}:${ref.identity}`;
+    const previous = this.pathsByOwner.get(key);
+    if (previous !== undefined) this.ownersByPath.delete(previous);
+    this.ownersByPath.set(ref.path, ref);
+    this.pathsByOwner.set(key, ref.path);
   }
-  for (const [identity, entry] of Object.entries(state.files ?? {})) {
-    if (entry.file.path === path) return {
-      entity: "file",
-      identity,
-      path,
-      revision: entry.file.revision,
-      payload_revision: entry.file.content_digest,
-      size: entry.file.size
-    };
+
+  private removePathOwner(ref: SyncObjectRef): void {
+    const key = `${ref.entity}:${ref.identity}`;
+    const path = this.pathsByOwner.get(key) ?? ref.path;
+    this.ownersByPath.delete(path);
+    this.pathsByOwner.delete(key);
   }
-  return undefined;
 }
 
 function moveStateEntry(state: MirrorState, source: SyncObjectRef, target: string): void {

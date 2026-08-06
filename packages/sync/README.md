@@ -139,6 +139,29 @@ Obsidian or another host still owns background scheduling, battery/network
 policy, secret storage, and translation from its vault API to
 `MirrorFileSystem`.
 
+### Plan-only reconciliation
+
+Directory mirrors have one reconciliation pipeline in both TypeScript and
+Rust: an I/O inspector captures exact revisions and sealed payload handles, a
+pure planner produces a content-free fingerprinted action graph, a narrow
+revalidator checks the inspected boundary, and a command-only executor records
+each receipt in the durable journal before the checkpoint module publishes the
+new cursor. Consumers render that canonical plan; they do not infer transfers
+or conflicts independently.
+
+Every write, delete, and move names exact content and path-ownership
+preconditions. Local path cycles use a deterministic staged move, acyclic path
+chains depend on their vacancy-producing actions, and authority-side cycles
+are explicit `path_occupied` conflicts because protocol v1 has no atomic
+remote staging operation. A stale precondition stops the prepared batch at an
+action boundary. Recovery replays only that same idempotent batch and never
+re-inspects or chooses replacement work below the executor.
+
+The prerelease durable mirror schema is intentionally not migrated. State from
+an older engine fails with `mirror_state_upgrade_required`; rebuild the mirror
+to create the plan-only state machine rather than retaining a second legacy
+execution path.
+
 ### Performance and adversarial profiling
 
 The repository keeps a source-commit- and runtime-identified

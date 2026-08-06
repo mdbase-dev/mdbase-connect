@@ -290,6 +290,17 @@ export class NodeMirrorFileSystem implements MirrorFileSystem {
     this.root = resolve(root);
   }
 
+  async exists(path: string): Promise<boolean> {
+    const target = await this.safePath(path);
+    try {
+      await lstat(target);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    }
+  }
+
   async read(path: string): Promise<string | null> {
     return readOptional(await this.safePath(path));
   }

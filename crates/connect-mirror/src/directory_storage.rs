@@ -17,24 +17,17 @@ impl DirectoryMirror {
         collection: &mdbase::Collection,
         relative: &str,
     ) -> Result<(), MirrorError> {
+        safe_path(&self.root, relative)?;
         let path = collection.validate_record_path(relative).map_err(|error| {
             MirrorError::new(
                 "invalid_record_path",
                 format!("Mirror record path '{relative}' is not allowed: {error}"),
             )
         })?;
-        if path.as_str() != relative {
+        if path.as_str() != relative || !is_remote_mirror_record_path(relative) {
             return Err(MirrorError::new(
                 "invalid_record_path",
-                format!("Mirror record path '{relative}' is not canonical."),
-            ));
-        }
-        if !is_remote_mirror_record_path(relative) {
-            return Err(MirrorError::new(
-                "invalid_record_path",
-                format!(
-                    "Mirror record path '{relative}' is not safe for remote materialization; mirrors accept only .md records."
-                ),
+                format!("Mirror record path '{relative}' is not canonical remote Markdown."),
             ));
         }
         Ok(())
@@ -43,39 +36,32 @@ impl DirectoryMirror {
     pub(super) fn validate_record_physical_path(
         &self,
         state: &DurableMirrorState,
-        record_id: Uuid,
+        identity: &str,
         relative: &str,
     ) -> Result<(), MirrorError> {
-        let physical_path = portable_mirror_path_key(relative).map_err(|error| {
-            MirrorError::new(
-                "invalid_record_path",
-                format!("Mirror record path '{relative}' is unsafe: {error}"),
-            )
-        })?;
+        let key = portable_mirror_path_key(relative)
+            .map_err(|error| MirrorError::new("invalid_record_path", error))?;
         for entry in state.resources.values() {
             if portable_mirror_path_key(&entry.path)
                 .map_err(|error| MirrorError::new("invalid_mirror_state", error))?
-                == physical_path
+                == key
             {
                 return Err(MirrorError::new(
                     "invalid_record_path",
-                    format!(
-                        "Mirror record path {relative} aliases authority resource {} on a supported filesystem.",
-                        entry.path
-                    ),
+                    format!("{relative} aliases authority resource {}.", entry.path),
                 ));
             }
         }
-        for (existing_id, entry) in &state.records {
-            if (*existing_id != record_id || entry.path != relative)
+        for (existing, entry) in &state.records {
+            if (existing.to_string() != identity || entry.path != relative)
                 && portable_mirror_path_key(&entry.path)
                     .map_err(|error| MirrorError::new("invalid_mirror_state", error))?
-                    == physical_path
+                    == key
             {
                 return Err(MirrorError::new(
                     "invalid_record_path",
                     format!(
-                        "Mirror record paths {} and {relative} alias on a supported filesystem.",
+                        "{} and {relative} alias on a supported filesystem.",
                         entry.path
                     ),
                 ));
@@ -84,195 +70,12 @@ impl DirectoryMirror {
         for entry in state.files.values() {
             if portable_mirror_path_key(&entry.file.path)
                 .map_err(|error| MirrorError::new("invalid_mirror_state", error))?
-                == physical_path
+                == key
             {
                 return Err(MirrorError::new(
                     "invalid_record_path",
-                    format!(
-                        "Mirror record path {relative} aliases collection file {} on a supported filesystem.",
-                        entry.file.path
-                    ),
+                    format!("{relative} aliases collection file {}.", entry.file.path),
                 ));
-            }
-        }
-        Ok(())
-    }
-
-    pub(super) fn preflight_change_physical_paths(
-        &self,
-        state: &DurableMirrorState,
-        events: &[SyncChange],
-    ) -> Result<(), MirrorError> {
-        #[derive(Clone, Copy, PartialEq, Eq)]
-        enum Owner {
-            Resource,
-            Record(Uuid),
-            File(Uuid),
-        }
-
-        let mut deferred_record_ids = state.conflicts.keys().copied().collect::<HashSet<_>>();
-        if !state.local_issues.is_empty() {
-            for (record_id, entry) in &state.records {
-                if state.local_issues.contains_key(&entry.path) {
-                    deferred_record_ids.insert(*record_id);
-                }
-            }
-        }
-        for event in events {
-            match event {
-                SyncChange::Put { record, .. } if self.path_selected(&record.path) => {
-                    self.validate_record_path(&record.path)?
-                }
-                SyncChange::FilePut { file, .. } if self.file_selected(file) => {
-                    self.validate_file_descriptor(file)?
-                }
-                _ => {}
-            }
-        }
-        let mut physical_paths = HashMap::<String, (String, Owner)>::new();
-        let mut record_paths = HashMap::<Uuid, String>::new();
-        let mut file_paths = HashMap::<Uuid, String>::new();
-        for path in state.resources.keys() {
-            physical_paths.insert(
-                portable_mirror_path_key(path)
-                    .map_err(|error| MirrorError::new("invalid_mirror_state", error))?,
-                (path.clone(), Owner::Resource),
-            );
-        }
-        for (record_id, entry) in &state.records {
-            physical_paths.insert(
-                portable_mirror_path_key(&entry.path)
-                    .map_err(|error| MirrorError::new("invalid_mirror_state", error))?,
-                (entry.path.clone(), Owner::Record(*record_id)),
-            );
-            record_paths.insert(*record_id, entry.path.clone());
-        }
-        for (file_id, entry) in &state.files {
-            physical_paths.insert(
-                portable_mirror_path_key(&entry.file.path)
-                    .map_err(|error| MirrorError::new("invalid_mirror_state", error))?,
-                (entry.file.path.clone(), Owner::File(*file_id)),
-            );
-            file_paths.insert(*file_id, entry.file.path.clone());
-        }
-        for event in events {
-            match event {
-                SyncChange::Remove { record_id, .. } => {
-                    if deferred_record_ids.contains(record_id) {
-                        continue;
-                    }
-                    if let Some(prior) = record_paths.remove(record_id) {
-                        let physical_path = portable_mirror_path_key(&prior)
-                            .map_err(|error| MirrorError::new("invalid_mirror_state", error))?;
-                        physical_paths.remove(&physical_path);
-                    }
-                }
-                SyncChange::Put { record, .. } => {
-                    if deferred_record_ids.contains(&record.record_id) {
-                        continue;
-                    }
-                    if let Some(prior) = record_paths.get(&record.record_id) {
-                        let prior_physical = portable_mirror_path_key(prior)
-                            .map_err(|error| MirrorError::new("invalid_mirror_state", error))?;
-                        if self.path_selected(&record.path)
-                            && portable_mirror_path_key(&record.path)
-                                .map_err(|error| MirrorError::new("invalid_record_path", error))?
-                                == prior_physical
-                            && prior != &record.path
-                        {
-                            return Err(MirrorError::new(
-                                "invalid_record_path",
-                                format!(
-                                    "Mirror paths {prior} and {} alias on a supported filesystem.",
-                                    record.path
-                                ),
-                            ));
-                        }
-                        physical_paths.remove(&prior_physical);
-                    }
-                    if !self.path_selected(&record.path) {
-                        record_paths.remove(&record.record_id);
-                        continue;
-                    }
-                    let physical_path =
-                        portable_mirror_path_key(&record.path).map_err(|error| {
-                            MirrorError::new(
-                                "invalid_record_path",
-                                format!("Mirror record path '{}' is unsafe: {error}", record.path),
-                            )
-                        })?;
-                    if let Some((occupied_path, owner)) = physical_paths.get(&physical_path) {
-                        if *owner != Owner::Record(record.record_id)
-                            || occupied_path != &record.path
-                        {
-                            return Err(MirrorError::new(
-                                "invalid_record_path",
-                                format!(
-                                    "Mirror paths {occupied_path} and {} alias on a supported filesystem.",
-                                    record.path
-                                ),
-                            ));
-                        }
-                    }
-                    physical_paths.insert(
-                        physical_path,
-                        (record.path.clone(), Owner::Record(record.record_id)),
-                    );
-                    record_paths.insert(record.record_id, record.path.clone());
-                }
-                SyncChange::FileRemove { file_id, .. } => {
-                    if let Some(prior) = file_paths.remove(file_id) {
-                        let physical_path = portable_mirror_path_key(&prior)
-                            .map_err(|error| MirrorError::new("invalid_mirror_state", error))?;
-                        physical_paths.remove(&physical_path);
-                    }
-                }
-                SyncChange::FilePut { file, .. } => {
-                    if let Some(prior) = file_paths.remove(&file.file_id) {
-                        let physical_path = portable_mirror_path_key(&prior)
-                            .map_err(|error| MirrorError::new("invalid_mirror_state", error))?;
-                        if self.file_selected(file)
-                            && portable_mirror_path_key(&file.path)
-                                .map_err(|error| MirrorError::new("invalid_file_path", error))?
-                                == physical_path
-                            && prior != file.path
-                        {
-                            return Err(MirrorError::new(
-                                "invalid_file_path",
-                                format!(
-                                    "Mirror paths {prior} and {} alias on a supported filesystem.",
-                                    file.path
-                                ),
-                            ));
-                        }
-                        physical_paths.remove(&physical_path);
-                    }
-                    if !self.file_selected(file) {
-                        continue;
-                    }
-                    let physical_path = portable_mirror_path_key(&file.path).map_err(|error| {
-                        MirrorError::new(
-                            "invalid_file_path",
-                            format!("Mirror file path '{}' is unsafe: {error}", file.path),
-                        )
-                    })?;
-                    if let Some((occupied_path, owner)) = physical_paths.get(&physical_path) {
-                        if *owner != Owner::File(file.file_id) || occupied_path != &file.path {
-                            return Err(MirrorError::new(
-                                "invalid_file_path",
-                                format!(
-                                    "Mirror paths {occupied_path} and {} alias on a supported filesystem.",
-                                    file.path
-                                ),
-                            ));
-                        }
-                    }
-                    physical_paths.insert(
-                        physical_path,
-                        (file.path.clone(), Owner::File(file.file_id)),
-                    );
-                    file_paths.insert(file.file_id, file.path.clone());
-                }
             }
         }
         Ok(())
@@ -284,7 +87,7 @@ impl DirectoryMirror {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(MirrorError::io("Could not read", &self.state_file, error)),
         };
-        let state = serde_json::from_slice::<DurableMirrorState>(&value).map_err(|error| {
+        let mut state = serde_json::from_slice::<DurableMirrorState>(&value).map_err(|error| {
             MirrorError::new(
                 "invalid_mirror_state",
                 format!("Mirror state is corrupt: {error}"),
@@ -293,7 +96,7 @@ impl DirectoryMirror {
         if state.engine_version != MIRROR_ENGINE_VERSION {
             return Err(MirrorError::new(
                 "mirror_state_upgrade_required",
-                "Rebuild this prerelease mirror with the exact-document sync engine.",
+                "Rebuild this prerelease mirror with the plan-only sync engine.",
             ));
         }
         if state.protocol_version != SYNC_PROTOCOL_VERSION
@@ -305,92 +108,160 @@ impl DirectoryMirror {
                 "Mirror state belongs to another protocol, replica, or mode.",
             ));
         }
-        self.validate_state_shape(&state)?;
+        if state.batch.is_some() {
+            self.replay_journal(&mut state)?;
+        }
+        self.validate_state(&state)?;
         Ok(Some(state))
     }
 
-    pub(super) fn read_rebuild_plan(&self) -> Result<Option<DurableRebuildPlan>, MirrorError> {
-        let path = self.rebuild_plan_file();
-        let value = match fs::read(&path) {
-            Ok(value) => value,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(MirrorError::io("Could not read", &path, error)),
-        };
-        let plan = serde_json::from_slice::<DurableRebuildPlan>(&value).map_err(|error| {
-            MirrorError::new(
-                "invalid_mirror_state",
-                format!("Mirror rebuild plan is corrupt: {error}"),
-            )
-        })?;
-        self.validate_rebuild_plan(&plan)?;
-        Ok(Some(plan))
+    fn journal_file(&self) -> PathBuf {
+        self.state_file.with_extension("journal.ndjson")
     }
 
-    pub(super) fn validate_rebuild_plan(
-        &self,
-        plan: &DurableRebuildPlan,
-    ) -> Result<(), MirrorError> {
-        if plan.engine_version != MIRROR_ENGINE_VERSION {
-            return Err(MirrorError::new(
-                "mirror_state_upgrade_required",
-                "Discard this obsolete prerelease rebuild plan and synchronize again.",
-            ));
-        }
-        if plan.protocol_version != SYNC_PROTOCOL_VERSION
-            || plan.replica_id != self.replica_id
-            || plan.mode != self.mode
-            || plan.session.protocol_version != SYNC_PROTOCOL_VERSION
-            || plan.session.replica_id != self.replica_id
-            || plan.session.mode != self.mode
-            || plan.sync_policy != self.sync_policy
-        {
-            return Err(MirrorError::new(
-                "invalid_mirror_state",
-                "Mirror rebuild plan belongs to another protocol, replica, or mode.",
-            ));
-        }
-        if let Some(prior) = &plan.prior {
-            if prior.engine_version != MIRROR_ENGINE_VERSION
-                || prior.protocol_version != SYNC_PROTOCOL_VERSION
-                || prior.replica_id != self.replica_id
-                || prior.mode != self.mode
-            {
-                return Err(MirrorError::new(
-                    "invalid_mirror_state",
-                    "Mirror rebuild plan contains state for another replica or mode.",
-                ));
+    pub(super) fn reset_journal(&self) -> Result<(), MirrorError> {
+        let path = self.journal_file();
+        let parent = path.parent().ok_or_else(|| {
+            MirrorError::new(
+                "invalid_mirror_state_path",
+                "Mirror journal path is invalid.",
+            )
+        })?;
+        fs::create_dir_all(parent)
+            .map_err(|error| MirrorError::io("Could not create", parent, error))?;
+        atomic_write(&path, b"")
+    }
+
+    pub(super) fn append_journal(&self, event: &DurableJournalEvent) -> Result<(), MirrorError> {
+        let path = self.journal_file();
+        let parent = path.parent().ok_or_else(|| {
+            MirrorError::new(
+                "invalid_mirror_state_path",
+                "Mirror journal path is invalid.",
+            )
+        })?;
+        fs::create_dir_all(parent)
+            .map_err(|error| MirrorError::io("Could not create", parent, error))?;
+        let mut bytes = serde_json::to_vec(event).map_err(MirrorError::from)?;
+        bytes.push(b'\n');
+        let mut file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(&path)
+            .map_err(|error| MirrorError::io("Could not open", &path, error))?;
+        let length = file
+            .metadata()
+            .map_err(|error| MirrorError::io("Could not inspect", &path, error))?
+            .len();
+        if length > 0 {
+            file.seek(SeekFrom::End(-1))
+                .map_err(|error| MirrorError::io("Could not seek", &path, error))?;
+            let mut tail = [0_u8; 1];
+            file.read_exact(&mut tail)
+                .map_err(|error| MirrorError::io("Could not read", &path, error))?;
+            if tail[0] != b'\n' {
+                let existing = fs::read(&path)
+                    .map_err(|error| MirrorError::io("Could not read", &path, error))?;
+                let complete = existing
+                    .iter()
+                    .rposition(|byte| *byte == b'\n')
+                    .map(|index| index + 1)
+                    .unwrap_or(0);
+                file.set_len(complete as u64)
+                    .map_err(|error| MirrorError::io("Could not repair", &path, error))?;
             }
-            self.validate_state_shape(prior)?;
+        }
+        file.seek(SeekFrom::End(0))
+            .map_err(|error| MirrorError::io("Could not seek", &path, error))?;
+        file.write_all(&bytes)
+            .map_err(|error| MirrorError::io("Could not append", &path, error))?;
+        file.sync_data()
+            .map_err(|error| MirrorError::io("Could not sync", &path, error))
+    }
+
+    fn replay_journal(&self, state: &mut DurableMirrorState) -> Result<(), MirrorError> {
+        let path = self.journal_file();
+        let bytes = match fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(MirrorError::io("Could not read", &path, error)),
+        };
+        let lines = bytes.split(|byte| *byte == b'\n').collect::<Vec<_>>();
+        // A complete file ends with an empty split item; an incomplete file
+        // ends with a possibly torn event. Neither final item is replayable.
+        let count = lines.len().saturating_sub(1);
+        for line in lines.into_iter().take(count) {
+            if line.is_empty() {
+                continue;
+            }
+            let event = serde_json::from_slice::<DurableJournalEvent>(line).map_err(|error| {
+                MirrorError::new(
+                    "invalid_mirror_state",
+                    format!("Mirror journal is corrupt: {error}"),
+                )
+            })?;
+            apply_journal_event(state, event)?;
         }
         Ok(())
     }
 
-    pub(super) fn write_rebuild_plan(&self, plan: &DurableRebuildPlan) -> Result<(), MirrorError> {
-        let path = self.rebuild_plan_file();
-        atomic_write(
-            &path,
-            &serde_json::to_vec_pretty(plan).map_err(MirrorError::from)?,
-        )
-    }
-
-    pub(super) fn clear_rebuild_plan(&self) -> Result<(), MirrorError> {
-        let path = self.rebuild_plan_file();
-        match fs::remove_file(&path) {
-            Ok(()) => {
-                if let Some(parent) = path.parent() {
-                    if let Ok(directory) = File::open(parent) {
-                        let _ = directory.sync_all();
-                    }
-                }
-                Ok(())
+    fn validate_state(&self, state: &DurableMirrorState) -> Result<(), MirrorError> {
+        let mut paths = BTreeSet::new();
+        for (identity, entry) in &state.records {
+            safe_path(&self.root, &entry.path)?;
+            if !is_remote_mirror_record_path(&entry.path) {
+                return Err(MirrorError::new(
+                    "invalid_mirror_state",
+                    "Stored record path is not canonical Markdown.",
+                ));
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(MirrorError::io("Could not clear", &path, error)),
+            if entry
+                .record
+                .as_ref()
+                .is_some_and(|record| record.record_id != *identity || record.path != entry.path)
+            {
+                return Err(MirrorError::new(
+                    "invalid_mirror_state",
+                    "Stored record identity/path is inconsistent.",
+                ));
+            }
+            if !paths.insert(
+                portable_mirror_path_key(&entry.path)
+                    .map_err(|error| MirrorError::new("invalid_mirror_state", error))?,
+            ) {
+                return Err(MirrorError::new(
+                    "invalid_mirror_state",
+                    "Stored mirror paths alias.",
+                ));
+            }
         }
-    }
-
-    pub(super) fn rebuild_plan_file(&self) -> PathBuf {
-        self.state_file.with_extension("rebuild.json")
+        for entry in state.resources.values() {
+            validate_portable_mirror_path(&entry.path)
+                .map_err(|error| MirrorError::new("invalid_mirror_state", error))?;
+            if !paths.insert(
+                portable_mirror_path_key(&entry.path)
+                    .map_err(|error| MirrorError::new("invalid_mirror_state", error))?,
+            ) {
+                return Err(MirrorError::new(
+                    "invalid_mirror_state",
+                    "Stored mirror paths alias.",
+                ));
+            }
+        }
+        for entry in state.files.values() {
+            self.validate_file_descriptor(&entry.file)?;
+            if !paths.insert(
+                portable_mirror_path_key(&entry.file.path)
+                    .map_err(|error| MirrorError::new("invalid_mirror_state", error))?,
+            ) {
+                return Err(MirrorError::new(
+                    "invalid_mirror_state",
+                    "Stored mirror paths alias.",
+                ));
+            }
+        }
+        Ok(())
     }
 
     pub(super) fn write_state(&self, state: &DurableMirrorState) -> Result<(), MirrorError> {
@@ -415,8 +286,7 @@ impl DirectoryMirror {
     }
 
     pub(super) fn write_file(&self, relative: &str, value: &[u8]) -> Result<(), MirrorError> {
-        let path = safe_path(&self.root, relative)?;
-        atomic_write(&path, value)
+        atomic_write(&safe_path(&self.root, relative)?, value)
     }
 
     pub(super) fn remove_file(&self, relative: &str) -> Result<(), MirrorError> {
@@ -428,49 +298,31 @@ impl DirectoryMirror {
         }
     }
 
+    pub(super) fn move_file(&self, source: &str, target: &str) -> Result<(), MirrorError> {
+        let source = safe_path(&self.root, source)?;
+        let target = safe_path(&self.root, target)?;
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|error| MirrorError::io("Could not create", parent, error))?;
+        }
+        fs::rename(&source, &target)
+            .map_err(|error| MirrorError::io("Could not move", &source, error))
+    }
+
     pub(super) fn list_markdown(
         &self,
         excluded: &HashSet<String>,
     ) -> Result<Vec<String>, MirrorError> {
         let collection = mdbase::Collection::open(&self.root).map_err(|error| {
             MirrorError::new(
-                "invalid_mirror_collection",
+                "invalid_record_path",
                 format!("Mirror collection could not be opened safely: {error}"),
             )
         })?;
-        self.list_markdown_with_collection(excluded, &collection)
+        self.list_markdown_with(excluded, &collection)
     }
 
-    pub(super) fn list_markdown_for_resources(
-        &self,
-        excluded: &HashSet<String>,
-        resources: &SyncCollectionResources,
-    ) -> Result<Vec<String>, MirrorError> {
-        let temporary = tempfile::tempdir().map_err(|error| {
-            MirrorError::new(
-                "mirror_inspection_failed",
-                format!("Could not prepare an isolated collection policy: {error}"),
-            )
-        })?;
-        for resource in &resources.documents {
-            let path = safe_path(temporary.path(), &resource.path)?;
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent)
-                    .map_err(|error| MirrorError::io("Could not prepare", parent, error))?;
-            }
-            fs::write(&path, resource.document.as_bytes())
-                .map_err(|error| MirrorError::io("Could not prepare", &path, error))?;
-        }
-        let collection = mdbase::Collection::open(temporary.path()).map_err(|error| {
-            MirrorError::new(
-                "invalid_authority_resources",
-                format!("Authority collection resources are invalid: {error}"),
-            )
-        })?;
-        self.list_markdown_with_collection(excluded, &collection)
-    }
-
-    fn list_markdown_with_collection(
+    pub(super) fn list_markdown_with(
         &self,
         excluded: &HashSet<String>,
         collection: &mdbase::Collection,
@@ -480,33 +332,16 @@ impl DirectoryMirror {
             .follow_links(false)
             .into_iter()
             .filter_entry(|entry| {
-                if entry.depth() == 0 {
-                    return true;
-                }
-                if entry.file_type().is_symlink() {
-                    return false;
-                }
-                if matches!(
-                    entry.file_name().to_string_lossy().as_ref(),
-                    ".git" | ".mdbase" | "node_modules"
-                ) {
-                    return false;
-                }
-                entry
-                    .path()
-                    .strip_prefix(&self.root)
-                    .ok()
-                    .and_then(|path| path.to_str())
-                    .map(|path| self.path_selected(&path.replace('\\', "/")))
-                    .unwrap_or(false)
+                entry.depth() == 0
+                    || (!entry.file_type().is_symlink()
+                        && !matches!(
+                            entry.file_name().to_string_lossy().as_ref(),
+                            ".git" | ".mdbase" | "node_modules"
+                        ))
             })
         {
-            let entry = entry.map_err(|error| {
-                MirrorError::new(
-                    "mirror_io_failed",
-                    format!("Could not scan mirror: {error}"),
-                )
-            })?;
+            let entry = entry
+                .map_err(|error| MirrorError::new("mirror_inspection_failed", error.to_string()))?;
             if !entry.file_type().is_file() {
                 continue;
             }
@@ -514,15 +349,11 @@ impl DirectoryMirror {
                 .path()
                 .strip_prefix(&self.root)
                 .map_err(|_| {
-                    MirrorError::new(
-                        "mirror_path_escape",
-                        "Mirror scan escaped its configured directory.",
-                    )
+                    MirrorError::new("mirror_path_escape", "Mirror scan escaped its root.")
                 })?
                 .to_string_lossy()
                 .replace('\\', "/");
             if !excluded.contains(&relative)
-                && self.path_selected(&relative)
                 && self
                     .validate_record_path_with(collection, &relative)
                     .is_ok()
@@ -536,57 +367,137 @@ impl DirectoryMirror {
 
     pub(super) fn list_binary_files(&self) -> Result<Vec<String>, MirrorError> {
         let mut paths = Vec::new();
-        for entry in WalkDir::new(&self.root)
-            .follow_links(false)
-            .into_iter()
-            .filter_entry(|entry| {
-                if entry.depth() == 0 {
-                    return true;
-                }
-                if entry.file_type().is_symlink() {
-                    return false;
-                }
-                let name = entry.file_name().to_string_lossy();
-                !name.starts_with('.')
-                    && ![
-                        ".mdbase",
-                        ".git",
-                        "node_modules",
-                        "_contracts",
-                        "_schemas",
-                        "_types",
-                        "_views",
-                    ]
-                    .into_iter()
-                    .any(|reserved| name.eq_ignore_ascii_case(reserved))
-            })
-        {
-            let entry = entry.map_err(|error| {
-                MirrorError::new(
-                    "mirror_io_failed",
-                    format!("Could not scan mirror: {error}"),
-                )
-            })?;
+        for entry in WalkDir::new(&self.root).follow_links(false) {
+            let entry = entry
+                .map_err(|error| MirrorError::new("mirror_inspection_failed", error.to_string()))?;
             if !entry.file_type().is_file() {
                 continue;
             }
-            let relative = entry
-                .path()
-                .strip_prefix(&self.root)
-                .map_err(|_| {
-                    MirrorError::new(
-                        "mirror_path_escape",
-                        "Mirror scan escaped its configured directory.",
-                    )
-                })?
-                .to_string_lossy()
-                .replace('\\', "/");
-            if self.path_selected(&relative) && validate_visible_file_path(&relative, false).is_ok()
+            let relative = entry.path().strip_prefix(&self.root).map_err(|_| {
+                MirrorError::new("invalid_mirror_path", "File escaped mirror root.")
+            })?;
+            let relative = relative.to_string_lossy().replace('\\', "/");
+            if relative.ends_with(".md")
+                || relative.split('/').any(|part| {
+                    part.starts_with('.')
+                        || matches!(
+                            part,
+                            "node_modules" | "_types" | "_schemas" | "_contracts" | "_views"
+                        )
+                })
             {
+                continue;
+            }
+            if validate_visible_file_path(&relative, false).is_ok() {
                 paths.push(relative);
             }
         }
         paths.sort();
         Ok(paths)
+    }
+}
+
+fn apply_journal_event(
+    state: &mut DurableMirrorState,
+    event: DurableJournalEvent,
+) -> Result<(), MirrorError> {
+    let batch = state.batch.as_mut().ok_or_else(|| {
+        MirrorError::new("invalid_mirror_state", "Journal has no prepared batch.")
+    })?;
+    match event {
+        DurableJournalEvent::Phase {
+            plan_fingerprint,
+            phase,
+            failure,
+        } => {
+            if plan_fingerprint != batch.plan.fingerprint {
+                return Err(MirrorError::new(
+                    "invalid_mirror_state",
+                    "Journal belongs to another plan.",
+                ));
+            }
+            batch.phase = phase;
+            batch.failure = failure;
+        }
+        DurableJournalEvent::Receipt {
+            plan_fingerprint,
+            receipt,
+            delta,
+        } => {
+            if plan_fingerprint != batch.plan.fingerprint
+                || batch
+                    .plan
+                    .actions
+                    .get(batch.next_action)
+                    .map(SyncAction::action_id)
+                    != Some(receipt.action_id.as_str())
+            {
+                return Err(MirrorError::new(
+                    "invalid_mirror_state",
+                    "Journal receipt is out of sequence.",
+                ));
+            }
+            apply_state_delta(state, delta)?;
+            let batch = state.batch.as_mut().expect("checked");
+            batch.receipts.push(receipt);
+            batch.next_action += 1;
+        }
+    }
+    Ok(())
+}
+
+fn apply_state_delta(
+    state: &mut DurableMirrorState,
+    delta: DurableStateDelta,
+) -> Result<(), MirrorError> {
+    let state_uuid = || {
+        Uuid::parse_str(&delta.state_identity)
+            .map_err(|_| MirrorError::new("invalid_mirror_state", "Journal identity is invalid."))
+    };
+    match delta.record {
+        EntryDelta::Unchanged => {}
+        EntryDelta::Put { value } => {
+            state.records.insert(state_uuid()?, value);
+        }
+        EntryDelta::Remove => {
+            state.records.remove(&state_uuid()?);
+        }
+    }
+    match delta.resource {
+        EntryDelta::Unchanged => {}
+        EntryDelta::Put { value } => {
+            state.resources.insert(delta.identity.clone(), value);
+        }
+        EntryDelta::Remove => {
+            state.resources.remove(&delta.identity);
+        }
+    }
+    match delta.file {
+        EntryDelta::Unchanged => {}
+        EntryDelta::Put { value } => {
+            state.files.insert(state_uuid()?, value);
+        }
+        EntryDelta::Remove => {
+            state.files.remove(&state_uuid()?);
+        }
+    }
+    apply_entry_delta(
+        &mut state.planned_conflicts,
+        &delta.identity,
+        delta.conflict,
+    );
+    apply_entry_delta(&mut state.local_bindings, &delta.identity, delta.binding);
+    Ok(())
+}
+
+fn apply_entry_delta<T>(target: &mut BTreeMap<String, T>, key: &str, delta: EntryDelta<T>) {
+    match delta {
+        EntryDelta::Unchanged => {}
+        EntryDelta::Put { value } => {
+            target.insert(key.into(), value);
+        }
+        EntryDelta::Remove => {
+            target.remove(key);
+        }
     }
 }

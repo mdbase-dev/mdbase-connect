@@ -20,6 +20,10 @@ class TestFileSystem implements MirrorFileSystem {
   lists = 0;
   failAfterWrites: number | null = null;
 
+  async exists(path: string): Promise<boolean> {
+    return this.files.has(path);
+  }
+
   async read(path: string): Promise<string | null> {
     this.reads += 1;
     return this.files.get(path) ?? null;
@@ -1250,6 +1254,6 @@ describe("platform-neutral directory mirror", () => {
 
     expect(fileSystem.reads).toBe(2_000);
     expect(fileSystem.writes).toBe(2_000);
-    expect(stateStore.writes - writesBefore).toBe(2);
+    expect(stateStore.writes - writesBefore).toBe(1);
   });
 });

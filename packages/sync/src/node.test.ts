@@ -54,6 +54,10 @@ const fullFileSync = {
 class MemoryMirrorFileSystem implements MirrorFileSystem {
   readonly files = new Map<string, string>();
 
+  async exists(path: string): Promise<boolean> {
+    return this.files.has(path);
+  }
+
   async read(path: string): Promise<string | null> {
     return this.files.get(path) ?? null;
   }

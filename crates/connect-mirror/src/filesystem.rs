@@ -221,6 +221,7 @@ pub(super) fn record_markdown_document(record: &SyncRecord) -> Result<String, Mi
     Ok(record.document.clone())
 }
 
+#[cfg(test)]
 pub(super) fn parse_markdown(
     document: &str,
     _path: &str,
@@ -236,65 +237,6 @@ pub(super) fn parse_markdown(
         Some(_) => return Ok((Map::new(), document.to_string())),
     };
     Ok((frontmatter, parsed.body))
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(super) fn queue_mutation(
-    queue: &mut Vec<PendingMirrorMutation>,
-    predecessors: &mut HashMap<Uuid, Uuid>,
-    replica_id: Uuid,
-    scope_epoch: u64,
-    operation: SyncMutationOperation,
-    record_id: Uuid,
-    base_revision: Option<String>,
-    path: Option<String>,
-    document: Option<String>,
-    local_path: String,
-    local_hash: Option<String>,
-) {
-    let mutation_id = Uuid::new_v4();
-    let causal_predecessor = predecessors.get(&record_id).copied();
-    queue.push(PendingMirrorMutation {
-        mutation: SyncMutation {
-            mutation_id,
-            replica_id,
-            scope_epoch,
-            operation,
-            record_id,
-            base_revision,
-            path,
-            document,
-            created_at: now(),
-            causal_predecessor,
-        },
-        local_path,
-        local_hash,
-    });
-    predecessors.insert(record_id, mutation_id);
-}
-
-pub(super) fn refresh_conflict(state: &mut DurableMirrorState, event: &SyncChange) {
-    let record_id = match event {
-        SyncChange::Put { record, .. } => record.record_id,
-        SyncChange::Remove { record_id, .. } => *record_id,
-        SyncChange::FilePut { .. } | SyncChange::FileRemove { .. } => return,
-    };
-    let Some(SyncMutationReceipt::Conflicted { conflict, .. }) =
-        state.conflicts.get_mut(&record_id)
-    else {
-        return;
-    };
-    match event {
-        SyncChange::Put { record, .. } => {
-            conflict.current = Some(record.clone());
-            conflict.current_revision = Some(record.revision.clone());
-        }
-        SyncChange::Remove { revision, .. } => {
-            conflict.current = None;
-            conflict.current_revision = Some(revision.clone());
-        }
-        SyncChange::FilePut { .. } | SyncChange::FileRemove { .. } => {}
-    }
 }
 
 pub(super) fn digest(value: &str) -> String {

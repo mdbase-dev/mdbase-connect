@@ -35,7 +35,13 @@ export interface PutOptions {
   managedState?: MirrorState;
   acceptedHash?: string | null;
   materialized?: { document: string; hash: string };
-  physicalPathPreflighted?: boolean;
+  /** The plan inspector already sealed namespace and physical-path policy. */
+  inspectionPreflighted?: boolean;
+}
+
+export interface RemoveOptions {
+  /** The plan inspector already sealed namespace and physical-path policy. */
+  inspectionPreflighted?: boolean;
 }
 
 export class MirrorMaterializer {
@@ -62,10 +68,12 @@ export class MirrorMaterializer {
       managedState = state,
       acceptedHash,
       materialized,
-      physicalPathPreflighted = false
+      inspectionPreflighted = false
     } = options;
-    validateRecordPath(record.path, await this.recordPathPolicy(state));
-    if (materialized === undefined && !physicalPathPreflighted) {
+    if (!inspectionPreflighted) {
+      validateRecordPath(record.path, await this.recordPathPolicy(state));
+    }
+    if (materialized === undefined && !inspectionPreflighted) {
       assertRecordPhysicalPathAvailable(
         record.path,
         record.record_id,
@@ -189,11 +197,14 @@ export class MirrorMaterializer {
   async remove(
     state: MirrorState,
     recordId: string,
-    pathValue: string
+    pathValue: string,
+    options: RemoveOptions = {}
   ): Promise<void> {
     const entry = state.records[recordId];
     const path = entry?.path ?? pathValue;
-    validateRecordPath(path, await this.recordPathPolicy(state));
+    if (!options.inspectionPreflighted) {
+      validateRecordPath(path, await this.recordPathPolicy(state));
+    }
     const existing = await this.fileSystem.read(path);
     if (existing !== null && entry && this.runtime.digest(existing) !== entry.hash) {
       throw new MirrorDivergenceError(recordId, entry.path);

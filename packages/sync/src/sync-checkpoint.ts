@@ -1,5 +1,6 @@
 import { SyncError } from "./sync-error.js";
 import type { MirrorRuntime, MirrorState } from "./mirror-state.js";
+import type { ReconciliationPlan } from "./sync-planner.js";
 import type { SyncJournalStore } from "./sync-journal.js";
 import { requireBatch } from "./sync-journal.js";
 
@@ -36,4 +37,32 @@ export async function advanceSyncCheckpoint(
   delete state.batch;
   await store.write(state);
   return fingerprint;
+}
+
+/** Publish a revalidated checkpoint when the plan contains no effects to journal. */
+export async function advanceEmptySyncCheckpoint(
+  state: MirrorState,
+  plan: ReconciliationPlan,
+  runtime: MirrorRuntime,
+  store: SyncJournalStore
+): Promise<string> {
+  const [action] = plan.actions;
+  if (
+    plan.actions.length !== 1
+    || !action
+    || action.command !== "advance_checkpoint"
+    || action.expected.generation !== (state.generation ?? 0)
+    || action.expected.cursor !== state.cursor
+    || action.next.generation !== (state.generation ?? 0) + 1
+    || action.next.cursor !== plan.authority_cursor
+    || state.batch !== undefined
+  ) {
+    throw new SyncError("invalid_mirror_state", "Empty checkpoint plan is inconsistent.");
+  }
+  state.generation = action.next.generation;
+  state.cursor = action.next.cursor ?? 0;
+  state.last_completed_plan = plan.fingerprint;
+  state.last_synced_at = runtime.now();
+  await store.write(state);
+  return plan.fingerprint;
 }

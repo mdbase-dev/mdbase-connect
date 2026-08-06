@@ -38,7 +38,7 @@ import {
   prepareSyncBatch,
   type SyncJournalStore
 } from "./sync-journal.js";
-import { advanceSyncCheckpoint } from "./sync-checkpoint.js";
+import { advanceEmptySyncCheckpoint, advanceSyncCheckpoint } from "./sync-checkpoint.js";
 import { loadMirrorSnapshot } from "./sync-snapshot-loader.js";
 
 export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
@@ -80,7 +80,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         state = await this.readState();
       }
       if (state?.batch) return this.executePrepared(state, options.signal);
-      const inspection = await this.inspectDetailed();
+      const inspection = await this.inspectDetailed(state);
       return this.applyInspection(inspection, options.signal);
     });
   }
@@ -89,7 +89,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
   async inspect(): Promise<MirrorSyncPlan> {
     return this.lease.runExclusive(async () => {
       const state = await this.readState();
-      return state?.batch?.plan ?? (await this.inspectDetailed()).plan;
+      return state?.batch?.plan ?? (await this.inspectDetailed(state)).plan;
     });
   }
 
@@ -109,12 +109,12 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         }
         return this.executePrepared(state, options.signal);
       }
-      const inspection = await this.inspectDetailed();
+      const inspection = await this.inspectDetailed(state);
       if (inspection.plan.fingerprint !== plan.fingerprint) {
         return mirrorApplyResult(
           "stale",
           plan,
-          await this.checkpointStatusUnlocked(),
+          checkpointMirrorStatus(inspection.prior, this.mode),
           0,
           {
             code: "sync_plan_stale",
@@ -135,7 +135,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       return mirrorApplyResult(
         "attention",
         plan,
-        await this.checkpointStatusUnlocked(),
+        checkpointMirrorStatus(inspection.prior, this.mode),
         0
       );
     }
@@ -143,7 +143,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       return mirrorApplyResult(
         "cancelled",
         plan,
-        await this.checkpointStatusUnlocked(),
+        checkpointMirrorStatus(inspection.prior, this.mode),
         0,
         { code: "sync_cancelled", message: "Sync cancelled before preparation." }
       );
@@ -158,9 +158,27 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       return mirrorApplyResult(
         code === "sync_plan_stale" ? "stale" : "failed",
         plan,
-        await this.checkpointStatusUnlocked(),
+        checkpointMirrorStatus(inspection.prior, this.mode),
         0,
         { code, message: value.message }
+      );
+    }
+    if (
+      inspection.prior
+      && plan.actions.length === 1
+      && plan.actions[0]?.command === "advance_checkpoint"
+    ) {
+      await advanceEmptySyncCheckpoint(
+        inspection.prior,
+        plan,
+        this.runtime,
+        this.journalStore()
+      );
+      return mirrorApplyResult(
+        "applied",
+        plan,
+        checkpointMirrorStatus(inspection.prior, this.mode),
+        0
       );
     }
     const state = await prepareSyncBatch(
@@ -192,7 +210,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       })
     }).execute(state, signal);
     if (result.status !== "effects_complete") {
-      const checkpoint = await this.checkpointStatusUnlocked();
+      const checkpoint = checkpointMirrorStatus(state, this.mode);
       return mirrorApplyResult(
         result.status === "blocked" ? "failed" : result.status,
         batch.plan,
@@ -204,7 +222,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     const plan = batch.plan;
     await advanceSyncCheckpoint(state, this.runtime, this.journalStore());
     await this.pruneFileBlobs();
-    const checkpoint = await this.checkpointStatusUnlocked();
+    const checkpoint = checkpointMirrorStatus(state, this.mode);
     const attention = checkpoint.conflicts.length > 0
       || checkpoint.file_conflicts.length > 0
       || checkpoint.local_issues.length > 0
@@ -217,7 +235,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     );
   }
 
-  private inspectDetailed(): Promise<PlanOnlyInspection<Frontmatter>> {
+  private inspectDetailed(state?: MirrorState | null): Promise<PlanOnlyInspection<Frontmatter>> {
     return new PlanOnlyMirrorInspector(
       this.replicaId,
       this.transport,
@@ -228,7 +246,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       this.runtime,
       () => this.readState(),
       (state) => this.currentRecordPathPolicy(state)
-    ).inspect();
+    ).inspect(state);
   }
 
   async status(): Promise<MirrorStatus> {
@@ -268,7 +286,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         pathPolicy: await this.currentRecordPathPolicy(state),
         digest: this.runtime.digest
       });
-      const plan = (await this.inspectDetailed()).plan;
+      const plan = (await this.inspectDetailed(state)).plan;
       if (plan.actions.some((action) => action.command !== "advance_checkpoint")) {
         throw new SyncError(
           "promotion_mirror_not_clean",
@@ -378,7 +396,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       const pathBelongsToIdentity = state.records[identity]?.path === current.path
         || (conflict?.local.state === "exact" && conflict.local.object.path === current.path);
       await this.materializer.put(state, current, {
-        physicalPathPreflighted: false,
+        inspectionPreflighted: false,
         ...(pathBelongsToIdentity && acceptedDocument !== null
           ? { acceptedHash: this.runtime.digest(acceptedDocument) }
           : {})
