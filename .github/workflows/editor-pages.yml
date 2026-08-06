@@ -1,8 +1,17 @@
-name: Editor CI and release
+name: Editor CI
 
 on:
   push:
     branches: [main]
+    paths:
+      - "apps/editor/**"
+      - "packages/client/**"
+      - "packages/management/**"
+      - "packages/protocol/**"
+      - "packages/ui/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/editor-pages.yml"
   pull_request:
     paths:
       - "apps/editor/**"
@@ -46,71 +55,3 @@ jobs:
           MDBASE_EDITOR_BASE_PATH: /
       - run: pnpm --filter mdbase-editor check:bundle
       - run: pnpm --filter mdbase-editor check:csp
-
-  deploy-cloudflare:
-    if: github.event_name != 'pull_request' && vars.CLOUDFLARE_PAGES_ENABLED == '1'
-    needs: test
-    runs-on: ubuntu-latest
-    environment:
-      name: cloudflare-pages
-      url: https://editor.mdbase.dev/
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-        with:
-          version: 11.15.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build:packages
-      - name: Build editor
-        run: pnpm --filter mdbase-editor build
-        env:
-          MDBASE_EDITOR_ORIGIN: https://editor.mdbase.dev
-          MDBASE_EDITOR_BASE_PATH: /
-      - name: Verify editor manifest
-        run: node -e 'const manifest = require("./apps/editor/dist/.well-known/mdbase-app.json"); if (manifest.homepage !== "https://editor.mdbase.dev/" || manifest.redirect_uris?.[0] !== "https://editor.mdbase.dev/" || manifest.requirements?.access !== "full_collection") process.exit(1)'
-      - name: Deploy editor
-        run: npx --yes --package wrangler@4.114.0 wrangler pages deploy apps/editor/dist --project-name=mdbase-editor --branch=main
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-  deploy-cloudflare-staging:
-    if: github.event_name != 'pull_request' && vars.CLOUDFLARE_PAGES_ENABLED == '1'
-    needs: [test, deploy-cloudflare]
-    runs-on: ubuntu-latest
-    environment:
-      name: cloudflare-pages-staging
-      url: https://editor-staging.mdbase.dev/
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-        with:
-          version: 11.15.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build:packages
-      - name: Build staging editor
-        run: pnpm --filter mdbase-editor build
-        env:
-          MDBASE_EDITOR_ORIGIN: https://editor-staging.mdbase.dev
-          MDBASE_EDITOR_BASE_PATH: /
-          VITE_MDBASE_CONNECT_URL: https://connect-staging.mdbase.dev
-      - name: Deploy staging editor
-        run: npx --yes --package wrangler@4.114.0 wrangler pages deploy apps/editor/dist --project-name=mdbase-editor --branch=staging
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      - name: Attach staging domain
-        run: node apps/editor/scripts/ensure-pages-domain.mjs
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_PAGES_PROJECT: mdbase-editor
-          CLOUDFLARE_PAGES_DOMAIN: editor-staging.mdbase.dev
