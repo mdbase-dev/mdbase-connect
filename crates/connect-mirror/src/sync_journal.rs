@@ -97,8 +97,8 @@ impl DirectoryMirror {
         let action = batch.plan.actions[batch.next_action].clone();
         self.append_journal(&DurableJournalEvent::Receipt {
             plan_fingerprint: batch.plan.fingerprint.clone(),
-            delta: state_delta(&action, &receipt, state)?,
-            receipt: receipt.clone(),
+            delta: Box::new(state_delta(&action, &receipt, state)?),
+            receipt: Box::new(receipt.clone()),
         })?;
         let batch = state.batch.as_mut().expect("checked");
         batch.receipts.push(receipt);

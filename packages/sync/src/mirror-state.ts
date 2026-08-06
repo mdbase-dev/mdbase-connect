@@ -18,7 +18,6 @@ import {
 import type { MirrorBinaryInfo, MirrorBlobStore } from "./mirror-file-types.js";
 import type { ReconciliationPlan } from "./sync-planner.js";
 import type { SyncBatchPhase, SyncFailure } from "./sync-model.js";
-import type { SyncJournalEvent } from "./sync-journal.js";
 export type { MirrorBinaryInfo, MirrorBlobStore } from "./mirror-file-types.js";
 
 export interface MirrorEntry {
@@ -107,8 +106,6 @@ export interface MirrorState {
 export interface MirrorStateStore {
   read(): Promise<MirrorState | null>;
   write(state: MirrorState): Promise<void>;
-  /** Append and fsync one bounded journal event without rewriting the plan. */
-  appendJournal?(event: SyncJournalEvent): Promise<void>;
 }
 
 export interface MirrorLease {
@@ -226,24 +223,6 @@ export const portableMirrorRuntime: MirrorRuntime = Object.freeze({
   },
   now: () => new Date().toISOString()
 });
-
-export class MemoryMirrorStateStore implements MirrorStateStore {
-  private state: MirrorState | null = null;
-
-  async read(): Promise<MirrorState | null> {
-    return this.state === null ? null : structuredClone(this.state);
-  }
-
-  async write(state: MirrorState): Promise<void> {
-    this.state = structuredClone(state);
-  }
-
-  async appendJournal(event: SyncJournalEvent): Promise<void> {
-    if (!this.state) throw new SyncError("invalid_mirror_state", "Mirror journal has no base state.");
-    const { applySyncJournalEvent } = await import("./sync-journal.js");
-    applySyncJournalEvent(this.state, structuredClone(event));
-  }
-}
 
 /** Deterministic test adapter; production mirrors should use persistent storage. */
 export class MemoryMirrorBlobStore implements MirrorBlobStore {

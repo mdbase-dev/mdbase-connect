@@ -458,10 +458,13 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
   }
 
   private journalStore(): SyncJournalStore {
+    const journaled = this.stateStore as MirrorStateStore & {
+      appendJournal?: SyncJournalStore["appendJournal"];
+    };
     return {
       write: (state) => this.writeState(state),
-      ...(this.stateStore.appendJournal
-        ? { appendJournal: (event) => this.stateStore.appendJournal!(event) }
+      ...(journaled.appendJournal
+        ? { appendJournal: (event) => journaled.appendJournal!(event) }
         : {})
     };
   }

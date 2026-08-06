@@ -148,6 +148,7 @@ impl DirectoryMirror {
             .create(true)
             .read(true)
             .write(true)
+            .truncate(false)
             .open(&path)
             .map_err(|error| MirrorError::io("Could not open", &path, error))?;
         let length = file
@@ -437,9 +438,9 @@ fn apply_journal_event(
                     "Journal receipt is out of sequence.",
                 ));
             }
-            apply_state_delta(state, delta)?;
+            apply_state_delta(state, *delta)?;
             let batch = state.batch.as_mut().expect("checked");
-            batch.receipts.push(receipt);
+            batch.receipts.push(*receipt);
             batch.next_action += 1;
         }
     }

@@ -49,6 +49,7 @@ mod sync_executor;
 mod sync_inspector;
 mod sync_journal;
 mod sync_model;
+mod sync_path_planner;
 mod sync_planner;
 mod sync_revalidator;
 mod transport;
@@ -198,8 +199,8 @@ enum DurableJournalEvent {
     },
     Receipt {
         plan_fingerprint: String,
-        receipt: DurableReceipt,
-        delta: DurableStateDelta,
+        receipt: Box<DurableReceipt>,
+        delta: Box<DurableStateDelta>,
     },
 }
 

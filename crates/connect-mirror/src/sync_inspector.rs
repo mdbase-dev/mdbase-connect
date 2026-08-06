@@ -10,6 +10,18 @@ pub(super) struct Inspection {
     pub payloads: DurablePayloads,
 }
 
+struct FinishInspection<'a> {
+    prior: Option<DurableMirrorState>,
+    kind: &'a str,
+    cursor: u64,
+    scope_epoch: u64,
+    remote_records: BTreeMap<String, SyncRecord>,
+    remote_files: BTreeMap<String, CollectionFileDescriptor>,
+    remote_refs: Vec<SyncObjectRef>,
+    resources: Vec<SyncResourceDocument>,
+    collection: Option<&'a mdbase::Collection>,
+}
+
 impl DirectoryMirror {
     pub(super) async fn inspect_plan(&self) -> Result<Inspection, MirrorError> {
         let prior = self.read_state()?;
@@ -148,16 +160,24 @@ impl DirectoryMirror {
                 break;
             }
         }
-        self.finish_inspection(
+        let resources = session.resources.documents;
+        let remote_refs = resources
+            .iter()
+            .map(resource_ref)
+            .chain(remote_records.values().map(record_ref))
+            .chain(remote_files.values().map(file_ref))
+            .collect();
+        self.finish_inspection(FinishInspection {
             prior,
             kind,
-            session.head,
-            session.scope_epoch,
-            session.resources.documents,
+            cursor: session.head,
+            scope_epoch: session.scope_epoch,
             remote_records,
             remote_files,
-            &collection,
-        )
+            remote_refs,
+            resources,
+            collection: Some(&collection),
+        })
         .await
     }
 
@@ -257,63 +277,35 @@ impl DirectoryMirror {
             }
         }
         let scope_epoch = prior.scope_epoch;
-        self.finish_with_refs(
-            Some(prior),
-            "incremental",
+        self.finish_inspection(FinishInspection {
+            prior: Some(prior),
+            kind: "incremental",
             cursor,
             scope_epoch,
             remote_records,
             remote_files,
-            remote_refs.into_values().collect(),
-            Vec::new(),
-            None,
-        )
+            remote_refs: remote_refs.into_values().collect(),
+            resources: Vec::new(),
+            collection: None,
+        })
         .await
     }
 
     async fn finish_inspection(
         &self,
-        prior: Option<DurableMirrorState>,
-        kind: &str,
-        cursor: u64,
-        scope_epoch: u64,
-        resources: Vec<SyncResourceDocument>,
-        records: BTreeMap<String, SyncRecord>,
-        files: BTreeMap<String, CollectionFileDescriptor>,
-        collection: &mdbase::Collection,
+        input: FinishInspection<'_>,
     ) -> Result<Inspection, MirrorError> {
-        let refs = resources
-            .iter()
-            .map(resource_ref)
-            .chain(records.values().map(record_ref))
-            .chain(files.values().map(file_ref))
-            .collect();
-        self.finish_with_refs(
+        let FinishInspection {
             prior,
             kind,
             cursor,
             scope_epoch,
-            records,
-            files,
-            refs,
+            remote_records,
+            remote_files,
+            remote_refs,
             resources,
-            Some(collection),
-        )
-        .await
-    }
-
-    async fn finish_with_refs(
-        &self,
-        prior: Option<DurableMirrorState>,
-        kind: &str,
-        cursor: u64,
-        scope_epoch: u64,
-        remote_records: BTreeMap<String, SyncRecord>,
-        remote_files: BTreeMap<String, CollectionFileDescriptor>,
-        remote_refs: Vec<SyncObjectRef>,
-        resources: Vec<SyncResourceDocument>,
-        collection: Option<&mdbase::Collection>,
-    ) -> Result<Inspection, MirrorError> {
+            collection,
+        } = input;
         let (local, documents) = self.inspect_local(prior.as_ref(), &resources, collection)?;
         validate_inspected_paths(
             remote_refs

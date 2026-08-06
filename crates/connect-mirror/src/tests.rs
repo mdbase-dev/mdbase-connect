@@ -1684,10 +1684,13 @@ fn rust_planner_orders_remote_vacancy_and_receipt_dependencies_separately() {
 #[test]
 fn rust_plan_only_architecture_has_enforced_responsibility_boundaries() {
     let planner = include_str!("sync_planner.rs");
-    assert!(!planner.contains("DirectoryMirror"));
-    assert!(!planner.contains("std::fs"));
-    assert!(!planner.contains("transport"));
-    assert!(!planner.contains("async fn"));
+    let path_planner = include_str!("sync_path_planner.rs");
+    for source in [planner, path_planner] {
+        assert!(!source.contains("DirectoryMirror"));
+        assert!(!source.contains("std::fs"));
+        assert!(!source.contains("transport"));
+        assert!(!source.contains("async fn"));
+    }
 
     let executor = include_str!("sync_executor.rs");
     for forbidden in [

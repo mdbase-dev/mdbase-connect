@@ -13,7 +13,6 @@ export {
 export {
   MemoryMirrorBlobStore,
   MemoryMirrorLease,
-  MemoryMirrorStateStore,
   portableMirrorRuntime,
   type AcquiredMirrorLease,
   type AuthorityPromotionManifest,
@@ -31,6 +30,7 @@ export {
   type MirrorStateStore,
   type MirrorStatus
 } from "./mirror-state.js";
+export { MemoryMirrorStateStore } from "./memory-mirror-state.js";
 export { WritableDirectoryMirror } from "./writable-directory-mirror.js";
 export {
   type MirrorApplyResult,

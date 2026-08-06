@@ -161,7 +161,7 @@ describe("pure exact-document planner", () => {
     const replicaId = authority.registerReplica({ name: "executor", mode: "read_write" });
     const fileSystem = new InspectorFileSystem();
     fileSystem.files.set("local.md", "local bytes");
-    const stateStore = new (await import("./mirror-state.js")).MemoryMirrorStateStore();
+    const stateStore = new (await import("./memory-mirror-state.js")).MemoryMirrorStateStore();
     const inspection = await new PlanOnlyMirrorInspector(
       replicaId,
       authority.transport(replicaId),
@@ -296,7 +296,7 @@ describe("pure exact-document planner", () => {
     const files = new InspectorFileSystem();
     files.files.set("a.md", "exact a");
     files.files.set("b.md", "exact b");
-    const store = new (await import("./mirror-state.js")).MemoryMirrorStateStore();
+    const store = new (await import("./memory-mirror-state.js")).MemoryMirrorStateStore();
     const state = await prepareSyncBatch({
       engine_version: 3,
       replica_id: plan.replica_id,
