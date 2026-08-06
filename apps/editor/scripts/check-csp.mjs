@@ -9,6 +9,10 @@ const [headers, html] = await Promise.all([
 ]);
 const policy = headers.match(/^\s*Content-Security-Policy:\s*(.+)$/m)?.[1];
 if (!policy) throw new Error("public/_headers does not define a Content-Security-Policy.");
+const assetCache = headers.match(/^\/assets\/\*\s*\n\s*Cache-Control:\s*(.+)$/m)?.[1];
+if (!assetCache?.includes("must-revalidate") || assetCache.includes("immutable")) {
+  throw new Error("Built assets must revalidate so a transient Pages fallback cannot be cached as an immutable module.");
+}
 
 const scriptDirective = policy.split(";")
   .map((directive) => directive.trim())

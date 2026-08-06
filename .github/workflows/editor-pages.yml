@@ -83,6 +83,11 @@ jobs:
         env:
           MDBASE_MANIFEST_VERIFY_ATTEMPTS: 12
           MDBASE_MANIFEST_VERIFY_DELAY_MS: 5000
+      - name: Verify production assets
+        run: node apps/editor/scripts/verify-deployment-assets.mjs apps/editor/dist/assets https://editor.mdbase.dev/
+        env:
+          MDBASE_ASSET_VERIFY_ATTEMPTS: 12
+          MDBASE_ASSET_VERIFY_DELAY_MS: 5000
 
   deploy-cloudflare-staging:
     if: github.event_name != 'pull_request' && vars.CLOUDFLARE_PAGES_ENABLED == '1'
@@ -125,3 +130,8 @@ jobs:
         env:
           MDBASE_MANIFEST_VERIFY_ATTEMPTS: 12
           MDBASE_MANIFEST_VERIFY_DELAY_MS: 5000
+      - name: Verify staging assets
+        run: node apps/editor/scripts/verify-deployment-assets.mjs apps/editor/dist/assets https://editor-staging.mdbase.dev/
+        env:
+          MDBASE_ASSET_VERIFY_ATTEMPTS: 12
+          MDBASE_ASSET_VERIFY_DELAY_MS: 5000

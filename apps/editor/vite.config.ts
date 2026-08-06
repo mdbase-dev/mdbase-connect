@@ -3,6 +3,9 @@ import { defineConfig } from "vitest/config";
 
 const basePath = `/${(process.env.MDBASE_EDITOR_BASE_PATH ?? "/").replace(/^\/+|\/+$/g, "")}/`
   .replace(/^\/\/$/, "/");
+const buildId = (process.env.MDBASE_EDITOR_BUILD_ID ?? process.env.GITHUB_SHA ?? "local")
+  .slice(0, 12)
+  .replace(/[^a-zA-Z0-9_-]/gu, "-");
 
 export default defineConfig({
   base: basePath,
@@ -10,7 +13,13 @@ export default defineConfig({
   build: {
     target: "es2022",
     sourcemap: true,
-    reportCompressedSize: true
+    reportCompressedSize: true,
+    rolldownOptions: {
+      output: {
+        entryFileNames: `assets/[name]-[hash]-${buildId}.js`,
+        chunkFileNames: `assets/[name]-[hash]-${buildId}.js`
+      }
+    }
   },
   test: {
     environment: "jsdom",
