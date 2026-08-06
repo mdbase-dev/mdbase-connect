@@ -56,20 +56,10 @@ flows, type inspection, settings, responsive navigation, accessibility, and a
 
 ## Deployment
 
-The production application is configured for
-`https://editor.mdbase.dev/` on Cloudflare Pages. The independent
-`editor-pages.yml` workflow runs the complete verification and browser suites,
-rebuilds the application for its
-dedicated origin, then uploads `dist` with Wrangler. Create a Direct Upload
-Pages project named `mdbase-editor` with production branch `main`.
-
-Configure the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` GitHub
-repository secrets, then set the `CLOUDFLARE_PAGES_ENABLED` repository variable
-to `1`.
-
-The same workflow publishes a permanent staging build at
-`https://editor-staging.mdbase.dev/`. It uses the `staging` Pages branch,
-generates a manifest for the staging editor origin, and targets the same-site
-`https://connect-staging.mdbase.dev` control-plane origin. The Pages API attaches the
-custom domain idempotently; Cloudflare DNS must proxy
-`editor-staging.mdbase.dev` to `staging.mdbase-editor.pages.dev`.
+The canonical editor lives in the independent
+[`mdbase-dev/mdbase-editor`](https://github.com/mdbase-dev/mdbase-editor)
+repository. That repository alone publishes the production and staging
+Cloudflare Pages branches. The editor workflow here remains a compatibility CI
+check for Connect changes and must not deploy to the shared `mdbase-editor`
+Pages project; doing so would replace the canonical application with this
+embedded compatibility copy.
