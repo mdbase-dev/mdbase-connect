@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-beta.38
+
+Beta.38 restores correct logical-array semantics for editable Obsidian Bases
+saved views. In particular, TaskNotes Today views now interpret their nested
+`or` filter correctly and retain date-only tasks scheduled for the current day.
+
 ## 0.1.0-beta.37
 
 Beta.37 makes calendar semantics explicit across local, hosted, and application
