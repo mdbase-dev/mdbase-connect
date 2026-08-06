@@ -65,3 +65,49 @@ fn background_retry_is_bounded_and_jittered() {
     assert!((Duration::from_secs(4 * 60)..=MAX_BACKGROUND_BACKOFF).contains(&saturated));
     assert_ne!(first, SYNC_INTERVAL);
 }
+
+#[test]
+fn prerelease_state_upgrade_blocks_background_retry() {
+    let upgrade = mirror_error(
+        "mirror_state_upgrade_required",
+        "Rebuild this prerelease mirror.",
+    );
+    let transient = mirror_error("mirror_transport_failed", "Try again.");
+
+    assert!(terminal_background_error(&upgrade));
+    assert!(!terminal_background_error(&transient));
+}
+
+#[test]
+fn unavailable_mirror_summary_is_structured_and_local_to_one_replica() {
+    let temporary = tempfile::tempdir().unwrap();
+    let entry = MirrorRegistryEntry {
+        collection_id: Uuid::new_v4(),
+        replica_id: Uuid::new_v4(),
+        name: "Legacy".to_string(),
+        mode: SyncReplicaMode::ReadWrite,
+        selective_sync: SelectiveSyncPolicy::default(),
+        path: temporary.path().join("legacy"),
+        sync_url: "https://sync.example/v1/authority".to_string(),
+        control_url: "https://connect.example".to_string(),
+        enrollment_id: Uuid::new_v4(),
+        access_token_expires_at: "2026-08-08T00:00:00Z".to_string(),
+        created_at: "2026-08-07T00:00:00Z".to_string(),
+        lifecycle: MirrorLifecycle::Active,
+        promotion: None,
+    };
+
+    let summary = synchronization::unavailable_summary(
+        &entry,
+        "mirror_state_upgrade_required",
+        "Rebuild this prerelease mirror.".to_string(),
+    );
+
+    assert_eq!(summary.replica_id, entry.replica_id);
+    assert_eq!(summary.state, MirrorState::Offline);
+    assert_eq!(
+        summary.error_code.as_deref(),
+        Some("mirror_state_upgrade_required")
+    );
+    assert_eq!(summary.pending, 0);
+}

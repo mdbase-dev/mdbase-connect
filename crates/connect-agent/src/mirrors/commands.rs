@@ -5,7 +5,7 @@ impl MirrorManager {
         let entries = self.entries();
         let mut summaries = Vec::with_capacity(entries.len());
         for entry in entries {
-            summaries.push(self.summary(&entry)?);
+            summaries.push(self.list_summary(&entry));
         }
         summaries.sort_by(|left, right| {
             left.name

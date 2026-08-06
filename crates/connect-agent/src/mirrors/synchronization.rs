@@ -1,6 +1,11 @@
 use super::*;
 
 impl MirrorManager {
+    pub(super) fn list_summary(&self, entry: &MirrorRegistryEntry) -> MirrorSummary {
+        self.summary(entry)
+            .unwrap_or_else(|error| unavailable_summary(entry, error.code(), error.to_string()))
+    }
+
     pub(super) fn summary(
         &self,
         entry: &MirrorRegistryEntry,
@@ -62,6 +67,7 @@ impl MirrorManager {
                     }
                     .to_string(),
                 }),
+            error_code: error.as_ref().map(|_| "mirror_runtime_error".to_string()),
             error,
         })
     }
@@ -338,5 +344,41 @@ impl MirrorManager {
 
     pub(super) async fn revoke_remote(&self, replica_id: Uuid) -> Result<(), ConnectError> {
         self.cloud()?.revoke_hosted_replica(replica_id).await
+    }
+}
+
+pub(super) fn unavailable_summary(
+    entry: &MirrorRegistryEntry,
+    error_code: &str,
+    error: String,
+) -> MirrorSummary {
+    MirrorSummary {
+        collection_id: entry.collection_id,
+        replica_id: entry.replica_id,
+        name: entry.name.clone(),
+        mode: entry.mode,
+        selective_sync: entry.selective_sync.clone(),
+        path: entry.path.to_string_lossy().to_string(),
+        state: MirrorState::Offline,
+        pending: 0,
+        conflicts: Vec::new(),
+        local_issues: Vec::new(),
+        cursor: None,
+        last_synced_at: None,
+        syncing: false,
+        promotion_pending: entry.promotion.is_some(),
+        promotion: entry
+            .promotion
+            .as_ref()
+            .map(|checkpoint| MirrorPromotionSummary {
+                phase: match checkpoint.phase {
+                    MirrorPromotionPhase::Requested => "awaiting_approval",
+                    MirrorPromotionPhase::Prepared => "verifying",
+                    MirrorPromotionPhase::Registered => "activating",
+                }
+                .to_string(),
+            }),
+        error_code: Some(error_code.to_string()),
+        error: Some(error),
     }
 }

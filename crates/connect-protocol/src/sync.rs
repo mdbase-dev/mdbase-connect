@@ -58,6 +58,8 @@ pub struct MirrorSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub promotion: Option<MirrorPromotionSummary>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 

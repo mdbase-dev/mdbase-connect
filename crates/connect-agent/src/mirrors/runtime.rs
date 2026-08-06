@@ -40,6 +40,7 @@ impl MirrorManager {
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             let mut workers = JoinSet::new();
             let mut retries = HashMap::<Uuid, BackgroundRetry>::new();
+            let mut blocked = HashSet::<Uuid>::new();
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
@@ -57,9 +58,11 @@ impl MirrorManager {
                             .map(|entry| entry.replica_id)
                             .collect::<HashSet<_>>();
                         retries.retain(|replica_id, _| actionable.contains(replica_id));
+                        blocked.retain(|replica_id| actionable.contains(replica_id));
                         let now = Instant::now();
                         for entry in entries.into_iter().filter(|entry| {
                             actionable.contains(&entry.replica_id)
+                                && !blocked.contains(&entry.replica_id)
                                 && retries
                                     .get(&entry.replica_id)
                                     .is_none_or(|retry| retry.at <= now)
@@ -81,8 +84,19 @@ impl MirrorManager {
                         match completed {
                             Some(Ok((replica_id, Ok(())))) => {
                                 retries.remove(&replica_id);
+                                blocked.remove(&replica_id);
                             }
                             Some(Ok((_, Err(error)))) if error.code() == "mirror_sync_skipped" => {}
+                            Some(Ok((replica_id, Err(error)))) if terminal_background_error(&error) => {
+                                retries.remove(&replica_id);
+                                blocked.insert(replica_id);
+                                tracing::warn!(
+                                    replica_id = %replica_id,
+                                    code = error.code(),
+                                    error = %error,
+                                    "hosted mirror background sync requires operator action"
+                                );
+                            }
                             Some(Ok((replica_id, Err(error)))) => {
                                 let retry = retries.entry(replica_id).or_default();
                                 retry.failures = retry.failures.saturating_add(1);

@@ -66,6 +66,9 @@ export function mirrorState(mirror: DesktopMirrorSummary | undefined): {
     };
   }
   if (mirror.syncing) return { dot: "connecting", label: "Synchronizing" };
+  if (mirror.error_code === "mirror_state_upgrade_required") {
+    return { dot: "danger", label: "Synced folder must be rebuilt" };
+  }
   if (mirror.error || mirror.state === "offline") return { dot: "danger", label: "Synced folder needs attention" };
   if (mirror.conflicts.length > 0) return { dot: "paused", label: "Conflicts need a decision" };
   if (mirror.local_issues.length > 0 || mirror.state === "attention") return { dot: "paused", label: "Local files need attention" };

@@ -280,6 +280,7 @@ interface DesktopMirrorSummary {
     completed: number;
     total: number | null;
   };
+  error_code?: string;
   error?: string;
 }
 

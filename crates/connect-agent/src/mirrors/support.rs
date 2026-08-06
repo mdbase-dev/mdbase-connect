@@ -139,6 +139,10 @@ pub(super) fn background_retry_delay(replica_id: Uuid, failures: u32) -> Duratio
     Duration::from_millis(millis as u64)
 }
 
+pub(super) fn terminal_background_error(error: &ConnectError) -> bool {
+    error.code() == "mirror_state_upgrade_required"
+}
+
 pub(super) fn computer_name() -> String {
     std::env::var("HOSTNAME")
         .or_else(|_| std::env::var("COMPUTERNAME"))
