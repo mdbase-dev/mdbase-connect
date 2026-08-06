@@ -154,7 +154,8 @@ try {
     ({ path }) =>
       window.mdbaseConnect.createCollection({
         path,
-        name: "Docker fixture"
+        name: "Docker fixture",
+        timezone: "UTC"
       }),
     { path: collectionPath }
   );
