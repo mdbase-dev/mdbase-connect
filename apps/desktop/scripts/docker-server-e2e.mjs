@@ -129,7 +129,7 @@ try {
   );
   const connectorToken = secrets.values.connector;
   assert.match(connectorToken, /^con_/);
-  await pairingApp.close();
+  await closeDesktop(pairingApp);
   pairingApp = undefined;
 
   phase("running the real connector against the disposable credential");
@@ -329,8 +329,8 @@ try {
       "stop"
     ]).catch(() => {});
   }
-  await connectedApp?.close().catch(() => {});
-  await pairingApp?.close().catch(() => {});
+  await closeDesktop(connectedApp);
+  await closeDesktop(pairingApp);
   await portalBrowser?.close().catch(() => {});
   await environment?.close().catch(() => {});
   if (editor) {
@@ -397,6 +397,31 @@ function launchDesktop(userData, connectorToken) {
         : {})
     }
   });
+}
+
+async function closeDesktop(application) {
+  if (!application) return;
+  const child = application.process();
+  let forceClose;
+  try {
+    await Promise.race([
+      application.close(),
+      new Promise((resolveClose) => {
+        forceClose = setTimeout(() => {
+          if (child.exitCode === null && child.signalCode === null) {
+            child.kill("SIGKILL");
+          }
+          resolveClose();
+        }, 5_000);
+      })
+    ]);
+  } catch {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGKILL");
+    }
+  } finally {
+    clearTimeout(forceClose);
+  }
 }
 
 async function jsonRequest(path, options = {}) {

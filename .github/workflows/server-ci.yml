@@ -230,3 +230,4 @@ jobs:
       # Electron runs natively with an isolated profile while the control
       # plane uses the same packaged Docker boundary as production.
       - run: node test/system/run.mjs --suite desktop --no-prepare
+        timeout-minutes: 20
