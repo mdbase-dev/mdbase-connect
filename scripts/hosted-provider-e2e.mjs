@@ -171,7 +171,7 @@ try {
   const provisionAccountId = await provisionProviderAccount(provider.url);
   await internalRequest(provider.url, "/internal/v1/collections", {
     method: "POST",
-    body: { account_id: provisionAccountId, collection_id: provisionCollectionId, template: "mdbase", display_name: "Provision probe" }
+    body: { account_id: provisionAccountId, collection_id: provisionCollectionId, template: "mdbase", display_name: "Provision probe", timezone: "UTC" }
   });
   const typeProvision = workItemTypePack({
     packId: "example.workouts",
@@ -895,7 +895,8 @@ schema:
       account_id: notificationAccountId,
       collection_id: notificationCollectionId,
       template: "mdbase",
-      display_name: "Notification records"
+      display_name: "Notification records",
+      timezone: "UTC"
     }
   });
   const notificationContracts = (
@@ -1109,7 +1110,8 @@ schema:
       account_id: quotaAccountId,
       collection_id: quotaCollectionId,
       template: "mdbase",
-      display_name: "Quota worklog"
+      display_name: "Quota worklog",
+      timezone: "UTC"
     }
   });
   await internalRequest(quotaProvider.url, "/internal/v1/collections", {
@@ -1118,7 +1120,8 @@ schema:
       account_id: quotaAccountId,
       collection_id: quotaCollectionId,
       template: "mdbase",
-      display_name: "Quota worklog"
+      display_name: "Quota worklog",
+      timezone: "UTC"
     }
   });
   await provisionTypes(quotaProvider.url, quotaCollectionId, [WORK_ITEM_PROVISION]);
@@ -1219,7 +1222,8 @@ schema:
       account_id: quotaAccountId,
       collection_id: aggregateCollectionId,
       template: "mdbase",
-      display_name: "Aggregate quota probe"
+      display_name: "Aggregate quota probe",
+      timezone: "UTC"
     }
   });
   await provisionTypes(quotaProvider.url, aggregateCollectionId, [WORK_ITEM_PROVISION]);
@@ -1274,7 +1278,8 @@ schema:
         account_id: quotaAccountId,
         collection_id: crypto.randomUUID(),
         template: "mdbase",
-        display_name: "Too many collections"
+        display_name: "Too many collections",
+        timezone: "UTC"
       }
     }
   );
@@ -1304,7 +1309,7 @@ schema:
   const maintenanceToken = `maintenance-${crypto.randomUUID()}-${crypto.randomUUID()}`;
   await internalRequest(maintenanceProvider.url, "/internal/v1/collections", {
     method: "POST",
-    body: { account_id: maintenanceAccountId, collection_id: maintenanceCollectionId, template: "mdbase", display_name: "Maintenance records" }
+    body: { account_id: maintenanceAccountId, collection_id: maintenanceCollectionId, template: "mdbase", display_name: "Maintenance records", timezone: "UTC" }
   });
   await provisionTypes(maintenanceProvider.url, maintenanceCollectionId, [WORK_ITEM_PROVISION]);
   await internalRequest(
@@ -1365,7 +1370,7 @@ schema:
   assert.ok(cookie);
   const created = await controlRequest(controlUrl, "/v1/hosted/collections", cookie, {
     method: "POST",
-    body: { display_name: "Hosted records", template: "mdbase" }
+    body: { display_name: "Hosted records", template: "mdbase", timezone: "UTC" }
   });
   const collectionId = created.collection.id;
   assert.equal(created.collection.sync_url, authoritySyncUrl(provider.url, collectionId));
@@ -1376,7 +1381,7 @@ schema:
   );
   const other = await controlRequest(controlUrl, "/v1/hosted/collections", cookie, {
     method: "POST",
-    body: { display_name: "Hosted writing", template: "mdbase" }
+    body: { display_name: "Hosted writing", template: "mdbase", timezone: "UTC" }
   });
   const genericCollectionId = other.collection.id;
   const writer = await registerReplica(controlUrl, cookie, collectionId, "Writer", "read_write", []);
@@ -2253,7 +2258,8 @@ schema:
       account_id: authorityAccountId,
       collection_id: authorityCollectionId,
       template: "mdbase",
-      display_name: "Authority transfer probe"
+      display_name: "Authority transfer probe",
+      timezone: "UTC"
     }
   });
   await internalRequest(
@@ -2425,7 +2431,8 @@ schema:
       account_id: cancelledAccountId,
       collection_id: cancelledCollectionId,
       template: "mdbase",
-      display_name: "Cancelled authority probe"
+      display_name: "Cancelled authority probe",
+      timezone: "UTC"
     }
   });
   await internalRequest(
@@ -2848,7 +2855,7 @@ async function authorityPromotionCliE2E(
 ) {
   const hosted = await controlRequest(controlUrl, "/v1/hosted/collections", cookie, {
     method: "POST",
-    body: { display_name: "Promotion E2E collection", template: "mdbase" }
+    body: { display_name: "Promotion E2E collection", template: "mdbase", timezone: "UTC" }
   });
   const collectionId = hosted.collection.id;
   const connector = await controlRequest(controlUrl, "/v1/connectors", cookie, {
