@@ -67,6 +67,10 @@ Configure the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` GitHub
 repository secrets, then set the `CLOUDFLARE_PAGES_ENABLED` repository variable
 to `1`.
 
+This monorepo is the sole source and publisher for the editor. The retired
+standalone `mdbase-dev/mdbase-editor` repository must remain archived and must
+never publish to the shared Cloudflare Pages project.
+
 The same workflow publishes a permanent staging build at
 `https://editor-staging.mdbase.dev/`. It uses the `staging` Pages branch,
 generates a manifest for the staging editor origin, and targets the same-site

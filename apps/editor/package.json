@@ -11,6 +11,7 @@
     "check:csp": "node scripts/check-csp.mjs",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
+    "test:deployment": "node --test scripts/verify-deployment-manifest.test.mjs",
     "test:e2e": "playwright test",
     "preview": "vite preview --host 127.0.0.1",
     "icons": "node scripts/write-phosphor-icon-names.mjs",

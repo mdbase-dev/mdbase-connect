@@ -38,6 +38,7 @@ jobs:
       - run: pnpm build:packages
       - run: pnpm --filter mdbase-editor typecheck
       - run: pnpm --filter mdbase-editor test
+      - run: pnpm --filter mdbase-editor test:deployment
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm --filter mdbase-editor test:e2e
       - run: pnpm --filter mdbase-editor build
@@ -71,12 +72,17 @@ jobs:
           MDBASE_EDITOR_ORIGIN: https://editor.mdbase.dev
           MDBASE_EDITOR_BASE_PATH: /
       - name: Verify editor manifest
-        run: node -e 'const manifest = require("./apps/editor/dist/.well-known/mdbase-app.json"); if (manifest.homepage !== "https://editor.mdbase.dev/" || manifest.redirect_uris?.[0] !== "https://editor.mdbase.dev/" || manifest.requirements?.access !== "full_collection") process.exit(1)'
+        run: node apps/editor/scripts/verify-deployment-manifest.mjs apps/editor/dist/.well-known/mdbase-app.json https://editor.mdbase.dev/
       - name: Deploy editor
         run: npx --yes --package wrangler@4.114.0 wrangler pages deploy apps/editor/dist --project-name=mdbase-editor --branch=main
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Verify production custom domain
+        run: node apps/editor/scripts/verify-deployment-manifest.mjs https://editor.mdbase.dev/.well-known/mdbase-app.json https://editor.mdbase.dev/
+        env:
+          MDBASE_MANIFEST_VERIFY_ATTEMPTS: 12
+          MDBASE_MANIFEST_VERIFY_DELAY_MS: 5000
 
   deploy-cloudflare-staging:
     if: github.event_name != 'pull_request' && vars.CLOUDFLARE_PAGES_ENABLED == '1'
@@ -114,3 +120,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_PAGES_PROJECT: mdbase-editor
           CLOUDFLARE_PAGES_DOMAIN: editor-staging.mdbase.dev
+      - name: Verify staging custom domain
+        run: node apps/editor/scripts/verify-deployment-manifest.mjs https://editor-staging.mdbase.dev/.well-known/mdbase-app.json https://editor-staging.mdbase.dev/
+        env:
+          MDBASE_MANIFEST_VERIFY_ATTEMPTS: 12
+          MDBASE_MANIFEST_VERIFY_DELAY_MS: 5000
