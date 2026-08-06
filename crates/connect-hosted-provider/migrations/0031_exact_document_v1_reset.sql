@@ -1,4 +1,4 @@
--- beta.38 deliberately rewrites prerelease sync v1 around one byte-authoritative
+-- beta.39 deliberately rewrites prerelease sync v1 around one byte-authoritative
 -- document. Earlier beta record ciphertext contains a wrapper with a second
 -- document copy and cannot be interpreted without retaining a second protocol.
 --

@@ -103,7 +103,7 @@ remain errors.
   convention.
 - Preview and apply cannot drift because there is one decision engine.
 - Apply has a stable review boundary and crash/restart semantics.
-- The beta.38 hosted migration intentionally discards prerelease record data
+- The beta.39 hosted migration intentionally discards prerelease record data
   without carrying a second decoder; non-record collection state survives.
 - A later wire version is needed only after v1 is released and an incompatible
   deployed contract must coexist; it is not used to shelter prerelease code.
