@@ -1238,7 +1238,7 @@ describe("platform-neutral directory mirror", () => {
     });
   });
 
-  it("checkpoints a 2,000-record no-op sync only once", async () => {
+  it("makes a 2,000-record no-op sync a zero-write operation", async () => {
     const hosted = new MemoryAuthority({ snapshotPageSize: 100 });
     hosted.seed(records(2_000));
     const replicaId = hosted.registerReplica({ name: "Large mobile vault", mode: "read_only" });
@@ -1253,10 +1253,17 @@ describe("platform-neutral directory mirror", () => {
     await mirror.sync();
     fileSystem.reads = 0;
     const writesBefore = stateStore.writes;
+    const stateBefore = await stateStore.read();
+    const planBefore = await mirror.inspect();
     await mirror.sync();
+    const stateAfter = await stateStore.read();
+    const planAfter = await mirror.inspect();
 
-    expect(fileSystem.reads).toBe(2_000);
+    expect(fileSystem.reads).toBe(6_000);
     expect(fileSystem.writes).toBe(2_000);
-    expect(stateStore.writes - writesBefore).toBe(1);
+    expect(stateStore.writes - writesBefore).toBe(0);
+    expect(stateAfter).toEqual(stateBefore);
+    expect(planBefore.actions).toEqual([]);
+    expect(planAfter.fingerprint).toBe(planBefore.fingerprint);
   });
 });

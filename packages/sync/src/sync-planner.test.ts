@@ -92,6 +92,35 @@ function inspected(
 }
 
 describe("pure exact-document planner", () => {
+  it("emits a stable empty plan for an exact incremental inspection", () => {
+    const idle = summary([]);
+    idle.boundary.authority_cursor = idle.boundary.checkpoint.cursor!;
+
+    const first = planReconciliation(idle, digest);
+    const second = planReconciliation(structuredClone(idle), digest);
+
+    expect(first.actions).toEqual([]);
+    expect(first.summary).toEqual({
+      uploads: 0,
+      downloads: 0,
+      conflicts: 0,
+      blocking_issues: 0
+    });
+    expect(second.fingerprint).toBe(first.fingerprint);
+  });
+
+  it("checkpoints a cursor advance even when projection filters every effect", () => {
+    const plan = planReconciliation(summary([]), digest);
+
+    expect(plan.actions).toEqual([
+      expect.objectContaining({
+        command: "advance_checkpoint",
+        expected: { generation: 3, cursor: 11 },
+        next: { generation: 4, cursor: 19 }
+      })
+    ]);
+  });
+
   it("matches the shared cross-runtime canonical plan fixture", async () => {
     const identity = "22222222-2222-4222-8222-222222222222";
     const base = ref(identity, "notes/parity.md", "base");

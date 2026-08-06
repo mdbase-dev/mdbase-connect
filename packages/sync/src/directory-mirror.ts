@@ -163,6 +163,14 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         { code, message: value.message }
       );
     }
+    if (plan.actions.length === 0) {
+      return mirrorApplyResult(
+        "applied",
+        plan,
+        checkpointMirrorStatus(inspection.prior, this.mode),
+        0
+      );
+    }
     if (
       inspection.prior
       && plan.actions.length === 1

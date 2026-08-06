@@ -633,6 +633,40 @@ async fn metadata_only_mirror_checkpoints_file_changes_without_materializing() {
 }
 
 #[tokio::test]
+async fn exact_incremental_sync_is_a_stable_zero_write_no_op() {
+    let source = record("notes/one.md", "One");
+    let (_temporary, mirror, _authority) = harness(SyncReplicaMode::ReadOnly, vec![source]);
+    mirror.sync().await.unwrap();
+
+    let state_before = fs::read(&mirror.state_file).unwrap();
+    let modified_before = fs::metadata(&mirror.state_file)
+        .unwrap()
+        .modified()
+        .unwrap();
+    let generation_before = mirror.read_state().unwrap().unwrap().generation;
+    let plan_before = mirror.inspect().await.unwrap();
+    assert!(plan_before.actions.is_empty());
+
+    mirror.sync().await.unwrap();
+
+    assert_eq!(fs::read(&mirror.state_file).unwrap(), state_before);
+    assert_eq!(
+        fs::metadata(&mirror.state_file)
+            .unwrap()
+            .modified()
+            .unwrap(),
+        modified_before
+    );
+    assert_eq!(
+        mirror.read_state().unwrap().unwrap().generation,
+        generation_before
+    );
+    let plan_after = mirror.inspect().await.unwrap();
+    assert!(plan_after.actions.is_empty());
+    assert_eq!(plan_after.fingerprint, plan_before.fingerprint);
+}
+
+#[tokio::test]
 async fn initial_snapshot_materializes_only_selected_file_classes_and_folders() {
     let replica_id = Uuid::new_v4();
     let authority = FakeAuthority::new(replica_id, SyncReplicaMode::ReadOnly, Vec::new());
@@ -1099,7 +1133,7 @@ async fn changing_folder_exclusions_reconciles_markdown_without_deleting_authori
 }
 
 #[tokio::test]
-async fn successful_sync_prunes_only_unreferenced_complete_file_blobs() {
+async fn effectful_sync_prunes_only_unreferenced_complete_file_blobs() {
     let replica_id = Uuid::new_v4();
     let authority = FakeAuthority::new(replica_id, SyncReplicaMode::ReadOnly, Vec::new());
     let file = authority.put_file(
@@ -1111,7 +1145,7 @@ async fn successful_sync_prunes_only_unreferenced_complete_file_blobs() {
         file_classes: vec![FileMediaClass::Image],
         excluded_folders: Vec::new(),
     };
-    let (_temporary, mirror, _authority) = custom_harness_with_selective_sync(authority, policy);
+    let (_temporary, mirror, authority) = custom_harness_with_selective_sync(authority, policy);
     mirror.sync().await.unwrap();
     let cache = mirror.state_file.parent().unwrap().join("file-blobs");
     let retained = cache.join(file.content_digest.strip_prefix("sha256:").unwrap());
@@ -1119,6 +1153,7 @@ async fn successful_sync_prunes_only_unreferenced_complete_file_blobs() {
     let incomplete = cache.join(format!("{}.download.tmp", "11".repeat(32)));
     fs::write(&stale, b"unreferenced").unwrap();
     fs::write(&incomplete, b"incomplete").unwrap();
+    authority.emit_put(record("trigger.md", "Trigger cache maintenance"));
 
     mirror.sync().await.unwrap();
 

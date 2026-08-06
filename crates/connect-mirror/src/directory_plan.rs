@@ -89,6 +89,15 @@ impl DirectoryMirror {
                 }),
             ));
         }
+        if plan.actions.is_empty() {
+            return Ok(result(
+                "applied",
+                &plan,
+                self.status_from_state(inspection.prior),
+                0,
+                None,
+            ));
+        }
         let mut state = self.prepare_batch(inspection)?;
         self.apply_prepared(&mut state).await
     }

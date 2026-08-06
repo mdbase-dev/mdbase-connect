@@ -149,18 +149,23 @@ export function planReconciliation(
   }
   drafts = orderLocalPathTransitions(drafts, inspection.objects, digest);
   drafts = orderRemotePathTransitions(drafts, inspection.objects);
-  const effectKeys = drafts.map((draft) => draft.key);
-  drafts.push({
-    key: "checkpoint",
-    depends_on_keys: effectKeys,
-    command: "advance_checkpoint",
-    reason: inspection.kind === "incremental" ? "remote_change" : inspection.kind,
-    expected: inspection.boundary.checkpoint,
-    next: {
-      generation: inspection.boundary.checkpoint.generation + 1,
-      cursor: inspection.boundary.authority_cursor
-    }
-  } satisfies ActionDraft);
+  const requiresCheckpoint = drafts.length > 0
+    || inspection.kind !== "incremental"
+    || inspection.boundary.checkpoint.cursor !== inspection.boundary.authority_cursor;
+  if (requiresCheckpoint) {
+    const effectKeys = drafts.map((draft) => draft.key);
+    drafts.push({
+      key: "checkpoint",
+      depends_on_keys: effectKeys,
+      command: "advance_checkpoint",
+      reason: inspection.kind === "incremental" ? "remote_change" : inspection.kind,
+      expected: inspection.boundary.checkpoint,
+      next: {
+        generation: inspection.boundary.checkpoint.generation + 1,
+        cursor: inspection.boundary.authority_cursor
+      }
+    } satisfies ActionDraft);
+  }
 
   const ids = new Map<string, string>();
   for (const draft of drafts) {
