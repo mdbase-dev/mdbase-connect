@@ -87,18 +87,25 @@ impl DirectoryMirror {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(MirrorError::io("Could not read", &self.state_file, error)),
         };
+        let envelope =
+            serde_json::from_slice::<DurableMirrorStateEnvelope>(&value).map_err(|error| {
+                MirrorError::new(
+                    "invalid_mirror_state",
+                    format!("Mirror state is corrupt: {error}"),
+                )
+            })?;
+        if envelope.engine_version != MIRROR_ENGINE_VERSION {
+            return Err(MirrorError::new(
+                "mirror_state_upgrade_required",
+                "Rebuild this prerelease mirror with the plan-only sync engine.",
+            ));
+        }
         let mut state = serde_json::from_slice::<DurableMirrorState>(&value).map_err(|error| {
             MirrorError::new(
                 "invalid_mirror_state",
                 format!("Mirror state is corrupt: {error}"),
             )
         })?;
-        if state.engine_version != MIRROR_ENGINE_VERSION {
-            return Err(MirrorError::new(
-                "mirror_state_upgrade_required",
-                "Rebuild this prerelease mirror with the plan-only sync engine.",
-            ));
-        }
         if state.protocol_version != SYNC_PROTOCOL_VERSION
             || state.replica_id != self.replica_id
             || state.mode != self.mode

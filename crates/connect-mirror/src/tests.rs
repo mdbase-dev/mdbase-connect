@@ -1353,6 +1353,28 @@ async fn corrupt_durable_state_fails_closed_without_reinitializing() {
 }
 
 #[tokio::test]
+async fn legacy_state_is_rejected_by_its_version_before_current_schema_fields() {
+    let source = record("one.md", "One");
+    let (_temporary, mirror, _authority) = harness(SyncReplicaMode::ReadOnly, vec![source]);
+    mirror.sync().await.unwrap();
+
+    let mut state: serde_json::Value =
+        serde_json::from_slice(&fs::read(&mirror.state_file).unwrap()).unwrap();
+    state.as_object_mut().unwrap().remove("engine_version");
+    let first_record = state["records"]
+        .as_object_mut()
+        .unwrap()
+        .values_mut()
+        .next()
+        .unwrap();
+    first_record.as_object_mut().unwrap().remove("hash");
+    fs::write(&mirror.state_file, serde_json::to_vec(&state).unwrap()).unwrap();
+
+    let error = mirror.sync().await.unwrap_err();
+    assert_eq!(error.code, "mirror_state_upgrade_required");
+}
+
+#[tokio::test]
 async fn initialization_collision_changes_nothing() {
     let source = record("one.md", "One");
     let (_temporary, mirror, _authority) = harness(SyncReplicaMode::ReadOnly, vec![source]);

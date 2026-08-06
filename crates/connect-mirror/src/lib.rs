@@ -236,6 +236,12 @@ pub struct MirrorFailure {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct DurableMirrorStateEnvelope {
+    #[serde(default)]
+    engine_version: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct DurableMirrorState {
     protocol_version: u32,
     #[serde(default)]
