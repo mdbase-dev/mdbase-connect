@@ -1,10 +1,5 @@
 export { DirectoryMirror } from "./directory-mirror.js";
-export {
-  MirrorDivergenceError,
-  MirrorInitializationConflictError,
-  WritableMirrorConflictError,
-  WritableMirrorRejectedError
-} from "./mirror-errors.js";
+export { MirrorDivergenceError } from "./mirror-errors.js";
 export {
   authorityFileHash,
   authorityManifestDigest,

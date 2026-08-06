@@ -11,6 +11,7 @@ import type { MirrorLocalIssue } from "./mirror-state.js";
 
 const utf8 = new TextEncoder();
 const YAML_AMBIGUOUS_WORDS = new Set(["null", "true", "false"]);
+const INVALID_JSON_PROJECTION = Symbol("invalid-json-projection");
 
 export function documentHash(document: string): string {
   return bytesToHex(sha256(utf8.encode(document)));
@@ -109,17 +110,59 @@ export function parseMarkdown(document: string, _path: string): { frontmatter: J
   }
   let frontmatter: unknown;
   try {
-    frontmatter = parse(match[1]!);
+    frontmatter = parse(match[1]!, { mapAsMap: true });
   } catch {
     return { frontmatter: {}, body: document };
   }
   if (frontmatter === null && match[1]!.trim() === "") {
-    frontmatter = {};
+    return { frontmatter: {}, body: match[2] ?? "" };
   }
-  if (!frontmatter || typeof frontmatter !== "object" || Array.isArray(frontmatter)) {
+  const projection = jsonProjection(frontmatter, new Set());
+  if (projection === INVALID_JSON_PROJECTION || !isJsonObject(projection)) {
     return { frontmatter: {}, body: document };
   }
-  return { frontmatter: frontmatter as JsonObject, body: match[2] ?? "" };
+  return { frontmatter: projection, body: match[2] ?? "" };
+}
+
+function jsonProjection(
+  value: unknown,
+  ancestors: Set<object>
+): unknown | typeof INVALID_JSON_PROJECTION {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : INVALID_JSON_PROJECTION;
+  if (!value || typeof value !== "object" || ancestors.has(value)) return INVALID_JSON_PROJECTION;
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      const result = [];
+      for (const item of value) {
+        const projected = jsonProjection(item, ancestors);
+        if (projected === INVALID_JSON_PROJECTION) return INVALID_JSON_PROJECTION;
+        result.push(projected);
+      }
+      return result;
+    }
+    if (!(value instanceof Map)) return INVALID_JSON_PROJECTION;
+    const result: Record<string, unknown> = {};
+    for (const [key, item] of value) {
+      if (typeof key !== "string") return INVALID_JSON_PROJECTION;
+      const projected = jsonProjection(item, ancestors);
+      if (projected === INVALID_JSON_PROJECTION) return INVALID_JSON_PROJECTION;
+      Object.defineProperty(result, key, {
+        value: projected,
+        enumerable: true,
+        configurable: true,
+        writable: true
+      });
+    }
+    return result;
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function fastYamlScalar(value: unknown): string | null {

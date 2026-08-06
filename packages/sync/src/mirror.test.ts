@@ -1120,7 +1120,10 @@ describe("platform-neutral directory mirror", () => {
     for (const [path, document] of [
       ["broken.md", "---\nbroken: [\n---\nBody"],
       ["scalar.md", "---\nhello\n---\nBody"],
-      ["null.md", "---\nnull\n---\nBody"]
+      ["null.md", "---\nnull\n---\nBody"],
+      ["list.md", "---\n- one\n- two\n---\nBody"],
+      ["complex-key.md", "---\n? { parentNote: value }\n: nested\n---\nBody"],
+      ["non-finite.md", "---\nvalue: .inf\n---\nBody"]
     ]) {
       const hosted = new MemoryAuthority();
       const replicaId = hosted.registerReplica({ name: "Mobile writer", mode: "read_write" });

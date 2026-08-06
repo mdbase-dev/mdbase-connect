@@ -6,9 +6,10 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { MemoryAuthority } from "../packages/sync/dist/index.js";
+import { parseMarkdown } from "../packages/sync/dist/mirror-format.js";
+import { portableMirrorPathKey } from "../packages/sync/dist/portable-path.js";
 import {
   DirectoryMirror,
-  MirrorInitializationConflictError,
   NodeMirrorFileSystem,
   NodeMirrorLease,
   NodeMirrorStateStore,
@@ -30,30 +31,45 @@ if (paths.length === 0) throw new Error("The profiling vault contains no Markdow
 const sourceStarted = performance.now();
 let sourceBytes = 0;
 const records = [];
-for (const [index, path] of paths.entries()) {
+const portablePathOwners = new Map();
+const rejectedPaths = [];
+for (const path of paths) {
   const document = await sourceFiles.read(path);
   if (document === null) throw new Error(`Source document disappeared during scan: ${path}`);
   sourceBytes += Buffer.byteLength(document);
+  let portableKey;
+  try {
+    portableKey = portableMirrorPathKey(path);
+  } catch {
+    rejectedPaths.push({ path, reason: "not_portable" });
+    continue;
+  }
+  const owner = portablePathOwners.get(portableKey);
+  if (owner) {
+    rejectedPaths.push({ path, reason: "portable_alias", aliases: owner });
+    continue;
+  }
+  portablePathOwners.set(portableKey, path);
+  const projection = parseMarkdown(document, path);
   records.push({
     record_id: createHash("sha256").update(path).digest("hex"),
     path,
     document,
-    frontmatter: {
-      type: "mirror-profile",
-      title: `Live-vault profile ${index}`
-    },
-    body: document,
-    types: ["mirror-profile"]
+    frontmatter: projection.frontmatter,
+    body: projection.body,
+    types: []
   });
 }
+const hostedPaths = records.map((record) => record.path);
+if (hostedPaths.length < 3) throw new Error("The profiling vault has fewer than three portable Markdown files.");
 const sourceScanMs = performance.now() - sourceStarted;
 
 const hosted = new MemoryAuthority({ snapshotPageSize: 200 });
 hosted.seed(records);
+const authoritativeRecords = hosted.serialize().records;
 const writerId = hosted.registerReplica({
   name: "Live-vault adversary",
-  mode: "read_write",
-  allowedTypes: ["mirror-profile"]
+  mode: "read_write"
 });
 const mirrorId = hosted.registerReplica({
   name: "Live-vault mirror",
@@ -79,11 +95,16 @@ try {
   await mirror.sync();
   const noOpMs = performance.now() - noOpStarted;
 
-  const divergencePath = paths[Math.floor(paths.length / 2)];
+  const divergencePath = hostedPaths[Math.floor(hostedPaths.length / 2)];
   const divergenceTarget = join(mirrorRoot, ...divergencePath.split("/"));
   const canonical = await readFile(divergenceTarget, "utf8");
   await writeFile(divergenceTarget, `${canonical}\nlocal adversarial edit\n`);
-  await expectCode(() => mirror.sync(), "mirror_diverged");
+  const divergence = await mirror.sync();
+  assert(
+    divergence.status === "attention"
+      && divergence.issues.some((issue) => issue.code === "mirror_diverged" && issue.blocking),
+    `Receive-only divergence was not returned as a blocking plan issue: ${JSON.stringify(divergence)}`
+  );
   assert(
     (await readFile(divergenceTarget, "utf8")).endsWith("local adversarial edit\n"),
     "Receive-only mirror overwrote a divergent local file."
@@ -91,9 +112,9 @@ try {
   await writeFile(divergenceTarget, canonical);
 
   const writer = hosted.transport(writerId);
-  const updateRecord = records[0];
-  const renameRecord = records[1];
-  const deleteRecord = records[2];
+  const updateRecord = authoritativeRecords[0];
+  const renameRecord = authoritativeRecords[1];
+  const deleteRecord = authoritativeRecords[2];
   const updated = await writer.mutate({
     mutation_id: randomUUID(),
     replica_id: writerId,
@@ -153,7 +174,7 @@ try {
   const collisionState = join(scratch, "collision-state");
   await mkdir(collisionRoot);
   leaseDirectories.push(await mirrorLeaseDirectory(collisionRoot));
-  const collisionPath = paths.at(-1);
+  const collisionPath = hostedPaths.at(-1);
   const collisionTarget = join(collisionRoot, ...collisionPath.split("/"));
   await mkdir(dirname(collisionTarget), { recursive: true });
   await writeFile(collisionTarget, "unmanaged collision\n");
@@ -170,13 +191,16 @@ try {
       lease: new NodeMirrorLease(collisionRoot)
     }
   );
-  try {
-    await collisionMirror.sync();
-    throw new Error("Late collision unexpectedly initialized.");
-  } catch (error) {
-    assert(error instanceof MirrorInitializationConflictError, "Late collision returned the wrong error.");
-    assert(error.paths.includes(collisionPath), "Late collision did not identify its path.");
-  }
+  const collision = await collisionMirror.sync();
+  assert(
+    collision.status === "attention"
+      && collision.issues.some((issue) => (
+        issue.code === "local_collision"
+          && issue.path === collisionPath
+          && issue.blocking
+      )),
+    `Late collision was not returned as a blocking plan issue: ${JSON.stringify(collision)}`
+  );
   const collisionFiles = await new NodeMirrorFileSystem(collisionRoot).listMarkdown(new Set());
   assert(
     collisionFiles.length === 1 && collisionFiles[0] === collisionPath,
@@ -187,6 +211,8 @@ try {
     live_vault_ok: true,
     source: sourceRoot,
     documents: paths.length,
+    hosted_documents: hostedPaths.length,
+    rejected_paths: rejectedPaths,
     markdown_bytes: sourceBytes,
     source_scan_ms: Number(sourceScanMs.toFixed(3)),
     initial_sync_ms: Number(initialMs.toFixed(3)),
@@ -206,16 +232,6 @@ try {
   for (const directory of leaseDirectories) {
     await rm(directory, { recursive: true, force: true });
   }
-}
-
-async function expectCode(operation, code) {
-  try {
-    await operation();
-  } catch (error) {
-    assert(error && typeof error === "object" && error.code === code, `Expected ${code}.`);
-    return;
-  }
-  throw new Error(`Expected ${code}.`);
 }
 
 async function expectMissing(path) {

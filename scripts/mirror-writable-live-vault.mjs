@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { MemoryAuthority } from "../packages/sync/dist/index.js";
+import { portableMirrorPathKey } from "../packages/sync/dist/portable-path.js";
 import {
   DirectoryMirror,
   MemoryMirrorStateStore,
@@ -27,12 +28,27 @@ const paths = await sourceFiles.listMarkdown(new Set());
 if (paths.length === 0) throw new Error("The live vault contains no Markdown files.");
 
 const documents = new Map();
+const portablePathOwners = new Map();
+const rejectedPaths = [];
 let markdownBytes = 0;
 for (const path of paths) {
   const document = await sourceFiles.read(path);
   if (document === null) throw new Error(`Source document disappeared during scan: ${path}`);
-  documents.set(path, document);
   markdownBytes += Buffer.byteLength(document);
+  let portableKey;
+  try {
+    portableKey = portableMirrorPathKey(path);
+  } catch {
+    rejectedPaths.push({ path, reason: "not_portable" });
+    continue;
+  }
+  const owner = portablePathOwners.get(portableKey);
+  if (owner) {
+    rejectedPaths.push({ path, reason: "portable_alias", aliases: owner });
+    continue;
+  }
+  portablePathOwners.set(portableKey, path);
+  documents.set(path, document);
 }
 const bodyOnlyPaths = paths.filter((path) => !hasCompleteFrontmatter(documents.get(path)));
 if (bodyOnlyPaths.length === 0) {
@@ -70,14 +86,14 @@ try {
   const noOpMs = performance.now() - noOpStarted;
 
   const afterDocuments = new Map();
-  for (const path of paths) {
+  for (const path of documents.keys()) {
     afterDocuments.set(path, await readFile(join(writableRoot, ...path.split("/")), "utf8"));
   }
   assert(digestDocuments(afterDocuments) === beforeDigest, "Initial writable sync changed source bytes.");
 
   let records = await snapshotAll(authority.transport(writerId));
   assert(
-    records.length === paths.length - preview.local_issues.length,
+    records.length === documents.size - preview.local_issues.length,
     "Writable import did not upload every structurally valid record."
   );
   const initialStatus = await writable.status();
@@ -132,7 +148,7 @@ try {
     "Writable mirror did not apply a remote body-only update."
   );
 
-  const renamedPath = uniqueRenamedPath(preferred, new Set(paths));
+  const renamedPath = uniqueRenamedPath(preferred, new Set(documents.keys()));
   const renamedTarget = join(writableRoot, ...renamedPath.split("/"));
   await rename(preferredTarget, renamedTarget);
   await writable.sync();
@@ -149,29 +165,31 @@ try {
   );
 
   const invalidPath = "__mdbase-live-vault-invalid.md";
-  await writeFile(
-    join(writableRoot, invalidPath),
-    "---\nbroken: [\n---\nThis must remain an invalid explicit frontmatter block.\n"
-  );
+  const invalidDocument = "---\nbroken: [\n---\nThis must remain an invalid explicit frontmatter block.\n";
+  await writeFile(join(writableRoot, invalidPath), invalidDocument);
   await writable.sync();
-  const invalidStatus = await writable.status();
+  const invalidRecord = (await snapshotAll(authority.transport(writerId)))
+    .find((record) => record.path === invalidPath);
   assert(
-    invalidStatus.local_issues.some(
-      (issue) => issue.path === invalidPath && issue.code === "invalid_frontmatter"
-    ),
-    "Malformed explicit frontmatter was not reported as a local issue."
+    invalidRecord?.document === invalidDocument
+      && Object.keys(invalidRecord.frontmatter).length === 0
+      && invalidRecord.body === invalidDocument,
+    "Malformed explicit frontmatter was not uploaded as exact opaque Markdown."
   );
+  await reader.sync();
   assert(
-    !(await snapshotAll(authority.transport(writerId))).some((record) => record.path === invalidPath),
-    "Malformed explicit frontmatter was uploaded as body text."
+    await readFile(join(readerRoot, invalidPath), "utf8") === invalidDocument,
+    "A second replica did not preserve malformed frontmatter bytes."
   );
 
   process.stdout.write(`${JSON.stringify({
     writable_live_vault_ok: true,
     source: sourceRoot,
     documents: paths.length,
+    portable_documents: documents.size,
+    rejected_paths: rejectedPaths,
     body_only_documents: bodyOnlyPaths.length,
-    invalid_frontmatter_documents: preview.local_issues.length,
+    initial_local_issues: preview.local_issues.length,
     markdown_bytes: markdownBytes,
     initial_sync_ms: Number(initialMs.toFixed(3)),
     no_op_sync_ms: Number(noOpMs.toFixed(3)),
@@ -184,7 +202,7 @@ try {
       "remote body-only edit downloaded",
       "rename retained record identity",
       "delete removed the authority record",
-      "malformed explicit frontmatter was isolated without blocking valid files"
+      "malformed explicit frontmatter synchronized as exact opaque Markdown"
     ]
   }, null, 2)}\n`);
 } finally {
