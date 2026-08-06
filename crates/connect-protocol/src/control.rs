@@ -118,6 +118,7 @@ pub struct CollectionCreateParams {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    pub timezone: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -178,6 +179,7 @@ pub struct AccountConfigureParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostedCollectionCreateParams {
     pub name: String,
+    pub timezone: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

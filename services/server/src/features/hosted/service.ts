@@ -295,7 +295,8 @@ export async function createHostedCollectionForUser(
   publicUrl: string,
   userId: string,
   displayName: string,
-  template: HostedTemplate
+  template: HostedTemplate,
+  timezone: string
 ): Promise<Record<string, unknown>> {
   if (!options.hostedCollections) {
     throw new RequestValidationError("Hosted collections are not enabled.");
@@ -312,10 +313,11 @@ export async function createHostedCollectionForUser(
         account.providerAccountId,
         collectionId,
         template,
-        displayName
+        displayName,
+        timezone
       );
     } else {
-      await hostedReference!.create(collectionId, template);
+      await hostedReference!.create(collectionId, template, timezone);
     }
     await options.db.query(
       `INSERT INTO hosted_collections

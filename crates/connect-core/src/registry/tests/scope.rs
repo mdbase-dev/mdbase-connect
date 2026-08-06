@@ -6,7 +6,7 @@ fn describe_exposes_complete_portable_type_metadata_without_absolute_paths() {
     let collection_parent = tempdir().unwrap();
     let root = collection_parent.path().join("tasks");
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let collection = registry.create(&root, Some("Tasks")).unwrap();
+    let collection = registry.create(&root, Some("Tasks"), "UTC").unwrap();
     fs::write(
         root.join("mdbase.yaml"),
         r#"spec_version: 0.3.0
@@ -99,7 +99,7 @@ fn contract_scope_confines_description_queries_records_and_changes() {
     let collection_parent = tempdir().unwrap();
     let root = collection_parent.path().join("mixed");
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let collection = registry.create(&root, Some("Mixed")).unwrap();
+    let collection = registry.create(&root, Some("Mixed"), "UTC").unwrap();
     write_work_item_contract(&root);
     fs::write(
         root.join("_types/task.md"),
@@ -405,7 +405,9 @@ fn contract_scope_unions_pinned_providers_and_rejects_provider_drift() {
     let collection_parent = tempdir().unwrap();
     let root = collection_parent.path().join("multiple-providers");
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let collection = registry.create(&root, Some("Multiple providers")).unwrap();
+    let collection = registry
+        .create(&root, Some("Multiple providers"), "UTC")
+        .unwrap();
     write_work_item_contract(&root);
 
     for (name, title_field) in [("task", "title"), ("action", "summary")] {

@@ -38,6 +38,7 @@ impl HostedProvider {
                 input.collection_id,
                 "mdbase",
                 &input.display_name,
+                "UTC",
             )
             .await?;
         } else if !matches!(existing_state.as_deref(), Some("importing" | "transferred")) {

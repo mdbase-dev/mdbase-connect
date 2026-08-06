@@ -1221,7 +1221,7 @@ describe("mdbase connect server", () => {
       method: "POST",
       url: "/v1/hosted/collections",
       headers: { cookie },
-      payload: { display_name: "Portable cloud notes", template: "mdbase" }
+      payload: { display_name: "Portable cloud notes", template: "mdbase", timezone: "Australia/Melbourne" }
     });
     expect(created.statusCode).toBe(201);
     const collectionId = created.json().collection.id as string;
@@ -1562,11 +1562,20 @@ describe("mdbase connect server", () => {
     });
     const ownerToken = ownerConnector.json().token as string;
 
+    const invalidTimezone = await app.inject({
+      method: "POST",
+      url: "/v1/connectors/hosted/collections",
+      headers: { authorization: `Bearer ${ownerToken}` },
+      payload: { display_name: "Offset notes", template: "mdbase", timezone: "+10:00" }
+    });
+    expect(invalidTimezone.statusCode).toBe(400);
+    expect(hostedProvider.createCollection).not.toHaveBeenCalled();
+
     const created = await app.inject({
       method: "POST",
       url: "/v1/connectors/hosted/collections",
       headers: { authorization: `Bearer ${ownerToken}` },
-      payload: { display_name: "Desktop notes", template: "mdbase" }
+      payload: { display_name: "Desktop notes", template: "mdbase", timezone: "Australia/Melbourne" }
     });
     expect(created.statusCode, JSON.stringify(created.json())).toBe(201);
     const collectionId = created.json().collection.id as string;
@@ -1574,7 +1583,8 @@ describe("mdbase connect server", () => {
       expect.any(String),
       collectionId,
       "mdbase",
-      "Desktop notes"
+      "Desktop notes",
+      "Australia/Melbourne"
     );
 
     const snapshot = await app.inject({
@@ -1750,7 +1760,7 @@ describe("mdbase connect server", () => {
       method: "POST",
       url: "/v1/hosted/collections",
       headers: { cookie },
-      payload: { display_name: "Writing", template: "mdbase" }
+      payload: { display_name: "Writing", template: "mdbase", timezone: "Australia/Melbourne" }
     });
     const collectionId = collection.json().collection.id as string;
 
@@ -2014,7 +2024,7 @@ describe("mdbase connect server", () => {
       method: "POST",
       url: "/v1/hosted/collections",
       headers: { cookie },
-      payload: { display_name: "Training", template: "mdbase" }
+      payload: { display_name: "Training", template: "mdbase", timezone: "Australia/Melbourne" }
     });
     const collectionId = collection.json().collection.id as string;
     await db.query(

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-beta.37
+
+Beta.37 makes calendar semantics explicit across local, hosted, and application
+execution without changing the published protocol-version constants.
+
+- Queries and saved-view executions accept an ephemeral IANA timezone, and the
+  SDK carries it end to end without rewriting persisted views.
+- Every new local or hosted collection captures its creator's IANA timezone as
+  durable authority configuration; invalid aliases and numeric offsets fail
+  before collection creation.
+- Local and hosted notification runtimes use the collection authority timezone
+  for headless calendar evaluation.
+
 ## 0.1.0-beta.36
 
 Beta.36 simplifies the application access decision without changing the

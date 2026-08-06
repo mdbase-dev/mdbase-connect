@@ -886,7 +886,7 @@ fn fixture_for_origin(origin: &str, distribution: &str) -> Fixture {
     let root = std::env::temp_dir().join(format!("mdbase-loopback-{}", Uuid::new_v4()));
     let registry = CollectionRegistry::open(root.join("state")).unwrap();
     let collection = registry
-        .create(root.join("collection"), Some("Direct notes"))
+        .create(root.join("collection"), Some("Direct notes"), "UTC")
         .unwrap();
     let connector = RelayIdentity::generate();
     let application = RelayIdentity::generate();

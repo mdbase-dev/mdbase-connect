@@ -80,7 +80,9 @@ impl AgentState {
                 }
             },
             ControlCommand::CollectionCreate(params) => {
-                let result = self.registry.create(params.path, params.name.as_deref());
+                let result =
+                    self.registry
+                        .create(params.path, params.name.as_deref(), &params.timezone);
                 if result.is_ok() {
                     self.refresh_watchers();
                 }
@@ -166,7 +168,8 @@ impl AgentState {
                             "/v1/connectors/hosted/collections",
                             Some(serde_json::json!({
                                 "display_name": name,
-                                "template": "mdbase"
+                                "template": "mdbase",
+                                "timezone": params.timezone
                             })),
                         )
                         .await

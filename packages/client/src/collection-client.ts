@@ -590,6 +590,7 @@ function wireReadInput(input: ReadInput) {
 function wireQueryInput(input: QueryInput) {
   return {
     ...(input.types ? { types: input.types } : {}),
+    ...(input.timezone ? { timezone: input.timezone } : {}),
     ...(input.context ? { context: input.context } : {}),
     ...(input.projections ? {
       projections: Object.fromEntries(Object.entries(input.projections).map(([name, projection]) => [

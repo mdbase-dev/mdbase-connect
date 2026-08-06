@@ -58,9 +58,13 @@ export class HostedAuthorityRegistry {
     `);
   }
 
-  async create(collectionId: string, template: HostedTemplate = "mdbase"): Promise<void> {
+  async create(
+    collectionId: string,
+    template: HostedTemplate = "mdbase",
+    timezone = "UTC"
+  ): Promise<void> {
     await this.schemaReady;
-    const authority = new MemoryAuthority({ id: collectionId, ...authorityOptions(hostedResources(template)) });
+    const authority = new MemoryAuthority({ id: collectionId, ...authorityOptions(hostedResources(template, timezone)) });
     await this.db.query(
       `INSERT INTO hosted_authority_states (collection_id, state, version)
        VALUES ($1, $2::jsonb, 1)`,
@@ -407,8 +411,8 @@ export function asSyncMutation(value: unknown): SyncMutation {
   return value as SyncMutation;
 }
 
-export function hostedResources(template: string): SyncCollectionResources {
-  if (template === "mdbase") return mdbaseResources();
+export function hostedResources(template: string, timezone = "UTC"): SyncCollectionResources {
+  if (template === "mdbase") return mdbaseResources(timezone);
   throw new SyncError("unsupported_template", "The hosted collection template is unavailable.");
 }
 
@@ -444,9 +448,15 @@ export function typesForContracts(
     ))];
 }
 
-export function mdbaseResources(): SyncCollectionResources {
+export function mdbaseResources(timezone = "UTC"): SyncCollectionResources {
+  if (!isIanaTimezone(timezone)) {
+    throw new SyncError(
+      "invalid_timezone",
+      "Hosted collection timezone must be a valid IANA identifier."
+    );
+  }
   const configuration =
-    "spec_version: 0.3.0\nsettings:\n  types_folder: _types\n  default_validation: error\n";
+    `spec_version: 0.3.0\nsettings:\n  types_folder: _types\n  default_validation: error\n  timezone: ${timezone}\n`;
   return {
     revision: "mdbase-template:1",
     spec_version: "0.3.0",
@@ -459,6 +469,18 @@ export function mdbaseResources(): SyncCollectionResources {
       document: configuration
     }]
   };
+}
+
+function isIanaTimezone(timezone: string): boolean {
+  if (!timezone.trim() || timezone.toLowerCase() === "local" || /^[+-]\d{2}:\d{2}$/.test(timezone)) {
+    return false;
+  }
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: timezone }).format();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function documentHash(document: string): string {

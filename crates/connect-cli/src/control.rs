@@ -22,10 +22,15 @@ pub(super) fn control_command(
             }),
             OutputKind::Collection,
         ),
-        ConnectCommand::Collection(CollectionCommand::Create { path, name }) => (
+        ConnectCommand::Collection(CollectionCommand::Create {
+            path,
+            name,
+            timezone,
+        }) => (
             ControlCommand::CollectionCreate(CollectionCreateParams {
                 path: path_string(path)?,
                 name,
+                timezone: effective_timezone(timezone)?,
             }),
             OutputKind::Collection,
         ),
@@ -121,8 +126,11 @@ pub(super) fn control_command(
         ConnectCommand::Hosted(HostedCommand::List) => {
             (ControlCommand::HostedSnapshot, OutputKind::Generic)
         }
-        ConnectCommand::Hosted(HostedCommand::Create { name }) => (
-            ControlCommand::HostedCollectionCreate(HostedCollectionCreateParams { name }),
+        ConnectCommand::Hosted(HostedCommand::Create { name, timezone }) => (
+            ControlCommand::HostedCollectionCreate(HostedCollectionCreateParams {
+                name,
+                timezone: effective_timezone(timezone)?,
+            }),
             OutputKind::Generic,
         ),
         ConnectCommand::Hosted(HostedCommand::Rename {
@@ -246,6 +254,23 @@ pub(super) fn path_string(path: PathBuf) -> Result<String, CliError> {
     path.into_os_string()
         .into_string()
         .map_err(|_| CliError::usage("Collection paths must be valid UTF-8."))
+}
+
+fn effective_timezone(timezone: Option<String>) -> Result<String, CliError> {
+    let timezone = match timezone {
+        Some(timezone) => timezone,
+        None => iana_time_zone::get_timezone().map_err(|error| {
+            CliError::usage(format!(
+                "Could not detect this device's IANA timezone ({error}); supply --timezone."
+            ))
+        })?,
+    };
+    timezone.parse::<chrono_tz::Tz>().map_err(|_| {
+        CliError::usage(format!(
+            "--timezone must be an IANA identifier; received '{timezone}'."
+        ))
+    })?;
+    Ok(timezone)
 }
 
 pub(super) fn successful_result(response: ControlResponse) -> Result<Value, CliError> {

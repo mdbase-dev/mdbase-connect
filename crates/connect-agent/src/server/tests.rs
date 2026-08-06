@@ -198,7 +198,7 @@ fn live_authorization_is_acknowledged_only_after_the_grant_is_stored() {
     ));
     let registry = CollectionRegistry::open(test_root.join("state")).unwrap();
     let collection = registry
-        .create(test_root.join("collection"), Some("Live notes"))
+        .create(test_root.join("collection"), Some("Live notes"), "UTC")
         .unwrap();
     let watcher = CollectionWatchService::start(registry.clone());
     let connector_identity = RelayIdentity::generate();
@@ -324,7 +324,7 @@ fn encrypted_operations_round_trip_and_replays_return_the_durable_receipt() {
     let collection_dir = test_root.join("collection");
     let registry = CollectionRegistry::open(&state_dir).unwrap();
     let collection = registry
-        .create(&collection_dir, Some("Encrypted notes"))
+        .create(&collection_dir, Some("Encrypted notes"), "UTC")
         .unwrap();
     let watcher = CollectionWatchService::start(registry.clone());
     let connector_identity = RelayIdentity::generate();
@@ -423,7 +423,7 @@ fn incompatible_authenticated_mutation_fails_before_replay_or_collection_write()
     let collection_dir = test_root.join("collection");
     let registry = CollectionRegistry::open(&state_dir).unwrap();
     let collection = registry
-        .create(&collection_dir, Some("Contract ordering"))
+        .create(&collection_dir, Some("Contract ordering"), "UTC")
         .unwrap();
     let watcher = CollectionWatchService::start(registry.clone());
     let connector_identity = RelayIdentity::generate();

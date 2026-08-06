@@ -294,10 +294,17 @@ export class ConnectManagementClient {
     }, options);
   }
 
-  createHostedCollection(displayName: string, options?: ManagementRequestOptions): Promise<void> {
+  createHostedCollection(
+    input: { displayName: string; timezone: string },
+    options?: ManagementRequestOptions
+  ): Promise<void> {
     return this.request("/v1/hosted/collections", {
       method: "POST",
-      body: JSON.stringify({ display_name: displayName, template: "mdbase" })
+      body: JSON.stringify({
+        display_name: input.displayName,
+        template: "mdbase",
+        timezone: input.timezone
+      })
     }, options);
   }
 

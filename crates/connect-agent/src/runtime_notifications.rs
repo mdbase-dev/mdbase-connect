@@ -207,6 +207,7 @@ impl RuntimeNotificationService {
 
     fn runtime(&mut self, collection_id: Uuid) -> mdbase_runtime::RuntimeResult<&Runtime> {
         if !self.runtimes.contains_key(&collection_id) {
+            let timezone = collection_timezone(&self.local_registry, collection_id)?;
             let store: Arc<dyn RuntimeStore> = Arc::new(SqliteRuntimeStore::open(
                 self.runtime_dir.join(format!("{collection_id}.sqlite")),
             )?);
@@ -232,7 +233,7 @@ impl RuntimeNotificationService {
                     actor_id: "mdbase-connect-daemon".to_string(),
                     actor_kind: "service".to_string(),
                     identity: runtime_identity(collection_id),
-                    timezone: None,
+                    timezone,
                     lease_duration: Duration::from_secs(30),
                     max_items: 50,
                 },
@@ -243,6 +244,31 @@ impl RuntimeNotificationService {
             mdbase_runtime::RuntimeError::Store("notification runtime was not initialized".into())
         })
     }
+}
+
+fn collection_timezone(
+    registry: &CollectionRegistry,
+    collection_id: Uuid,
+) -> mdbase_runtime::RuntimeResult<Option<String>> {
+    let collection = registry
+        .list()
+        .map_err(|error| mdbase_runtime::RuntimeError::Store(error.to_string()))?
+        .into_iter()
+        .find(|collection| collection.id == collection_id)
+        .ok_or_else(|| {
+            mdbase_runtime::RuntimeError::Store(format!(
+                "collection {collection_id} is not registered"
+            ))
+        })?;
+    let document = std::fs::read_to_string(Path::new(&collection.path).join("mdbase.yaml"))
+        .map_err(|error| mdbase_runtime::RuntimeError::Store(error.to_string()))?;
+    let configuration: serde_yaml::Value = serde_yaml::from_str(&document)
+        .map_err(|error| mdbase_runtime::RuntimeError::Store(error.to_string()))?;
+    Ok(configuration
+        .get("settings")
+        .and_then(|settings| settings.get("timezone"))
+        .and_then(serde_yaml::Value::as_str)
+        .map(str::to_string))
 }
 
 async fn fire_due_timers(
@@ -490,7 +516,15 @@ mod tests {
         let state_dir = tempdir().unwrap();
         let runtime_dir = state_dir.path().join("runtime");
         std::fs::create_dir_all(&runtime_dir).unwrap();
-        let collection_id = Uuid::new_v4();
+        let registry = CollectionRegistry::open(state_dir.path()).unwrap();
+        let collection_id = registry
+            .create(
+                state_dir.path().join("collection"),
+                Some("Temporal"),
+                "Australia/Melbourne",
+            )
+            .unwrap()
+            .id;
         let path = runtime_dir.join(format!("{collection_id}.sqlite"));
         let connection = Connection::open(&path).unwrap();
         connection
@@ -511,7 +545,7 @@ mod tests {
 
         let mut service = RuntimeNotificationService {
             runtime_dir,
-            local_registry: CollectionRegistry::open(state_dir.path()).unwrap(),
+            local_registry: registry,
             cloud: None,
             runtimes: HashMap::new(),
         };
@@ -582,7 +616,11 @@ mod tests {
         let state_dir = tempdir().unwrap();
         let registry = CollectionRegistry::open(state_dir.path()).unwrap();
         let collection = registry
-            .create(state_dir.path().join("collection"), Some("Private notes"))
+            .create(
+                state_dir.path().join("collection"),
+                Some("Private notes"),
+                "UTC",
+            )
             .unwrap();
         let grant_id = Uuid::new_v4();
         let application_id = Uuid::new_v4();
@@ -801,7 +839,7 @@ mod tests {
         let state_dir = tempdir().unwrap();
         let registry = CollectionRegistry::open(state_dir.path()).unwrap();
         let collection = registry
-            .create(state_dir.path().join("collection"), Some("Tasks"))
+            .create(state_dir.path().join("collection"), Some("Tasks"), "UTC")
             .unwrap();
         let grant_id = Uuid::new_v4();
         let application_id = Uuid::new_v4();

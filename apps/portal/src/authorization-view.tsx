@@ -678,7 +678,8 @@ export function ApprovalForm({
         method: "POST",
         body: JSON.stringify({
           display_name: displayName,
-          template: "mdbase"
+          template: "mdbase",
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
         })
       });
       const collection: AvailableCollection = {

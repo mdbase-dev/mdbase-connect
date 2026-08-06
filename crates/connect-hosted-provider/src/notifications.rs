@@ -371,6 +371,12 @@ impl HostedNotificationRuntime {
             .map_err(runtime_error)?,
         );
         let providers = ProviderRegistry::default();
+        let timezone = sqlx::query_scalar::<_, String>(
+            "SELECT timezone FROM hosted_provider_collections WHERE id = $1",
+        )
+        .bind(collection_id)
+        .fetch_one(&self.pool)
+        .await?;
         let catalog = compose_catalog(&[], collection_id).map_err(runtime_error)?;
         providers.register(
             catalog.notification_provider_binding().clone(),
@@ -396,7 +402,7 @@ impl HostedNotificationRuntime {
                     actor_id: "mdbase-connect-hosted-provider".to_string(),
                     actor_kind: "service".to_string(),
                     identity: runtime_identity(collection_id),
-                    timezone: None,
+                    timezone: Some(timezone),
                     lease_duration: Duration::from_secs(10),
                     max_items: 50,
                 },

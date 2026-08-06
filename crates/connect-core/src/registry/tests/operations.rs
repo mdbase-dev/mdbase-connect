@@ -57,7 +57,7 @@ fn generic_operation_uses_v03_envelope() {
     let collection_parent = tempdir().unwrap();
     let root = collection_parent.path().join("notes");
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let collection = registry.create(&root, Some("Notes")).unwrap();
+    let collection = registry.create(&root, Some("Notes"), "UTC").unwrap();
 
     let result = registry
         .operation(
@@ -211,7 +211,9 @@ fn invalid_collection_setup_preserves_actionable_diagnostics() {
     let collection_parent = tempdir().unwrap();
     let root = collection_parent.path().join("invalid-setup");
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let collection = registry.create(&root, Some("Invalid setup")).unwrap();
+    let collection = registry
+        .create(&root, Some("Invalid setup"), "UTC")
+        .unwrap();
 
     fs::create_dir_all(root.join("_types")).unwrap();
     fs::write(
@@ -254,7 +256,7 @@ fn type_operations_are_revision_safe_and_require_full_collection_scope() {
     let collection_parent = tempdir().unwrap();
     let root = collection_parent.path().join("typed");
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let collection = registry.create(&root, Some("Typed")).unwrap();
+    let collection = registry.create(&root, Some("Typed"), "UTC").unwrap();
     let document = r#"---
 kind: mdbase.type
 name: project
@@ -312,7 +314,7 @@ fn installs_type_packs_as_full_collection_operations_and_provisions_idempotently
     let collection_parent = tempdir().unwrap();
     let root = collection_parent.path().join("provisioned");
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let collection = registry.create(&root, Some("Provisioned")).unwrap();
+    let collection = registry.create(&root, Some("Provisioned"), "UTC").unwrap();
     let contract_document = r#"---
 kind: mdbase.contract
 contract_type: record
@@ -501,7 +503,7 @@ fn provision_maps_a_contract_to_an_existing_type_without_installing_the_starter(
     let parent = tempdir().unwrap();
     let root = parent.path().join("notes");
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let collection = registry.create(&root, Some("Notes")).unwrap();
+    let collection = registry.create(&root, Some("Notes"), "UTC").unwrap();
     let original = r#"---
 # Keep this comment and the existing layout.
 kind: mdbase.type
@@ -577,7 +579,7 @@ fn stale_existing_type_setup_leaves_contract_and_type_unchanged() {
     let parent = tempdir().unwrap();
     let root = parent.path().join("notes");
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let collection = registry.create(&root, Some("Notes")).unwrap();
+    let collection = registry.create(&root, Some("Notes"), "UTC").unwrap();
     let original = r#"---
 kind: mdbase.type
 name: note
@@ -635,7 +637,7 @@ fn application_setup_preserves_local_configuration_and_is_idempotent() {
     let parent = tempdir().unwrap();
     let root = parent.path().join("notes");
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let collection = registry.create(&root, Some("Notes")).unwrap();
+    let collection = registry.create(&root, Some("Notes"), "UTC").unwrap();
     let description = registry.describe(collection.id).unwrap();
     assert!(description
         .operations
@@ -714,7 +716,7 @@ fn scoped_conditional_writers_share_one_collection_serialization_gate() {
     let collection_parent = tempdir().unwrap();
     let root = collection_parent.path().join("tasks");
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let collection = registry.create(&root, Some("Tasks")).unwrap();
+    let collection = registry.create(&root, Some("Tasks"), "UTC").unwrap();
     write_work_item_contract(&root);
     fs::write(
         root.join("_types/task.md"),
@@ -811,7 +813,7 @@ fn full_collection_scope_lists_and_executes_saved_views() {
     let collection_parent = tempdir().unwrap();
     let root = collection_parent.path().join("views");
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let collection = registry.create(&root, Some("Views")).unwrap();
+    let collection = registry.create(&root, Some("Views"), "UTC").unwrap();
     fs::write(
         root.join("_types/view.md"),
         r#"---
@@ -921,7 +923,7 @@ fn change_pages_resume_by_cursor_and_omit_record_snapshots() {
     let collection_parent = tempdir().unwrap();
     let root = collection_parent.path().join("notes");
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let collection = registry.create(&root, Some("Notes")).unwrap();
+    let collection = registry.create(&root, Some("Notes"), "UTC").unwrap();
     let event = mdbase::watch::WatchEvent {
         event_type: "mdbase.record.modified".to_string(),
         sequence: 7,

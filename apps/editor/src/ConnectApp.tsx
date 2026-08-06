@@ -361,7 +361,10 @@ function Collections({ data, busy, perform, navigate }: {
     event.preventDefault();
     const displayName = name.trim();
     if (!displayName) return;
-    const created = await perform("create-collection", (options) => management.createHostedCollection(displayName, options));
+    const created = await perform("create-collection", (options) => management.createHostedCollection({
+      displayName,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+    }, options));
     if (created) {
       setCreating(false);
       setName("My collection");

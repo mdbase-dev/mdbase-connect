@@ -279,6 +279,9 @@ enum HostedCommand {
     List,
     Create {
         name: String,
+        /// IANA timezone for headless operations (defaults to this device).
+        #[arg(long)]
+        timezone: Option<String>,
     },
     Rename {
         collection_id: Uuid,
@@ -304,6 +307,9 @@ enum CollectionCommand {
         path: PathBuf,
         #[arg(long)]
         name: Option<String>,
+        /// IANA timezone for headless operations (defaults to this device).
+        #[arg(long)]
+        timezone: Option<String>,
     },
     Remove {
         collection_id: Uuid,

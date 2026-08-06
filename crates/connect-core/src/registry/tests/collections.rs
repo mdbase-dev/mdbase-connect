@@ -7,7 +7,7 @@ fn create_register_list_and_remove_collection() {
     let root = collection_parent.path().join("workouts");
     let registry = CollectionRegistry::open(state.path()).unwrap();
 
-    let created = registry.create(&root, Some("Workouts")).unwrap();
+    let created = registry.create(&root, Some("Workouts"), "UTC").unwrap();
     assert_eq!(created.display_name, "Workouts");
     assert_eq!(created.spec_version, "0.3.0");
     assert!(root.join("mdbase.yaml").exists());
@@ -24,6 +24,28 @@ fn create_register_list_and_remove_collection() {
         "unregistering must not delete collection files"
     );
     assert!(registry.list().unwrap().is_empty());
+}
+
+#[test]
+fn create_captures_a_validated_authority_timezone() {
+    let state = tempdir().unwrap();
+    let collection_parent = tempdir().unwrap();
+    let root = collection_parent.path().join("temporal");
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+
+    registry
+        .create(&root, Some("Temporal"), "Australia/Melbourne")
+        .unwrap();
+    let config: serde_yaml::Value =
+        serde_yaml::from_str(&fs::read_to_string(root.join("mdbase.yaml")).unwrap()).unwrap();
+    assert_eq!(config["settings"]["timezone"], "Australia/Melbourne");
+
+    let invalid_root = collection_parent.path().join("invalid-temporal");
+    assert!(matches!(
+        registry.create(&invalid_root, None, "+10:00"),
+        Err(ConnectError::CollectionInit(message)) if message.contains("IANA")
+    ));
+    assert!(!invalid_root.exists());
 }
 
 #[test]
@@ -55,7 +77,7 @@ fn collection_identity_survives_a_folder_move() {
     let moved = collection_parent.path().join("archive");
     let registry = CollectionRegistry::open(state.path()).unwrap();
 
-    let created = registry.create(&original, Some("Notes")).unwrap();
+    let created = registry.create(&original, Some("Notes"), "UTC").unwrap();
     let config: serde_yaml::Value =
         serde_yaml::from_str(&fs::read_to_string(original.join("mdbase.yaml")).unwrap()).unwrap();
     assert_eq!(
@@ -82,7 +104,7 @@ fn copied_collection_identity_is_rejected_while_the_original_is_registered() {
     let copy = collection_parent.path().join("notes-copy");
     let registry = CollectionRegistry::open(state.path()).unwrap();
 
-    let created = registry.create(&original, Some("Notes")).unwrap();
+    let created = registry.create(&original, Some("Notes"), "UTC").unwrap();
     fs::create_dir_all(&copy).unwrap();
     fs::copy(original.join("mdbase.yaml"), copy.join("mdbase.yaml")).unwrap();
     fs::create_dir_all(copy.join("_types")).unwrap();
@@ -105,7 +127,7 @@ fn copied_collection_can_be_registered_with_a_new_identity() {
     let copy = collection_parent.path().join("notes-copy");
     let registry = CollectionRegistry::open(state.path()).unwrap();
 
-    let created = registry.create(&original, Some("Notes")).unwrap();
+    let created = registry.create(&original, Some("Notes"), "UTC").unwrap();
     fs::create_dir_all(&copy).unwrap();
     fs::copy(original.join("mdbase.yaml"), copy.join("mdbase.yaml")).unwrap();
     fs::create_dir_all(copy.join("_types")).unwrap();
@@ -128,7 +150,7 @@ fn new_identity_command_refuses_the_registered_original() {
     let collection_parent = tempdir().unwrap();
     let original = collection_parent.path().join("notes");
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let created = registry.create(&original, Some("Notes")).unwrap();
+    let created = registry.create(&original, Some("Notes"), "UTC").unwrap();
 
     assert!(matches!(
         registry.add_copy(&original),
@@ -144,7 +166,7 @@ fn registered_conflict_can_become_independent_without_moving_files() {
     let collection_parent = tempdir().unwrap();
     let root = collection_parent.path().join("notes");
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let created = registry.create(&root, Some("Notes")).unwrap();
+    let created = registry.create(&root, Some("Notes"), "UTC").unwrap();
 
     let independent = registry.make_independent(created.id).unwrap();
 
@@ -176,7 +198,7 @@ fn collection_metadata_refreshes_edits_and_disabled_collections_fail_closed() {
     let collection_parent = tempdir().unwrap();
     let root = collection_parent.path().join("notes");
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let created = registry.create(&root, Some("Notes")).unwrap();
+    let created = registry.create(&root, Some("Notes"), "UTC").unwrap();
     assert_eq!(created.description, None);
 
     let config_path = root.join("mdbase.yaml");

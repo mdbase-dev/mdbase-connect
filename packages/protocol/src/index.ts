@@ -755,6 +755,7 @@ export interface DeleteViewSourceResult {
 export interface ExecuteViewInput {
   path: string;
   view: string;
+  timezone?: string;
   context?: { path: string } | null;
   limit?: number;
   offset?: number;

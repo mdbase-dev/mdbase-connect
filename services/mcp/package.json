@@ -1,6 +1,6 @@
 {
   "name": "@mdbase/connect-mcp",
-  "version": "0.1.0-beta.36",
+  "version": "0.1.0-beta.37",
   "private": true,
   "type": "module",
   "scripts": {

@@ -37,7 +37,8 @@ export function registerHostedAccountRoutes(
     if (!user) return;
     const input = z.object({
       display_name: z.string().trim().min(1).max(200),
-      template: z.literal("mdbase").default("mdbase")
+      template: z.literal("mdbase").default("mdbase"),
+      timezone: ianaTimezoneSchema
     }).strict().parse(request.body);
     const collection = await createHostedCollectionForUser(
       options,
@@ -45,7 +46,8 @@ export function registerHostedAccountRoutes(
       options.publicUrl,
       user.id,
       input.display_name,
-      input.template
+      input.template,
+      input.timezone
     );
     const collectionId = String(collection.id);
     return reply.code(201).send({
@@ -406,6 +408,15 @@ export function registerHostedAccountRoutes(
     }
   );
 }
+
+const ianaTimezoneSchema = z.string().trim().min(1).refine((timezone) => {
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: timezone }).format();
+    return timezone.toLowerCase() !== "local" && !/^[+-]\d{2}:\d{2}$/.test(timezone);
+  } catch {
+    return false;
+  }
+}, "timezone must be a valid IANA identifier");
 
 async function activeReplicaForUser(
   options: HostedAccountRoutesOptions,

@@ -234,12 +234,19 @@ impl CollectionRegistry {
         &self,
         path: impl AsRef<Path>,
         name: Option<&str>,
+        timezone: &str,
     ) -> Result<CollectionSummary, ConnectError> {
+        timezone.parse::<chrono_tz::Tz>().map_err(|_| {
+            ConnectError::CollectionInit(format!(
+                "timezone must be an IANA identifier; received '{timezone}'"
+            ))
+        })?;
         let mut config = serde_json::Map::new();
         config.insert("spec_version".to_string(), json!("0.3.0"));
         if let Some(name) = name.filter(|name| !name.trim().is_empty()) {
             config.insert("name".to_string(), json!(name.trim()));
         }
+        config.insert("settings".to_string(), json!({ "timezone": timezone }));
         let result = mdbase::init::init_collection(
             path.as_ref(),
             &json!({ "config": Value::Object(config) }),

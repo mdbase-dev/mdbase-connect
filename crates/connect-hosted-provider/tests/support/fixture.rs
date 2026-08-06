@@ -63,7 +63,13 @@ impl FileLifecycleFixture {
             .await
             .expect("account is provisioned");
         provider
-            .create_collection(account_id, collection_id, "mdbase", "Adversarial files")
+            .create_collection(
+                account_id,
+                collection_id,
+                "mdbase",
+                "Adversarial files",
+                "UTC",
+            )
             .await
             .expect("collection is created");
         let token = format!("adversarial-{}-{}", Uuid::new_v4(), Uuid::new_v4());

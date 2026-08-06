@@ -342,6 +342,7 @@ describe("provider-neutral collection client", () => {
     await client.executeView({
       path: "Worklog/Views/tasks.base",
       view: "kanban-board",
+      timezone: "Australia/Melbourne",
       limit: 50
     });
     await client.readViewSource({ path: "Worklog/Views/tasks.base" });
@@ -365,6 +366,7 @@ describe("provider-neutral collection client", () => {
         input: {
           path: "Worklog/Views/tasks.base",
           view: "kanban-board",
+          timezone: "Australia/Melbourne",
           limit: 50
         }
       },
@@ -423,7 +425,7 @@ describe("provider-neutral collection client", () => {
     const loaded: string[] = [];
 
     for await (const outcome of client.queryPages(
-      { includeBody: false, orderBy: [{ field: "file.mtime", direction: "desc" }] },
+      { includeBody: false, orderBy: [{ field: "file.mtime", direction: "desc" }], timezone: "Australia/Melbourne" },
       { firstPageSize: 1, pageSize: 2, onProgress: ({ loaded, complete }) => progress.push({ loaded, complete }) }
     )) {
       expect(outcome.ok).toBe(true);
@@ -433,8 +435,8 @@ describe("provider-neutral collection client", () => {
     expect(loaded).toEqual(["one.md", "two.md", "three.md"]);
     expect(progress).toEqual([{ loaded: 1, complete: false }, { loaded: 3, complete: true }]);
     expect(calls).toEqual([
-      { include_body: false, order_by: [{ field: "file.mtime", direction: "desc" }], offset: 0, limit: 1 },
-      { include_body: false, order_by: [{ field: "file.mtime", direction: "desc" }], offset: 1, limit: 2, snapshot: "stable-query" }
+      { include_body: false, order_by: [{ field: "file.mtime", direction: "desc" }], timezone: "Australia/Melbourne", offset: 0, limit: 1 },
+      { include_body: false, order_by: [{ field: "file.mtime", direction: "desc" }], timezone: "Australia/Melbourne", offset: 1, limit: 2, snapshot: "stable-query" }
     ]);
   });
 

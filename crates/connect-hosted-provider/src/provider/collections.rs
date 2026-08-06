@@ -52,6 +52,7 @@ impl HostedProvider {
         collection_id: Uuid,
         template_name: &str,
         display_name: &str,
+        timezone: &str,
     ) -> ApiResult<ProviderCollection> {
         let display_name = display_name.trim();
         if display_name.is_empty() || display_name.chars().count() > 200 {
@@ -60,7 +61,7 @@ impl HostedProvider {
                 "Hosted collection names must contain between 1 and 200 characters.",
             ));
         }
-        let (resources, documents) = template::resources(template_name)?;
+        let (resources, documents) = template::resources(template_name, timezone)?;
         let data_key = self.crypto.generate_data_key();
         let wrapped_data_key = self.crypto.wrap_data_key(&data_key, collection_id).await?;
         let resources_ciphertext =
@@ -70,18 +71,19 @@ impl HostedProvider {
         let account = load_account_limits(&mut transaction, account_id, true).await?;
         let inserted = sqlx::query(
             r#"INSERT INTO hosted_provider_collections
-                 (id, account_id, template, display_name, spec_version, resource_revision, wrapped_data_key,
+                 (id, account_id, template, display_name, timezone, spec_version, resource_revision, wrapped_data_key,
                   resources_ciphertext, max_records, max_content_bytes,
                   max_document_bytes, max_replicas, max_files, max_file_bytes,
                   max_stored_file_bytes, max_single_file_bytes)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                       $14, $15, $16)
+                       $14, $15, $16, $17)
                ON CONFLICT (id) DO NOTHING"#,
         )
         .bind(collection_id)
         .bind(account_id)
         .bind(template_name)
         .bind(display_name)
+        .bind(timezone)
         .bind(&resources.spec_version)
         .bind(&resources.revision)
         .bind(wrapped_data_key)
@@ -119,7 +121,7 @@ impl HostedProvider {
         .await?;
         if inserted.rows_affected() == 0 {
             let existing = sqlx::query(
-                "SELECT account_id, template, display_name, spec_version, resource_revision FROM hosted_provider_collections WHERE id = $1",
+                "SELECT account_id, template, display_name, timezone, spec_version, resource_revision FROM hosted_provider_collections WHERE id = $1",
             )
             .bind(collection_id)
             .fetch_one(&mut *transaction)
@@ -128,6 +130,7 @@ impl HostedProvider {
             if existing.get::<Option<Uuid>, _>("account_id") != Some(account_id)
                 || existing_template != template_name
                 || existing.get::<String, _>("display_name") != display_name
+                || existing.get::<String, _>("timezone") != timezone
             {
                 return Err(ApiError::conflict(
                     "hosted_collection_conflict",

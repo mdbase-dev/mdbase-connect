@@ -7,6 +7,7 @@ repository.workspace = true
 
 [dependencies]
 chrono.workspace = true
+chrono-tz.workspace = true
 directories.workspace = true
 hmac.workspace = true
 mdbase.workspace = true

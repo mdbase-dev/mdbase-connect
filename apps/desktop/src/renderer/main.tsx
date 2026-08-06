@@ -205,10 +205,17 @@ function App() {
   async function createCollection() {
     await act(async () => {
       if (newAuthority === "hosted") {
-        const result = await window.mdbaseConnect.createHostedCollection(newName);
+        const result = await window.mdbaseConnect.createHostedCollection({
+          name: newName,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        });
         setNotice(`${result.collection.display_name} is now hosted by mdbase.`);
       } else {
-        const created = await window.mdbaseConnect.createCollection({ path: newPath, name: newName });
+        const created = await window.mdbaseConnect.createCollection({
+          path: newPath,
+          name: newName,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        });
         setNotice(`${created.display_name} was created on this computer.`);
       }
       setCreateOpen(false);

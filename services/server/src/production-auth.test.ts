@@ -214,7 +214,7 @@ describe("production GitHub authentication", () => {
       method: "POST",
       url: "/v1/hosted/collections",
       headers: { cookie },
-      payload: { display_name: "Writing" }
+      payload: { display_name: "Writing", timezone: "Australia/Melbourne" }
     });
     expect(created.statusCode).toBe(201);
     const collectionId = created.json().collection.id as string;
@@ -312,13 +312,13 @@ describe("production GitHub authentication", () => {
       method: "POST",
       url: "/v1/hosted/collections",
       headers: { cookie },
-      payload: { display_name: "First collection" }
+      payload: { display_name: "First collection", timezone: "Australia/Melbourne" }
     });
     const secondCollection = await app.inject({
       method: "POST",
       url: "/v1/hosted/collections",
       headers: { cookie },
-      payload: { display_name: "Second collection" }
+      payload: { display_name: "Second collection", timezone: "Australia/Melbourne" }
     });
     const collectionId = secondCollection.json().collection.id as string;
     const approval = await app.inject({

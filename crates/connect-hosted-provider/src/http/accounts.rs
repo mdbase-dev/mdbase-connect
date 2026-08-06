@@ -25,6 +25,7 @@ struct CreateCollectionRequest {
     collection_id: Uuid,
     template: String,
     display_name: String,
+    timezone: String,
 }
 
 pub(super) fn account_routes() -> Router<AppState> {
@@ -53,6 +54,7 @@ async fn create_collection(
             input.collection_id,
             &input.template,
             &input.display_name,
+            &input.timezone,
         )
         .await?;
     Ok((
@@ -110,7 +112,8 @@ mod tests {
             "account_id": Uuid::new_v4(),
             "collection_id": Uuid::new_v4(),
             "template": "mdbase",
-            "display_name": "Worklog"
+            "display_name": "Worklog",
+            "timezone": "Australia/Melbourne"
         }))
         .unwrap();
         assert_eq!(input.display_name, "Worklog");

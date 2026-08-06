@@ -160,10 +160,12 @@ export interface QuerySummary {
 /** Application-facing form of the canonical mdbase v0.3 query schema. */
 export interface QueryInput {
   /**
-   * Contract-scoped queries accept only `types`, pagination,
+   * Contract-scoped queries accept only `types`, `timezone`, pagination,
    * `frontmatterMode`, and `contract`; filter normalized fields in the app.
    */
   types?: string[];
+  /** IANA timezone used for calendar semantics in this invocation. */
+  timezone?: string;
   context?: { this: { path: string } };
   projections?: Record<string, QueryProjection>;
   where?: string;
@@ -389,6 +391,8 @@ export interface DeleteViewSourceResult { path: string; deleted: boolean; }
 export interface ExecuteViewInput {
   path: string;
   view: string;
+  /** IANA timezone used for calendar semantics in this invocation. */
+  timezone?: string;
   context?: { path: string } | null;
   limit?: number;
   offset?: number;

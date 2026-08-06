@@ -196,13 +196,15 @@ export class HostedProviderClient {
     accountId: string,
     collectionId: string,
     template: string,
-    displayName: string
+    displayName: string,
+    timezone: string
   ): Promise<void> {
     await this.request("POST", "/internal/v1/collections", {
       account_id: accountId,
       collection_id: collectionId,
       template,
-      display_name: displayName
+      display_name: displayName,
+      timezone
     });
   }
 

@@ -97,6 +97,18 @@ fn invalid_operation_json_is_a_usage_error() {
 }
 
 #[test]
+fn collection_creation_rejects_non_iana_timezone_overrides() {
+    let result = control_command(ConnectCommand::Collection(CollectionCommand::Create {
+        path: PathBuf::from("/data/notes"),
+        name: Some("Notes".to_string()),
+        timezone: Some("+10:00".to_string()),
+    }));
+    let error = result.unwrap_err();
+    assert_eq!(error.code, "invalid_input");
+    assert!(error.message.contains("IANA"));
+}
+
+#[test]
 fn mirror_file_flags_build_an_explicit_device_local_policy() {
     let collection_id = "01900000-0000-7000-8000-000000000000";
     let args = Args::try_parse_from([

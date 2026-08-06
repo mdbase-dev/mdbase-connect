@@ -2568,11 +2568,13 @@ dependencies = [
 
 [[package]]
 name = "mdbase-cli"
-version = "0.1.0-beta.36"
+version = "0.1.0-beta.37"
 dependencies = [
+ "chrono-tz",
  "clap",
  "directories",
  "fs2",
+ "iana-time-zone",
  "libc",
  "mdbase-command",
  "mdbase-connect-core",
@@ -2602,9 +2604,10 @@ dependencies = [
 
 [[package]]
 name = "mdbase-connect-core"
-version = "0.1.0-beta.36"
+version = "0.1.0-beta.37"
 dependencies = [
  "chrono",
+ "chrono-tz",
  "directories",
  "hmac 0.12.1",
  "keyring",
@@ -2628,7 +2631,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-connect-daemon"
-version = "0.1.0-beta.36"
+version = "0.1.0-beta.37"
 dependencies = [
  "async-trait",
  "axum",
@@ -2650,6 +2653,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "serde_yaml",
  "tempfile",
  "tokio",
  "tokio-tungstenite",
@@ -2663,7 +2667,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-connect-hosted-provider"
-version = "0.1.0-beta.36"
+version = "0.1.0-beta.37"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -2676,6 +2680,7 @@ dependencies = [
  "axum",
  "base64",
  "chrono",
+ "chrono-tz",
  "clap",
  "futures-util",
  "hmac 0.12.1",
@@ -2706,7 +2711,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-connect-mirror"
-version = "0.1.0-beta.36"
+version = "0.1.0-beta.37"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2729,7 +2734,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-connect-protocol"
-version = "0.1.0-beta.36"
+version = "0.1.0-beta.37"
 dependencies = [
  "aes-gcm",
  "base64",
@@ -2748,7 +2753,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-connect-runtime"
-version = "0.1.0-beta.36"
+version = "0.1.0-beta.37"
 dependencies = [
  "chrono",
  "mdbase",

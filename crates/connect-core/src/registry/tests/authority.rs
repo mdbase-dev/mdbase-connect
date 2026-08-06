@@ -64,7 +64,7 @@ fn authority_rollback_restores_a_retired_local_registration() {
     let collection_parent = tempdir().unwrap();
     let root = collection_parent.path().join("notes");
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let created = registry.create(&root, Some("Notes")).unwrap();
+    let created = registry.create(&root, Some("Notes"), "UTC").unwrap();
     registry.set_enabled(created.id, false).unwrap();
     mark_mirror(&root, created.id);
 
@@ -91,7 +91,7 @@ fn a_registered_folder_stops_being_available_when_it_becomes_a_mirror() {
     let collection_parent = tempdir().unwrap();
     let root = collection_parent.path().join("notes");
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let created = registry.create(&root, Some("Notes")).unwrap();
+    let created = registry.create(&root, Some("Notes"), "UTC").unwrap();
     let mirror_collection_id = Uuid::new_v4();
 
     mark_mirror(&root, mirror_collection_id);
@@ -138,7 +138,7 @@ fn authority_transfer_fence_is_durable_exclusive_and_idempotent() {
     let collection_parent = tempdir().unwrap();
     let root = collection_parent.path().join("transfer");
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let collection = registry.create(&root, Some("Transfer")).unwrap();
+    let collection = registry.create(&root, Some("Transfer"), "UTC").unwrap();
     fs::write(
         root.join("one.md"),
         "---\ntitle: One\n---\nOriginal body.\n",

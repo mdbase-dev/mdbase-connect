@@ -397,7 +397,7 @@ mod tests {
     use serde_json::{json, Map};
 
     pub(super) fn resources() -> Vec<(String, String)> {
-        let mut resources: Vec<(String, String)> = crate::template::resources("mdbase")
+        let mut resources: Vec<(String, String)> = crate::template::resources("mdbase", "UTC")
             .unwrap()
             .1
             .into_iter()

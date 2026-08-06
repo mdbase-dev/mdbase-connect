@@ -120,7 +120,7 @@ impl ContractScope {
         if scoped.keys().any(|key| {
             !matches!(
                 key.as_str(),
-                "types" | "limit" | "offset" | "frontmatter_mode"
+                "types" | "timezone" | "limit" | "offset" | "frontmatter_mode"
             )
         }) {
             return Err(error(

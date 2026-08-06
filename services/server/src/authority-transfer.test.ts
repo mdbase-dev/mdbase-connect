@@ -43,7 +43,7 @@ describe("hosted-to-local authority transfer", () => {
       method: "POST",
       url: "/v1/hosted/collections",
       headers: { cookie },
-      payload: { display_name: "Writing", template: "mdbase" }
+      payload: { display_name: "Writing", template: "mdbase", timezone: "Australia/Melbourne" }
     });
     const collectionId = created.json().collection.id as string;
     const pairing = await app.inject({
@@ -341,7 +341,7 @@ describe("hosted-to-local authority transfer", () => {
       method: "POST",
       url: "/v1/hosted/collections",
       headers: { cookie },
-      payload: { display_name: "Keep hosted", template: "mdbase" }
+      payload: { display_name: "Keep hosted", template: "mdbase", timezone: "Australia/Melbourne" }
     });
     const cancellableCollectionId = cancellable.json().collection.id as string;
     const cancellablePairing = await app.inject({

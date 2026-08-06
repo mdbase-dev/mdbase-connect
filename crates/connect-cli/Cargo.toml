@@ -11,6 +11,8 @@ path = "src/main.rs"
 
 [dependencies]
 clap.workspace = true
+chrono-tz.workspace = true
+iana-time-zone.workspace = true
 mdbase-command = { path = "../../../mdbase-rs/crates/mdbase-command" }
 mdbase-connect-daemon = { path = "../connect-agent" }
 mdbase-connect-core = { path = "../connect-core" }

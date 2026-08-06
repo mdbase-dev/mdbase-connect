@@ -258,10 +258,11 @@ function registerIpc(): void {
   ipcMain.handle("connect:collections:create", async (event, input: unknown) => {
     trustedIpc(event);
     if (!input || typeof input !== "object") throw new Error("Invalid collection input.");
-    const { path, name } = input as { path?: unknown; name?: unknown };
+    const { path, name, timezone } = input as { path?: unknown; name?: unknown; timezone?: unknown };
     if (typeof path !== "string" || path.length === 0) throw new Error("Choose a folder.");
     if (typeof name !== "string" || name.trim().length === 0) throw new Error("Enter a collection name.");
-    return requestReadyAgent("collections.create", { path, name: name.trim() });
+    if (typeof timezone !== "string" || !timezone.trim()) throw new Error("The collection timezone is required.");
+    return requestReadyAgent("collections.create", { path, name: name.trim(), timezone: timezone.trim() });
   });
   ipcMain.handle("connect:collections:update-metadata", async (event, input: unknown) => {
     trustedIpc(event);
@@ -517,14 +518,19 @@ function registerIpc(): void {
     trustedIpc(event);
     return requestReadyAgent("hosted.snapshot", undefined, 30_000);
   });
-  ipcMain.handle("connect:hosted:create", async (event, name: unknown) => {
+  ipcMain.handle("connect:hosted:create", async (event, input: unknown) => {
     trustedIpc(event);
+    const value = asObject(input, "Invalid hosted collection details.");
+    const name = value.name;
     if (typeof name !== "string" || name.trim().length === 0 || [...name.trim()].length > 200) {
       throw new Error("Collection name must be between 1 and 200 characters.");
     }
+    if (typeof value.timezone !== "string" || !value.timezone.trim()) {
+      throw new Error("The collection timezone is required.");
+    }
     return requestReadyAgent(
       "hosted.collections.create",
-      { name: name.trim() },
+      { name: name.trim(), timezone: value.timezone.trim() },
       30_000
     );
   });

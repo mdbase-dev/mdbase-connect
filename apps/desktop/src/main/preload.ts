@@ -22,7 +22,7 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   transferCollectionAuthority: (collectionId: string) =>
     ipcRenderer.invoke("connect:collections:transfer-authority", collectionId),
   chooseCreateFolder: () => ipcRenderer.invoke("connect:collections:choose-create"),
-  createCollection: (input: { path: string; name: string }) =>
+  createCollection: (input: { path: string; name: string; timezone: string }) =>
     ipcRenderer.invoke("connect:collections:create", input),
   updateCollectionMetadata: (input: { collectionId: string; name: string; description?: string }) =>
     ipcRenderer.invoke("connect:collections:update-metadata", input),
@@ -59,7 +59,8 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   revokeGrant: (grantId: string) => ipcRenderer.invoke("connect:grants:revoke", grantId),
   listActivity: (limit = 100) => ipcRenderer.invoke("connect:activity:list", limit),
   hostedSnapshot: () => ipcRenderer.invoke("connect:hosted:snapshot"),
-  createHostedCollection: (name: string) => ipcRenderer.invoke("connect:hosted:create", name),
+  createHostedCollection: (input: { name: string; timezone: string }) =>
+    ipcRenderer.invoke("connect:hosted:create", input),
   renameHostedCollection: (input: { collectionId: string; name: string }) =>
     ipcRenderer.invoke("connect:hosted:rename", input),
   deleteHostedCollection: (collectionId: string) =>

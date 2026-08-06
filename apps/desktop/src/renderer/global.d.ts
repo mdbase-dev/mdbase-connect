@@ -321,7 +321,7 @@ interface Window {
       mirror: DesktopMirrorSummary;
     }>;
     chooseCreateFolder(): Promise<string | null>;
-    createCollection(input: { path: string; name: string }): Promise<CollectionSummary>;
+    createCollection(input: { path: string; name: string; timezone: string }): Promise<CollectionSummary>;
     updateCollectionMetadata(input: { collectionId: string; name: string; description?: string }): Promise<CollectionSummary>;
     setCollectionEnabled(collectionId: string, enabled: boolean): Promise<CollectionSummary>;
     validateCollection(collectionId: string): Promise<unknown>;
@@ -350,7 +350,7 @@ interface Window {
     revokeGrant(grantId: string): Promise<unknown>;
     listActivity(limit?: number): Promise<ActivityEntry[]>;
     hostedSnapshot(): Promise<HostedControlSnapshot>;
-    createHostedCollection(name: string): Promise<{ collection: HostedCollectionSummary }>;
+    createHostedCollection(input: { name: string; timezone: string }): Promise<{ collection: HostedCollectionSummary }>;
     renameHostedCollection(input: { collectionId: string; name: string }): Promise<{ collection: { id: string; display_name: string } }>;
     deleteHostedCollection(collectionId: string): Promise<{ ok: true }>;
     updateHostedGrant(input: { grantId: string; operations: string[] }): Promise<unknown>;
