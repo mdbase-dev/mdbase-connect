@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.0-beta.40
+
+Beta.40 completes the operational hardening found while upgrading and live
+testing beta.39's exact-document sync engine.
+
+- Incompatible prerelease mirror state is identified from its minimal version
+  envelope before current-schema decoding, so upgrades fail at the deliberate
+  rebuild boundary rather than at an incidental nested field.
+- A blocked legacy mirror no longer hides healthy replicas or retries forever;
+  list results isolate its structured error and background scheduling waits for
+  operator rebuild.
+- An exact idle incremental inspection is now a stable empty plan. Applying it
+  performs no journal, checkpoint, cache, generation, timestamp, or durable
+  state write, while real cursor advances and effectful plans still checkpoint.
+- Tag-triggered npm and desktop publishers may be manually rerun against the
+  exact existing tag after an Actions outage.
+
 ## 0.1.0-beta.39
 
 Beta.39 deliberately rewrites the unreleased sync-v1 contract around exact

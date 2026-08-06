@@ -144,10 +144,15 @@ and production; tag creation never rebuilds them.
 The tag must exactly match every package and the Rust workspace version:
 
 ```bash
-pnpm version:check v0.1.0-beta.39
-git tag -a v0.1.0-beta.39 -m "mdbase connect 0.1.0-beta.39"
-git push origin v0.1.0-beta.39
+pnpm version:check v0.1.0-beta.40
+git tag -a v0.1.0-beta.40 -m "mdbase connect 0.1.0-beta.40"
+git push origin v0.1.0-beta.40
 ```
+
+If a tag-triggered npm or desktop run is lost during a GitHub Actions outage,
+dispatch the same workflow manually and select that exact existing tag as the
+workflow ref. The workflow's existing tag/version checks remain authoritative;
+do not dispatch it from a branch or substitute a different commit.
 
 The tag starts the only full desktop build. The four platform builders do not
 open deployment records; the single publish job enters the `desktop-release`
