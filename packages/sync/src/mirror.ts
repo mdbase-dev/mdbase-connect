@@ -35,9 +35,6 @@ export { WritableDirectoryMirror } from "./writable-directory-mirror.js";
 export {
   type MirrorApplyResult,
   type MirrorPlanAction,
-  type MirrorPlanDirection,
-  type MirrorPlanEntity,
   type MirrorPlanIssue,
-  type MirrorPlanOperation,
   type MirrorSyncPlan
 } from "./mirror-plan.js";

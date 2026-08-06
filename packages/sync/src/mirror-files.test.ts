@@ -46,6 +46,13 @@ class BinaryFileSystem implements MirrorFileSystem {
     this.files.set(path, utf8.encode(value));
   }
 
+  async move(source: string, target: string): Promise<void> {
+    const value = this.files.get(source);
+    if (!value) throw new Error(`missing move source: ${source}`);
+    this.files.set(target, value);
+    this.files.delete(source);
+  }
+
   async remove(path: string): Promise<void> {
     this.files.delete(path);
   }
@@ -712,7 +719,7 @@ describe("portable collection file mirror", () => {
       content_digest: digest(added),
       size: added.byteLength
     });
-    expect((await stateStore.read())?.pending_files).toEqual([]);
+    expect((await stateStore.read())?.batch).toBeUndefined();
     expect((await target.status()).file_conflicts).toEqual([]);
   });
 
@@ -726,9 +733,14 @@ describe("portable collection file mirror", () => {
     transport.failAfterUploadCommit = true;
     const { mirror: target } = writableMirror(transport, fileSystem, stateStore);
 
-    await expect(target.sync()).rejects.toThrow("connection dropped after commit");
-    const pending = (await stateStore.read())?.pending_files?.[0];
-    expect(pending).toMatchObject({ operation: "upload", content_digest: digest(first) });
+    await expect(target.sync()).resolves.toMatchObject({
+      status: "failed",
+      failure: { message: "connection dropped after commit" }
+    });
+    expect((await stateStore.read())?.batch).toMatchObject({
+      phase: "blocked",
+      next_action: 0
+    });
     fileSystem.files.set("assets/retry.bin", second);
 
     await target.sync();
@@ -741,7 +753,7 @@ describe("portable collection file mirror", () => {
     expect(transport.uploadCalls[1]?.transfer_id).toBe(transport.uploadCalls[0]?.transfer_id);
     expect(transport.uploadCalls[2]?.transfer_id).not.toBe(transport.uploadCalls[0]?.transfer_id);
     expect(transport.bytes.get(transport.files[0]!.file_id)).toEqual(second);
-    expect((await stateStore.read())?.pending_files).toEqual([]);
+    expect((await stateStore.read())?.batch).toBeUndefined();
     expect((await target.status()).state).toBe("up_to_date");
   });
 
@@ -763,14 +775,13 @@ describe("portable collection file mirror", () => {
     transport.revisionBytes.set(`${fileId}:${remote.revision}`, remoteBytes);
     transport.events.push({ sequence: 1, type: "file_put", file: remote });
 
-    await expect(target.sync()).rejects.toMatchObject({ code: "stale_file_revision" });
+    await expect(target.sync()).resolves.toMatchObject({ status: "attention", conflicts: 1 });
 
     expect(fileSystem.files.get(initial.path)).toEqual(localBytes);
-    expect((await stateStore.read())?.pending_files).toHaveLength(1);
     expect(await target.status()).toMatchObject({
       state: "attention",
-      pending_files: 1,
-      file_conflicts: [{ file_id: fileId, path: initial.path, code: "stale_file_revision" }]
+      pending_files: 0,
+      file_conflicts: [{ file_id: fileId, path: initial.path, code: "file_conflict" }]
     });
 
     await target.resolveFileConflict(fileId, "remote");
@@ -796,9 +807,9 @@ describe("portable collection file mirror", () => {
     transport.bytes.set(fileId, remoteBytes);
     transport.revisionBytes.set(`${fileId}:${remote.revision}`, remoteBytes);
     transport.events.push({ sequence: 1, type: "file_put", file: remote });
-    await expect(target.sync()).rejects.toMatchObject({ code: "stale_file_revision" });
+    await expect(target.sync()).resolves.toMatchObject({ status: "attention", conflicts: 1 });
 
-    const failedTransfer = transport.uploadCalls.at(-1)!.transfer_id;
+    const uploadsBeforeResolution = transport.uploadCalls.length;
     await target.resolveFileConflict(fileId, "local");
     await target.sync();
 
@@ -806,7 +817,7 @@ describe("portable collection file mirror", () => {
       if_revision: remote.revision,
       content_digest: digest(localBytes)
     });
-    expect(transport.uploadCalls.at(-1)!.transfer_id).not.toBe(failedTransfer);
+    expect(transport.uploadCalls).toHaveLength(uploadsBeforeResolution + 1);
     expect(transport.bytes.get(fileId)).toEqual(localBytes);
     expect(fileSystem.files.get(initial.path)).toEqual(localBytes);
     expect((await target.status()).state).toBe("up_to_date");
@@ -828,23 +839,24 @@ describe("portable collection file mirror", () => {
     transport.files = [movedRemote];
     transport.revisionBytes.set(`${fileId}:${movedRemote.revision}`, initialBytes);
     transport.events.push({ sequence: 1, type: "file_put", file: movedRemote });
-    await expect(target.sync()).rejects.toMatchObject({ code: "stale_file_revision" });
+    await expect(target.sync()).resolves.toMatchObject({ status: "attention", conflicts: 1 });
 
     await target.resolveFileConflict(fileId, "local");
-    const resolvedQueue = (await stateStore.read())!.pending_files!;
-    expect(resolvedQueue.map((pending) => pending.operation)).toEqual(["move", "upload"]);
-    expect(resolvedQueue[1]).toMatchObject({
-      after_mutation_id: (resolvedQueue[0] as { mutation_id: string }).mutation_id
-    });
+    const resolutionPlan = await target.inspect();
+    expect(resolutionPlan.actions.map(({ command }) => command)).toEqual([
+      "put_remote",
+      "move_remote",
+      "advance_checkpoint"
+    ]);
     await target.sync();
 
     expect(transport.moveCalls.at(-1)).toMatchObject({
       from_path: movedRemote.path,
-      path: initial.path,
-      if_revision: movedRemote.revision
+      path: initial.path
     });
-    expect(transport.uploadCalls.at(-1)?.if_revision).toMatch(/^file:\d+$/u);
-    expect(transport.uploadCalls.at(-1)?.if_revision).not.toBe(movedRemote.revision);
+    expect(transport.moveCalls.at(-1)?.if_revision).toMatch(/^file:\d+$/u);
+    expect(transport.moveCalls.at(-1)?.if_revision).not.toBe(movedRemote.revision);
+    expect(transport.uploadCalls.at(-1)?.if_revision).toBe(movedRemote.revision);
     expect(transport.files[0]).toMatchObject({ path: initial.path, content_digest: digest(localBytes) });
     expect(fileSystem.files.get(initial.path)).toEqual(localBytes);
   });

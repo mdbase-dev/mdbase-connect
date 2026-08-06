@@ -19,6 +19,7 @@ import type {
 } from "@mdbase-dev/connect-protocol";
 import type { SyncTransport } from "./index.js";
 import { SyncError } from "./index.js";
+import { applySyncJournalEvent, type SyncJournalEvent } from "./sync-journal.js";
 import {
   DirectoryMirror as PortableDirectoryMirror,
   WritableDirectoryMirror as PortableWritableDirectoryMirror,
@@ -89,7 +90,22 @@ export class NodeMirrorStateStore implements MirrorStateStore {
     const value = await readOptional(await this.path());
     if (value === null) return null;
     try {
-      return JSON.parse(value) as MirrorState;
+      const state = JSON.parse(value) as MirrorState;
+      const journal = await readOptional(await this.journalPath());
+      if (journal !== null) {
+        const lines = journal.split("\n");
+        for (let index = 0; index < lines.length; index += 1) {
+          const line = lines[index]!;
+          if (line === "") continue;
+          try {
+            applySyncJournalEvent(state, JSON.parse(line) as SyncJournalEvent);
+          } catch (error) {
+            if (index === lines.length - 1) break;
+            throw error;
+          }
+        }
+      }
+      return state;
     } catch {
       throw new SyncError("invalid_mirror_state", "Mirror metadata is corrupt.");
     }
@@ -99,6 +115,21 @@ export class NodeMirrorStateStore implements MirrorStateStore {
     const path = await this.path();
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
     await atomicWrite(path, `${JSON.stringify(state, null, 2)}\n`);
+    await unlink(await this.journalPath()).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+    });
+  }
+
+  async appendJournal(event: SyncJournalEvent): Promise<void> {
+    const path = await this.journalPath();
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    const output = await open(path, "a", 0o600);
+    try {
+      await output.writeFile(`${JSON.stringify(event)}\n`);
+      await output.sync();
+    } finally {
+      await output.close();
+    }
   }
 
   async directory(): Promise<string> {
@@ -109,6 +140,10 @@ export class NodeMirrorStateStore implements MirrorStateStore {
     this.statePath ??= mirrorDeviceDirectory(this.root, this.stateRoot)
       .then((directory) => join(directory, "mirror-state.json"));
     return this.statePath;
+  }
+
+  private async journalPath(): Promise<string> {
+    return join(dirname(await this.path()), "mirror-journal.ndjson");
   }
 }
 
@@ -263,6 +298,15 @@ export class NodeMirrorFileSystem implements MirrorFileSystem {
     const target = await this.safePath(path);
     await mkdir(dirname(target), { recursive: true });
     await atomicWrite(target, value);
+  }
+
+  async move(sourcePath: string, targetPath: string): Promise<void> {
+    const source = await this.safePath(sourcePath);
+    const target = await this.safePath(targetPath);
+    await mkdir(dirname(target), { recursive: true });
+    await rename(source, target);
+    await syncDirectory(dirname(target));
+    if (dirname(source) !== dirname(target)) await syncDirectory(dirname(source));
   }
 
   async remove(path: string): Promise<void> {

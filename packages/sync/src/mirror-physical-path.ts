@@ -143,19 +143,8 @@ export function preflightChangePhysicalPaths<
 ): void {
   assertRecordSyncChanges(events);
   const deferredRecordIds = new Set<string>();
-  for (const recordId in state.conflicts ?? {}) {
-    if (Object.prototype.hasOwnProperty.call(state.conflicts, recordId)) {
-      deferredRecordIds.add(recordId);
-    }
-  }
-  if (Object.keys(state.local_issues ?? {}).length > 0) {
-    for (const recordId in state.records) {
-      if (!Object.prototype.hasOwnProperty.call(state.records, recordId)) {
-        continue;
-      }
-      const entry = state.records[recordId]!;
-      if (state.local_issues?.[entry.path]) deferredRecordIds.add(recordId);
-    }
+  for (const [identity, conflict] of Object.entries(state.planned_conflicts ?? {})) {
+    if (conflict.entity === "record") deferredRecordIds.add(identity);
   }
 
   const targetPhysicalPaths = new Set<string>();

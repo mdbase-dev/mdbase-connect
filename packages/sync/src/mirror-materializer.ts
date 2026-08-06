@@ -24,6 +24,7 @@ import {
 import {
   type MirrorEntry,
   type MirrorBlobStore,
+  type MirrorBinaryInfo,
   type MirrorFileSystem,
   type MirrorRuntime,
   type MirrorState
@@ -112,7 +113,8 @@ export class MirrorMaterializer {
   async putFile(
     state: MirrorState,
     file: CollectionFileDescriptor,
-    managedState: MirrorState = state
+    managedState: MirrorState = state,
+    acceptedLocal?: MirrorBinaryInfo
   ): Promise<void> {
     validateCollectionFileDescriptor(file);
     if (!this.blobStore) {
@@ -149,6 +151,9 @@ export class MirrorMaterializer {
       && !targetBelongsToPrior
       && !targetBelongsToManagedPath
       && !targetBelongsToManagedDocument
+      && !(acceptedLocal !== undefined
+        && target?.size === acceptedLocal.size
+        && target.content_digest === acceptedLocal.content_digest)
     ) {
       throw new MirrorDivergenceError(file.file_id, file.path);
     }

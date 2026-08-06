@@ -62,6 +62,13 @@ class MemoryMirrorFileSystem implements MirrorFileSystem {
     this.files.set(path, value);
   }
 
+  async move(source: string, target: string): Promise<void> {
+    const value = this.files.get(source);
+    if (value === undefined) throw new Error(`missing move source: ${source}`);
+    this.files.set(target, value);
+    this.files.delete(source);
+  }
+
   async remove(path: string): Promise<void> {
     this.files.delete(path);
   }
@@ -226,7 +233,8 @@ describe("receive-only Markdown mirror", () => {
       });
       await stateStore.write({
         protocol_version: 1,
-        engine_version: 2,
+        engine_version: 3,
+        generation: 0,
         replica_id: "another",
         scope_epoch: 1,
         cursor: 0,
@@ -251,7 +259,10 @@ describe("receive-only Markdown mirror", () => {
       }));
       await symlink(outside, join(root, "linked"), "dir");
       const mirror = new DirectoryMirror(root, mirrorId, hosted.transport(mirrorId), deviceState());
-      await expect(mirror.sync()).rejects.toMatchObject({ code: "symlink_denied" });
+      await expect(mirror.sync()).resolves.toMatchObject({
+        status: "failed",
+        failure: { code: "symlink_denied" }
+      });
       await expect(readFile(join(outside, "escape.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -574,7 +585,7 @@ describe("writable Markdown mirror", () => {
       await mirror.sync();
       expect(await mirror.status()).toMatchObject({
         state: "attention",
-        pending: 1,
+        pending: 0,
         conflicts: [{ record_id: firstId, path: "a.md" }]
       });
       const session = await hosted.transport(replicaId).openSession();
@@ -676,7 +687,7 @@ describe("writable Markdown mirror", () => {
       await mirror.sync();
       expect(await mirror.status()).toMatchObject({
         state: "attention",
-        pending: 1,
+        pending: 0,
         conflicts: [{ record_id: recordId, kind: "rejected" }]
       });
       await mirror.resolveConflict(recordId, "remote");
@@ -715,7 +726,10 @@ describe("writable Markdown mirror", () => {
       const mirror = new WritableDirectoryMirror(root, replicaId, unreliable, deviceState());
       await mirror.sync();
       await writeFile(join(root, "task.md"), "---\ntype: task\ntitle: Durable\n---\n");
-      await expect(mirror.sync()).rejects.toThrow("connection reset after commit");
+      await expect(mirror.sync()).resolves.toMatchObject({
+        status: "failed",
+        failure: { message: "connection reset after commit" }
+      });
       await mirror.sync();
       const session = await upstream.openSession();
       expect(session.head).toBe(1);
@@ -765,9 +779,10 @@ describe("writable Markdown mirror", () => {
       );
     }
 
-    await expect(mirror.sync()).rejects.toThrow(
-      "connection reset after a checkpointed server commit"
-    );
+    await expect(mirror.sync()).resolves.toMatchObject({
+      status: "failed",
+      failure: { message: "connection reset after a checkpointed server commit" }
+    });
     await mirror.sync();
 
     const session = await upstream.openSession();
@@ -778,21 +793,15 @@ describe("writable Markdown mirror", () => {
     expect(await mirror.status()).toMatchObject({ state: "up_to_date", pending: 0 });
     expect(stateStore.writes).toBeLessThan(15);
     expect(progress).toContainEqual({
-      phase: "uploading",
+      phase: "applying",
       completed: 94,
       total: 150,
       done: false
     });
     expect(progress).toContainEqual({
-      phase: "uploading",
-      completed: 86,
-      total: 86,
-      done: true
-    });
-    expect(progress).toContainEqual({
       phase: "applying",
       completed: 150,
-      total: null,
+      total: 150,
       done: true
     });
   });

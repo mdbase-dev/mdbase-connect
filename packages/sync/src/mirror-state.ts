@@ -4,12 +4,9 @@ import type {
   CollectionFileDescriptor,
   SelectiveSyncPolicy,
   SyncMutation,
-  SyncMutationReceipt,
-  SyncRecord,
-  SyncChange
+  SyncRecord
 } from "@mdbase-dev/connect-protocol";
 import { SyncError } from "./sync-error.js";
-import { assertRecordSyncChange } from "./record-sync-change.js";
 import {
   normalizeSelectiveSyncPolicy,
   validateCollectionFileDescriptor
@@ -19,6 +16,9 @@ import {
   validatePortableMirrorPath
 } from "./portable-path.js";
 import type { MirrorBinaryInfo, MirrorBlobStore } from "./mirror-file-types.js";
+import type { ReconciliationPlan } from "./sync-planner.js";
+import type { SyncBatchPhase, SyncFailure } from "./sync-model.js";
+import type { SyncJournalEvent } from "./sync-journal.js";
 export type { MirrorBinaryInfo, MirrorBlobStore } from "./mirror-file-types.js";
 
 export interface MirrorEntry {
@@ -31,43 +31,6 @@ export interface MirrorEntry {
 export interface MirrorFileEntry {
   file: CollectionFileDescriptor;
 }
-
-export interface PendingMirrorMutation {
-  mutation: SyncMutation;
-  local_path: string;
-  local_hash: string | null;
-}
-
-export type PendingMirrorFileMutation =
-  | {
-    operation: "upload";
-    transfer_id: string;
-    file_id?: string;
-    path: string;
-    base_revision?: string;
-    content_digest: `sha256:${string}`;
-    size: number;
-    media_type?: string;
-    /** Set only while a conflict resolution waits for an earlier move receipt. */
-    after_mutation_id?: string;
-  }
-  | {
-    operation: "move";
-    mutation_id: string;
-    file_id: string;
-    from_path: string;
-    path: string;
-    base_revision: string;
-    content_digest: `sha256:${string}`;
-    size: number;
-  }
-  | {
-    operation: "delete";
-    mutation_id: string;
-    file_id: string;
-    path: string;
-    base_revision: string;
-  };
 
 export interface MirrorFileConflict {
   file_id: string;
@@ -82,16 +45,44 @@ export interface MirrorLocalIssue {
   message: string;
 }
 
-export interface StoredMirrorLocalIssue extends MirrorLocalIssue {
-  hash: string;
+export interface DurableSyncReceipt {
+  action_id: string;
+  status: "completed" | "conflicted" | "rejected";
+  record?: SyncRecord;
+  file?: CollectionFileDescriptor;
+  failure?: SyncFailure;
 }
 
-export const MIRROR_MUTATION_CHECKPOINT_SIZE = 64;
+export interface DurableSyncPayloads {
+  documents: Record<string, string>;
+  records: Record<string, SyncRecord>;
+  resources: Record<string, { path: string; revision: string; document: string }>;
+  files: Record<string, CollectionFileDescriptor>;
+  local_files: Record<string, {
+    path: string;
+    content_digest: `sha256:${string}`;
+    size: number;
+    media_type?: string;
+  }>;
+  mutations: Record<string, SyncMutation>;
+}
+
+export interface DurableSyncBatch {
+  phase: SyncBatchPhase;
+  plan: ReconciliationPlan;
+  next_action: number;
+  receipts: DurableSyncReceipt[];
+  payloads: DurableSyncPayloads;
+  checkpoint_before: { generation: number; cursor: number | null };
+  checkpoint_after: { generation: number; cursor: number };
+  failure?: SyncFailure;
+}
 
 export interface MirrorState {
   protocol_version: 1;
-  /** Durable layout version; prerelease exact-document state starts at 2. */
-  engine_version?: 2;
+  /** Plan-only prerelease layout. Older layouts are rejected, never migrated. */
+  engine_version?: 3;
+  generation?: number;
   replica_id: string;
   scope_epoch: number;
   cursor: number;
@@ -100,17 +91,24 @@ export interface MirrorState {
   files?: Record<string, MirrorFileEntry>;
   selective_sync?: SelectiveSyncPolicy;
   mode?: "read_only" | "read_write";
-  pending?: PendingMirrorMutation[];
-  pending_files?: PendingMirrorFileMutation[];
-  conflicts?: Record<string, SyncMutationReceipt>;
-  file_conflicts?: Record<string, MirrorFileConflict>;
-  local_issues?: Record<string, StoredMirrorLocalIssue>;
+  planned_conflicts?: Record<string, {
+    entity: "record" | "file";
+    local: import("./sync-model.js").ExpectedObjectState;
+    remote: import("./sync-model.js").ExpectedObjectState;
+    conflict_kind: "both_changed" | "delete_vs_change" | "path_occupied" | "rejected";
+  }>;
+  /** Temporary stable-identity bindings when local paths differ from the base. */
+  local_bindings?: Record<string, { entity: "record" | "file"; path: string }>;
   last_synced_at?: string;
+  batch?: DurableSyncBatch;
+  last_completed_plan?: string;
 }
 
 export interface MirrorStateStore {
   read(): Promise<MirrorState | null>;
   write(state: MirrorState): Promise<void>;
+  /** Append and fsync one bounded journal event without rewriting the plan. */
+  appendJournal?(event: SyncJournalEvent): Promise<void>;
 }
 
 export interface MirrorLease {
@@ -148,6 +146,8 @@ export interface MirrorProgress {
 export interface MirrorFileSystem {
   read(path: string): Promise<string | null>;
   write(path: string, value: string): Promise<void>;
+  /** Atomically rename one managed path without changing its bytes. */
+  move(source: string, target: string): Promise<void>;
   remove(path: string): Promise<void>;
   listMarkdown(excluded: ReadonlySet<string>): Promise<string[]>;
   inspectBinary(path: string): Promise<MirrorBinaryInfo | null>;
@@ -160,7 +160,17 @@ export interface MirrorFileSystem {
 }
 
 export interface MirrorStatus {
-  state: "not_initialized" | "up_to_date" | "changes_waiting" | "attention";
+  state:
+    | "not_initialized"
+    | "up_to_date"
+    | "changes_waiting"
+    | "attention"
+    | "planned"
+    | "applying"
+    | "cancelled"
+    | "stale"
+    | "blocked"
+    | "failed";
   mode: "read_only" | "read_write";
   pending: number;
   pending_files: number;
@@ -174,6 +184,12 @@ export interface MirrorStatus {
   local_issues: MirrorLocalIssue[];
   cursor: number | null;
   last_synced_at: string | null;
+  generation?: number;
+  pending_checkpoint?: number | null;
+  plan_fingerprint?: string;
+  last_completed_plan?: string;
+  recovery_required?: boolean;
+  failure?: import("./sync-model.js").SyncFailure;
 }
 
 export interface MirrorInitializationPreview {
@@ -218,6 +234,12 @@ export class MemoryMirrorStateStore implements MirrorStateStore {
 
   async write(state: MirrorState): Promise<void> {
     this.state = structuredClone(state);
+  }
+
+  async appendJournal(event: SyncJournalEvent): Promise<void> {
+    if (!this.state) throw new SyncError("invalid_mirror_state", "Mirror journal has no base state.");
+    const { applySyncJournalEvent } = await import("./sync-journal.js");
+    applySyncJournalEvent(this.state, structuredClone(event));
   }
 }
 
@@ -292,7 +314,7 @@ export function normalizeMirrorState(
   replicaId: string,
   mode: "read_only" | "read_write"
 ): MirrorState {
-  if (state.engine_version !== 2) {
+  if (state.engine_version !== 3) {
     throw new SyncError(
       "mirror_state_upgrade_required",
       "Rebuild this prerelease mirror with the exact-document sync engine."
@@ -300,12 +322,11 @@ export function normalizeMirrorState(
   }
   if (state.protocol_version !== 1 || state.replica_id !== replicaId) throw new Error();
   state.resources ??= {};
+  state.generation ??= 0;
   state.files ??= {};
   state.selective_sync = normalizeSelectiveSyncPolicy(state.selective_sync);
-  state.pending ??= [];
-  state.pending_files ??= [];
-  state.conflicts ??= {};
-  state.file_conflicts ??= {};
+  state.planned_conflicts ??= {};
+  state.local_bindings ??= {};
   state.mode ??= "read_only";
   if (state.mode !== mode) {
     throw new SyncError(
@@ -339,52 +360,15 @@ export function normalizeMirrorState(
       );
     }
   }
-  for (const pending of state.pending) validatePortableMirrorPath(pending.local_path);
-  for (const pending of state.pending_files) {
-    validatePortableMirrorPath(pending.path);
-    if (pending.operation === "move") validatePortableMirrorPath(pending.from_path);
-    const operationId = pending.operation === "upload"
-      ? pending.transfer_id
-      : pending.mutation_id;
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(operationId)) {
-      throw new Error();
-    }
-    if (pending.operation !== "delete" && (
-      !/^sha256:[0-9a-f]{64}$/u.test(pending.content_digest)
-      || !Number.isSafeInteger(pending.size)
-      || pending.size < 0
-    )) throw new Error();
-    if (pending.operation === "upload" && pending.after_mutation_id !== undefined
-      && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(pending.after_mutation_id)) {
-      throw new Error();
-    }
+  for (const [identity, conflict] of Object.entries(state.planned_conflicts)) {
+    if (identity === "" || (conflict.entity !== "record" && conflict.entity !== "file")) throw new Error();
+    if (conflict.local.state === "exact") validatePortableMirrorPath(conflict.local.object.path);
+    if (conflict.remote.state === "exact") validatePortableMirrorPath(conflict.remote.object.path);
   }
-  for (const [key, conflict] of Object.entries(state.file_conflicts)) {
-    validatePortableMirrorPath(conflict.path);
-    if (conflict.file_id !== key || !conflict.code || !conflict.message) throw new Error();
-  }
-  for (const [path, issue] of Object.entries(state.local_issues ?? {})) {
-    validatePortableMirrorPath(path);
-    validatePortableMirrorPath(issue.path);
-    if (path !== issue.path) throw new Error();
+  for (const binding of Object.values(state.local_bindings)) {
+    validatePortableMirrorPath(binding.path);
   }
   return state;
-}
-
-export function refreshMirrorConflict(state: MirrorState, event: SyncChange): void {
-  assertRecordSyncChange(event);
-  const recordId = event.type === "put" ? event.record.record_id : event.record_id;
-  const receipt = state.conflicts?.[recordId];
-  if (!receipt || receipt.status !== "conflicted") return;
-  state.conflicts![recordId] = {
-    ...receipt,
-    conflict: {
-      ...receipt.conflict,
-      ...(event.type === "put"
-        ? { current: event.record, current_revision: event.record.revision }
-        : { current: undefined, current_revision: event.revision })
-    }
-  };
 }
 
 /** Receive-only materialization of a sync replica into ordinary Markdown files. */

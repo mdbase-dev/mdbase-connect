@@ -34,11 +34,8 @@ export async function buildAuthorityPromotionManifest(
     );
   }
   if (
-    (state.pending?.length ?? 0) > 0
-    || (state.pending_files?.length ?? 0) > 0
-    || Object.keys(state.conflicts ?? {}).length > 0
-    || Object.keys(state.file_conflicts ?? {}).length > 0
-    || Object.keys(state.local_issues ?? {}).length > 0
+    Object.keys(state.planned_conflicts ?? {}).length > 0
+    || state.batch !== undefined
   ) {
     throw new SyncError(
       "promotion_not_converged",

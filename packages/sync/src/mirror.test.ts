@@ -33,6 +33,13 @@ class TestFileSystem implements MirrorFileSystem {
     this.files.set(path, value);
   }
 
+  async move(source: string, target: string): Promise<void> {
+    const value = this.files.get(source);
+    if (value === undefined) throw new Error(`missing move source: ${source}`);
+    this.files.set(target, value);
+    this.files.delete(source);
+  }
+
   async remove(path: string): Promise<void> {
     this.files.delete(path);
   }
@@ -153,11 +160,9 @@ describe("platform-neutral directory mirror", () => {
       kind: "initial",
       summary: { uploads: 0, downloads: 1, conflicts: 0, blocking_issues: 0 },
       actions: [{
-        entity: "record",
-        direction: "authority_to_local",
-        operation: "put",
-        path: "notes/00000.md"
-      }]
+        command: "write_local",
+        target: { entity: "record", path: "notes/00000.md" }
+      }, { command: "advance_checkpoint" }]
     });
     expect(fileSystem.writes).toBe(0);
     expect(await stateStore.read()).toBeNull();
@@ -165,7 +170,10 @@ describe("platform-neutral directory mirror", () => {
     await expect(mirror.apply(plan)).resolves.toMatchObject({ status: "applied" });
     const current = await mirror.inspect();
     fileSystem.files.set("notes/00000.md", "changed outside the plan");
-    await expect(mirror.apply(current)).rejects.toMatchObject({ code: "sync_plan_stale" });
+    await expect(mirror.apply(current)).resolves.toMatchObject({
+      status: "stale",
+      failure: { code: "sync_plan_stale" }
+    });
     expect(fileSystem.files.get("notes/00000.md")).toBe("changed outside the plan");
   });
 
@@ -185,14 +193,14 @@ describe("platform-neutral directory mirror", () => {
     fileSystem.files.set("archive/moved.md", document);
 
     const plan = await mirror.inspect();
-    expect(plan.actions).toEqual([expect.objectContaining({
-      entity: "record",
-      direction: "local_to_authority",
-      operation: "move",
-      previous_path: "notes/00000.md",
-      path: "archive/moved.md",
-      outcome: "ready"
-    })]);
+    expect(plan.actions).toEqual([
+      expect.objectContaining({
+        command: "move_remote",
+        source: expect.objectContaining({ entity: "record", path: "notes/00000.md" }),
+        target_path: "archive/moved.md"
+      }),
+      expect.objectContaining({ command: "advance_checkpoint" })
+    ]);
     await mirror.apply(plan);
     const session = await hosted.transport(replicaId).openSession();
     const snapshot = await hosted.transport(replicaId).snapshot(session.snapshot_id);
@@ -219,7 +227,7 @@ describe("platform-neutral directory mirror", () => {
     await mirror.sync();
 
     expect(fileSystem.files).toHaveLength(5);
-    expect(stateStore.writes).toBe(1);
+    expect(stateStore.writes).toBe(2);
     const state = await stateStore.read();
     expect(state).not.toBeNull();
     expect(Object.values(state!.records)).toHaveLength(5);
@@ -282,8 +290,11 @@ describe("platform-neutral directory mirror", () => {
       runtime: deterministicRuntime()
     });
 
-    await expect(mirror.sync()).rejects.toThrow("injected adapter write failure");
-    expect(await stateStore.read()).toBeNull();
+    await expect(mirror.sync()).resolves.toMatchObject({
+      status: "failed",
+      failure: { code: "sync_action_failed", message: "injected adapter write failure" }
+    });
+    expect(await stateStore.read()).toMatchObject({ cursor: 0, batch: { phase: "blocked" } });
 
     fileSystem.failAfterWrites = null;
     await mirror.sync();
@@ -579,7 +590,12 @@ describe("platform-neutral directory mirror", () => {
 
       await expect(mirror.sync(), path).resolves.toMatchObject({
         status: "attention",
-        issues: [{ code: "invalid_record_path", blocking: true }]
+        issues: [{
+          code: path === "Notes/Example.md" && recordId === "second"
+            ? "local_collision"
+            : "invalid_record_path",
+          blocking: true
+        }]
       });
       expect(fileSystem.files.get("Notes/Example.md")).toBe("Same bytes");
       expect(fileSystem.files.has("notes/example.md")).toBe(false);
@@ -640,8 +656,9 @@ describe("platform-neutral directory mirror", () => {
     });
     forceReset = true;
 
-    await expect(mirror.sync()).rejects.toMatchObject({
-      code: "invalid_record_path"
+    await expect(mirror.sync()).resolves.toMatchObject({
+      status: "attention",
+      issues: [{ code: "invalid_record_path", blocking: true }]
     });
     expect(fileSystem.files.get("Notes/Example.md")).toBe("Stable bytes");
     expect(fileSystem.files.has("notes/example.md")).toBe(false);
@@ -700,10 +717,12 @@ describe("platform-neutral directory mirror", () => {
       const runtime = deterministicRuntime();
       const stateStore = new MemoryMirrorStateStore();
       const fileSystem = new TestFileSystem();
-      fileSystem.files.set("occupied.md", "Managed bytes");
+      const localDocument = blocker === "local_issue" ? "---\ninvalid: [" : "Managed bytes";
+      fileSystem.files.set("occupied.md", localDocument);
       const state: MirrorState = {
         protocol_version: 1,
-        engine_version: 2,
+        engine_version: 3,
+        generation: 0,
         replica_id: "reader",
         scope_epoch: 1,
         cursor: 0,
@@ -716,23 +735,22 @@ describe("platform-neutral directory mirror", () => {
         },
         resources: {},
         mode: "read_only",
-        pending: [],
-        conflicts: blocker === "conflict"
+        planned_conflicts: blocker === "conflict"
           ? {
               occupied: {
-                mutation_id: "blocked",
-                status: "rejected",
-                error: { code: "blocked", message: "Needs a decision." }
-              }
-            }
-          : {},
-        local_issues: blocker === "local_issue"
-          ? {
-              "occupied.md": {
-                path: "occupied.md",
-                code: "invalid_frontmatter",
-                message: "Fix the local file.",
-                hash: runtime.digest("Managed bytes")
+                entity: "record",
+                local: {
+                  state: "exact",
+                  object: {
+                    entity: "record",
+                    identity: "occupied",
+                    path: "occupied.md",
+                    revision: documentRevision("Managed bytes"),
+                    payload_revision: documentRevision("Managed bytes")
+                  }
+                },
+                remote: { state: "absent" },
+                conflict_kind: "rejected"
               }
             }
           : {}
@@ -788,10 +806,10 @@ describe("platform-neutral directory mirror", () => {
       const result = await mirror.sync();
       expect(result.status, blocker).toBe("attention");
       expect(result.issues, blocker).toEqual(expect.arrayContaining([
-        expect.objectContaining({ code: "invalid_record_path", blocking: true })
+        expect.objectContaining({ code: "local_collision", blocking: true })
       ]));
       expect(fileSystem.files, blocker).toEqual(
-        new Map([["occupied.md", "Managed bytes"]])
+        new Map([["occupied.md", localDocument]])
       );
       expect((await stateStore.read())?.cursor, blocker).toBe(0);
     }
@@ -1049,7 +1067,8 @@ describe("platform-neutral directory mirror", () => {
     const stateStore = new MemoryMirrorStateStore();
     await stateStore.write({
       protocol_version: 1,
-      engine_version: 2,
+      engine_version: 3,
+      generation: 0,
       replica_id: "reader",
       scope_epoch: 1,
       cursor: 0,
@@ -1061,10 +1080,7 @@ describe("platform-neutral directory mirror", () => {
         }
       },
       resources: {},
-      mode: "read_only",
-      pending: [],
-      conflicts: {},
-      local_issues: {}
+      mode: "read_only"
     });
     const fileSystem = new TestFileSystem();
     fileSystem.files.set("old.md", record.body);
@@ -1234,6 +1250,6 @@ describe("platform-neutral directory mirror", () => {
 
     expect(fileSystem.reads).toBe(2_000);
     expect(fileSystem.writes).toBe(2_000);
-    expect(stateStore.writes - writesBefore).toBe(1);
+    expect(stateStore.writes - writesBefore).toBe(2);
   });
 });
