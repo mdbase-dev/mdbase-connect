@@ -45,7 +45,8 @@ try {
     account_id: accountId,
     collection_id: collectionId,
     template: "mdbase",
-    display_name: "Hosted files"
+    display_name: "Hosted files",
+    timezone: "UTC"
   });
   const writer = { id: randomUUID(), token: `writer-${randomUUID()}-${randomUUID()}` };
   await internal(provider.url, `/internal/v1/collections/${collectionId}/replicas`, {

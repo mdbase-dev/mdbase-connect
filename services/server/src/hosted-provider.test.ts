@@ -279,9 +279,12 @@ describe("hosted provider control client", () => {
       url: "https://provider.example",
       internalToken: "internal-secret"
     });
-    await provider.createCollection("account", "collection", "mdbase", "Writing");
+    await provider.createCollection("account", "collection", "mdbase", "Writing", "UTC");
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[0]?.[1]?.body).toBe(fetchMock.mock.calls[1]?.[1]?.body);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+      timezone: "UTC"
+    });
   });
 
   it("propagates collection identity changes to the authority", async () => {

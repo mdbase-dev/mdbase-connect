@@ -40,7 +40,7 @@ try {
   const created = await request("/v1/hosted/collections", {
     method: "POST",
     cookie,
-    body: { display_name: "Hosted records", template: "mdbase" }
+    body: { display_name: "Hosted records", template: "mdbase", timezone: "UTC" }
   });
   const collectionId = created.body.collection.id;
   const writer = await createReplica(collectionId, cookie, "Android", "read_write");

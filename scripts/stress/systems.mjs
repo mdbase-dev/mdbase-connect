@@ -92,7 +92,7 @@ async function createHttpSystem({ collectionId: _collectionId }) {
     if (!cookie) throw new Error("Stress development session did not set a cookie");
     const created = await request("/v1/hosted/collections", {
       method: "POST",
-      body: { display_name: "Functional stress collection", template: "mdbase" }
+      body: { display_name: "Functional stress collection", template: "mdbase", timezone: "UTC" }
     });
     collectionId = created.body.collection.id;
   } catch (error) {
