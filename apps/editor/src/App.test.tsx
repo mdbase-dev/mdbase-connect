@@ -47,9 +47,9 @@ describe("mdbase editor", () => {
     expect(screen.getByRole("complementary", { name: "Collection navigation" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Hide notes sidebar" }));
-    expect(screen.queryByRole("region", { name: "Notes" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Notes and files" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Show notes sidebar" }));
-    expect(screen.getByRole("region", { name: "Notes" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Notes and files" })).toBeInTheDocument();
 
     const collectionResize = screen.getByRole("separator", { name: "Resize collections sidebar" });
     collectionResize.focus();
@@ -107,6 +107,24 @@ describe("mdbase editor", () => {
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
     expect(screen.getByRole("complementary", { name: "Note properties" })).toBeInTheDocument();
     expect(within(screen.getByRole("complementary", { name: "Note properties" })).getByText("Journal/garden-notes-2.md")).toBeInTheDocument();
+  });
+
+  it("uploads attachments into a note-local folder and reconciles the file browser", async () => {
+    const gateway = new DemoCollectionGateway(2);
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    await screen.findByRole("textbox", { name: "Note body" });
+    await user.click(screen.getByRole("button", { name: "More note actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Attach file…" }));
+    const input = document.querySelector<HTMLInputElement>(".attachment-input");
+    expect(input).not.toBeNull();
+    await user.upload(input!, new File(["pixels"], "cover.png", { type: "image/png" }));
+
+    expect(await screen.findByText(/Uploaded “cover\.png”/)).toBeInTheDocument();
+    const files = await gateway.listFiles();
+    expect(files.some((file) => file.path === "Notes/Attachments/cover.png" && file.mediaType === "image/png")).toBe(true);
+    expect(await screen.findByRole("option", { name: "cover.png, PNG file" })).toBeInTheDocument();
   });
 
   it("previews notes from the virtualized sidebar after a deliberate hover", async () => {
@@ -367,8 +385,8 @@ describe("mdbase editor", () => {
     render(<App gateway={new DemoCollectionGateway(4)} />);
 
     await screen.findByRole("heading", { name: "Writing" });
-    await screen.findByText("4 notes · modified newest");
-    const noteList = screen.getByRole("listbox", { name: "Collection notes" });
+    await screen.findByText("4 notes · 2 files · modified newest");
+    const noteList = screen.getByRole("listbox", { name: "Collection notes and files" });
     await within(noteList).findByText("The shape of useful tools", { selector: ".note-title" });
     expect(within(noteList).getAllByRole("option")[0]).toHaveAccessibleName(/The shape of useful tools/);
 
@@ -379,11 +397,11 @@ describe("mdbase editor", () => {
 
     expect(within(noteList).getAllByRole("option")[0]).toHaveAccessibleName(/A quiet interface 3/);
     expect(localStorage.getItem("mdbase-editor:note-sort")).toBe("title-asc");
-    expect(screen.getByText("4 notes · title A–Z")).toBeInTheDocument();
+    expect(screen.getByText("4 notes · 2 files · title A–Z")).toBeInTheDocument();
 
-    const search = screen.getByRole("textbox", { name: "Search every note" });
+    const search = screen.getByRole("textbox", { name: "Search notes and files" });
     await user.type(search, "quiet interface");
-    expect(await screen.findByText("1 note · relevance")).toBeInTheDocument();
+    expect(await screen.findByText("1 found · relevance")).toBeInTheDocument();
     await user.clear(search);
 
     const folders = screen.getByRole("group", { name: "Folders" });
@@ -396,7 +414,7 @@ describe("mdbase editor", () => {
     await user.click(within(menu).getByRole("menuitemradio", { name: "All notes" }));
 
     expect(screen.getByRole("heading", { name: "Writing" })).toBeInTheDocument();
-    expect(within(noteList).getAllByRole("option")).toHaveLength(4);
+    expect(within(noteList).getAllByRole("option")).toHaveLength(6);
     expect(within(noteList).getAllByRole("option")[0]).toHaveAccessibleName(/A quiet interface 3/);
   });
 
@@ -469,7 +487,7 @@ describe("mdbase editor", () => {
     render(<App gateway={gateway} />);
 
     expect(await screen.findByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
-    expect(screen.getByText("1 of 12 notes")).toBeInTheDocument();
+    expect(screen.getByText("1 of 12 notes · 2 files")).toBeInTheDocument();
     const folderNavigation = screen.getByRole("group", { name: "Folders" });
     expect(folderNavigation).toHaveAttribute("aria-busy", "true");
     expect(within(folderNavigation).getByRole("status")).toHaveTextContent("Loading");
@@ -477,18 +495,18 @@ describe("mdbase editor", () => {
     expect(gateway.listCalls).toBe(1);
 
     gateway.releaseStructure();
-    expect(await screen.findByText("12 notes · modified newest")).toBeInTheDocument();
+    expect(await screen.findByText("12 notes · 2 files · modified newest")).toBeInTheDocument();
     expect(folderNavigation).toHaveAttribute("aria-busy", "false");
     expect(within(folderNavigation).queryByRole("status")).not.toBeInTheDocument();
     expect(within(folderNavigation).getByLabelText("3 notes in Notes")).toHaveTextContent("3");
 
-    await user.type(screen.getByRole("textbox", { name: "Search every note" }), "Record 3 remains");
+    await user.type(screen.getByRole("textbox", { name: "Search notes and files" }), "Record 3 remains");
     expect(await screen.findByText("Searching")).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /A quiet interface 3/ })).not.toBeInTheDocument();
     gateway.releaseContent();
     expect(await screen.findByRole("option", { name: /A quiet interface 3/ })).toBeInTheDocument();
-    await user.clear(screen.getByRole("textbox", { name: "Search every note" }));
-    expect(await screen.findByText("12 notes · modified newest")).toBeInTheDocument();
+    await user.clear(screen.getByRole("textbox", { name: "Search notes and files" }));
+    expect(await screen.findByText("12 notes · 2 files · modified newest")).toBeInTheDocument();
     expect(gateway.listCalls).toBe(1);
   });
 
@@ -497,16 +515,16 @@ describe("mdbase editor", () => {
     const user = userEvent.setup();
     render(<App gateway={gateway} />);
 
-    expect(await screen.findByText("3 notes · modified newest")).toBeInTheDocument();
+    expect(await screen.findByText("3 notes · 2 files · modified newest")).toBeInTheDocument();
     await waitFor(() => expect(gateway.hydrateCalls).toBe(1));
-    await user.type(screen.getByRole("textbox", { name: "Search every note" }), "Record 3 remains");
+    await user.type(screen.getByRole("textbox", { name: "Search notes and files" }), "Record 3 remains");
 
     expect(await screen.findByText(/searching 1 of 3/)).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /A quiet interface 3/ })).not.toBeInTheDocument();
     gateway.releaseContent();
 
     expect(await screen.findByRole("option", { name: /A quiet interface 3/ })).toBeInTheDocument();
-    expect(screen.getByText("1 note · relevance")).toBeInTheDocument();
+    expect(screen.getByText("1 found · relevance")).toBeInTheDocument();
   });
 
   it("keeps a failed full-text search actionable and retries it", async () => {
@@ -514,8 +532,8 @@ describe("mdbase editor", () => {
     const user = userEvent.setup();
     render(<App gateway={gateway} />);
 
-    await screen.findByText("3 notes · modified newest");
-    await user.type(screen.getByRole("textbox", { name: "Search every note" }), "Record 3 remains");
+    await screen.findByText("3 notes · 2 files · modified newest");
+    await user.type(screen.getByRole("textbox", { name: "Search notes and files" }), "Record 3 remains");
     const retry = await screen.findByRole("button", { name: "Retry search" });
     expect(retry).toHaveAttribute("title", "The full-text index could not be read.");
     await user.click(retry);
@@ -566,7 +584,7 @@ describe("mdbase editor", () => {
 
     await screen.findByRole("heading", { name: "Writing" });
     const listCalls = gateway.listCalls;
-    await user.type(screen.getByRole("textbox", { name: "Search every note" }), "Record 3 remains");
+    await user.type(screen.getByRole("textbox", { name: "Search notes and files" }), "Record 3 remains");
 
     expect(await screen.findByRole("option", { name: /A quiet interface 3/ })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /Garden notes 2/ })).not.toBeInTheDocument();
@@ -580,7 +598,7 @@ describe("mdbase editor", () => {
     const user = userEvent.setup();
     render(<App gateway={gateway} />);
 
-    const search = await screen.findByRole("textbox", { name: "Search every note" });
+    const search = await screen.findByRole("textbox", { name: "Search notes and files" });
     await user.type(search, "shp usfl");
     expect((await screen.findAllByRole("option", { name: /The shape of useful tools/ })).length).toBeGreaterThan(0);
     expect(screen.queryByRole("option", { name: /Garden notes 2/ })).not.toBeInTheDocument();

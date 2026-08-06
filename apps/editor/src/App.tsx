@@ -10,7 +10,7 @@ import {
   WarningCircleIcon as CircleAlert,
   XIcon as X
 } from "./icons";
-import { MdbaseConnectError, type CollectionChange, type CollectionDescription, type CollectionTypeDescriptor, type MutationProgress } from "@mdbase-dev/connect";
+import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor, type MutationProgress } from "@mdbase-dev/connect";
 import {
   useCallback,
   useDeferredValue,
@@ -24,6 +24,8 @@ import {
   type ReactNode
 } from "react";
 import { ActionMenu } from "./ActionMenu";
+import { AttachmentTransfer, attachmentMenuItem, useAttachmentUpload } from "./AttachmentUpload";
+import { useCollectionBrowserEntries } from "./collection-browser";
 import { CollectionRail } from "./CollectionRail";
 import { CollectionSwitcher, ConnectScreen } from "./ConnectionScreens";
 import { ConflictResolver } from "./ConflictResolver";
@@ -48,6 +50,7 @@ import {
 } from "./layout-preferences";
 import type {
   CollectionGateway,
+  CollectionFile,
   CollectionSessionSnapshot,
   ConnectionSummary,
   CreateNoteInput,
@@ -84,9 +87,12 @@ import { initialEditorSurface, loadPreferences, savePreferences, type EditorPref
 import { composeRecordSource, replaceDocumentFrontmatter } from "./record-source";
 import { QuickOpen, ShortcutHelp } from "./QuickOpen";
 import { SettingsView } from "./SettingsView";
-import { reconcileStructuralChanges } from "./structural-change-reconciliation";
 import { NEW_TYPE_SOURCE } from "./type-constants";
 import { useCollectionIndex } from "./use-collection-index";
+import { useCollectionWatch } from "./use-collection-watch";
+import { useFileInventory } from "./use-file-inventory";
+import { useFileAssetStore } from "./use-file-assets";
+import { useFileWorkspace } from "./use-file-workspace";
 import {
   BacklinksPanel,
   EmptyEditor,
@@ -104,6 +110,8 @@ const TypePackBrowser = lazy(() => import("./TypeBrowser").then((module) => ({ d
 const CodeEditor = lazy(() => import("./CodeEditor").then((module) => ({ default: module.CodeEditor })));
 const PropertiesPanel = lazy(() => import("./PropertiesPanel").then((module) => ({ default: module.PropertiesPanel })));
 const NewNoteComposer = lazy(() => import("./NewNoteComposer").then((module) => ({ default: module.NewNoteComposer })));
+const FileViewer = lazy(() => import("./FileViewer").then((module) => ({ default: module.FileViewer })));
+const FileWorkspace = lazy(() => import("./FileViewer").then((module) => ({ default: module.FileWorkspace })));
 const emptyTypeDescriptors: CollectionTypeDescriptor[] = [];
 
 interface Confirmation {
@@ -149,6 +157,8 @@ interface NoteNavigationOptions {
 
 export function App({ gateway }: { gateway: CollectionGateway }) {
   const { controller: indexController, state: collectionIndex } = useCollectionIndex(gateway);
+  const { controller: fileController, state: fileInventory } = useFileInventory(gateway);
+  const fileAssetStore = useFileAssetStore(gateway);
   const {
     notes: allNotes,
     total: collectionTotal,
@@ -230,7 +240,11 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const mobileLayout = viewportWidth <= 760;
   const typeDescriptors = description?.types ?? emptyTypeDescriptors;
   const notePreviewController = useNotePreview(gateway, allNotes, typeDescriptors);
-
+  const fileWorkspace = useFileWorkspace(fileAssetStore, fileInventory.files, draft?.body ?? "", document?.path);
+  const { selectedFile: selectedCollectionFile, setSelectedFile: setSelectedCollectionFile, selectedAsset: selectedFileAsset,
+    pendingFilePath, setPendingFilePath, openAsset: openFileAsset, setOpenAsset: setOpenFileAsset, embeddedFiles } = fileWorkspace;
+  const attachments = useAttachmentUpload({ gateway, inventory: fileController,
+    inventoryFiles: fileInventory.files, activeSession: () => noteSessions.current.active, setNotice });
   useEffect(() => { savePreferences(preferences); }, [preferences]);
   useEffect(() => { saveLayoutPreferences(layout); }, [layout]);
   useEffect(() => { saveNoteSort(noteSort); }, [noteSort]);
@@ -321,12 +335,12 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setConnectionState("reconnecting");
     setConnectionIssue("Refreshing collection state before reconnecting.");
     try {
-      await Promise.all([loadIndex(), refreshDescription()]);
+      await Promise.all([loadIndex(), fileController.reload(), refreshDescription()]);
       setConnectionRetry((value) => value + 1);
     } catch (error) {
       setConnectionIssue(gatewayError(error));
     }
-  }, [loadIndex, refreshDescription]);
+  }, [fileController, loadIndex, refreshDescription]);
 
   const loadTypeSource = useCallback(async (name: string) => {
     const generation = ++typeGeneration.current;
@@ -491,6 +505,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     const cached = noteSessions.current.get(path);
     if (cached?.deleted) return false;
     setCreationMode(undefined);
+    setSelectedCollectionFile(undefined);
+    setPendingFilePath(undefined);
     setCreationContext({});
     setNotice(undefined);
     setPropertiesError(undefined);
@@ -536,6 +552,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   const start = useCallback(async () => {
     const indexLoad = indexController.beginLoad();
+    const fileLoad = fileController.reload().catch(() => []);
     const indexOutcome = indexLoad.complete.then(
       (result) => ({ result } as const),
       (error: unknown) => ({ error } as const)
@@ -559,6 +576,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       }
       if (!opened) setNoteLoading(false);
       const outcome = await indexOutcome;
+      await fileLoad;
       if ("error" in outcome) throw outcome.error;
       if (outcome.result.cancelled) return;
       if (!nextDescription.types.length) setSelectedTypeName(undefined);
@@ -567,7 +585,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       setNotice(gatewayError(error));
       setPhase(descriptionLoaded && gateway.sessionSnapshot().status === "ready" ? "ready" : "disconnected");
     }
-  }, [gateway, indexController, openNote, refreshDescription]);
+  }, [fileController, gateway, indexController, openNote, refreshDescription]);
 
   const { authorizeCollection } = useCollectionAuthorization({
     gateway,
@@ -621,76 +639,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       .catch(() => undefined);
   }, [connectionSummary?.collectionId, gateway, phase]);
 
-  useEffect(() => {
-    if (phase !== "ready") return;
-    const controller = new AbortController();
-    let refreshTimer: number | undefined;
-    let resetHandled = false;
-    const changedPaths = new Set<string>();
-    const structuralChanges: CollectionChange[] = [];
-    let typesChanged = false;
-    let indexChanged = false;
-    const handleChange = (change?: CollectionChange) => {
-      if (change?.type === "mdbase.record.modified" && typeof change.payload.path === "string") {
-        changedPaths.add(change.payload.path);
-      } else if (change?.type === "mdbase.type.changed") {
-        typesChanged = true;
-        indexChanged = true;
-      } else if (change?.type === "mdbase.record.created"
-          || change?.type === "mdbase.record.deleted"
-          || change?.type === "mdbase.record.renamed") {
-        structuralChanges.push(change);
-      } else {
-        indexChanged = true;
-      }
-      window.clearTimeout(refreshTimer);
-      refreshTimer = window.setTimeout(() => {
-        const paths = [...changedPaths];
-        changedPaths.clear();
-        const shouldRefreshTypes = typesChanged;
-        typesChanged = false;
-        const currentPaths = new Set(indexController.getSnapshot().notes.map((note) => note.path));
-        const structuralReconciliation = reconcileStructuralChanges(structuralChanges, currentPaths);
-        const shouldRefreshIndex = indexChanged || structuralReconciliation.requiresRefresh;
-        structuralChanges.length = 0;
-        indexChanged = false;
-        if (shouldRefreshIndex) void loadIndex().catch((error) => {
-          if (!controller.signal.aborted) setConnectionIssue(gatewayError(error));
-        });
-        else for (const path of structuralReconciliation.deletedPathsToConfirm) {
-          void refreshChangedNote(path).catch(() => loadIndex().catch((error) => {
-            if (!controller.signal.aborted) setConnectionIssue(gatewayError(error));
-          }));
-        }
-        for (const path of paths) void refreshChangedNote(path).catch((error) => {
-          if (!controller.signal.aborted) setNotice(gatewayError(error));
-        });
-        if (shouldRefreshTypes) void refreshDescription();
-      }, 180);
-    };
-    void gateway.watch(handleChange, controller.signal, (status) => {
-      if (controller.signal.aborted) return;
-      if (status.state === "reconnecting") {
-        setConnectionState("reconnecting");
-        setConnectionIssue(status.problem.message);
-      } else if (status.state === "connected") {
-        setConnectionState("connected");
-        setConnectionIssue(undefined);
-      } else if (status.state === "reset_required") {
-        resetHandled = true;
-        void refreshAfterConnectionGap();
-      }
-    }).catch((error) => {
-      if (!controller.signal.aborted && !resetHandled) {
-          setConnectionState("reconnecting");
-          setConnectionIssue(gatewayError(error));
-      }
-    });
-    return () => {
-      controller.abort();
-      window.clearTimeout(refreshTimer);
-    };
-  }, [connectionRetry, gateway, indexController, loadIndex, phase, refreshAfterConnectionGap, refreshChangedNote, refreshDescription]);
+  useCollectionWatch({ phase, connectionRetry, gateway, index: indexController, files: fileController, assets: fileAssetStore,
+    loadIndex, refreshChangedNote, refreshDescription, refreshAfterConnectionGap, setConnectionState, setConnectionIssue, setNotice });
 
   const requestSave = useCallback(
     (session: NoteSession) => noteOperations.requestSave(session),
@@ -775,6 +725,35 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     finishNavigateToNote(path, options);
   }
 
+  function navigateToFile(file: CollectionFile) {
+    if (creationMode && creationDirty) {
+      setConfirmation({
+        title: `Discard this ${creationMode}?`,
+        body: <p>The unfinished {creationMode} hasn’t been created.</p>,
+        confirmLabel: `Discard ${creationMode}`,
+        tone: "danger",
+        onConfirm: () => finishNavigateToFile(file)
+      });
+      return;
+    }
+    finishNavigateToFile(file);
+  }
+
+  function finishNavigateToFile(file: CollectionFile) {
+    navigationGeneration.current += 1;
+    saveCurrentInBackground();
+    setCreationMode(undefined);
+    setCreationContext({});
+    setCreationDirty(false);
+    setPropertiesOpen(false);
+    setBacklinksOpen(false);
+    setSelectedCollectionFile(file);
+    setPendingFilePath(file.path);
+    setPendingNotePath(undefined);
+    setMobilePane("editor");
+    setNotice(undefined);
+  }
+
   function finishNavigateToNote(path: string, options: NoteNavigationOptions = {}) {
     setCreationDirty(false);
     const generation = ++navigationGeneration.current;
@@ -832,6 +811,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
           : searchedNotes.filter((note) => note.types.includes(noteFilter.value));
     return deferredSearch.trim() ? filtered : sortNotes(filtered, noteSort, typeDescriptors);
   }, [deferredSearch, noteFilter, noteSort, searchedNotes, typeDescriptors]);
+  const { visibleFiles, entries: visibleBrowserEntries } = useCollectionBrowserEntries(
+    visibleNotes, fileInventory.files, noteFilter, deferredSearch, noteSort, typeDescriptors);
   const linkTypeNames = useMemo(() => description?.types.map((type) => type.name) ?? [], [description]);
   const linkOptions = useMemo(() => linkSuggestions(allNotes, linkTypeNames, typeDescriptors), [allNotes, linkTypeNames, typeDescriptors]);
   const backlinkNotes = useMemo(() => document ? backlinksFor(document.path, allNotes, typeDescriptors) : [], [allNotes, document, typeDescriptors]);
@@ -900,6 +881,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   function clearCollectionWorkspace() {
     indexController.reset();
+    fileController.reset();
+    fileAssetStore.reset();
     searchIndexCache.current.clear();
     navigationGeneration.current += 1;
     documentGeneration.current += 1;
@@ -913,6 +896,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setDraft(undefined);
     setSelectedPath(undefined);
     setPendingNotePath(undefined);
+    setSelectedCollectionFile(undefined);
+    setPendingFilePath(undefined);
+    setOpenFileAsset(undefined);
     setCreationMode(undefined);
     setCreationContext({});
     setCreationDirty(false);
@@ -1722,14 +1708,17 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       }
       if (event.altKey && !modifier && (key === "j" || key === "k") && surface === "notes" && !creationMode) {
         event.preventDefault();
-        const selectedIndex = visibleNotes.findIndex((note) => note.path === selectedPath);
+        const selectedIndex = visibleBrowserEntries.findIndex((entry) => entry.kind === "note"
+          ? !selectedCollectionFile && entry.path === selectedPath
+          : entry.path === selectedCollectionFile?.path);
         const direction = key === "j" ? 1 : -1;
         const fallback = direction > 0 ? 0 : visibleNotes.length - 1;
         const nextIndex = selectedIndex < 0
           ? fallback
-          : Math.min(visibleNotes.length - 1, Math.max(0, selectedIndex + direction));
-        const next = visibleNotes[nextIndex];
-        if (next) navigateToNote(next.path);
+          : Math.min(visibleBrowserEntries.length - 1, Math.max(0, selectedIndex + direction));
+        const next = visibleBrowserEntries[nextIndex];
+        if (next?.kind === "note") navigateToNote(next.path);
+        else if (next) navigateToFile(next.file);
         return;
       }
       if (event.key === "?" && !isEditableTarget(event.target)) {
@@ -1740,7 +1729,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [creationMode, phase, quickOpen, selectedPath, shortcutsOpen, surface, visibleNotes]);
+  }, [creationMode, phase, quickOpen, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
 
   if (phase === "starting") return <OpeningScreen />;
   if (phase === "disconnected") return <>
@@ -1799,6 +1788,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const mutationNotice = editorNotice ?? (activePendingRename
     ? "This rename was interrupted after it started. Resume it to recover the collection’s authoritative result."
     : undefined);
+  const canAttachFiles = Boolean(connectionSummary?.fileActions?.includes("add"));
   const typeAccessMissing = missingTypeCapabilities(connectionSummary);
   const editorLeadingActions = layout.listCollapsed ? <>
     {layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
@@ -1820,11 +1810,12 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     {(!layout.collectionCollapsed || mobileLayout) && <CollectionRail
       collectionId={description.collectionId}
       name={description.displayName}
-      count={collectionTotal ?? allNotes.length}
+      count={(collectionTotal ?? allNotes.length) + fileInventory.files.length}
       types={description.types}
       activeFilter={noteFilter}
       notes={allNotes}
-      foldersLoading={foldersLoading}
+      files={fileInventory.files}
+      foldersLoading={foldersLoading || fileInventory.loading}
       surface={surface}
       onFilter={(filter) => { setNoteFilter(filter); selectSurface("notes"); }}
       onCreateFolder={beginFolderCreate}
@@ -1849,17 +1840,23 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
     {surface === "notes" && <>
       {(!layout.listCollapsed || mobileLayout) && <NoteList
-        notes={visibleNotes}
+        entries={visibleBrowserEntries}
+        noteCount={visibleNotes.length}
+        fileCount={visibleFiles.length}
         types={description.types}
         loading={listLoading}
         structureLoading={foldersLoading}
+        filesLoading={fileInventory.loading}
+        fileError={fileInventory.error}
         contentIndexing={contentIndexing}
         contentLoaded={contentLoaded}
         contentError={contentError}
         total={noteFilter ? undefined : collectionTotal}
         contentTotal={collectionTotal}
-        selectedPath={selectedPath}
+        selectedPath={selectedCollectionFile ? undefined : selectedPath}
+        selectedFilePath={selectedCollectionFile?.path}
         pendingPath={pendingNotePath}
+        pendingFilePath={pendingFilePath}
         statuses={noteStatuses}
         search={search}
         searchQuery={deferredSearch}
@@ -1872,7 +1869,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         onClearScope={() => setNoteFilter(undefined)}
         onQuickOpen={() => setQuickOpen(true)}
         onRetryContent={() => void loadContentIndex()}
+        onRetryFiles={() => void fileController.reload().catch(() => undefined)}
         onSelect={navigateToNote}
+        onSelectFile={navigateToFile}
         previewPath={notePreviewController.preview?.path}
         onPreview={notePreviewController.request}
         onDismissPreview={notePreviewController.dismiss}
@@ -1881,7 +1880,13 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         leadingActions={layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
         trailingActions={<PaneControl label="Hide notes sidebar" action="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
       />}
-      {creationMode ? <Suspense fallback={<NoteSkeleton leadingActions={editorLeadingActions} />}><NewNoteComposer
+      {selectedCollectionFile && selectedFileAsset ? <Suspense fallback={<NoteSkeleton leadingActions={editorLeadingActions} />}><FileWorkspace
+        file={selectedCollectionFile}
+        asset={selectedFileAsset}
+        leadingActions={editorLeadingActions}
+        onBack={() => returnToMobilePane("notes")}
+        onRetry={() => void fileAssetStore.retry(selectedCollectionFile)}
+      /></Suspense> : creationMode ? <Suspense fallback={<NoteSkeleton leadingActions={editorLeadingActions} />}><NewNoteComposer
         types={description.types}
         defaultFolder={creationContext.folder}
         defaultTag={creationContext.tag}
@@ -1944,10 +1949,12 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
                 { label: "Backlinks", icon: <Link2 aria-hidden="true" />, onSelect: () => { setPropertiesOpen(false); setBacklinksOpen(true); } },
                 { label: "Note properties", icon: <Info aria-hidden="true" />, onSelect: () => { setBacklinksOpen(false); setPropertiesOpen(true); } }
               ] : []),
+              attachmentMenuItem(attachments, canAttachFiles, () => void authorizeCollection("selected").catch((error) => setNotice(gatewayError(error)))),
               { label: "Check note", icon: <Check aria-hidden="true" />, onSelect: () => void validateNote() },
               { label: "Delete note", icon: <Trash2 aria-hidden="true" />, tone: "danger", onSelect: () => void requestDelete() }
             ]} />
           </header>
+          <AttachmentTransfer controller={attachments} />
           {activeRemoteDraft && <ConflictResolver local={draft} remote={activeRemoteDraft} onUseRemote={useRemoteVersion} onKeepLocal={keepLocalVersion} />}
           {mutationNotice && <div className="notice" role="status">
             <CircleAlert aria-hidden="true" />
@@ -1988,6 +1995,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
                 onCreateLink={createLinkedNote}
                 onPreviewLink={notePreviewController.request}
                 onDismissLinkPreview={notePreviewController.dismiss}
+                embeddedFiles={embeddedFiles}
+                onOpenFile={setOpenFileAsset}
+                insertion={attachments.insertion}
               />
             </Suspense>
           </article>
@@ -2156,6 +2166,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       onConfirm={confirmation.onConfirm}
       onClose={() => setConfirmation(undefined)}
     />}
+    {openFileAsset && <Suspense fallback={null}><FileViewer asset={openFileAsset} onClose={() => setOpenFileAsset(undefined)} /></Suspense>}
     <NotePreviewCard preview={notePreviewController.preview} />
   </div>;
 }

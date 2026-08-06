@@ -2,6 +2,7 @@ import type {
   CollectionChange,
   CollectionContractDescriptor,
   CollectionDescription,
+  CollectionFileDescriptor,
   CollectionTypeDescriptor,
   CollectionTypeDocument,
   JsonObject,
@@ -14,6 +15,7 @@ import { persistedBody, titlePatch } from "./note";
 import { composeRecordSource, parseRecordSource } from "./record-source";
 import type {
   CollectionGateway,
+  CollectionFile,
   CollectionAuthorizationTarget,
   CollectionSessionSnapshot,
   ConnectionSummary,
@@ -22,6 +24,9 @@ import type {
   NoteContentRequest,
   NoteIndexRequest,
   NoteIndexResult,
+  FileListRequest,
+  FileReadRequest,
+  FileUploadRequest,
   NoteSummary,
   RenamePreflight,
   DeletePreflight,
@@ -32,6 +37,8 @@ import type {
 
 export class DemoCollectionGateway implements CollectionGateway {
   private notes: NoteDocument[];
+  private files: CollectionFile[] = demoFiles();
+  private fileContents = new Map<string, Blob>(demoFileContents());
   private sequence = 1;
   private changeCursor = 0;
   private typeSequence = 1;
@@ -107,7 +114,7 @@ export class DemoCollectionGateway implements CollectionGateway {
   }
 
   protected currentConnection(): ConnectionSummary | null {
-    return { collectionId: "demo", operations: ["all"], missingCapabilities: [] };
+    return { collectionId: "demo", operations: ["all"], missingCapabilities: [], fileActions: ["list", "read", "add", "replace", "move", "delete"] };
   }
 
   protected emitSessionChange(): void {
@@ -174,6 +181,45 @@ export class DemoCollectionGateway implements CollectionGateway {
   async read(path: string): Promise<NoteDocument> {
     await delay(5);
     return clone(this.required(path));
+  }
+
+  async listFiles({ signal, onProgress }: FileListRequest = {}): Promise<CollectionFile[]> {
+    signal?.throwIfAborted();
+    const files = clone(this.files);
+    onProgress?.({ files, complete: true });
+    return files;
+  }
+
+  async readFile(file: CollectionFile, { signal, onProgress }: FileReadRequest = {}): Promise<Blob> {
+    signal?.throwIfAborted();
+    const blob = this.fileContents.get(file.fileId);
+    if (!blob) throw new Error("This file no longer exists.");
+    onProgress?.({ phase: "downloading", transferredBytes: blob.size, totalBytes: blob.size });
+    return blob;
+  }
+
+  async uploadFile(path: string, source: import("@mdbase-dev/connect").MdbaseFileSource, { signal, onProgress }: FileUploadRequest = {}): Promise<CollectionFile> {
+    signal?.throwIfAborted();
+    if (this.files.some((file) => file.path.toLowerCase() === path.toLowerCase())) throw new Error("A file already uses that path.");
+    const blob = source instanceof Blob
+      ? source
+      : new Blob([source instanceof ArrayBuffer ? source : Uint8Array.from(new Uint8Array(source.buffer, source.byteOffset, source.byteLength)).buffer]);
+    onProgress?.({ phase: "hashing", transferredBytes: blob.size, totalBytes: blob.size });
+    const file: CollectionFileDescriptor = {
+      fileId: crypto.randomUUID(),
+      path,
+      revision: `demo-file-${this.sequence++}`,
+      contentDigest: `sha256:${blob.size.toString(16).padStart(64, "0")}`,
+      size: blob.size,
+      ...(blob.type ? { mediaType: blob.type } : {}),
+      mediaClass: mediaClass(path, blob.type),
+      modifiedAt: new Date().toISOString()
+    };
+    this.files.push(file);
+    this.fileContents.set(file.fileId, blob);
+    onProgress?.({ phase: "uploading", transferredBytes: blob.size, totalBytes: blob.size });
+    this.emit("mdbase.file.put", { file: clone(file) as unknown as JsonObject });
+    return clone(file);
   }
 
   async create(input: CreateNoteInput): Promise<NoteDocument> {
@@ -757,7 +803,7 @@ function demoNote(index: number): NoteDocument {
   const folder = folders[index % folders.length];
   const path = `${folder}/${slug(title)}.md`;
   const paragraphs = index === 0
-    ? "Good tools leave room around the work. They keep the durable thing visible, make consequential choices legible, and then get out of the way.\n\nThis note is ordinary Markdown. It can be edited here, from the filesystem, or by another application with permission."
+    ? "Good tools leave room around the work. They keep the durable thing visible, make consequential choices legible, and then get out of the way.\n\n![[Assets/frontmatter.svg|A durable piece of frontmatter]]\n\nThis note is ordinary Markdown. It can be edited here, from the filesystem, or by another application with permission."
     : index === 1
       ? "A generated note used to test a large collection.\n\nThis grew from [[Notes/the-shape-of-useful-tools|The shape of useful tools]]."
       : `A generated note used to test a large collection.\n\nRecord ${index + 1} remains lightweight while the list is virtualized.`;
@@ -825,3 +871,46 @@ function clone<T>(value: T): T {
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
+
+function demoFiles(): CollectionFile[] {
+  return [
+    {
+      fileId: "00000000-0000-4000-8000-000000000101",
+      path: "Assets/frontmatter.svg",
+      revision: "demo-file-1",
+      contentDigest: `sha256:${"1".padStart(64, "0")}`,
+      size: FRONTMATTER_SVG.length,
+      mediaType: "image/svg+xml",
+      mediaClass: "image",
+      modifiedAt: "2020-08-07T00:00:00Z"
+    },
+    {
+      fileId: "00000000-0000-4000-8000-000000000102",
+      path: "Documents/interface-notes.pdf",
+      revision: "demo-file-2",
+      contentDigest: `sha256:${"2".padStart(64, "0")}`,
+      size: DEMO_PDF.length,
+      mediaType: "application/pdf",
+      mediaClass: "pdf",
+      modifiedAt: "2020-08-06T00:00:00Z"
+    }
+  ];
+}
+
+function demoFileContents(): Array<[string, Blob]> {
+  return [
+    ["00000000-0000-4000-8000-000000000101", new Blob([FRONTMATTER_SVG], { type: "image/svg+xml" })],
+    ["00000000-0000-4000-8000-000000000102", new Blob([DEMO_PDF], { type: "application/pdf" })]
+  ];
+}
+
+function mediaClass(path: string, mediaType: string): CollectionFile["mediaClass"] {
+  if (mediaType.startsWith("image/") || /\.(?:png|jpe?g|gif|webp|svg)$/iu.test(path)) return "image";
+  if (mediaType.startsWith("audio/")) return "audio";
+  if (mediaType.startsWith("video/")) return "video";
+  if (mediaType === "application/pdf" || /\.pdf$/iu.test(path)) return "pdf";
+  return "other";
+}
+
+const FRONTMATTER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540"><rect width="960" height="540" fill="#f5f8fb"/><g fill="none" stroke="#243444" stroke-width="16" stroke-linecap="square"><path d="M230 122h500M230 418h500"/><path d="M230 220h135M230 320h135"/></g><g fill="none" stroke-width="16" stroke-linecap="square"><path d="M415 220h315" stroke="#2878a6"/><path d="M415 320h315" stroke="#243444"/></g></svg>`;
+const DEMO_PDF = "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Count 0/Kids[]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF";

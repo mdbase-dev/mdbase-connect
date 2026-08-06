@@ -5,6 +5,8 @@ export interface ActionMenuItem {
   label: string;
   icon: ReactNode;
   tone?: "default" | "danger";
+  disabled?: boolean;
+  title?: string;
   onSelect: () => void;
 }
 
@@ -15,7 +17,7 @@ export function ActionMenu({ label, items }: { label: string; items: ActionMenuI
 
   useEffect(() => {
     if (!open) return;
-    root.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    root.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus();
     const closeForOutsidePress = (event: PointerEvent) => {
       if (!root.current?.contains(event.target as Node)) setOpen(false);
     };
@@ -27,7 +29,8 @@ export function ActionMenu({ label, items }: { label: string; items: ActionMenuI
         return;
       }
       if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-      const menuItems = [...(root.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])];
+      const menuItems = [...(root.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? [])];
+      if (menuItems.length === 0) return;
       const current = menuItems.indexOf(document.activeElement as HTMLButtonElement);
       const direction = event.key === "ArrowDown" ? 1 : -1;
       const next = (current + direction + menuItems.length) % menuItems.length;
@@ -61,6 +64,8 @@ export function ActionMenu({ label, items }: { label: string; items: ActionMenuI
         key={item.label}
         role="menuitem"
         className={item.tone === "danger" ? "danger-action" : undefined}
+        disabled={item.disabled}
+        title={item.title}
         onClick={() => {
           setOpen(false);
           item.onSelect();

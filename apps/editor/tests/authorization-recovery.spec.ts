@@ -146,6 +146,12 @@ test("recovers from a stale local grant without bypassing the connector", async 
           "delete", "rename", "read_type", "create_type", "update_type", "apply_type_pack"
         ],
         scope: { contracts: [], access: "full_collection" },
+        fileCapability: {
+          kind: "files",
+          protocol_version: 1,
+          actions: ["list", "read"],
+          scope: { kind: "collection" }
+        },
         expiresAt: Date.now() + 60_000,
         refreshExpiresAt: Date.now() + 120_000,
         grantId: "40000000-0000-4000-8000-000000000004",

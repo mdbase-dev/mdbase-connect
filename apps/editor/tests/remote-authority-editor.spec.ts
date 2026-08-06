@@ -198,6 +198,12 @@ class RemoteAuthorityHarness {
         collection_name: selectedSecondCollection ? "Research" : "Hosted writing",
         operations: ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename"],
         scope: { contracts: [], access: "full_collection" },
+        file_capability: {
+          kind: "files",
+          protocol_version: 1,
+          actions: ["list", "read"],
+          scope: { kind: "collection" }
+        },
         grant_id: selectedSecondCollection ? secondGrantId : grantId,
         encryption: null,
         authority: {
@@ -221,6 +227,13 @@ class RemoteAuthorityHarness {
       "Bearer remote-authority-access",
       "Bearer remote-authority-access-second"
     ]).toContain(request.headers().authorization);
+    if (request.method() === "GET" && new URL(request.url()).pathname.endsWith("/files")) {
+      return json(route, {
+        protocol_version: 1,
+        type: "files_page",
+        files: []
+      });
+    }
     const operation = new URL(request.url()).pathname.split("/").at(-1)!;
     const operationRequest = request.postDataJSON() as {
       protocol_version?: unknown;

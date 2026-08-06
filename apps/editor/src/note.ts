@@ -108,10 +108,10 @@ interface MutableFolderTreeNode extends Omit<FolderTreeNode, "children"> {
 
 const facetCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
-export function folderTree(notes: NoteSummary[]): FolderTreeNode[] {
+export function folderTree(notes: NoteSummary[], additionalPaths: readonly string[] = []): FolderTreeNode[] {
   const roots = new Map<string, MutableFolderTreeNode>();
-  for (const note of notes) {
-    const directory = folder(note.path);
+  for (const itemPath of [...notes.map((note) => note.path), ...additionalPaths]) {
+    const directory = folder(itemPath);
     if (!directory) continue;
     let siblings = roots;
     let parentPath = "";

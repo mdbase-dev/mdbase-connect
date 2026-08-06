@@ -13,6 +13,7 @@ rendering separate even though the application is deployed as one static site.
 React composition (App, feature views)
         │
         ├── collection index controller ──┐
+        ├── file inventory / asset stores ┤
         ├── note session store            ├── narrow gateway contracts
         └── operation coordinator ────────┘
                                               │
@@ -60,6 +61,29 @@ background for full-text search and backlinks. Both the connect and demo
 gateways implement these semantics. Hydration requires an explicit successful
 structure-completion state; a stopped or failed list request is not treated as
 complete.
+
+## Collection files
+
+Files are a collection-scoped index and an on-demand asset pipeline, not note
+fields. `FileInventoryController` progressively lists descriptors, owns request
+generations and cancellation, exposes failures instead of silently dropping
+them, and reconciles accepted uploads and file watch events. Notes and files
+share the virtualized collection browser and folder tree while retaining
+separate identities and navigation behavior.
+
+`FileAssetStore` downloads only assets that a visible embed or file workspace
+acquires. Entries are keyed by file identity and revision, concurrent reads are
+deduplicated, oversized previews are rejected before download, and object URLs
+are revoked on revision changes, eviction, and collection reset. Both entry
+count and byte budgets bound the cache.
+
+Markdown embed discovery uses the CodeMirror Markdown syntax tree so examples
+inside code are not fetched. One resolver handles standard image destinations,
+relative paths, and wiki embeds with deterministic normalized matching; unsafe
+schemes, traversal, and ambiguous basenames remain unresolved. Uploading an
+attachment commits the file first and only then inserts a Markdown reference
+into the active note. This makes partial failure explicit: a committed file
+survives even if the later note save does not.
 
 ## Note editing
 
@@ -122,6 +146,10 @@ operation routes as an application grant.
 7. Demo mode follows production pagination and hydration semantics.
 8. No Connect account response contains record bodies, collection paths, or
    reusable collection credentials.
+9. File bytes are fetched on demand, bounded in memory, and never treated as
+   part of the collection note index.
+10. Every object URL has one store owner and is revoked when its asset leaves
+    that store.
 
 ## Verification
 

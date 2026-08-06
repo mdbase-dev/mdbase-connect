@@ -13,12 +13,14 @@ import {
   type MdbaseDiagnostic,
   type QueryRecord,
   type QueryResult,
+  type CollectionFileDescriptor,
   type TypePackAssessment,
   type TypePackProvision
 } from "@mdbase-dev/connect";
 import { persistedBody, titlePatch } from "./note";
 import type {
   CollectionGateway,
+  CollectionFile,
   CollectionAuthorizationTarget,
   CollectionAuthorizationOptions,
   CollectionSessionSnapshot,
@@ -29,6 +31,9 @@ import type {
   NoteIndexRequest,
   NoteIndexResult,
   NoteFrontmatter,
+  FileListRequest,
+  FileReadRequest,
+  FileUploadRequest,
   NoteSummary,
   RenamePreflight,
   DeletePreflight,
@@ -46,7 +51,9 @@ export const CORE_CAPABILITIES: ApplicationCapabilityId[] = [
   "records.create",
   "records.update",
   "records.delete",
-  "records.rename"
+  "records.rename",
+  "files.list",
+  "files.read"
 ];
 
 export const TYPE_DEFINITION_CAPABILITIES: ApplicationCapabilityId[] = [
@@ -197,6 +204,28 @@ export class ConnectCollectionGateway implements CollectionGateway {
 
   async read(path: string): Promise<NoteDocument> {
     return requireOutcome(await this.requireConnection().read({ path, includeDocument: true }));
+  }
+
+  async listFiles({ signal, onProgress }: FileListRequest = {}): Promise<CollectionFile[]> {
+    const files: CollectionFile[] = [];
+    let published = 0;
+    for await (const file of this.requireConnection().files.list({ signal, pageSize: PAGE_SIZE })) {
+      files.push(file);
+      if (files.length - published >= 100) {
+        published = files.length;
+        onProgress?.({ files: [...files], complete: false });
+      }
+    }
+    onProgress?.({ files: [...files], complete: true });
+    return files;
+  }
+
+  async readFile(file: CollectionFileDescriptor, options: FileReadRequest = {}): Promise<Blob> {
+    return this.requireConnection().files.download(file, options);
+  }
+
+  async uploadFile(path: string, source: import("@mdbase-dev/connect").MdbaseFileSource, options: FileUploadRequest = {}): Promise<CollectionFile> {
+    return this.requireConnection().files.upload(path, source, options);
   }
 
   async create(input: CreateNoteInput): Promise<NoteDocument> {
@@ -365,7 +394,11 @@ export class ConnectCollectionGateway implements CollectionGateway {
       let stop: () => void = () => undefined;
       stop = opened.subscribe(
         (change) => {
-          if (change.type.startsWith("mdbase.record.") || change.type === "mdbase.type.changed") onChange(change);
+          if (change.type.startsWith("mdbase.record.")
+              || change.type.startsWith("mdbase.file.")
+              || change.type === "file_put"
+              || change.type === "file_remove"
+              || change.type === "mdbase.type.changed") onChange(change);
         },
         onStatus,
         (problem) => {
@@ -427,7 +460,8 @@ function summarizeConnection(connection: MdbaseConnectionInfo): ConnectionSummar
     displayName: connection.displayName,
     operations: connection.operations,
     authorityKind: connection.authority.kind,
-    directAccess: connection.directAccess
+    directAccess: connection.directAccess,
+    fileActions: connection.fileCapability?.actions
   };
 }
 

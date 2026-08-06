@@ -99,6 +99,9 @@ function accessSummary(capabilities: string[]): string {
     "records.update": "edit notes",
     "records.delete": "delete notes",
     "records.rename": "move notes",
+    "files.list": "list files",
+    "files.read": "open files",
+    "files.add": "add files",
     "definitions.read": "manage type definitions",
     "definitions.create": "manage type definitions",
     "definitions.update": "manage type definitions"

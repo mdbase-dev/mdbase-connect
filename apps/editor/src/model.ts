@@ -1,7 +1,10 @@
 import type {
   CollectionDescription,
   CollectionChange,
+  CollectionFileDescriptor,
   CollectionTypeDocument,
+  MdbaseFileProgress,
+  MdbaseFileSource,
   JsonObject,
   MdbaseDiagnostic,
   MutationProgress,
@@ -19,6 +22,7 @@ import type {
 export type TypePackApplyResult = import("@mdbase-dev/connect").TypePackApplyResult;
 
 export type NoteFrontmatter = JsonObject;
+export type CollectionFile = CollectionFileDescriptor;
 
 export interface NoteSummary extends QueryRecord<NoteFrontmatter> {
   frontmatter: NoteFrontmatter;
@@ -39,6 +43,7 @@ export interface ConnectionSummary {
   missingCapabilities?: string[];
   authorityKind?: "hosted" | "connector";
   directAccess?: DirectAccessStatus;
+  fileActions?: string[];
 }
 
 export type CollectionSessionSnapshot =
@@ -124,6 +129,25 @@ export interface NoteContentRequest extends NoteIndexRequest {
   snapshot?: string;
 }
 
+export interface FileListProgress {
+  files: CollectionFile[];
+  complete: boolean;
+}
+
+export interface FileListRequest {
+  signal?: AbortSignal;
+  onProgress?: (progress: FileListProgress) => void;
+}
+
+export interface FileReadRequest {
+  signal?: AbortSignal;
+  onProgress?: (progress: MdbaseFileProgress) => void;
+}
+
+export interface FileUploadRequest extends FileReadRequest {
+  transferId?: string;
+}
+
 export interface CollectionGateway {
   sessionSnapshot(): CollectionSessionSnapshot;
   startSession(): Promise<CollectionSessionSnapshot>;
@@ -140,6 +164,9 @@ export interface CollectionGateway {
   list(options?: NoteIndexRequest): Promise<NoteIndexResult>;
   hydrateContent(options?: NoteContentRequest): Promise<NoteIndexResult>;
   read(path: string): Promise<NoteDocument>;
+  listFiles(options?: FileListRequest): Promise<CollectionFile[]>;
+  readFile(file: CollectionFile, options?: FileReadRequest): Promise<Blob>;
+  uploadFile(path: string, source: MdbaseFileSource, options?: FileUploadRequest): Promise<CollectionFile>;
   create(input: CreateNoteInput): Promise<NoteDocument>;
   restore(document: NoteDocument): Promise<NoteDocument>;
   update(input: SaveNoteInput): Promise<NoteDocument>;

@@ -14,19 +14,20 @@ import {
 } from "./icons";
 import { ContextMenu } from "./ContextMenu";
 import { EditorRail } from "./EditorRail";
-import type { ConnectionSummary, NoteSummary } from "./model";
+import type { CollectionFile, ConnectionSummary, NoteSummary } from "./model";
 import { folderTree, tags as collectionTags, types as collectionTypes, type FolderTreeNode } from "./note";
 import type { NoteFilter } from "./NoteList";
 import { collectionTypeIcon, isPhosphorIconName, PhosphorIcon } from "./PhosphorIcon";
 
 
-export function CollectionRail({ collectionId, name, count, types, activeFilter, notes, foldersLoading, surface, connectionState, connectionIssue, directAccess, directAccessBusy, onFilter, onCreateFolder, onCreateNoteInFolder, onCreateSubfolder, onCreateNoteWithTag, onCreateNoteWithType, onOpenType, onCopyFacet, onTypes, onSettings, onShortcuts, onReconnect, onRequestDirectAccess, onSwitch, onCollapse }: {
+export function CollectionRail({ collectionId, name, count, types, activeFilter, notes, files, foldersLoading, surface, connectionState, connectionIssue, directAccess, directAccessBusy, onFilter, onCreateFolder, onCreateNoteInFolder, onCreateSubfolder, onCreateNoteWithTag, onCreateNoteWithType, onOpenType, onCopyFacet, onTypes, onSettings, onShortcuts, onReconnect, onRequestDirectAccess, onSwitch, onCollapse }: {
   collectionId: string;
   name: string;
   count: number;
   types: CollectionTypeDescriptor[];
   activeFilter?: NoteFilter;
   notes: NoteSummary[];
+  files: CollectionFile[];
   foldersLoading: boolean;
   surface: "notes" | "types" | "settings";
   connectionState: "connected" | "reconnecting";
@@ -50,7 +51,7 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
   onCollapse: () => void;
 }) {
   const typeKey = types.map((type) => `${type.name}:${collectionTypeIcon(type) ?? ""}`).join("\u0000");
-  const collectionFolders = useMemo(() => folderTree(notes), [notes]);
+  const collectionFolders = useMemo(() => folderTree(notes, files.map((file) => file.path)), [files, notes]);
   const tagFacets = useMemo(() => collectionTags(notes), [notes]);
   const typeFacets = useMemo(() => {
     const icons = new Map(types.map((type) => [type.name, collectionTypeIcon(type)]));

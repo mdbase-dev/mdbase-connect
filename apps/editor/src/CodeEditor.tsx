@@ -35,6 +35,9 @@ import {
 import { tags } from "@lezer/highlight";
 import { useEffect, useRef } from "react";
 import { parseDocument as parseYamlDocument } from "yaml";
+import type { FileAssetSnapshot } from "./file-asset-store";
+import type { ResolvedFileReference } from "./use-file-assets";
+import { fileEmbedPresentation } from "./code-editor-file-embeds";
 import { linkMatches, wikilinkFor, type LinkSuggestion } from "./links";
 import type { NotePreviewAnchor, NotePreviewSource } from "./NotePreview";
 
@@ -64,6 +67,9 @@ interface CodeEditorProps {
   onCreateLink?: (target: string, label: string | undefined, format: "wikilink" | "markdown") => void;
   onPreviewLink?: (path: string, anchor: NotePreviewAnchor, source: NotePreviewSource) => void;
   onDismissLinkPreview?: () => void;
+  embeddedFiles?: ResolvedFileReference[];
+  onOpenFile?: (asset: Extract<FileAssetSnapshot, { status: "ready" }>) => void;
+  insertion?: { id: number; text: string; block?: boolean };
   onBlur?: () => void;
 }
 
@@ -106,6 +112,9 @@ export function CodeEditor({
   onCreateLink,
   onPreviewLink,
   onDismissLinkPreview,
+  embeddedFiles = [],
+  onOpenFile,
+  insertion,
   onBlur
 }: CodeEditorProps) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -117,6 +126,7 @@ export function CodeEditor({
   const completions = useRef(new Compartment());
   const languageMode = useRef(new Compartment());
   const writerPresentation = useRef(new Compartment());
+  const fileEmbeds = useRef(new Compartment());
   const linkSuggestionsRef = useRef(linkSuggestions);
   const linkTypesRef = useRef(linkTypes);
   const recentPathsRef = useRef(recentPaths);
@@ -125,6 +135,9 @@ export function CodeEditor({
   const onCreateLinkRef = useRef(onCreateLink);
   const onPreviewLinkRef = useRef(onPreviewLink);
   const onDismissLinkPreviewRef = useRef(onDismissLinkPreview);
+  const embeddedFilesRef = useRef(embeddedFiles);
+  const onOpenFileRef = useRef(onOpenFile);
+  const appliedInsertion = useRef<number | undefined>(undefined);
   const lineSeparator = useRef(lineSeparatorFor(value));
 
   linkSuggestionsRef.current = linkSuggestions;
@@ -135,6 +148,8 @@ export function CodeEditor({
   onCreateLinkRef.current = onCreateLink;
   onPreviewLinkRef.current = onPreviewLink;
   onDismissLinkPreviewRef.current = onDismissLinkPreview;
+  embeddedFilesRef.current = embeddedFiles;
+  onOpenFileRef.current = onOpenFile;
 
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
 
@@ -154,6 +169,10 @@ export function CodeEditor({
         () => recentPathsRef.current
       ) : []),
       writerPresentation.current.of(variant === "writer" && quietMarkdown ? quietMarkdownPresentation : []),
+      fileEmbeds.current.of(variant === "writer" && language === "markdown" ? fileEmbedPresentation(
+        () => embeddedFilesRef.current,
+        () => onOpenFileRef.current
+      ) : []),
       variant === "writer" ? writerInteractions(
         () => linkSuggestionsRef.current,
         () => currentPathRef.current,
@@ -259,6 +278,19 @@ export function CodeEditor({
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
+    view.dispatch({
+      effects: fileEmbeds.current.reconfigure(
+        variant === "writer" && language === "markdown" ? fileEmbedPresentation(
+          () => embeddedFilesRef.current,
+          () => onOpenFileRef.current
+        ) : []
+      )
+    });
+  }, [embeddedFiles, language, onOpenFile, variant]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
     if (language === "markdown") {
       view.dispatch({ effects: languageMode.current.reconfigure(markdown()) });
       return;
@@ -295,6 +327,24 @@ export function CodeEditor({
     });
     syncing.current = false;
   }, [value]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || readOnly || !insertion || appliedInsertion.current === insertion.id) return;
+    appliedInsertion.current = insertion.id;
+    const selection = view.state.selection.main;
+    const before = selection.from > 0 ? view.state.doc.sliceString(selection.from - 1, selection.from) : "";
+    const after = selection.to < view.state.doc.length ? view.state.doc.sliceString(selection.to, selection.to + 1) : "";
+    const insert = insertion.block
+      ? `${before && before !== "\n" ? "\n\n" : ""}${insertion.text}${after && after !== "\n" ? "\n\n" : ""}`
+      : insertion.text;
+    view.dispatch({
+      changes: { from: selection.from, to: selection.to, insert },
+      selection: EditorSelection.cursor(selection.from + insert.length),
+      scrollIntoView: true
+    });
+    view.focus();
+  }, [insertion, readOnly]);
 
   return <div
     ref={parentRef}

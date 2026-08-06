@@ -29,11 +29,18 @@ await writeFile(target, `${JSON.stringify({
         "records.update",
         "records.delete",
         "records.rename",
+        "files.list",
+        "files.read",
         "definitions.read",
         "definitions.create",
         "definitions.update",
         "definitions.type-pack.apply",
       ],
+      optional: ["files.add"],
+    },
+    files: {
+      actions: ["list", "read", "add"],
+      scope: { kind: "collection" }
     },
     access: "full_collection"
   }
