@@ -9,20 +9,30 @@ const run = promisify(execFile);
 // baseline did not retain: snapshot identity and document checks, complete
 // durable path-alias validation, and target-indexed incremental-page checks.
 const validationHeapAllowanceMiB = Object.freeze({
-  read_only_initial: 12,
+  // Exact-document reconciliation now retains a content-free action plan
+  // alongside the validated snapshot until apply completes. This bounds the
+  // plan itself without relaxing filesystem writes or checkpoints.
+  read_only_initial: 34,
   // No-op reads revalidate the complete durable physical-path set so a
   // tampered checkpoint cannot reintroduce case or Unicode aliases.
-  read_only_noop: 12,
+  read_only_noop: 28,
   // Incremental pages preflight the complete durable path index before
   // applying their first event; projected changes remain bounded by page size.
-  read_only_incremental: 15,
-  read_write_initial: 3,
+  read_only_incremental: 34,
+  read_write_initial: 28,
   read_write_noop: 17
 });
 // The same complete physical-path validation adds bounded CPU work while
 // preserving the pre-hardening timing baseline as the comparison point.
 const validationWallAllowanceMs = Object.freeze({
-  read_write_noop: 5
+  // Planning sorts and fingerprints every reviewable action. Applying the
+  // inspected payload reuses the same snapshot/pages, so transport and file
+  // I/O ceilings remain at their pre-plan baseline.
+  read_only_initial: 200,
+  read_only_noop: 40,
+  read_only_incremental: 50,
+  read_write_initial: 220,
+  read_write_noop: 80
 });
 const baseline = JSON.parse(await readFile(
   new URL("./mirror-profile-baseline.json", import.meta.url),

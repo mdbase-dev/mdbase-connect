@@ -5,11 +5,7 @@ import type {
   SyncSession,
   SyncSnapshotRecord
 } from "@mdbase-dev/connect-protocol";
-import {
-  fastRecordDocumentMatches,
-  parseMarkdown,
-  recordMarkdownDocument
-} from "./mirror-format.js";
+import { fastRecordDocumentMatches, parseMarkdown } from "./mirror-format.js";
 import {
   validateRecordPath,
   type MirrorRecordPathPolicy
@@ -75,10 +71,7 @@ export class MirrorSnapshotValidator<
       );
     }
     const fastDocumentMatches = fastRecordDocumentMatches(document, record);
-    if (
-      fastDocumentMatches !== true
-      && document !== recordMarkdownDocument(record)
-    ) {
+    if (fastDocumentMatches !== true) {
       let parsed: ReturnType<typeof parseMarkdown>;
       try {
         parsed = parseMarkdown(document, record.path);
@@ -109,10 +102,7 @@ export class MirrorSnapshotValidator<
 export function withoutSnapshotDocument<
   Frontmatter extends JsonObject = JsonObject
 >(record: SyncRecord<Frontmatter>): SyncRecord<Frontmatter> {
-  if (!Object.prototype.hasOwnProperty.call(record, "document")) return record;
-  const { document: _document, ...plain } =
-    record as SyncSnapshotRecord<Frontmatter>;
-  return plain;
+  return record;
 }
 
 export async function visitSnapshotPages<

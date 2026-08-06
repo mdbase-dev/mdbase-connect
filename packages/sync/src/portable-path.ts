@@ -1,7 +1,7 @@
 import { SyncError } from "./sync-error.js";
 
 const EMPTY_OR_DOT_COMPONENT = /(?:^|\/)(?:\.{1,2}|)(?:\/|$)/u;
-const PLATFORM_UNSAFE_CHARACTER = /[\p{Cc}:]/u;
+const PLATFORM_UNSAFE_CHARACTER = /[\p{Cc}:?<>|*"]/u;
 const PLATFORM_UNSAFE_ENDING = /[. ](?:\/|$)/u;
 const RESERVED_WINDOWS_DEVICE =
   /(?:^|\/)(?:CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?:\.|\/|$)/iu;

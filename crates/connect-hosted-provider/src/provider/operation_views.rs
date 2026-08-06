@@ -56,8 +56,8 @@ impl HostedProvider {
             let workspace = WorkingSet::materialize(
                 resources,
                 records.values().map(|record| StoredDocument {
-                    record_id: record.record.record_id,
-                    path: record.record.path.clone(),
+                    record_id: record.record_id,
+                    path: record.path.clone(),
                     document: record.document.clone(),
                 }),
             )?;

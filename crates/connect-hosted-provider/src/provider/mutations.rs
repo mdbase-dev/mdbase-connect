@@ -1,6 +1,12 @@
 use super::mutation_journal::{HostedMutationClaim, HostedMutationLease};
 use super::*;
 
+struct MutationExecution<'a> {
+    journal_lease: Option<&'a HostedMutationLease>,
+    journal_result_is_public: bool,
+    semantic: Option<(String, serde_json::Map<String, Value>)>,
+}
+
 impl HostedProvider {
     pub async fn mutate(
         &self,
@@ -20,7 +26,12 @@ impl HostedProvider {
         mutation: SyncMutation,
         request_origin: Option<&str>,
     ) -> ApiResult<SyncMutationReceipt> {
-        let required_operation = mutation_operation_name(mutation.operation);
+        let required_operation = match mutation.operation {
+            SyncMutationOperation::Put if mutation.base_revision.is_none() => "create",
+            SyncMutationOperation::Put => "update",
+            SyncMutationOperation::Move => "rename",
+            SyncMutationOperation::Delete => "delete",
+        };
         let replica = self
             .authenticate_for_sync(collection_id, token, required_operation, request_origin)
             .await?;
@@ -56,8 +67,11 @@ impl HostedProvider {
                 collection_id,
                 mutation,
                 replica,
-                Some(&lease),
-                true,
+                MutationExecution {
+                    journal_lease: Some(&lease),
+                    journal_result_is_public: true,
+                    semantic: None,
+                },
             )
             .await;
         let value_result = result
@@ -80,6 +94,7 @@ impl HostedProvider {
         mutation: SyncMutation,
         purpose: ReplicaPurpose,
         journal_lease: Option<&HostedMutationLease>,
+        semantic: Option<(String, serde_json::Map<String, Value>)>,
     ) -> ApiResult<SyncMutationReceipt> {
         let mut transaction = self.pool.begin().await?;
         let replica = authenticate_in(&mut transaction, collection_id, token, purpose).await?;
@@ -93,20 +108,22 @@ impl HostedProvider {
             collection_id,
             mutation,
             replica,
-            journal_lease,
-            false,
+            MutationExecution {
+                journal_lease,
+                journal_result_is_public: false,
+                semantic,
+            },
         )
         .await
     }
 
-    pub(super) async fn mutate_in_transaction(
+    async fn mutate_in_transaction(
         &self,
         mut transaction: Transaction<'_, Postgres>,
         collection_id: Uuid,
         mutation: SyncMutation,
         replica: Replica,
-        journal_lease: Option<&HostedMutationLease>,
-        journal_result_is_public: bool,
+        execution: MutationExecution<'_>,
     ) -> ApiResult<SyncMutationReceipt> {
         if mutation.replica_id != replica.id {
             return Err(ApiError::forbidden(
@@ -138,9 +155,10 @@ impl HostedProvider {
             .await?;
         let journal = SyncJournalContext {
             provider: self,
-            lease: journal_lease
+            lease: execution
+                .journal_lease
                 .ok_or_else(|| ApiError::internal("Hosted sync mutation has no journal lease."))?,
-            public_result: journal_result_is_public,
+            public_result: execution.journal_result_is_public,
         };
         if replica.mode != SyncReplicaMode::ReadWrite {
             return store_rejection(
@@ -247,8 +265,8 @@ impl HostedProvider {
             let workspace = WorkingSet::materialize(
                 resources,
                 records.values().map(|record| StoredDocument {
-                    record_id: record.record.record_id,
-                    path: record.record.path.clone(),
+                    record_id: record.record_id,
+                    path: record.path.clone(),
                     document: record.document.clone(),
                 }),
             )?;
@@ -265,7 +283,10 @@ impl HostedProvider {
             .expect("hosted working set was initialized above");
         let current = cached.records.get(&mutation.record_id).cloned();
 
-        if mutation.operation == SyncMutationOperation::Create && current.is_some() {
+        if mutation.operation == SyncMutationOperation::Put
+            && mutation.base_revision.is_none()
+            && current.is_some()
+        {
             return store_rejection(
                 transaction,
                 &self.crypto,
@@ -277,7 +298,7 @@ impl HostedProvider {
             )
             .await;
         }
-        if mutation.operation != SyncMutationOperation::Create {
+        if !(mutation.operation == SyncMutationOperation::Put && mutation.base_revision.is_none()) {
             let Some(current) = &current else {
                 return store_rejection(
                     transaction,
@@ -290,7 +311,7 @@ impl HostedProvider {
                 )
                 .await;
             };
-            if !visible(&current.record, &replica.allowed_types) {
+            if !visible(current, &replica.allowed_types) {
                 return store_rejection(
                     transaction,
                     &self.crypto,
@@ -314,15 +335,15 @@ impl HostedProvider {
                 )
                 .await;
             };
-            if base_revision != current.record.revision {
+            if base_revision != current.revision {
                 let receipt = SyncMutationReceipt::Conflicted {
                     mutation_id: mutation.mutation_id,
-                    conflict: SyncConflict {
+                    conflict: Box::new(SyncConflict {
                         record_id: mutation.record_id,
                         mutation: mutation.clone(),
-                        current: Some(current.record.clone()),
-                        current_revision: Some(current.record.revision.clone()),
-                    },
+                        current: Some(current.clone()),
+                        current_revision: Some(current.revision.clone()),
+                    }),
                 };
                 store_receipt(
                     &mut transaction,
@@ -342,7 +363,28 @@ impl HostedProvider {
         cached.head = None;
         cached.query_cache.clear();
         cached.query_order.clear();
-        let execution = cached.workspace.execute(&mutation)?;
+        let execution = if let Some((operation, input)) = execution.semantic {
+            cached
+                .workspace
+                .execute_semantic(mutation.record_id, &operation, &input)?
+        } else {
+            match cached.workspace.execute_sync(&mutation) {
+                Ok(execution) => execution,
+                Err(error) if error.status.is_client_error() => {
+                    return store_rejection(
+                        transaction,
+                        &self.crypto,
+                        &data_key,
+                        &mutation,
+                        &journal,
+                        &error.code,
+                        &error.message,
+                    )
+                    .await;
+                }
+                Err(error) => return Err(error),
+            }
+        };
         if !execution.envelope.valid {
             let (code, message) = operation_error(&execution.envelope);
             return store_rejection(
@@ -362,7 +404,7 @@ impl HostedProvider {
             ));
         }
         for (record_id, after, _) in &execution.changed {
-            let before = cached.records.get(record_id).map(|value| &value.record);
+            let before = cached.records.get(record_id);
             if before.is_some_and(|record| !visible(record, &replica.allowed_types))
                 || after
                     .as_ref()
@@ -447,10 +489,7 @@ impl HostedProvider {
             head = head.checked_add(1).ok_or_else(|| {
                 ApiError::internal("The hosted collection sequence is exhausted.")
             })?;
-            let before = cached
-                .records
-                .get(&record_id)
-                .map(|value| value.record.clone());
+            let before = cached.records.get(&record_id).cloned();
             let notification_event = notification_runtime_active
                 .then(|| application_change(before.as_ref(), after.as_ref()));
             let revision = if let Some(record) = &after {
@@ -461,9 +500,6 @@ impl HostedProvider {
                     collection_id,
                     head,
                     record,
-                    document.as_deref().ok_or_else(|| {
-                        ApiError::internal("The hosted write set omitted its canonical document.")
-                    })?,
                 )
                 .await?;
                 if record_id == execution.primary_record_id {
@@ -542,17 +578,15 @@ impl HostedProvider {
                 .await?;
             }
             if let Some(record) = after {
-                cached.records.insert(
-                    record_id,
-                    PersistedRecord {
-                        record,
-                        document: document.ok_or_else(|| {
-                            ApiError::internal(
-                                "The hosted write set omitted its canonical document.",
-                            )
-                        })?,
-                    },
-                );
+                let document = document.ok_or_else(|| {
+                    ApiError::internal("The hosted write set omitted its exact document.")
+                })?;
+                if record.document != document {
+                    return Err(ApiError::internal(
+                        "The hosted write set disagrees with its exact document.",
+                    ));
+                }
+                cached.records.insert(record_id, record);
             } else {
                 cached.records.remove(&record_id);
             }

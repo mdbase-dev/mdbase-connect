@@ -290,6 +290,12 @@ impl DirectoryMirror {
                 format!("Mirror state is corrupt: {error}"),
             )
         })?;
+        if state.engine_version != MIRROR_ENGINE_VERSION {
+            return Err(MirrorError::new(
+                "mirror_state_upgrade_required",
+                "Rebuild this prerelease mirror with the exact-document sync engine.",
+            ));
+        }
         if state.protocol_version != SYNC_PROTOCOL_VERSION
             || state.replica_id != self.replica_id
             || state.mode != self.mode
@@ -324,6 +330,12 @@ impl DirectoryMirror {
         &self,
         plan: &DurableRebuildPlan,
     ) -> Result<(), MirrorError> {
+        if plan.engine_version != MIRROR_ENGINE_VERSION {
+            return Err(MirrorError::new(
+                "mirror_state_upgrade_required",
+                "Discard this obsolete prerelease rebuild plan and synchronize again.",
+            ));
+        }
         if plan.protocol_version != SYNC_PROTOCOL_VERSION
             || plan.replica_id != self.replica_id
             || plan.mode != self.mode
@@ -338,7 +350,8 @@ impl DirectoryMirror {
             ));
         }
         if let Some(prior) = &plan.prior {
-            if prior.protocol_version != SYNC_PROTOCOL_VERSION
+            if prior.engine_version != MIRROR_ENGINE_VERSION
+                || prior.protocol_version != SYNC_PROTOCOL_VERSION
                 || prior.replica_id != self.replica_id
                 || prior.mode != self.mode
             {
@@ -425,6 +438,43 @@ impl DirectoryMirror {
                 format!("Mirror collection could not be opened safely: {error}"),
             )
         })?;
+        self.list_markdown_with_collection(excluded, &collection)
+    }
+
+    pub(super) fn list_markdown_for_resources(
+        &self,
+        excluded: &HashSet<String>,
+        resources: &SyncCollectionResources,
+    ) -> Result<Vec<String>, MirrorError> {
+        let temporary = tempfile::tempdir().map_err(|error| {
+            MirrorError::new(
+                "mirror_inspection_failed",
+                format!("Could not prepare an isolated collection policy: {error}"),
+            )
+        })?;
+        for resource in &resources.documents {
+            let path = safe_path(temporary.path(), &resource.path)?;
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)
+                    .map_err(|error| MirrorError::io("Could not prepare", parent, error))?;
+            }
+            fs::write(&path, resource.document.as_bytes())
+                .map_err(|error| MirrorError::io("Could not prepare", &path, error))?;
+        }
+        let collection = mdbase::Collection::open(temporary.path()).map_err(|error| {
+            MirrorError::new(
+                "invalid_authority_resources",
+                format!("Authority collection resources are invalid: {error}"),
+            )
+        })?;
+        self.list_markdown_with_collection(excluded, &collection)
+    }
+
+    fn list_markdown_with_collection(
+        &self,
+        excluded: &HashSet<String>,
+        collection: &mdbase::Collection,
+    ) -> Result<Vec<String>, MirrorError> {
         let mut paths = Vec::new();
         for entry in WalkDir::new(&self.root)
             .follow_links(false)
@@ -474,7 +524,7 @@ impl DirectoryMirror {
             if !excluded.contains(&relative)
                 && self.path_selected(&relative)
                 && self
-                    .validate_record_path_with(&collection, &relative)
+                    .validate_record_path_with(collection, &relative)
                     .is_ok()
             {
                 paths.push(relative);

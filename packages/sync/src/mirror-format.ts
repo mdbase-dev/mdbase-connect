@@ -21,6 +21,19 @@ export function documentRevision(document: string): string {
 }
 
 export function recordMarkdownDocument(record: SyncRecord): string {
+  if (typeof record.document !== "string") {
+    throw new SyncError(
+      "invalid_authority_record",
+      `Authority record ${record.path} omitted its exact Markdown document.`
+    );
+  }
+  return record.document;
+}
+
+/** Serialize an optimistic local projection before it has an authority record. */
+export function projectionMarkdownDocument(
+  record: Pick<SyncRecord, "frontmatter" | "body">
+): string {
   if (Object.keys(record.frontmatter).length === 0) {
     return record.body;
   }

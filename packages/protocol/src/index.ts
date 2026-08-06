@@ -351,9 +351,14 @@ export type EncryptedRelayOperation = CollectionOperation | "file_control";
 export interface SyncRecord<Frontmatter extends JsonObject = JsonObject> {
   record_id: string;
   path: string;
+  /** Exact authoritative Markdown bytes. `revision` is the SHA-256 digest of this value. */
+  document: string;
   revision: string;
+  /** Derived query projection. It never participates in mirror materialization. */
   frontmatter: Frontmatter;
+  /** Derived query projection. It never participates in mirror materialization. */
   body: string;
+  /** Derived authority projection used for scope checks. */
   types: string[];
 }
 
@@ -373,10 +378,8 @@ export interface SyncResourceDocument {
   document: string;
 }
 
-export interface AuthoritySnapshotRecord<Frontmatter extends JsonObject = JsonObject> {
-  record: SyncRecord<Frontmatter>;
-  document: string;
-}
+export type AuthoritySnapshotRecord<Frontmatter extends JsonObject = JsonObject> =
+  SyncRecord<Frontmatter>;
 
 export interface AuthoritySnapshot<Frontmatter extends JsonObject = JsonObject> {
   protocol_version: 1;
@@ -426,6 +429,8 @@ export interface AuthorityImportRecordPage {
 
 export interface SyncSession {
   protocol_version: 1;
+  /** Exact-document prerelease v1. Missing or different profiles are incompatible. */
+  protocol_profile: "exact_document_v1";
   session_id: string;
   replica_id: string;
   collection_id: string;
@@ -446,11 +451,8 @@ export interface SyncSnapshotPage<Frontmatter extends JsonObject = JsonObject> {
   next_page?: string;
 }
 
-export interface SyncSnapshotRecord<Frontmatter extends JsonObject = JsonObject>
-  extends SyncRecord<Frontmatter> {
-  /** Exact bytes whose SHA-256 revision and parsed metadata match this record. */
-  document: string;
-}
+export type SyncSnapshotRecord<Frontmatter extends JsonObject = JsonObject> =
+  SyncRecord<Frontmatter>;
 
 /** Manifest-only snapshot page. File bytes are fetched by digest via the file data plane. */
 export interface SyncFileSnapshotPage {
@@ -479,17 +481,32 @@ export interface SyncChangesPage<Frontmatter extends JsonObject = JsonObject> {
   reset_required: boolean;
 }
 
-export interface SyncMutation {
+interface SyncMutationBase {
   mutation_id: string;
   replica_id: string;
   scope_epoch: number;
-  operation: "create" | "update" | "rename" | "delete";
   record_id: string;
-  base_revision?: string;
-  input: JsonObject;
   created_at: string;
   causal_predecessor?: string;
 }
+
+export type SyncMutation =
+  | SyncMutationBase & {
+      operation: "put";
+      /** Omitted only when creating this stable identity. */
+      base_revision?: string;
+      path: string;
+      document: string;
+    }
+  | SyncMutationBase & {
+      operation: "move";
+      base_revision: string;
+      path: string;
+    }
+  | SyncMutationBase & {
+      operation: "delete";
+      base_revision: string;
+    };
 
 interface SyncFileMutationBase {
   mutation_id: string;

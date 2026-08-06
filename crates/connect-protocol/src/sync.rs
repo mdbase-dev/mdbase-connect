@@ -69,6 +69,7 @@ pub struct MirrorPromotionSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncSession {
     pub protocol_version: u32,
+    pub protocol_profile: String,
     pub session_id: Uuid,
     pub replica_id: Uuid,
     pub collection_id: Uuid,
@@ -95,8 +96,6 @@ pub struct SyncSnapshotPage {
 pub struct SyncSnapshotRecord {
     #[serde(flatten)]
     pub record: SyncRecord,
-    /// Exact document whose SHA-256 revision and parsed metadata match `record`.
-    pub document: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,9 +156,8 @@ pub struct SyncChangesPage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SyncMutationOperation {
-    Create,
-    Update,
-    Rename,
+    Put,
+    Move,
     Delete,
 }
 
@@ -172,7 +170,10 @@ pub struct SyncMutation {
     pub record_id: Uuid,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_revision: Option<String>,
-    pub input: serde_json::Map<String, Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document: Option<String>,
     pub created_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub causal_predecessor: Option<Uuid>,
@@ -308,7 +309,7 @@ pub enum SyncMutationReceipt {
     },
     Conflicted {
         mutation_id: Uuid,
-        conflict: SyncConflict,
+        conflict: Box<SyncConflict>,
     },
     Rejected {
         mutation_id: Uuid,

@@ -153,15 +153,6 @@ pub(super) fn scope_error(error: impl std::fmt::Display) -> ApiError {
     ApiError::forbidden("scope_denied", error.to_string())
 }
 
-pub(super) fn mutation_operation_name(operation: SyncMutationOperation) -> &'static str {
-    match operation {
-        SyncMutationOperation::Create => "create",
-        SyncMutationOperation::Update => "update",
-        SyncMutationOperation::Rename => "rename",
-        SyncMutationOperation::Delete => "delete",
-    }
-}
-
 pub(super) fn result_string<'a>(value: &'a Value, field: &str) -> ApiResult<&'a str> {
     value.get(field).and_then(Value::as_str).ok_or_else(|| {
         ApiError::internal(format!(

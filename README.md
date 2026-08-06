@@ -158,6 +158,8 @@ mdbase --root /path/to/notes query --types task
 mdbase connect collection list
 mdbase connect hosted list
 mdbase connect mirror add <collection-id> /path/to/mirror
+mdbase connect mirror plan <replica-id> --json
+mdbase connect mirror sync <replica-id> --plan sha256:<fingerprint>
 mdbase connect status
 ```
 

@@ -1,11 +1,10 @@
 use crate::{CollectionRegistry, ConnectError};
 use mdbase::runtime::CollectionSnapshot;
 use mdbase_connect_protocol::{
-    authority_manifest_digest, AuthoritySnapshot, AuthoritySnapshotRecord,
-    CollectionFileDescriptor, SyncChange, SyncChangesPage, SyncCollectionResources, SyncConflict,
-    SyncFileSnapshotPage, SyncFileSnapshotPageKind, SyncMutation, SyncMutationOperation,
-    SyncMutationReceipt, SyncRecord, SyncReplicaMode, SyncSession, SyncSnapshotPage,
-    SyncSnapshotRecord, CONTROL_PROTOCOL_VERSION,
+    authority_manifest_digest, AuthoritySnapshot, CollectionFileDescriptor, SyncChange,
+    SyncChangesPage, SyncCollectionResources, SyncConflict, SyncFileSnapshotPage,
+    SyncFileSnapshotPageKind, SyncMutation, SyncMutationOperation, SyncMutationReceipt, SyncRecord,
+    SyncReplicaMode, SyncSession, SyncSnapshotPage, SyncSnapshotRecord, CONTROL_PROTOCOL_VERSION,
 };
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde_json::Value;
@@ -234,16 +233,14 @@ impl LocalSyncStore {
             .records
             .iter()
             .map(|source| {
-                let record = records_by_path.get(&source.path).cloned().ok_or_else(|| {
+                let mut record = records_by_path.get(&source.path).cloned().ok_or_else(|| {
                     ConnectError::CollectionOpen(format!(
                         "Local sync identity is missing for {}.",
                         source.path
                     ))
                 })?;
-                Ok(AuthoritySnapshotRecord {
-                    record,
-                    document: source.document.clone(),
-                })
+                record.document = source.document.clone();
+                Ok(record)
             })
             .collect::<Result<Vec<_>, ConnectError>>()?;
         let manifest_digest = authority_manifest_digest(&resources.documents, &records, &files);
@@ -449,7 +446,7 @@ impl LocalSyncStore {
         collection_id: Uuid,
         replica: &LocalReplica,
         resources: SyncCollectionResources,
-        collection_snapshot: &CollectionSnapshot,
+        _collection_snapshot: &CollectionSnapshot,
         files: &[mdbase_connect_protocol::CollectionFileDescriptor],
     ) -> Result<SyncSession, ConnectError> {
         let mut connection = self.connection()?;
@@ -457,26 +454,10 @@ impl LocalSyncStore {
             connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let replica = upsert_replica(&transaction, collection_id, replica)?;
         let state = required_collection_state(&transaction, collection_id)?;
-        let documents = collection_snapshot
-            .records
-            .iter()
-            .map(|record| (record.path.as_str(), record.document.as_str()))
-            .collect::<HashMap<_, _>>();
         let records = records(&transaction, collection_id)?
             .into_values()
             .filter(|record| visible(record, &replica.allowed_types))
-            .map(|record| {
-                let document = documents.get(record.path.as_str()).ok_or_else(|| {
-                    ConnectError::CollectionOpen(format!(
-                        "Local sync snapshot is missing exact Markdown for {}.",
-                        record.path
-                    ))
-                })?;
-                Ok(SyncSnapshotRecord {
-                    record,
-                    document: (*document).to_string(),
-                })
-            })
+            .map(|record| Ok(SyncSnapshotRecord { record }))
             .collect::<Result<Vec<_>, ConnectError>>()?;
         let snapshot_id = Uuid::new_v4();
         transaction.execute(
@@ -504,6 +485,7 @@ impl LocalSyncStore {
         transaction.commit()?;
         Ok(SyncSession {
             protocol_version: CONTROL_PROTOCOL_VERSION,
+            protocol_profile: mdbase_connect_protocol::SYNC_PROTOCOL_PROFILE.to_string(),
             session_id: Uuid::new_v4(),
             replica_id: replica.id,
             collection_id,
@@ -831,15 +813,20 @@ impl LocalSyncStore {
             }
         }
         let current = record(&connection, collection_id, mutation.record_id)?;
-        if mutation.operation == SyncMutationOperation::Create {
-            if current.is_some() {
+        if mutation.operation == SyncMutationOperation::Put && current.is_none() {
+            if mutation.base_revision.is_some() {
                 return Ok(MutationPlan::Return(Box::new(conflict(mutation, current))));
             }
-            let path = required_input_string(&mutation.input, "path")?;
+            let path = mutation.path.as_deref().ok_or_else(|| {
+                ConnectError::AccessDenied("Put mutation path is required.".to_string())
+            })?;
+            let document = mutation.document.as_deref().ok_or_else(|| {
+                ConnectError::AccessDenied("Put mutation document is required.".to_string())
+            })?;
             let input = serde_json::json!({
                 "path": path,
-                "frontmatter": mutation.input.get("frontmatter").cloned().unwrap_or_else(|| serde_json::json!({})),
-                "body": mutation.input.get("body").cloned().unwrap_or_else(|| Value::String(String::new())),
+                "document": document,
+                "include_document": true,
             });
             return Ok(MutationPlan::Apply {
                 operation: "create",
@@ -863,18 +850,38 @@ impl LocalSyncStore {
             ))));
         }
         let (operation, input, preferred_path) = match mutation.operation {
-            SyncMutationOperation::Update => (
-                "update",
-                serde_json::json!({
-                    "path": current.path,
-                    "patch": mutation.input.get("patch").cloned().unwrap_or_else(|| serde_json::json!({})),
-                    "if_revision": current.revision,
-                    "body": mutation.input.get("body").cloned(),
-                }),
-                Some(current.path),
-            ),
-            SyncMutationOperation::Rename => {
-                let path = required_input_string(&mutation.input, "path")?.to_string();
+            SyncMutationOperation::Put => {
+                let path = mutation.path.as_deref().ok_or_else(|| {
+                    ConnectError::AccessDenied("Put mutation path is required.".to_string())
+                })?;
+                if path != current.path {
+                    return Ok(reject(
+                        "put_path_mismatch",
+                        "Move a record separately before replacing its document.",
+                    ));
+                }
+                let document = mutation.document.as_deref().ok_or_else(|| {
+                    ConnectError::AccessDenied("Put mutation document is required.".to_string())
+                })?;
+                (
+                    "update",
+                    serde_json::json!({
+                        "path": current.path,
+                        "document": document,
+                        "if_revision": current.revision,
+                        "include_document": true,
+                    }),
+                    Some(current.path),
+                )
+            }
+            SyncMutationOperation::Move => {
+                let path = mutation
+                    .path
+                    .as_deref()
+                    .ok_or_else(|| {
+                        ConnectError::AccessDenied("Move mutation path is required.".to_string())
+                    })?
+                    .to_string();
                 (
                     "rename",
                     serde_json::json!({
@@ -895,7 +902,6 @@ impl LocalSyncStore {
                 }),
                 None,
             ),
-            SyncMutationOperation::Create => unreachable!(),
         };
         Ok(MutationPlan::Apply {
             operation,

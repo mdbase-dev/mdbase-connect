@@ -3,29 +3,29 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-use mdbase_connect_protocol::{SyncMutation, SyncMutationOperation};
 use serde_json::{Map, Value};
 
 use crate::error::{ApiError, ApiResult};
 
 pub(super) fn operation_input(
-    mutation: &SyncMutation,
+    operation: &str,
+    source: &Map<String, Value>,
     current_path: Option<&str>,
 ) -> ApiResult<(Value, Option<String>)> {
-    let value = Value::Object(mutation.input.clone());
-    match mutation.operation {
-        SyncMutationOperation::Create => {
+    let value = Value::Object(source.clone());
+    match operation {
+        "create" => {
             let path = required_string(&value, "path")?;
             safe_relative(path)?;
-            let mut input = mutation.input.clone();
+            let mut input = source.clone();
             input.remove("types");
             Ok((Value::Object(input), None))
         }
-        SyncMutationOperation::Update => {
+        "update" => {
             let path = current_path.ok_or_else(|| {
                 ApiError::not_found("record_not_found", "The hosted record does not exist.")
             })?;
-            let mut input = mutation.input.clone();
+            let mut input = source.clone();
             // Connect exposes `patch`; the embedded Collection API consumes
             // the equivalent `fields` object. Keep that translation isolated
             // at this engine adapter.
@@ -33,45 +33,31 @@ pub(super) fn operation_input(
                 input.insert("fields".to_string(), patch);
             }
             input.insert("path".to_string(), Value::String(path.to_string()));
-            if let Some(revision) = &mutation.base_revision {
-                input.insert("if_revision".to_string(), Value::String(revision.clone()));
-            }
             Ok((Value::Object(input), Some(path.to_string())))
         }
-        SyncMutationOperation::Rename => {
+        "rename" => {
             let from = current_path.ok_or_else(|| {
                 ApiError::not_found("record_not_found", "The hosted record does not exist.")
             })?;
             let to = required_string(&value, "path")?;
             safe_relative(to)?;
-            let mut input = Map::from_iter([
-                ("from".to_string(), Value::String(from.to_string())),
-                ("to".to_string(), Value::String(to.to_string())),
-                ("update_refs".to_string(), Value::Bool(true)),
-            ]);
-            if let Some(revision) = &mutation.base_revision {
-                input.insert("if_revision".to_string(), Value::String(revision.clone()));
-            }
-            if mutation
-                .input
-                .get("include_document")
-                .and_then(Value::as_bool)
-                == Some(true)
-            {
-                input.insert("include_document".to_string(), Value::Bool(true));
-            }
+            let mut input = source.clone();
+            input.insert("from".to_string(), Value::String(from.to_string()));
+            input.insert("to".to_string(), Value::String(to.to_string()));
             Ok((Value::Object(input), Some(from.to_string())))
         }
-        SyncMutationOperation::Delete => {
+        "delete" => {
             let path = current_path.ok_or_else(|| {
                 ApiError::not_found("record_not_found", "The hosted record does not exist.")
             })?;
-            let mut input = Map::from_iter([("path".to_string(), Value::String(path.to_string()))]);
-            if let Some(revision) = &mutation.base_revision {
-                input.insert("if_revision".to_string(), Value::String(revision.clone()));
-            }
+            let mut input = source.clone();
+            input.insert("path".to_string(), Value::String(path.to_string()));
             Ok((Value::Object(input), Some(path.to_string())))
         }
+        _ => Err(ApiError::bad_request(
+            "unsupported_operation",
+            "The hosted record operation is unsupported.",
+        )),
     }
 }
 

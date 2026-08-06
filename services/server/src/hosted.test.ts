@@ -43,14 +43,10 @@ describe("persisted hosted authority", () => {
       mutation_id: randomUUID(),
       replica_id: replicaId,
       scope_epoch: 1,
-      operation: "create",
+      operation: "put",
       record_id: randomUUID(),
-      input: {
-        path: "Templates/Document.md",
-        frontmatter: { purpose: "document-template" },
-        body: "Template body for {{title}}",
-        types: []
-      },
+      path: "Templates/Document.md",
+      document: "---\npurpose: document-template\n---\nTemplate body for {{title}}",
       created_at: new Date().toISOString()
     });
     expect(receipt).toMatchObject({
@@ -79,8 +75,8 @@ describe("persisted hosted authority", () => {
     });
     const mutation = {
       mutation_id: randomUUID(), replica_id: replicaId, scope_epoch: 1 as const,
-      operation: "create" as const, record_id: randomUUID(),
-      input: { path: "records/one.md", frontmatter: { title: "One" }, types: [] },
+      operation: "put" as const, record_id: randomUUID(),
+      path: "records/one.md", document: "---\ntitle: One\n---\n",
       created_at: new Date().toISOString()
     };
     const applied = await (await first.transport(collectionId, replicaId)).mutate(mutation);
@@ -88,20 +84,24 @@ describe("persisted hosted authority", () => {
 
     const restarted = new HostedAuthorityRegistry(database);
     const transport = await restarted.transport(collectionId, replicaId);
-    const replay = await transport.mutate({ ...mutation, input: { path: "records/duplicate.md" } });
+    const replay = await transport.mutate({
+      ...mutation,
+      path: "records/duplicate.md",
+      document: "different replay bytes"
+    });
     expect(replay).toMatchObject({ status: "previously_applied", record: { path: "records/one.md" } });
     const session = await transport.openSession();
-    const current = (await transport.snapshot(session.snapshot_id)).records[0];
+    const current = (await transport.snapshot(session.snapshot_id)).records[0]!;
     const updates = await Promise.all([
       transport.mutate({
         mutation_id: randomUUID(), replica_id: replicaId, scope_epoch: 1,
-        operation: "update", record_id: current.record_id, base_revision: current.revision,
-        input: { patch: { title: "A" } }, created_at: new Date().toISOString()
+        operation: "put", record_id: current.record_id, base_revision: current.revision,
+        path: current.path, document: "---\ntitle: A\n---\n", created_at: new Date().toISOString()
       }),
       transport.mutate({
         mutation_id: randomUUID(), replica_id: replicaId, scope_epoch: 1,
-        operation: "update", record_id: current.record_id, base_revision: current.revision,
-        input: { patch: { title: "B" } }, created_at: new Date().toISOString()
+        operation: "put", record_id: current.record_id, base_revision: current.revision,
+        path: current.path, document: "---\ntitle: B\n---\n", created_at: new Date().toISOString()
       })
     ]);
     expect(updates.filter((receipt) => receipt.status === "applied")).toHaveLength(1);
@@ -126,8 +126,8 @@ describe("persisted hosted authority", () => {
     const creator = await first.transport(collectionId, replicaId);
     const create = await creator.mutate({
       mutation_id: randomUUID(), replica_id: replicaId, scope_epoch: 1,
-      operation: "create", record_id: randomUUID(),
-      input: { path: "records/one.md", frontmatter: { title: "One" }, types: [] },
+      operation: "put", record_id: randomUUID(),
+      path: "records/one.md", document: "---\ntitle: One\n---\n",
       created_at: new Date().toISOString()
     });
     if (create.status !== "applied" || !create.record) throw new Error("fixture create failed");
@@ -139,13 +139,13 @@ describe("persisted hosted authority", () => {
     const updates = await Promise.all([
       left.mutate({
         mutation_id: randomUUID(), replica_id: replicaId, scope_epoch: 1,
-        operation: "update", record_id: create.record.record_id, base_revision: create.record.revision,
-        input: { patch: { title: "Left" } }, created_at: new Date().toISOString()
+        operation: "put", record_id: create.record.record_id, base_revision: create.record.revision,
+        path: create.record.path, document: "---\ntitle: Left\n---\n", created_at: new Date().toISOString()
       }),
       right.mutate({
         mutation_id: randomUUID(), replica_id: replicaId, scope_epoch: 1,
-        operation: "update", record_id: create.record.record_id, base_revision: create.record.revision,
-        input: { patch: { title: "Right" } }, created_at: new Date().toISOString()
+        operation: "put", record_id: create.record.record_id, base_revision: create.record.revision,
+        path: create.record.path, document: "---\ntitle: Right\n---\n", created_at: new Date().toISOString()
       })
     ]);
     expect(updates.filter((receipt) => receipt.status === "applied")).toHaveLength(1);
@@ -170,8 +170,8 @@ describe("persisted hosted authority", () => {
     const writer = await writerRegistry.transport(collectionId, replicaId);
     await writer.mutate({
       mutation_id: randomUUID(), replica_id: replicaId, scope_epoch: 1,
-      operation: "create", record_id: randomUUID(),
-      input: { path: "records/one.md", frontmatter: { title: "One" }, types: [] },
+      operation: "put", record_id: randomUUID(),
+      path: "records/one.md", document: "---\ntitle: One\n---\n",
       created_at: new Date().toISOString()
     });
 
@@ -180,8 +180,8 @@ describe("persisted hosted authority", () => {
     const pinned = await reader.openSession();
     await writer.mutate({
       mutation_id: randomUUID(), replica_id: replicaId, scope_epoch: 1,
-      operation: "create", record_id: randomUUID(),
-      input: { path: "records/two.md", frontmatter: { title: "Two" }, types: [] },
+      operation: "put", record_id: randomUUID(),
+      path: "records/two.md", document: "---\ntitle: Two\n---\n",
       created_at: new Date().toISOString()
     });
 

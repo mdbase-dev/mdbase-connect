@@ -4,11 +4,12 @@ use mdbase_connect_core::{
 };
 use mdbase_connect_mirror::{
     clear_mirror_marker, mark_mirror, mirror_lock_path, validate_selective_sync_policy,
-    DirectoryMirror, HttpSyncTransport, MirrorError,
+    DirectoryMirror, HttpSyncTransport, MirrorApplyResult, MirrorError, MirrorSyncPlan,
 };
 use mdbase_connect_protocol::{
-    MirrorAddParams, MirrorConfigureSelectiveSyncParams, MirrorIdParams, MirrorPromotionSummary,
-    MirrorResolveParams, MirrorState, MirrorSummary, SelectiveSyncPolicy, SyncReplicaMode,
+    MirrorAddParams, MirrorApplyParams, MirrorConfigureSelectiveSyncParams, MirrorIdParams,
+    MirrorPromotionSummary, MirrorResolveParams, MirrorState, MirrorSummary, SelectiveSyncPolicy,
+    SyncReplicaMode,
 };
 use reqwest::{Client, Method};
 use serde::{Deserialize, Serialize};

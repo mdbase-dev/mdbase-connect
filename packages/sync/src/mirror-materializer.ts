@@ -33,7 +33,6 @@ import { withoutSnapshotDocument } from "./mirror-snapshot-validator.js";
 export interface PutOptions {
   managedState?: MirrorState;
   acceptedHash?: string | null;
-  preserveAcceptedDocument?: boolean;
   materialized?: { document: string; hash: string };
   physicalPathPreflighted?: boolean;
 }
@@ -61,7 +60,6 @@ export class MirrorMaterializer {
     const {
       managedState = state,
       acceptedHash,
-      preserveAcceptedDocument = false,
       materialized,
       physicalPathPreflighted = false
     } = options;
@@ -93,19 +91,18 @@ export class MirrorMaterializer {
     if (prior && prior.path !== record.path) {
       await this.remove(managedState!, record.record_id, prior.path);
     }
-    const acceptedLocalHash = preserveAcceptedDocument
-      && typeof acceptedHash === "string"
+    const authoritativeHash = this.runtime.digest(document);
+    const acceptedLocalHash = typeof acceptedHash === "string"
+      && acceptedHash === authoritativeHash
       && existing !== null
-      && this.runtime.digest(existing) === acceptedHash
-      ? acceptedHash
-      : null;
-    if (acceptedLocalHash === null) {
+      && this.runtime.digest(existing) === authoritativeHash;
+    if (!acceptedLocalHash) {
       await this.fileSystem.write(record.path, document);
     }
     state.records[record.record_id] = {
       path: record.path,
       revision: record.revision,
-      hash: acceptedLocalHash ?? materialized?.hash ?? this.runtime.digest(document),
+      hash: materialized?.hash ?? authoritativeHash,
       ...(this.mode === "read_write"
         ? { record: withoutSnapshotDocument(record) }
         : {})

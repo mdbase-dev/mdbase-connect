@@ -134,7 +134,7 @@ impl MirrorManager {
         provisioned
     }
 
-    pub async fn sync(&self, params: MirrorIdParams) -> Result<MirrorSummary, ConnectError> {
+    pub async fn inspect(&self, params: MirrorIdParams) -> Result<MirrorSyncPlan, ConnectError> {
         let entry = self.entry(params.replica_id)?;
         self.require_active(&entry)?;
         if entry.promotion.is_some() {
@@ -143,8 +143,32 @@ impl MirrorManager {
                 "This mirror is fenced for an authority transfer.",
             ));
         }
-        self.sync_entry(entry.clone(), false).await?;
-        self.summary(&entry)
+        let _guard = self.begin_operation(entry.replica_id, false)?;
+        self.mirror(&entry)
+            .await?
+            .inspect()
+            .await
+            .map_err(from_mirror)
+    }
+
+    pub async fn apply(
+        &self,
+        params: MirrorApplyParams,
+    ) -> Result<MirrorApplyResult, ConnectError> {
+        let entry = self.entry(params.replica_id)?;
+        self.require_active(&entry)?;
+        if entry.promotion.is_some() {
+            return Err(mirror_error(
+                "mirror_promotion_in_progress",
+                "This mirror is fenced for an authority transfer.",
+            ));
+        }
+        let _guard = self.begin_operation(entry.replica_id, false)?;
+        self.mirror(&entry)
+            .await?
+            .apply_fingerprint(&params.plan_fingerprint)
+            .await
+            .map_err(from_mirror)
     }
 
     pub async fn configure_selective_sync(

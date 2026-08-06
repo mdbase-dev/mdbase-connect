@@ -381,7 +381,7 @@ fn control_request_has_stable_wire_shape() {
         serde_json::to_value(request).unwrap(),
         serde_json::json!({
             "id": "00000000-0000-0000-0000-000000000000",
-            "protocol_version": 2,
+            "protocol_version": 3,
             "method": "collections.list"
         })
     );
@@ -450,7 +450,7 @@ fn copied_collection_registration_has_an_explicit_wire_command() {
         serde_json::to_value(request).unwrap(),
         serde_json::json!({
             "id": "00000000-0000-0000-0000-000000000000",
-            "protocol_version": 2,
+            "protocol_version": 3,
             "method": "collections.add-copy",
             "params": { "path": "/collections/notes-copy" }
         })
@@ -475,7 +475,7 @@ fn mirror_file_preferences_have_an_explicit_control_command() {
         serde_json::to_value(request).unwrap(),
         serde_json::json!({
             "id": "00000000-0000-0000-0000-000000000000",
-            "protocol_version": 2,
+            "protocol_version": 3,
             "method": "mirrors.configure-selective-sync",
             "params": {
                 "replica_id": replica_id,
@@ -733,6 +733,7 @@ fn rust_sync_messages_match_the_canonical_wire_schema() {
     let record = SyncRecord {
         record_id,
         path: "tasks/example.md".to_string(),
+        document: "---\ntype: task\ntitle: Example\n---\nBody".to_string(),
         revision: format!("sha256:{}", "2".repeat(64)),
         frontmatter: serde_json::Map::from_iter([
             ("type".to_string(), Value::String("task".to_string())),
@@ -745,13 +746,11 @@ fn rust_sync_messages_match_the_canonical_wire_schema() {
         mutation_id,
         replica_id,
         scope_epoch: 1,
-        operation: SyncMutationOperation::Update,
+        operation: SyncMutationOperation::Put,
         record_id,
         base_revision: Some(record.revision.clone()),
-        input: serde_json::Map::from_iter([(
-            "patch".to_string(),
-            serde_json::json!({"status": "done"}),
-        )]),
+        path: Some(record.path.clone()),
+        document: Some(record.document.clone()),
         created_at: "2026-07-21T00:00:00Z".to_string(),
         causal_predecessor: None,
     };
@@ -785,6 +784,7 @@ fn rust_sync_messages_match_the_canonical_wire_schema() {
             "/$defs/session",
             serde_json::to_value(SyncSession {
                 protocol_version: SYNC_PROTOCOL_VERSION,
+                protocol_profile: SYNC_PROTOCOL_PROFILE.to_string(),
                 session_id,
                 replica_id,
                 collection_id,
@@ -806,7 +806,6 @@ fn rust_sync_messages_match_the_canonical_wire_schema() {
                 cursor: 1,
                 records: vec![SyncSnapshotRecord {
                     record: record.clone(),
-                    document: "---\ntitle: Task\n---\nDo it.\n".to_string(),
                 }],
                 next_page: None,
             })
@@ -856,12 +855,12 @@ fn rust_sync_messages_match_the_canonical_wire_schema() {
             "/$defs/receipt",
             serde_json::to_value(SyncMutationReceipt::Conflicted {
                 mutation_id,
-                conflict: SyncConflict {
+                conflict: Box::new(SyncConflict {
                     record_id,
                     mutation,
                     current_revision: Some(record.revision.clone()),
                     current: Some(record),
-                },
+                }),
             })
             .unwrap(),
         ),
@@ -901,4 +900,25 @@ fn generated_operation_catalog_classifies_collection_and_file_mutations() {
         "file_control",
         &serde_json::json!({ "type": "list_files" })
     ));
+}
+
+#[test]
+fn mirror_plan_and_apply_have_explicit_control_commands() {
+    let replica_id = Uuid::parse_str("01911111-1111-7111-8111-111111111111").unwrap();
+    let inspect = ControlRequest::new(ControlCommand::MirrorInspect(MirrorIdParams { replica_id }));
+    let apply = ControlRequest::new(ControlCommand::MirrorApply(MirrorApplyParams {
+        replica_id,
+        plan_fingerprint: format!("sha256:{}", "a".repeat(64)),
+    }));
+    assert_eq!(
+        serde_json::to_value(inspect).unwrap()["method"],
+        "mirrors.inspect"
+    );
+    assert_eq!(
+        serde_json::to_value(apply).unwrap()["params"],
+        serde_json::json!({
+            "replica_id": replica_id,
+            "plan_fingerprint": format!("sha256:{}", "a".repeat(64))
+        })
+    );
 }

@@ -7,12 +7,13 @@ impl DirectoryMirror {
     ) -> Result<(), MirrorError> {
         let session = self.transport.open_session().await?;
         if session.protocol_version != SYNC_PROTOCOL_VERSION
+            || session.protocol_profile != mdbase_connect_protocol::SYNC_PROTOCOL_PROFILE
             || session.replica_id != self.replica_id
             || session.mode != self.mode
         {
             return Err(MirrorError::new(
-                "invalid_mirror_session",
-                "Hosted authority returned a session for a different replica or mode.",
+                "sync_protocol_incompatible",
+                "Hosted authority must use exact-document v1 for this replica and mode.",
             ));
         }
         let mut records = Vec::new();
@@ -100,6 +101,7 @@ impl DirectoryMirror {
         }
         let plan = DurableRebuildPlan {
             protocol_version: SYNC_PROTOCOL_VERSION,
+            engine_version: MIRROR_ENGINE_VERSION,
             replica_id: self.replica_id,
             mode: self.mode,
             session,
@@ -125,6 +127,7 @@ impl DirectoryMirror {
         let target_paths = self.target_paths(&plan.session.resources, &plan.records, &plan.files);
         let mut state = DurableMirrorState {
             protocol_version: SYNC_PROTOCOL_VERSION,
+            engine_version: MIRROR_ENGINE_VERSION,
             replica_id: self.replica_id,
             scope_epoch: plan.session.scope_epoch,
             cursor: plan.session.head,
@@ -152,13 +155,13 @@ impl DirectoryMirror {
         }
         for snapshot in &plan.records {
             let record = &snapshot.record;
-            self.write_file(&record.path, snapshot.document.as_bytes())?;
+            self.write_file(&record.path, record.document.as_bytes())?;
             state.records.insert(
                 record.record_id,
                 MirrorEntry {
                     path: record.path.clone(),
                     revision: record.revision.clone(),
-                    hash: digest(&snapshot.document),
+                    hash: digest(&record.document),
                     record: (self.mode == SyncReplicaMode::ReadWrite).then_some(record.clone()),
                 },
             );
@@ -342,7 +345,7 @@ impl DirectoryMirror {
         Ok(())
     }
 
-    fn validate_snapshot_documents(
+    pub(super) fn validate_snapshot_documents(
         &self,
         resources: &SyncCollectionResources,
         records: &[SyncSnapshotRecord],
@@ -418,7 +421,7 @@ impl DirectoryMirror {
         for snapshot in records {
             let record = &snapshot.record;
             self.validate_record_path_with(&collection, &record.path)?;
-            if format!("sha256:{}", digest(&snapshot.document)) != record.revision {
+            if format!("sha256:{}", digest(&record.document)) != record.revision {
                 return Err(MirrorError::new(
                     "invalid_snapshot",
                     format!(
@@ -427,7 +430,7 @@ impl DirectoryMirror {
                     ),
                 ));
             }
-            let (frontmatter, body) = parse_markdown(&snapshot.document, &record.path)?;
+            let (frontmatter, body) = parse_markdown(&record.document, &record.path)?;
             let body_matches = body == record.body
                 || body.strip_prefix('\n') == Some(record.body.as_str())
                 || record.body.strip_prefix('\n') == Some(body.as_str());
@@ -504,7 +507,7 @@ impl DirectoryMirror {
                     ),
                 ));
             }
-            let expected = format!("sha256:{}", digest(&snapshot.document));
+            let expected = format!("sha256:{}", digest(&record.document));
             let prior_digest = managed
                 .map(|entry| format!("sha256:{}", entry.hash))
                 .or_else(|| managed_file.map(|entry| entry.file.content_digest.clone()));

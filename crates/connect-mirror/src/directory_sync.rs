@@ -3,8 +3,11 @@ use super::*;
 impl DirectoryMirror {
     pub async fn sync(&self) -> Result<(), MirrorError> {
         let _lease = MirrorLease::acquire(&self.lock_file)?;
-        self.sync_unlocked().await?;
-        self.prune_file_cache()
+        let plan = self.inspect_unlocked().await?;
+        if let Some(issue) = plan.issues.iter().find(|issue| issue.blocking) {
+            return Err(MirrorError::new(&issue.code, &issue.message));
+        }
+        self.apply_current_unlocked(&plan).await.map(|_| ())
     }
 
     pub(super) async fn sync_unlocked(&self) -> Result<(), MirrorError> {
@@ -25,9 +28,12 @@ impl DirectoryMirror {
             return self.rebuild(Some(state)).await;
         }
         if self.mode == SyncReplicaMode::ReadWrite {
+            let had_pending = !state.pending.is_empty();
             self.flush_pending(&mut state).await?;
-            self.capture_local_changes(&mut state)?;
-            self.flush_pending(&mut state).await?;
+            if !had_pending {
+                self.capture_local_changes(&mut state)?;
+                self.flush_pending(&mut state).await?;
+            }
         } else {
             self.assert_undiverged(&state)?;
         }
@@ -300,16 +306,14 @@ impl DirectoryMirror {
             .records
             .values()
             .filter_map(|entry| entry.record.clone().map(|record| (entry, record)))
-            .map(|(entry, record)| {
-                Ok(AuthoritySnapshotRecord {
-                    record,
-                    document: self.read_file(&entry.path)?.ok_or_else(|| {
-                        MirrorError::new(
-                            "mirror_diverged",
-                            format!("Authority record {} is missing.", entry.path),
-                        )
-                    })?,
-                })
+            .map(|(entry, mut record)| {
+                record.document = self.read_file(&entry.path)?.ok_or_else(|| {
+                    MirrorError::new(
+                        "mirror_diverged",
+                        format!("Authority record {} is missing.", entry.path),
+                    )
+                })?;
+                Ok(record)
             })
             .collect::<Result<Vec<_>, MirrorError>>()?;
         Ok(AuthorityPromotionManifest {

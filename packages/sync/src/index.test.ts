@@ -7,6 +7,31 @@ import {
   OfflineReplica,
   SyncError
 } from "./index.js";
+import { projectionMarkdownDocument } from "./mirror-format.js";
+
+function putMutation(input: {
+  replicaId: string;
+  recordId: string;
+  path: string;
+  frontmatter?: JsonObject;
+  body?: string;
+  baseRevision?: string;
+  mutationId?: string;
+}): SyncMutation {
+  const frontmatter = input.frontmatter ?? {};
+  const body = input.body ?? "";
+  return {
+    mutation_id: input.mutationId ?? crypto.randomUUID(),
+    replica_id: input.replicaId,
+    scope_epoch: 1,
+    operation: "put",
+    record_id: input.recordId,
+    ...(input.baseRevision ? { base_revision: input.baseRevision } : {}),
+    path: input.path,
+    document: projectionMarkdownDocument({ frontmatter, body }),
+    created_at: new Date().toISOString()
+  };
+}
 
 const ids = {
   collection: "01910000-0000-7000-8000-000000000001",
@@ -78,15 +103,13 @@ describe("hosted sync vertical slice", () => {
   it("accepts a raw body-only create without frontmatter or explicit types", async () => {
     const hosted = authority();
     hosted.registerReplica({ id: ids.writer, name: "Body-only writer", mode: "read_write" });
-    const receipt = await hosted.transport(ids.writer).mutate({
-      mutation_id: ids.mutation,
-      replica_id: ids.writer,
-      scope_epoch: 1,
-      operation: "create",
-      record_id: ids.record,
-      input: { path: "Start Here.md", body: "# Start here" },
-      created_at: "2026-07-27T00:00:00.000Z"
-    });
+    const receipt = await hosted.transport(ids.writer).mutate(putMutation({
+      mutationId: ids.mutation,
+      replicaId: ids.writer,
+      recordId: ids.record,
+      path: "Start Here.md",
+      body: "# Start here"
+    }));
 
     expect(receipt).toMatchObject({
       status: "applied",
@@ -125,15 +148,13 @@ describe("hosted sync vertical slice", () => {
       frontmatter: { title: "Created offline" }
     });
 
-    const replay: SyncMutation = {
-      mutation_id: ids.mutation,
-      replica_id: ids.writer,
-      scope_epoch: 1,
-      operation: "create",
-      record_id: ids.record,
-      input: { path: "tasks/duplicate.md", frontmatter: { type: "task", title: "Duplicate" }, types: ["task"] },
-      created_at: "2026-07-21T00:00:00Z"
-    };
+    const replay = putMutation({
+      mutationId: ids.mutation,
+      replicaId: ids.writer,
+      recordId: ids.record,
+      path: "tasks/duplicate.md",
+      frontmatter: { type: "task", title: "Duplicate" }
+    });
     expect(await hosted.transport(ids.writer).mutate(replay)).toMatchObject({
       status: "previously_applied",
       record: { path: "tasks/offline.md" }
@@ -151,26 +172,23 @@ describe("hosted sync vertical slice", () => {
     const initial = (await transport.snapshot((await transport.openSession()).snapshot_id)).records;
     const current = initial.find((record) => record.record_id === ids.record)!;
     const other = initial.find((record) => record.record_id !== ids.record)!;
-    const first = await transport.mutate({
-      mutation_id: crypto.randomUUID(), replica_id: ids.writer, scope_epoch: 1,
-      operation: "update", record_id: current.record_id, base_revision: current.revision,
-      input: { patch: { title: "Remote" } }, created_at: new Date().toISOString()
-    });
+    const first = await transport.mutate(putMutation({
+      replicaId: ids.writer, recordId: current.record_id, path: current.path,
+      baseRevision: current.revision, frontmatter: { ...current.frontmatter, title: "Remote" }, body: current.body
+    }));
     expect(first.status).toBe("applied");
-    const stale = await transport.mutate({
-      mutation_id: crypto.randomUUID(), replica_id: ids.writer, scope_epoch: 1,
-      operation: "update", record_id: current.record_id, base_revision: current.revision,
-      input: { patch: { title: "Stale" } }, created_at: new Date().toISOString()
-    });
+    const stale = await transport.mutate(putMutation({
+      replicaId: ids.writer, recordId: current.record_id, path: current.path,
+      baseRevision: current.revision, frontmatter: { ...current.frontmatter, title: "Stale" }, body: current.body
+    }));
     expect(stale).toMatchObject({
       status: "conflicted",
       conflict: { current: { frontmatter: { title: "Remote" } } }
     });
-    const independent = await transport.mutate({
-      mutation_id: crypto.randomUUID(), replica_id: ids.writer, scope_epoch: 1,
-      operation: "update", record_id: other.record_id, base_revision: other.revision,
-      input: { patch: { title: "Independent" } }, created_at: new Date().toISOString()
-    });
+    const independent = await transport.mutate(putMutation({
+      replicaId: ids.writer, recordId: other.record_id, path: other.path,
+      baseRevision: other.revision, frontmatter: { ...other.frontmatter, title: "Independent" }, body: other.body
+    }));
     expect(independent).toMatchObject({ status: "applied", record: { frontmatter: { title: "Independent" } } });
   });
 
@@ -277,12 +295,10 @@ describe("hosted sync vertical slice", () => {
       recordId: ids.record, mutationId: ids.mutation, path: "tasks/queued.md",
       frontmatter: { type: "task", title: "Queued" }, types: ["task"]
     });
-    await hosted.transport(ids.writer).mutate({
-      mutation_id: crypto.randomUUID(), replica_id: ids.writer, scope_epoch: 1,
-      operation: "create", record_id: crypto.randomUUID(),
-      input: { path: "tasks/remote.md", frontmatter: { type: "task", title: "Remote" }, types: ["task"] },
-      created_at: new Date().toISOString()
-    });
+    await hosted.transport(ids.writer).mutate(putMutation({
+      replicaId: ids.writer, recordId: crypto.randomUUID(), path: "tasks/remote.md",
+      frontmatter: { type: "task", title: "Remote" }
+    }));
     hosted.compactThrough(1);
     await replica.pull();
     expect((await replica.pending()).map((mutation) => mutation.mutation_id)).toEqual([ids.mutation]);
@@ -303,9 +319,8 @@ describe("hosted sync vertical slice", () => {
     hosted.revokeReplica(ids.writer);
     await expect(replica.pull()).rejects.toEqual(expect.objectContaining({ code: "replica_revoked" }));
     await expect(hosted.transport(ids.writer).mutate({
-      mutation_id: crypto.randomUUID(), replica_id: ids.writer, scope_epoch: 2,
-      operation: "create", record_id: crypto.randomUUID(),
-      input: { path: "private.md", frontmatter: {}, types: ["private"] }, created_at: new Date().toISOString()
+      ...putMutation({ replicaId: ids.writer, recordId: crypto.randomUUID(), path: "private.md" }),
+      scope_epoch: 2
     })).resolves.toEqual(expect.objectContaining({ status: "rejected", error: { code: "replica_revoked", message: expect.any(String) } }));
   });
 
@@ -339,12 +354,10 @@ describe("hosted sync vertical slice", () => {
     const reader = hosted.transport(ids.reader);
     const session = await reader.openSession();
     const first = await reader.snapshot(session.snapshot_id);
-    await hosted.transport(ids.writer).mutate({
-      mutation_id: crypto.randomUUID(), replica_id: ids.writer, scope_epoch: 1,
-      operation: "create", record_id: crypto.randomUUID(),
-      input: { path: "tasks/c.md", frontmatter: { type: "task", title: "C" }, types: ["task"] },
-      created_at: new Date().toISOString()
-    });
+    await hosted.transport(ids.writer).mutate(putMutation({
+      replicaId: ids.writer, recordId: crypto.randomUUID(), path: "tasks/c.md",
+      frontmatter: { type: "task", title: "C" }
+    }));
     const second = await reader.snapshot(session.snapshot_id, first.next_page);
     expect([...first.records, ...second.records].map((record) => record.path)).toEqual(["tasks/a.md", "tasks/b.md"]);
     expect(second.cursor).toBe(session.head);
@@ -366,12 +379,10 @@ describe("hosted sync vertical slice", () => {
     hosted.registerReplica({ id: ids.reader, name: "Task reader", mode: "read_only", allowedTypes: ["task"] });
     hosted.registerReplica({ id: ids.writer, name: "Full writer", mode: "read_write" });
     const writer = hosted.transport(ids.writer);
-    await writer.mutate({
-      mutation_id: crypto.randomUUID(), replica_id: ids.writer, scope_epoch: 1,
-      operation: "create", record_id: crypto.randomUUID(),
-      input: { path: "private/one.md", frontmatter: { type: "private" }, types: ["private"] },
-      created_at: new Date().toISOString()
-    });
+    await writer.mutate(putMutation({
+      replicaId: ids.writer, recordId: crypto.randomUUID(), path: "private/one.md",
+      frontmatter: { type: "private" }
+    }));
     const page = await hosted.transport(ids.reader).changes(0, 1);
     expect(page).toMatchObject({ events: [], cursor: 1, head: 1, has_more: false });
   });
@@ -428,15 +439,15 @@ describe("hosted sync vertical slice", () => {
     await replica.initialize();
     const initial = (await replica.records())[0];
     await replica.queueUpdate({ recordId: ids.record, patch: { status: "local" } });
-    await hosted.transport(ids.reader).mutate({
-      mutation_id: crypto.randomUUID(), replica_id: ids.reader, scope_epoch: 1,
-      operation: "update", record_id: ids.record, base_revision: initial.revision,
-      input: { patch: { title: "Remote" } }, created_at: new Date().toISOString()
-    });
+    await hosted.transport(ids.reader).mutate(putMutation({
+      replicaId: ids.reader, recordId: ids.record, path: initial.path,
+      baseRevision: initial.revision,
+      frontmatter: { ...initial.frontmatter, title: "Remote" }, body: initial.body
+    }));
     await replica.pull();
     expect((await replica.records())[0]).toMatchObject({
       revision: expect.stringMatching(/^local:/),
-      frontmatter: { title: "Remote", status: "local" }
+      frontmatter: { title: "One", status: "local" }
     });
   });
 
@@ -498,7 +509,7 @@ describe("hosted sync vertical slice", () => {
   it("rejects non-advancing provider pages instead of looping", async () => {
     const transport = {
       openSession: async () => ({
-        protocol_version: 1 as const, session_id: crypto.randomUUID(), replica_id: ids.reader,
+        protocol_version: 1 as const, protocol_profile: "exact_document_v1" as const, session_id: crypto.randomUUID(), replica_id: ids.reader,
         collection_id: ids.collection, mode: "read_only" as const, scope_epoch: 1,
         retained_after: 0, head: 0, snapshot_id: crypto.randomUUID(),
         resources: { revision: "test:1", spec_version: "0.3.0", types: [], contracts: [] }

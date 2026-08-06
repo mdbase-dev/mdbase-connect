@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.1.0-beta.39
+
+Beta.39 deliberately rewrites the unreleased sync-v1 contract around exact
+documents and one reconciliation owner. Existing prerelease mirrors must be
+rebuilt; there is no dual-format compatibility path.
+
+- Record and resource revisions are SHA-256 over exact UTF-8 document bytes.
+  BOMs, line endings, comments, key ordering, nulls, malformed frontmatter,
+  trailing spaces, and bodies survive authority and mirror round trips.
+- Raw replication uses only conditional `put`, `move`, and `delete`. A move
+  preserves identity and every document byte and never rewrites references;
+  semantic rename remains an explicit mdbase operation.
+- TypeScript and Rust mirrors now inspect both sides into a sorted,
+  content-free plan, revalidate its fingerprint, and apply one durable batch.
+  Obsidian and the native CLI consume that plan instead of calculating another
+  preview.
+- Expected collisions, conflicts, resource drift, cancellation, and stale
+  review are explicit outcomes. Fresh status is inspection-backed, while the
+  cheap checkpoint view makes no remote-freshness claim.
+- Shared portable-path fixtures cover platform-reserved punctuation and
+  physical aliases. Lost replies, restart, byte-odd Markdown, raw moves,
+  binary echoes, stale plans, and side-effect-free inspection have regression
+  coverage.
+- The hosted beta migration retires wrapper-shaped records and replay state
+  while preserving collection identity, replicas, resources, files, quotas,
+  notification grants, and the shared sequence head. This is the explicit
+  prerelease reset boundary, not a hidden dual-format decoder.
+
 ## 0.1.0-beta.38
 
 Beta.38 restores correct logical-array semantics for editable Obsidian Bases

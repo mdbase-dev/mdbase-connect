@@ -73,6 +73,7 @@ impl HostedProvider {
         transaction.commit().await?;
         Ok(SyncSession {
             protocol_version: SYNC_PROTOCOL_VERSION,
+            protocol_profile: mdbase_connect_protocol::SYNC_PROTOCOL_PROFILE.to_string(),
             session_id: Uuid::new_v4(),
             replica_id: replica.id,
             collection_id,
@@ -188,10 +189,7 @@ impl HostedProvider {
                     row.get("payload_ciphertext"),
                     &record_version_aad(collection_id, row.get("record_id"), sequence),
                 )?;
-                Ok(SyncSnapshotRecord {
-                    record: payload.record,
-                    document: payload.document,
-                })
+                Ok(SyncSnapshotRecord { record: payload })
             })
             .collect::<ApiResult<Vec<_>>>()?;
         if next_page.is_none() {

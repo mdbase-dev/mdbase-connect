@@ -13,17 +13,32 @@ interface ReferenceSyncRoutesOptions {
   hostedReference?: HostedAuthorityRegistry;
 }
 
-const syncMutationSchema = z.object({
+const syncMutationBase = z.object({
   mutation_id: z.uuid(),
   replica_id: z.uuid(),
   scope_epoch: z.number().int().positive(),
-  operation: z.enum(["create", "update", "rename", "delete"]),
   record_id: z.uuid(),
-  base_revision: z.string().min(1).optional(),
-  input: z.record(z.string(), z.unknown()),
   created_at: z.iso.datetime(),
   causal_predecessor: z.uuid().optional()
-}).strict();
+});
+
+const syncMutationSchema = z.discriminatedUnion("operation", [
+  syncMutationBase.extend({
+    operation: z.literal("put"),
+    base_revision: z.string().min(1).optional(),
+    path: z.string().min(1),
+    document: z.string()
+  }).strict(),
+  syncMutationBase.extend({
+    operation: z.literal("move"),
+    base_revision: z.string().min(1),
+    path: z.string().min(1)
+  }).strict(),
+  syncMutationBase.extend({
+    operation: z.literal("delete"),
+    base_revision: z.string().min(1)
+  }).strict()
+]);
 
 export function registerReferenceSyncRoutes(
   app: FastifyInstance,

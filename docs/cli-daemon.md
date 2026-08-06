@@ -70,7 +70,7 @@ Connect administration is namespaced:
 - `mdbase connect daemon run|install|uninstall|start|stop|restart|status|logs`
 - `mdbase connect collection list|add|add-copy|create|remove|validate|transfer-authority`
 - `mdbase connect hosted list|create|rename|delete`
-- `mdbase connect mirror list|add|sync|resolve|promote|remove`
+- `mdbase connect mirror list|add|plan|sync|resolve|promote|remove`
 - `mdbase connect access list|pause|resume|approve|deny|update|revoke`
 - `mdbase connect activity|doctor`
 
@@ -148,6 +148,8 @@ wrong server.
 - The daemon never silently chooses between local and hosted content.
 - A receive-only mirror stops at local divergence.
 - A writable conflict isolates one record while unrelated records continue.
+- `mirror plan` is side-effect free; `mirror sync --plan <fingerprint>` fully
+  reinspects and refuses stale review before writing.
 - Configuration and type resources remain authority-owned.
 - Revocation stops synchronization without deleting local files.
 - Revocation intent is durable before the remote call; ambiguous responses and

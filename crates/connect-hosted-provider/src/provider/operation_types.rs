@@ -158,8 +158,8 @@ impl HostedProvider {
             let workspace = WorkingSet::materialize(
                 resources,
                 records.values().map(|record| StoredDocument {
-                    record_id: record.record.record_id,
-                    path: record.record.path.clone(),
+                    record_id: record.record_id,
+                    path: record.path.clone(),
                     document: record.document.clone(),
                 }),
             )?;
@@ -193,13 +193,7 @@ impl HostedProvider {
         let record_inputs = cached
             .records
             .iter()
-            .map(|(id, persisted)| {
-                (
-                    *id,
-                    persisted.record.path.clone(),
-                    persisted.record.frontmatter.clone(),
-                )
-            })
+            .map(|(id, persisted)| (*id, persisted.path.clone(), persisted.frontmatter.clone()))
             .collect::<Vec<_>>();
         let classifications = cached.workspace.classify_records(&record_inputs)?;
 
@@ -255,10 +249,10 @@ impl HostedProvider {
             let Some(persisted) = cached.records.get_mut(&record_id) else {
                 continue;
             };
-            if persisted.record.types == next_types {
+            if persisted.types == next_types {
                 continue;
             }
-            persisted.record.types = next_types;
+            persisted.types = next_types;
             let sequence: i64 = sqlx::query_scalar(
                 "SELECT sequence FROM hosted_provider_records WHERE collection_id = $1 AND record_id = $2",
             )
@@ -284,7 +278,7 @@ impl HostedProvider {
             )
             .bind(collection_id)
             .bind(record_id)
-            .bind(&persisted.record.types)
+            .bind(&persisted.types)
             .bind(current_ciphertext)
             .execute(&mut *transaction)
             .await?;
@@ -296,7 +290,7 @@ impl HostedProvider {
             .bind(collection_id)
             .bind(record_id)
             .bind(sequence)
-            .bind(&persisted.record.types)
+            .bind(&persisted.types)
             .bind(version_ciphertext)
             .execute(&mut *transaction)
             .await?;
@@ -423,8 +417,8 @@ impl HostedProvider {
             let workspace = WorkingSet::materialize(
                 resources,
                 records.values().map(|record| StoredDocument {
-                    record_id: record.record.record_id,
-                    path: record.record.path.clone(),
+                    record_id: record.record_id,
+                    path: record.path.clone(),
                     document: record.document.clone(),
                 }),
             )?;
@@ -481,13 +475,7 @@ impl HostedProvider {
         let record_inputs = cached
             .records
             .iter()
-            .map(|(id, persisted)| {
-                (
-                    *id,
-                    persisted.record.path.clone(),
-                    persisted.record.frontmatter.clone(),
-                )
-            })
+            .map(|(id, persisted)| (*id, persisted.path.clone(), persisted.frontmatter.clone()))
             .collect::<Vec<_>>();
         let classifications = cached.workspace.classify_records(&record_inputs)?;
 
@@ -587,10 +575,10 @@ impl HostedProvider {
             let Some(persisted) = cached.records.get_mut(&record_id) else {
                 continue;
             };
-            if persisted.record.types == next_types {
+            if persisted.types == next_types {
                 continue;
             }
-            persisted.record.types = next_types;
+            persisted.types = next_types;
             let sequence: i64 = sqlx::query_scalar(
                 "SELECT sequence FROM hosted_provider_records WHERE collection_id = $1 AND record_id = $2",
             )
@@ -616,7 +604,7 @@ impl HostedProvider {
             )
             .bind(collection_id)
             .bind(record_id)
-            .bind(&persisted.record.types)
+            .bind(&persisted.types)
             .bind(current_ciphertext)
             .execute(&mut *transaction)
             .await?;
@@ -628,7 +616,7 @@ impl HostedProvider {
             .bind(collection_id)
             .bind(record_id)
             .bind(sequence)
-            .bind(&persisted.record.types)
+            .bind(&persisted.types)
             .bind(version_ciphertext)
             .execute(&mut *transaction)
             .await?;

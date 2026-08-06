@@ -5,7 +5,6 @@ import {
   DirectoryMirror,
   MemoryMirrorLease,
   MemoryMirrorStateStore,
-  MirrorInitializationConflictError,
   WritableDirectoryMirror,
   portableMirrorRuntime,
   recordMarkdownDocument,
@@ -71,13 +70,18 @@ function deterministicRuntime(): MirrorRuntime {
 }
 
 function records(count: number) {
-  return Array.from({ length: count }, (_, index) => ({
-    record_id: `portable-${index}`,
-    path: `notes/${String(index).padStart(5, "0")}.md`,
-    frontmatter: { type: "note", title: `Portable ${index}` },
-    body: `Body ${index}`,
-    types: ["note"]
-  }));
+  return Array.from({ length: count }, (_, index) => {
+    const body = `Body ${index}`;
+    const document = `---\ntype: note\ntitle: Portable ${index}\n---\n\n${body}`;
+    return {
+      record_id: `portable-${index}`,
+      path: `notes/${String(index).padStart(5, "0")}.md`,
+      document,
+      frontmatter: { type: "note", title: `Portable ${index}` },
+      body,
+      types: ["note"]
+    };
+  });
 }
 
 describe("platform-neutral directory mirror", () => {
@@ -86,6 +90,7 @@ describe("platform-neutral directory mirror", () => {
       expect(recordMarkdownDocument({
         record_id: "body-only",
         path: "note.md",
+        document: body,
         revision: "revision",
         frontmatter: {},
         body,
@@ -131,6 +136,73 @@ describe("platform-neutral directory mirror", () => {
     expect(fileSystem.files.get("exact.md")).toBe(exactDocument);
   });
 
+  it("inspects without side effects and rejects a stale reviewed plan", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(1));
+    const replicaId = hosted.registerReplica({ name: "Reviewed mirror", mode: "read_only" });
+    const fileSystem = new TestFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    const mirror = new DirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem,
+      stateStore,
+      runtime: deterministicRuntime()
+    });
+
+    const plan = await mirror.inspect();
+    expect(plan).toMatchObject({
+      kind: "initial",
+      summary: { uploads: 0, downloads: 1, conflicts: 0, blocking_issues: 0 },
+      actions: [{
+        entity: "record",
+        direction: "authority_to_local",
+        operation: "put",
+        path: "notes/00000.md"
+      }]
+    });
+    expect(fileSystem.writes).toBe(0);
+    expect(await stateStore.read()).toBeNull();
+
+    await expect(mirror.apply(plan)).resolves.toMatchObject({ status: "applied" });
+    const current = await mirror.inspect();
+    fileSystem.files.set("notes/00000.md", "changed outside the plan");
+    await expect(mirror.apply(current)).rejects.toMatchObject({ code: "sync_plan_stale" });
+    expect(fileSystem.files.get("notes/00000.md")).toBe("changed outside the plan");
+  });
+
+  it("plans a byte-preserving local move as one identity-preserving move", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(1));
+    const replicaId = hosted.registerReplica({ name: "Move planner", mode: "read_write" });
+    const fileSystem = new TestFileSystem();
+    const mirror = new WritableDirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem,
+      stateStore: new MemoryMirrorStateStore(),
+      runtime: deterministicRuntime()
+    });
+    await mirror.sync();
+    const document = fileSystem.files.get("notes/00000.md")!;
+    fileSystem.files.delete("notes/00000.md");
+    fileSystem.files.set("archive/moved.md", document);
+
+    const plan = await mirror.inspect();
+    expect(plan.actions).toEqual([expect.objectContaining({
+      entity: "record",
+      direction: "local_to_authority",
+      operation: "move",
+      previous_path: "notes/00000.md",
+      path: "archive/moved.md",
+      outcome: "ready"
+    })]);
+    await mirror.apply(plan);
+    const session = await hosted.transport(replicaId).openSession();
+    const snapshot = await hosted.transport(replicaId).snapshot(session.snapshot_id);
+    expect(snapshot.records[0]).toMatchObject({
+      record_id: "portable-0",
+      path: "archive/moved.md",
+      document
+    });
+  });
+
   it("materializes through injected adapters and keeps receive-only state compact", async () => {
     const hosted = new MemoryAuthority({ snapshotPageSize: 2 });
     hosted.seed(records(5));
@@ -156,7 +228,7 @@ describe("platform-neutral directory mirror", () => {
     }
   });
 
-  it("does not persist snapshot-only document bytes in writable mirror state", async () => {
+  it("persists the exact authority document in writable mirror state", async () => {
     const hosted = new MemoryAuthority();
     hosted.seed(records(1));
     const replicaId = hosted.registerReplica({ name: "Writer", mode: "read_write" });
@@ -172,7 +244,7 @@ describe("platform-neutral directory mirror", () => {
     const state = await stateStore.read();
     const entry = Object.values(state!.records)[0]!;
     expect(entry.record).toBeDefined();
-    expect(entry.record).not.toHaveProperty("document");
+    expect(entry.record?.document).toBe(records(1)[0]!.document);
   });
 
   it("does a complete collision preflight before writing any hosted document", async () => {
@@ -188,9 +260,10 @@ describe("platform-neutral directory mirror", () => {
       runtime: deterministicRuntime()
     });
 
-    await expect(mirror.sync()).rejects.toEqual(
-      new MirrorInitializationConflictError(["notes/00002.md"])
-    );
+    await expect(mirror.sync()).resolves.toMatchObject({
+      status: "attention",
+      issues: [{ code: "local_collision", path: "notes/00002.md", blocking: true }]
+    });
     expect(fileSystem.writes).toBe(0);
     expect(fileSystem.files.has("notes/00000.md")).toBe(false);
     expect(await stateStore.read()).toBeNull();
@@ -504,8 +577,9 @@ describe("platform-neutral directory mirror", () => {
       await mirror.sync();
       emitAlias = true;
 
-      await expect(mirror.sync(), path).rejects.toMatchObject({
-        code: "invalid_record_path"
+      await expect(mirror.sync(), path).resolves.toMatchObject({
+        status: "attention",
+        issues: [{ code: "invalid_record_path", blocking: true }]
       });
       expect(fileSystem.files.get("Notes/Example.md")).toBe("Same bytes");
       expect(fileSystem.files.has("notes/example.md")).toBe(false);
@@ -558,10 +632,10 @@ describe("platform-neutral directory mirror", () => {
       mutation_id: "case-only-reset",
       replica_id: writerId,
       scope_epoch: 1,
-      operation: "rename",
+      operation: "move",
       record_id: "first",
       base_revision: current.revision,
-      input: { path: "notes/example.md" },
+      path: "notes/example.md",
       created_at: "2026-07-27T00:00:00.000Z"
     });
     forceReset = true;
@@ -612,7 +686,10 @@ describe("platform-neutral directory mirror", () => {
     const writesBeforeChanges = fileSystem.writes;
     emitAliases = true;
 
-    await expect(mirror.sync()).rejects.toMatchObject({ code: "invalid_record_path" });
+    await expect(mirror.sync()).resolves.toMatchObject({
+      status: "attention",
+      issues: [{ code: "invalid_record_path", blocking: true }]
+    });
     expect(fileSystem.writes).toBe(writesBeforeChanges);
     expect(fileSystem.files.has("Notes/Example.md")).toBe(false);
     expect(fileSystem.files.has("notes/example.md")).toBe(false);
@@ -626,6 +703,7 @@ describe("platform-neutral directory mirror", () => {
       fileSystem.files.set("occupied.md", "Managed bytes");
       const state: MirrorState = {
         protocol_version: 1,
+        engine_version: 2,
         replica_id: "reader",
         scope_epoch: 1,
         cursor: 0,
@@ -707,9 +785,11 @@ describe("platform-neutral directory mirror", () => {
         runtime
       });
 
-      await expect(mirror.sync(), blocker).rejects.toMatchObject({
-        code: "invalid_record_path"
-      });
+      const result = await mirror.sync();
+      expect(result.status, blocker).toBe("attention");
+      expect(result.issues, blocker).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: "invalid_record_path", blocking: true })
+      ]));
       expect(fileSystem.files, blocker).toEqual(
         new Map([["occupied.md", "Managed bytes"]])
       );
@@ -729,7 +809,10 @@ describe("platform-neutral directory mirror", () => {
       runtime: deterministicRuntime()
     });
 
-    await expect(mirror.sync()).rejects.toMatchObject({ code: "invalid_record_path" });
+    await expect(mirror.sync()).resolves.toMatchObject({
+      status: "attention",
+      issues: [{ code: "invalid_record_path", blocking: true }]
+    });
     expect(hosted.serialize().records).toEqual([]);
   });
 
@@ -957,6 +1040,7 @@ describe("platform-neutral directory mirror", () => {
     const record = {
       record_id: "stable-revision",
       path: "new.md",
+      document: "# Same content",
       revision: documentRevision("# Same content"),
       frontmatter: {},
       body: "# Same content",
@@ -965,6 +1049,7 @@ describe("platform-neutral directory mirror", () => {
     const stateStore = new MemoryMirrorStateStore();
     await stateStore.write({
       protocol_version: 1,
+      engine_version: 2,
       replica_id: "reader",
       scope_epoch: 1,
       cursor: 0,
@@ -1090,10 +1175,11 @@ describe("platform-neutral directory mirror", () => {
       mutation_id: "remote-managed-update",
       replica_id: remoteId,
       scope_epoch: 1,
-      operation: "update",
+      operation: "put",
       record_id: "managed",
       base_revision: seededRevision,
-      input: { patch: { title: "Remote" }, body: "Remote body" },
+      path: "managed.md",
+      document: "---\ntitle: Remote\n---\n\nRemote body",
       created_at: "2026-07-27T00:00:00.000Z"
     });
     expect(remoteReceipt.status).toBe("applied");

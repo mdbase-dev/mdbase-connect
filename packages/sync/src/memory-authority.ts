@@ -11,7 +11,7 @@ import type {
   SyncSnapshotRecord
 } from "@mdbase-dev/connect-protocol";
 import { stringify } from "yaml";
-import { documentRevision } from "./mirror-format.js";
+import { documentRevision, parseMarkdown } from "./mirror-format.js";
 import { SyncError } from "./sync-error.js";
 import type { SyncTransport } from "./sync-types.js";
 import {
@@ -19,13 +19,8 @@ import {
   clone,
   explicitTypes,
   nonNegativeInteger,
-  object,
-  optionalText,
   positiveInteger,
-  positiveIntegerString,
-  requiredString,
-  requiredText,
-  stringList
+  positiveIntegerString
 } from "./sync-values.js";
 
 export interface MemoryAuthorityOptions<Frontmatter extends JsonObject = JsonObject> {
@@ -159,14 +154,21 @@ export class MemoryAuthority<Frontmatter extends JsonObject = JsonObject> {
     };
   }
 
-  seed(records: Array<Omit<SyncRecord<Frontmatter>, "revision"> & { revision?: string }>): void {
+  seed(records: Array<Omit<SyncRecord<Frontmatter>, "revision" | "document"> & {
+    revision?: string;
+    document?: string;
+  }>): void {
     if (this.head !== 0 || this.records.size !== 0) throw new SyncError("already_initialized", "Collection already contains records.");
     for (const value of records) {
       assertSafePath(value.path);
       if (this.records.has(value.record_id) || this.paths.has(value.path)) {
         throw new SyncError("record_conflict", "Seed records must have unique IDs and paths.");
       }
-      const record = clone({ ...value, revision: "" }) as SyncRecord<Frontmatter>;
+      const record = clone({
+        ...value,
+        document: value.document ?? projectionMarkdownDocument(value),
+        revision: ""
+      }) as SyncRecord<Frontmatter>;
       const revision = memoryRecordRevision(record);
       if (value.revision !== undefined && value.revision !== revision) {
         throw new SyncError(
@@ -256,14 +258,12 @@ export class MemoryAuthority<Frontmatter extends JsonObject = JsonObject> {
       records: [...this.records.values()]
         .filter((record) => visible(record, replica))
         .sort((left, right) => left.path.localeCompare(right.path))
-        .map((record) => ({
-          ...clone(record),
-          document: memoryRecordMarkdownDocument(record)
-        }))
+        .map(clone)
     };
     this.snapshots.set(snapshot.id, snapshot);
     return {
       protocol_version: 1,
+      protocol_profile: "exact_document_v1",
       session_id: crypto.randomUUID(),
       replica_id: replicaId,
       collection_id: this.collectionId,
@@ -360,54 +360,61 @@ export class MemoryAuthority<Frontmatter extends JsonObject = JsonObject> {
 
   private applyMutation(replica: ReplicaState, mutation: SyncMutation): SyncMutationReceipt<Frontmatter> {
     const current = this.records.get(mutation.record_id);
-    if (mutation.operation === "create") {
-      if (current) return this.conflict(mutation, current);
-      const path = requiredString(mutation.input.path, "path");
-      assertSafePath(path);
-      if (this.paths.has(path)) return this.conflict(mutation);
-      const record = {
-        record_id: mutation.record_id,
-        path,
-        revision: "",
-        frontmatter: object(mutation.input.frontmatter ?? {}) as Frontmatter,
-        body: optionalText(mutation.input.body, "body") ?? "",
-        types: stringList(mutation.input.types ?? explicitTypes(object(mutation.input.frontmatter ?? {})))
-      } satisfies SyncRecord<Frontmatter>;
-      record.revision = memoryRecordRevision(record);
-      if (!visible(record, replica)) throw new SyncError("scope_denied", "The new record is outside this replica's scope.");
-      this.validateRecord(record);
-      this.commit(undefined, record);
-      return { mutation_id: mutation.mutation_id, status: "applied", sequence: this.head, record: clone(record) };
-    }
-    if (!current) return this.conflict(mutation);
-    if (!visible(current, replica)) throw new SyncError("scope_denied", "The record is outside this replica's scope.");
-    if (!mutation.base_revision || mutation.base_revision !== current.revision) {
-      return this.conflict(mutation, current);
-    }
     if (mutation.operation === "delete") {
+      if (!current) return this.conflict(mutation);
+      if (!visible(current, replica)) {
+        throw new SyncError("scope_denied", "The record is outside this replica's scope.");
+      }
+      if (mutation.base_revision !== current.revision) return this.conflict(mutation, current);
       this.commit(current, undefined);
       return { mutation_id: mutation.mutation_id, status: "applied", sequence: this.head };
     }
-    const next = clone(current);
-    if (mutation.operation === "rename") {
-      const path = requiredString(mutation.input.path, "path");
-      assertSafePath(path);
-      const occupied = this.paths.get(path);
-      if (occupied && occupied !== current.record_id) return this.conflict(mutation, current);
-      next.path = path;
-    } else {
-      const patch = object(mutation.input.patch ?? {});
-      const frontmatter = clone(next.frontmatter) as JsonObject;
-      for (const [field, value] of Object.entries(patch)) {
-        if (value === null) delete frontmatter[field];
-        else frontmatter[field] = clone(value);
+
+    if (mutation.operation === "move") {
+      if (!current) return this.conflict(mutation);
+      if (!visible(current, replica)) {
+        throw new SyncError("scope_denied", "The record is outside this replica's scope.");
       }
-      next.frontmatter = frontmatter as Frontmatter;
-      if (mutation.input.body !== undefined) next.body = requiredText(mutation.input.body, "body");
-      if (mutation.input.types !== undefined) next.types = stringList(mutation.input.types);
+      if (mutation.base_revision !== current.revision) return this.conflict(mutation, current);
+      assertSafePath(mutation.path);
+      const occupied = this.paths.get(mutation.path);
+      if (occupied && occupied !== mutation.record_id) return this.conflict(mutation, current);
+      const next = { ...clone(current), path: mutation.path };
+      this.commit(current, next);
+      return { mutation_id: mutation.mutation_id, status: "applied", sequence: this.head, record: clone(next) };
     }
-    next.revision = memoryRecordRevision(next);
-    if (!visible(next, replica)) throw new SyncError("scope_denied", "The mutation would move the record outside this replica's scope.");
+
+    assertSafePath(mutation.path);
+    if (current) {
+      if (!visible(current, replica)) {
+        throw new SyncError("scope_denied", "The record is outside this replica's scope.");
+      }
+      if (!mutation.base_revision || mutation.base_revision !== current.revision) {
+        return this.conflict(mutation, current);
+      }
+    } else if (mutation.base_revision !== undefined) {
+      return this.conflict(mutation);
+    }
+    const occupied = this.paths.get(mutation.path);
+    if (occupied && occupied !== mutation.record_id) return this.conflict(mutation, current);
+    const parsed = parseMarkdown(mutation.document, mutation.path);
+    const next = {
+      record_id: mutation.record_id,
+      path: mutation.path,
+      document: mutation.document,
+      revision: documentRevision(mutation.document),
+      frontmatter: parsed.frontmatter as Frontmatter,
+      body: parsed.body,
+      types: explicitTypes(parsed.frontmatter)
+    } satisfies SyncRecord<Frontmatter>;
+    if (!visible(next, replica)) {
+      throw new SyncError(
+        "scope_denied",
+        current
+          ? "The mutation would move the record outside this replica's scope."
+          : "The new record is outside this replica's scope."
+      );
+    }
     this.validateRecord(next);
     this.commit(current, next);
     return { mutation_id: mutation.mutation_id, status: "applied", sequence: this.head, record: clone(next) };
@@ -452,6 +459,10 @@ export class MemoryAuthority<Frontmatter extends JsonObject = JsonObject> {
 }
 
 function memoryRecordMarkdownDocument(record: SyncRecord): string {
+  return record.document;
+}
+
+function projectionMarkdownDocument(record: Pick<SyncRecord, "frontmatter" | "body">): string {
   if (Object.keys(record.frontmatter).length === 0) {
     return record.body;
   }
@@ -462,7 +473,7 @@ function memoryRecordMarkdownDocument(record: SyncRecord): string {
 }
 
 function memoryRecordRevision(record: SyncRecord): string {
-  return documentRevision(memoryRecordMarkdownDocument(record));
+  return documentRevision(record.document);
 }
 
 function project<Frontmatter extends JsonObject>(

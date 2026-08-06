@@ -357,15 +357,13 @@ pub struct AuthorityRequestProof {
     pub body: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct PersistedRecord {
-    record: SyncRecord,
-    document: String,
-}
+type PersistedRecord = SyncRecord;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PreparedRecordOperation {
     mutation: SyncMutation,
+    semantic_operation: String,
+    semantic_input: serde_json::Map<String, Value>,
     previous_path: Option<String>,
     include_document: bool,
 }

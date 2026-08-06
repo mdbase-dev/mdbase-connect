@@ -23,10 +23,13 @@ interface FileCaptureOptions {
   blobStore?: MirrorBlobStore;
   selectiveSync: SelectiveSyncPolicy;
   runtime: MirrorRuntime;
+  /** Inspection builds the same queue without mutating the durable blob cache. */
+  stageBlobs?: boolean;
 }
 
 export async function captureMirrorLocalFiles(options: FileCaptureOptions): Promise<void> {
   const { state, fileSystem, blobStore, selectiveSync, runtime } = options;
+  const stageBlobs = options.stageBlobs ?? true;
   if (selectiveSync.file_classes.length === 0) return;
   if (!fileSystem.listBinary || !fileSystem.readBinary || !blobStore) {
     throw new SyncError(
@@ -86,7 +89,7 @@ export async function captureMirrorLocalFiles(options: FileCaptureOptions): Prom
     if (missing.has(fileId) || state.file_conflicts?.[fileId]) continue;
     const info = local.get(entry.file.path);
     if (!info || sameBinaryInfo(info, entry.file)) continue;
-    await stageLocalFile(fileSystem, blobStore, entry.file.path, info);
+    if (stageBlobs) await stageLocalFile(fileSystem, blobStore, entry.file.path, info);
     queued.push({
       operation: "upload",
       transfer_id: runtime.randomId(),
@@ -109,7 +112,7 @@ export async function captureMirrorLocalFiles(options: FileCaptureOptions): Prom
   }
   for (const path of untracked) {
     const info = local.get(path)!;
-    await stageLocalFile(fileSystem, blobStore, path, info);
+    if (stageBlobs) await stageLocalFile(fileSystem, blobStore, path, info);
     queued.push({
       operation: "upload",
       transfer_id: runtime.randomId(),

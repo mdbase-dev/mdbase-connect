@@ -137,3 +137,28 @@ fn mirror_file_flags_build_an_explicit_device_local_policy() {
     );
     assert_eq!(params.selective_sync.excluded_folders, vec!["archive"]);
 }
+
+#[test]
+fn mirror_sync_requires_the_reviewed_plan_fingerprint() {
+    let replica_id = "01911111-1111-7111-8111-111111111111";
+    assert!(Args::try_parse_from(["mdbase", "connect", "mirror", "sync", replica_id]).is_err());
+
+    let args = Args::try_parse_from([
+        "mdbase",
+        "connect",
+        "mirror",
+        "sync",
+        replica_id,
+        "--plan",
+        "sha256:reviewed",
+    ])
+    .unwrap();
+    let RootCommand::Connect { command } = args.command else {
+        panic!("expected a Connect command")
+    };
+    let (command, _) = control_command(command).unwrap();
+    let ControlCommand::MirrorApply(params) = command else {
+        panic!("expected mirrors.apply")
+    };
+    assert_eq!(params.plan_fingerprint, "sha256:reviewed");
+}

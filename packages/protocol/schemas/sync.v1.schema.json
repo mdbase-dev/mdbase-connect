@@ -97,11 +97,12 @@
     "record": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["record_id", "path", "revision", "frontmatter", "body", "types"],
+      "required": ["record_id", "path", "document", "revision", "frontmatter", "body", "types"],
       "properties": {
         "record_id": { "$ref": "#/$defs/uuid" },
         "path": { "type": "string", "minLength": 1 },
-        "revision": { "type": "string", "minLength": 1 },
+        "document": { "type": "string" },
+        "revision": { "$ref": "#/$defs/digest" },
         "frontmatter": { "type": "object" },
         "body": { "type": "string" },
         "types": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
@@ -110,7 +111,7 @@
     "snapshotRecord": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["record_id", "path", "revision", "frontmatter", "body", "types", "document"],
+      "required": ["record_id", "path", "document", "revision", "frontmatter", "body", "types"],
       "properties": {
         "record_id": { "$ref": "#/$defs/uuid" },
         "path": { "type": "string", "minLength": 1 },
@@ -124,9 +125,10 @@
     "session": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["protocol_version", "session_id", "replica_id", "collection_id", "mode", "scope_epoch", "retained_after", "head", "snapshot_id", "resources"],
+      "required": ["protocol_version", "protocol_profile", "session_id", "replica_id", "collection_id", "mode", "scope_epoch", "retained_after", "head", "snapshot_id", "resources"],
       "properties": {
         "protocol_version": { "const": 1 },
+        "protocol_profile": { "const": "exact_document_v1" },
         "session_id": { "$ref": "#/$defs/uuid" },
         "replica_id": { "$ref": "#/$defs/uuid" },
         "collection_id": { "$ref": "#/$defs/uuid" },
@@ -233,18 +235,50 @@
         "reset_required": { "type": "boolean" }
       }
     },
-    "recordMutation": {
+    "recordPutMutation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mutation_id", "replica_id", "scope_epoch", "operation", "record_id", "input", "created_at"],
+      "required": ["mutation_id", "replica_id", "scope_epoch", "operation", "record_id", "path", "document", "created_at"],
       "properties": {
         "mutation_id": { "$ref": "#/$defs/uuid" },
         "replica_id": { "$ref": "#/$defs/uuid" },
         "scope_epoch": { "type": "integer", "minimum": 1 },
-        "operation": { "enum": ["create", "update", "rename", "delete"] },
+        "operation": { "const": "put" },
         "record_id": { "$ref": "#/$defs/uuid" },
         "base_revision": { "type": "string", "minLength": 1 },
-        "input": { "type": "object" },
+        "path": { "type": "string", "minLength": 1 },
+        "document": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "causal_predecessor": { "$ref": "#/$defs/uuid" }
+      }
+    },
+    "recordDeleteMutation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mutation_id", "replica_id", "scope_epoch", "operation", "record_id", "base_revision", "created_at"],
+      "properties": {
+        "mutation_id": { "$ref": "#/$defs/uuid" },
+        "replica_id": { "$ref": "#/$defs/uuid" },
+        "scope_epoch": { "type": "integer", "minimum": 1 },
+        "operation": { "const": "delete" },
+        "record_id": { "$ref": "#/$defs/uuid" },
+        "base_revision": { "type": "string", "minLength": 1 },
+        "created_at": { "type": "string", "format": "date-time" },
+        "causal_predecessor": { "$ref": "#/$defs/uuid" }
+      }
+    },
+    "recordMoveMutation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mutation_id", "replica_id", "scope_epoch", "operation", "record_id", "base_revision", "path", "created_at"],
+      "properties": {
+        "mutation_id": { "$ref": "#/$defs/uuid" },
+        "replica_id": { "$ref": "#/$defs/uuid" },
+        "scope_epoch": { "type": "integer", "minimum": 1 },
+        "operation": { "const": "move" },
+        "record_id": { "$ref": "#/$defs/uuid" },
+        "base_revision": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
         "created_at": { "type": "string", "format": "date-time" },
         "causal_predecessor": { "$ref": "#/$defs/uuid" }
       }
@@ -312,7 +346,9 @@
     },
     "mutation": {
       "oneOf": [
-        { "$ref": "#/$defs/recordMutation" },
+        { "$ref": "#/$defs/recordPutMutation" },
+        { "$ref": "#/$defs/recordMoveMutation" },
+        { "$ref": "#/$defs/recordDeleteMutation" },
         { "$ref": "#/$defs/filePutMutation" },
         { "$ref": "#/$defs/fileMoveMutation" },
         { "$ref": "#/$defs/fileDeleteMutation" }
@@ -344,7 +380,13 @@
               "required": ["record_id", "mutation"],
               "properties": {
                 "record_id": { "$ref": "#/$defs/uuid" },
-                "mutation": { "$ref": "#/$defs/recordMutation" },
+                "mutation": {
+                  "oneOf": [
+                    { "$ref": "#/$defs/recordPutMutation" },
+                    { "$ref": "#/$defs/recordMoveMutation" },
+                    { "$ref": "#/$defs/recordDeleteMutation" }
+                  ]
+                },
                 "current": { "$ref": "#/$defs/record" },
                 "current_revision": { "type": "string" }
               }

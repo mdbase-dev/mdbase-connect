@@ -174,17 +174,17 @@ fn portable_imports_are_canonicalized_by_rust_including_first_class_resources() 
 
     let structured = records
         .iter()
-        .find(|record| record.record.record_id == record_id)
+        .find(|record| record.record_id == record_id)
         .unwrap();
-    assert_eq!(structured.record.types, ["task"]);
+    assert_eq!(structured.types, ["task"]);
     let opaque = records
         .iter()
-        .find(|record| record.record.record_id == opaque_record_id)
+        .find(|record| record.record_id == opaque_record_id)
         .unwrap();
-    assert!(opaque.record.frontmatter.is_empty());
-    assert_eq!(opaque.record.body, opaque_document);
+    assert!(opaque.frontmatter.is_empty());
+    assert_eq!(opaque.body, opaque_document);
     assert_eq!(opaque.document, opaque_document);
-    assert_eq!(opaque.record.types, ["task"]);
+    assert_eq!(opaque.types, ["task"]);
     assert!(manifest
         .resources
         .documents
@@ -197,6 +197,7 @@ fn deleted_record_events_use_the_portable_types_field() {
     let record = SyncRecord {
         record_id: Uuid::new_v4(),
         path: "tasks/deleted.md".to_string(),
+        document: String::new(),
         revision: "sha256:deleted".to_string(),
         frontmatter: Default::default(),
         body: String::new(),
@@ -261,6 +262,7 @@ fn scopes_resources_and_records_consistently() {
     let record = SyncRecord {
         record_id: Uuid::new_v4(),
         path: "tasks/one.md".to_string(),
+        document: String::new(),
         revision: "sha256:one".to_string(),
         frontmatter: Default::default(),
         body: String::new(),
@@ -587,26 +589,6 @@ fn mirror_sync_credentials_are_not_browser_capabilities() {
             .unwrap_err()
             .code,
         "origin_denied"
-    );
-}
-
-#[test]
-fn sync_mutations_use_their_matching_application_permission() {
-    assert_eq!(
-        mutation_operation_name(SyncMutationOperation::Create),
-        "create"
-    );
-    assert_eq!(
-        mutation_operation_name(SyncMutationOperation::Update),
-        "update"
-    );
-    assert_eq!(
-        mutation_operation_name(SyncMutationOperation::Rename),
-        "rename"
-    );
-    assert_eq!(
-        mutation_operation_name(SyncMutationOperation::Delete),
-        "delete"
     );
 }
 

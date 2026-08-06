@@ -57,7 +57,12 @@ impl WorkingSet {
         })
     }
 
-    pub fn execute(&mut self, mutation: &SyncMutation) -> ApiResult<Execution> {
+    pub fn execute_semantic(
+        &mut self,
+        record_id: Uuid,
+        operation: &str,
+        source: &serde_json::Map<String, Value>,
+    ) -> ApiResult<Execution> {
         let collection = Collection::open(self.directory.path()).map_err(|error| {
             ApiError::internal(format!(
                 "The hosted collection working set is invalid: {error}"
@@ -69,14 +74,9 @@ impl WorkingSet {
                 diagnostic.message
             ))
         })?;
-        let current_path = self.paths_by_record_id.get(&mutation.record_id).cloned();
-        let (input, primary_before_path) = operation_input(mutation, current_path.as_deref())?;
-        let operation = match mutation.operation {
-            SyncMutationOperation::Create => "create",
-            SyncMutationOperation::Update => "update",
-            SyncMutationOperation::Rename => "rename",
-            SyncMutationOperation::Delete => "delete",
-        };
+        let current_path = self.paths_by_record_id.get(&record_id).cloned();
+        let (input, primary_before_path) =
+            operation_input(operation, source, current_path.as_deref())?;
         // This workspace is already an isolated disposable stage backed by the
         // provider's database transaction. The provider invalidates the cache
         // before execution, so any rejected operation or failed commit forces
@@ -85,20 +85,21 @@ impl WorkingSet {
         if !envelope.valid {
             return Ok(Execution {
                 envelope,
-                primary_record_id: mutation.record_id,
+                primary_record_id: record_id,
                 changed: Vec::new(),
             });
         }
 
-        let primary_after_path = match mutation.operation {
-            SyncMutationOperation::Create => input.get("path").and_then(Value::as_str),
-            SyncMutationOperation::Update => current_path.as_deref(),
-            SyncMutationOperation::Rename => input.get("to").and_then(Value::as_str),
-            SyncMutationOperation::Delete => None,
+        let primary_after_path = match operation {
+            "create" => input.get("path").and_then(Value::as_str),
+            "update" => current_path.as_deref(),
+            "rename" => input.get("to").and_then(Value::as_str),
+            "delete" => None,
+            _ => None,
         };
         let mut affected = BTreeSet::new();
         if let Some(path) = primary_after_path {
-            affected.insert((path.to_string(), mutation.record_id));
+            affected.insert((path.to_string(), record_id));
         }
         if let Some(references) = envelope
             .result
@@ -120,8 +121,8 @@ impl WorkingSet {
             ))
         })?;
         let mut changed = Vec::new();
-        if mutation.operation == SyncMutationOperation::Delete {
-            changed.push((mutation.record_id, None, primary_before_path.clone()));
+        if operation == "delete" {
+            changed.push((record_id, None, primary_before_path.clone()));
         }
         for (path, record_id) in affected {
             let snapshot = collection.snapshot_record(&path).map_err(|error| {
@@ -132,6 +133,7 @@ impl WorkingSet {
             let record = SyncRecord {
                 record_id,
                 path: snapshot.path,
+                document: snapshot.document.clone(),
                 revision: snapshot.revision,
                 frontmatter: snapshot.frontmatter,
                 body: snapshot.body,
@@ -140,7 +142,7 @@ impl WorkingSet {
             let document = snapshot.document;
             changed.push((record_id, Some(record), Some(document)));
         }
-        changed.sort_by_key(|(record_id, _, _)| (*record_id != mutation.record_id, *record_id));
+        changed.sort_by_key(|(changed_id, _, _)| (*changed_id != record_id, *changed_id));
         for (record_id, after, _) in &changed {
             if let Some(previous_path) = self.paths_by_record_id.remove(record_id) {
                 self.records_by_path.remove(&previous_path);
@@ -153,6 +155,138 @@ impl WorkingSet {
         }
         Ok(Execution {
             envelope,
+            primary_record_id: record_id,
+            changed,
+        })
+    }
+
+    /// Apply a replication write as exact storage, without semantic reference rewrites.
+    pub fn execute_sync(&mut self, mutation: &SyncMutation) -> ApiResult<Execution> {
+        let current_path = self.paths_by_record_id.get(&mutation.record_id).cloned();
+        let mut changed = Vec::new();
+        match mutation.operation {
+            SyncMutationOperation::Put => {
+                let path = mutation.path.as_deref().ok_or_else(|| {
+                    ApiError::bad_request("invalid_mutation", "Put mutation path is required.")
+                })?;
+                let document = mutation.document.as_deref().ok_or_else(|| {
+                    ApiError::bad_request("invalid_mutation", "Put mutation document is required.")
+                })?;
+                if current_path
+                    .as_deref()
+                    .is_some_and(|current| current != path)
+                {
+                    return Err(ApiError::bad_request(
+                        "put_path_mismatch",
+                        "Move a record separately before replacing its document.",
+                    ));
+                }
+                if self
+                    .records_by_path
+                    .get(path)
+                    .is_some_and(|record_id| *record_id != mutation.record_id)
+                {
+                    return Err(ApiError::conflict(
+                        "record_path_conflict",
+                        "Another hosted record already uses the destination path.",
+                    ));
+                }
+                write_document(self.directory.path(), path, document)?;
+                let snapshot = Collection::open(self.directory.path())
+                    .map_err(|error| {
+                        ApiError::internal(format!(
+                            "The hosted collection could not reopen: {error}"
+                        ))
+                    })?
+                    .snapshot_record(path)
+                    .map_err(|error| {
+                        ApiError::bad_request(
+                            "invalid_record",
+                            format!("The exact Markdown document is not a valid record: {error}"),
+                        )
+                    })?;
+                let record = SyncRecord {
+                    record_id: mutation.record_id,
+                    path: snapshot.path,
+                    document: snapshot.document.clone(),
+                    revision: snapshot.revision,
+                    frontmatter: snapshot.frontmatter,
+                    body: snapshot.body,
+                    types: snapshot.types,
+                };
+                changed.push((mutation.record_id, Some(record), Some(snapshot.document)));
+            }
+            SyncMutationOperation::Move => {
+                let from = current_path.as_deref().ok_or_else(|| {
+                    ApiError::not_found("record_not_found", "The hosted record does not exist.")
+                })?;
+                let to = mutation.path.as_deref().ok_or_else(|| {
+                    ApiError::bad_request("invalid_mutation", "Move mutation path is required.")
+                })?;
+                if self
+                    .records_by_path
+                    .get(to)
+                    .is_some_and(|record_id| *record_id != mutation.record_id)
+                {
+                    return Err(ApiError::conflict(
+                        "record_path_conflict",
+                        "Another hosted record already uses the destination path.",
+                    ));
+                }
+                let source = safe_path(self.directory.path(), from)?;
+                let target = safe_path(self.directory.path(), to)?;
+                if let Some(parent) = target.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                fs::rename(source, target)?;
+                let snapshot = Collection::open(self.directory.path())
+                    .map_err(|error| {
+                        ApiError::internal(format!(
+                            "The hosted collection could not reopen: {error}"
+                        ))
+                    })?
+                    .snapshot_record(to)
+                    .map_err(|error| {
+                        ApiError::bad_request(
+                            "invalid_record_path",
+                            format!("The destination is not a valid record path: {error}"),
+                        )
+                    })?;
+                let record = SyncRecord {
+                    record_id: mutation.record_id,
+                    path: snapshot.path,
+                    document: snapshot.document.clone(),
+                    revision: snapshot.revision,
+                    frontmatter: snapshot.frontmatter,
+                    body: snapshot.body,
+                    types: snapshot.types,
+                };
+                changed.push((mutation.record_id, Some(record), Some(snapshot.document)));
+            }
+            SyncMutationOperation::Delete => {
+                let path = current_path.as_deref().ok_or_else(|| {
+                    ApiError::not_found("record_not_found", "The hosted record does not exist.")
+                })?;
+                fs::remove_file(safe_path(self.directory.path(), path)?)?;
+                changed.push((mutation.record_id, None, Some(path.to_string())));
+            }
+        }
+        for (record_id, after, _) in &changed {
+            if let Some(previous_path) = self.paths_by_record_id.remove(record_id) {
+                self.records_by_path.remove(&previous_path);
+            }
+            if let Some(record) = after {
+                self.records_by_path.insert(record.path.clone(), *record_id);
+                self.paths_by_record_id
+                    .insert(*record_id, record.path.clone());
+            }
+        }
+        Ok(Execution {
+            envelope: OperationResult {
+                valid: true,
+                result: serde_json::json!({}),
+                diagnostics: Vec::new(),
+            },
             primary_record_id: mutation.record_id,
             changed,
         })
@@ -392,502 +526,4 @@ impl WorkingSet {
 mod contract_setup_tests;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::{json, Map};
-
-    pub(super) fn resources() -> Vec<(String, String)> {
-        let mut resources: Vec<(String, String)> = crate::template::resources("mdbase", "UTC")
-            .unwrap()
-            .1
-            .into_iter()
-            .map(|resource| (resource.path.to_string(), resource.document.to_string()))
-            .collect();
-        resources.push((
-            "_types/task.md".to_string(),
-            r#"---
-kind: mdbase.type
-name: task
-version: 1
-description: A generic work item.
-collection:
-  path:
-    folder: tasks
-schema:
-  dialect: json-schema-2020-12
-  value:
-    type: object
-    required: [type, title]
-    additionalProperties: true
-    properties:
-      type: { const: task }
-      title: { type: string, minLength: 1 }
-      status: { enum: [open, done] }
----
-"#
-            .to_string(),
-        ));
-        resources
-    }
-
-    #[test]
-    fn executes_create_through_the_canonical_engine() {
-        let mut workspace = WorkingSet::materialize(resources(), []).unwrap();
-        let mutation = SyncMutation {
-            mutation_id: Uuid::new_v4(),
-            replica_id: Uuid::new_v4(),
-            scope_epoch: 1,
-            operation: SyncMutationOperation::Create,
-            record_id: Uuid::new_v4(),
-            base_revision: None,
-            input: Map::from_iter([
-                ("path".to_string(), json!("tasks/first.md")),
-                (
-                    "frontmatter".to_string(),
-                    json!({"type": "task", "title": "First"}),
-                ),
-                ("body".to_string(), json!("Body")),
-                ("types".to_string(), json!(["task"])),
-            ]),
-            created_at: "2026-07-21T00:00:00Z".to_string(),
-            causal_predecessor: None,
-        };
-        let execution = workspace.execute(&mutation).unwrap();
-        assert!(execution.envelope.valid);
-        assert_eq!(execution.changed.len(), 1);
-        assert_eq!(execution.changed[0].1.as_ref().unwrap().types, ["task"]);
-        assert!(execution.changed[0]
-            .2
-            .as_ref()
-            .unwrap()
-            .contains("title: First"));
-    }
-
-    #[test]
-    fn creates_and_updates_opaque_markdown_records_losslessly() {
-        let record_id = Uuid::new_v4();
-        let replica_id = Uuid::new_v4();
-        let original = "---\ntitle: [unterminated\n---\nOriginal body";
-        let mut workspace = WorkingSet::materialize(resources(), []).unwrap();
-        let created = workspace
-            .execute(&SyncMutation {
-                mutation_id: Uuid::new_v4(),
-                replica_id,
-                scope_epoch: 1,
-                operation: SyncMutationOperation::Create,
-                record_id,
-                base_revision: None,
-                input: Map::from_iter([
-                    ("path".to_string(), json!("opaque.md")),
-                    ("frontmatter".to_string(), json!({})),
-                    ("body".to_string(), json!(original)),
-                ]),
-                created_at: "2026-07-21T00:00:00Z".to_string(),
-                causal_predecessor: None,
-            })
-            .unwrap();
-
-        assert!(created.envelope.valid, "{:?}", created.envelope.diagnostics);
-        let created_record = created.changed[0].1.as_ref().unwrap();
-        assert!(created_record.frontmatter.is_empty());
-        assert_eq!(created_record.body, original);
-        assert_eq!(created.changed[0].2.as_deref(), Some(original));
-
-        let replacement = "---\ntitle: [still broken\n---\nReplacement body";
-        let updated = workspace
-            .execute(&SyncMutation {
-                mutation_id: Uuid::new_v4(),
-                replica_id,
-                scope_epoch: 1,
-                operation: SyncMutationOperation::Update,
-                record_id,
-                base_revision: Some(created_record.revision.clone()),
-                input: Map::from_iter([
-                    ("patch".to_string(), json!({})),
-                    ("body".to_string(), json!(replacement)),
-                ]),
-                created_at: "2026-07-21T00:00:01Z".to_string(),
-                causal_predecessor: None,
-            })
-            .unwrap();
-
-        assert!(updated.envelope.valid, "{:?}", updated.envelope.diagnostics);
-        assert_eq!(updated.changed[0].1.as_ref().unwrap().body, replacement);
-        assert_eq!(updated.changed[0].2.as_deref(), Some(replacement));
-    }
-
-    #[test]
-    fn adapts_sync_update_patches_for_the_supported_v03_engine() {
-        let record_id = Uuid::new_v4();
-        let replica_id = Uuid::new_v4();
-        let mut workspace = WorkingSet::materialize(resources(), []).unwrap();
-        let created = workspace
-            .execute(&SyncMutation {
-                mutation_id: Uuid::new_v4(),
-                replica_id,
-                scope_epoch: 1,
-                operation: SyncMutationOperation::Create,
-                record_id,
-                base_revision: None,
-                input: Map::from_iter([
-                    ("path".to_string(), json!("tasks/update.md")),
-                    (
-                        "frontmatter".to_string(),
-                        json!({"type": "task", "title": "Update", "status": "open"}),
-                    ),
-                    ("body".to_string(), json!("")),
-                    ("types".to_string(), json!(["task"])),
-                ]),
-                created_at: "2026-07-21T00:00:00Z".to_string(),
-                causal_predecessor: None,
-            })
-            .unwrap();
-        let revision = created.changed[0].1.as_ref().unwrap().revision.clone();
-
-        let updated = workspace
-            .execute(&SyncMutation {
-                mutation_id: Uuid::new_v4(),
-                replica_id,
-                scope_epoch: 1,
-                operation: SyncMutationOperation::Update,
-                record_id,
-                base_revision: Some(revision),
-                input: Map::from_iter([("patch".to_string(), json!({"status": "done"}))]),
-                created_at: "2026-07-21T00:00:01Z".to_string(),
-                causal_predecessor: None,
-            })
-            .unwrap();
-
-        assert!(updated.envelope.valid);
-        assert_eq!(
-            updated.changed[0]
-                .1
-                .as_ref()
-                .unwrap()
-                .frontmatter
-                .get("status"),
-            Some(&json!("done"))
-        );
-    }
-
-    #[test]
-    fn keeps_record_and_path_indexes_consistent_across_mutations() {
-        let record_id = Uuid::new_v4();
-        let replica_id = Uuid::new_v4();
-        let mut workspace = WorkingSet::materialize(resources(), []).unwrap();
-        let created = workspace
-            .execute(&SyncMutation {
-                mutation_id: Uuid::new_v4(),
-                replica_id,
-                scope_epoch: 1,
-                operation: SyncMutationOperation::Create,
-                record_id,
-                base_revision: None,
-                input: Map::from_iter([
-                    ("path".to_string(), json!("tasks/indexed.md")),
-                    (
-                        "frontmatter".to_string(),
-                        json!({"type": "task", "title": "Indexed"}),
-                    ),
-                    ("body".to_string(), json!("")),
-                    ("types".to_string(), json!(["task"])),
-                ]),
-                created_at: "2026-07-21T00:00:00Z".to_string(),
-                causal_predecessor: None,
-            })
-            .unwrap();
-        let created_revision = created.changed[0].1.as_ref().unwrap().revision.clone();
-        assert_eq!(
-            workspace.records_by_path.get("tasks/indexed.md"),
-            Some(&record_id)
-        );
-        assert_eq!(
-            workspace
-                .paths_by_record_id
-                .get(&record_id)
-                .map(String::as_str),
-            Some("tasks/indexed.md")
-        );
-
-        let renamed = workspace
-            .execute(&SyncMutation {
-                mutation_id: Uuid::new_v4(),
-                replica_id,
-                scope_epoch: 1,
-                operation: SyncMutationOperation::Rename,
-                record_id,
-                base_revision: Some(created_revision),
-                input: Map::from_iter([("path".to_string(), json!("archive/indexed.md"))]),
-                created_at: "2026-07-21T00:00:01Z".to_string(),
-                causal_predecessor: None,
-            })
-            .unwrap();
-        let renamed_revision = renamed.changed[0].1.as_ref().unwrap().revision.clone();
-        assert!(!workspace.records_by_path.contains_key("tasks/indexed.md"));
-        assert_eq!(
-            workspace.records_by_path.get("archive/indexed.md"),
-            Some(&record_id)
-        );
-        assert_eq!(
-            workspace
-                .paths_by_record_id
-                .get(&record_id)
-                .map(String::as_str),
-            Some("archive/indexed.md")
-        );
-
-        let deleted = workspace
-            .execute(&SyncMutation {
-                mutation_id: Uuid::new_v4(),
-                replica_id,
-                scope_epoch: 1,
-                operation: SyncMutationOperation::Delete,
-                record_id,
-                base_revision: Some(renamed_revision),
-                input: Map::new(),
-                created_at: "2026-07-21T00:00:02Z".to_string(),
-                causal_predecessor: None,
-            })
-            .unwrap();
-        assert!(deleted.envelope.valid, "{:?}", deleted.envelope.diagnostics);
-        assert!(!workspace.records_by_path.contains_key("archive/indexed.md"));
-        assert!(!workspace.paths_by_record_id.contains_key(&record_id));
-    }
-
-    #[test]
-    fn reads_and_replaces_exact_markdown_documents() {
-        let record_id = Uuid::new_v4();
-        let replica_id = Uuid::new_v4();
-        let original =
-            "\u{feff}---\r\ntype: task\r\ntitle: \"Exact title\" # keep this\r\ncustom: null\r\n---\r\nBody  \r\n";
-        let mut workspace = WorkingSet::materialize(
-            resources(),
-            [StoredDocument {
-                record_id,
-                path: "tasks/exact.md".to_string(),
-                document: original.to_string(),
-            }],
-        )
-        .unwrap();
-
-        let read = workspace
-            .read_operation(
-                "read",
-                &json!({"path": "tasks/exact.md", "include_document": true}),
-            )
-            .unwrap();
-        assert!(read.valid, "{:?}", read.diagnostics);
-        assert_eq!(read.result["document"], json!(original));
-        let revision = read.result["revision"].as_str().unwrap().to_string();
-
-        let replacement =
-            "---\r\ntype: task\r\ntitle: 'Replacement'\r\ncustom: null # persisted null\r\n---\r\nNew body\r\n";
-        let updated = workspace
-            .execute(&SyncMutation {
-                mutation_id: Uuid::new_v4(),
-                replica_id,
-                scope_epoch: 1,
-                operation: SyncMutationOperation::Update,
-                record_id,
-                base_revision: Some(revision),
-                input: Map::from_iter([("document".to_string(), json!(replacement))]),
-                created_at: "2026-07-21T00:00:01Z".to_string(),
-                causal_predecessor: None,
-            })
-            .unwrap();
-
-        assert!(updated.envelope.valid, "{:?}", updated.envelope.diagnostics);
-        assert_eq!(updated.envelope.result["document"], json!(replacement));
-        assert_eq!(updated.changed[0].2.as_deref(), Some(replacement));
-        assert_eq!(
-            updated.changed[0]
-                .1
-                .as_ref()
-                .unwrap()
-                .frontmatter
-                .get("custom"),
-            Some(&Value::Null)
-        );
-    }
-
-    #[test]
-    fn mutation_preflights_leave_the_hosted_working_set_unchanged() {
-        let workspace = WorkingSet::materialize(
-            resources(),
-            [
-                StoredDocument {
-                    record_id: Uuid::new_v4(),
-                    path: "tasks/target.md".to_string(),
-                    document: "---\ntype: task\ntitle: Target\nstatus: open\n---\nTarget body.\n"
-                        .to_string(),
-                },
-                StoredDocument {
-                    record_id: Uuid::new_v4(),
-                    path: "tasks/ref.md".to_string(),
-                    document:
-                        "---\ntype: task\ntitle: Ref\nstatus: open\n---\nSee [[tasks/target]].\n"
-                            .to_string(),
-                },
-            ],
-        )
-        .unwrap();
-
-        let rename = workspace
-            .read_operation(
-                "rename",
-                &json!({
-                    "from": "tasks/target.md",
-                    "to": "archive/target.md",
-                    "update_refs": true,
-                    "dry_run": true
-                }),
-            )
-            .unwrap();
-        assert!(rename.valid, "{:?}", rename.diagnostics);
-        assert_eq!(rename.result["would_rename"], json!(true));
-        assert_eq!(
-            rename.result["references_affected"][0]["path"],
-            json!("tasks/ref.md")
-        );
-
-        let deletion = workspace
-            .read_operation(
-                "delete",
-                &json!({
-                    "path": "tasks/target.md",
-                    "check_backlinks": true,
-                    "dry_run": true
-                }),
-            )
-            .unwrap();
-        assert!(deletion.valid, "{:?}", deletion.diagnostics);
-        assert_eq!(deletion.result["deleted"], json!(false));
-        assert_eq!(
-            deletion.result["broken_links"][0]["path"],
-            json!("tasks/ref.md")
-        );
-        assert!(
-            workspace
-                .read_operation("read", &json!({"path": "tasks/target.md"}))
-                .unwrap()
-                .valid
-        );
-        assert!(
-            !workspace
-                .read_operation("read", &json!({"path": "archive/target.md"}))
-                .unwrap()
-                .valid
-        );
-    }
-
-    #[test]
-    fn rejects_paths_that_could_escape_the_working_set() {
-        let mut workspace = WorkingSet::materialize(resources(), []).unwrap();
-        let mutation = SyncMutation {
-            mutation_id: Uuid::new_v4(),
-            replica_id: Uuid::new_v4(),
-            scope_epoch: 1,
-            operation: SyncMutationOperation::Create,
-            record_id: Uuid::new_v4(),
-            base_revision: None,
-            input: Map::from_iter([
-                ("path".to_string(), json!("../escape.md")),
-                (
-                    "frontmatter".to_string(),
-                    json!({"type": "task", "title": "Escape"}),
-                ),
-            ]),
-            created_at: "2026-07-21T00:00:00Z".to_string(),
-            causal_predecessor: None,
-        };
-        let error = workspace.execute(&mutation).unwrap_err();
-        assert_eq!(error.code, "invalid_path");
-    }
-
-    #[test]
-    fn reads_creates_and_updates_type_resources() {
-        let workspace = WorkingSet::materialize(resources(), []).unwrap();
-        let task = workspace
-            .read_operation("read_type", &json!({"name": "task"}))
-            .unwrap();
-        assert!(task.valid);
-        let task_revision = task.result["revision"].as_str().unwrap();
-        let updated = workspace
-            .type_operation(
-                "update_type",
-                &json!({
-                    "name": "task",
-                    "if_revision": task_revision,
-                    "document": task.result["document"].as_str().unwrap().replace(
-                        "A generic work item.",
-                        "An updated task."
-                    )
-                }),
-            )
-            .unwrap();
-        assert!(updated.valid, "{:?}", updated.diagnostics);
-
-        let created = workspace
-            .type_operation(
-                "create_type",
-                &json!({
-                    "document": "---\nkind: mdbase.type\nname: project\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    properties:\n      title: { type: string }\n---\n"
-                }),
-            )
-            .unwrap();
-        assert!(created.valid, "{:?}", created.diagnostics);
-        let (types, _) = workspace.type_resources().unwrap();
-        assert!(types.iter().any(|definition| definition.name == "project"));
-    }
-
-    #[test]
-    fn reads_creates_updates_and_deletes_saved_view_resources() {
-        let workspace = WorkingSet::materialize(resources(), []).unwrap();
-        let document = r#"---
-type: view
-id: task.views
-version: 1
-name: Task views
-query: {}
-views:
-  - id: all
-    name: All tasks
----
-"#;
-        let created = workspace
-            .view_source_operation(
-                "create_view_source",
-                &json!({ "path": "views/tasks.md", "document": document }),
-            )
-            .unwrap();
-        assert!(created.valid, "{:?}", created.diagnostics);
-        let revision = created.result["revision"].as_str().unwrap();
-
-        let read = workspace
-            .read_operation("read_view_source", &json!({ "path": "views/tasks.md" }))
-            .unwrap();
-        assert_eq!(read.result["document"], document);
-
-        let updated = workspace
-            .view_source_operation(
-                "update_view_source",
-                &json!({
-                    "path": "views/tasks.md",
-                    "if_revision": revision,
-                    "document": document.replace("All tasks", "Open tasks"),
-                }),
-            )
-            .unwrap();
-        assert!(updated.valid, "{:?}", updated.diagnostics);
-        let deleted = workspace
-            .view_source_operation(
-                "delete_view_source",
-                &json!({
-                    "path": "views/tasks.md",
-                    "if_revision": updated.result["revision"],
-                }),
-            )
-            .unwrap();
-        assert!(deleted.valid, "{:?}", deleted.diagnostics);
-    }
-}
+mod tests;

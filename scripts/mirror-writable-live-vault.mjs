@@ -118,10 +118,11 @@ try {
     mutation_id: randomUUID(),
     replica_id: writerId,
     scope_epoch: 1,
-    operation: "update",
+    operation: "put",
     record_id: bodyOnlyRecord.record_id,
     base_revision: bodyOnlyRecord.revision,
-    input: { patch: {}, body: remoteBody },
+    path: bodyOnlyRecord.path,
+    document: remoteBody,
     created_at: new Date().toISOString()
   });
   assert(remoteReceipt.status === "applied", "Remote body-only update was rejected.");

@@ -76,13 +76,10 @@ try {
     mutation_id: mutationId,
     replica_id: writer.replica.id,
     scope_epoch: 1,
-    operation: "create",
+    operation: "put",
     record_id: recordId,
-    input: {
-      path: "records/should-not-exist.md",
-      frontmatter: { title: "Duplicate" },
-      types: []
-    },
+    path: "records/should-not-exist.md",
+    document: "---\ntitle: Duplicate\n---\n",
     created_at: new Date().toISOString()
   });
   if (replay.status !== "previously_applied" || replay.record?.path !== "records/offline.md") {

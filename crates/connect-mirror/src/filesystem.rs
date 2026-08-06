@@ -218,19 +218,7 @@ pub(super) fn atomic_write(path: &Path, value: &[u8]) -> Result<(), MirrorError>
 }
 
 pub(super) fn record_markdown_document(record: &SyncRecord) -> Result<String, MirrorError> {
-    if record.frontmatter.is_empty() {
-        return Ok(record.body.clone());
-    }
-    let mapping = json_to_yaml_mapping(&Value::Object(record.frontmatter.clone()));
-    let yaml = serde_yaml::to_string(&mapping)
-        .map_err(|error| MirrorError::new("frontmatter_render_failed", error.to_string()))?;
-    let yaml = yaml.trim_end();
-    let body = if record.body.is_empty() {
-        String::new()
-    } else {
-        format!("\n{}", record.body.trim_start_matches('\n'))
-    };
-    Ok(format!("---\n{yaml}\n---\n{body}"))
+    Ok(record.document.clone())
 }
 
 pub(super) fn parse_markdown(
@@ -250,19 +238,6 @@ pub(super) fn parse_markdown(
     Ok((frontmatter, parsed.body))
 }
 
-pub(super) fn frontmatter_patch(
-    before: &Map<String, Value>,
-    after: &Map<String, Value>,
-) -> Map<String, Value> {
-    let mut patch = after.clone();
-    for field in before.keys() {
-        if !after.contains_key(field) {
-            patch.insert(field.clone(), Value::Null);
-        }
-    }
-    patch
-}
-
 #[allow(clippy::too_many_arguments)]
 pub(super) fn queue_mutation(
     queue: &mut Vec<PendingMirrorMutation>,
@@ -272,7 +247,8 @@ pub(super) fn queue_mutation(
     operation: SyncMutationOperation,
     record_id: Uuid,
     base_revision: Option<String>,
-    input: Map<String, Value>,
+    path: Option<String>,
+    document: Option<String>,
     local_path: String,
     local_hash: Option<String>,
 ) {
@@ -286,7 +262,8 @@ pub(super) fn queue_mutation(
             operation,
             record_id,
             base_revision,
-            input,
+            path,
+            document,
             created_at: now(),
             causal_predecessor,
         },
@@ -318,13 +295,6 @@ pub(super) fn refresh_conflict(state: &mut DurableMirrorState, event: &SyncChang
         }
         SyncChange::FilePut { .. } | SyncChange::FileRemove { .. } => {}
     }
-}
-
-pub(super) fn object<const N: usize>(entries: [(&str, Value); N]) -> Map<String, Value> {
-    entries
-        .into_iter()
-        .map(|(key, value)| (key.to_string(), value))
-        .collect()
 }
 
 pub(super) fn digest(value: &str) -> String {

@@ -37,6 +37,7 @@ for (const [index, path] of paths.entries()) {
   records.push({
     record_id: createHash("sha256").update(path).digest("hex"),
     path,
+    document,
     frontmatter: {
       type: "mirror-profile",
       title: `Live-vault profile ${index}`
@@ -97,10 +98,11 @@ try {
     mutation_id: randomUUID(),
     replica_id: writerId,
     scope_epoch: 1,
-    operation: "update",
+    operation: "put",
     record_id: updateRecord.record_id,
-    base_revision: `hosted:0:${updateRecord.record_id}`,
-    input: { patch: { live_vault_adversary: true } },
+    base_revision: updateRecord.revision,
+    path: updateRecord.path,
+    document: `${updateRecord.document}\nlive_vault_adversary: true\n`,
     created_at: new Date().toISOString()
   });
   assert(updated.status === "applied", "Adversarial remote update was not applied.");
@@ -109,10 +111,10 @@ try {
     mutation_id: randomUUID(),
     replica_id: writerId,
     scope_epoch: 1,
-    operation: "rename",
+    operation: "move",
     record_id: renameRecord.record_id,
-    base_revision: `hosted:0:${renameRecord.record_id}`,
-    input: { path: renamedPath },
+    base_revision: renameRecord.revision,
+    path: renamedPath,
     created_at: new Date().toISOString()
   });
   assert(renamed.status === "applied", "Adversarial remote rename was not applied.");
@@ -122,8 +124,7 @@ try {
     scope_epoch: 1,
     operation: "delete",
     record_id: deleteRecord.record_id,
-    base_revision: `hosted:0:${deleteRecord.record_id}`,
-    input: {},
+    base_revision: deleteRecord.revision,
     created_at: new Date().toISOString()
   });
   assert(deleted.status === "applied", "Adversarial remote delete was not applied.");
@@ -132,14 +133,10 @@ try {
     mutation_id: randomUUID(),
     replica_id: writerId,
     scope_epoch: 1,
-    operation: "create",
+    operation: "put",
     record_id: randomUUID(),
-    input: {
-      path: createdPath,
-      frontmatter: { type: "mirror-profile", title: "Adversarial create" },
-      body: "Created during live-vault hardening.",
-      types: ["mirror-profile"]
-    },
+    path: createdPath,
+    document: "---\ntype: mirror-profile\ntitle: Adversarial create\n---\nCreated during live-vault hardening.",
     created_at: new Date().toISOString()
   });
   assert(created.status === "applied", "Adversarial remote create was not applied.");

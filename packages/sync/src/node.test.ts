@@ -3,8 +3,9 @@ import { mkdtemp, readFile, rename, rm, symlink, unlink, writeFile } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { JsonObject, SyncMutation } from "@mdbase-dev/connect-protocol";
 import { MemoryAuthority } from "./index.js";
-import { documentRevision } from "./mirror-format.js";
+import { documentRevision, projectionMarkdownDocument } from "./mirror-format.js";
 import {
   authorityFileHash,
   authorityManifestDigest,
@@ -12,7 +13,6 @@ import {
   MemoryMirrorBlobStore,
   MemoryMirrorLease,
   MemoryMirrorStateStore,
-  MirrorDivergenceError,
   WritableDirectoryMirror,
   type DirectoryMirrorOptions,
   type MirrorFileSystem,
@@ -23,6 +23,26 @@ function deviceState(): DirectoryMirrorOptions {
   return {
     stateStore: new MemoryMirrorStateStore(),
     lease: new MemoryMirrorLease()
+  };
+}
+
+function putMutation(input: {
+  replicaId: string;
+  recordId: string;
+  path: string;
+  frontmatter?: JsonObject;
+  body?: string;
+  baseRevision?: string;
+}): SyncMutation {
+  const frontmatter = input.frontmatter ?? {};
+  const body = input.body ?? "";
+  return {
+    mutation_id: crypto.randomUUID(), replica_id: input.replicaId, scope_epoch: 1,
+    operation: "put", record_id: input.recordId,
+    ...(input.baseRevision ? { base_revision: input.baseRevision } : {}),
+    path: input.path,
+    document: projectionMarkdownDocument({ frontmatter, body }),
+    created_at: new Date().toISOString()
   };
 }
 
@@ -95,15 +115,10 @@ describe("receive-only Markdown mirror", () => {
     const hosted = new MemoryAuthority();
     const writer = hosted.registerReplica({ name: "Writer", mode: "read_write", allowedTypes: ["task"] });
     const mirrorId = hosted.registerReplica({ name: "Portable mirror", mode: "read_only" });
-    await hosted.transport(writer).mutate({
-      mutation_id: crypto.randomUUID(),
-      replica_id: writer,
-      scope_epoch: 1,
-      operation: "create",
-      record_id: crypto.randomUUID(),
-      input: { path: "portable.md", frontmatter: { type: "task", title: "Portable" }, types: ["task"] },
-      created_at: new Date().toISOString()
-    });
+    await hosted.transport(writer).mutate(putMutation({
+      replicaId: writer, recordId: crypto.randomUUID(), path: "portable.md",
+      frontmatter: { type: "task", title: "Portable" }
+    }));
     const fileSystem = new MemoryMirrorFileSystem();
     const mirror = new DirectoryMirror(".", mirrorId, hosted.transport(mirrorId), {
       fileSystem,
@@ -138,12 +153,10 @@ describe("receive-only Markdown mirror", () => {
       const writer = hosted.registerReplica({ name: "Writer", mode: "read_write", allowedTypes: ["task"] });
       const mirrorId = hosted.registerReplica({ name: "Laptop mirror", mode: "read_only" });
       const recordId = crypto.randomUUID();
-      const created = await hosted.transport(writer).mutate({
-        mutation_id: crypto.randomUUID(), replica_id: writer, scope_epoch: 1,
-        operation: "create", record_id: recordId,
-        input: { path: "tasks/one.md", frontmatter: { type: "task", title: "One" }, body: "Hello", types: ["task"] },
-        created_at: new Date().toISOString()
-      });
+      const created = await hosted.transport(writer).mutate(putMutation({
+        replicaId: writer, recordId, path: "tasks/one.md",
+        frontmatter: { type: "task", title: "One" }, body: "Hello"
+      }));
       if (created.status !== "applied" || !created.record) throw new Error("create failed");
       const mirror = new DirectoryMirror(root, mirrorId, hosted.transport(mirrorId), deviceState());
       await mirror.sync();
@@ -153,19 +166,21 @@ describe("receive-only Markdown mirror", () => {
       expect(await readFile(join(root, "tasks/one.md"), "utf8")).toContain("title: One");
       await hosted.transport(writer).mutate({
         mutation_id: crypto.randomUUID(), replica_id: writer, scope_epoch: 1,
-        operation: "rename", record_id: recordId, base_revision: created.record.revision,
-        input: { path: "tasks/renamed.md" }, created_at: new Date().toISOString()
+        operation: "move", record_id: recordId, base_revision: created.record.revision,
+        path: "tasks/renamed.md", created_at: new Date().toISOString()
       });
       await mirror.sync();
       await expect(readFile(join(root, "tasks/one.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
       await writeFile(join(root, "tasks/renamed.md"), "local edit\n");
       const latest = (await hosted.transport(mirrorId).snapshot((await hosted.transport(mirrorId).openSession()).snapshot_id)).records[0];
-      await hosted.transport(writer).mutate({
-        mutation_id: crypto.randomUUID(), replica_id: writer, scope_epoch: 1,
-        operation: "update", record_id: recordId, base_revision: latest.revision,
-        input: { patch: { title: "Remote edit" } }, created_at: new Date().toISOString()
+      await hosted.transport(writer).mutate(putMutation({
+        replicaId: writer, recordId, path: latest.path, baseRevision: latest.revision,
+        frontmatter: { ...latest.frontmatter, title: "Remote edit" }, body: latest.body
+      }));
+      await expect(mirror.sync()).resolves.toMatchObject({
+        status: "attention",
+        issues: [{ code: "mirror_diverged", path: "tasks/renamed.md", blocking: true }]
       });
-      await expect(mirror.sync()).rejects.toBeInstanceOf(MirrorDivergenceError);
       expect(await readFile(join(root, "tasks/renamed.md"), "utf8")).toBe("local edit\n");
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -178,16 +193,17 @@ describe("receive-only Markdown mirror", () => {
       const hosted = new MemoryAuthority();
       const writer = hosted.registerReplica({ name: "Writer", mode: "read_write", allowedTypes: ["task"] });
       const mirrorId = hosted.registerReplica({ name: "Laptop mirror", mode: "read_only" });
-      await hosted.transport(writer).mutate({
-        mutation_id: crypto.randomUUID(), replica_id: writer, scope_epoch: 1,
-        operation: "create", record_id: crypto.randomUUID(),
-        input: { path: "tasks/one.md", frontmatter: { type: "task", title: "One" }, types: ["task"] },
-        created_at: new Date().toISOString()
-      });
+      await hosted.transport(writer).mutate(putMutation({
+        replicaId: writer, recordId: crypto.randomUUID(), path: "tasks/one.md",
+        frontmatter: { type: "task", title: "One" }
+      }));
       const mirror = new DirectoryMirror(root, mirrorId, hosted.transport(mirrorId), deviceState());
       await mirror.sync();
       await unlink(join(root, "tasks/one.md"));
-      await expect(mirror.sync()).rejects.toBeInstanceOf(MirrorDivergenceError);
+      await expect(mirror.sync()).resolves.toMatchObject({
+        status: "attention",
+        issues: [{ code: "mirror_diverged", path: "tasks/one.md", blocking: true }]
+      });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -201,8 +217,16 @@ describe("receive-only Markdown mirror", () => {
       const stateStore = new MemoryMirrorStateStore();
       const mirror = new DirectoryMirror(root, mirrorId, hosted.transport(mirrorId), { stateStore });
       await mirror.sync();
+      const obsolete = await stateStore.read();
+      if (!obsolete) throw new Error("missing mirror state");
+      delete obsolete.engine_version;
+      await stateStore.write(obsolete);
+      await expect(mirror.sync()).rejects.toMatchObject({
+        code: "mirror_state_upgrade_required"
+      });
       await stateStore.write({
         protocol_version: 1,
+        engine_version: 2,
         replica_id: "another",
         scope_epoch: 1,
         cursor: 0,
@@ -221,12 +245,10 @@ describe("receive-only Markdown mirror", () => {
       const hosted = new MemoryAuthority();
       const writer = hosted.registerReplica({ name: "Writer", mode: "read_write", allowedTypes: ["task"] });
       const mirrorId = hosted.registerReplica({ name: "Laptop mirror", mode: "read_only" });
-      await hosted.transport(writer).mutate({
-        mutation_id: crypto.randomUUID(), replica_id: writer, scope_epoch: 1,
-        operation: "create", record_id: crypto.randomUUID(),
-        input: { path: "linked/escape.md", frontmatter: { type: "task", title: "Escape" }, types: ["task"] },
-        created_at: new Date().toISOString()
-      });
+      await hosted.transport(writer).mutate(putMutation({
+        replicaId: writer, recordId: crypto.randomUUID(), path: "linked/escape.md",
+        frontmatter: { type: "task", title: "Escape" }
+      }));
       await symlink(outside, join(root, "linked"), "dir");
       const mirror = new DirectoryMirror(root, mirrorId, hosted.transport(mirrorId), deviceState());
       await expect(mirror.sync()).rejects.toMatchObject({ code: "symlink_denied" });
@@ -320,15 +342,10 @@ describe("writable Markdown mirror", () => {
       }
     });
     const replicaId = hosted.registerReplica({ name: "Promotion candidate", mode: "read_write" });
-    await hosted.transport(replicaId).mutate({
-      mutation_id: crypto.randomUUID(),
-      replica_id: replicaId,
-      scope_epoch: 1,
-      operation: "create",
-      record_id: crypto.randomUUID(),
-      input: { path: "note.md", frontmatter: { title: "Local" }, types: [] },
-      created_at: new Date().toISOString()
-    });
+    await hosted.transport(replicaId).mutate(putMutation({
+      replicaId, recordId: crypto.randomUUID(), path: "note.md",
+      frontmatter: { title: "Local" }
+    }));
     const fileSystem = new MemoryMirrorFileSystem();
     const mirror = new WritableDirectoryMirror(
       "/virtual",
@@ -417,15 +434,10 @@ describe("writable Markdown mirror", () => {
     const writer = hosted.registerReplica({ name: "Writer", mode: "read_write", allowedTypes: ["task"] });
     const replicaId = hosted.registerReplica({ name: "Writable laptop", mode: "read_write", allowedTypes: ["task"] });
     for (const path of ["a.md", "b.md"]) {
-      await hosted.transport(writer).mutate({
-        mutation_id: crypto.randomUUID(),
-        replica_id: writer,
-        scope_epoch: 1,
-        operation: "create",
-        record_id: crypto.randomUUID(),
-        input: { path, frontmatter: { type: "task", title: path }, types: ["task"] },
-        created_at: new Date().toISOString()
-      });
+      await hosted.transport(writer).mutate(putMutation({
+        replicaId: writer, recordId: crypto.randomUUID(), path,
+        frontmatter: { type: "task", title: path }
+      }));
     }
     const fileSystem = new MemoryMirrorFileSystem();
     fileSystem.files.set("b.md", "---\ntype: task\ntitle: Different\n---\n");
@@ -437,9 +449,9 @@ describe("writable Markdown mirror", () => {
       download_documents: 1,
       collisions: ["b.md"]
     });
-    await expect(mirror.sync()).rejects.toMatchObject({
-      code: "mirror_initialization_conflict",
-      paths: ["b.md"]
+    await expect(mirror.sync()).resolves.toMatchObject({
+      status: "attention",
+      issues: [{ code: "local_collision", path: "b.md", blocking: true }]
     });
     expect(fileSystem.files.has("a.md")).toBe(false);
     expect(fileSystem.files.get("b.md")).toContain("title: Different");
@@ -488,21 +500,19 @@ describe("writable Markdown mirror", () => {
       const writer = hosted.registerReplica({ name: "Remote writer", mode: "read_write", allowedTypes: ["task"] });
       const replicaId = hosted.registerReplica({ name: "Writable laptop", mode: "read_write", allowedTypes: ["task"] });
       const recordId = crypto.randomUUID();
-      const created = await hosted.transport(writer).mutate({
-        mutation_id: crypto.randomUUID(), replica_id: writer, scope_epoch: 1,
-        operation: "create", record_id: recordId,
-        input: { path: "task.md", frontmatter: { type: "task", title: "Base" }, types: ["task"] },
-        created_at: new Date().toISOString()
-      });
+      const created = await hosted.transport(writer).mutate(putMutation({
+        replicaId: writer, recordId, path: "task.md",
+        frontmatter: { type: "task", title: "Base" }
+      }));
       if (created.status !== "applied" || !created.record) throw new Error("create failed");
       const mirror = new WritableDirectoryMirror(root, replicaId, hosted.transport(replicaId), deviceState());
       await mirror.sync();
       await writeFile(join(root, "task.md"), "---\ntype: task\ntitle: Local\n---\n");
-      await hosted.transport(writer).mutate({
-        mutation_id: crypto.randomUUID(), replica_id: writer, scope_epoch: 1,
-        operation: "update", record_id: recordId, base_revision: created.record.revision,
-        input: { patch: { title: "Remote" } }, created_at: new Date().toISOString()
-      });
+      await hosted.transport(writer).mutate(putMutation({
+        replicaId: writer, recordId, path: created.record.path,
+        baseRevision: created.record.revision,
+        frontmatter: { ...created.record.frontmatter, title: "Remote" }, body: created.record.body
+      }));
       await mirror.sync();
       expect(await readFile(join(root, "task.md"), "utf8")).toContain("title: Local");
       expect(await mirror.status()).toMatchObject({
@@ -537,24 +547,14 @@ describe("writable Markdown mirror", () => {
       });
       const firstId = crypto.randomUUID();
       const secondId = crypto.randomUUID();
-      const first = await hosted.transport(writer).mutate({
-        mutation_id: crypto.randomUUID(),
-        replica_id: writer,
-        scope_epoch: 1,
-        operation: "create",
-        record_id: firstId,
-        input: { path: "a.md", frontmatter: { type: "task", title: "A" }, types: ["task"] },
-        created_at: new Date().toISOString()
-      });
-      await hosted.transport(writer).mutate({
-        mutation_id: crypto.randomUUID(),
-        replica_id: writer,
-        scope_epoch: 1,
-        operation: "create",
-        record_id: secondId,
-        input: { path: "b.md", frontmatter: { type: "task", title: "B" }, types: ["task"] },
-        created_at: new Date().toISOString()
-      });
+      const first = await hosted.transport(writer).mutate(putMutation({
+        replicaId: writer, recordId: firstId, path: "a.md",
+        frontmatter: { type: "task", title: "A" }
+      }));
+      await hosted.transport(writer).mutate(putMutation({
+        replicaId: writer, recordId: secondId, path: "b.md",
+        frontmatter: { type: "task", title: "B" }
+      }));
       if (first.status !== "applied" || !first.record) throw new Error("create failed");
       const mirror = new WritableDirectoryMirror(
         root,
@@ -565,16 +565,11 @@ describe("writable Markdown mirror", () => {
       await mirror.sync();
       await writeFile(join(root, "a.md"), "---\ntype: task\ntitle: Local A\n---\n");
       await writeFile(join(root, "b.md"), "---\ntype: task\ntitle: Local B\n---\n");
-      await hosted.transport(writer).mutate({
-        mutation_id: crypto.randomUUID(),
-        replica_id: writer,
-        scope_epoch: 1,
-        operation: "update",
-        record_id: firstId,
-        base_revision: first.record.revision,
-        input: { patch: { title: "Remote A" } },
-        created_at: new Date().toISOString()
-      });
+      await hosted.transport(writer).mutate(putMutation({
+        replicaId: writer, recordId: firstId, path: first.record.path,
+        baseRevision: first.record.revision,
+        frontmatter: { ...first.record.frontmatter, title: "Remote A" }, body: first.record.body
+      }));
 
       await mirror.sync();
       expect(await mirror.status()).toMatchObject({
@@ -607,15 +602,10 @@ describe("writable Markdown mirror", () => {
         allowedTypes: ["task"]
       });
       const recordId = crypto.randomUUID();
-      const created = await hosted.transport(writer).mutate({
-        mutation_id: crypto.randomUUID(),
-        replica_id: writer,
-        scope_epoch: 1,
-        operation: "create",
-        record_id: recordId,
-        input: { path: "before.md", frontmatter: { type: "task", title: "Base" }, types: ["task"] },
-        created_at: new Date().toISOString()
-      });
+      const created = await hosted.transport(writer).mutate(putMutation({
+        replicaId: writer, recordId, path: "before.md",
+        frontmatter: { type: "task", title: "Base" }
+      }));
       if (created.status !== "applied" || !created.record) throw new Error("create failed");
       const mirror = new WritableDirectoryMirror(
         root,
@@ -625,16 +615,11 @@ describe("writable Markdown mirror", () => {
       );
       await mirror.sync();
       await rename(join(root, "before.md"), join(root, "local.md"));
-      await hosted.transport(writer).mutate({
-        mutation_id: crypto.randomUUID(),
-        replica_id: writer,
-        scope_epoch: 1,
-        operation: "update",
-        record_id: recordId,
-        base_revision: created.record.revision,
-        input: { patch: { title: "Remote" } },
-        created_at: new Date().toISOString()
-      });
+      await hosted.transport(writer).mutate(putMutation({
+        replicaId: writer, recordId, path: created.record.path,
+        baseRevision: created.record.revision,
+        frontmatter: { ...created.record.frontmatter, title: "Remote" }, body: created.record.body
+      }));
 
       await mirror.sync();
       await writeFile(join(root, "local.md"), "---\ntype: task\ntitle: Local\n---\n");
@@ -665,15 +650,10 @@ describe("writable Markdown mirror", () => {
         allowedTypes: ["task"]
       });
       const recordId = crypto.randomUUID();
-      await hosted.transport(replicaId).mutate({
-        mutation_id: crypto.randomUUID(),
-        replica_id: replicaId,
-        scope_epoch: 1,
-        operation: "create",
-        record_id: recordId,
-        input: { path: "task.md", frontmatter: { type: "task", title: "Task" }, types: ["task"] },
-        created_at: new Date().toISOString()
-      });
+      await hosted.transport(replicaId).mutate(putMutation({
+        replicaId, recordId, path: "task.md",
+        frontmatter: { type: "task", title: "Task" }
+      }));
       const upstream = hosted.transport(replicaId);
       const rejecting = {
         ...upstream,
@@ -681,7 +661,7 @@ describe("writable Markdown mirror", () => {
         snapshot: (snapshotId: string, page?: string) => upstream.snapshot(snapshotId, page),
         changes: (after: number, limit?: number) => upstream.changes(after, limit),
         mutate: async (mutation: Parameters<typeof upstream.mutate>[0]) => (
-          mutation.operation === "update"
+          mutation.operation === "put" && mutation.base_revision !== undefined
             ? {
                 mutation_id: mutation.mutation_id,
                 status: "rejected" as const,
@@ -838,7 +818,10 @@ describe("writable Markdown mirror", () => {
       const mirror = new WritableDirectoryMirror(root, replicaId, hosted.transport(replicaId), deviceState());
       await mirror.sync();
       await writeFile(join(root, "mdbase.yaml"), "spec_version: 0.4.0\n");
-      await expect(mirror.sync()).rejects.toBeInstanceOf(MirrorDivergenceError);
+      await expect(mirror.sync()).resolves.toMatchObject({
+        status: "attention",
+        issues: [{ code: "mirror_diverged", path: "mdbase.yaml", blocking: true }]
+      });
     } finally {
       await rm(root, { recursive: true, force: true });
     }

@@ -13,13 +13,9 @@ import type { SyncTransport } from "./sync-types.js";
 import {
   assertSafePath,
   clone,
-  explicitTypes,
-  object,
-  optionalText,
-  requiredString,
-  requiredText,
-  stringList
+  explicitTypes
 } from "./sync-values.js";
+import { parseMarkdown, projectionMarkdownDocument } from "./mirror-format.js";
 
 export class OfflineReplica<Frontmatter extends JsonObject = JsonObject> {
   private operationGate: Promise<void> = Promise.resolve();
@@ -83,17 +79,7 @@ export class OfflineReplica<Frontmatter extends JsonObject = JsonObject> {
           later.causal_predecessor = first.mutation_id;
         }
       }
-      if (first.operation === "create") {
-        first.operation = "update";
-        first.base_revision = current.revision;
-        first.input = {
-          patch: clone(first.input.frontmatter ?? {}),
-          body: first.input.body ?? "",
-          types: first.input.types ?? current.types
-        };
-      } else {
-        first.base_revision = current.revision;
-      }
+      first.base_revision = current.revision;
       delete first.causal_predecessor;
       delete data.conflicts[recordId];
       const overlay = applyPendingOverlay<Frontmatter>({ [recordId]: clone(current) }, pending);
@@ -170,22 +156,25 @@ export class OfflineReplica<Frontmatter extends JsonObject = JsonObject> {
     if (data.records[recordId] || Object.values(data.records).some((record) => record.path === input.path)) {
       throw new SyncError("local_record_conflict", "The offline cache already contains this record ID or path.");
     }
-    const mutation: SyncMutation = {
-      mutation_id: mutationId,
-      replica_id: data.replicaId,
-      scope_epoch: data.scopeEpoch!,
-      operation: "create",
-      record_id: recordId,
-      input: { path: input.path, frontmatter, body: input.body ?? "", types: [...types] },
-      created_at: new Date().toISOString()
-    };
     const optimistic: SyncRecord<Frontmatter> = {
       record_id: recordId,
       path: input.path,
+      document: "",
       revision: `local:${mutationId}`,
       frontmatter,
       body: input.body ?? "",
       types: [...types]
+    };
+    optimistic.document = projectionMarkdownDocument(optimistic);
+    const mutation: SyncMutation = {
+      mutation_id: mutationId,
+      replica_id: data.replicaId,
+      scope_epoch: data.scopeEpoch!,
+      operation: "put",
+      record_id: recordId,
+      path: input.path,
+      document: optimistic.document,
+      created_at: new Date().toISOString()
     };
     data.pending.push(mutation);
     data.records[recordId] = optimistic;
@@ -216,28 +205,31 @@ export class OfflineReplica<Frontmatter extends JsonObject = JsonObject> {
     this.assertRecordNotBlocked(data, input.recordId);
     const mutationId = input.mutationId ?? crypto.randomUUID();
     const predecessor = [...data.pending].reverse().find((item) => item.record_id === input.recordId);
-    data.pending.push({
-      mutation_id: mutationId,
-      replica_id: data.replicaId,
-      scope_epoch: data.scopeEpoch!,
-      operation: "update",
-      record_id: input.recordId,
-      base_revision: input.baseRevision ?? current.revision,
-      input: { patch: clone(input.patch), ...(input.body === undefined ? {} : { body: input.body }) },
-      created_at: new Date().toISOString(),
-      ...(predecessor ? { causal_predecessor: predecessor.mutation_id } : {})
-    });
     const frontmatter = clone(current.frontmatter) as JsonObject;
     for (const [key, value] of Object.entries(input.patch)) {
       if (value === null) delete frontmatter[key];
       else frontmatter[key] = clone(value);
     }
-    data.records[input.recordId] = {
+    const next = {
       ...current,
       frontmatter: frontmatter as Frontmatter,
       body: input.body ?? current.body,
       revision: `local:${mutationId}`
     };
+    next.document = projectionMarkdownDocument(next);
+    data.pending.push({
+      mutation_id: mutationId,
+      replica_id: data.replicaId,
+      scope_epoch: data.scopeEpoch!,
+      operation: "put",
+      record_id: input.recordId,
+      base_revision: input.baseRevision ?? current.revision,
+      path: current.path,
+      document: next.document,
+      created_at: new Date().toISOString(),
+      ...(predecessor ? { causal_predecessor: predecessor.mutation_id } : {})
+    });
+    data.records[input.recordId] = next;
     await this.store.save(data);
   }
 
@@ -262,10 +254,10 @@ export class OfflineReplica<Frontmatter extends JsonObject = JsonObject> {
         mutation_id: mutationId,
         replica_id: data.replicaId,
         scope_epoch: data.scopeEpoch!,
-        operation: "rename",
+        operation: "move",
         record_id: input.recordId,
         base_revision: input.baseRevision ?? current.revision,
-        input: { path: input.path },
+        path: input.path,
         created_at: new Date().toISOString(),
         ...(predecessor ? { causal_predecessor: predecessor.mutation_id } : {})
       });
@@ -293,7 +285,6 @@ export class OfflineReplica<Frontmatter extends JsonObject = JsonObject> {
         operation: "delete",
         record_id: input.recordId,
         base_revision: input.baseRevision ?? current.revision,
-        input: {},
         created_at: new Date().toISOString(),
         ...(predecessor ? { causal_predecessor: predecessor.mutation_id } : {})
       });
@@ -424,15 +415,16 @@ function applyPendingOverlay<Frontmatter extends JsonObject>(
 ): Record<string, SyncRecord<Frontmatter>> {
   const records = clone(authorityRecords);
   for (const mutation of pending) {
-    if (mutation.operation === "create") {
-      const path = requiredString(mutation.input.path, "path");
+    if (mutation.operation === "put") {
+      const parsed = parseMarkdown(mutation.document, mutation.path);
       records[mutation.record_id] = {
         record_id: mutation.record_id,
-        path,
+        path: mutation.path,
+        document: mutation.document,
         revision: `local:${mutation.mutation_id}`,
-        frontmatter: object(mutation.input.frontmatter ?? {}) as Frontmatter,
-        body: optionalText(mutation.input.body, "body") ?? "",
-        types: stringList(mutation.input.types ?? explicitTypes(object(mutation.input.frontmatter ?? {})))
+        frontmatter: parsed.frontmatter as Frontmatter,
+        body: parsed.body,
+        types: explicitTypes(parsed.frontmatter)
       };
       continue;
     }
@@ -442,24 +434,9 @@ function applyPendingOverlay<Frontmatter extends JsonObject>(
       delete records[mutation.record_id];
       continue;
     }
-    if (mutation.operation === "rename") {
-      records[mutation.record_id] = {
-        ...current,
-        path: requiredString(mutation.input.path, "path"),
-        revision: `local:${mutation.mutation_id}`
-      };
-      continue;
-    }
-    const frontmatter = clone(current.frontmatter) as JsonObject;
-    for (const [field, value] of Object.entries(object(mutation.input.patch ?? {}))) {
-      if (value === null) delete frontmatter[field];
-      else frontmatter[field] = clone(value);
-    }
     records[mutation.record_id] = {
       ...current,
-      frontmatter: frontmatter as Frontmatter,
-      body: mutation.input.body === undefined ? current.body : requiredText(mutation.input.body, "body"),
-      types: mutation.input.types === undefined ? current.types : stringList(mutation.input.types),
+      path: mutation.path,
       revision: `local:${mutation.mutation_id}`
     };
   }

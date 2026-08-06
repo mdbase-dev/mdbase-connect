@@ -206,8 +206,8 @@ impl CloudControlClient {
                 page_bytes = 0;
             }
             page.push(mdbase_connect_protocol::AuthorityImportRecord {
-                record_id: record.record.record_id,
-                path: record.record.path.clone(),
+                record_id: record.record_id,
+                path: record.path.clone(),
                 document: record.document.clone(),
             });
             page_bytes += record_bytes;

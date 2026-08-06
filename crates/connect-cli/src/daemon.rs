@@ -424,7 +424,8 @@ pub(super) async fn send(
 pub(super) fn control_request_timeout(command: &ControlCommand) -> std::time::Duration {
     let seconds = match command {
         ControlCommand::MirrorAdd(_)
-        | ControlCommand::MirrorSync(_)
+        | ControlCommand::MirrorInspect(_)
+        | ControlCommand::MirrorApply(_)
         | ControlCommand::MirrorConfigureSelectiveSync(_)
         | ControlCommand::MirrorResolve(_)
         | ControlCommand::MirrorPromoteComplete(_)

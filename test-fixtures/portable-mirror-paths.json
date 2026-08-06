@@ -21,6 +21,11 @@
     "notes/file.md.",
     "notes/file.md ",
     "notes/file.md:payload",
+    "notes/file?.md",
+    "notes/file<draft>.md",
+    "notes/file|draft.md",
+    "notes/file*.md",
+    "notes/file\"draft.md",
     "notes/\u0085.md"
   ],
   "aliases": [

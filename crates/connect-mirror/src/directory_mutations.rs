@@ -40,17 +40,16 @@ impl DirectoryMirror {
                 self.remove(state, record.record_id, &prior.path)?;
             }
         }
-        let accepted_local_hash = if options.preserve_accepted_document {
-            existing.as_ref().and_then(|existing| {
-                let existing_hash = digest(existing);
-                options
-                    .accepted_hash
-                    .filter(|accepted| existing_hash == *accepted)
-                    .map(|_| existing_hash)
-            })
-        } else {
-            None
-        };
+        let authoritative_hash = digest(&document);
+        let accepted_local_hash = existing.as_ref().and_then(|existing| {
+            let existing_hash = digest(existing);
+            options
+                .accepted_hash
+                .filter(|accepted| {
+                    existing_hash == *accepted && existing_hash == authoritative_hash
+                })
+                .map(|_| existing_hash)
+        });
         if accepted_local_hash.is_none() {
             self.write_file(&record.path, document.as_bytes())?;
         }
@@ -59,7 +58,7 @@ impl DirectoryMirror {
             MirrorEntry {
                 path: record.path.clone(),
                 revision: record.revision.clone(),
-                hash: accepted_local_hash.unwrap_or_else(|| digest(&document)),
+                hash: authoritative_hash,
                 record: (self.mode == SyncReplicaMode::ReadWrite).then_some(record),
             },
         );
@@ -184,10 +183,11 @@ impl DirectoryMirror {
                 &mut predecessors,
                 self.replica_id,
                 state.scope_epoch,
-                SyncMutationOperation::Rename,
+                SyncMutationOperation::Move,
                 record_id,
                 Some(entry.revision.clone()),
-                object([("path", Value::String(target.clone()))]),
+                Some(target.clone()),
+                None,
                 target.clone(),
                 Some(local[target].1.clone()),
             );
@@ -206,29 +206,24 @@ impl DirectoryMirror {
             if hash == &entry.hash {
                 continue;
             }
-            let Some(record) = &entry.record else {
+            if entry.record.is_none() {
                 return Err(MirrorError::new(
                     "mirror_state_upgrade_required",
                     "Run a receive sync before editing this older writable mirror.",
                 ));
-            };
+            }
             let document = document.as_deref().unwrap_or_default();
             match parse_markdown(document, &entry.path) {
-                Ok((frontmatter, body)) => queue_mutation(
+                Ok(_) => queue_mutation(
                     &mut queued,
                     &mut predecessors,
                     self.replica_id,
                     state.scope_epoch,
-                    SyncMutationOperation::Update,
+                    SyncMutationOperation::Put,
                     *record_id,
                     Some(entry.revision.clone()),
-                    object([
-                        (
-                            "patch",
-                            Value::Object(frontmatter_patch(&record.frontmatter, &frontmatter)),
-                        ),
-                        ("body", Value::String(body)),
-                    ]),
+                    Some(entry.path.clone()),
+                    Some(document.to_string()),
                     entry.path.clone(),
                     Some(hash.clone()),
                 ),
@@ -260,7 +255,8 @@ impl DirectoryMirror {
                 SyncMutationOperation::Delete,
                 record_id,
                 Some(entry.revision.clone()),
-                Map::new(),
+                None,
+                None,
                 entry.path.clone(),
                 None,
             );
@@ -270,19 +266,16 @@ impl DirectoryMirror {
             let (document, hash) = &local[&path];
             let document = document.as_deref().unwrap_or_default();
             match parse_markdown(document, &path) {
-                Ok((frontmatter, body)) => queue_mutation(
+                Ok(_) => queue_mutation(
                     &mut queued,
                     &mut predecessors,
                     self.replica_id,
                     state.scope_epoch,
-                    SyncMutationOperation::Create,
+                    SyncMutationOperation::Put,
                     Uuid::new_v4(),
                     None,
-                    object([
-                        ("path", Value::String(path.clone())),
-                        ("frontmatter", Value::Object(frontmatter)),
-                        ("body", Value::String(body)),
-                    ]),
+                    Some(path.clone()),
+                    Some(document.to_string()),
                     path,
                     Some(hash.clone()),
                 ),
@@ -341,7 +334,6 @@ impl DirectoryMirror {
                             record.clone(),
                             PutOptions {
                                 accepted_hash: pending.local_hash.as_deref(),
-                                preserve_accepted_document: true,
                                 ..PutOptions::default()
                             },
                         )?;
@@ -436,14 +428,15 @@ impl DirectoryMirror {
                     SyncMutationOperation::Delete,
                     record_id,
                     Some(current.revision.clone()),
-                    Map::new(),
+                    None,
+                    None,
                     local_path.to_string(),
                     None,
                 );
             }
             return Ok(queued);
         };
-        let (frontmatter, body) = parse_markdown(document, local_path)?;
+        parse_markdown(document, local_path)?;
         let local_hash = Some(digest(document));
         let Some(current) = current else {
             queue_mutation(
@@ -451,35 +444,27 @@ impl DirectoryMirror {
                 &mut predecessors,
                 self.replica_id,
                 state.scope_epoch,
-                SyncMutationOperation::Create,
+                SyncMutationOperation::Put,
                 record_id,
                 None,
-                object([
-                    ("path", Value::String(local_path.to_string())),
-                    ("frontmatter", Value::Object(frontmatter)),
-                    ("body", Value::String(body)),
-                ]),
+                Some(local_path.to_string()),
+                Some(document.to_string()),
                 local_path.to_string(),
-                local_hash,
+                local_hash.clone(),
             );
             return Ok(queued);
         };
-        if document != record_markdown_document(current)? {
+        if document != current.document {
             queue_mutation(
                 &mut queued,
                 &mut predecessors,
                 self.replica_id,
                 state.scope_epoch,
-                SyncMutationOperation::Update,
+                SyncMutationOperation::Put,
                 record_id,
                 Some(current.revision.clone()),
-                object([
-                    (
-                        "patch",
-                        Value::Object(frontmatter_patch(&current.frontmatter, &frontmatter)),
-                    ),
-                    ("body", Value::String(body)),
-                ]),
+                Some(current.path.clone()),
+                Some(document.to_string()),
                 local_path.to_string(),
                 local_hash.clone(),
             );
@@ -490,10 +475,11 @@ impl DirectoryMirror {
                 &mut predecessors,
                 self.replica_id,
                 state.scope_epoch,
-                SyncMutationOperation::Rename,
+                SyncMutationOperation::Move,
                 record_id,
                 Some(current.revision.clone()),
-                object([("path", Value::String(local_path.to_string()))]),
+                Some(local_path.to_string()),
+                None,
                 local_path.to_string(),
                 local_hash,
             );

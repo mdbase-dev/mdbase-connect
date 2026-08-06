@@ -414,7 +414,10 @@ fn windows_reserved_name(component: &str) -> bool {
             })
 }
 
-fn verify_file(path: &Path, file: &CollectionFileDescriptor) -> Result<bool, MirrorError> {
+pub(super) fn verify_file(
+    path: &Path,
+    file: &CollectionFileDescriptor,
+) -> Result<bool, MirrorError> {
     match sha256_file(path) {
         Ok((size, digest)) => {
             Ok(size == file.size && format!("sha256:{digest}") == file.content_digest)

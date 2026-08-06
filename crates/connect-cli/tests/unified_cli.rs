@@ -25,6 +25,8 @@ fn binary() -> &'static str {
 fn run(arguments: &[&str]) -> Output {
     Command::new(binary())
         .args(arguments)
+        .env("MDBASE_CONNECT_ENV", "test")
+        .env("MDBASE_CONNECT_SECRET_BACKEND", "insecure-test-file")
         .output()
         .expect("run unified CLI")
 }

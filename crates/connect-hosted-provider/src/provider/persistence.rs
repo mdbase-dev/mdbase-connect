@@ -192,7 +192,7 @@ pub(super) async fn load_records(
                 row.get("payload_ciphertext"),
                 &current_record_aad(collection_id, record_id, sequence),
             )?;
-            if persisted.record.record_id != record_id {
+            if persisted.record_id != record_id {
                 return Err(ApiError::internal(
                     "The hosted encrypted record identity does not match its metadata.",
                 ));
@@ -209,12 +209,8 @@ pub(super) async fn persist_live_record(
     collection_id: Uuid,
     sequence: u64,
     record: &SyncRecord,
-    document: &str,
 ) -> ApiResult<()> {
-    let payload = PersistedRecord {
-        record: record.clone(),
-        document: document.to_string(),
-    };
+    let payload = record.clone();
     let current_ciphertext = crypto.encrypt_json(
         data_key,
         &payload,
@@ -244,7 +240,7 @@ pub(super) async fn persist_live_record(
     .bind(path_token(data_key, &record.path))
     .bind(&record.revision)
     .bind(&record.types)
-    .bind(to_i64(document.len() as u64, "document size")?)
+    .bind(to_i64(record.document.len() as u64, "document size")?)
     .bind(current_ciphertext)
     .bind(sequence_number)
     .execute(&mut **transaction)

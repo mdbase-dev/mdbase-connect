@@ -90,10 +90,10 @@ seed_previous_sync_receipt() {
   provider_json POST "/internal/v1/collections/$UPGRADE_COLLECTION_ID/replicas" \
     "{\"replica_id\":\"$UPGRADE_REPLICA_ID\",\"name\":\"Upgrade receipt writer\",\"purpose\":\"application\",\"mode\":\"read_write\",\"allowed_types\":[],\"contract_scope\":[],\"full_collection\":true,\"allowed_operations\":[\"create\"],\"grant_id\":\"$UPGRADE_GRANT_ID\",\"token\":\"$UPGRADE_REPLICA_TOKEN\"}" >/dev/null
   provider_json POST "/v1/authorities/$UPGRADE_COLLECTION_ID/sync/mutations" \
-    "$(upgrade_mutation_body)" "$UPGRADE_REPLICA_TOKEN"
+    "$(previous_mutation_body)" "$UPGRADE_REPLICA_TOKEN"
 }
 
-upgrade_mutation_body() {
+previous_mutation_body() {
   jq --compact-output --null-input \
     --arg mutation_id "$UPGRADE_MUTATION_ID" \
     --arg replica_id "$UPGRADE_REPLICA_ID" \
@@ -101,19 +101,31 @@ upgrade_mutation_body() {
     '{mutation_id:$mutation_id,replica_id:$replica_id,scope_epoch:1,operation:"create",record_id:$record_id,input:{path:"upgrade/receipt.md",frontmatter:{title:"Preserved beta receipt"},body:"",types:[]},created_at:"2026-08-04T00:00:00Z"}'
 }
 
-query_sync_receipt_migration() {
+exact_mutation_body() {
+  jq --compact-output --null-input \
+    --arg mutation_id "$UPGRADE_MUTATION_ID" \
+    --arg replica_id "$UPGRADE_REPLICA_ID" \
+    --arg record_id "$UPGRADE_RECORD_ID" \
+    --arg document $'---\ntitle: Exact beta receipt\n---\n\nExact bytes.\n' \
+    '{mutation_id:$mutation_id,replica_id:$replica_id,scope_epoch:1,operation:"put",record_id:$record_id,path:"upgrade/receipt.md",document:$document,created_at:"2026-08-06T00:00:00Z"}'
+}
+
+query_exact_document_reset() {
   docker run --rm --network host \
     --env PGPASSWORD=previous-provider-upgrade \
     postgres:18-alpine \
     psql --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT" --username mdbase --dbname mdbase_provider_upgrade \
     --set ON_ERROR_STOP=1 --tuples-only --no-align \
-    --command "SELECT concat(journal.operation_kind, '|', journal.fingerprint_schema_version, '|', journal.state, '|', archive.migrated_at IS NOT NULL)
-               FROM hosted_provider_mutation_journal journal
-               JOIN archived_hosted_mutation_receipts archive
-                 ON archive.replica_id = journal.replica_id
-                AND archive.mutation_id = journal.request_id
-               WHERE journal.replica_id = '$UPGRADE_REPLICA_ID'
-                 AND journal.request_id = '$UPGRADE_MUTATION_ID'"
+    --command "SELECT concat(
+                 (SELECT count(*) FROM hosted_provider_records WHERE collection_id = '$UPGRADE_COLLECTION_ID'), '|',
+                 (SELECT count(*) FROM hosted_provider_record_versions WHERE collection_id = '$UPGRADE_COLLECTION_ID'), '|',
+                 (SELECT count(*) FROM hosted_provider_changes WHERE collection_id = '$UPGRADE_COLLECTION_ID'), '|',
+                 (SELECT count(*) FROM hosted_provider_mutation_journal WHERE replica_id = '$UPGRADE_REPLICA_ID'), '|',
+                 (SELECT count(*) FROM hosted_provider_runtime_outbox WHERE collection_id = '$UPGRADE_COLLECTION_ID'), '|',
+                 record_count, '|', content_bytes
+               )
+               FROM hosted_provider_collections
+               WHERE id = '$UPGRADE_COLLECTION_ID'"
 }
 
 query_notification_contract() {
@@ -254,13 +266,14 @@ application_binding=$(query_notification_application_binding)
 printf 'Recovered legacy application binding: %s\n' "$application_binding"
 [[ $application_binding == "legacy.unbound.33333333333343338333333333333333|sha256:$(printf '0%.0s' {1..64})" ]]
 
-migration=$(query_sync_receipt_migration)
-printf 'Recovered sync receipt migration: %s\n' "$migration"
-[[ $migration == "sync:mutate|0|completed|t" ]]
-replayed_receipt=$(provider_json POST "/v1/authorities/$UPGRADE_COLLECTION_ID/sync/mutations" \
-  "$(upgrade_mutation_body)" "$UPGRADE_REPLICA_TOKEN")
-jq --sort-keys . <<<"$replayed_receipt" >"${RUNNER_TEMP:-/tmp}/replayed-provider-receipt.json"
-jq --sort-keys . <<<"$previous_receipt" >"${RUNNER_TEMP:-/tmp}/previous-provider-receipt.json"
-cmp "${RUNNER_TEMP:-/tmp}/previous-provider-receipt.json" \
-  "${RUNNER_TEMP:-/tmp}/replayed-provider-receipt.json"
+reset=$(query_exact_document_reset)
+printf 'Exact-document record-plane reset: %s\n' "$reset"
+[[ $reset == "0|0|0|0|0|0|0" ]]
+exact_receipt=$(provider_json POST "/v1/authorities/$UPGRADE_COLLECTION_ID/sync/mutations" \
+  "$(exact_mutation_body)" "$UPGRADE_REPLICA_TOKEN")
+jq -e '
+  .status == "applied" and
+  .record.path == "upgrade/receipt.md" and
+  .record.document == "---\ntitle: Exact beta receipt\n---\n\nExact bytes.\n"
+' <<<"$exact_receipt" >/dev/null
 printf 'Previous provider notification recovery path passed.\n'

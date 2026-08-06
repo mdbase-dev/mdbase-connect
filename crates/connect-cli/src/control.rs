@@ -79,9 +79,16 @@ pub(super) fn control_command(
             }),
             OutputKind::Mirror,
         ),
-        ConnectCommand::Mirror(MirrorCommand::Sync { replica_id }) => (
-            ControlCommand::MirrorSync(MirrorIdParams { replica_id }),
-            OutputKind::Mirror,
+        ConnectCommand::Mirror(MirrorCommand::Plan { replica_id }) => (
+            ControlCommand::MirrorInspect(MirrorIdParams { replica_id }),
+            OutputKind::Generic,
+        ),
+        ConnectCommand::Mirror(MirrorCommand::Sync { replica_id, plan }) => (
+            ControlCommand::MirrorApply(MirrorApplyParams {
+                replica_id,
+                plan_fingerprint: plan,
+            }),
+            OutputKind::Generic,
         ),
         ConnectCommand::Mirror(MirrorCommand::Configure {
             replica_id,

@@ -86,14 +86,10 @@ describe("hosted-to-local authority transfer", () => {
         mutation_id: randomUUID(),
         replica_id: replicaId,
         scope_epoch: 1,
-        operation: "create",
+        operation: "put",
         record_id: firstRecordId,
-        input: {
-          path: "notes/one.md",
-          frontmatter: { title: "One" },
-          body: "Body",
-          types: []
-        },
+        path: "notes/one.md",
+        document: "---\ntitle: One\n---\nBody",
         created_at: new Date().toISOString()
       }
     });
@@ -203,14 +199,10 @@ describe("hosted-to-local authority transfer", () => {
         mutation_id: randomUUID(),
         replica_id: replicaId,
         scope_epoch: 1,
-        operation: "create",
+        operation: "put",
         record_id: randomUUID(),
-        input: {
-          path: "notes/two.md",
-          frontmatter: { title: "Two" },
-          body: "",
-          types: []
-        },
+        path: "notes/two.md",
+        document: "---\ntitle: Two\n---\n",
         created_at: new Date().toISOString()
       }
     });

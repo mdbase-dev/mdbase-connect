@@ -222,6 +222,7 @@ pub(super) fn snapshot_record(
     SyncRecord {
         record_id,
         path: record.path.clone(),
+        document: record.document.clone(),
         revision: record.revision.clone(),
         frontmatter: record.frontmatter.clone(),
         body: record.body.clone(),
@@ -263,27 +264,18 @@ pub(super) fn parse_replica_mode(value: &str) -> Result<SyncReplicaMode, Connect
     }
 }
 
-pub(super) fn required_input_string<'a>(
-    input: &'a serde_json::Map<String, Value>,
-    key: &str,
-) -> Result<&'a str, ConnectError> {
-    input.get(key).and_then(Value::as_str).ok_or_else(|| {
-        ConnectError::AccessDenied(format!("Sync mutation requires string input '{key}'."))
-    })
-}
-
 pub(super) fn conflict(
     mutation: &SyncMutation,
     current: Option<SyncRecord>,
 ) -> SyncMutationReceipt {
     SyncMutationReceipt::Conflicted {
         mutation_id: mutation.mutation_id,
-        conflict: SyncConflict {
+        conflict: Box::new(SyncConflict {
             record_id: mutation.record_id,
             mutation: mutation.clone(),
             current_revision: current.as_ref().map(|record| record.revision.clone()),
             current,
-        },
+        }),
     }
 }
 

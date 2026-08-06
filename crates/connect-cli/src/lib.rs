@@ -24,7 +24,7 @@ use mdbase_connect_protocol::{
     AuthorizationIdParams, CollectionAuthorityTransferParams, CollectionCreateParams,
     CollectionIdParams, CollectionOperationParams, CollectionPathParams, ControlCommand,
     ControlRequest, ControlResponse, FileMediaClass, GrantIdParams, GrantUpdateParams,
-    HostedCollectionCreateParams, HostedCollectionRenameParams, MirrorAddParams,
+    HostedCollectionCreateParams, HostedCollectionRenameParams, MirrorAddParams, MirrorApplyParams,
     MirrorConfigureSelectiveSyncParams, MirrorIdParams, MirrorResolution, MirrorResolveParams,
     SyncReplicaMode, LOCAL_CONTROL_PROTOCOL_VERSION,
 };
@@ -343,8 +343,14 @@ enum MirrorCommand {
         #[arg(long = "exclude-folder")]
         excluded_folders: Vec<String>,
     },
+    Plan {
+        replica_id: Uuid,
+    },
     Sync {
         replica_id: Uuid,
+        /// Fingerprint printed by `mdbase connect mirror plan`.
+        #[arg(long)]
+        plan: String,
     },
     Configure {
         replica_id: Uuid,

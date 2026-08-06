@@ -154,12 +154,12 @@ fn authority_transfer_fence_is_durable_exclusive_and_idempotent() {
     assert_eq!(first.files[0].path, "images/photo.png");
     assert_eq!(first.resources.documents[0].path, "mdbase.yaml");
     assert_eq!(first.manifest_digest.len(), 64);
-    let record_id = first.records[0].record.record_id;
+    let record_id = first.records[0].record_id;
 
     fs::rename(root.join("one.md"), root.join("renamed.md")).unwrap();
     let renamed = registry.authority_snapshot(collection.id).unwrap();
-    assert_eq!(renamed.records[0].record.record_id, record_id);
-    assert_eq!(renamed.records[0].record.path, "renamed.md");
+    assert_eq!(renamed.records[0].record_id, record_id);
+    assert_eq!(renamed.records[0].path, "renamed.md");
     assert_eq!(renamed.files[0].file_id, first.files[0].file_id);
     assert_eq!(
         renamed.records[0].document,

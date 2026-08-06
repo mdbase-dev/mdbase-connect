@@ -1,7 +1,8 @@
 import type {
   CollectionFileDescriptor,
   JsonObject,
-  SelectiveSyncPolicy
+  SelectiveSyncPolicy,
+  SyncSession
 } from "@mdbase-dev/connect-protocol";
 import { SyncError } from "./sync-error.js";
 import { MirrorInitializationConflictError } from "./mirror-errors.js";
@@ -45,24 +46,83 @@ interface RebuildOptions<Frontmatter extends JsonObject> {
   reportProgress: (progress: MirrorProgress) => void;
 }
 
+export interface LoadedMirrorSnapshot<Frontmatter extends JsonObject> {
+  session: SyncSession;
+  resources: NonNullable<SyncSession["resources"]["documents"]>;
+  records: Array<ValidatedSnapshotRecord<Frontmatter>>;
+  files: CollectionFileDescriptor[];
+}
+
 export async function openMirrorSnapshot<Frontmatter extends JsonObject>(
   replicaId: string,
   transport: SyncTransport<Frontmatter>,
   mode: "read_only" | "read_write"
 ): Promise<Awaited<ReturnType<SyncTransport<Frontmatter>["openSession"]>>> {
   const session = await transport.openSession();
-  if (session.replica_id !== replicaId || session.mode !== mode) {
+  if (
+    session.protocol_version !== 1
+    || session.protocol_profile !== "exact_document_v1"
+    || session.replica_id !== replicaId
+    || session.mode !== mode
+  ) {
     throw new SyncError(
-      "invalid_mirror_session",
-      `Filesystem mirror requires its own ${mode.replace("_", "-")} replica.`
+      "sync_protocol_incompatible",
+      `Filesystem mirror requires exact-document v1 and its own ${mode.replace("_", "-")} replica.`
     );
   }
   return session;
 }
 
+export async function loadMirrorSnapshot<Frontmatter extends JsonObject>(
+  replicaId: string,
+  transport: SyncTransport<Frontmatter>,
+  mode: "read_only" | "read_write",
+  selectiveSync: SelectiveSyncPolicy,
+  runtime: MirrorRuntime
+): Promise<LoadedMirrorSnapshot<Frontmatter>> {
+  const session = await openMirrorSnapshot(replicaId, transport, mode);
+  const resources = session.resources.documents ?? [];
+  const pathPolicy = validateSnapshotResources(resources);
+  const validator = new MirrorSnapshotValidator<Frontmatter>(
+    pathPolicy,
+    resources,
+    runtime.digest
+  );
+  const records: Array<ValidatedSnapshotRecord<Frontmatter>> = [];
+  await visitSnapshotPages(transport, session, async (pageRecords) => {
+    for (const snapshotRecord of pageRecords) {
+      const prepared = validator.validate(snapshotRecord);
+      if (pathSelected(selectiveSync, prepared.record.path)) records.push(prepared);
+    }
+  });
+  const files: CollectionFileDescriptor[] = [];
+  const remoteFileIds = new Set<string>();
+  await visitFileSnapshotPages(transport, session, async (pageFiles) => {
+    for (const file of pageFiles) {
+      if (!fileSelected(selectiveSync, file)) continue;
+      if (remoteFileIds.has(file.file_id)) {
+        throw new SyncError(
+          "invalid_snapshot",
+          `Hosted snapshot repeats file identity ${file.file_id}.`
+        );
+      }
+      remoteFileIds.add(file.file_id);
+      files.push(file);
+    }
+  });
+  assertNoPhysicalPathAliases([
+    ...resources.map((resource) => resource.path),
+    ...records.map(({ record }) => record.path),
+    ...files.map((file) => file.path)
+  ]);
+  return { session, resources, records, files };
+}
+
 export async function rebuildMirror<Frontmatter extends JsonObject>(
   options: RebuildOptions<Frontmatter>,
-  prior?: MirrorState
+  prior?: MirrorState,
+  loaded?: LoadedMirrorSnapshot<Frontmatter>,
+  collisionPreflighted = false
 ): Promise<MirrorState> {
   const {
     replicaId,
@@ -75,16 +135,17 @@ export async function rebuildMirror<Frontmatter extends JsonObject>(
     selectiveSync,
     reportProgress
   } = options;
-  const session = await openMirrorSnapshot(replicaId, transport, mode);
-  const resources = session.resources.documents ?? [];
-  const pathPolicy = validateSnapshotResources(resources);
-  const snapshotValidator = new MirrorSnapshotValidator<Frontmatter>(
-    pathPolicy,
-    resources,
-    runtime.digest
+  const snapshot = loaded ?? await loadMirrorSnapshot(
+    replicaId,
+    transport,
+    mode,
+    selectiveSync,
+    runtime
   );
+  const { session, resources, records, files } = snapshot;
   const state: MirrorState = {
     protocol_version: 1,
+    engine_version: 2,
     replica_id: replicaId,
     scope_epoch: session.scope_epoch,
     cursor: session.head,
@@ -113,6 +174,8 @@ export async function rebuildMirror<Frontmatter extends JsonObject>(
     }
   }
   const collisions: string[] = [];
+  const remoteRecordIds = prior ? new Set<string>() : null;
+  if (!collisionPreflighted) {
   for (const resource of resources) {
     const local = await fileSystem.read(resource.path);
     const managed = prior
@@ -136,13 +199,8 @@ export async function rebuildMirror<Frontmatter extends JsonObject>(
       collisions.push(resource.path);
     }
   }
-  const records: Array<ValidatedSnapshotRecord<Frontmatter>> = [];
-  const remoteRecordIds = prior ? new Set<string>() : null;
-  await visitSnapshotPages(transport, session, async (pageRecords) => {
-    for (const snapshotRecord of pageRecords) {
-      const prepared = snapshotValidator.validate(snapshotRecord);
+    for (const prepared of records) {
       const { document, record } = prepared;
-      if (!pathSelected(selectiveSync, record.path)) continue;
       const local = await fileSystem.read(record.path);
       const managed = prior
         ? priorManagedByPhysicalPath.get(physicalMirrorPathKey(record.path))
@@ -165,29 +223,11 @@ export async function rebuildMirror<Frontmatter extends JsonObject>(
         collisions.push(record.path);
       }
       remoteRecordIds?.add(record.record_id);
-      records.push(prepared);
     }
-  });
-  const files: CollectionFileDescriptor[] = [];
+  }
   const remoteFileIds = new Set<string>();
-  await visitFileSnapshotPages(transport, session, async (pageFiles) => {
-    for (const file of pageFiles) {
-      if (!fileSelected(selectiveSync, file)) continue;
-      if (remoteFileIds.has(file.file_id)) {
-        throw new SyncError(
-          "invalid_snapshot",
-          `Hosted snapshot repeats file identity ${file.file_id}.`
-        );
-      }
-      remoteFileIds.add(file.file_id);
-      files.push(file);
-    }
-  });
-  assertNoPhysicalPathAliases([
-    ...resources.map((resource) => resource.path),
-    ...records.map(({ record }) => record.path),
-    ...files.map((file) => file.path)
-  ]);
+  for (const file of files) remoteFileIds.add(file.file_id);
+  if (!collisionPreflighted) {
   for (const file of files) {
     const local = await fileSystem.inspectBinary(file.path);
     const priorFile = prior?.files?.[file.file_id];
@@ -232,6 +272,7 @@ export async function rebuildMirror<Frontmatter extends JsonObject>(
     throw new MirrorInitializationConflictError(
       [...new Set(collisions)].sort()
     );
+  }
   }
 
   if (files.length > 0 && !blobStore) {

@@ -555,7 +555,7 @@ impl HostedProvider {
             .collect::<BTreeSet<_>>();
         if records
             .iter()
-            .any(|record| !physical_paths.insert(portable_file_path_key(&record.record.path)))
+            .any(|record| !physical_paths.insert(portable_file_path_key(&record.path)))
             || manifest
                 .files
                 .iter()
@@ -710,8 +710,7 @@ impl HostedProvider {
                 &data_key,
                 collection_id,
                 initial_sequence,
-                &item.record,
-                &item.document,
+                item,
             )
             .await?;
         }

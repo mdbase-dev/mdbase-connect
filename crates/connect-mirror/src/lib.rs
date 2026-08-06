@@ -1,19 +1,16 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use fs2::FileExt;
-use mdbase::frontmatter::parser::{
-    is_parse_error, json_to_yaml_mapping, parse_document, yaml_mapping_to_json,
-};
+use mdbase::frontmatter::parser::{is_parse_error, parse_document, yaml_mapping_to_json};
 use mdbase_connect_protocol::{
-    authority_manifest_digest, AuthoritySnapshotRecord, CollectionFileDescriptor, FileMediaClass,
-    FileTransferDirection, FileTransferProtection, FileTransferSession, FileTransferStatus,
-    FileTransferStrategy, MirrorConflictSummary, MirrorLocalIssue, MirrorResolution,
-    MirrorState as MirrorStatusState, OpenFileDownloadRequest, OpenFileDownloadRequestKind,
-    SelectiveSyncPolicy, SyncChange, SyncChangesPage, SyncCollectionResources,
-    SyncFileSnapshotPage, SyncFileSnapshotPageKind, SyncMutation, SyncMutationOperation,
-    SyncMutationReceipt, SyncRecord, SyncReplicaMode, SyncResourceDocument, SyncSession,
-    SyncSnapshotPage, SyncSnapshotRecord, FILE_PROTOCOL_VERSION, FILE_TRANSFER_PROTOCOL_VERSION,
-    SYNC_PROTOCOL_VERSION,
+    authority_manifest_digest, CollectionFileDescriptor, FileMediaClass, FileTransferDirection,
+    FileTransferProtection, FileTransferSession, FileTransferStatus, FileTransferStrategy,
+    MirrorConflictSummary, MirrorLocalIssue, MirrorResolution, MirrorState as MirrorStatusState,
+    OpenFileDownloadRequest, OpenFileDownloadRequestKind, SelectiveSyncPolicy, SyncChange,
+    SyncChangesPage, SyncCollectionResources, SyncFileSnapshotPage, SyncFileSnapshotPageKind,
+    SyncMutation, SyncMutationOperation, SyncMutationReceipt, SyncRecord, SyncReplicaMode,
+    SyncResourceDocument, SyncSession, SyncSnapshotPage, SyncSnapshotRecord, FILE_PROTOCOL_VERSION,
+    FILE_TRANSFER_PROTOCOL_VERSION, SYNC_PROTOCOL_VERSION,
 };
 use reqwest::{Client, Method};
 use serde::{Deserialize, Serialize};
@@ -31,11 +28,14 @@ use walkdir::WalkDir;
 
 mod directory_files;
 mod directory_mutations;
+mod directory_plan;
 mod directory_rebuild;
 mod directory_storage;
 mod directory_sync;
 mod filesystem;
 mod transport;
+
+const MIRROR_ENGINE_VERSION: u32 = 2;
 
 pub use directory_files::validate_selective_sync_policy;
 use directory_files::validate_visible_file_path;
@@ -44,9 +44,9 @@ pub use filesystem::{clear_mirror_marker, mark_mirror, mirror_lock_path};
 pub use transport::{HttpSyncTransport, SyncTransport};
 
 use filesystem::{
-    atomic_write, digest, frontmatter_patch, is_remote_mirror_record_path, now, object,
-    parse_markdown, portable_mirror_path_key, queue_mutation, record_markdown_document,
-    refresh_conflict, safe_path, validate_portable_mirror_path, MirrorLease,
+    atomic_write, digest, is_remote_mirror_record_path, now, parse_markdown,
+    portable_mirror_path_key, queue_mutation, record_markdown_document, refresh_conflict,
+    safe_path, validate_portable_mirror_path, MirrorLease,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -110,6 +110,8 @@ struct StoredLocalIssue {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct DurableMirrorState {
     protocol_version: u32,
+    #[serde(default)]
+    engine_version: u32,
     replica_id: Uuid,
     scope_epoch: u64,
     cursor: u64,
@@ -134,13 +136,14 @@ struct DurableMirrorState {
 #[derive(Default)]
 struct PutOptions<'a> {
     accepted_hash: Option<&'a str>,
-    preserve_accepted_document: bool,
     physical_path_preflighted: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct DurableRebuildPlan {
     protocol_version: u32,
+    #[serde(default)]
+    engine_version: u32,
     replica_id: Uuid,
     mode: SyncReplicaMode,
     session: SyncSession,
@@ -162,6 +165,67 @@ pub struct MirrorStatus {
     pub local_issues: Vec<MirrorLocalIssue>,
     pub cursor: Option<u64>,
     pub last_synced_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MirrorPlanAction {
+    pub entity: String,
+    pub direction: String,
+    pub operation: String,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+    pub reason: String,
+    pub outcome: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MirrorPlanIssue {
+    pub code: String,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    pub blocking: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MirrorPlanSummary {
+    pub uploads: usize,
+    pub downloads: usize,
+    pub conflicts: usize,
+    pub blocking_issues: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MirrorSyncPlan {
+    pub plan_version: u32,
+    pub fingerprint: String,
+    pub replica_id: Uuid,
+    pub mode: SyncReplicaMode,
+    pub kind: String,
+    pub base_cursor: Option<u64>,
+    pub authority_cursor: u64,
+    pub scope_epoch: u64,
+    pub actions: Vec<MirrorPlanAction>,
+    pub issues: Vec<MirrorPlanIssue>,
+    pub summary: MirrorPlanSummary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MirrorApplyResult {
+    pub status: String,
+    pub plan_fingerprint: String,
+    pub applied: usize,
+    pub pending: usize,
+    pub checkpoint_cursor: Option<u64>,
+    pub conflicts: usize,
+    pub issues: Vec<MirrorPlanIssue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

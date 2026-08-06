@@ -529,9 +529,10 @@ test("sync wire objects are independently addressable", () => {
     mutation_id: "01911111-1111-7111-8111-111111111111",
     replica_id: "01922222-2222-7222-8222-222222222222",
     scope_epoch: 1,
-    operation: "create",
+    operation: "put",
     record_id: "01933333-3333-7333-8333-333333333333",
-    input: { path: "tasks/one.md", frontmatter: { type: "task", title: "One" } },
+    path: "tasks/one.md",
+    document: "---\ntype: task\ntitle: One\n---\n",
     created_at: "2026-07-21T00:00:00Z"
   };
   assert.equal(validateMutation(mutation), true, JSON.stringify(validateMutation.errors));
@@ -548,6 +549,7 @@ test("sync wire objects are independently addressable", () => {
   const validateSession = validator(`${syncSchema.$id}#/$defs/session`);
   const session = {
     protocol_version: 1,
+    protocol_profile: "exact_document_v1",
     session_id: "01944444-4444-7444-8444-444444444444",
     replica_id: mutation.replica_id,
     collection_id: "01955555-5555-7555-8555-555555555555",

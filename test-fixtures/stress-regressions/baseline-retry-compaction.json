@@ -11,8 +11,8 @@
   "mirrorEvery": 20,
   "expected": {
     "memory": {
-      "recordDigest": "7f1b5ed05eded337085009db73828d0fc303dcc32940645ac1cbc82f5a6ac039",
-      "actionDigest": "e6b3dab841646fef82f9640c1bb02ec4c54e59263bdee96a885840f9ebb334bb"
+      "recordDigest": "b30974899edbe621b0a7e31299a4deb7f5091e93f78040595def52b7f2fd904f",
+      "actionDigest": "9135c4df63db5213148b96815c12f8ced3a4a98fd45050bf3b1d202c6a95345e"
     }
   }
 }

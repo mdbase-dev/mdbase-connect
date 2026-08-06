@@ -111,9 +111,14 @@ pub struct OperationResponse {
 pub struct SyncRecord {
     pub record_id: Uuid,
     pub path: String,
+    /// Exact authoritative Markdown document. `revision` is its SHA-256 digest.
+    pub document: String,
     pub revision: String,
+    /// Derived query projection; never a materialization source.
     pub frontmatter: serde_json::Map<String, Value>,
+    /// Derived query projection; never a materialization source.
     pub body: String,
+    /// Derived authority projection used for scope checks.
     pub types: Vec<String>,
 }
 
@@ -136,11 +141,7 @@ pub struct SyncResourceDocument {
     pub document: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuthoritySnapshotRecord {
-    pub record: SyncRecord,
-    pub document: String,
-}
+pub type AuthoritySnapshotRecord = SyncRecord;
 
 /// Complete provider-neutral materialization used to seed a new authority.
 ///
@@ -205,9 +206,9 @@ pub fn authority_manifest_digest(
     }
     for record in records {
         entries.insert(
-            ("record", record.record.path.as_str()),
+            ("record", record.path.as_str()),
             (
-                record.record.record_id.to_string(),
+                record.record_id.to_string(),
                 hex_digest(&Sha256::digest(record.document.as_bytes())),
             ),
         );

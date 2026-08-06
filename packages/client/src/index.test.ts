@@ -2706,6 +2706,7 @@ describe("authorization renewal", () => {
     }));
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       protocol_version: 1,
+      protocol_profile: "exact_document_v1",
       session_id: "00000000-0000-0000-0000-000000000004",
       replica_id: "00000000-0000-0000-0000-000000000003",
       collection_id: "00000000-0000-0000-0000-000000000002",

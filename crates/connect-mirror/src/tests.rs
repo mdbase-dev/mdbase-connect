@@ -2,7 +2,6 @@ use super::*;
 use mdbase_connect_protocol::{
     CollectionFileDescriptor, FileMediaClass, SyncConflict, SyncMutationError, SyncResourceDocument,
 };
-use serde_json::json;
 use std::sync::Mutex;
 use tempfile::TempDir;
 
@@ -36,6 +35,7 @@ impl FakeAuthority {
         Self {
             session: SyncSession {
                 protocol_version: SYNC_PROTOCOL_VERSION,
+                protocol_profile: mdbase_connect_protocol::SYNC_PROTOCOL_PROFILE.to_string(),
                 session_id: Uuid::new_v4(),
                 replica_id,
                 collection_id: Uuid::new_v4(),
@@ -92,10 +92,11 @@ impl FakeAuthority {
             mutation_id: Uuid::new_v4(),
             replica_id: self.session.replica_id,
             scope_epoch: self.session.scope_epoch,
-            operation: SyncMutationOperation::Update,
+            operation: SyncMutationOperation::Put,
             record_id,
             base_revision: Some("r-1".to_string()),
-            input: Map::new(),
+            path: Some(current.path.clone()),
+            document: Some(current.document.clone()),
             created_at: Utc::now().to_rfc3339(),
             causal_predecessor: None,
         };
@@ -105,12 +106,12 @@ impl FakeAuthority {
             .insert(current.record_id, current.clone());
         *self.next_receipt.lock().unwrap() = Some(SyncMutationReceipt::Conflicted {
             mutation_id: mutation.mutation_id,
-            conflict: SyncConflict {
+            conflict: Box::new(SyncConflict {
                 record_id: mutation.record_id,
                 mutation,
                 current_revision: Some(current.revision.clone()),
                 current: Some(current),
-            },
+            }),
         });
     }
 
@@ -171,6 +172,7 @@ async fn conflicted_mutation_can_choose_remote_then_local() {
     let mut hosted = source.clone();
     hosted.revision = "r-hosted-1".to_string();
     hosted.body = "hosted first".to_string();
+    refresh_revision(&mut hosted);
     authority.conflict_next(source.record_id, hosted.clone());
     mirror.sync().await.unwrap();
     mirror
@@ -186,6 +188,7 @@ async fn conflicted_mutation_can_choose_remote_then_local() {
     let mut hosted_again = hosted;
     hosted_again.revision = "r-hosted-2".to_string();
     hosted_again.body = "hosted again".to_string();
+    refresh_revision(&mut hosted_again);
     authority.conflict_next(source.record_id, hosted_again);
     mirror.sync().await.unwrap();
     mirror
@@ -256,10 +259,7 @@ impl SyncTransport for FakeAuthority {
                 .unwrap()
                 .values()
                 .cloned()
-                .map(|record| mdbase_connect_protocol::SyncSnapshotRecord {
-                    document: record_markdown_document(&record).unwrap(),
-                    record,
-                })
+                .map(|record| mdbase_connect_protocol::SyncSnapshotRecord { record })
                 .collect(),
             next_page: None,
         })
@@ -367,38 +367,24 @@ impl SyncTransport for FakeAuthority {
         }
         let mut records = self.records.lock().unwrap();
         let record = match mutation.operation {
-            SyncMutationOperation::Create => Some(SyncRecord {
-                record_id: mutation.record_id,
-                path: mutation.input["path"].as_str().unwrap().to_string(),
-                revision: format!("r-{}", self.mutations.lock().unwrap().len()),
-                frontmatter: mutation.input["frontmatter"]
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-                body: mutation.input["body"].as_str().unwrap_or("").to_string(),
-                types: Vec::new(),
-            }),
-            SyncMutationOperation::Update => {
-                let existing = records.get(&mutation.record_id).unwrap();
-                let mut updated = existing.clone();
-                updated.revision = format!("r-{}", self.mutations.lock().unwrap().len());
-                if let Some(patch) = mutation.input["patch"].as_object() {
-                    for (key, value) in patch {
-                        if value.is_null() {
-                            updated.frontmatter.remove(key);
-                        } else {
-                            updated.frontmatter.insert(key.clone(), value.clone());
-                        }
-                    }
-                }
-                updated.body = mutation.input["body"].as_str().unwrap_or("").to_string();
-                Some(updated)
+            SyncMutationOperation::Put => {
+                let path = mutation.path.as_deref().unwrap();
+                let document = mutation.document.as_deref().unwrap();
+                let (frontmatter, body) = parse_markdown(document, path).unwrap();
+                Some(SyncRecord {
+                    record_id: mutation.record_id,
+                    path: path.to_string(),
+                    document: document.to_string(),
+                    revision: format!("sha256:{}", digest(document)),
+                    frontmatter,
+                    body,
+                    types: Vec::new(),
+                })
             }
-            SyncMutationOperation::Rename => {
+            SyncMutationOperation::Move => {
                 let existing = records.get(&mutation.record_id).unwrap();
                 let mut updated = existing.clone();
-                updated.revision = format!("r-{}", self.mutations.lock().unwrap().len());
-                updated.path = mutation.input["path"].as_str().unwrap().to_string();
+                updated.path = mutation.path.as_deref().unwrap().to_string();
                 Some(updated)
             }
             SyncMutationOperation::Delete => None,
@@ -428,11 +414,15 @@ impl SyncTransport for FakeAuthority {
 }
 
 fn record(path: &str, title: &str) -> SyncRecord {
+    let document = format!("---\ntitle: {title}\n---\n\n# {title}\n");
     let mut record = SyncRecord {
         record_id: Uuid::new_v4(),
         path: path.to_string(),
+        document,
         revision: String::new(),
-        frontmatter: object([("title", Value::String(title.to_string()))]),
+        frontmatter: [("title".to_string(), Value::String(title.to_string()))]
+            .into_iter()
+            .collect(),
         body: format!("# {title}\n"),
         types: Vec::new(),
     };
@@ -444,13 +434,16 @@ fn record(path: &str, title: &str) -> SyncRecord {
 }
 
 fn snapshot_record(record: SyncRecord) -> mdbase_connect_protocol::SyncSnapshotRecord {
-    mdbase_connect_protocol::SyncSnapshotRecord {
-        document: record_markdown_document(&record).unwrap(),
-        record,
-    }
+    mdbase_connect_protocol::SyncSnapshotRecord { record }
 }
 
 fn refresh_revision(record: &mut SyncRecord) {
+    let mapping = mdbase::frontmatter::parser::json_to_yaml_mapping(&Value::Object(
+        record.frontmatter.clone(),
+    ));
+    let yaml = serde_yaml::to_string(&mapping).unwrap();
+    let body = record.body.trim_start_matches('\n');
+    record.document = format!("---\n{}---\n{}", yaml, body);
     record.revision = format!(
         "sha256:{}",
         digest(&record_markdown_document(record).unwrap())
@@ -708,7 +701,7 @@ async fn writable_mirrors_never_upload_markdown_from_excluded_folders() {
 
     let mutations = authority.mutations();
     assert_eq!(mutations.len(), 1);
-    assert_eq!(mutations[0].input["path"], "published.md");
+    assert_eq!(mutations[0].path.as_deref(), Some("published.md"));
     assert_eq!(
         fs::read_to_string(mirror.root().join("drafts/local.md")).unwrap(),
         "private draft"
@@ -983,6 +976,7 @@ async fn interrupted_file_rebuild_resumes_from_verified_content_cache() {
     mirror.ensure_file_blob(&file).await.unwrap();
     let plan = DurableRebuildPlan {
         protocol_version: SYNC_PROTOCOL_VERSION,
+        engine_version: MIRROR_ENGINE_VERSION,
         replica_id,
         mode: SyncReplicaMode::ReadOnly,
         session: authority.session.clone(),
@@ -1087,9 +1081,9 @@ async fn writable_mirror_uploads_create_update_rename_and_delete() {
     assert_eq!(
         operations,
         vec![
-            SyncMutationOperation::Update,
-            SyncMutationOperation::Rename,
-            SyncMutationOperation::Create,
+            SyncMutationOperation::Put,
+            SyncMutationOperation::Move,
+            SyncMutationOperation::Put,
             SyncMutationOperation::Delete
         ]
     );
@@ -1110,10 +1104,9 @@ async fn malformed_frontmatter_is_uploaded_as_opaque_markdown() {
     assert_eq!(mutations.len(), 2);
     let bad = mutations
         .iter()
-        .find(|mutation| mutation.input["path"] == "bad.md")
+        .find(|mutation| mutation.path.as_deref() == Some("bad.md"))
         .unwrap();
-    assert_eq!(bad.input["frontmatter"], json!({}));
-    assert_eq!(bad.input["body"], "---\n[invalid\n---\nBody");
+    assert_eq!(bad.document.as_deref(), Some("---\n[invalid\n---\nBody"));
 }
 
 #[tokio::test]
@@ -1210,12 +1203,69 @@ async fn initialization_collision_changes_nothing() {
     fs::create_dir_all(mirror.root()).unwrap();
     fs::write(mirror.root().join("one.md"), "important local content").unwrap();
     let error = mirror.sync().await.unwrap_err();
-    assert_eq!(error.code, "mirror_initialization_conflict");
+    assert_eq!(error.code, "local_collision");
     assert_eq!(
         fs::read_to_string(mirror.root().join("one.md")).unwrap(),
         "important local content"
     );
     assert!(!mirror.root().join("mdbase.yaml").exists());
+}
+
+#[tokio::test]
+async fn inspection_is_deterministic_read_only_and_apply_rejects_a_stale_plan() {
+    let (_temporary, mirror, authority) = harness(SyncReplicaMode::ReadWrite, Vec::new());
+
+    let first = mirror.inspect().await.unwrap();
+    let second = mirror.inspect().await.unwrap();
+    assert_eq!(first, second);
+    assert!(!mirror.state_file.exists());
+    assert!(!mirror.root().join("mdbase.yaml").exists());
+    assert!(authority.mutations().is_empty());
+
+    fs::write(
+        mirror.root().join("arrived-after-review.md"),
+        "exact local bytes\r\n",
+    )
+    .unwrap();
+    let error = mirror.apply(&first).await.unwrap_err();
+    assert_eq!(error.code, "sync_plan_stale");
+    assert!(authority.mutations().is_empty());
+    assert!(!mirror.state_file.exists());
+
+    let current = mirror.inspect().await.unwrap();
+    assert_eq!(current.summary.uploads, 1);
+    let result = mirror.apply(&current).await.unwrap();
+    assert_eq!(result.status, "applied");
+    assert_eq!(authority.mutations().len(), 1);
+    assert_eq!(
+        authority.mutations()[0].document.as_deref(),
+        Some("exact local bytes\r\n")
+    );
+}
+
+#[tokio::test]
+async fn reviewed_plan_materializes_the_authority_document_byte_for_byte() {
+    let document = "\u{feff}---\r\ntitle:  Odd  \r\n---\r\nbody with spaces  \r\n";
+    let (frontmatter, body) = parse_markdown(document, "odd.md").unwrap();
+    let source = SyncRecord {
+        record_id: Uuid::new_v4(),
+        path: "odd.md".to_string(),
+        document: document.to_string(),
+        revision: format!("sha256:{}", digest(document)),
+        frontmatter,
+        body,
+        types: Vec::new(),
+    };
+    let (_temporary, mirror, _authority) = harness(SyncReplicaMode::ReadOnly, vec![source.clone()]);
+
+    let plan = mirror.inspect().await.unwrap();
+    assert_eq!(plan.summary.downloads, 2);
+    let result = mirror.apply(&plan).await.unwrap();
+    assert_eq!(result.status, "applied");
+    assert_eq!(
+        fs::read(mirror.root().join("odd.md")).unwrap(),
+        source.document.as_bytes()
+    );
 }
 
 #[tokio::test]
@@ -1228,6 +1278,7 @@ async fn interrupted_initial_snapshot_resumes_from_its_durable_plan() {
     );
     let plan = DurableRebuildPlan {
         protocol_version: SYNC_PROTOCOL_VERSION,
+        engine_version: MIRROR_ENGINE_VERSION,
         replica_id: authority.session.replica_id,
         mode: SyncReplicaMode::ReadOnly,
         session: authority.session.clone(),
@@ -1282,6 +1333,7 @@ async fn reset_snapshot_removes_old_paths_after_a_remote_rename_and_delete() {
     session.snapshot_id = Uuid::new_v4();
     let plan = DurableRebuildPlan {
         protocol_version: SYNC_PROTOCOL_VERSION,
+        engine_version: MIRROR_ENGINE_VERSION,
         replica_id: authority.session.replica_id,
         mode: SyncReplicaMode::ReadOnly,
         session,
@@ -1319,6 +1371,7 @@ async fn reset_snapshot_rejects_a_same_record_case_only_rename() {
     session.snapshot_id = Uuid::new_v4();
     let plan = DurableRebuildPlan {
         protocol_version: SYNC_PROTOCOL_VERSION,
+        engine_version: MIRROR_ENGINE_VERSION,
         replica_id: authority.session.replica_id,
         mode: SyncReplicaMode::ReadOnly,
         session,
@@ -1358,6 +1411,7 @@ async fn reset_snapshot_can_atomically_swap_managed_record_paths() {
     session.snapshot_id = Uuid::new_v4();
     let plan = DurableRebuildPlan {
         protocol_version: SYNC_PROTOCOL_VERSION,
+        engine_version: MIRROR_ENGINE_VERSION,
         replica_id: authority.session.replica_id,
         mode: SyncReplicaMode::ReadOnly,
         session,
@@ -1624,10 +1678,11 @@ fn snapshot_rejects_inconsistent_record_documents_before_materialization() {
     let source = record("notes/example.md", "Declared");
     let hostile_document = "# Different\n";
     let mut hostile = snapshot_record(source);
-    hostile.document = hostile_document.to_string();
+    hostile.record.document = hostile_document.to_string();
     hostile.record.revision = format!("sha256:{}", digest(hostile_document));
     let plan = DurableRebuildPlan {
         protocol_version: SYNC_PROTOCOL_VERSION,
+        engine_version: MIRROR_ENGINE_VERSION,
         replica_id,
         mode: SyncReplicaMode::ReadOnly,
         session: authority.session.clone(),
@@ -1652,6 +1707,7 @@ fn snapshot_rejects_inconsistent_resource_revisions_before_materialization() {
     let (_temporary, mirror, authority) = custom_harness(authority);
     let plan = DurableRebuildPlan {
         protocol_version: SYNC_PROTOCOL_VERSION,
+        engine_version: MIRROR_ENGINE_VERSION,
         replica_id,
         mode: SyncReplicaMode::ReadOnly,
         session: authority.session.clone(),

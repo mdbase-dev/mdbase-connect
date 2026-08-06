@@ -95,7 +95,6 @@ const { HttpSyncTransport, MemoryReplicaStore, OfflineReplica, SyncError } =
   await import("../packages/sync/dist/index.js");
 const {
   DirectoryMirror,
-  MirrorDivergenceError,
   WritableDirectoryMirror,
   authorityFileHash,
   authorityManifestDigest
@@ -1203,7 +1202,7 @@ schema:
   assert.equal(recordQuota.error.code, "collection_quota_exceeded");
   const documentQuota = await quotaTransport.mutate({
     ...updateMutation(quotaReplicaId, quotaCreate.record, { title: "Too large" }),
-    input: { patch: { title: "Too large" }, body: "x".repeat(600) }
+    document: `---\ntype: task\ntitle: Too large\nstatus: open\n---\n${"x".repeat(600)}`
   });
   assert.equal(documentQuota.status, "rejected");
   assert.equal(documentQuota.error.code, "document_quota_exceeded");
@@ -1251,7 +1250,7 @@ schema:
     "tasks/aggregate.md",
     "Aggregate"
   );
-  aggregateMutation.input.body = "x".repeat(
+  aggregateMutation.document += "x".repeat(
     500 - accountBeforeAggregateProbe.live_content_bytes + 1
   );
   await expectSyncError(
@@ -1452,7 +1451,7 @@ schema:
     join(desktopMirrorRoot, "tasks", "desktop-managed.md"),
     "---\ntype: task\ntitle: Desktop managed\nstatus: open\n---\n"
   );
-  await connectCommand(desktopProfile, ["mirror", "sync", desktopMirror.replica_id]);
+  await connectMirrorSync(desktopProfile, desktopMirror.replica_id);
   const desktopRecord = (
     await snapshotAll(
       transport(provider.url, collectionId, writer),
@@ -1922,7 +1921,7 @@ schema:
   await expectSyncError(
     () => writerTransport.mutate({
       ...originalMutation,
-      input: { ...originalMutation.input, path: "tasks/reused-id.md" }
+      path: "tasks/reused-id.md"
     }),
     "mutation_request_conflict"
   );
@@ -2063,9 +2062,15 @@ schema:
     transport(provider.url, collectionId, mirror)
   );
   const originalMirror = await readFile(join(mirrorRoot, "tasks", "offline.md"), "utf8");
-  assert.match(originalMirror, /status: done/);
+  const authorityMirrorDocument = findRecord(
+    await snapshotAll(writerTransport, await writerTransport.openSession()),
+    recordId
+  ).document;
+  assert.equal(originalMirror, authorityMirrorDocument);
   await writeFile(join(mirrorRoot, "tasks", "offline.md"), `${originalMirror}\nlocal divergence\n`);
-  await assert.rejects(() => directoryMirror.sync(), MirrorDivergenceError);
+  const divergence = await directoryMirror.sync();
+  assert.equal(divergence.status, "attention");
+  assert.ok(divergence.issues.some((issue) => issue.code === "mirror_diverged"));
   await writeFile(join(mirrorRoot, "tasks", "offline.md"), originalMirror);
 
   await writerClient.initialize();
@@ -2165,10 +2170,11 @@ schema:
     mutation_id: crypto.randomUUID(),
     replica_id: writer.id,
     scope_epoch: 1,
-    operation: "update",
+    operation: "put",
     record_id: bodyOnlyAuthority.record_id,
     base_revision: bodyOnlyAuthority.revision,
-    input: { patch: {}, body: "# Start here\n\nEdited remotely.\n" },
+    path: bodyOnlyAuthority.path,
+    document: "# Start here\n\nEdited remotely.\n",
     created_at: new Date().toISOString()
   });
   assert.equal(remotelyEditedBodyOnly.status, "applied");
@@ -2241,9 +2247,15 @@ schema:
 
   const resourceDocument = await readFile(join(writableMirrorRoot, "_types", "task.md"), "utf8");
   await writeFile(join(writableMirrorRoot, "_types", "task.md"), `${resourceDocument}\nunsafe local schema edit\n`);
-  await assert.rejects(
-    () => execute(process.execPath, [mirrorCli, "sync", writableMirrorRoot]),
-    (error) => /must be resolved before the mirror can continue/.test(error.stderr ?? "")
+  const resourceSync = await execute(process.execPath, [mirrorCli, "sync", writableMirrorRoot]);
+  assert.match(resourceSync.stdout, /Action needed/);
+  const resourceStatus = JSON.parse(
+    (await execute(process.execPath, [mirrorCli, "status", writableMirrorRoot, "--json"])).stdout
+  );
+  assert.equal(resourceStatus.state, "attention");
+  assert.equal(
+    await readFile(join(writableMirrorRoot, "_types", "task.md"), "utf8"),
+    `${resourceDocument}\nunsafe local schema edit\n`
   );
   await writeFile(join(writableMirrorRoot, "_types", "task.md"), resourceDocument);
 
@@ -2285,14 +2297,10 @@ schema:
     mutation_id: crypto.randomUUID(),
     replica_id: authorityReplicaId,
     scope_epoch: 1,
-    operation: "create",
+    operation: "put",
     record_id: crypto.randomUUID(),
-    input: {
-      path: "notes/authority.md",
-      frontmatter: { title: "Authority" },
-      body: "Durable Markdown.\n",
-      types: []
-    },
+    path: "notes/authority.md",
+    document: "---\ntitle: Authority\n---\nDurable Markdown.\n",
     created_at: new Date().toISOString()
   });
   assert.equal(authorityCreate.status, "applied");
@@ -2342,14 +2350,10 @@ schema:
         mutation_id: crypto.randomUUID(),
         replica_id: authorityReplicaId,
         scope_epoch: 1,
-        operation: "create",
+        operation: "put",
         record_id: crypto.randomUUID(),
-        input: {
-          path: "notes/fenced.md",
-          frontmatter: { title: "Fenced" },
-          body: "",
-          types: []
-        },
+        path: "notes/fenced.md",
+        document: "---\ntitle: Fenced\n---\n",
         created_at: new Date().toISOString()
       }
     }
@@ -2882,12 +2886,10 @@ async function authorityPromotionCliE2E(
       && promotionStressCount <= 20_000
   );
   const syncMirror = async () => {
-    const status = await connectCommand(profile, [
-      "mirror", "sync", mirror.replica_id
-    ]);
-    assert.equal(status.state, "up_to_date");
-    assert.equal(status.pending, 0);
-    assert.deepEqual(status.conflicts, []);
+    const result = await connectMirrorSync(profile, mirror.replica_id);
+    assert.equal(result.status, "applied");
+    assert.equal(result.pending, 0);
+    assert.equal(result.conflicts, 0);
   };
   const promotionStress = promotionStressCount > 0
     ? await prepareAuthorityPromotionStressFixture(
@@ -4024,6 +4026,22 @@ async function connectCommand(profile, command) {
   return JSON.parse(stdout);
 }
 
+async function connectMirrorSync(profile, replicaId) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const plan = await connectCommand(profile, ["mirror", "plan", replicaId]);
+    try {
+      return await connectCommand(profile, [
+        "mirror", "sync", replicaId, "--plan", plan.fingerprint
+      ]);
+    } catch (error) {
+      if (!String(error?.stderr ?? error).includes("sync_plan_stale") || attempt === 4) {
+        throw error;
+      }
+    }
+  }
+  throw new Error("unreachable mirror plan retry exhaustion");
+}
+
 async function startConnectDaemon(profile, serverUrl, connectorToken) {
   const child = spawn(connectBinary, connectArguments(profile, [
     "daemon", "run",
@@ -4286,14 +4304,10 @@ function createMutation(replicaId, recordId, path, title) {
     mutation_id: crypto.randomUUID(),
     replica_id: replicaId,
     scope_epoch: 1,
-    operation: "create",
+    operation: "put",
     record_id: recordId,
-    input: {
-      path,
-      frontmatter: { type: "task", title, status: "open" },
-      body: "",
-      types: ["task"]
-    },
+    path,
+    document: `---\ntype: task\ntitle: ${JSON.stringify(title)}\nstatus: open\n---\n`,
     created_at: new Date().toISOString()
   };
 }
@@ -4303,10 +4317,13 @@ function updateMutation(replicaId, record, patch) {
     mutation_id: crypto.randomUUID(),
     replica_id: replicaId,
     scope_epoch: 1,
-    operation: "update",
+    operation: "put",
     record_id: record.record_id,
     base_revision: record.revision,
-    input: { patch },
+    path: record.path,
+    document: `---\n${Object.entries({ ...record.frontmatter, ...patch })
+      .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
+      .join("\n")}\n---\n${record.body ?? ""}`,
     created_at: new Date().toISOString()
   };
 }

@@ -2,7 +2,6 @@ import type { JsonObject, SyncMutation } from "@mdbase-dev/connect-protocol";
 import { SyncError } from "./sync-error.js";
 import { MirrorDivergenceError } from "./mirror-errors.js";
 import {
-  frontmatterPatch,
   mirrorLocalIssue,
   parseMarkdown
 } from "./mirror-format.js";
@@ -32,6 +31,14 @@ interface CapturedLocalChanges {
   pending: PendingMirrorMutation[];
   localIssues: Record<string, StoredMirrorLocalIssue>;
 }
+
+type CapturedMutation =
+  | Omit<Extract<SyncMutation, { operation: "put" }>,
+      "mutation_id" | "replica_id" | "scope_epoch" | "created_at">
+  | Omit<Extract<SyncMutation, { operation: "delete" }>,
+      "mutation_id" | "replica_id" | "scope_epoch" | "created_at">
+  | Omit<Extract<SyncMutation, { operation: "move" }>,
+      "mutation_id" | "replica_id" | "scope_epoch" | "created_at">;
 
 export async function captureMirrorLocalChanges({
   replicaId,
@@ -95,10 +102,7 @@ export async function captureMirrorLocalChanges({
   };
   const predecessors = new Map<string, string>();
   const queue = (
-    mutation: Omit<
-      SyncMutation,
-      "mutation_id" | "replica_id" | "scope_epoch" | "created_at"
-    >,
+    mutation: CapturedMutation,
     localPath: string,
     localHash: string | null
   ): void => {
@@ -125,16 +129,23 @@ export async function captureMirrorLocalChanges({
       continue;
     }
     const entry = state.records[recordId]!;
+    const record = entry.record;
+    if (!record) {
+      throw new SyncError(
+        "mirror_state_upgrade_required",
+        "Rebuild this prerelease mirror before uploading local changes."
+      );
+    }
     const candidates = [...untracked].filter(
       (path) => local.get(path)?.hash === entry.hash
     );
     if (candidates.length !== 1) continue;
     const target = candidates[0]!;
     queue({
-      operation: "rename",
+      operation: "move",
       record_id: recordId,
       base_revision: entry.revision,
-      input: { path: target }
+      path: target
     }, target, local.get(target)!.hash);
     missing.delete(recordId);
     untracked.delete(target);
@@ -154,13 +165,11 @@ export async function captureMirrorLocalChanges({
     const parsed = parseLocal(value.document!, entry.path, value.hash);
     if (!parsed) continue;
     queue({
-      operation: "update",
+      operation: "put",
       record_id: recordId,
       base_revision: entry.revision,
-      input: {
-        patch: frontmatterPatch(record.frontmatter, parsed.frontmatter),
-        body: parsed.body
-      }
+      path: entry.path,
+      document: value.document!
     }, entry.path, value.hash);
   }
 
@@ -170,8 +179,7 @@ export async function captureMirrorLocalChanges({
     queue({
       operation: "delete",
       record_id: recordId,
-      base_revision: entry.revision,
-      input: {}
+      base_revision: entry.revision
     }, entry.path, null);
   }
 
@@ -180,13 +188,10 @@ export async function captureMirrorLocalChanges({
     const parsed = parseLocal(value.document!, path, value.hash);
     if (!parsed) continue;
     queue({
-      operation: "create",
+      operation: "put",
       record_id: runtime.randomId(),
-      input: {
-        path,
-        frontmatter: parsed.frontmatter,
-        body: parsed.body
-      }
+      path,
+      document: value.document!
     }, path, value.hash);
   }
   return { pending, localIssues };

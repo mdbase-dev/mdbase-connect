@@ -222,16 +222,14 @@ pub(super) fn canonicalize_imported_snapshot(
                     "Imported record is missing its stable identity.",
                 )
             })?;
-            Ok(AuthoritySnapshotRecord {
-                record: SyncRecord {
-                    record_id: uploaded.record_id,
-                    path: record.path,
-                    revision: record.revision,
-                    frontmatter: record.frontmatter,
-                    body: record.body,
-                    types: record.types,
-                },
+            Ok(SyncRecord {
+                record_id: uploaded.record_id,
+                path: record.path,
                 document: record.document,
+                revision: record.revision,
+                frontmatter: record.frontmatter,
+                body: record.body,
+                types: record.types,
             })
         })
         .collect()
@@ -292,9 +290,9 @@ pub(super) fn authority_manifest_digest(
     }
     for persisted in records.into_values() {
         entries.insert(
-            ("record".to_string(), persisted.record.path),
+            ("record".to_string(), persisted.path),
             (
-                persisted.record.record_id.to_string(),
+                persisted.record_id.to_string(),
                 sha256_hex(persisted.document.as_bytes()),
             ),
         );

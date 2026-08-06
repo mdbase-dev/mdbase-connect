@@ -46,7 +46,7 @@ impl HostedProvider {
             .collection_key(collection_id, &wrapped_data_key)
             .await?;
         let (mutation_operation, record_id, base_revision, previous_path) = match operation {
-            "create" => (SyncMutationOperation::Create, request_id, None, None),
+            "create" => (SyncMutationOperation::Put, request_id, None, None),
             "update" | "delete" | "rename" => {
                 let path_key = if operation == "rename" {
                     "from"
@@ -103,6 +103,10 @@ impl HostedProvider {
                     .and_then(Value::as_str)
                     .map(str::to_string)
                     .unwrap_or(current_revision);
+                operation_input.insert(
+                    "if_revision".to_string(),
+                    Value::String(requested_revision.clone()),
+                );
                 if operation == "rename" {
                     let target = operation_input
                         .get("to")
@@ -118,9 +122,9 @@ impl HostedProvider {
                 }
                 (
                     match operation {
-                        "update" => SyncMutationOperation::Update,
+                        "update" => SyncMutationOperation::Put,
                         "delete" => SyncMutationOperation::Delete,
-                        "rename" => SyncMutationOperation::Rename,
+                        "rename" => SyncMutationOperation::Move,
                         _ => unreachable!(),
                     },
                     current.get("record_id"),
@@ -143,16 +147,26 @@ impl HostedProvider {
                 operation: mutation_operation,
                 record_id,
                 base_revision,
-                input: operation_input,
+                path: match operation {
+                    "rename" => operation_input.get("to"),
+                    _ => operation_input.get("path"),
+                }
+                .and_then(Value::as_str)
+                .map(str::to_string),
+                document: operation_input
+                    .get("document")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
                 created_at: Utc::now().to_rfc3339(),
                 causal_predecessor: None,
             },
+            semantic_operation: operation.to_string(),
+            semantic_input: operation_input,
             previous_path,
             include_document,
         };
         if prepared
-            .mutation
-            .input
+            .semantic_input
             .get("dry_run")
             .and_then(Value::as_bool)
             != Some(true)
@@ -189,8 +203,7 @@ impl HostedProvider {
                     )
                     .await?;
                 if prepared
-                    .mutation
-                    .input
+                    .semantic_input
                     .get("dry_run")
                     .and_then(Value::as_bool)
                     == Some(true)
@@ -198,8 +211,8 @@ impl HostedProvider {
                     let result = self
                         .execute_read_operation(
                             context.collection_id,
-                            context.operation,
-                            &Value::Object(prepared.mutation.input),
+                            &prepared.semantic_operation,
+                            &Value::Object(prepared.semantic_input),
                         )
                         .await?;
                     return serde_json::to_value(result).map_err(|error| {
@@ -213,6 +226,8 @@ impl HostedProvider {
         };
         let PreparedRecordOperation {
             mutation,
+            semantic_operation,
+            semantic_input,
             previous_path,
             include_document,
         } = prepared;
@@ -223,6 +238,7 @@ impl HostedProvider {
                 mutation,
                 ReplicaPurpose::Application,
                 Some(context.mutation_lease),
+                Some((semantic_operation, semantic_input)),
             )
             .await?;
         let result = match receipt {

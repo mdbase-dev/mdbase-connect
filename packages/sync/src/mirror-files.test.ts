@@ -23,7 +23,6 @@ import {
   DirectoryMirror,
   MemoryMirrorBlobStore,
   MemoryMirrorStateStore,
-  MirrorDivergenceError,
   WritableDirectoryMirror,
   type MirrorBlobStore,
   type MirrorFileSystem
@@ -165,6 +164,7 @@ class FileTransport implements SyncTransport {
     });
     return {
       protocol_version: 1,
+      protocol_profile: "exact_document_v1",
       session_id: `session-${snapshotId}`,
       replica_id: this.replicaId,
       collection_id: "00000000-0000-4000-8000-000000000002",
@@ -620,7 +620,10 @@ describe("portable collection file mirror", () => {
       revision: "file:deleted"
     }];
 
-    await expect(target.sync()).rejects.toBeInstanceOf(MirrorDivergenceError);
+    await expect(target.sync()).resolves.toMatchObject({
+      status: "attention",
+      issues: [{ code: "mirror_diverged", path: descriptor.path, blocking: true }]
+    });
     expect(text.decode(fileSystem.files.get(descriptor.path))).toBe("local edit");
   });
 
@@ -728,6 +731,10 @@ describe("portable collection file mirror", () => {
     expect(pending).toMatchObject({ operation: "upload", content_digest: digest(first) });
     fileSystem.files.set("assets/retry.bin", second);
 
+    await target.sync();
+
+    expect(transport.uploadCalls).toHaveLength(2);
+    expect(fileSystem.files.get("assets/retry.bin")).toEqual(second);
     await target.sync();
 
     expect(transport.uploadCalls).toHaveLength(3);

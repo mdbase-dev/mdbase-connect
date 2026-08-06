@@ -90,6 +90,8 @@ export const MIRROR_MUTATION_CHECKPOINT_SIZE = 64;
 
 export interface MirrorState {
   protocol_version: 1;
+  /** Durable layout version; prerelease exact-document state starts at 2. */
+  engine_version?: 2;
   replica_id: string;
   scope_epoch: number;
   cursor: number;
@@ -290,6 +292,12 @@ export function normalizeMirrorState(
   replicaId: string,
   mode: "read_only" | "read_write"
 ): MirrorState {
+  if (state.engine_version !== 2) {
+    throw new SyncError(
+      "mirror_state_upgrade_required",
+      "Rebuild this prerelease mirror with the exact-document sync engine."
+    );
+  }
   if (state.protocol_version !== 1 || state.replica_id !== replicaId) throw new Error();
   state.resources ??= {};
   state.files ??= {};
