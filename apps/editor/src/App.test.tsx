@@ -135,16 +135,21 @@ describe("mdbase editor", () => {
     const title = row.querySelector(".note-title")?.textContent;
     expect(title).toBeTruthy();
 
-    fireEvent.mouseEnter(row);
-    await waitFor(() => expect(document.querySelector(".note-preview")).not.toBeNull(), { timeout: 1_500 });
-    const preview = screen.getByRole("tooltip");
-    expect(preview).toHaveAccessibleName(/Preview of/);
-    expect(preview.querySelector("header strong")?.textContent).toBeTruthy();
-    expect(preview.querySelector("header span")?.textContent).toMatch(/\.md$/);
-    expect(row).toHaveAttribute("aria-describedby", "note-preview-popover");
+    vi.useFakeTimers();
+    try {
+      fireEvent.mouseEnter(row);
+      await act(() => vi.advanceTimersByTimeAsync(400));
+      const preview = screen.getByRole("tooltip");
+      expect(preview).toHaveAccessibleName(/Preview of/);
+      expect(preview.querySelector("header strong")?.textContent).toBeTruthy();
+      expect(preview.querySelector("header span")?.textContent).toMatch(/\.md$/);
+      expect(row).toHaveAttribute("aria-describedby", "note-preview-popover");
 
-    fireEvent.mouseLeave(row);
-    await waitFor(() => expect(screen.queryByRole("tooltip")).not.toBeInTheDocument());
+      fireEvent.mouseLeave(row);
+      expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not reload the collection index after saving one note", async () => {
