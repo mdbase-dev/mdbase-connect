@@ -36,12 +36,9 @@ export function formatDeviceCode(value: string) {
 }
 export function neededProvisions(
   request: Pick<PendingAuthorization, "requirements" | "provisions">,
-  collection: Pick<AvailableCollection, "contracts">
+  _collection: Pick<AvailableCollection, "contracts">
 ): TypePackProvision[] {
-  const missing = request.requirements.contracts.filter((requirement) => !hasContract(collection.contracts, requirement));
-  return request.provisions.type_packs.filter((provision) =>
-    provision.provides.some((provided) => missing.some((requirement) => sameContract(provided, requirement)))
-  );
+  return request.provisions.type_packs;
 }
 
 export function hasContract(contracts: ContractRequirement[], required: ContractRequirement) { return contracts.some((contract) => sameContract(contract, required)); }

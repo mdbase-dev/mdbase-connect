@@ -600,16 +600,17 @@ export async function approveHostedAuthorization(
       availableDescriptors
     );
     let availableContracts = contractRequirements(availableDescriptors);
-    const provisions = requiredTypePackProvisions(
+    const contractProvisions = requiredTypePackProvisions(
       pending.requirements,
       pending.provisions,
       availableContracts
     );
-    if (!provisions) {
+    if (!contractProvisions) {
       throw new RequestValidationError(
         "This hosted collection does not provide the contracts required by the application."
       );
     }
+    const provisions = pending.provisions.type_packs ?? [];
     const hasApplicationSetup = provisions.length > 0
       || (pending.provisions.configuration?.length ?? 0) > 0;
     if (hasApplicationSetup) {

@@ -3,6 +3,7 @@ import {
   applicationInstallationId,
   decryptRelayResponse,
   encryptRelayRequest,
+  signAuthorityRequest,
   signApplicationAuthorization,
   type GrantKeyRecord,
   type GrantKeyStore
@@ -63,6 +64,7 @@ interface StoredCredentials {
     operationsUrl: string;
     replicaId: string;
     accessToken: string;
+    proofPublicKey: string;
   };
 }
 
@@ -319,14 +321,26 @@ export class ConnectGateway {
       url = `${connection.upstream_url}/v1/authorities/${encodeURIComponent(connection.collection_id)}/operations/${operation}`;
       bearer = credentials.accessToken;
     }
+    const serializedBody = JSON.stringify(body);
+    const proof = credentials.authority
+      ? await this.authorityProof(
+          connection,
+          credentials.authority.proofPublicKey,
+          "POST",
+          url,
+          serializedBody,
+          bearer
+        )
+      : {};
     const response = await fetch(url, {
       method: "POST",
       headers: {
         authorization: `Bearer ${bearer}`,
         "content-type": "application/json",
-        origin: this.applicationOrigin
+        origin: this.applicationOrigin,
+        ...proof
       },
-      body: JSON.stringify(body)
+      body: serializedBody
     });
     return {
       ok: response.ok,
@@ -357,14 +371,29 @@ export class ConnectGateway {
         throw new GatewayOperationError("connection_expired", `Reconnect ${connection.display_name} to continue.`);
       }
       const credentials = this.credentials(connection);
-      const response = await fetch(`${connection.upstream_url}/oauth/token`, {
+      const refreshUrl = `${connection.upstream_url}/oauth/token`;
+      const refreshBody = new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: credentials.refreshToken,
+        client_id: connection.upstream_client_id
+      }).toString();
+      const proof = credentials.authority
+        ? await this.authorityProof(
+            connection,
+            credentials.authority.proofPublicKey,
+            "POST",
+            refreshUrl,
+            refreshBody,
+            credentials.refreshToken
+          )
+        : {};
+      const response = await fetch(refreshUrl, {
         method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "refresh_token",
-          refresh_token: credentials.refreshToken,
-          client_id: connection.upstream_client_id
-        })
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          ...proof
+        },
+        body: refreshBody
       });
       const raw = await response.json().catch(() => null);
       if (!response.ok) throw upstreamError(raw, `Reconnect ${connection.display_name} to continue.`);
@@ -402,6 +431,34 @@ export class ConnectGateway {
     } finally {
       client.release();
     }
+  }
+
+  private async authorityProof(
+    connection: ConnectionRow,
+    publicKey: string,
+    method: string,
+    url: string,
+    body: string,
+    credential: string
+  ): Promise<Record<string, string>> {
+    if (!connection.key_handle) {
+      throw new GatewayOperationError(
+        "missing_grant_key",
+        `Reconnect ${connection.display_name} to restore signed authority access.`
+      );
+    }
+    const target = new URL(url);
+    return signAuthorityRequest(
+      this.keyStore,
+      connection.key_handle,
+      publicKey,
+      {
+        method,
+        target: `${target.pathname}${target.search}`,
+        body,
+        credential
+      }
+    );
   }
 
   private async assertTokenBinding(
@@ -450,8 +507,10 @@ export class ConnectGateway {
       [setId, this.connectUrl, token.collection_id]
     );
     const previousKey = previous.rows[0]?.key_handle ?? null;
-    const storedKey = token.authority ? null : keyHandle;
-    if (token.authority) await this.keyStore.delete(keyHandle);
+    // Hosted authority access is bearer-and-proof bound. Keep the same grant
+    // signing key used during authorization so operations and refreshes can be
+    // signed for the lifetime of this connection.
+    const storedKey = keyHandle;
     const result = await this.db.query<ConnectionRow>(
       `INSERT INTO mcp_connections
          (id, connection_set_id, upstream_url, upstream_client_id, collection_id,
@@ -513,7 +572,8 @@ function credentialsFromToken(token: ConnectTokenResponse): StoredCredentials {
       authority: {
         operationsUrl: token.authority.operations_url,
         replicaId: token.authority.replica_id,
-        accessToken: token.authority.access_token
+        accessToken: token.authority.access_token,
+        proofPublicKey: token.authority.proof_public_key
       }
     } : {})
   };

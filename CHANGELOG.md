@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.0-beta.44
+
+Beta.44 is a managed-service hotfix for application setup and hosted MCP
+authority access.
+
+- Application approval now applies the complete setup the user reviewed,
+  including managed updates and auxiliary type packs when a collection already
+  provides the required contract. The portal names every declared definition
+  pack, and the application SDK performs only one initial setup assessment.
+- The MCP gateway retains each hosted grant's signing key and signs both
+  provider operations and refresh-token exchanges. Hosted collection calls no
+  longer fail immediately with a provider 401 or misleading `invalid_grant`.
+- Closed-registration login pages link people without an invitation to the
+  beta access request page.
+
 ## 0.1.0-beta.43
 
 Beta.43 completes the coordinated beta.42 desktop release without changing the

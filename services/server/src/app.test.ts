@@ -2172,6 +2172,7 @@ describe("mdbase connect server", () => {
           configuration: [expect.objectContaining({ id: "workout-base-sources" })]
         }),
         provisions: expect.objectContaining({
+          type_packs: [pack],
           configuration: [expect.objectContaining({
             operation: "set_add",
             value: "views/workouts/**/*.base"

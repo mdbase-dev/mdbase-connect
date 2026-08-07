@@ -642,7 +642,7 @@ export function ApprovalForm({
 
   async function decide(decision: "approved" | "denied") {
     const preparingSetup = decision === "approved"
-      && (contractSetups.length > 0 || configurationSetup.length > 0);
+      && (setup.length > 0 || configurationSetup.length > 0);
     if (preparingSetup) onSetupActivityChange?.(true);
     setSubmitting(decision);
     setError("");
@@ -872,6 +872,18 @@ export function ApprovalForm({
           <small>These happen only after you allow access and the collection validates them.</small>
         </div>
         <div className="approval-section-content contract-setup-list">
+          {setup.length > 0 && <div className="configuration-setup-list">
+            {setup.map((provision) => (
+              <div className="configuration-setup-item" key={provision.manifest.id}>
+                <span aria-hidden="true">+</span>
+                <div>
+                  <strong>{provision.manifest.name ?? provision.manifest.id}</strong>
+                  <code>{provision.manifest.version}</code>
+                  <small>{provision.manifest.description ?? "Install or update the application definitions declared by this version."}</small>
+                </div>
+              </div>
+            ))}
+          </div>}
           {setupContracts.map((contract) => {
             const key = `${contract.id}@${contract.version}`;
             const choice = setupChoices[key];
@@ -925,6 +937,7 @@ function authorizationNeedsSetup(
   const collection = collections.find((candidate) => candidate.id === request.collection_id);
   if (!collection) return false;
   return (request.provisions.configuration?.length ?? 0) > 0
+    || request.provisions.type_packs.length > 0
     || request.requirements.contracts.some((required) =>
       !collection.contracts.some((contract) =>
         contract.id === required.id

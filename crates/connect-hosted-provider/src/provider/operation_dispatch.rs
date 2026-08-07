@@ -638,19 +638,12 @@ impl HostedProvider {
         } else {
             contract_setups
         };
-        let selected_type_packs = provisions
-            .type_packs
-            .into_iter()
-            .filter(|provision| {
-                provision.provides.iter().any(|provided| {
-                    missing_contracts.contains(&(
-                        provided.id.clone(),
-                        provided.version.clone(),
-                        provided.digest.clone(),
-                    ))
-                })
-            })
-            .collect();
+        // Approval is the user's review of the application's complete declared
+        // setup, not only the subset that happens to supply a missing contract.
+        // Applying every declared pack also keeps managed resources and packs
+        // without a contract (for example an application's auxiliary types)
+        // consistent with the post-authorization setup assessment.
+        let selected_type_packs = provisions.type_packs;
         let setup = AssessCollectionSetupInput {
             application_id: application_id.to_string(),
             declaration_digest: declaration_digest.to_string(),

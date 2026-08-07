@@ -219,6 +219,10 @@ describe("mdbase MCP gateway", () => {
     );
     expect(stored.rows).toHaveLength(2);
     expect(stored.rows.every((row) => !row.credentials_ciphertext.includes("upstream-access"))).toBe(true);
+    await db.query(
+      "UPDATE mcp_connections SET access_expires_at = now() - interval '1 second' WHERE collection_id = $1",
+      [secondCollectionId]
+    );
 
     const address = await app.listen({ host: "127.0.0.1", port: 0 });
     const client = new Client({ name: "gateway-test", version: "1.0.0" });
@@ -242,7 +246,15 @@ describe("mdbase MCP gateway", () => {
       valid: true,
       result: { results: [{ path: "notes/second.md" }] }
     });
-    expect(upstream.operationAuthorizations).toContain("Bearer hosted-access-two");
+    expect(upstream.operationAuthorizations).toContain("Bearer hosted-access-two-refreshed");
+    expect(upstream.refreshProofs).toHaveLength(1);
+    expect(upstream.operationProofs).toHaveLength(1);
+    for (const proof of [...upstream.refreshProofs, ...upstream.operationProofs]) {
+      expect(proof.version).toBe("1");
+      expect(proof.timestamp).toMatch(/^\d+$/);
+      expect(proof.nonce).toMatch(/^[0-9a-f-]{36}$/);
+      expect(proof.signature).toMatch(/^[A-Za-z0-9_-]+$/);
+    }
     const localQuery = await client.callTool({
       name: "query_records",
       arguments: { connection_id: connections[0].id, types: ["note"], limit: 5 }
@@ -291,6 +303,8 @@ async function fakeUpstream(realFetch: typeof fetch) {
   }> = [];
   const operationAuthorizations: string[] = [];
   const operationOrigins: string[] = [];
+  const refreshProofs: AuthorityProofHeaders[] = [];
+  const operationProofs: AuthorityProofHeaders[] = [];
   const localInputs: unknown[] = [];
   const connectorKeys = await crypto.subtle.generateKey(
     { name: "ECDH", namedCurve: "P-256" },
@@ -327,10 +341,17 @@ async function fakeUpstream(realFetch: typeof fetch) {
     }
     if (url.href === "https://connect.example/oauth/token") {
       const body = new URLSearchParams(String(init?.body));
-      const second = body.get("code") === "second-upstream-code";
+      const refreshing = body.get("grant_type") === "refresh_token";
+      const second = body.get("code") === "second-upstream-code"
+        || body.get("refresh_token")?.startsWith("upstream-refresh-two") === true;
+      if (refreshing) refreshProofs.push(proofHeaders(init));
       return Response.json({
-        access_token: second ? "upstream-access-two" : "upstream-access-one",
-        refresh_token: second ? "upstream-refresh-two" : "upstream-refresh-one",
+        access_token: second
+          ? (refreshing ? "upstream-access-two-refreshed" : "upstream-access-two")
+          : (refreshing ? "upstream-access-one-refreshed" : "upstream-access-one"),
+        refresh_token: second
+          ? (refreshing ? "upstream-refresh-two-refreshed" : "upstream-refresh-two")
+          : (refreshing ? "upstream-refresh-one-refreshed" : "upstream-refresh-one"),
         token_type: "Bearer",
         expires_in: 3_600,
         refresh_expires_in: 2_592_000,
@@ -353,7 +374,7 @@ async function fakeUpstream(realFetch: typeof fetch) {
           operations_url: `https://sync.example/v1/authorities/${secondCollectionId}/operations`,
           sync_url: `https://sync.example/v1/authorities/${secondCollectionId}/sync`,
           replica_id: "40000000-0000-4000-8000-000000000002",
-          access_token: "hosted-access-two",
+          access_token: refreshing ? "hosted-access-two-refreshed" : "hosted-access-two",
           proof_public_key: applicationSigningPublicKeys[1]
         } } : {})
       });
@@ -380,6 +401,7 @@ async function fakeUpstream(realFetch: typeof fetch) {
       const headers = new Headers(init?.headers);
       operationAuthorizations.push(headers.get("authorization")!);
       operationOrigins.push(headers.get("origin")!);
+      operationProofs.push(proofHeaders(init));
       return Response.json({
         result: {
           valid: true,
@@ -398,7 +420,26 @@ async function fakeUpstream(realFetch: typeof fetch) {
     authorizationProofs,
     operationAuthorizations,
     operationOrigins,
+    refreshProofs,
+    operationProofs,
     localInputs
+  };
+}
+
+interface AuthorityProofHeaders {
+  version: string | null;
+  timestamp: string | null;
+  nonce: string | null;
+  signature: string | null;
+}
+
+function proofHeaders(init?: RequestInit): AuthorityProofHeaders {
+  const headers = new Headers(init?.headers);
+  return {
+    version: headers.get("x-mdbase-proof-version"),
+    timestamp: headers.get("x-mdbase-proof-timestamp"),
+    nonce: headers.get("x-mdbase-proof-nonce"),
+    signature: headers.get("x-mdbase-proof-signature")
   };
 }
 

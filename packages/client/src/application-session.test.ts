@@ -307,6 +307,7 @@ describe("MdbaseApplicationSession", () => {
     });
 
     await session.start();
+    expect(fixture.value.assessCollectionSetup).toHaveBeenCalledOnce();
     expect(session.getSnapshot()).toMatchObject({
       status: "setup_review_required",
       update: {

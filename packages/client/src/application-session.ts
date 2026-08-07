@@ -235,9 +235,6 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
       operations: operationsForSession(capabilities)
     });
     this.base = base;
-    this.stopBase = base.subscribe(() => {
-      if (this.base === base) void this.refresh();
-    });
     try {
       const started = await base.start(options);
       if (!started.ok) {
@@ -247,6 +244,9 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
       if (generation !== this.lifecycleGeneration || options.signal?.aborted) {
         throw requestAbortReason(options.signal ?? new AbortController().signal);
       }
+      this.stopBase = base.subscribe(() => {
+        if (this.base === base) void this.refresh();
+      });
       await this.refresh(true, options);
       if (generation !== this.lifecycleGeneration || options.signal?.aborted) {
         throw requestAbortReason(options.signal ?? new AbortController().signal);
