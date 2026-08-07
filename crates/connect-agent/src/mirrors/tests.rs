@@ -73,9 +73,35 @@ fn prerelease_state_upgrade_blocks_background_retry() {
         "Rebuild this prerelease mirror.",
     );
     let transient = mirror_error("mirror_transport_failed", "Try again.");
+    let credentials = ConnectError::CredentialStore("The login keyring is locked.".into());
 
     assert!(terminal_background_error(&upgrade));
+    assert!(terminal_background_error(&credentials));
     assert!(!terminal_background_error(&transient));
+}
+
+#[test]
+fn degraded_manager_rejects_secret_operations_without_touching_the_keyring() {
+    let temporary = tempfile::tempdir().unwrap();
+    let registry = CollectionRegistry::open(temporary.path()).unwrap();
+    let manager = MirrorManager::open(
+        temporary.path(),
+        registry,
+        None,
+        Some("The login keyring is locked.".into()),
+    )
+    .unwrap();
+
+    let credential_error = manager.credentials(Uuid::new_v4()).unwrap_err();
+    assert_eq!(credential_error.code(), "credential_store_unavailable");
+    assert!(credential_error
+        .to_string()
+        .contains("login keyring is locked"));
+
+    match manager.cloud() {
+        Err(error) => assert_eq!(error.code(), "credential_store_unavailable"),
+        Ok(_) => panic!("degraded mirror manager must not expose a cloud client"),
+    }
 }
 
 #[test]

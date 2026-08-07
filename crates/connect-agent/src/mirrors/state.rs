@@ -39,8 +39,23 @@ impl MirrorManager {
 
     pub(super) fn cloud(&self) -> Result<&CloudControlClient, ConnectError> {
         self.cloud.as_ref().ok_or_else(|| {
-            ConnectError::Cloud("Connect this computer to an account first.".to_string())
+            self.credential_store_unavailable().unwrap_or_else(|| {
+                ConnectError::Cloud("Connect this computer to an account first.".to_string())
+            })
         })
+    }
+
+    pub(super) fn credential_store_unavailable(&self) -> Option<ConnectError> {
+        self.credential_store_error
+            .as_ref()
+            .map(|message| ConnectError::CredentialStore(message.clone()))
+    }
+
+    pub(super) fn require_credential_store(&self) -> Result<(), ConnectError> {
+        match self.credential_store_unavailable() {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 
     pub(super) fn require_active(&self, entry: &MirrorRegistryEntry) -> Result<(), ConnectError> {

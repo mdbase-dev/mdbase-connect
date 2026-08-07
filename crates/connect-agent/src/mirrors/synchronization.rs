@@ -218,6 +218,7 @@ impl MirrorManager {
     }
 
     pub(super) fn credentials(&self, replica_id: Uuid) -> Result<MirrorCredentials, ConnectError> {
+        self.require_credential_store()?;
         let value = self
             .secrets
             .mirror_credentials(replica_id)?
@@ -240,6 +241,7 @@ impl MirrorManager {
         entry: &mut MirrorRegistryEntry,
         credentials: &MirrorCredentials,
     ) -> Result<(), ConnectError> {
+        self.require_credential_store()?;
         self.validate_mirror_root(entry)?;
         mark_mirror(&entry.path, entry.collection_id).map_err(from_mirror)?;
         self.secrets
@@ -326,6 +328,7 @@ impl MirrorManager {
     }
 
     pub(super) fn finish_removal(&self, entry: &MirrorRegistryEntry) -> Result<(), ConnectError> {
+        self.require_credential_store()?;
         self.validate_mirror_root_if_present(entry)?;
         clear_mirror_marker(&entry.path, entry.collection_id).map_err(from_mirror)?;
         match fs::remove_dir_all(self.replica_state_dir(entry.replica_id)) {

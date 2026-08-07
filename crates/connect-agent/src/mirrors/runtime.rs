@@ -5,6 +5,7 @@ impl MirrorManager {
         state_dir: &Path,
         registry: CollectionRegistry,
         cloud: Option<CloudControlClient>,
+        credential_store_error: Option<String>,
     ) -> Result<Arc<Self>, ConnectError> {
         crate::ensure_tls_crypto_provider();
         let entries = read_registry(&state_dir.join("mirrors.json"))?;
@@ -25,6 +26,7 @@ impl MirrorManager {
                 .build()
                 .map_err(|error| ConnectError::Cloud(error.to_string()))?,
             secrets: SystemSecretStore::new(state_dir),
+            credential_store_error,
             entries: RwLock::new(entries),
             syncing: StdMutex::new(HashSet::new()),
             operation_finished: Notify::new(),

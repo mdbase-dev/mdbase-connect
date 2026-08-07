@@ -1,3 +1,4 @@
+mod bootstrap;
 mod cloud;
 mod loopback;
 mod mirrors;
@@ -8,12 +9,10 @@ mod server;
 mod test_support;
 mod watcher;
 
+use bootstrap::{bounded_secret_bootstrap, SecretBootstrap};
 use cloud::CloudControlClient;
 use fs2::FileExt;
-use mdbase_connect_core::{
-    default_control_endpoint, default_state_dir, load_cloud_configuration,
-    recover_staged_cloud_configuration, CloudConfiguration, CollectionRegistry, SystemSecretStore,
-};
+use mdbase_connect_core::{default_control_endpoint, default_state_dir, CollectionRegistry};
 use mdbase_connect_protocol::crypto::RelayIdentity;
 use mdbase_connect_protocol::DEFAULT_LOOPBACK_PORT;
 use server::AgentState;
@@ -65,11 +64,32 @@ pub async fn run(options: DaemonOptions) -> Result<(), Box<dyn std::error::Error
 
     let state_dir = options.state_dir()?;
     let _daemon_lease = DaemonLease::acquire(&state_dir)?;
-    let (server_url, connector_token) =
-        resolve_cloud_credentials(&state_dir, options.server_url, options.connector_token)?;
     let endpoint = options
         .endpoint
+        .clone()
         .unwrap_or_else(|| default_control_endpoint(&state_dir));
+    let secret_bootstrap = bounded_secret_bootstrap(
+        state_dir.clone(),
+        options.server_url,
+        options.connector_token,
+        options.relay_identity,
+    )?;
+    let (server_url, connector_token, relay_identity, credential_store_error) =
+        match secret_bootstrap {
+            SecretBootstrap::Available {
+                server_url,
+                connector_token,
+                relay_identity,
+            } => (server_url, connector_token, relay_identity, None),
+            SecretBootstrap::Unavailable(message) => {
+                tracing::warn!(
+                    error_code = "credential_store_unavailable",
+                    %message,
+                    "starting local control without cloud or direct access; restart after unlocking the credential store"
+                );
+                (None, None, RelayIdentity::generate(), Some(message))
+            }
+        };
     let registry = match CollectionRegistry::open(&state_dir) {
         Ok(registry) => registry,
         Err(error) => {
@@ -95,10 +115,6 @@ pub async fn run(options: DaemonOptions) -> Result<(), Box<dyn std::error::Error
         tombstones = journal.tombstones,
         "privacy-safe connector metric"
     );
-    let relay_identity = match options.relay_identity {
-        Some(identity) => identity,
-        None => SystemSecretStore::new(&state_dir).load_or_create_relay_identity(&state_dir)?,
-    };
     let cloud = match (server_url.clone(), connector_token.clone()) {
         (Some(server_url), Some(connector_token)) => {
             Some(CloudControlClient::new(server_url, connector_token))
@@ -125,9 +141,15 @@ pub async fn run(options: DaemonOptions) -> Result<(), Box<dyn std::error::Error
         cloud.clone(),
         relay_identity,
         runtime_timers,
+        credential_store_error.clone(),
     ));
     state.set_state_dir(state_dir.clone());
-    let mirror_manager = mirrors::MirrorManager::open(&state_dir, registry.clone(), cloud.clone())?;
+    let mirror_manager = mirrors::MirrorManager::open(
+        &state_dir,
+        registry.clone(),
+        cloud.clone(),
+        credential_store_error.clone(),
+    )?;
     state.set_mirror_manager(mirror_manager.clone());
     let mirror_worker = mirror_manager.start();
     let relay = match (server_url, connector_token) {
@@ -137,73 +159,56 @@ pub async fn run(options: DaemonOptions) -> Result<(), Box<dyn std::error::Error
     };
     let initialization_state = state.clone();
     let relay_state = state.clone();
-    let relay_worker = Arc::new(std::sync::Mutex::new(None));
-    let relay_worker_on_listening = relay_worker.clone();
+    let initialization_worker = Arc::new(std::sync::Mutex::new(None));
+    let initialization_worker_on_listening = initialization_worker.clone();
     tracing::info!(%endpoint, state_dir = %state_dir.display(), "starting local connector daemon");
-    let loopback = loopback::start(
-        options.loopback_port.unwrap_or(DEFAULT_LOOPBACK_PORT),
-        state.clone(),
-    )
-    .await?;
-    state.set_loopback_port(loopback.port());
+    let loopback = if credential_store_error.is_none() {
+        let loopback = loopback::start(
+            options.loopback_port.unwrap_or(DEFAULT_LOOPBACK_PORT),
+            state.clone(),
+        )
+        .await?;
+        state.set_loopback_port(loopback.port());
+        Some(loopback)
+    } else {
+        state.set_connection_state(mdbase_connect_protocol::AgentConnectionState::Offline);
+        None
+    };
     let result = server::serve(&endpoint, state, move || {
-        match registry.list() {
-            Ok(collections) => watcher.refresh(&collections),
-            Err(error) => tracing::error!(%error, "failed to initialize collection watchers"),
-        }
-        initialization_state.mark_initialized();
-        if let Some((server_url, connector_token)) = relay {
-            let worker = tokio::spawn(async move {
+        let worker = tokio::spawn(async move {
+            match registry.list() {
+                Ok(collections) => watcher.refresh(&collections),
+                Err(error) => tracing::error!(%error, "failed to initialize collection watchers"),
+            }
+            initialization_state.mark_initialized();
+            if let Some((server_url, connector_token)) = relay {
                 relay::run(server_url, connector_token, relay_state).await;
-            });
-            *relay_worker_on_listening
-                .lock()
-                .expect("relay worker lock poisoned") = Some(worker);
-        }
+            }
+        });
+        *initialization_worker_on_listening
+            .lock()
+            .expect("initialization worker lock poisoned") = Some(worker);
     })
     .await;
     mirror_worker.abort();
     let _ = mirror_worker.await;
     runtime_worker.abort();
     let _ = runtime_worker.await;
-    let relay_worker = {
-        relay_worker
+    let initialization_worker = {
+        initialization_worker
             .lock()
-            .expect("relay worker lock poisoned")
+            .expect("initialization worker lock poisoned")
             .take()
     };
-    if let Some(worker) = relay_worker {
+    if let Some(worker) = initialization_worker {
         worker.abort();
         let _ = worker.await;
     }
-    loopback.stop().await;
+    if let Some(loopback) = loopback {
+        loopback.stop().await;
+    }
     result?;
     Ok(())
-}
-
-fn resolve_cloud_credentials(
-    state_dir: &std::path::Path,
-    server_url: Option<String>,
-    connector_token: Option<String>,
-) -> Result<(Option<String>, Option<String>), Box<dyn std::error::Error + Send + Sync>> {
-    recover_staged_cloud_configuration(state_dir)?;
-    match (server_url, connector_token) {
-        (Some(server_url), Some(connector_token)) => {
-            let server_url = CloudConfiguration::new(&server_url)?.server_url;
-            SystemSecretStore::validate_connector_token(&connector_token)?;
-            Ok((Some(server_url), Some(connector_token)))
-        }
-        (None, None) => {
-            let Some(configuration) = load_cloud_configuration(state_dir)? else {
-                return Ok((None, None));
-            };
-            let token = SystemSecretStore::new(state_dir)
-                .connector_token()?
-                .ok_or("Connect is configured but its operating-system credential is missing.")?;
-            Ok((Some(configuration.server_url), Some(token)))
-        }
-        _ => Err("Both server URL and connector credential are required for cloud relay".into()),
-    }
 }
 
 fn initialize_tracing() {
@@ -253,23 +258,6 @@ mod tests {
     use super::*;
     use mdbase_connect_protocol::{ControlCommand, ControlRequest, ControlResponse};
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-
-    #[test]
-    fn explicit_cloud_credentials_are_validated_before_use() {
-        let temporary = tempfile::tempdir().unwrap();
-        assert!(resolve_cloud_credentials(
-            temporary.path(),
-            Some("http://connect.example".to_string()),
-            Some("con_123456789012345678901234".to_string()),
-        )
-        .is_err());
-        assert!(resolve_cloud_credentials(
-            temporary.path(),
-            Some("https://connect.example".to_string()),
-            Some("not-a-credential".to_string()),
-        )
-        .is_err());
-    }
 
     #[tokio::test]
     async fn one_daemon_owns_the_state_and_shutdown_is_graceful() {

@@ -3,7 +3,9 @@ use super::*;
 impl AgentState {
     pub(super) fn cloud(&self) -> Result<&CloudControlClient, ConnectError> {
         self.cloud.as_ref().ok_or_else(|| {
-            ConnectError::Cloud("Connect this computer to a portal first.".to_string())
+            self.credential_store_unavailable().unwrap_or_else(|| {
+                ConnectError::Cloud("Connect this computer to a portal first.".to_string())
+            })
         })
     }
 
@@ -22,6 +24,9 @@ impl AgentState {
         &self,
         params: mdbase_connect_protocol::AccountConfigureParams,
     ) -> Result<serde_json::Value, ConnectError> {
+        if let Some(error) = self.credential_store_unavailable() {
+            return Err(error);
+        }
         let _guard = self
             .account_configuration_lock
             .lock()
@@ -57,6 +62,9 @@ impl AgentState {
     }
 
     pub(super) fn clear_account(&self) -> Result<serde_json::Value, ConnectError> {
+        if let Some(error) = self.credential_store_unavailable() {
+            return Err(error);
+        }
         let _guard = self
             .account_configuration_lock
             .lock()

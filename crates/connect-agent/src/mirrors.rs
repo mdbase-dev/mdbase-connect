@@ -151,6 +151,7 @@ pub struct MirrorManager {
     cloud: Option<CloudControlClient>,
     client: Client,
     secrets: SystemSecretStore,
+    credential_store_error: Option<String>,
     entries: RwLock<Vec<MirrorRegistryEntry>>,
     syncing: StdMutex<HashSet<Uuid>>,
     operation_finished: Notify,

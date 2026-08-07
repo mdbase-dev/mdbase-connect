@@ -33,6 +33,7 @@ pub struct AgentState {
     initialized: std::sync::atomic::AtomicBool,
     loopback_port: std::sync::atomic::AtomicU16,
     cloud: Option<CloudControlClient>,
+    credential_store_error: Option<String>,
     relay_identity: RelayIdentity,
     runtime_timers: Option<RuntimeTimerHandle>,
     mirrors: std::sync::RwLock<Option<Arc<MirrorManager>>>,
@@ -74,6 +75,7 @@ impl AgentState {
             initialized: std::sync::atomic::AtomicBool::new(false),
             loopback_port: std::sync::atomic::AtomicU16::new(0),
             cloud,
+            credential_store_error: None,
             relay_identity,
             runtime_timers: None,
             mirrors: std::sync::RwLock::new(None),
@@ -89,9 +91,11 @@ impl AgentState {
         cloud: Option<CloudControlClient>,
         relay_identity: RelayIdentity,
         runtime_timers: RuntimeTimerHandle,
+        credential_store_error: Option<String>,
     ) -> Self {
         let mut state = Self::with_identity(registry, watcher, cloud, relay_identity);
         state.runtime_timers = Some(runtime_timers);
+        state.credential_store_error = credential_store_error;
         state
     }
 
@@ -118,6 +122,12 @@ impl AgentState {
             .state_dir
             .write()
             .expect("state directory lock poisoned") = Some(state_dir);
+    }
+
+    pub(super) fn credential_store_unavailable(&self) -> Option<ConnectError> {
+        self.credential_store_error
+            .as_ref()
+            .map(|message| ConnectError::CredentialStore(message.clone()))
     }
 
     fn request_shutdown(&self) {
