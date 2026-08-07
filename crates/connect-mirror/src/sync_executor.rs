@@ -421,6 +421,20 @@ impl DirectoryMirror {
                     file: None,
                 })
             }
+            SyncAction::ClearConflict {
+                action_id,
+                identity,
+                ..
+            } => {
+                state.planned_conflicts.remove(identity);
+                state.local_bindings.remove(identity);
+                Ok(DurableReceipt {
+                    action_id: action_id.clone(),
+                    status: "completed".into(),
+                    record: None,
+                    file: None,
+                })
+            }
             SyncAction::AdvanceCheckpoint { .. } => Err(MirrorError::new(
                 "invalid_mirror_state",
                 "Executor cannot dispatch checkpoints.",

@@ -10,6 +10,7 @@ import {
   MIRROR_PLANNER_POLICY,
   MIRROR_PROJECTION_POLICY,
   type AdvanceCheckpointAction,
+  type ClearConflictAction,
   type DeleteLocalAction,
   type DeleteRemoteAction,
   type ExpectedObjectState,
@@ -551,15 +552,26 @@ function planObject(
   drafts: ActionDraft[]
 ): void {
   if (object.frozen_conflict) {
-    drafts.push({
-      key: `${object.identity}:conflict`,
-      depends_on_keys: [],
-      command: "record_conflict",
-      reason: "pending",
-      identity: object.identity,
-      entity: object.entity as "record" | "file",
-      ...object.frozen_conflict
-    } satisfies ActionDraft & Omit<RecordConflictAction, "action_id" | "depends_on">);
+    drafts.push(sameConflictContent(object.frozen_conflict.local, object.frozen_conflict.remote)
+      ? {
+          key: `${object.identity}:clear-conflict`,
+          depends_on_keys: [],
+          command: "clear_conflict",
+          reason: "pending",
+          identity: object.identity,
+          entity: object.entity as "record" | "file",
+          expected_local: object.frozen_conflict.local,
+          expected_remote: object.frozen_conflict.remote
+        } satisfies ActionDraft & Omit<ClearConflictAction, "action_id" | "depends_on">
+      : {
+          key: `${object.identity}:conflict`,
+          depends_on_keys: [],
+          command: "record_conflict",
+          reason: "pending",
+          identity: object.identity,
+          entity: object.entity as "record" | "file",
+          ...object.frozen_conflict
+        } satisfies ActionDraft & Omit<RecordConflictAction, "action_id" | "depends_on">);
     return;
   }
   const localChanged = !sameState(object.local, object.base);
@@ -755,6 +767,15 @@ function deterministicIdentity(
 
 function sameState(left: ExpectedObjectState, right: ExpectedObjectState): boolean {
   return canonicalSyncJson(left) === canonicalSyncJson(right);
+}
+
+function sameConflictContent(left: ExpectedObjectState, right: ExpectedObjectState): boolean {
+  if (left.state === "absent" || right.state === "absent") return left.state === right.state;
+  return left.object.entity === right.object.entity
+    && left.object.identity === right.object.identity
+    && left.object.path === right.object.path
+    && left.object.payload_revision === right.object.payload_revision
+    && left.object.size === right.object.size;
 }
 
 function compareObject(left: InspectedObject, right: InspectedObject): number {

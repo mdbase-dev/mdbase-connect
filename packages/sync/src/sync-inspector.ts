@@ -393,8 +393,8 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
       const frozen = prior?.planned_conflicts?.[object.identity];
       if (!frozen || frozen.entity !== object.entity) continue;
       object.frozen_conflict = {
-        local: frozen.local,
-        remote: frozen.remote,
+        local: object.local,
+        remote: object.remote,
         conflict_kind: frozen.conflict_kind
       };
     }

@@ -30,7 +30,7 @@ describe("plan-only sync architecture", () => {
         "ACTION_TYPE"
       );
       expect(value, file).not.toMatch(
-        /command:\s*["'](?:write_local|delete_local|move_local|put_remote|delete_remote|move_remote|record_conflict|advance_checkpoint)["']/u
+        /command:\s*["'](?:write_local|delete_local|move_local|put_remote|delete_remote|move_remote|record_conflict|clear_conflict|advance_checkpoint)["']/u
       );
     }
   });

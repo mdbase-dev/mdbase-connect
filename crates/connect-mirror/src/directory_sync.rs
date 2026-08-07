@@ -213,35 +213,51 @@ impl DirectoryMirror {
             .ok_or_else(|| {
                 MirrorError::new("mirror_conflict_not_found", "Conflict was not found.")
             })?;
-        if resolution == MirrorResolution::Remote {
-            match conflict.entity {
-                SyncObjectKind::Record => {
-                    self.install_remote_record_resolution(&mut state, object_id, &conflict)
-                        .await?;
+        if conflict.local.exact().is_some() {
+            self.revalidate_expected(&conflict.local)?;
+        } else if let Some(remote) = conflict.remote.exact() {
+            self.revalidate_at(&remote.path, &conflict.local)?;
+        }
+        match conflict.entity {
+            SyncObjectKind::Record => {
+                let current = self.current_remote_record(object_id).await?;
+                if !record_state_matches(&conflict.remote, current.as_ref()) {
+                    return Err(stale_conflict());
                 }
-                SyncObjectKind::File => {
-                    self.install_remote_file_resolution(&mut state, object_id, &conflict)
-                        .await?;
-                }
-                SyncObjectKind::Resource => {
-                    return Err(MirrorError::new(
-                        "invalid_mirror_state",
-                        "Authority resources cannot have writable conflicts.",
-                    ));
+                if resolution == MirrorResolution::Remote {
+                    self.install_remote_record_resolution(
+                        &mut state, object_id, &conflict, current,
+                    )?;
                 }
             }
+            SyncObjectKind::File => {
+                let current = self.current_remote_file(object_id).await?;
+                if !file_state_matches(&conflict.remote, current.as_ref()) {
+                    return Err(stale_conflict());
+                }
+                if resolution == MirrorResolution::Remote {
+                    self.install_remote_file_resolution(&mut state, object_id, &conflict, current)
+                        .await?;
+                }
+            }
+            SyncObjectKind::Resource => {
+                return Err(MirrorError::new(
+                    "invalid_mirror_state",
+                    "Authority resources cannot have writable conflicts.",
+                ));
+            }
+        }
+        if resolution == MirrorResolution::Remote {
             state.local_bindings.remove(&identity);
         }
         state.planned_conflicts.remove(&identity);
         self.write_state(&state)
     }
 
-    async fn install_remote_record_resolution(
+    async fn current_remote_record(
         &self,
-        state: &mut DurableMirrorState,
         record_id: Uuid,
-        conflict: &DurableConflict,
-    ) -> Result<(), MirrorError> {
+    ) -> Result<Option<SyncRecord>, MirrorError> {
         let session = self.transport.open_session().await?;
         let mut page = None::<String>;
         let mut current = None;
@@ -258,9 +274,18 @@ impl DirectoryMirror {
                 .or(current);
             page = value.next_page;
             if page.is_none() {
-                break;
+                return Ok(current);
             }
         }
+    }
+
+    fn install_remote_record_resolution(
+        &self,
+        state: &mut DurableMirrorState,
+        record_id: Uuid,
+        conflict: &DurableConflict,
+        current: Option<SyncRecord>,
+    ) -> Result<(), MirrorError> {
         if let Some(record) = current {
             let accepted = conflict
                 .local
@@ -286,12 +311,10 @@ impl DirectoryMirror {
         Ok(())
     }
 
-    async fn install_remote_file_resolution(
+    async fn current_remote_file(
         &self,
-        state: &mut DurableMirrorState,
         file_id: Uuid,
-        conflict: &DurableConflict,
-    ) -> Result<(), MirrorError> {
+    ) -> Result<Option<CollectionFileDescriptor>, MirrorError> {
         let session = self.transport.open_session().await?;
         let mut page = None::<String>;
         let mut current = None;
@@ -307,9 +330,18 @@ impl DirectoryMirror {
                 .or(current);
             page = value.next_page;
             if page.is_none() {
-                break;
+                return Ok(current);
             }
         }
+    }
+
+    async fn install_remote_file_resolution(
+        &self,
+        state: &mut DurableMirrorState,
+        file_id: Uuid,
+        conflict: &DurableConflict,
+        current: Option<CollectionFileDescriptor>,
+    ) -> Result<(), MirrorError> {
         let local_path = conflict.local.exact().map(|value| value.path.as_str());
         if let Some(file) = current {
             self.ensure_file_blob(&file).await?;
@@ -332,6 +364,46 @@ impl DirectoryMirror {
         }
         Ok(())
     }
+}
+
+fn record_state_matches(expected: &ExpectedObjectState, current: Option<&SyncRecord>) -> bool {
+    match (expected, current) {
+        (ExpectedObjectState::Absent, None) => true,
+        (ExpectedObjectState::Exact { object }, Some(record)) => {
+            object.entity == SyncObjectKind::Record
+                && object.identity == record.record_id.to_string()
+                && object.path == record.path
+                && object.revision == record.revision
+                && object.payload_revision == record.revision
+                && object.size.is_none()
+        }
+        _ => false,
+    }
+}
+
+fn file_state_matches(
+    expected: &ExpectedObjectState,
+    current: Option<&CollectionFileDescriptor>,
+) -> bool {
+    match (expected, current) {
+        (ExpectedObjectState::Absent, None) => true,
+        (ExpectedObjectState::Exact { object }, Some(file)) => {
+            object.entity == SyncObjectKind::File
+                && object.identity == file.file_id.to_string()
+                && object.path == file.path
+                && object.revision == file.revision
+                && object.payload_revision == file.content_digest
+                && object.size == Some(file.size)
+        }
+        _ => false,
+    }
+}
+
+fn stale_conflict() -> MirrorError {
+    MirrorError::new(
+        "mirror_conflict_stale",
+        "Local or hosted content changed after this conflict was recorded. Synchronize again before choosing a version.",
+    )
 }
 
 fn finish_sync(result: MirrorApplyResult) -> Result<(), MirrorError> {

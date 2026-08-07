@@ -108,6 +108,14 @@ export interface RecordConflictAction extends SyncActionBase {
     | "rejected";
 }
 
+export interface ClearConflictAction extends SyncActionBase {
+  command: "clear_conflict";
+  identity: string;
+  entity: "record" | "file";
+  expected_local: ExpectedObjectState;
+  expected_remote: ExpectedObjectState;
+}
+
 export interface AdvanceCheckpointAction extends SyncActionBase {
   command: "advance_checkpoint";
   expected: SyncCheckpoint;
@@ -122,6 +130,7 @@ export type SyncAction =
   | DeleteRemoteAction
   | MoveRemoteAction
   | RecordConflictAction
+  | ClearConflictAction
   | AdvanceCheckpointAction;
 
 export type SyncBatchPhase =
@@ -148,6 +157,8 @@ export type SyncOutcomeStatus =
 
 export function isEffectAction(
   action: SyncAction
-): action is Exclude<SyncAction, AdvanceCheckpointAction | RecordConflictAction> {
-  return action.command !== "advance_checkpoint" && action.command !== "record_conflict";
+): action is Exclude<SyncAction, AdvanceCheckpointAction | RecordConflictAction | ClearConflictAction> {
+  return action.command !== "advance_checkpoint"
+    && action.command !== "record_conflict"
+    && action.command !== "clear_conflict";
 }

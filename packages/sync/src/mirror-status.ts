@@ -10,7 +10,6 @@ export function mirrorStatusFromPlan(
   )) return checkpoint;
   if (
     checkpoint.conflicts.length > 0
-    || checkpoint.file_conflicts.length > 0
     || checkpoint.local_issues.length > 0
     || plan.summary.blocking_issues > 0
     || plan.summary.conflicts > 0
@@ -34,32 +33,16 @@ export function checkpointMirrorStatus(
       pending: 0,
       pending_files: 0,
       conflicts: [],
-      file_conflicts: [],
       local_issues: [],
       cursor: null,
       last_synced_at: null
     };
   }
   const conflicts: MirrorStatus["conflicts"] = [];
-  const fileConflicts: MirrorStatus["file_conflicts"] = [];
   for (const [identity, conflict] of Object.entries(state.planned_conflicts ?? {})) {
-    if (conflict.entity === "file") {
-      const path = conflict.local.state === "exact"
-        ? conflict.local.object.path
-        : conflict.remote.state === "exact"
-          ? conflict.remote.object.path
-          : "";
-      const existing = fileConflicts.findIndex(({ file_id }) => file_id === identity);
-      if (existing !== -1) fileConflicts.splice(existing, 1);
-      fileConflicts.push({
-        file_id: identity,
-        path,
-        code: "file_conflict",
-        message: "Local and authority changes need a decision."
-      });
-      continue;
-    }
-    const existing = conflicts.findIndex(({ record_id }) => record_id === identity);
+    const existing = conflicts.findIndex(({ entity, object_id }) =>
+      entity === conflict.entity && object_id === identity
+    );
     if (existing !== -1) conflicts.splice(existing, 1);
     const path = conflict.local.state === "exact"
       ? conflict.local.object.path
@@ -67,7 +50,8 @@ export function checkpointMirrorStatus(
         ? conflict.remote.object.path
         : null;
     conflicts.push({
-      record_id: identity,
+      entity: conflict.entity,
+      object_id: identity,
       path,
       kind: conflict.conflict_kind === "rejected" ? "rejected" : "conflicted",
       message: conflict.conflict_kind === "rejected"
@@ -92,7 +76,7 @@ export function checkpointMirrorStatus(
             : "blocked"
     : null;
   return {
-    state: batchState ?? (conflicts.length || fileConflicts.length
+    state: batchState ?? (conflicts.length
       ? "attention"
       : "up_to_date"),
     mode,
@@ -105,7 +89,6 @@ export function checkpointMirrorStatus(
             || ("entity" in action && action.entity === "file"))).length
       : 0,
     conflicts,
-    file_conflicts: fileConflicts,
     local_issues: localIssues,
     cursor: state.batch?.checkpoint_before.cursor ?? state.cursor,
     last_synced_at: state.last_synced_at ?? null,

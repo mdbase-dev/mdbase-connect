@@ -49,7 +49,10 @@ impl DirectoryMirror {
                 | SyncAction::RecordConflict {
                     local: expected_local,
                     ..
-                } => self.revalidate_expected(expected_local)?,
+                }
+                | SyncAction::ClearConflict { expected_local, .. } => {
+                    self.revalidate_expected(expected_local)?
+                }
                 SyncAction::DeleteRemote {
                     target,
                     expected_local,

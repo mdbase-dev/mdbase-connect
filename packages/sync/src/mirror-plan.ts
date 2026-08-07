@@ -31,7 +31,7 @@ export function mirrorApplyResult(
     applied,
     pending: checkpoint.pending,
     checkpoint_cursor: checkpoint.cursor,
-    conflicts: checkpoint.conflicts.length + checkpoint.file_conflicts.length,
+    conflicts: checkpoint.conflicts.length,
     issues: plan.issues,
     ...(failure ? { failure } : {})
   };

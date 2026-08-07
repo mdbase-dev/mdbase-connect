@@ -533,7 +533,7 @@ describe("writable Markdown mirror", () => {
       expect(await readFile(join(root, "task.md"), "utf8")).toContain("title: Local");
       expect(await mirror.status()).toMatchObject({
         state: "attention",
-        conflicts: [{ record_id: recordId, path: "task.md", kind: "conflicted" }]
+        conflicts: [{ entity: "record", object_id: recordId, path: "task.md", kind: "conflicted" }]
       });
       await mirror.sync();
       await mirror.resolveConflict(recordId, "local");
@@ -591,7 +591,7 @@ describe("writable Markdown mirror", () => {
       expect(await mirror.status()).toMatchObject({
         state: "attention",
         pending: 0,
-        conflicts: [{ record_id: firstId, path: "a.md" }]
+        conflicts: [{ entity: "record", object_id: firstId, path: "a.md" }]
       });
       const session = await hosted.transport(replicaId).openSession();
       const records = await hosted.transport(replicaId).snapshot(session.snapshot_id);
@@ -639,6 +639,7 @@ describe("writable Markdown mirror", () => {
 
       await mirror.sync();
       await writeFile(join(root, "local.md"), "---\ntype: task\ntitle: Local\n---\n");
+      await mirror.sync();
       await mirror.resolveConflict(recordId, "local");
       await mirror.sync();
       const session = await hosted.transport(replicaId).openSession();
@@ -693,7 +694,7 @@ describe("writable Markdown mirror", () => {
       expect(await mirror.status()).toMatchObject({
         state: "attention",
         pending: 0,
-        conflicts: [{ record_id: recordId, kind: "rejected" }]
+        conflicts: [{ entity: "record", object_id: recordId, kind: "rejected" }]
       });
       await mirror.resolveConflict(recordId, "remote");
       expect(await readFile(join(root, "task.md"), "utf8")).toContain("type: task");

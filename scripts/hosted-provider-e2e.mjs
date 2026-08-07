@@ -2225,7 +2225,13 @@ schema:
     (await execute(process.execPath, [mirrorCli, "status", writableMirrorRoot, "--json"])).stdout
   );
   assert.equal(conflictedStatus.state, "attention");
-  assert.equal(conflictedStatus.conflicts[0].record_id, recordId);
+  assert.deepEqual(
+    {
+      entity: conflictedStatus.conflicts[0].entity,
+      object_id: conflictedStatus.conflicts[0].object_id
+    },
+    { entity: "record", object_id: recordId }
+  );
   await assert.rejects(
     () => readFile(join(writableMirrorRoot, ".mdbase", "conflicts", `${recordId}.json`), "utf8"),
     { code: "ENOENT" }

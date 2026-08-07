@@ -1253,7 +1253,7 @@ describe("platform-neutral directory mirror", () => {
     expect(fileSystem.files.get("managed.md")).toBe(malformed);
     await expect(mirror.status()).resolves.toMatchObject({
       state: "attention",
-      conflicts: [{ record_id: "managed", kind: "conflicted" }],
+      conflicts: [{ entity: "record", object_id: "managed", kind: "conflicted" }],
       local_issues: []
     });
 
@@ -1261,7 +1261,7 @@ describe("platform-neutral directory mirror", () => {
     await mirror.sync();
     await expect(mirror.status()).resolves.toMatchObject({
       state: "attention",
-      conflicts: [{ record_id: "managed", kind: "conflicted" }],
+      conflicts: [{ entity: "record", object_id: "managed", kind: "conflicted" }],
       local_issues: []
     });
 

@@ -27,33 +27,36 @@ export class PlanRevalidator {
   private async validateAction(action: SyncAction): Promise<void> {
     switch (action.command) {
       case "write_local":
-        await this.expected(action.expected_local);
-        await this.expectedAt(action.target.path, action.expected_path_owner);
+        await this.validateExpected(action.expected_local);
+        await this.validateExpectedAt(action.target.path, action.expected_path_owner);
         return;
       case "delete_local":
-        await this.expected(action.expected_local);
-        await this.expectedAt(action.target.path, action.expected_path_owner);
+        await this.validateExpected(action.expected_local);
+        await this.validateExpectedAt(action.target.path, action.expected_path_owner);
         return;
       case "move_local":
-        await this.expectedAt(action.source.path, action.expected_source_owner);
-        await this.expectedAt(action.target_path, action.expected_target_owner);
+        await this.validateExpectedAt(action.source.path, action.expected_source_owner);
+        await this.validateExpectedAt(action.target_path, action.expected_target_owner);
         return;
       case "put_remote":
       case "move_remote":
-        await this.expected(action.expected_local);
+        await this.validateExpected(action.expected_local);
         return;
       case "delete_remote":
-        await this.expectedAt(action.target.path, action.expected_local);
+        await this.validateExpectedAt(action.target.path, action.expected_local);
         return;
       case "record_conflict":
-        await this.expected(action.local);
+        await this.validateExpected(action.local);
+        return;
+      case "clear_conflict":
+        await this.validateExpected(action.expected_local);
         return;
       case "advance_checkpoint":
         return;
     }
   }
 
-  private async expectedAt(path: string, expected: ExpectedObjectState): Promise<void> {
+  async validateExpectedAt(path: string, expected: ExpectedObjectState): Promise<void> {
     if (expected.state === "absent") {
       if (await this.pathExists(path)) throw stale(`${path} is no longer vacant.`);
       return;
@@ -63,7 +66,7 @@ export class PlanRevalidator {
     }
   }
 
-  private async expected(expected: ExpectedObjectState): Promise<void> {
+  async validateExpected(expected: ExpectedObjectState): Promise<void> {
     if (expected.state === "absent") return;
     if (!await this.matches(expected.object)) {
       throw stale(`${expected.object.path} no longer matches the inspected bytes.`);

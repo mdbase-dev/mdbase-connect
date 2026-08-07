@@ -105,7 +105,7 @@ try {
     const recordId = parsed.positionals[2];
     const resolution = parsed.values.use;
     if (!recordId || !["local", "remote"].includes(resolution ?? "")) {
-      throw new Error("resolve requires a record ID and --use local or --use remote.");
+      throw new Error("resolve requires an object ID and --use local or --use remote.");
     }
     const configuration = await currentProfile(root);
     if (configuration.profile.mode !== "read_write") throw new Error("This mirror is receive-only.");
@@ -429,7 +429,7 @@ function printStatus(status: MirrorStatus): void {
   process.stdout.write(`${statusLine(status)}\n`);
   for (const conflict of status.conflicts) {
     process.stdout.write(
-      `  ${conflict.path ?? conflict.record_id}: ${conflict.message} (${conflict.record_id})\n`
+      `  ${conflict.path ?? conflict.object_id}: ${conflict.message} (${conflict.entity}:${conflict.object_id})\n`
     );
   }
   for (const issue of status.local_issues) {

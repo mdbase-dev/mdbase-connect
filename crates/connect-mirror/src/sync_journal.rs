@@ -181,6 +181,9 @@ fn action_object(action: &SyncAction) -> Result<(SyncObjectKind, &str), MirrorEr
         SyncAction::RecordConflict {
             entity, identity, ..
         } => (entity.clone(), identity.as_str()),
+        SyncAction::ClearConflict {
+            entity, identity, ..
+        } => (entity.clone(), identity.as_str()),
         SyncAction::AdvanceCheckpoint { .. } => {
             return Err(MirrorError::new(
                 "invalid_mirror_state",

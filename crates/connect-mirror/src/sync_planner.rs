@@ -356,11 +356,25 @@ fn plan_object(
     drafts: &mut Vec<Draft>,
 ) -> Result<(), MirrorError> {
     if let Some(conflict) = &object.frozen_conflict {
-        drafts.push(conflict_draft(
-            object,
-            conflict.clone(),
-            SyncPlanReason::Pending,
-        ));
+        drafts.push(
+            if same_conflict_content(&conflict.local, &conflict.remote) {
+                Draft {
+                    key: format!("{}:clear-conflict", object.identity),
+                    dependency_keys: vec![],
+                    action: SyncAction::ClearConflict {
+                        action_id: String::new(),
+                        depends_on: vec![],
+                        reason: SyncPlanReason::Pending,
+                        identity: object.identity.clone(),
+                        entity: object.entity.clone(),
+                        expected_local: conflict.local.clone(),
+                        expected_remote: conflict.remote.clone(),
+                    },
+                }
+            } else {
+                conflict_draft(object, conflict.clone(), SyncPlanReason::Pending)
+            },
+        );
         return Ok(());
     }
     let local_changed = object.local != object.base;
@@ -404,6 +418,23 @@ fn plan_object(
         plan_remote_to_local(object, drafts)?;
     }
     Ok(())
+}
+
+fn same_conflict_content(left: &ExpectedObjectState, right: &ExpectedObjectState) -> bool {
+    match (left, right) {
+        (ExpectedObjectState::Absent, ExpectedObjectState::Absent) => true,
+        (
+            ExpectedObjectState::Exact { object: left },
+            ExpectedObjectState::Exact { object: right },
+        ) => {
+            left.entity == right.entity
+                && left.identity == right.identity
+                && left.path == right.path
+                && left.payload_revision == right.payload_revision
+                && left.size == right.size
+        }
+        _ => false,
+    }
 }
 
 fn plan_remote_to_local(
@@ -649,6 +680,11 @@ fn set_action_metadata(
             ..
         }
         | SyncAction::RecordConflict {
+            action_id,
+            depends_on,
+            ..
+        }
+        | SyncAction::ClearConflict {
             action_id,
             depends_on,
             ..

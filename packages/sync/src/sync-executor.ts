@@ -148,6 +148,10 @@ export class PlanOnlySyncExecutor {
         }
         this.rebaseConflict(state, action);
         return { action_id: action.action_id, status: "conflicted" };
+      case "clear_conflict":
+        delete state.planned_conflicts?.[action.identity];
+        delete state.local_bindings?.[action.identity];
+        return { action_id: action.action_id, status: "completed" };
       case "advance_checkpoint":
         throw new SyncError(
           "invalid_mirror_state",

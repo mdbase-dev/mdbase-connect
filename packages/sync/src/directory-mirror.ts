@@ -1,4 +1,8 @@
-import type { JsonObject, SyncRecord } from "@mdbase-dev/connect-protocol";
+import type {
+  CollectionFileDescriptor,
+  JsonObject,
+  SyncRecord
+} from "@mdbase-dev/connect-protocol";
 import type { SyncTransport } from "./sync-types.js";
 import { SyncError } from "./sync-error.js";
 import {
@@ -40,6 +44,7 @@ import {
 } from "./sync-journal.js";
 import { advanceEmptySyncCheckpoint, advanceSyncCheckpoint } from "./sync-checkpoint.js";
 import { loadMirrorSnapshot } from "./sync-snapshot-loader.js";
+import type { ExpectedObjectState } from "./sync-model.js";
 
 export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
   private readonly stateStore: MirrorStateStore;
@@ -232,7 +237,6 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     await this.pruneFileBlobs();
     const checkpoint = checkpointMirrorStatus(state, this.mode);
     const attention = checkpoint.conflicts.length > 0
-      || checkpoint.file_conflicts.length > 0
       || checkpoint.local_issues.length > 0
       || plan.summary.conflicts > 0;
     return mirrorApplyResult(
@@ -349,16 +353,11 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
   }
 
   async resolveConflict(identity: string, resolution: "local" | "remote"): Promise<void> {
-    await this.lease.runExclusive(() => this.resolveConflictUnlocked(identity, "record", resolution));
-  }
-
-  async resolveFileConflict(identity: string, resolution: "local" | "remote"): Promise<void> {
-    await this.lease.runExclusive(() => this.resolveConflictUnlocked(identity, "file", resolution));
+    await this.lease.runExclusive(() => this.resolveConflictUnlocked(identity, resolution));
   }
 
   private async resolveConflictUnlocked(
     identity: string,
-    entity: "record" | "file",
     resolution: "local" | "remote"
   ): Promise<void> {
     if (this.mode !== "read_write") {
@@ -372,20 +371,34 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     if (!planned) {
       throw new SyncError("mirror_conflict_not_found", "Writable mirror conflict was not found.");
     }
+    const revalidator = new PlanRevalidator(this.fileSystem, this.runtime);
+    if (planned.local.state === "exact") {
+      await revalidator.validateExpected(planned.local);
+    } else if (planned.remote.state === "exact") {
+      await revalidator.validateExpectedAt(planned.remote.object.path, planned.local);
+    }
+    const snapshot = await loadMirrorSnapshot(
+      this.replicaId,
+      this.transport,
+      this.mode,
+      this.selectiveSync,
+      this.runtime
+    );
+    const currentRecord = planned.entity === "record"
+      ? snapshot.records.find(({ record }) => record.record_id === identity)?.record
+      : undefined;
+    const currentFile = planned.entity === "file"
+      ? snapshot.files.find((file) => file.file_id === identity)
+      : undefined;
+    const remoteMatches = planned.entity === "record"
+      ? recordStateMatches(planned.remote, currentRecord)
+      : fileStateMatches(planned.remote, currentFile);
+    if (!remoteMatches) throw staleConflict();
     if (resolution === "remote") {
-      const snapshot = await loadMirrorSnapshot(
-        this.replicaId,
-        this.transport,
-        this.mode,
-        this.selectiveSync,
-        this.runtime
-      );
-      if (entity === "record") {
-        const current = snapshot.records.find(({ record }) => record.record_id === identity)?.record;
-        await this.installRemoteRecord(state, identity, current);
+      if (planned.entity === "record") {
+        await this.installRemoteRecord(state, identity, currentRecord);
       } else {
-        const current = snapshot.files.find((file) => file.file_id === identity);
-        await this.installRemoteFile(state, identity, current);
+        await this.installRemoteFile(state, identity, currentFile);
       }
     }
     delete state.planned_conflicts?.[identity];
@@ -496,4 +509,39 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     return this.materializer.recordPathPolicy(state);
   }
 
+}
+
+function recordStateMatches(
+  expected: ExpectedObjectState,
+  current: SyncRecord | undefined
+): boolean {
+  if (expected.state === "absent") return current === undefined;
+  return current !== undefined
+    && expected.object.entity === "record"
+    && expected.object.identity === current.record_id
+    && expected.object.path === current.path
+    && expected.object.revision === current.revision
+    && expected.object.payload_revision === current.revision
+    && expected.object.size === undefined;
+}
+
+function fileStateMatches(
+  expected: ExpectedObjectState,
+  current: CollectionFileDescriptor | undefined
+): boolean {
+  if (expected.state === "absent") return current === undefined;
+  return current !== undefined
+    && expected.object.entity === "file"
+    && expected.object.identity === current.file_id
+    && expected.object.path === current.path
+    && expected.object.revision === current.revision
+    && expected.object.payload_revision === current.content_digest
+    && expected.object.size === current.size;
+}
+
+function staleConflict(): SyncError {
+  return new SyncError(
+    "mirror_conflict_stale",
+    "Local or hosted content changed after this conflict was recorded. Synchronize again before choosing a version."
+  );
 }

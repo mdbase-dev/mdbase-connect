@@ -128,6 +128,15 @@ pub enum SyncAction {
         remote: ExpectedObjectState,
         conflict_kind: ConflictKind,
     },
+    ClearConflict {
+        action_id: String,
+        depends_on: Vec<String>,
+        reason: SyncPlanReason,
+        identity: String,
+        entity: SyncObjectKind,
+        expected_local: ExpectedObjectState,
+        expected_remote: ExpectedObjectState,
+    },
     AdvanceCheckpoint {
         action_id: String,
         depends_on: Vec<String>,
@@ -147,6 +156,7 @@ impl SyncAction {
             | Self::DeleteRemote { action_id, .. }
             | Self::MoveRemote { action_id, .. }
             | Self::RecordConflict { action_id, .. }
+            | Self::ClearConflict { action_id, .. }
             | Self::AdvanceCheckpoint { action_id, .. } => action_id,
         }
     }
@@ -160,6 +170,7 @@ impl SyncAction {
             | Self::DeleteRemote { depends_on, .. }
             | Self::MoveRemote { depends_on, .. }
             | Self::RecordConflict { depends_on, .. }
+            | Self::ClearConflict { depends_on, .. }
             | Self::AdvanceCheckpoint { depends_on, .. } => depends_on,
         }
     }

@@ -1015,13 +1015,40 @@ async fn writable_file_conflict_is_entity_aware_and_resolves_remote() {
         b"important local edit"
     );
 
+    let mut latest = test_file(
+        "archive/photo.png",
+        b"latest authority bytes",
+        FileMediaClass::Image,
+    );
+    latest.file_id = original.file_id;
+    authority.emit_file_put(latest.clone(), b"latest authority bytes");
+    let error = mirror
+        .resolve_conflict(original.file_id, MirrorResolution::Remote)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, "mirror_conflict_stale");
+    assert_eq!(
+        fs::read(mirror.root().join(&original.path)).unwrap(),
+        b"important local edit"
+    );
+    assert_eq!(mirror.status().unwrap().conflicts.len(), 1);
+
+    mirror.sync().await.unwrap();
+    assert_eq!(
+        mirror.read_state().unwrap().unwrap().planned_conflicts[&original.file_id.to_string()]
+            .local
+            .exact()
+            .unwrap()
+            .path,
+        original.path
+    );
     mirror
         .resolve_conflict(original.file_id, MirrorResolution::Remote)
         .await
         .unwrap();
     assert_eq!(
         fs::read(mirror.root().join(&updated.path)).unwrap(),
-        b"new authority bytes"
+        b"latest authority bytes"
     );
     assert_eq!(
         mirror.read_state().unwrap().unwrap().files[&original.file_id]
@@ -1072,6 +1099,50 @@ async fn writable_file_conflict_is_entity_aware_and_resolves_remote() {
         .files
         .contains_key(&original.file_id));
     assert!(mirror.status().unwrap().conflicts.is_empty());
+}
+
+#[tokio::test]
+async fn converged_file_conflict_is_cleared_by_an_explicit_plan_action() {
+    let replica_id = Uuid::new_v4();
+    let authority = FakeAuthority::new(replica_id, SyncReplicaMode::ReadWrite, Vec::new());
+    let original = authority.put_file("assets/icon.png", b"initial", FileMediaClass::Image);
+    let policy = SelectiveSyncPolicy {
+        file_classes: vec![FileMediaClass::Image],
+        excluded_folders: Vec::new(),
+    };
+    let (_temporary, mirror, authority) = custom_harness_with_selective_sync(authority, policy);
+    mirror.sync().await.unwrap();
+    fs::write(mirror.root().join(&original.path), b"eventual same bytes").unwrap();
+    let mut conflicted = test_file(
+        "assets/icon.png",
+        b"first remote edit",
+        FileMediaClass::Image,
+    );
+    conflicted.file_id = original.file_id;
+    authority.emit_file_put(conflicted, b"first remote edit");
+    mirror.sync().await.unwrap();
+    assert_eq!(mirror.status().unwrap().conflicts.len(), 1);
+
+    let mut converged = test_file(
+        "assets/icon.png",
+        b"eventual same bytes",
+        FileMediaClass::Image,
+    );
+    converged.file_id = original.file_id;
+    authority.emit_file_put(converged, b"eventual same bytes");
+    let plan = mirror.inspect().await.unwrap();
+    assert!(matches!(plan.actions[0], SyncAction::ClearConflict { .. }));
+    assert!(matches!(
+        plan.actions[1],
+        SyncAction::AdvanceCheckpoint { .. }
+    ));
+
+    mirror.sync().await.unwrap();
+    assert!(mirror.status().unwrap().conflicts.is_empty());
+    assert_eq!(
+        fs::read(mirror.root().join(&original.path)).unwrap(),
+        b"eventual same bytes"
+    );
 }
 
 #[tokio::test]

@@ -331,8 +331,8 @@ impl DirectoryMirror {
                 .and_then(|state| state.planned_conflicts.get(&object.identity))
             {
                 object.frozen_conflict = Some(FrozenConflict {
-                    local: conflict.local.clone(),
-                    remote: conflict.remote.clone(),
+                    local: object.local.clone(),
+                    remote: object.remote.clone(),
                     conflict_kind: conflict.conflict_kind,
                 });
             }
@@ -665,8 +665,38 @@ impl DirectoryMirror {
                 if resource_paths.contains(&path) {
                     continue;
                 }
-                let managed = state
-                    .is_some_and(|value| value.files.values().any(|entry| entry.file.path == path));
+                let conflict_identity = state.and_then(|value| {
+                    value
+                        .planned_conflicts
+                        .iter()
+                        .find(|(_, conflict)| {
+                            conflict.entity == SyncObjectKind::File
+                                && conflict
+                                    .local
+                                    .exact()
+                                    .is_some_and(|object| object.path == path)
+                        })
+                        .map(|(identity, _)| identity.clone())
+                });
+                let bound_identity = state.and_then(|value| {
+                    value
+                        .local_bindings
+                        .iter()
+                        .find(|(_, binding)| {
+                            binding.entity == SyncObjectKind::File && binding.path == path
+                        })
+                        .map(|(identity, _)| identity.clone())
+                });
+                let prior_identity = state.and_then(|value| {
+                    value
+                        .files
+                        .iter()
+                        .find(|(_, entry)| entry.file.path == path)
+                        .map(|(identity, _)| identity.to_string())
+                });
+                let managed = conflict_identity.is_some()
+                    || bound_identity.is_some()
+                    || prior_identity.is_some();
                 if !managed
                     && (!self.path_selected(&path)
                         || !self
@@ -680,21 +710,19 @@ impl DirectoryMirror {
                 let size = fs::metadata(safe_path(&self.root, &path)?)
                     .map_err(|error| MirrorError::io("Could not inspect", &self.root, error))?
                     .len();
-                let prior = state.and_then(|value| {
-                    value
-                        .files
-                        .iter()
-                        .find(|(_, entry)| entry.file.path == path)
-                });
-                if prior.is_none() && self.sync_policy.file_classes.is_empty() {
+                if !managed && self.sync_policy.file_classes.is_empty() {
                     continue;
                 }
-                let identity = prior
-                    .map(|(identity, _)| identity.to_string())
+                let identity = conflict_identity
+                    .or(bound_identity)
+                    .or(prior_identity)
                     .unwrap_or_default();
+                let prior = Uuid::parse_str(&identity)
+                    .ok()
+                    .and_then(|identity| state?.files.get(&identity));
                 let revision = prior
-                    .filter(|(_, entry)| entry.file.content_digest == digest)
-                    .map(|(_, entry)| entry.file.revision.clone())
+                    .filter(|entry| entry.file.content_digest == digest)
+                    .map(|entry| entry.file.revision.clone())
                     .unwrap_or_else(|| digest.clone());
                 observed.push(ObservedObject {
                     stable_identity: !identity.is_empty(),
