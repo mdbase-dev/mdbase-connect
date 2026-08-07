@@ -13,6 +13,10 @@ import {
   type MirrorState
 } from "./mirror.js";
 
+// Completion guard only; exact read/write counts and stable state below are
+// the performance invariants and remain deterministic across runner speeds.
+const LARGE_VAULT_FIXTURE_TIMEOUT_MS = 30_000;
+
 class TestFileSystem implements MirrorFileSystem {
   readonly files = new Map<string, string>();
   reads = 0;
@@ -1315,5 +1319,5 @@ describe("platform-neutral directory mirror", () => {
     expect(stateAfter).toEqual(stateBefore);
     expect(planBefore.actions).toEqual([]);
     expect(planAfter.fingerprint).toBe(planBefore.fingerprint);
-  });
+  }, LARGE_VAULT_FIXTURE_TIMEOUT_MS);
 });

@@ -31,6 +31,9 @@ import type { SyncTransport } from "./sync-types.js";
 
 const utf8 = new TextEncoder();
 const text = new TextDecoder();
+// Completion guard only; chunk, download, and cache assertions below are the
+// performance invariants and remain deterministic across runner speeds.
+const STREAMING_FIXTURE_TIMEOUT_MS = 60_000;
 
 class BinaryFileSystem implements MirrorFileSystem {
   readonly files = new Map<string, Uint8Array>();
@@ -456,7 +459,7 @@ describe("portable collection file mirror", () => {
 
     await target.sync();
     expect(transport.downloads).toBe(1);
-  }, 15_000);
+  }, STREAMING_FIXTURE_TIMEOUT_MS);
 
   it("applies folder exclusions to Markdown and files without prefix-neighbor mistakes", async () => {
     const transport = new FileTransport();

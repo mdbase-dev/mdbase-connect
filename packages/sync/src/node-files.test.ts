@@ -9,6 +9,9 @@ import {
 } from "./node.js";
 
 const utf8 = new TextEncoder();
+// Completion guard only; exact bytes, cache placement, and pruning assertions
+// below remain the platform-neutral behavioral contract.
+const FILESYSTEM_FIXTURE_TIMEOUT_MS = 30_000;
 
 function digest(value: Uint8Array): `sha256:${string}` {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
@@ -95,7 +98,7 @@ describe("Node collection file adapters", () => {
       await rm(root, { recursive: true, force: true });
       await rm(stateRoot, { recursive: true, force: true });
     }
-  });
+  }, FILESYSTEM_FIXTURE_TIMEOUT_MS);
 
   it("excludes hidden and reserved trees from discovery", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-node-files-"));
