@@ -834,6 +834,9 @@ describe("portable collection file mirror", () => {
         kind: "conflicted"
       }]
     });
+    const stableDecision = (await target.status()).conflicts[0]!.decision_id;
+    await target.sync();
+    expect((await target.status()).conflicts[0]!.decision_id).toBe(stableDecision);
 
     const latestBytes = utf8.encode("hosted edit after conflict");
     const latest = file(fileId, initial.path, latestBytes, "file:latest");

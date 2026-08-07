@@ -34,6 +34,7 @@ import {
   requireBatch,
   type SyncJournalStore
 } from "./sync-journal.js";
+import { syncFingerprint } from "./sync-plan-codec.js";
 
 export interface SyncExecutionResult {
   status: "effects_complete" | "cancelled" | "stale" | "blocked";
@@ -132,7 +133,14 @@ export class PlanOnlySyncExecutor {
       case "record_conflict":
         state.planned_conflicts ??= {};
         state.planned_conflicts[action.identity] = {
-          decision_id: action.action_id,
+          decision_id: conflictDecisionId(
+            action.entity,
+            action.identity,
+            action.local,
+            action.remote,
+            action.conflict_kind,
+            this.ports.runtime.digest
+          ),
           entity: action.entity,
           local: action.local,
           remote: action.remote,
@@ -464,12 +472,20 @@ export class PlanOnlySyncExecutor {
         ? action.expected_source_owner
         : action.expected_remote;
     state.planned_conflicts ??= {};
+    const conflictKind = receipt.status === "rejected" ? "rejected" : "both_changed";
     state.planned_conflicts[identity] = {
-      decision_id: action.action_id,
+      decision_id: conflictDecisionId(
+        "record",
+        identity,
+        action.expected_local,
+        remote,
+        conflictKind,
+        this.ports.runtime.digest
+      ),
       entity: "record",
       local: action.expected_local,
       remote,
-      conflict_kind: receipt.status === "rejected" ? "rejected" : "both_changed"
+      conflict_kind: conflictKind
     };
     state.local_bindings ??= {};
     if (action.expected_local.state === "exact") {
@@ -580,6 +596,17 @@ export class PlanOnlySyncExecutor {
     this.ownersByPath.delete(path);
     this.pathsByOwner.delete(key);
   }
+}
+
+function conflictDecisionId(
+  entity: "record" | "file",
+  identity: string,
+  local: ExpectedObjectState,
+  remote: ExpectedObjectState,
+  conflictKind: "both_changed" | "delete_vs_change" | "path_occupied" | "rejected",
+  digest: (value: string) => string
+): string {
+  return syncFingerprint({ entity, identity, local, remote, conflict_kind: conflictKind }, digest);
 }
 
 function moveStateEntry(state: MirrorState, source: SyncObjectRef, target: string): void {

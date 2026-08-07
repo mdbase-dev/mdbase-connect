@@ -1029,6 +1029,12 @@ async fn writable_file_conflict_is_entity_aware_and_resolves_remote() {
         fs::read(mirror.root().join(&original.path)).unwrap(),
         b"important local edit"
     );
+    let stable_decision = status.conflicts[0].decision_id.clone();
+    mirror.sync().await.unwrap();
+    assert_eq!(
+        mirror.status().unwrap().conflicts[0].decision_id,
+        stable_decision
+    );
     let error = mirror
         .resolve_conflict(
             original.file_id,

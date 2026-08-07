@@ -2232,12 +2232,20 @@ schema:
     },
     { entity: "record", object_id: recordId }
   );
+  assert.match(conflictedStatus.conflicts[0].decision_id, /^sha256:[0-9a-f]{64}$/);
   await assert.rejects(
     () => readFile(join(writableMirrorRoot, ".mdbase", "conflicts", `${recordId}.json`), "utf8"),
     { code: "ENOENT" }
   );
   await execute(process.execPath, [
-    mirrorCli, "resolve", writableMirrorRoot, recordId, "--use", "local"
+    mirrorCli,
+    "resolve",
+    writableMirrorRoot,
+    recordId,
+    "--decision",
+    conflictedStatus.conflicts[0].decision_id,
+    "--use",
+    "local"
   ]);
   await execute(process.execPath, [mirrorCli, "sync", writableMirrorRoot]);
   writableAuthority = findRecord(
