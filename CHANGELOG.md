@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.0-beta.41
+
+Beta.41 completes the prerelease conflict workflow and the native runtime
+hardening found during packaged and live Obsidian testing.
+
+- Writable initial same-object divergence is a durable, nonblocking conflict,
+  so independent actions can proceed while path-ownership, read-only, and
+  resource collisions continue to fail closed.
+- Record and binary-file conflicts now share one entity-aware status and
+  resolution protocol. Every choice echoes a semantic decision token and is
+  applied only while both the local bytes/path and hosted snapshot still match
+  the reviewed conflict; stale choices require a fresh inspection.
+- Conflict inspection refreshes changed exact states and clears natural
+  convergence through an explicit plan action. File resolution preserves
+  stable identity across exact byte changes, moves, and deletions.
+- The desktop and native daemon share the same local-control protocol contract,
+  and the Rust workspace installs one explicit TLS crypto provider before any
+  client construction.
+
 ## 0.1.0-beta.40
 
 Beta.40 completes the operational hardening found while upgrading and live
