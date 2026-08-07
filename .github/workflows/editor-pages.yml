@@ -86,7 +86,7 @@ jobs:
       - name: Verify production assets
         run: node apps/editor/scripts/verify-deployment-assets.mjs apps/editor/dist/assets https://editor.mdbase.dev/
         env:
-          MDBASE_ASSET_VERIFY_ATTEMPTS: 12
+          MDBASE_ASSET_VERIFY_ATTEMPTS: 61
           MDBASE_ASSET_VERIFY_DELAY_MS: 5000
 
   deploy-cloudflare-staging:
@@ -133,5 +133,5 @@ jobs:
       - name: Verify staging assets
         run: node apps/editor/scripts/verify-deployment-assets.mjs apps/editor/dist/assets https://editor-staging.mdbase.dev/
         env:
-          MDBASE_ASSET_VERIFY_ATTEMPTS: 12
+          MDBASE_ASSET_VERIFY_ATTEMPTS: 61
           MDBASE_ASSET_VERIFY_DELAY_MS: 5000
