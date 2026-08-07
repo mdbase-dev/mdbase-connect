@@ -95,9 +95,12 @@ export function Login() {
                 </a>}
           </React.Fragment>)}
         </div>}
-        {config.password_registration && (
+        {config.registration !== "open" && (
           <p className="auth-footnote">
-            New here? Your invitation email contains the one-time account setup link.
+            Don’t have an invite? <a href="https://mdbase.dev/beta/">Request beta access</a>.
+            {config.password_registration && (
+              <> Already invited? Your invitation email contains the one-time account setup link.</>
+            )}
           </p>
         )}
       </section>

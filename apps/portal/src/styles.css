@@ -2178,6 +2178,11 @@ select {
   font-size: 0.72rem;
 }
 
+.auth-panel > .auth-footnote a {
+  color: var(--accent-dark);
+  text-underline-offset: 0.16em;
+}
+
 .quiet-auth-link {
   display: inline-block;
   margin-top: 1.4rem;
