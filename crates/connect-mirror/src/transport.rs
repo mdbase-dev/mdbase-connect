@@ -40,8 +40,15 @@ pub struct HttpSyncTransport {
     replica_token: String,
 }
 
+fn ensure_tls_crypto_provider() {
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    }
+}
+
 impl HttpSyncTransport {
     pub fn new(sync_url: &str, replica_token: impl Into<String>) -> Result<Self, MirrorError> {
+        ensure_tls_crypto_provider();
         let endpoint = Url::parse(sync_url).map_err(|_| {
             MirrorError::new(
                 "invalid_sync_url",

@@ -12,6 +12,7 @@ fs2 = "0.4"
 mdbase.workspace = true
 mdbase-connect-protocol = { path = "../connect-protocol" }
 reqwest.workspace = true
+rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_yaml.workspace = true

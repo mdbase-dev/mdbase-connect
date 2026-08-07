@@ -185,6 +185,9 @@ impl RuntimeSecrets {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("the TLS crypto provider must be installed before starting the hosted provider");
     let arguments = Arguments::parse();
     let mut secrets = RuntimeSecrets::from_environment()?;
     if arguments.maintenance_interval_seconds == 0 {

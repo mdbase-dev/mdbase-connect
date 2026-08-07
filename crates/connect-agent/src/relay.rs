@@ -15,6 +15,7 @@ use tokio_tungstenite::tungstenite::Message;
 use url::Url;
 
 pub async fn run(server_url: String, connector_token: String, state: Arc<AgentState>) {
+    crate::ensure_tls_crypto_provider();
     let client = Client::new();
     let mut retry_delay = 1u64;
     loop {

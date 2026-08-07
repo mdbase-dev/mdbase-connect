@@ -676,6 +676,7 @@ async fn execute_connect(
                 .then(|| std::env::var("MDBASE_CONNECT_CONNECTOR_TOKEN").ok())
                 .flatten(),
             loopback_port: Some(loopback_port),
+            relay_identity: None,
         })
         .await
         .map_err(|error| CliError::internal(error.to_string())),

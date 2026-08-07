@@ -14,6 +14,7 @@ use mdbase_connect_core::{
     default_control_endpoint, default_state_dir, load_cloud_configuration,
     recover_staged_cloud_configuration, CloudConfiguration, CollectionRegistry, SystemSecretStore,
 };
+use mdbase_connect_protocol::crypto::RelayIdentity;
 use mdbase_connect_protocol::DEFAULT_LOOPBACK_PORT;
 use server::AgentState;
 use std::path::PathBuf;
@@ -21,18 +22,29 @@ use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 use watcher::CollectionWatchService;
 
+pub(crate) fn ensure_tls_crypto_provider() {
+    // Respect an embedding application's earlier choice. Otherwise select the
+    // one provider used by every mdbase binary and dependency graph.
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    }
+}
+
 /// Configuration for one foreground Connect daemon process.
 ///
 /// Service managers and embedding shells construct this value without putting
 /// credentials in process arguments. Test harnesses may inject a credential
 /// through the process environment; normal runs load it from the OS store.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct DaemonOptions {
     pub state_dir: Option<PathBuf>,
     pub endpoint: Option<String>,
     pub server_url: Option<String>,
     pub connector_token: Option<String>,
     pub loopback_port: Option<u16>,
+    /// In-memory identity injection for embedding shells and hermetic tests.
+    /// Normal daemon processes leave this unset and use the OS secret store.
+    pub relay_identity: Option<RelayIdentity>,
 }
 
 impl DaemonOptions {
@@ -83,8 +95,10 @@ pub async fn run(options: DaemonOptions) -> Result<(), Box<dyn std::error::Error
         tombstones = journal.tombstones,
         "privacy-safe connector metric"
     );
-    let relay_identity =
-        SystemSecretStore::new(&state_dir).load_or_create_relay_identity(&state_dir)?;
+    let relay_identity = match options.relay_identity {
+        Some(identity) => identity,
+        None => SystemSecretStore::new(&state_dir).load_or_create_relay_identity(&state_dir)?,
+    };
     let cloud = match (server_url.clone(), connector_token.clone()) {
         (Some(server_url), Some(connector_token)) => {
             Some(CloudControlClient::new(server_url, connector_token))
@@ -266,6 +280,7 @@ mod tests {
             state_dir: Some(state_dir),
             endpoint: Some(endpoint.to_string_lossy().to_string()),
             loopback_port: Some(0),
+            relay_identity: Some(RelayIdentity::generate()),
             ..DaemonOptions::default()
         };
         let mut running = tokio::spawn(run(options.clone()));

@@ -6,6 +6,7 @@ impl MirrorManager {
         registry: CollectionRegistry,
         cloud: Option<CloudControlClient>,
     ) -> Result<Arc<Self>, ConnectError> {
+        crate::ensure_tls_crypto_provider();
         let entries = read_registry(&state_dir.join("mirrors.json"))?;
         let lock_root = default_lock_root(state_dir);
         fs::create_dir_all(&lock_root)?;

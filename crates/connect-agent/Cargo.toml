@@ -20,6 +20,9 @@ mdbase-connect-mirror = { path = "../connect-mirror" }
 mdbase-connect-protocol = { path = "../connect-protocol" }
 mdbase-connect-runtime = { path = "../connect-runtime" }
 reqwest.workspace = true
+# Select the same provider for standalone daemon tests and embedders; binaries
+# install it process-wide before starting their runtimes.
+rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_yaml.workspace = true

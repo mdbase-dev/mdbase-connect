@@ -60,6 +60,7 @@ pub struct CompleteRemoteAuthorityTransfer {
 
 impl CloudControlClient {
     pub fn new(server_url: String, connector_token: String) -> Self {
+        crate::ensure_tls_crypto_provider();
         Self {
             client: Client::builder()
                 .redirect(Policy::none())
