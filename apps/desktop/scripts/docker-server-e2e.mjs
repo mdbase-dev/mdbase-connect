@@ -61,9 +61,7 @@ try {
   });
   const pairingWindow = await pairingApp.firstWindow({ timeout: 30_000 });
   pairingWindow.setDefaultTimeout(30_000);
-  await pairingWindow
-    .getByRole("heading", { name: "Connect this computer." })
-    .waitFor();
+  await waitForDesktopHeading(pairingWindow, "Connect this computer.");
   await pairingWindow
     .getByText("Use another Connect server", { exact: true })
     .click();
@@ -397,6 +395,33 @@ function launchDesktop(userData, connectorToken) {
         : {})
     }
   });
+}
+
+async function waitForDesktopHeading(window, name) {
+  try {
+    await window.getByRole("heading", { name }).waitFor();
+  } catch (error) {
+    const diagnostics = await Promise.race([
+      window.evaluate(() => ({
+        url: location.href,
+        title: document.title,
+        readyState: document.readyState,
+        body: document.body?.innerText.slice(0, 4_000) ?? ""
+      })),
+      new Promise((_, reject) => setTimeout(
+        () => reject(new Error("renderer diagnostics timed out")),
+        2_000
+      ))
+    ]).catch((diagnosticError) => ({
+      diagnosticError: diagnosticError instanceof Error
+        ? diagnosticError.message
+        : String(diagnosticError)
+    }));
+    throw new Error(
+      `Desktop did not render the expected heading: ${JSON.stringify(diagnostics)}`,
+      { cause: error }
+    );
+  }
 }
 
 async function closeDesktop(application) {
