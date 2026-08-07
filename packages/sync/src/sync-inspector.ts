@@ -411,7 +411,7 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
           code: "local_collision",
           message: `${object.remote.object.path} differs locally from the exact authority object.`,
           path: object.remote.object.path,
-          blocking: true
+          blocking: this.mode !== "read_write" || object.entity === "resource"
         });
       }
       if (

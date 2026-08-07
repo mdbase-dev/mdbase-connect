@@ -1425,6 +1425,53 @@ async fn initialization_collision_changes_nothing() {
 }
 
 #[tokio::test]
+async fn writable_initialization_collision_becomes_a_resolvable_conflict() {
+    let conflicted = record("one.md", "Remote one");
+    let independent = record("two.md", "Remote two");
+    let (_temporary, mirror, _authority) = harness(
+        SyncReplicaMode::ReadWrite,
+        vec![conflicted.clone(), independent.clone()],
+    );
+    fs::create_dir_all(mirror.root()).unwrap();
+    fs::write(mirror.root().join("one.md"), "important local content").unwrap();
+
+    let plan = mirror.inspect().await.unwrap();
+    assert_eq!(plan.summary.downloads, 2);
+    assert_eq!(plan.summary.conflicts, 1);
+    assert_eq!(plan.summary.blocking_issues, 0);
+    assert!(plan.issues.iter().any(|issue| {
+        issue.code == "local_collision"
+            && issue.path.as_deref() == Some("one.md")
+            && !issue.blocking
+    }));
+
+    let result = mirror.apply(&plan).await.unwrap();
+    assert_eq!(result.status, "attention");
+    assert_eq!(result.conflicts, 1);
+    let status = mirror.status().unwrap();
+    assert_eq!(status.conflicts.len(), 1);
+    assert_eq!(status.conflicts[0].record_id, conflicted.record_id);
+    assert_eq!(
+        fs::read_to_string(mirror.root().join("one.md")).unwrap(),
+        "important local content"
+    );
+    assert_eq!(
+        fs::read_to_string(mirror.root().join("two.md")).unwrap(),
+        independent.document
+    );
+
+    mirror
+        .resolve_conflict(conflicted.record_id, MirrorResolution::Remote)
+        .await
+        .unwrap();
+    assert_eq!(
+        fs::read_to_string(mirror.root().join("one.md")).unwrap(),
+        conflicted.document
+    );
+    assert!(mirror.status().unwrap().conflicts.is_empty());
+}
+
+#[tokio::test]
 async fn inspection_is_deterministic_read_only_and_apply_rejects_a_stale_plan() {
     let (_temporary, mirror, authority) = harness(SyncReplicaMode::ReadWrite, Vec::new());
 

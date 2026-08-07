@@ -444,7 +444,7 @@ describe("writable Markdown mirror", () => {
     }
   });
 
-  it("previews initial folder collisions before writing any hosted files", async () => {
+  it("persists initial folder conflicts while downloading independent hosted files", async () => {
     const hosted = new MemoryAuthority();
     const writer = hosted.registerReplica({ name: "Writer", mode: "read_write", allowedTypes: ["task"] });
     const replicaId = hosted.registerReplica({ name: "Writable laptop", mode: "read_write", allowedTypes: ["task"] });
@@ -466,9 +466,10 @@ describe("writable Markdown mirror", () => {
     });
     await expect(mirror.sync()).resolves.toMatchObject({
       status: "attention",
-      issues: [{ code: "local_collision", path: "b.md", blocking: true }]
+      conflicts: 1,
+      issues: [{ code: "local_collision", path: "b.md", blocking: false }]
     });
-    expect(fileSystem.files.has("a.md")).toBe(false);
+    expect(fileSystem.files.has("a.md")).toBe(true);
     expect(fileSystem.files.get("b.md")).toContain("title: Different");
   });
 

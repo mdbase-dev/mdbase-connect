@@ -352,7 +352,8 @@ impl DirectoryMirror {
                         object.remote.exact().unwrap().path
                     ),
                     path: Some(object.remote.exact().unwrap().path.clone()),
-                    blocking: true,
+                    blocking: self.mode != SyncReplicaMode::ReadWrite
+                        || object.entity == SyncObjectKind::Resource,
                 });
             }
             if self.mode == SyncReplicaMode::ReadOnly

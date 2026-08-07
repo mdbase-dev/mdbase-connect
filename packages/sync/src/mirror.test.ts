@@ -281,6 +281,48 @@ describe("platform-neutral directory mirror", () => {
     expect(await stateStore.read()).toBeNull();
   });
 
+  it("persists writable initialization conflicts while applying independent downloads", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(2));
+    const replicaId = hosted.registerReplica({ name: "Conflicted writer", mode: "read_write" });
+    const fileSystem = new TestFileSystem();
+    fileSystem.files.set("notes/00000.md", "important local bytes\n");
+    const stateStore = new MemoryMirrorStateStore();
+    const mirror = new WritableDirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem,
+      stateStore,
+      runtime: deterministicRuntime()
+    });
+
+    const plan = await mirror.inspect();
+    expect(plan).toMatchObject({
+      kind: "initial",
+      summary: { downloads: 1, conflicts: 1, blocking_issues: 0 },
+      issues: [{ code: "local_collision", path: "notes/00000.md", blocking: false }]
+    });
+    expect(plan.actions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ command: "record_conflict", identity: "portable-0" }),
+        expect.objectContaining({
+          command: "write_local",
+          target: expect.objectContaining({ path: "notes/00001.md" })
+        })
+      ])
+    );
+
+    await expect(mirror.apply(plan)).resolves.toMatchObject({
+      status: "attention",
+      conflicts: 1
+    });
+    expect(fileSystem.files.get("notes/00000.md")).toBe("important local bytes\n");
+    expect(fileSystem.files.get("notes/00001.md")).toBe(records(2)[1]!.document);
+    expect((await stateStore.read())?.planned_conflicts).toHaveProperty("portable-0");
+
+    await mirror.resolveConflict("portable-0", "remote");
+    expect(fileSystem.files.get("notes/00000.md")).toBe(records(2)[0]!.document);
+    expect((await stateStore.read())?.planned_conflicts).toEqual({});
+  });
+
   it("does not advance durable state when a mobile adapter fails mid-apply", async () => {
     const hosted = new MemoryAuthority({ snapshotPageSize: 1 });
     hosted.seed(records(3));

@@ -488,6 +488,42 @@ describe("portable collection file mirror", () => {
     expect(fileSystem.files.get("Archive 2/photo.png")).toEqual(neighborBytes);
   });
 
+  it("persists writable initialization file conflicts for explicit resolution", async () => {
+    const transport = new FileTransport();
+    const remoteBytes = utf8.encode("remote image bytes");
+    const localBytes = utf8.encode("important local image bytes");
+    const fileId = "00000000-0000-4000-8000-000000000012";
+    const descriptor = file(fileId, "images/collision.png", remoteBytes);
+    transport.files = [descriptor];
+    transport.bytes.set(fileId, remoteBytes);
+    const fileSystem = new BinaryFileSystem();
+    fileSystem.files.set(descriptor.path, localBytes);
+    const { mirror: target, stateStore } = writableMirror(transport, fileSystem);
+
+    const plan = await target.inspect();
+    expect(plan).toMatchObject({
+      kind: "initial",
+      summary: { conflicts: 1, blocking_issues: 0 },
+      issues: [{ code: "local_collision", path: descriptor.path, blocking: false }]
+    });
+    expect(plan.actions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ command: "record_conflict", identity: fileId, entity: "file" })
+      ])
+    );
+
+    await expect(target.apply(plan)).resolves.toMatchObject({ status: "attention", conflicts: 1 });
+    expect(fileSystem.files.get(descriptor.path)).toEqual(localBytes);
+    expect((await stateStore.read())?.planned_conflicts).toHaveProperty(fileId);
+    expect(await target.status()).toMatchObject({
+      file_conflicts: [{ file_id: fileId, path: descriptor.path }]
+    });
+
+    await target.resolveFileConflict(fileId, "remote");
+    expect(fileSystem.files.get(descriptor.path)).toEqual(remoteBytes);
+    expect((await target.status()).file_conflicts).toEqual([]);
+  });
+
   it("matches excluded folders by portable Unicode identity", () => {
     const policy = {
       file_classes: ["image" as const],
