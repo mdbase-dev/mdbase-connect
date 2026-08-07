@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.0-beta.42
+
+Beta.42 makes native startup deterministic when the operating-system
+credential service is locked or slow and completes cross-platform release
+verification for the beta.41 sync architecture.
+
+- Credential bootstrap has a strict two-second deadline. An unavailable store
+  enters an explicit offline mode that keeps local control responsive, disables
+  direct application access, and returns typed errors for secret-dependent
+  operations instead of hanging or repeatedly retrying.
+- Watcher and relay initialization run as an owned background startup task.
+  Local status is immediately available with `ready: false` until initialization
+  finishes, and shutdown still cancels the worker cleanly.
+- Desktop release portability tests accept native Windows CRLF checkouts while
+  preserving the same Rustls provider-ordering assertion on every platform.
+
 ## 0.1.0-beta.41
 
 Beta.41 completes the prerelease conflict workflow and the native runtime
