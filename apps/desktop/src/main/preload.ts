@@ -87,7 +87,7 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   }) => ipcRenderer.invoke("connect:mirrors:configure-selective-sync", input),
   resolveMirrorConflict: (input: {
     replicaId: string;
-    recordId: string;
+    objectId: string;
     resolution: "local" | "remote";
   }) => ipcRenderer.invoke("connect:mirrors:resolve", input),
   promoteMirrorAuthority: (replicaId: string) =>

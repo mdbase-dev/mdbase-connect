@@ -363,7 +363,8 @@ enum MirrorCommand {
     },
     Resolve {
         replica_id: Uuid,
-        record_id: Uuid,
+        #[arg(value_name = "OBJECT_ID")]
+        object_id: Uuid,
         #[arg(long, value_enum)]
         r#use: CliMirrorResolution,
     },

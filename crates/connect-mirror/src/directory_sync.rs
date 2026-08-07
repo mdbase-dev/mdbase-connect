@@ -33,9 +33,15 @@ impl DirectoryMirror {
             .planned_conflicts
             .iter()
             .filter_map(|(identity, conflict)| {
-                let record_id = Uuid::parse_str(identity).ok()?;
+                let object_id = Uuid::parse_str(identity).ok()?;
+                let entity = match conflict.entity {
+                    SyncObjectKind::Record => MirrorConflictEntity::Record,
+                    SyncObjectKind::File => MirrorConflictEntity::File,
+                    SyncObjectKind::Resource => return None,
+                };
                 Some(MirrorConflictSummary {
-                    record_id,
+                    entity,
+                    object_id,
                     path: conflict
                         .local
                         .exact()
@@ -180,7 +186,7 @@ impl DirectoryMirror {
 
     pub async fn resolve_conflict(
         &self,
-        record_id: Uuid,
+        object_id: Uuid,
         resolution: MirrorResolution,
     ) -> Result<(), MirrorError> {
         let _lease = MirrorLease::acquire(&self.lock_file)?;
@@ -199,7 +205,7 @@ impl DirectoryMirror {
                 "Recover prepared sync before resolving.",
             ));
         }
-        let identity = record_id.to_string();
+        let identity = object_id.to_string();
         let conflict = state
             .planned_conflicts
             .get(&identity)
@@ -208,51 +214,123 @@ impl DirectoryMirror {
                 MirrorError::new("mirror_conflict_not_found", "Conflict was not found.")
             })?;
         if resolution == MirrorResolution::Remote {
-            let session = self.transport.open_session().await?;
-            let mut page = None::<String>;
-            let mut current = None;
-            loop {
-                let value = self
-                    .transport
-                    .snapshot(session.snapshot_id, page.as_deref())
-                    .await?;
-                current = value
-                    .records
-                    .into_iter()
-                    .find(|value| value.record.record_id == record_id)
-                    .map(|value| value.record)
-                    .or(current);
-                page = value.next_page;
-                if page.is_none() {
-                    break;
+            match conflict.entity {
+                SyncObjectKind::Record => {
+                    self.install_remote_record_resolution(&mut state, object_id, &conflict)
+                        .await?;
                 }
-            }
-            if let Some(record) = current {
-                let accepted = conflict
-                    .local
-                    .exact()
-                    .map(|value| value.payload_revision.trim_start_matches("sha256:"));
-                self.put_record(&mut state, record, accepted)?;
-            } else {
-                let path = conflict
-                    .local
-                    .exact()
-                    .map(|value| value.path.clone())
-                    .or_else(|| {
-                        state
-                            .records
-                            .get(&record_id)
-                            .map(|entry| entry.path.clone())
-                    })
-                    .unwrap_or_default();
-                if !path.is_empty() {
-                    self.remove_record(&mut state, record_id, &path, true)?;
+                SyncObjectKind::File => {
+                    self.install_remote_file_resolution(&mut state, object_id, &conflict)
+                        .await?;
+                }
+                SyncObjectKind::Resource => {
+                    return Err(MirrorError::new(
+                        "invalid_mirror_state",
+                        "Authority resources cannot have writable conflicts.",
+                    ));
                 }
             }
             state.local_bindings.remove(&identity);
         }
         state.planned_conflicts.remove(&identity);
         self.write_state(&state)
+    }
+
+    async fn install_remote_record_resolution(
+        &self,
+        state: &mut DurableMirrorState,
+        record_id: Uuid,
+        conflict: &DurableConflict,
+    ) -> Result<(), MirrorError> {
+        let session = self.transport.open_session().await?;
+        let mut page = None::<String>;
+        let mut current = None;
+        loop {
+            let value = self
+                .transport
+                .snapshot(session.snapshot_id, page.as_deref())
+                .await?;
+            current = value
+                .records
+                .into_iter()
+                .find(|value| value.record.record_id == record_id)
+                .map(|value| value.record)
+                .or(current);
+            page = value.next_page;
+            if page.is_none() {
+                break;
+            }
+        }
+        if let Some(record) = current {
+            let accepted = conflict
+                .local
+                .exact()
+                .map(|value| value.payload_revision.trim_start_matches("sha256:"));
+            self.put_record(state, record, accepted)?;
+        } else {
+            let path = conflict
+                .local
+                .exact()
+                .map(|value| value.path.clone())
+                .or_else(|| {
+                    state
+                        .records
+                        .get(&record_id)
+                        .map(|entry| entry.path.clone())
+                })
+                .unwrap_or_default();
+            if !path.is_empty() {
+                self.remove_record(state, record_id, &path, true)?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn install_remote_file_resolution(
+        &self,
+        state: &mut DurableMirrorState,
+        file_id: Uuid,
+        conflict: &DurableConflict,
+    ) -> Result<(), MirrorError> {
+        let session = self.transport.open_session().await?;
+        let mut page = None::<String>;
+        let mut current = None;
+        loop {
+            let value = self
+                .transport
+                .file_snapshot(session.snapshot_id, page.as_deref())
+                .await?;
+            current = value
+                .files
+                .into_iter()
+                .find(|value| value.file_id == file_id)
+                .or(current);
+            page = value.next_page;
+            if page.is_none() {
+                break;
+            }
+        }
+        let local_path = conflict.local.exact().map(|value| value.path.as_str());
+        if let Some(file) = current {
+            self.ensure_file_blob(&file).await?;
+            let accepted = conflict
+                .local
+                .exact()
+                .map(|value| value.payload_revision.as_str());
+            self.put_collection_file(state, &file, accepted)?;
+            if let Some(path) = local_path {
+                if path != file.path {
+                    self.remove_file(path)?;
+                }
+            }
+        } else {
+            if state.files.contains_key(&file_id) {
+                self.remove_collection_file(state, file_id, true)?;
+            } else if let Some(path) = local_path {
+                self.remove_file(path)?;
+            }
+        }
+        Ok(())
     }
 }
 

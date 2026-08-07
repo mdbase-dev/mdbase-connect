@@ -103,12 +103,12 @@ pub(super) fn control_command(
         ),
         ConnectCommand::Mirror(MirrorCommand::Resolve {
             replica_id,
-            record_id,
+            object_id,
             r#use,
         }) => (
             ControlCommand::MirrorResolve(MirrorResolveParams {
                 replica_id,
-                record_id,
+                object_id,
                 resolution: match r#use {
                     CliMirrorResolution::Local => MirrorResolution::Local,
                     CliMirrorResolution::Hosted => MirrorResolution::Remote,

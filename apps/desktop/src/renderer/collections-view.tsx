@@ -480,15 +480,15 @@ function HostedCollectionRow({
               {mirror.error && <div className="message error-message compact-message">{mirror.error}</div>}
               {mirror.conflicts.length > 0 && (
                 <div className="mirror-conflicts">
-                  {mirror.conflicts.map((conflict) => <div key={conflict.record_id}>
-                    <div><strong>{conflict.path ?? conflict.record_id}</strong><small>{conflict.message}</small></div>
+                  {mirror.conflicts.map((conflict) => <div key={`${conflict.entity}:${conflict.object_id}`}>
+                    <div><strong>{conflict.path ?? conflict.object_id}</strong><small>{conflict.message}</small></div>
                     <div className="row-actions">
                       <button className="quiet-action" disabled={busy} onClick={() => void onAct(async () => {
-                        await window.mdbaseConnect.resolveMirrorConflict({ replicaId: mirror.replica_id, recordId: conflict.record_id, resolution: "local" });
+                        await window.mdbaseConnect.resolveMirrorConflict({ replicaId: mirror.replica_id, objectId: conflict.object_id, resolution: "local" });
                         onNotice("The local version was kept and synchronized.");
                       })}>Keep local</button>
                       <button className="quiet-action" disabled={busy} onClick={() => void onAct(async () => {
-                        await window.mdbaseConnect.resolveMirrorConflict({ replicaId: mirror.replica_id, recordId: conflict.record_id, resolution: "remote" });
+                        await window.mdbaseConnect.resolveMirrorConflict({ replicaId: mirror.replica_id, objectId: conflict.object_id, resolution: "remote" });
                         onNotice("The hosted version was applied.");
                       })}>Use hosted</button>
                     </div>

@@ -269,6 +269,30 @@ impl DirectoryMirror {
                 ));
             }
         }
+        for (identity, conflict) in &state.planned_conflicts {
+            Uuid::parse_str(identity).map_err(|_| {
+                MirrorError::new(
+                    "invalid_mirror_state",
+                    "Stored conflict identity is not a UUID.",
+                )
+            })?;
+            if conflict.entity == SyncObjectKind::Resource {
+                return Err(MirrorError::new(
+                    "invalid_mirror_state",
+                    "Authority resources cannot have writable conflicts.",
+                ));
+            }
+            for expected in [&conflict.local, &conflict.remote] {
+                if let Some(object) = expected.exact() {
+                    if object.identity != *identity || object.entity != conflict.entity {
+                        return Err(MirrorError::new(
+                            "invalid_mirror_state",
+                            "Stored conflict identity or entity is inconsistent.",
+                        ));
+                    }
+                }
+            }
+        }
         Ok(())
     }
 

@@ -489,6 +489,51 @@ fn mirror_file_preferences_have_an_explicit_control_command() {
 }
 
 #[test]
+fn mirror_conflicts_and_resolution_are_entity_aware_on_the_wire() {
+    let replica_id = Uuid::parse_str("01911111-1111-7111-8111-111111111111").unwrap();
+    let object_id = Uuid::parse_str("01922222-2222-7222-8222-222222222222").unwrap();
+    let request = ControlRequest {
+        id: Uuid::nil(),
+        protocol_version: LOCAL_CONTROL_PROTOCOL_VERSION,
+        command: ControlCommand::MirrorResolve(MirrorResolveParams {
+            replica_id,
+            object_id,
+            resolution: MirrorResolution::Remote,
+        }),
+    };
+    assert_eq!(
+        serde_json::to_value(request).unwrap(),
+        serde_json::json!({
+            "id": "00000000-0000-0000-0000-000000000000",
+            "protocol_version": 3,
+            "method": "mirrors.resolve",
+            "params": {
+                "replica_id": replica_id,
+                "object_id": object_id,
+                "resolution": "remote"
+            }
+        })
+    );
+    assert_eq!(
+        serde_json::to_value(MirrorConflictSummary {
+            entity: MirrorConflictEntity::File,
+            object_id,
+            path: Some("assets/photo.png".to_string()),
+            kind: "conflicted".to_string(),
+            message: "Choose local or hosted bytes.".to_string(),
+        })
+        .unwrap(),
+        serde_json::json!({
+            "entity": "file",
+            "object_id": object_id,
+            "path": "assets/photo.png",
+            "kind": "conflicted",
+            "message": "Choose local or hosted bytes."
+        })
+    );
+}
+
+#[test]
 fn rust_relay_messages_match_the_canonical_wire_schema() {
     let ids = [
         Uuid::parse_str("01911111-1111-7111-8111-111111111111").unwrap(),
