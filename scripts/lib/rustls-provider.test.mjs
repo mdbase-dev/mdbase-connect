@@ -5,9 +5,21 @@ import test from "node:test";
 
 const root = path.resolve(import.meta.dirname, "../..");
 
+function normalizeNewlines(value) {
+  return value.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+}
+
+test("normalizes platform line endings before inspecting Cargo metadata", () => {
+  assert.equal(normalizeNewlines("first\r\nsecond\rthird\n"), "first\nsecond\nthird\n");
+});
+
 test("the workspace selects exactly one Rustls crypto provider", async () => {
-  const manifest = await readFile(path.join(root, "Cargo.toml"), "utf8");
-  const lock = await readFile(path.join(root, "Cargo.lock"), "utf8");
+  const manifest = normalizeNewlines(
+    await readFile(path.join(root, "Cargo.toml"), "utf8"),
+  );
+  const lock = normalizeNewlines(
+    await readFile(path.join(root, "Cargo.lock"), "utf8"),
+  );
   const rustlsPackage = lock.match(/\[\[package\]\]\nname = "rustls"\n[\s\S]+?(?=\n\[\[package\]\])/u)?.[0];
 
   assert.match(manifest, /^rustls = .*features = \["aws-lc-rs", "std", "tls12"\]/mu);
