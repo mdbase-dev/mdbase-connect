@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-beta.43
+
+Beta.43 completes the coordinated beta.42 desktop release without changing the
+sync protocol or runtime behavior.
+
+- Large, deterministic sync fixtures now use platform-neutral completion
+  guards. Exact chunk, download, cache, read, write, and stable-state
+  assertions remain the performance contract, while slower release runners no
+  longer turn healthy work into wall-clock-only failures.
+- The macOS Intel release regression suite and every supported desktop smoke
+  test pass with the same plan-only sync engine shipped in beta.42.
+
 ## 0.1.0-beta.42
 
 Beta.42 makes native startup deterministic when the operating-system
