@@ -252,6 +252,7 @@ interface DesktopMirrorSummary {
   conflicts: Array<{
     entity: "record" | "file";
     object_id: string;
+    decision_id: string;
     path: string | null;
     kind: "conflicted" | "rejected";
     message: string;
@@ -363,7 +364,7 @@ interface Window {
     connectMirror(input: { collectionId: string; path: string; mode: "read_only" | "read_write"; name?: string; selectiveSync: DesktopSelectiveSyncPolicy }): Promise<DesktopMirrorSummary>;
     syncMirror(replicaId: string): Promise<DesktopMirrorSummary>;
     configureMirrorSelectiveSync(input: { replicaId: string; selectiveSync: DesktopSelectiveSyncPolicy }): Promise<DesktopMirrorSummary>;
-    resolveMirrorConflict(input: { replicaId: string; objectId: string; resolution: "local" | "remote" }): Promise<DesktopMirrorSummary>;
+    resolveMirrorConflict(input: { replicaId: string; objectId: string; decisionId: string; resolution: "local" | "remote" }): Promise<DesktopMirrorSummary>;
     promoteMirrorAuthority(replicaId: string): Promise<{
       collection_id: string;
       authority_epoch: number;

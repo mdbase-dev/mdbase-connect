@@ -398,6 +398,7 @@ impl DirectoryMirror {
                 state.planned_conflicts.insert(
                     identity.clone(),
                     DurableConflict {
+                        decision_id: action_id.clone(),
                         entity: entity.clone(),
                         local: local.clone(),
                         remote: remote.clone(),
@@ -587,6 +588,7 @@ impl DirectoryMirror {
                 state.planned_conflicts.insert(
                     identity.clone(),
                     DurableConflict {
+                        decision_id: action.action_id().to_string(),
                         entity: SyncObjectKind::Record,
                         local: local.clone(),
                         remote: remote.clone(),
@@ -627,6 +629,7 @@ impl DirectoryMirror {
                 state.planned_conflicts.insert(
                     identity.clone(),
                     DurableConflict {
+                        decision_id: action.action_id().to_string(),
                         entity: SyncObjectKind::Record,
                         local: local.clone(),
                         remote: expected_remote.clone(),

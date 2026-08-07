@@ -43,6 +43,7 @@ const parsed = parseArgs({
     name: { type: "string" },
     json: { type: "boolean", default: false },
     use: { type: "string" },
+    decision: { type: "string" },
     "connect-cli": { type: "string", default: "mdbase-connect" },
     help: { type: "boolean", short: "h" }
   }
@@ -104,13 +105,14 @@ try {
   } else if (command === "resolve") {
     const recordId = parsed.positionals[2];
     const resolution = parsed.values.use;
-    if (!recordId || !["local", "remote"].includes(resolution ?? "")) {
-      throw new Error("resolve requires an object ID and --use local or --use remote.");
+    const decisionId = parsed.values.decision;
+    if (!recordId || decisionId === undefined || !["local", "remote"].includes(resolution ?? "")) {
+      throw new Error("resolve requires an object ID, --decision, and --use local or --use remote.");
     }
     const configuration = await currentProfile(root);
     if (configuration.profile.mode !== "read_write") throw new Error("This mirror is receive-only.");
     const mirror = mirrorFor(root, configuration);
-    await mirror.resolveConflict(recordId, resolution as "local" | "remote");
+    await mirror.resolveConflict(recordId, decisionId, resolution as "local" | "remote");
     process.stdout.write(`Conflict ${recordId} resolved using ${resolution} content.\n`);
   } else if (command === "status") {
     const configuration = await currentProfile(root);
@@ -429,7 +431,7 @@ function printStatus(status: MirrorStatus): void {
   process.stdout.write(`${statusLine(status)}\n`);
   for (const conflict of status.conflicts) {
     process.stdout.write(
-      `  ${conflict.path ?? conflict.object_id}: ${conflict.message} (${conflict.entity}:${conflict.object_id})\n`
+      `  ${conflict.path ?? conflict.object_id}: ${conflict.message} (${conflict.entity}:${conflict.object_id}, decision ${conflict.decision_id})\n`
     );
   }
   for (const issue of status.local_issues) {

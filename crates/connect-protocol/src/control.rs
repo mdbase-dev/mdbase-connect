@@ -264,6 +264,7 @@ pub struct MirrorConfigureSelectiveSyncParams {
 pub struct MirrorResolveParams {
     pub replica_id: Uuid,
     pub object_id: Uuid,
+    pub decision_id: String,
     pub resolution: MirrorResolution,
 }
 

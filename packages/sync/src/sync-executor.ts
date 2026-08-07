@@ -132,6 +132,7 @@ export class PlanOnlySyncExecutor {
       case "record_conflict":
         state.planned_conflicts ??= {};
         state.planned_conflicts[action.identity] = {
+          decision_id: action.action_id,
           entity: action.entity,
           local: action.local,
           remote: action.remote,
@@ -464,6 +465,7 @@ export class PlanOnlySyncExecutor {
         : action.expected_remote;
     state.planned_conflicts ??= {};
     state.planned_conflicts[identity] = {
+      decision_id: action.action_id,
       entity: "record",
       local: action.expected_local,
       remote,

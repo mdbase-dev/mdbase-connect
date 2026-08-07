@@ -498,6 +498,7 @@ fn mirror_conflicts_and_resolution_are_entity_aware_on_the_wire() {
         command: ControlCommand::MirrorResolve(MirrorResolveParams {
             replica_id,
             object_id,
+            decision_id: "sha256:exact-conflict".to_string(),
             resolution: MirrorResolution::Remote,
         }),
     };
@@ -510,6 +511,7 @@ fn mirror_conflicts_and_resolution_are_entity_aware_on_the_wire() {
             "params": {
                 "replica_id": replica_id,
                 "object_id": object_id,
+                "decision_id": "sha256:exact-conflict",
                 "resolution": "remote"
             }
         })
@@ -518,6 +520,7 @@ fn mirror_conflicts_and_resolution_are_entity_aware_on_the_wire() {
         serde_json::to_value(MirrorConflictSummary {
             entity: MirrorConflictEntity::File,
             object_id,
+            decision_id: "sha256:exact-conflict".to_string(),
             path: Some("assets/photo.png".to_string()),
             kind: "conflicted".to_string(),
             message: "Choose local or hosted bytes.".to_string(),
@@ -526,6 +529,7 @@ fn mirror_conflicts_and_resolution_are_entity_aware_on_the_wire() {
         serde_json::json!({
             "entity": "file",
             "object_id": object_id,
+            "decision_id": "sha256:exact-conflict",
             "path": "assets/photo.png",
             "kind": "conflicted",
             "message": "Choose local or hosted bytes."

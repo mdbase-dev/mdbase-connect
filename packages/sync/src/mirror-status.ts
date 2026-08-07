@@ -52,6 +52,7 @@ export function checkpointMirrorStatus(
     conflicts.push({
       entity: conflict.entity,
       object_id: identity,
+      decision_id: conflict.decision_id ?? "",
       path,
       kind: conflict.conflict_kind === "rejected" ? "rejected" : "conflicted",
       message: conflict.conflict_kind === "rejected"

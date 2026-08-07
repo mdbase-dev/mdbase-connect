@@ -740,7 +740,7 @@ impl DirectoryMirror {
         Ok((observed, documents))
     }
 
-    fn validate_session(&self, session: &SyncSession) -> Result<(), MirrorError> {
+    pub(super) fn validate_session(&self, session: &SyncSession) -> Result<(), MirrorError> {
         if session.protocol_version != SYNC_PROTOCOL_VERSION
             || session.protocol_profile != sync_model::PROTOCOL_PROFILE
             || session.replica_id != self.replica_id
@@ -754,7 +754,7 @@ impl DirectoryMirror {
         Ok(())
     }
 
-    fn validate_record(&self, record: &SyncRecord) -> Result<(), MirrorError> {
+    pub(super) fn validate_record(&self, record: &SyncRecord) -> Result<(), MirrorError> {
         self.validate_record_path(&record.path)?;
         self.validate_record_document(record)
     }

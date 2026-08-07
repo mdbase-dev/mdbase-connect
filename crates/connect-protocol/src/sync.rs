@@ -27,6 +27,7 @@ pub enum MirrorConflictEntity {
 pub struct MirrorConflictSummary {
     pub entity: MirrorConflictEntity,
     pub object_id: Uuid,
+    pub decision_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     pub kind: String,

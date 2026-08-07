@@ -516,12 +516,18 @@ describe("portable collection file mirror", () => {
     expect(fileSystem.files.get(descriptor.path)).toEqual(localBytes);
     expect((await stateStore.read())?.planned_conflicts).toHaveProperty(fileId);
     expect(await target.status()).toMatchObject({
-      file_conflicts: [{ file_id: fileId, path: descriptor.path }]
+      conflicts: [{ entity: "file", object_id: fileId, path: descriptor.path }]
     });
 
-    await target.resolveFileConflict(fileId, "remote");
+    await expect(target.resolveConflict(fileId, "different-decision", "remote"))
+      .rejects.toMatchObject({ code: "mirror_conflict_stale" });
+    await target.resolveConflict(
+      fileId,
+      (await target.status()).conflicts[0]!.decision_id,
+      "remote"
+    );
     expect(fileSystem.files.get(descriptor.path)).toEqual(remoteBytes);
-    expect((await target.status()).file_conflicts).toEqual([]);
+    expect((await target.status()).conflicts).toEqual([]);
   });
 
   it("matches excluded folders by portable Unicode identity", () => {
@@ -836,14 +842,19 @@ describe("portable collection file mirror", () => {
     transport.revisionBytes.set(`${fileId}:${latest.revision}`, latestBytes);
     transport.events.push({ sequence: 2, type: "file_put", file: latest });
 
-    await expect(target.resolveConflict(fileId, "remote")).rejects.toMatchObject({
+    const reviewedDecision = (await target.status()).conflicts[0]!.decision_id;
+    await expect(target.resolveConflict(fileId, reviewedDecision, "remote")).rejects.toMatchObject({
       code: "mirror_conflict_stale"
     });
     expect(fileSystem.files.get(initial.path)).toEqual(localBytes);
     expect((await target.status()).conflicts).toHaveLength(1);
 
     await target.sync();
-    await target.resolveConflict(fileId, "remote");
+    await target.resolveConflict(
+      fileId,
+      (await target.status()).conflicts[0]!.decision_id,
+      "remote"
+    );
     expect(fileSystem.files.get(initial.path)).toEqual(latestBytes);
     expect((await target.status()).conflicts).toEqual([]);
   });
@@ -903,7 +914,11 @@ describe("portable collection file mirror", () => {
     await expect(target.sync()).resolves.toMatchObject({ status: "attention", conflicts: 1 });
 
     const uploadsBeforeResolution = transport.uploadCalls.length;
-    await target.resolveConflict(fileId, "local");
+    await target.resolveConflict(
+      fileId,
+      (await target.status()).conflicts[0]!.decision_id,
+      "local"
+    );
     await target.sync();
 
     expect(transport.uploadCalls.at(-1)).toMatchObject({
@@ -934,7 +949,11 @@ describe("portable collection file mirror", () => {
     transport.events.push({ sequence: 1, type: "file_put", file: movedRemote });
     await expect(target.sync()).resolves.toMatchObject({ status: "attention", conflicts: 1 });
 
-    await target.resolveConflict(fileId, "local");
+    await target.resolveConflict(
+      fileId,
+      (await target.status()).conflicts[0]!.decision_id,
+      "local"
+    );
     const resolutionPlan = await target.inspect();
     expect(resolutionPlan.actions.map(({ command }) => command)).toEqual([
       "put_remote",

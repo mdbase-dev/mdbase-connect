@@ -179,8 +179,7 @@ async fn conflicted_mutation_can_choose_remote_then_local() {
     assert_eq!(status.conflicts.len(), 1);
     assert_eq!(status.conflicts[0].entity, MirrorConflictEntity::Record);
     assert_eq!(status.conflicts[0].object_id, source.record_id);
-    mirror
-        .resolve_conflict(source.record_id, MirrorResolution::Remote)
+    resolve_current_conflict(&mirror, source.record_id, MirrorResolution::Remote)
         .await
         .unwrap();
     assert!(fs::read_to_string(mirror.root().join("one.md"))
@@ -195,8 +194,7 @@ async fn conflicted_mutation_can_choose_remote_then_local() {
     refresh_revision(&mut hosted_again);
     authority.conflict_next(source.record_id, hosted_again);
     mirror.sync().await.unwrap();
-    mirror
-        .resolve_conflict(source.record_id, MirrorResolution::Local)
+    resolve_current_conflict(&mirror, source.record_id, MirrorResolution::Local)
         .await
         .unwrap();
     mirror.sync().await.unwrap();
@@ -604,6 +602,23 @@ fn custom_harness_with_selective_sync(
     )
     .unwrap();
     (temporary, mirror, authority)
+}
+
+async fn resolve_current_conflict(
+    mirror: &DirectoryMirror,
+    object_id: Uuid,
+    resolution: MirrorResolution,
+) -> Result<(), MirrorError> {
+    let decision_id = mirror
+        .status()?
+        .conflicts
+        .into_iter()
+        .find(|conflict| conflict.object_id == object_id)
+        .ok_or_else(|| MirrorError::new("test_conflict_missing", "Expected conflict."))?
+        .decision_id;
+    mirror
+        .resolve_conflict(object_id, &decision_id, resolution)
+        .await
 }
 
 #[tokio::test]
@@ -1014,6 +1029,15 @@ async fn writable_file_conflict_is_entity_aware_and_resolves_remote() {
         fs::read(mirror.root().join(&original.path)).unwrap(),
         b"important local edit"
     );
+    let error = mirror
+        .resolve_conflict(
+            original.file_id,
+            "different-reviewed-conflict",
+            MirrorResolution::Remote,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, "mirror_conflict_stale");
 
     let mut latest = test_file(
         "archive/photo.png",
@@ -1022,8 +1046,9 @@ async fn writable_file_conflict_is_entity_aware_and_resolves_remote() {
     );
     latest.file_id = original.file_id;
     authority.emit_file_put(latest.clone(), b"latest authority bytes");
+    let decision_id = mirror.status().unwrap().conflicts[0].decision_id.clone();
     let error = mirror
-        .resolve_conflict(original.file_id, MirrorResolution::Remote)
+        .resolve_conflict(original.file_id, &decision_id, MirrorResolution::Remote)
         .await
         .unwrap_err();
     assert_eq!(error.code, "mirror_conflict_stale");
@@ -1042,8 +1067,7 @@ async fn writable_file_conflict_is_entity_aware_and_resolves_remote() {
             .path,
         original.path
     );
-    mirror
-        .resolve_conflict(original.file_id, MirrorResolution::Remote)
+    resolve_current_conflict(&mirror, original.file_id, MirrorResolution::Remote)
         .await
         .unwrap();
     assert_eq!(
@@ -1068,8 +1092,7 @@ async fn writable_file_conflict_is_entity_aware_and_resolves_remote() {
     hosted_again.file_id = original.file_id;
     authority.emit_file_put(hosted_again, b"newer authority bytes");
     mirror.sync().await.unwrap();
-    mirror
-        .resolve_conflict(original.file_id, MirrorResolution::Local)
+    resolve_current_conflict(&mirror, original.file_id, MirrorResolution::Local)
         .await
         .unwrap();
     mirror.sync().await.unwrap();
@@ -1087,8 +1110,7 @@ async fn writable_file_conflict_is_entity_aware_and_resolves_remote() {
     let hosted = authority.files.lock().unwrap()[&original.file_id].0.clone();
     authority.emit_file_remove(&hosted);
     mirror.sync().await.unwrap();
-    mirror
-        .resolve_conflict(original.file_id, MirrorResolution::Remote)
+    resolve_current_conflict(&mirror, original.file_id, MirrorResolution::Remote)
         .await
         .unwrap();
     assert!(!mirror.root().join(&updated.path).exists());
@@ -1442,8 +1464,7 @@ async fn rejected_mutation_survives_restart_and_can_keep_local() {
     )
     .unwrap();
     assert_eq!(restarted.status().unwrap().conflicts.len(), 1);
-    restarted
-        .resolve_conflict(source.record_id, MirrorResolution::Local)
+    resolve_current_conflict(&restarted, source.record_id, MirrorResolution::Local)
         .await
         .unwrap();
     restarted.sync().await.unwrap();
@@ -1575,6 +1596,7 @@ async fn persisted_conflicts_require_a_consistent_resolvable_entity_identity() {
     state.planned_conflicts.insert(
         conflict_id.to_string(),
         DurableConflict {
+            decision_id: "corrupt-conflict".into(),
             entity: SyncObjectKind::File,
             local: ExpectedObjectState::Exact {
                 object: SyncObjectRef {
@@ -1660,7 +1682,8 @@ async fn writable_initialization_collision_becomes_a_resolvable_conflict() {
     assert_eq!(result.conflicts, 1);
     let status = mirror.status().unwrap();
     assert_eq!(status.conflicts.len(), 1);
-    assert_eq!(status.conflicts[0].record_id, conflicted.record_id);
+    assert_eq!(status.conflicts[0].entity, MirrorConflictEntity::Record);
+    assert_eq!(status.conflicts[0].object_id, conflicted.record_id);
     assert_eq!(
         fs::read_to_string(mirror.root().join("one.md")).unwrap(),
         "important local content"
@@ -1670,8 +1693,7 @@ async fn writable_initialization_collision_becomes_a_resolvable_conflict() {
         independent.document
     );
 
-    mirror
-        .resolve_conflict(conflicted.record_id, MirrorResolution::Remote)
+    resolve_current_conflict(&mirror, conflicted.record_id, MirrorResolution::Remote)
         .await
         .unwrap();
     assert_eq!(
@@ -1679,6 +1701,56 @@ async fn writable_initialization_collision_becomes_a_resolvable_conflict() {
         conflicted.document
     );
     assert!(mirror.status().unwrap().conflicts.is_empty());
+}
+
+#[tokio::test]
+async fn writable_initial_file_collision_preserves_identity_and_resolves_exact_bytes() {
+    let replica_id = Uuid::new_v4();
+    let authority = FakeAuthority::new(replica_id, SyncReplicaMode::ReadWrite, Vec::new());
+    let hosted = authority.put_file(
+        "images/collision.png",
+        b"exact hosted image bytes",
+        FileMediaClass::Image,
+    );
+    let policy = SelectiveSyncPolicy {
+        file_classes: vec![FileMediaClass::Image],
+        excluded_folders: Vec::new(),
+    };
+    let (_temporary, mirror, _authority) = custom_harness_with_selective_sync(authority, policy);
+    fs::create_dir_all(mirror.root().join("images")).unwrap();
+    fs::write(
+        mirror.root().join(&hosted.path),
+        b"important local image bytes",
+    )
+    .unwrap();
+
+    let plan = mirror.inspect().await.unwrap();
+    assert_eq!(plan.summary.conflicts, 1);
+    assert_eq!(plan.summary.blocking_issues, 0);
+    let result = mirror.apply(&plan).await.unwrap();
+    assert_eq!(result.status, "attention");
+    let status = mirror.status().unwrap();
+    assert_eq!(status.conflicts[0].entity, MirrorConflictEntity::File);
+    assert_eq!(status.conflicts[0].object_id, hosted.file_id);
+    assert_eq!(
+        fs::read(mirror.root().join(&hosted.path)).unwrap(),
+        b"important local image bytes"
+    );
+
+    resolve_current_conflict(&mirror, hosted.file_id, MirrorResolution::Remote)
+        .await
+        .unwrap();
+    assert_eq!(
+        fs::read(mirror.root().join(&hosted.path)).unwrap(),
+        b"exact hosted image bytes"
+    );
+    assert!(mirror.status().unwrap().conflicts.is_empty());
+    assert_eq!(
+        mirror.read_state().unwrap().unwrap().files[&hosted.file_id]
+            .file
+            .content_digest,
+        hosted.content_digest
+    );
 }
 
 #[tokio::test]

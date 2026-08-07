@@ -352,12 +352,19 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     };
   }
 
-  async resolveConflict(identity: string, resolution: "local" | "remote"): Promise<void> {
-    await this.lease.runExclusive(() => this.resolveConflictUnlocked(identity, resolution));
+  async resolveConflict(
+    identity: string,
+    decisionId: string,
+    resolution: "local" | "remote"
+  ): Promise<void> {
+    await this.lease.runExclusive(() =>
+      this.resolveConflictUnlocked(identity, decisionId, resolution)
+    );
   }
 
   private async resolveConflictUnlocked(
     identity: string,
+    decisionId: string,
     resolution: "local" | "remote"
   ): Promise<void> {
     if (this.mode !== "read_write") {
@@ -371,6 +378,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     if (!planned) {
       throw new SyncError("mirror_conflict_not_found", "Writable mirror conflict was not found.");
     }
+    if ((planned.decision_id ?? "") !== decisionId) throw staleConflict();
     const revalidator = new PlanRevalidator(this.fileSystem, this.runtime);
     if (planned.local.state === "exact") {
       await revalidator.validateExpected(planned.local);

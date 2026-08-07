@@ -211,7 +211,7 @@ impl MirrorManager {
         let _guard = self.begin_operation(entry.replica_id, false)?;
         let mirror = self.mirror(&entry).await?;
         mirror
-            .resolve_conflict(params.object_id, params.resolution)
+            .resolve_conflict(params.object_id, &params.decision_id, params.resolution)
             .await
             .map_err(from_mirror)?;
         drop(_guard);

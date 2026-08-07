@@ -84,6 +84,7 @@ export interface MirrorState {
   selective_sync?: SelectiveSyncPolicy;
   mode?: "read_only" | "read_write";
   planned_conflicts?: Record<string, {
+    decision_id?: string;
     entity: "record" | "file";
     local: import("./sync-model.js").ExpectedObjectState;
     remote: import("./sync-model.js").ExpectedObjectState;
@@ -169,6 +170,7 @@ export interface MirrorStatus {
   conflicts: Array<{
     entity: "record" | "file";
     object_id: string;
+    decision_id: string;
     path: string | null;
     kind: "conflicted" | "rejected";
     message: string;

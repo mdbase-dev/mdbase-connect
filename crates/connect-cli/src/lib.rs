@@ -365,6 +365,9 @@ enum MirrorCommand {
         replica_id: Uuid,
         #[arg(value_name = "OBJECT_ID")]
         object_id: Uuid,
+        /// Exact conflict decision ID printed by mirror status.
+        #[arg(long)]
+        decision: String,
         #[arg(long, value_enum)]
         r#use: CliMirrorResolution,
     },

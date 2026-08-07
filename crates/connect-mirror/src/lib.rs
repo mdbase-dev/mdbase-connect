@@ -122,6 +122,8 @@ struct MirrorFileEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct DurableConflict {
+    #[serde(default)]
+    decision_id: String,
     entity: SyncObjectKind,
     local: ExpectedObjectState,
     remote: ExpectedObjectState,

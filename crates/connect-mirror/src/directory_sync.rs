@@ -42,6 +42,7 @@ impl DirectoryMirror {
                 Some(MirrorConflictSummary {
                     entity,
                     object_id,
+                    decision_id: conflict.decision_id.clone(),
                     path: conflict
                         .local
                         .exact()
@@ -187,6 +188,7 @@ impl DirectoryMirror {
     pub async fn resolve_conflict(
         &self,
         object_id: Uuid,
+        decision_id: &str,
         resolution: MirrorResolution,
     ) -> Result<(), MirrorError> {
         let _lease = MirrorLease::acquire(&self.lock_file)?;
@@ -213,6 +215,9 @@ impl DirectoryMirror {
             .ok_or_else(|| {
                 MirrorError::new("mirror_conflict_not_found", "Conflict was not found.")
             })?;
+        if conflict.decision_id != decision_id {
+            return Err(stale_conflict());
+        }
         if conflict.local.exact().is_some() {
             self.revalidate_expected(&conflict.local)?;
         } else if let Some(remote) = conflict.remote.exact() {
@@ -259,6 +264,7 @@ impl DirectoryMirror {
         record_id: Uuid,
     ) -> Result<Option<SyncRecord>, MirrorError> {
         let session = self.transport.open_session().await?;
+        self.validate_session(&session)?;
         let mut page = None::<String>;
         let mut current = None;
         loop {
@@ -266,12 +272,28 @@ impl DirectoryMirror {
                 .transport
                 .snapshot(session.snapshot_id, page.as_deref())
                 .await?;
-            current = value
-                .records
-                .into_iter()
-                .find(|value| value.record.record_id == record_id)
-                .map(|value| value.record)
-                .or(current);
+            if value.protocol_version != SYNC_PROTOCOL_VERSION
+                || value.snapshot_id != session.snapshot_id
+                || value.scope_epoch != session.scope_epoch
+                || value.cursor != session.head
+            {
+                return Err(MirrorError::new(
+                    "invalid_snapshot",
+                    "Authority snapshot boundary changed during conflict resolution.",
+                ));
+            }
+            for value in value.records {
+                if value.record.record_id != record_id {
+                    continue;
+                }
+                self.validate_record(&value.record)?;
+                if current.replace(value.record).is_some() {
+                    return Err(MirrorError::new(
+                        "invalid_snapshot",
+                        "Authority snapshot repeats the conflicted record identity.",
+                    ));
+                }
+            }
             page = value.next_page;
             if page.is_none() {
                 return Ok(current);
@@ -316,6 +338,7 @@ impl DirectoryMirror {
         file_id: Uuid,
     ) -> Result<Option<CollectionFileDescriptor>, MirrorError> {
         let session = self.transport.open_session().await?;
+        self.validate_session(&session)?;
         let mut page = None::<String>;
         let mut current = None;
         loop {
@@ -323,11 +346,28 @@ impl DirectoryMirror {
                 .transport
                 .file_snapshot(session.snapshot_id, page.as_deref())
                 .await?;
-            current = value
-                .files
-                .into_iter()
-                .find(|value| value.file_id == file_id)
-                .or(current);
+            if value.protocol_version != SYNC_PROTOCOL_VERSION
+                || value.snapshot_id != session.snapshot_id
+                || value.scope_epoch != session.scope_epoch
+                || value.cursor != session.head
+            {
+                return Err(MirrorError::new(
+                    "invalid_snapshot",
+                    "Authority file snapshot boundary changed during conflict resolution.",
+                ));
+            }
+            for file in value.files {
+                if file.file_id != file_id {
+                    continue;
+                }
+                self.validate_file_descriptor(&file)?;
+                if current.replace(file).is_some() {
+                    return Err(MirrorError::new(
+                        "invalid_snapshot",
+                        "Authority snapshot repeats the conflicted file identity.",
+                    ));
+                }
+            }
             page = value.next_page;
             if page.is_none() {
                 return Ok(current);

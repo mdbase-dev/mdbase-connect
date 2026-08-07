@@ -484,11 +484,11 @@ function HostedCollectionRow({
                     <div><strong>{conflict.path ?? conflict.object_id}</strong><small>{conflict.message}</small></div>
                     <div className="row-actions">
                       <button className="quiet-action" disabled={busy} onClick={() => void onAct(async () => {
-                        await window.mdbaseConnect.resolveMirrorConflict({ replicaId: mirror.replica_id, objectId: conflict.object_id, resolution: "local" });
+                        await window.mdbaseConnect.resolveMirrorConflict({ replicaId: mirror.replica_id, objectId: conflict.object_id, decisionId: conflict.decision_id, resolution: "local" });
                         onNotice("The local version was kept and synchronized.");
                       })}>Keep local</button>
                       <button className="quiet-action" disabled={busy} onClick={() => void onAct(async () => {
-                        await window.mdbaseConnect.resolveMirrorConflict({ replicaId: mirror.replica_id, objectId: conflict.object_id, resolution: "remote" });
+                        await window.mdbaseConnect.resolveMirrorConflict({ replicaId: mirror.replica_id, objectId: conflict.object_id, decisionId: conflict.decision_id, resolution: "remote" });
                         onNotice("The hosted version was applied.");
                       })}>Use hosted</button>
                     </div>
