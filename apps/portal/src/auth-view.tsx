@@ -441,7 +441,7 @@ export function Signup() {
         <p className="eyebrow">Private preview / invitation</p>
         <h1>{ready ? "Create your account" : "This invitation can’t be opened"}</h1>
         <p>{ready
-          ? "Your email is already verified by this one-time invitation. Create a password to finish setting up your account. After signing in, you can connect Google for future sign-ins."
+          ? "Your email is already verified by this one-time invitation. Create a password to finish setting up your account."
           : invitationToken
             ? "The link is invalid, expired, already used, or account setup is temporarily unavailable."
             : "Open the complete account setup link from your invitation email."}</p>

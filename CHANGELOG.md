@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-beta.47
+
+Beta.47 repairs invitation account creation and email delivery tracking for the
+invite-only beta.
+
+- Invitation acceptance now locks only the invitation row before creating the
+  account, avoiding PostgreSQL's prohibition on locking the nullable side of an
+  outer join while retaining single-use invitation semantics.
+- Resend delivery webhooks use contiguous PostgreSQL parameters, allowing
+  delivery, bounce, suppression, and complaint events to update email state.
+- The account creation form no longer suggests connecting Google later.
+
 ## 0.1.0-beta.46
 
 Beta.46 separates hosted replica storage allowances and repairs Google account

@@ -115,19 +115,19 @@ async function applyEvent(
   if (state) {
     await db.query(
       `UPDATE email_jobs SET
-         state = $3,
-         delivered_at = CASE WHEN $3 = 'delivered' THEN $4 ELSE delivered_at END,
+         state = $2,
+         delivered_at = CASE WHEN $2 = 'delivered' THEN $3 ELSE delivered_at END,
          last_error_code = CASE
-           WHEN $3 = 'failed' THEN replace($5, 'email.', '')
+           WHEN $2 = 'failed' THEN replace($4, 'email.', '')
            ELSE last_error_code
          END,
-         last_provider_event_at = $4,
+         last_provider_event_at = $3,
          updated_at = now()
        WHERE provider = 'resend'
          AND provider_message_id = $1
-         AND (last_provider_event_at IS NULL OR last_provider_event_at <= $4)
+         AND (last_provider_event_at IS NULL OR last_provider_event_at <= $3)
          AND state NOT IN ('cancelled', 'uncertain')`,
-      [event.data.email_id, eventId, state, event.created_at, event.type]
+      [event.data.email_id, state, event.created_at, event.type]
     );
   }
 

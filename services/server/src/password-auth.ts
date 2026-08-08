@@ -275,13 +275,12 @@ export class PasswordAccountService {
       await connection.query("BEGIN");
       const settings = await this.policy.currentForAccountChange(connection);
       requireSignupEnabled(settings);
-      const invitation = await connection.query<InvitationRow>(
-        `SELECT invitation.id, invitation.email, invitation.normalized_email,
-                invitation.terms_version, invitation.privacy_version,
-                entitlement.profile_code AS entitlement_profile
-         FROM invitations invitation
-         LEFT JOIN invitation_entitlements entitlement
-           ON entitlement.invitation_id = invitation.id
+      const invitation = await connection.query<
+        Omit<InvitationRow, "entitlement_profile">
+      >(
+        `SELECT id, email, normalized_email, terms_version, privacy_version,
+                expires_at
+         FROM invitations
          WHERE token_hash = $1
            AND accepted_at IS NULL
            AND revoked_at IS NULL
@@ -289,8 +288,18 @@ export class PasswordAccountService {
          FOR UPDATE`,
         [invitationHash]
       );
-      const row = invitation.rows[0];
-      if (!row) throw new InvalidInvitationError();
+      const lockedInvitation = invitation.rows[0];
+      if (!lockedInvitation) throw new InvalidInvitationError();
+      const entitlement = await connection.query<{ profile_code: string }>(
+        `SELECT profile_code
+         FROM invitation_entitlements
+         WHERE invitation_id = $1`,
+        [lockedInvitation.id]
+      );
+      const row: InvitationRow = {
+        ...lockedInvitation,
+        entitlement_profile: entitlement.rows[0]?.profile_code ?? null
+      };
       agreementsMatch(row, input);
       const currentAgreements = requiredAgreements(settings);
       if (
