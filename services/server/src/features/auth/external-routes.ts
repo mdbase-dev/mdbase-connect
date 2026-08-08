@@ -36,6 +36,7 @@ import {
   requireSessionContext,
   sessionContext
 } from "../../platform/request-authentication.js";
+import { requireSameOrigin } from "../../platform/request-security.js";
 import {
   oauthStateCookieName,
   setSessionCookie
@@ -44,6 +45,7 @@ import {
 interface ExternalAuthRoutesOptions {
   db: DatabasePool;
   publicUrl: string;
+  managementOrigins?: readonly string[];
   authenticationPolicy: AuthenticationPolicyStore;
   githubAuth?: GitHubAuthConfig;
   googleAuth?: GoogleAuthConfig;
@@ -194,23 +196,6 @@ export function registerExternalAuthRoutes(
       throw new GitHubIdentityError("GitHub returned an invalid user identity.");
     }
     const authenticationSettings = await options.authenticationPolicy.current();
-    if (
-      state.rows[0].purpose === "login"
-      && !identityAllowed(
-        authenticationSettings.registrationMode,
-        options.githubAuth.allowedUserIds,
-        identity.id
-      )
-    ) {
-      request.log.warn(
-        { github_user_id: identity.id },
-        "GitHub user is not on the login allowlist"
-      );
-      return reply.code(403).send(apiError(
-        "account_not_allowed",
-        "This account does not have access."
-      ));
-    }
     const name = (identity.name?.trim() || identity.login).slice(0, 100);
     const email = identity.email?.trim().toLowerCase() || null;
     const verified = {
@@ -232,7 +217,12 @@ export function registerExternalAuthRoutes(
       return reply.redirect(completed);
     }
     const session = await createExternalSession(options.db, verified, {
-      clientName: sessionClientName(request.headers["user-agent"])
+      clientName: sessionClientName(request.headers["user-agent"]),
+      allowAccountCreation: identityAllowed(
+        authenticationSettings.registrationMode,
+        options.githubAuth.allowedUserIds,
+        identity.id
+      )
     });
     setSessionCookie(reply, session.token, options.publicUrl);
     return reply.redirect(state.rows[0].return_to);
@@ -283,15 +273,13 @@ export function registerExternalAuthRoutes(
     if (!options.googleAuth) {
       return reply.code(404).send(apiError("not_found", "Not found."));
     }
-    if (
-      request.headers.origin !== new URL(options.publicUrl).origin
-      || request.headers["x-mdbase-auth"] !== "google"
-    ) {
+    if (request.headers["x-mdbase-auth"] !== "google") {
       return reply.code(403).send(apiError(
         "origin_denied",
         "The sign-in response origin is not allowed."
       ));
     }
+    requireSameOrigin(request, options.publicUrl, options.managementOrigins);
     const input = z.object({
       credential: z.string().min(100).max(20_000)
     }).strict().parse(request.body);
@@ -329,23 +317,6 @@ export function registerExternalAuthRoutes(
       throw new GoogleIdentityError("Google returned an invalid account subject.");
     }
     const authenticationSettings = await options.authenticationPolicy.current();
-    if (
-      state.rows[0].purpose === "login"
-      && !identityAllowed(
-        authenticationSettings.registrationMode,
-        options.googleAuth.allowedSubjects,
-        identity.id
-      )
-    ) {
-      request.log.warn(
-        { google_subject: identity.id },
-        "Google user is not on the login allowlist"
-      );
-      return reply.code(403).send(apiError(
-        "account_not_allowed",
-        "This account does not have access."
-      ));
-    }
     const name = identity.name.trim().slice(0, 100);
     if (!name) {
       throw new GoogleIdentityError("Google returned an invalid account name.");
@@ -373,7 +344,12 @@ export function registerExternalAuthRoutes(
       };
     }
     const session = await createExternalSession(options.db, verified, {
-      clientName: sessionClientName(request.headers["user-agent"])
+      clientName: sessionClientName(request.headers["user-agent"]),
+      allowAccountCreation: identityAllowed(
+        authenticationSettings.registrationMode,
+        options.googleAuth.allowedSubjects,
+        identity.id
+      )
     });
     setSessionCookie(reply, session.token, options.publicUrl);
     return { redirect_to: state.rows[0].return_to };

@@ -151,6 +151,9 @@ export async function buildApp(options: BuildOptions) {
 
   await app.register(cookie);
   await app.register(helmet, {
+    referrerPolicy: {
+      policy: "strict-origin-when-cross-origin"
+    },
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
@@ -284,6 +287,7 @@ export async function buildApp(options: BuildOptions) {
   registerExternalAuthRoutes(app, {
     db: options.db,
     publicUrl,
+    managementOrigins: options.managementOrigins,
     authenticationPolicy,
     githubAuth: options.githubAuth,
     googleAuth: options.googleAuth

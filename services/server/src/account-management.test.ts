@@ -190,6 +190,7 @@ describe("account management", () => {
       avatarUrl: null
     }));
     const { app, db } = await fixture({
+      managementOrigins: [editorOrigin],
       googleAuth: {
         clientId: "google-client-id.apps.googleusercontent.com",
         allowedSubjects: new Set<string>(),
@@ -218,7 +219,7 @@ describe("account management", () => {
       url: "/auth/google/callback",
       headers: {
         cookie: `${account.cookie}; ${cookiePair(oauthCookie)}`,
-        origin,
+        origin: editorOrigin,
         "x-mdbase-auth": "google"
       },
       payload: { credential: "credential".repeat(20) }

@@ -99,7 +99,7 @@ export function Login() {
           <p className="auth-footnote">
             Don’t have an invite? <a href="https://mdbase.dev/beta/">Request beta access</a>.
             {config.password_registration && (
-              <> Already invited? Your invitation email contains the one-time account setup link.</>
+              <> Already invited? Use the one-time link in your invitation email to create your account with a password. After signing in, you can connect Google from your account settings and use it for future sign-ins.</>
             )}
           </p>
         )}
@@ -441,7 +441,7 @@ export function Signup() {
         <p className="eyebrow">Private preview / invitation</p>
         <h1>{ready ? "Create your account" : "This invitation can’t be opened"}</h1>
         <p>{ready
-          ? "Your email is already verified by this one-time invitation. Choose the name and password you’ll use for mdbase connect."
+          ? "Your email is already verified by this one-time invitation. Create a password to finish setting up your account. After signing in, you can connect Google for future sign-ins."
           : invitationToken
             ? "The link is invalid, expired, already used, or account setup is temporarily unavailable."
             : "Open the complete account setup link from your invitation email."}</p>

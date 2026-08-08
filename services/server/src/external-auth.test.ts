@@ -12,6 +12,31 @@ afterEach(async () => {
 });
 
 describe("external account sessions", () => {
+  it("blocks account creation while allowing a previously linked identity", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const identity = {
+      provider: "google" as const,
+      subject: "linked-subject",
+      name: "Invited User",
+      login: null,
+      email: "invited@example.com",
+      emailVerified: true,
+      avatarUrl: null
+    };
+
+    await expect(createExternalSession(db, identity, {
+      allowAccountCreation: false
+    })).rejects.toBeInstanceOf(AccountUnavailableError);
+    expect((await db.query("SELECT id FROM users")).rows).toHaveLength(0);
+
+    const created = await createExternalSession(db, identity);
+    await expect(createExternalSession(db, identity, {
+      allowAccountCreation: false
+    })).resolves.toMatchObject({ userId: created.userId });
+    expect((await db.query("SELECT id FROM users")).rows).toHaveLength(1);
+  });
+
   it("captures the account epoch and refuses sessions for suspended accounts", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());

@@ -25,6 +25,7 @@ export interface ExternalSession {
 
 export interface CreateExternalSessionOptions {
   clientName?: string;
+  allowAccountCreation?: boolean;
 }
 
 export class AccountUnavailableError extends Error {
@@ -49,6 +50,9 @@ export async function createExternalSession(
        WHERE provider = $1 AND subject = $2`,
       [identity.provider, identity.subject]
     );
+    if (!existing.rows[0] && options.allowAccountCreation === false) {
+      throw new AccountUnavailableError();
+    }
     const userId = existing.rows[0]?.user_id ?? externalUserId(identity.provider, identity.subject);
     if (!existing.rows[0]) {
       await connection.query(

@@ -39,6 +39,12 @@ under **Authorized JavaScript origins**, not **Authorized redirect URIs**. An
 origin contains only the scheme, hostname, and optional port; do not include a
 path or trailing slash.
 
+Pages that render the Google button must send enough referrer information for
+Google to validate the registered origin. Use
+`Referrer-Policy: strict-origin-when-cross-origin`; `no-referrer` prevents GIS
+from identifying the relying-party origin and produces a misleading "origin is
+not allowed" error.
+
 Keep the production client ID in deployment configuration:
 
 ```text
@@ -77,7 +83,9 @@ MDBASE_CONNECT_REGISTRATION=invite
 
 Invite mode does not admit an external provider merely because its verified
 email matches an invitation. Existing provider subject allowlists continue to
-work, and linking an invited email identity to Google or GitHub requires fresh
+work. An invited person first creates the account through the one-time password
+setup link, then may link Google or GitHub while signed in. A linked provider
+identity can sign back into that account in invite mode; linking requires fresh
 proof of both identities. The deployment value is the fail-safe default; an
 audited database policy may change the effective mode without restarting the
 service.

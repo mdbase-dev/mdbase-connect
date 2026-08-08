@@ -47,6 +47,7 @@ describe("Google authentication", () => {
       login_url: "/auth/google"
     });
     expect(config.headers["cross-origin-opener-policy"]).toBe("same-origin-allow-popups");
+    expect(config.headers["referrer-policy"]).toBe("strict-origin-when-cross-origin");
     expect(config.headers["content-security-policy"]).toContain(
       "script-src 'self' https://accounts.google.com/gsi/client"
     );
@@ -183,6 +184,21 @@ describe("Google authentication", () => {
     const openStart = await closed.inject({ method: "GET", url: "/auth/google" });
     const admitted = await googleCallback(closed, openStart);
     expect(admitted.statusCode).toBe(200);
+    expect((await db.query("SELECT id FROM users")).rows).toHaveLength(1);
+
+    await policy.update({
+      registrationMode: "invite",
+      passwordAuthEnabled: false,
+      emailDeliveryEnabled: false,
+      termsVersion: null,
+      privacyVersion: null,
+      expectedRevision: 1,
+      updatedBy: "operator:test",
+      reason: "Return to invite-only registration"
+    });
+    const linkedStart = await closed.inject({ method: "GET", url: "/auth/google" });
+    const linkedLogin = await googleCallback(closed, linkedStart);
+    expect(linkedLogin.statusCode).toBe(200);
     expect((await db.query("SELECT id FROM users")).rows).toHaveLength(1);
   });
 
