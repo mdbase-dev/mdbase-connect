@@ -39,6 +39,22 @@ describe("invitation email", () => {
     })).toThrow(/URL is invalid/);
   });
 
+  it("renders a signup-recovery apology with only the fresh invitation link", () => {
+    const rendered = renderInvitationEmail({
+      ...invitation,
+      template: "signup_recovery"
+    });
+    expect(rendered.subject).toBe("A fresh mdbase connect invitation");
+    expect(rendered.text).toContain(
+      "your previous invitation link didn’t work because of a signup problem on our side"
+    );
+    expect(rendered.text).toContain("That problem is now fixed.");
+    expect(rendered.text).toContain("previous invitation link no longer works");
+    expect(rendered.text).toContain(invitation.invitationUrl);
+    expect(rendered.html).toContain("A fresh invitation.");
+    expect(rendered.html).toContain(invitation.invitationUrl);
+  });
+
   it("uses the invitation identity as the provider idempotency key", async () => {
     const send = vi.fn(async () => ({
       provider: "test",

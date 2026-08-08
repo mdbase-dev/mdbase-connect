@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-beta.48
+
+Beta.48 adds a safe recovery path for invitations affected by the beta.47
+signup incident.
+
+- Managed invitation resends can use a recovery-only transactional template
+  that apologizes for the failed signup and delivers the fresh one-time link in
+  the same email.
+- Recovery resends retain the invitation entitlement, invalidate the previous
+  link, omit credentials from operator output, and identify the email template
+  in the operator result and audited reason.
+
 ## 0.1.0-beta.47
 
 Beta.47 repairs invitation account creation and email delivery tracking for the

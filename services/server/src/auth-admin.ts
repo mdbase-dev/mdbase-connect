@@ -17,7 +17,10 @@ import {
   EmailDeliveryError,
   type EmailTransport
 } from "./email.js";
-import { sendInvitationEmail } from "./invitation-email.js";
+import {
+  sendInvitationEmail,
+  type InvitationEmailTemplate
+} from "./invitation-email.js";
 import {
   InstanceAdminService,
   type HostedReplicaRevoker,
@@ -384,7 +387,8 @@ async function createInvitation(
 
 async function createAndDeliverInvitation(
   flags: Map<string, string>,
-  context: AuthAdminContext
+  context: AuthAdminContext,
+  emailTemplate: InvitationEmailTemplate = "standard"
 ): Promise<unknown> {
   const policy = new AuthenticationPolicyStore(
     context.db,
@@ -463,7 +467,8 @@ async function createAndDeliverInvitation(
   };
   const output = {
     invitation: {
-      ...invitationOutput
+      ...invitationOutput,
+      email_template: emailTemplate
     },
     delivery: { status: "not_requested" as const },
     sensitive: showToken,
@@ -479,7 +484,8 @@ async function createAndDeliverInvitation(
       invitationId: invitation.id,
       to: invitation.email,
       invitationUrl,
-      expiresAt: invitation.expiresAt
+      expiresAt: invitation.expiresAt,
+      template: emailTemplate
     });
   } catch (error) {
     const failure = {
@@ -587,7 +593,7 @@ async function resendInvitation(
 ): Promise<unknown> {
   const flags = parseFlags(
     argv,
-    new Set(["id", "actor", "reason", "expires-in"])
+    new Set(["id", "actor", "reason", "expires-in", "email-template"])
   );
   const invitationId = requiredFlag(flags, "id");
   const existing = await instanceAdmin(context).showInvitation(invitationId) as {
@@ -618,7 +624,14 @@ async function resendInvitation(
       existing.invitation.entitlement_profile
     );
   }
-  const result = await createAndDeliverInvitation(createFlags, context) as {
+  const emailTemplate = flags.has("email-template")
+    ? invitationEmailTemplate(requiredFlag(flags, "email-template"))
+    : "standard";
+  const result = await createAndDeliverInvitation(
+    createFlags,
+    context,
+    emailTemplate
+  ) as {
     invitation: Record<string, unknown>;
   };
   return {
@@ -813,6 +826,14 @@ function tokenOutput(value: string): "shown" | "omitted" {
   );
 }
 
+function invitationEmailTemplate(value: string): InvitationEmailTemplate {
+  if (value === "standard") return "standard";
+  if (value === "signup-recovery") return "signup_recovery";
+  throw new AuthAdminUsageError(
+    "--email-template must be standard or signup-recovery."
+  );
+}
+
 function entitlementProfile(value: string): string {
   if (/^[a-z][a-z0-9_]{0,99}$/u.test(value)) return value;
   throw new AuthAdminUsageError("Entitlement profile is invalid.");
@@ -922,7 +943,7 @@ export function usage(): string {
     "  auth-admin invite list [--status <status>] [--limit <n>] [--cursor <cursor>]",
     "  auth-admin invite show --id <uuid>",
     "  auth-admin invite revoke --id <uuid> --operation-id <uuid> --actor <id> --reason <text>",
-    "  auth-admin invite resend --id <uuid> --actor <id> --reason <text> [--expires-in <seconds>]",
+    "  auth-admin invite resend --id <uuid> --actor <id> --reason <text> [--expires-in <seconds>] [--email-template standard|signup-recovery]",
     "  auth-admin beta list [--status pending|invited] [--limit <n>] [--cursor <cursor>]",
     "  auth-admin entitlements show --user <uuid|email>",
     "  auth-admin entitlements grant --user <uuid|email> --profile <code> --operation-id <uuid> --actor <id> --reason <text>",

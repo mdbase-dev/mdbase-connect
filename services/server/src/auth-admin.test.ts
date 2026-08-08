@@ -287,10 +287,12 @@ describe("authentication operator command", () => {
   it("omits invitation credentials from managed delivery and replacement output", async () => {
     const base = await fixture();
     await configurePolicy(base);
+    const deliveredSubjects: string[] = [];
     const context = {
       ...base,
       emailTransport: {
-        async send() {
+        async send(message: Parameters<EmailTransport["send"]>[0]) {
+          deliveredSubjects.push(message.subject);
           return { provider: "test", messageId: randomMessageId() };
         }
       }
@@ -324,11 +326,14 @@ describe("authentication operator command", () => {
       "--actor",
       "operator:test",
       "--reason",
-      "Replace the previous delivery"
+      "Replace the previous delivery",
+      "--email-template",
+      "signup-recovery"
     ], context) as {
       invitation: {
         id: string;
         replaces_invitation_id: string;
+        email_template: string;
       };
       sensitive: boolean;
     };
@@ -337,6 +342,11 @@ describe("authentication operator command", () => {
     expect(resent.invitation.replaces_invitation_id).toBe(
       created.invitation.id
     );
+    expect(resent.invitation.email_template).toBe("signup_recovery");
+    expect(deliveredSubjects).toEqual([
+      "Your mdbase connect invitation",
+      "A fresh mdbase connect invitation"
+    ]);
     expect(JSON.stringify(resent)).not.toContain("inv_");
   });
 

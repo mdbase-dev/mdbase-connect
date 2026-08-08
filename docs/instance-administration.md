@@ -129,6 +129,10 @@ force `--send-email enabled --token-output omitted`.
 Invitation delivery uses `invitation/<invitation-id>` as the provider
 idempotency key. `invite resend --id ...` intentionally creates a replacement
 invitation and emails it; the previous active invitation becomes invalid.
+Use `--email-template signup-recovery` only when replacing an invitation whose
+signup failed because of a confirmed service incident. It sends the apology
+and fresh one-time link together without exposing that credential to an
+operator or marketing system. Standard resends omit the option.
 Invitation revocation is an exact-replay mutation and therefore also requires
 `--operation-id`.
 
