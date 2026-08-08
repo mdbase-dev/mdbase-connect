@@ -200,7 +200,7 @@ impl CollectionRegistry {
                 })
             })
             .collect::<Result<Vec<_>, ConnectError>>()?;
-        let setup = mdbase::v03::CollectionSetup {
+        let mut setup = mdbase::v03::CollectionSetup {
             application_id: application_id.to_string(),
             declaration_digest: declaration_digest.to_string(),
             requirements: mdbase::v03::CollectionSetupRequirements {
@@ -232,7 +232,12 @@ impl CollectionRegistry {
         let registered = self.get(id)?;
         let provider = self.provider_for(&registered)?;
         let applied = provider.with_collection(|collection| {
-            let assessment = collection.assess_collection_setup(&setup);
+            let mut assessment = collection.assess_collection_setup(&setup);
+            if assessment.result["applicable"].as_bool() != Some(true)
+                && add_reviewable_setup_adoptions(&mut setup, &assessment)
+            {
+                assessment = collection.assess_collection_setup(&setup);
+            }
             if !assessment.valid || assessment.result["applicable"].as_bool() != Some(true) {
                 return Err(type_pack_setup_error(&assessment));
             }
@@ -819,6 +824,33 @@ impl CollectionRegistry {
         debug_assert_eq!(resolved.allowed_types, allowed_types);
         Ok(Some(resolved))
     }
+}
+
+fn add_reviewable_setup_adoptions(
+    setup: &mut mdbase::v03::CollectionSetup,
+    result: &mdbase::v03::OperationResult,
+) -> bool {
+    let adoptions = mdbase_connect_protocol::reviewable_type_pack_adoptions(&result.result);
+    let mut changed = false;
+    for (pack_id, resources) in adoptions {
+        let Some(pack) = setup
+            .provisions
+            .type_packs
+            .iter_mut()
+            .find(|pack| pack.provision.manifest["id"].as_str() == Some(pack_id.as_str()))
+        else {
+            continue;
+        };
+        for (target, current_digest) in resources {
+            changed |= pack
+                .options
+                .adopt_resources
+                .insert(target, current_digest.clone())
+                .as_deref()
+                != Some(current_digest.as_str());
+        }
+    }
+    changed
 }
 
 fn type_pack_setup_error(result: &mdbase::v03::OperationResult) -> ConnectError {

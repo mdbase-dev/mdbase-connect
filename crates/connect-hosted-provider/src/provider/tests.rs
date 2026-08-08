@@ -32,6 +32,49 @@ fn contract_setup_targets_missing_contracts_only() {
 }
 
 #[test]
+fn collection_setup_review_only_adopts_unmanaged_digest_pinned_resources() {
+    let current = format!("sha256:{}", "1".repeat(64));
+    let result = OperationResult {
+        valid: true,
+        diagnostics: Vec::new(),
+        result: json!({
+            "type_packs": [{
+                "desired": { "id": "dev.mdbase.requests" },
+                "resources": [
+                    {
+                        "target": "_types/request.md",
+                        "mode": "managed",
+                        "action": "conflict",
+                        "current_digest": current
+                    },
+                    {
+                        "target": "_schemas/changed.json",
+                        "mode": "managed",
+                        "action": "conflict",
+                        "current_digest": format!("sha256:{}", "2".repeat(64)),
+                        "installed_digest": format!("sha256:{}", "3".repeat(64))
+                    },
+                    {
+                        "target": "_types/seed.md",
+                        "mode": "seed",
+                        "action": "conflict",
+                        "current_digest": format!("sha256:{}", "4".repeat(64))
+                    }
+                ]
+            }]
+        }),
+    };
+
+    assert_eq!(
+        mdbase_connect_protocol::reviewable_type_pack_adoptions(&result.result),
+        BTreeMap::from([(
+            "dev.mdbase.requests".to_string(),
+            BTreeMap::from([("_types/request.md".to_string(), current)])
+        )])
+    );
+}
+
+#[test]
 fn authority_manifest_matches_the_node_promotion_fixture() {
     let entries = BTreeMap::from([
         (

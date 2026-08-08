@@ -97,6 +97,11 @@ pub(super) fn engine_collection_setup(
             Ok(mdbase::v03::CollectionSetupTypePack {
                 provision: engine_type_pack_provision(provision)?,
                 options: mdbase::v03::CollectionSetupTypePackOptions {
+                    adopt_resources: input
+                        .type_pack_adoptions
+                        .get(&provision.manifest.id)
+                        .cloned()
+                        .unwrap_or_default(),
                     preserve_seed_targets,
                     contract_setups: provision_setups
                         .into_iter()

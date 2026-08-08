@@ -324,4 +324,114 @@ describe("MdbaseApplicationSession", () => {
       expectedAssessmentDigest: assessment.assessmentDigest
     }), expect.objectContaining({ signal: expect.any(AbortSignal), timeoutMs: null }));
   });
+
+  it("makes unmanaged managed definitions reviewable with digest-pinned adoption", async () => {
+    const desired = {
+      id: "dev.mdbase.requests",
+      version: "1.0.0",
+      digest: `sha256:${"a".repeat(64)}`,
+      installedBy: "dev.mdbase.session-test",
+      resources: []
+    };
+    const conflictResource = {
+      source: "types/request.md",
+      target: "_types/request.md",
+      kind: "type" as const,
+      mode: "managed" as const,
+      action: "conflict" as const,
+      digest: `sha256:${"b".repeat(64)}`,
+      currentDigest: `sha256:${"c".repeat(64)}`,
+      reason: "_types/request.md exists but is not managed by dev.mdbase.requests."
+    };
+    const baseAssessment: CollectionSetupAssessment = {
+      status: "conflict",
+      applicable: false,
+      applicationId: "dev.mdbase.session-test",
+      declarationDigest: `sha256:${"d".repeat(64)}`,
+      provisionDigest: `sha256:${"e".repeat(64)}`,
+      collectionRevision: `sha256:${"f".repeat(64)}`,
+      finalCollectionRevision: `sha256:${"0".repeat(64)}`,
+      configuration: [],
+      typePacks: [{
+        status: "conflict",
+        applicable: false,
+        assessmentDigest: `sha256:${"1".repeat(64)}`,
+        desired,
+        resources: [conflictResource],
+        lock: { target: "mdbase.lock.yaml", action: "create", digest: `sha256:${"2".repeat(64)}` },
+        contractSetups: { choices: [], resources: [] }
+      }],
+      finalResourceRevisions: {},
+      assessmentDigest: `sha256:${"3".repeat(64)}`
+    };
+    const reviewedAssessment: CollectionSetupAssessment = {
+      ...baseAssessment,
+      status: "provision",
+      applicable: true,
+      assessmentDigest: `sha256:${"4".repeat(64)}`,
+      typePacks: [{
+        ...baseAssessment.typePacks[0]!,
+        status: "install",
+        applicable: true,
+        resources: [{ ...conflictResource, action: "update" }]
+      }]
+    };
+    const declaration = manifest({
+      requirements: {
+        contracts: [],
+        capabilities: {
+          contract_version: 1,
+          required: ["collection.inspect", "records.read", "collection.setup.apply"]
+        }
+      },
+      provisions: {
+        type_packs: [{
+          manifest: {
+            kind: "mdbase.type-pack",
+            id: desired.id,
+            version: desired.version,
+            resources: []
+          },
+          resources: [],
+          provides: []
+        }]
+      }
+    });
+    const fixture = connectFixture(
+      declaration,
+      ["describe", "read", "assess_collection_setup", "apply_collection_setup"],
+      reviewedAssessment
+    );
+    fixture.value.assessCollectionSetup
+      .mockResolvedValueOnce(connectSuccess(baseAssessment))
+      .mockResolvedValueOnce(connectSuccess(reviewedAssessment));
+    const session = new MdbaseApplicationSession(fixture.facade as never, {
+      selection: new MdbaseMemorySelection(),
+      verificationStore: new MdbaseMemoryVerificationStore()
+    });
+
+    await session.start();
+
+    expect(fixture.value.assessCollectionSetup).toHaveBeenNthCalledWith(2,
+      expect.objectContaining({
+        typePackAdoptions: {
+          [desired.id]: { [conflictResource.target]: conflictResource.currentDigest }
+        }
+      }),
+      expect.anything()
+    );
+    expect(session.getSnapshot()).toMatchObject({
+      status: "setup_review_required",
+      update: { canApply: true, typePacks: [{ canApply: true }] }
+    });
+
+    await session.applyCollectionSetup();
+
+    expect(fixture.applyCollectionSetup).toHaveBeenCalledWith(expect.objectContaining({
+      typePackAdoptions: {
+        [desired.id]: { [conflictResource.target]: conflictResource.currentDigest }
+      },
+      expectedAssessmentDigest: reviewedAssessment.assessmentDigest
+    }), expect.anything());
+  });
 });

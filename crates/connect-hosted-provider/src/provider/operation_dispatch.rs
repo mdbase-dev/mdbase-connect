@@ -644,7 +644,7 @@ impl HostedProvider {
         // without a contract (for example an application's auxiliary types)
         // consistent with the post-authorization setup assessment.
         let selected_type_packs = provisions.type_packs;
-        let setup = AssessCollectionSetupInput {
+        let mut setup = AssessCollectionSetupInput {
             application_id: application_id.to_string(),
             declaration_digest: declaration_digest.to_string(),
             requirements: ApplicationCollectionSetupRequirements {
@@ -655,8 +655,9 @@ impl HostedProvider {
                 type_packs: selected_type_packs,
             },
             contract_setups: effective_setups.clone(),
+            type_pack_adoptions: BTreeMap::new(),
         };
-        let assessment = self
+        let mut assessment = self
             .execute_read_operation(
                 collection_id,
                 "assess_collection_setup",
@@ -667,6 +668,24 @@ impl HostedProvider {
                 })?,
             )
             .await?;
+        if assessment.result["applicable"].as_bool() != Some(true) {
+            let adoptions =
+                mdbase_connect_protocol::reviewable_type_pack_adoptions(&assessment.result);
+            if !adoptions.is_empty() {
+                setup.type_pack_adoptions = adoptions;
+                assessment = self
+                    .execute_read_operation(
+                        collection_id,
+                        "assess_collection_setup",
+                        &serde_json::to_value(&setup).map_err(|error| {
+                            ApiError::internal(format!(
+                                "Collection setup review input could not serialize: {error}"
+                            ))
+                        })?,
+                    )
+                    .await?;
+            }
+        }
         if !assessment.valid || assessment.result["applicable"].as_bool() != Some(true) {
             return Err(type_pack_provision_error(&assessment));
         }

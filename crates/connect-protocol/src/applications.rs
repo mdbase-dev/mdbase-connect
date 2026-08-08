@@ -148,6 +148,49 @@ pub struct AssessCollectionSetupInput {
     pub provisions: ApplicationCollectionSetupProvisions,
     #[serde(default)]
     pub contract_setups: Vec<ContractSetupChoice>,
+    /// Digest-pinned consent to adopt pre-existing, unmanaged resources, keyed
+    /// first by type-pack id and then by collection target.
+    #[serde(default)]
+    pub type_pack_adoptions:
+        std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
+}
+
+/// Returns the exact current digests that can be offered for explicit adoption.
+/// Resources with an installed digest were previously managed and are excluded;
+/// the engine remains authoritative when a target is owned by another pack.
+pub fn reviewable_type_pack_adoptions(
+    assessment: &Value,
+) -> BTreeMap<String, BTreeMap<String, String>> {
+    let mut adoptions = BTreeMap::new();
+    let Some(type_packs) = assessment["type_packs"].as_array() else {
+        return adoptions;
+    };
+    for pack in type_packs {
+        let Some(pack_id) = pack.pointer("/desired/id").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(resources) = pack["resources"].as_array() else {
+            continue;
+        };
+        let resources = resources
+            .iter()
+            .filter(|resource| {
+                resource["action"] == "conflict"
+                    && resource["mode"] == "managed"
+                    && resource.get("installed_digest").is_none()
+            })
+            .filter_map(|resource| {
+                Some((
+                    resource["target"].as_str()?.to_string(),
+                    resource["current_digest"].as_str()?.to_string(),
+                ))
+            })
+            .collect::<BTreeMap<_, _>>();
+        if !resources.is_empty() {
+            adoptions.insert(pack_id.to_string(), resources);
+        }
+    }
+    adoptions
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

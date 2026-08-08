@@ -39,6 +39,8 @@ export interface AssessCollectionSetupInput {
   provisions: ApplicationCollectionSetupProvisions;
   /** Collection-owner choices for user-owned contract implementations. */
   contract_setups?: ContractSetupChoice[];
+  /** Digest-pinned consent to adopt unmanaged managed resources, keyed by pack id and target. */
+  type_pack_adoptions?: Record<string, Record<string, string>>;
 }
 
 export interface ApplyCollectionSetupInput extends AssessCollectionSetupInput {

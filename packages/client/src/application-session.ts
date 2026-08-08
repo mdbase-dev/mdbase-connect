@@ -146,6 +146,7 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
   private base: MdbaseSession<Frontmatter> | null = null;
   private stopBase?: () => void;
   private setupAssessment: CollectionSetupAssessment | null = null;
+  private setupTypePackAdoptions: Record<string, Record<string, string>> | null = null;
   private verificationGeneration = 0;
   private lifecycleGeneration = 0;
   private startOperation: {
@@ -267,6 +268,7 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     this.application = null;
     this.manifest = null;
     this.setupAssessment = null;
+    this.setupTypePackAdoptions = null;
     this.snapshot = { status: "opening", connections: [] };
     this.listeners.clear();
   }
@@ -389,7 +391,7 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     }
     const assessment = this.setupAssessment;
     const input = {
-      ...this.collectionSetupInput(),
+      ...this.collectionSetupInput(this.setupTypePackAdoptions ?? undefined),
       expectedAssessmentDigest: assessment.assessmentDigest,
       expectedCollectionRevision: assessment.collectionRevision,
       expectedProvisionDigest: assessment.provisionDigest,
@@ -403,6 +405,7 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
       const applied = await connection.applyCollectionSetup(input, requestOptions);
       if (!applied.ok) return applied;
       this.setupAssessment = null;
+      this.setupTypePackAdoptions = null;
       await this.verifySetup(
         this.context(connection),
         ++this.verificationGeneration,
@@ -420,6 +423,7 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     this.verificationGeneration += 1;
     const generation = this.verificationGeneration;
     this.setupAssessment = null;
+    this.setupTypePackAdoptions = null;
     if (current.status === "unselected") {
       this.publish({ status: "unselected", connections: current.connections });
       return;
@@ -457,13 +461,31 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     const connection = this.connection();
     const manifest = this.requireManifest();
     if (!connection || connection.collectionId !== context.collectionId) return;
-    const outcome = options
-      ? await connection.assessCollectionSetup(this.collectionSetupInput(), options)
-      : await connection.assessCollectionSetup(this.collectionSetupInput());
+    const initialInput = this.collectionSetupInput();
+    let outcome = options
+      ? await connection.assessCollectionSetup(initialInput, options)
+      : await connection.assessCollectionSetup(initialInput);
     if (generation !== this.verificationGeneration) return;
     if (!outcome.ok) {
       this.publish({ status: "blocked", problem: outcome.problem, ...context });
       return;
+    }
+    if (!outcome.value.applicable) {
+      const adoptions = reviewableTypePackAdoptions(outcome.value);
+      if (Object.keys(adoptions).length > 0) {
+        outcome = options
+          ? await connection.assessCollectionSetup(
+              this.collectionSetupInput(adoptions),
+              options
+            )
+          : await connection.assessCollectionSetup(this.collectionSetupInput(adoptions));
+        if (generation !== this.verificationGeneration) return;
+        if (!outcome.ok) {
+          this.publish({ status: "blocked", problem: outcome.problem, ...context });
+          return;
+        }
+        this.setupTypePackAdoptions = adoptions;
+      }
     }
     if (generation !== this.verificationGeneration) return;
     if (outcome.value.status !== "current") {
@@ -483,7 +505,7 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     this.publish({ status: "ready", verification: "verified", ...context });
   }
 
-  private collectionSetupInput() {
+  private collectionSetupInput(typePackAdoptions?: Record<string, Record<string, string>>) {
     const manifest = this.requireManifest();
     const application = this.requireApplication();
     return {
@@ -495,7 +517,8 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
       provisions: {
         configuration: manifest.provisions?.configuration ?? [],
         typePacks: manifest.provisions?.type_packs ?? []
-      }
+      },
+      ...(typePackAdoptions ? { typePackAdoptions } : {})
     };
   }
 
@@ -596,6 +619,26 @@ function collectionSetupUpdate(
     canApply: assessment.applicable,
     reason
   };
+}
+
+function reviewableTypePackAdoptions(
+  assessment: CollectionSetupAssessment
+): Record<string, Record<string, string>> {
+  const adoptions: Record<string, Record<string, string>> = {};
+  for (const pack of assessment.typePacks) {
+    const resources = Object.fromEntries(
+      pack.resources
+        .filter((resource) =>
+          resource.action === "conflict"
+          && resource.mode === "managed"
+          && resource.currentDigest !== undefined
+          && resource.installedDigest === undefined
+        )
+        .map((resource) => [resource.target, resource.currentDigest!])
+    );
+    if (Object.keys(resources).length > 0) adoptions[pack.desired.id] = resources;
+  }
+  return adoptions;
 }
 
 function verificationKey(manifest: MdbaseAppManifest, collectionId: string): string {

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-beta.45
+
+Beta.45 makes pre-existing application definitions reviewable and completes
+the beta.44 application-setup hotfix.
+
+- Collection setup can carry exact, digest-pinned consent to adopt a managed
+  definition that already exists without a type-pack receipt. The SDK prepares
+  that review automatically, so application update buttons are enabled without
+  silently changing the collection.
+- Hosted and local approval retry the reviewed setup with those exact digests.
+  Files owned by another pack, seed definitions, and definitions changed after
+  installation remain conflicts; a change between review and apply is rejected.
+
 ## 0.1.0-beta.44
 
 Beta.44 is a managed-service hotfix for application setup and hosted MCP

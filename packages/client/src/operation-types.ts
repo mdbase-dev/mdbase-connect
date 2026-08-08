@@ -603,6 +603,8 @@ export interface AssessCollectionSetupInput {
   requirements: ApplicationCollectionSetupRequirements;
   provisions: ApplicationCollectionSetupProvisions;
   contractSetups?: ContractSetupChoice[];
+  /** Digest-pinned consent to adopt unmanaged managed resources, keyed by pack id and target. */
+  typePackAdoptions?: Record<string, Record<string, string>>;
 }
 
 export interface ApplyCollectionSetupInput extends AssessCollectionSetupInput {

@@ -112,6 +112,7 @@ fn applies_hosted_configuration_and_receipt_as_one_setup() {
             type_packs: Vec::new(),
         },
         contract_setups: Vec::new(),
+        type_pack_adoptions: Default::default(),
     };
     let assessment = workspace.assess_collection_setup(&setup).unwrap();
     assert!(assessment.valid, "{:?}", assessment.diagnostics);
@@ -143,6 +144,60 @@ fn applies_hosted_configuration_and_receipt_as_one_setup() {
     assert!(receipt.contains("dev.mdbase.tasknotes"));
     let retried = workspace.assess_collection_setup(&setup).unwrap();
     assert_eq!(retried.result["status"], "current");
+}
+
+#[test]
+fn makes_preexisting_managed_resources_applicable_with_digest_pinned_adoption() {
+    let provision = work_item_provision();
+    let contract_resource = provision
+        .resources
+        .iter()
+        .find(|resource| resource.source == "contract.md")
+        .unwrap();
+    let mut resources = super::tests::resources();
+    resources.push((
+        "_contracts/example.work-item.md".to_string(),
+        format!("{}\n<!-- pre-existing -->\n", contract_resource.document),
+    ));
+    let workspace = WorkingSet::materialize(resources, []).unwrap();
+    let mut setup = AssessCollectionSetupInput {
+        application_id: "dev.mdbase.tests".to_string(),
+        declaration_digest: format!("sha256:{}", "a".repeat(64)),
+        requirements: ApplicationCollectionSetupRequirements::default(),
+        provisions: ApplicationCollectionSetupProvisions {
+            configuration: Vec::new(),
+            type_packs: vec![provision],
+        },
+        contract_setups: Vec::new(),
+        type_pack_adoptions: BTreeMap::new(),
+    };
+
+    let conflict = workspace.assess_collection_setup(&setup).unwrap();
+    assert_eq!(conflict.result["applicable"], false);
+    let resource = conflict.result["type_packs"][0]["resources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|resource| resource["action"] == "conflict")
+        .unwrap();
+    setup.type_pack_adoptions.insert(
+        "example.work-items".to_string(),
+        [(
+            resource["target"].as_str().unwrap().to_string(),
+            resource["current_digest"].as_str().unwrap().to_string(),
+        )]
+        .into_iter()
+        .collect(),
+    );
+
+    let reviewed = workspace.assess_collection_setup(&setup).unwrap();
+
+    assert!(reviewed.valid, "{:?}", reviewed.diagnostics);
+    assert_eq!(reviewed.result["applicable"], true);
+    assert_eq!(
+        reviewed.result["type_packs"][0]["resources"][0]["action"],
+        "update"
+    );
 }
 
 #[test]

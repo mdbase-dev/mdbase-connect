@@ -706,7 +706,8 @@ function wireAssessCollectionSetupInput(
       configuration: input.provisions.configuration,
       type_packs: input.provisions.typePacks
     },
-    ...(input.contractSetups ? { contract_setups: input.contractSetups.map(wireContractSetupChoice) } : {})
+    ...(input.contractSetups ? { contract_setups: input.contractSetups.map(wireContractSetupChoice) } : {}),
+    ...(input.typePackAdoptions ? { type_pack_adoptions: input.typePackAdoptions } : {})
   };
 }
 
