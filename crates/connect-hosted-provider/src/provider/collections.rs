@@ -73,10 +73,11 @@ impl HostedProvider {
             r#"INSERT INTO hosted_provider_collections
                  (id, account_id, template, display_name, timezone, spec_version, resource_revision, wrapped_data_key,
                   resources_ciphertext, max_records, max_content_bytes,
-                  max_document_bytes, max_replicas, max_files, max_file_bytes,
+                  max_document_bytes, max_mirror_replicas,
+                  max_application_replicas, max_files, max_file_bytes,
                   max_stored_file_bytes, max_single_file_bytes)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                       $14, $15, $16, $17)
+                       $14, $15, $16, $17, $18)
                ON CONFLICT (id) DO NOTHING"#,
         )
         .bind(collection_id)
@@ -101,8 +102,12 @@ impl HostedProvider {
             "document byte quota",
         )?)
         .bind(to_i64(
-            account.limits.max_replicas_per_collection,
-            "replica quota",
+            account.limits.max_mirror_replicas_per_collection,
+            "mirror replica quota",
+        )?)
+        .bind(to_i64(
+            account.limits.max_application_replicas_per_collection,
+            "application replica quota",
         )?)
         .bind(to_i64(account.limits.max_files_per_collection, "file quota")?)
         .bind(to_i64(

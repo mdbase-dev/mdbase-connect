@@ -78,10 +78,16 @@ struct Arguments {
     max_bytes_per_document: u64,
     #[arg(
         long,
-        env = "MDBASE_CONNECT_HOSTED_MAX_REPLICAS_PER_COLLECTION",
+        env = "MDBASE_CONNECT_HOSTED_MAX_MIRROR_REPLICAS_PER_COLLECTION",
         default_value_t = 100
     )]
-    max_replicas_per_collection: u64,
+    max_mirror_replicas_per_collection: u64,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_MAX_APPLICATION_REPLICAS_PER_COLLECTION",
+        default_value_t = 100
+    )]
+    max_application_replicas_per_collection: u64,
     #[arg(
         long,
         env = "MDBASE_CONNECT_HOSTED_MAX_FILES_PER_COLLECTION",
@@ -216,7 +222,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_records_per_collection: arguments.max_records_per_collection,
         max_bytes_per_collection: arguments.max_bytes_per_collection,
         max_bytes_per_document: arguments.max_bytes_per_document,
-        max_replicas_per_collection: arguments.max_replicas_per_collection,
+        max_mirror_replicas_per_collection: arguments.max_mirror_replicas_per_collection,
+        max_application_replicas_per_collection: arguments.max_application_replicas_per_collection,
         max_files_per_collection: arguments.max_files_per_collection,
         max_file_bytes_per_collection: arguments.max_file_bytes_per_collection,
         max_stored_file_bytes_per_collection: arguments.max_stored_file_bytes_per_collection,

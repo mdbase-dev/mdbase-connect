@@ -376,9 +376,10 @@ mod tests {
         sqlx::query(
             r#"INSERT INTO hosted_provider_collections
                (id, template, spec_version, max_records, max_content_bytes,
-                max_document_bytes, max_replicas, resource_revision,
+                max_document_bytes, max_mirror_replicas,
+                max_application_replicas, resource_revision,
                 wrapped_data_key, resources_ciphertext)
-               VALUES ($1, 'mdbase', '0.3', 100, 1000000, 100000, 10,
+               VALUES ($1, 'mdbase', '0.3', 100, 1000000, 100000, 10, 50,
                        'test-resource-revision', $2, $3)"#,
         )
         .bind(collection_id)

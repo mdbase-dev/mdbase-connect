@@ -70,7 +70,8 @@ export interface HostedAccountLimits {
   retained_file_bytes: number;
   max_document_bytes: number;
   max_single_file_bytes: number;
-  max_replicas_per_collection: number;
+  max_mirror_replicas_per_collection: number;
+  max_application_replicas_per_collection: number;
   max_hosted_collections: number;
   max_files_per_collection: number;
 }

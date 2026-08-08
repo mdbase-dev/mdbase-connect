@@ -498,7 +498,8 @@ function overviewFixture(): ManagementOverview {
         retained_file_bytes: 2_147_483_648,
         max_document_bytes: 2_097_152,
         max_single_file_bytes: 262_144_000,
-        max_replicas_per_collection: 10,
+        max_mirror_replicas_per_collection: 10,
+        max_application_replicas_per_collection: 50,
         max_hosted_collections: 250,
         max_files_per_collection: 10_000
       },

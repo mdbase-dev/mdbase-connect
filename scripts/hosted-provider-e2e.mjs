@@ -1091,14 +1091,16 @@ schema:
     MDBASE_CONNECT_HOSTED_MAX_RECORDS_PER_COLLECTION: "1",
     MDBASE_CONNECT_HOSTED_MAX_BYTES_PER_COLLECTION: "1024",
     MDBASE_CONNECT_HOSTED_MAX_BYTES_PER_DOCUMENT: "512",
-    MDBASE_CONNECT_HOSTED_MAX_REPLICAS_PER_COLLECTION: "1"
+    MDBASE_CONNECT_HOSTED_MAX_MIRROR_REPLICAS_PER_COLLECTION: "1",
+    MDBASE_CONNECT_HOSTED_MAX_APPLICATION_REPLICAS_PER_COLLECTION: "1"
   });
   const quotaCollectionId = crypto.randomUUID();
   const quotaAccountId = await provisionProviderAccount(quotaProvider.url, {
     hosted_storage_bytes: 500,
     retained_file_bytes: 1000,
     max_document_bytes: 512,
-    max_replicas_per_collection: 1,
+    max_mirror_replicas_per_collection: 1,
+    max_application_replicas_per_collection: 1,
     max_hosted_collections: 2
   });
   const quotaReplicaId = crypto.randomUUID();
@@ -1185,7 +1187,50 @@ schema:
     }
   );
   assert.equal(replicaQuota.status, 429);
-  assert.equal(replicaQuota.body.error.code, "replica_quota_exceeded");
+  assert.equal(replicaQuota.body.error.code, "mirror_replica_quota_exceeded");
+  const quotaApplication = {
+    name: "Quota application",
+    purpose: "application",
+    mode: "read_only",
+    allowed_types: [],
+    contract_scope: [],
+    full_collection: true,
+    allowed_operations: ["changes"],
+    application_declaration_id: "dev.mdbase.quota-test",
+    application_declaration_digest: `sha256:${"a".repeat(64)}`
+  };
+  await internalRequest(
+    quotaProvider.url,
+    `/internal/v1/collections/${quotaCollectionId}/replicas`,
+    {
+      method: "POST",
+      body: {
+        ...quotaApplication,
+        replica_id: crypto.randomUUID(),
+        grant_id: crypto.randomUUID(),
+        token: `quota-app-${crypto.randomUUID()}-${crypto.randomUUID()}`
+      }
+    }
+  );
+  const applicationReplicaQuota = await rawRequest(
+    quotaProvider.url,
+    `/internal/v1/collections/${quotaCollectionId}/replicas`,
+    {
+      method: "POST",
+      token: internalToken,
+      body: {
+        ...quotaApplication,
+        replica_id: crypto.randomUUID(),
+        grant_id: crypto.randomUUID(),
+        token: `quota-app-${crypto.randomUUID()}-${crypto.randomUUID()}`
+      }
+    }
+  );
+  assert.equal(applicationReplicaQuota.status, 429);
+  assert.equal(
+    applicationReplicaQuota.body.error.code,
+    "application_replica_quota_exceeded"
+  );
   const quotaTransport = new HttpSyncTransport(
     authoritySyncUrl(quotaProvider.url, quotaCollectionId),
     quotaToken
@@ -4383,7 +4428,8 @@ async function provisionProviderAccount(url, overrides = {}, accountId = crypto.
       retained_file_bytes: 2 * 1024 * 1024 * 1024,
       max_document_bytes: 2 * 1024 * 1024,
       max_single_file_bytes: 250 * 1024 * 1024,
-      max_replicas_per_collection: 10,
+      max_mirror_replicas_per_collection: 10,
+      max_application_replicas_per_collection: 50,
       max_hosted_collections: 10,
       max_files_per_collection: 10_000,
       ...overrides

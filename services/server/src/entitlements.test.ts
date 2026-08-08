@@ -49,7 +49,8 @@ describe("account entitlements", () => {
       retainedFileBytes: 2_147_483_648,
       maxDocumentBytes: 2_097_152,
       maxSingleFileBytes: 262_144_000,
-      maxReplicasPerCollection: 10,
+      maxMirrorReplicasPerCollection: 10,
+      maxApplicationReplicasPerCollection: 50,
       maxHostedCollections: 10,
       maxFilesPerCollection: 10_000
     });
@@ -66,10 +67,11 @@ describe("account entitlements", () => {
     await db.query(
       `INSERT INTO entitlement_profiles
          (code, hosted_storage_bytes, retained_file_bytes, max_document_bytes,
-          max_single_file_bytes, max_replicas_per_collection,
+          max_single_file_bytes, max_mirror_replicas_per_collection,
+          max_application_replicas_per_collection,
           max_hosted_collections, max_files_per_collection)
        VALUES ('plus_test', 10737418240, 21474836480, 2097152,
-               1073741824, 20, 100, 50000)`
+               1073741824, 20, 75, 100, 50000)`
     );
     const paidGrantId = randomUUID();
     await db.query(

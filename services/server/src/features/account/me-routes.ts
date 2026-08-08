@@ -230,7 +230,10 @@ export function registerAccountOverviewRoute(
           retained_file_bytes: entitlement.retainedFileBytes,
           max_document_bytes: entitlement.maxDocumentBytes,
           max_single_file_bytes: entitlement.maxSingleFileBytes,
-          max_replicas_per_collection: entitlement.maxReplicasPerCollection,
+          max_mirror_replicas_per_collection:
+            entitlement.maxMirrorReplicasPerCollection,
+          max_application_replicas_per_collection:
+            entitlement.maxApplicationReplicasPerCollection,
           max_hosted_collections: entitlement.maxHostedCollections,
           max_files_per_collection: entitlement.maxFilesPerCollection
         },

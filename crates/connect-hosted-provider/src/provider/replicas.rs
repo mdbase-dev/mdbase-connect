@@ -41,7 +41,8 @@ impl HostedProvider {
         let requested_token_hash = token_hash(&input.token);
         let mut transaction = self.pool.begin().await?;
         let collection = sqlx::query(
-            "SELECT max_replicas FROM hosted_provider_collections WHERE id = $1 FOR UPDATE",
+            r#"SELECT max_mirror_replicas, max_application_replicas
+               FROM hosted_provider_collections WHERE id = $1 FOR UPDATE"#,
         )
         .bind(collection_id)
         .fetch_optional(&mut *transaction)
@@ -52,7 +53,24 @@ impl HostedProvider {
                 "Hosted collection not found.",
             )
         })?;
-        let max_replicas = number(collection.get::<i64, _>("max_replicas"), "replica quota")?;
+        let (max_replicas, quota_code, quota_message) = match input.purpose {
+            ReplicaPurpose::Mirror => (
+                number(
+                    collection.get::<i64, _>("max_mirror_replicas"),
+                    "mirror replica quota",
+                )?,
+                "mirror_replica_quota_exceeded",
+                "The hosted collection has reached its active mirror replica limit.",
+            ),
+            ReplicaPurpose::Application => (
+                number(
+                    collection.get::<i64, _>("max_application_replicas"),
+                    "application replica quota",
+                )?,
+                "application_replica_quota_exceeded",
+                "The hosted collection has reached its active application replica limit.",
+            ),
+        };
         if let Some(existing) = sqlx::query(
             r#"SELECT collection_id, name, purpose, mode, allowed_types, contract_scope,
                       full_collection,
@@ -107,16 +125,15 @@ impl HostedProvider {
             ));
         }
         let replica_count: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM hosted_provider_replicas WHERE collection_id = $1 AND revoked_at IS NULL",
+            r#"SELECT count(*) FROM hosted_provider_replicas
+               WHERE collection_id = $1 AND purpose = $2 AND revoked_at IS NULL"#,
         )
         .bind(collection_id)
+        .bind(replica_purpose(input.purpose))
         .fetch_one(&mut *transaction)
         .await?;
         if number(replica_count, "replica count")? >= max_replicas {
-            return Err(ApiError::quota(
-                "replica_quota_exceeded",
-                "The hosted collection has reached its active replica limit.",
-            ));
+            return Err(ApiError::quota(quota_code, quota_message));
         }
         let result = sqlx::query(
             r#"INSERT INTO hosted_provider_replicas

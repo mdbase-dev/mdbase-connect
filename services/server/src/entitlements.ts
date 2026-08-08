@@ -14,7 +14,8 @@ export interface EffectiveEntitlement {
   retainedFileBytes: number;
   maxDocumentBytes: number;
   maxSingleFileBytes: number;
-  maxReplicasPerCollection: number;
+  maxMirrorReplicasPerCollection: number;
+  maxApplicationReplicasPerCollection: number;
   maxHostedCollections: number;
   maxFilesPerCollection: number;
 }
@@ -39,7 +40,8 @@ interface EntitlementProfileRow {
   retained_file_bytes: string | number;
   max_document_bytes: string | number;
   max_single_file_bytes: string | number;
-  max_replicas_per_collection: string | number;
+  max_mirror_replicas_per_collection: string | number;
+  max_application_replicas_per_collection: string | number;
   max_hosted_collections: string | number;
   max_files_per_collection: string | number;
 }
@@ -139,7 +141,9 @@ export async function effectiveEntitlement(
     `SELECT entitlement_grant.profile_code,
             profile.hosted_storage_bytes, profile.retained_file_bytes,
             profile.max_document_bytes, profile.max_single_file_bytes,
-            profile.max_replicas_per_collection, profile.max_hosted_collections,
+            profile.max_mirror_replicas_per_collection,
+            profile.max_application_replicas_per_collection,
+            profile.max_hosted_collections,
             profile.max_files_per_collection
      FROM account_entitlement_grants entitlement_grant
      JOIN entitlement_profiles profile
@@ -159,9 +163,13 @@ export async function effectiveEntitlement(
     retainedFileBytes: maximum(profiles.rows, "retained_file_bytes"),
     maxDocumentBytes: maximum(profiles.rows, "max_document_bytes"),
     maxSingleFileBytes: maximum(profiles.rows, "max_single_file_bytes"),
-    maxReplicasPerCollection: maximum(
+    maxMirrorReplicasPerCollection: maximum(
       profiles.rows,
-      "max_replicas_per_collection"
+      "max_mirror_replicas_per_collection"
+    ),
+    maxApplicationReplicasPerCollection: maximum(
+      profiles.rows,
+      "max_application_replicas_per_collection"
     ),
     maxHostedCollections: maximum(profiles.rows, "max_hosted_collections"),
     maxFilesPerCollection: maximum(profiles.rows, "max_files_per_collection")
@@ -194,7 +202,9 @@ export async function reconcileHostedAccount(
     retained_file_bytes: entitlement.retainedFileBytes,
     max_document_bytes: entitlement.maxDocumentBytes,
     max_single_file_bytes: entitlement.maxSingleFileBytes,
-    max_replicas_per_collection: entitlement.maxReplicasPerCollection,
+    max_mirror_replicas_per_collection: entitlement.maxMirrorReplicasPerCollection,
+    max_application_replicas_per_collection:
+      entitlement.maxApplicationReplicasPerCollection,
     max_hosted_collections: entitlement.maxHostedCollections,
     max_files_per_collection: entitlement.maxFilesPerCollection
   };

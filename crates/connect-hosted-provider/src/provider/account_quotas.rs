@@ -24,7 +24,8 @@ impl HostedProvider {
         let existing = sqlx::query(
             r#"SELECT entitlement_revision, max_live_storage_bytes,
                       max_retained_file_bytes, max_document_bytes,
-                      max_single_file_bytes, max_replicas_per_collection,
+                      max_single_file_bytes, max_mirror_replicas_per_collection,
+                      max_application_replicas_per_collection,
                       max_collections, max_files_per_collection
                FROM hosted_provider_accounts WHERE id = $1 FOR UPDATE"#,
         )
@@ -53,9 +54,10 @@ impl HostedProvider {
                          max_retained_file_bytes = $4,
                          max_document_bytes = $5,
                          max_single_file_bytes = $6,
-                         max_replicas_per_collection = $7,
-                         max_collections = $8,
-                         max_files_per_collection = $9,
+                         max_mirror_replicas_per_collection = $7,
+                         max_application_replicas_per_collection = $8,
+                         max_collections = $9,
+                         max_files_per_collection = $10,
                          updated_at = now()
                        WHERE id = $1"#,
                 )
@@ -71,7 +73,14 @@ impl HostedProvider {
                 )?)
                 .bind(to_i64(limits.max_document_bytes, "document limit")?)
                 .bind(to_i64(limits.max_single_file_bytes, "file limit")?)
-                .bind(to_i64(limits.max_replicas_per_collection, "replica limit")?)
+                .bind(to_i64(
+                    limits.max_mirror_replicas_per_collection,
+                    "mirror replica limit",
+                )?)
+                .bind(to_i64(
+                    limits.max_application_replicas_per_collection,
+                    "application replica limit",
+                )?)
                 .bind(to_i64(limits.max_hosted_collections, "collection limit")?)
                 .bind(to_i64(limits.max_files_per_collection, "file count limit")?)
                 .execute(&mut *transaction)
@@ -82,9 +91,10 @@ impl HostedProvider {
                 r#"INSERT INTO hosted_provider_accounts
                      (id, entitlement_revision, max_live_storage_bytes,
                       max_retained_file_bytes, max_document_bytes,
-                      max_single_file_bytes, max_replicas_per_collection,
+                      max_single_file_bytes, max_mirror_replicas_per_collection,
+                      max_application_replicas_per_collection,
                       max_collections, max_files_per_collection)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
             )
             .bind(account_id)
             .bind(to_i64(entitlement_revision, "entitlement revision")?)
@@ -98,7 +108,14 @@ impl HostedProvider {
             )?)
             .bind(to_i64(limits.max_document_bytes, "document limit")?)
             .bind(to_i64(limits.max_single_file_bytes, "file limit")?)
-            .bind(to_i64(limits.max_replicas_per_collection, "replica limit")?)
+            .bind(to_i64(
+                limits.max_mirror_replicas_per_collection,
+                "mirror replica limit",
+            )?)
+            .bind(to_i64(
+                limits.max_application_replicas_per_collection,
+                "application replica limit",
+            )?)
             .bind(to_i64(limits.max_hosted_collections, "collection limit")?)
             .bind(to_i64(limits.max_files_per_collection, "file count limit")?)
             .execute(&mut *transaction)
@@ -131,11 +148,12 @@ impl HostedProvider {
                  account_id = $2,
                  max_content_bytes = $3,
                  max_document_bytes = $4,
-                 max_replicas = $5,
-                 max_files = $6,
+                 max_mirror_replicas = $5,
+                 max_application_replicas = $6,
+                 max_files = $7,
                  max_file_bytes = $3,
-                 max_stored_file_bytes = $7,
-                 max_single_file_bytes = $8,
+                 max_stored_file_bytes = $8,
+                 max_single_file_bytes = $9,
                  updated_at = now()
                WHERE id = $1 AND state <> 'deleting'
                  AND (account_id IS NULL OR account_id = $2)"#,
@@ -148,8 +166,12 @@ impl HostedProvider {
         )?)
         .bind(to_i64(account.limits.max_document_bytes, "document limit")?)
         .bind(to_i64(
-            account.limits.max_replicas_per_collection,
-            "replica limit",
+            account.limits.max_mirror_replicas_per_collection,
+            "mirror replica limit",
+        )?)
+        .bind(to_i64(
+            account.limits.max_application_replicas_per_collection,
+            "application replica limit",
         )?)
         .bind(to_i64(
             account.limits.max_files_per_collection,
@@ -180,7 +202,8 @@ impl HostedProvider {
             && limits.retained_file_bytes >= limits.hosted_storage_bytes
             && limits.max_document_bytes > 0
             && limits.max_single_file_bytes > 0
-            && limits.max_replicas_per_collection > 0
+            && limits.max_mirror_replicas_per_collection > 0
+            && limits.max_application_replicas_per_collection > 0
             && limits.max_hosted_collections > 0
             && limits.max_files_per_collection > 0
             && limits.hosted_storage_bytes <= self.limits.max_bytes_per_collection
@@ -188,7 +211,10 @@ impl HostedProvider {
             && limits.retained_file_bytes <= self.limits.max_stored_file_bytes_per_collection
             && limits.max_document_bytes <= self.limits.max_bytes_per_document
             && limits.max_single_file_bytes <= self.limits.max_bytes_per_file
-            && limits.max_replicas_per_collection <= self.limits.max_replicas_per_collection
+            && limits.max_mirror_replicas_per_collection
+                <= self.limits.max_mirror_replicas_per_collection
+            && limits.max_application_replicas_per_collection
+                <= self.limits.max_application_replicas_per_collection
             && limits.max_files_per_collection <= self.limits.max_files_per_collection;
         if !valid {
             return Err(ApiError::bad_request(
@@ -208,13 +234,15 @@ pub(super) async fn load_account_limits(
     let sql = if lock {
         r#"SELECT entitlement_revision, max_live_storage_bytes,
                   max_retained_file_bytes, max_document_bytes,
-                  max_single_file_bytes, max_replicas_per_collection,
+                  max_single_file_bytes, max_mirror_replicas_per_collection,
+                  max_application_replicas_per_collection,
                   max_collections, max_files_per_collection
            FROM hosted_provider_accounts WHERE id = $1 FOR UPDATE"#
     } else {
         r#"SELECT entitlement_revision, max_live_storage_bytes,
                   max_retained_file_bytes, max_document_bytes,
-                  max_single_file_bytes, max_replicas_per_collection,
+                  max_single_file_bytes, max_mirror_replicas_per_collection,
+                  max_application_replicas_per_collection,
                   max_collections, max_files_per_collection
            FROM hosted_provider_accounts WHERE id = $1"#
     };
@@ -242,9 +270,13 @@ fn stored_account_limits(row: &PgRow) -> ApiResult<StoredAccountLimits> {
             )?,
             max_document_bytes: number(row.get("max_document_bytes"), "document limit")?,
             max_single_file_bytes: number(row.get("max_single_file_bytes"), "file limit")?,
-            max_replicas_per_collection: number(
-                row.get("max_replicas_per_collection"),
-                "replica limit",
+            max_mirror_replicas_per_collection: number(
+                row.get("max_mirror_replicas_per_collection"),
+                "mirror replica limit",
+            )?,
+            max_application_replicas_per_collection: number(
+                row.get("max_application_replicas_per_collection"),
+                "application replica limit",
             )?,
             max_hosted_collections: number(row.get("max_collections"), "collection limit")?,
             max_files_per_collection: number(
@@ -262,7 +294,8 @@ async fn account_usage(
     let row = sqlx::query(
         r#"SELECT entitlement_revision, max_live_storage_bytes,
                   max_retained_file_bytes, max_document_bytes,
-                  max_single_file_bytes, max_replicas_per_collection,
+                  max_single_file_bytes, max_mirror_replicas_per_collection,
+                  max_application_replicas_per_collection,
                   max_collections, max_files_per_collection,
                   collection_count, live_content_bytes, live_file_bytes,
                   retained_file_bytes

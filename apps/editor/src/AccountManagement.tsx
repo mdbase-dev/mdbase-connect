@@ -284,7 +284,7 @@ function SubscriptionStorage({ subscription, fallbackStorage }: {
     {subscription.limits.retained_file_bytes > 0 && <p>{subscription.usage
       ? `${formatBytes(subscription.usage.retained_file_bytes)} of ${formatBytes(subscription.limits.retained_file_bytes)} retained file storage`
       : `${formatBytes(subscription.limits.retained_file_bytes)} retained file storage included`}</p>}
-    <p>Documents up to {formatBytes(subscription.limits.max_document_bytes)} · files up to {formatBytes(subscription.limits.max_single_file_bytes)} · {pluralLabel(subscription.limits.max_replicas_per_collection, "synced folder", "synced folders")} per collection</p>
+    <p>Documents up to {formatBytes(subscription.limits.max_document_bytes)} · files up to {formatBytes(subscription.limits.max_single_file_bytes)} · {pluralLabel(subscription.limits.max_mirror_replicas_per_collection, "synced folder", "synced folders")} · {pluralLabel(subscription.limits.max_application_replicas_per_collection, "application installation", "application installations")} per collection</p>
   </div>;
 }
 
