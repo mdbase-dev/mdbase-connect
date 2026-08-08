@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.0-beta.46
+
+Beta.46 separates hosted replica storage allowances and repairs Google account
+linking for invited beta accounts.
+
+- Hosted account quotas now distinguish primary hosted collections from local
+  replica slots, including independent entitlement limits and migration of
+  existing account data.
+- Google Identity Services receives the relying-party origin from both Connect
+  and Editor, and trusted editor callbacks can complete account linking.
+- Invited people create their account through the one-time password link, may
+  connect Google afterward, and can use that linked identity for later sign-in
+  without opening registration to matching email addresses.
+
 ## 0.1.0-beta.45
 
 Beta.45 makes pre-existing application definitions reviewable and completes
