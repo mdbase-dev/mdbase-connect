@@ -37,6 +37,7 @@ pub struct R2Config {
     pub download_part_bytes: u64,
     pub presign_ttl: Duration,
     allow_insecure_http: bool,
+    insecure_http_hosts: Vec<String>,
 }
 
 impl fmt::Debug for R2Config {
@@ -55,6 +56,7 @@ impl fmt::Debug for R2Config {
             .field("download_part_bytes", &self.download_part_bytes)
             .field("presign_ttl", &self.presign_ttl)
             .field("allow_insecure_http", &self.allow_insecure_http)
+            .field("insecure_http_hosts", &self.insecure_http_hosts)
             .finish()
     }
 }
@@ -79,6 +81,7 @@ impl R2Config {
             download_part_bytes,
             presign_ttl,
             allow_insecure_http: false,
+            insecure_http_hosts: Vec::new(),
         };
         config.validate()?;
         Ok(config)
@@ -92,6 +95,7 @@ impl R2Config {
         multipart_part_bytes: u64,
         download_part_bytes: u64,
         presign_ttl: Duration,
+        insecure_http_hosts: Vec<String>,
     ) -> ApiResult<Self> {
         let mut config = Self {
             endpoint: endpoint.into(),
@@ -103,6 +107,7 @@ impl R2Config {
             download_part_bytes,
             presign_ttl,
             allow_insecure_http: true,
+            insecure_http_hosts,
         };
         config.validate()?;
         config.endpoint = config.endpoint.trim_end_matches('/').to_string();
@@ -118,9 +123,18 @@ impl R2Config {
     fn validate(&self) -> ApiResult<()> {
         let endpoint = Url::parse(&self.endpoint).map_err(|_| invalid_r2_config())?;
         let secure_endpoint = endpoint.scheme() == "https";
-        let allowed_insecure_http = self.allow_insecure_http && endpoint.scheme() == "http";
+        let endpoint_host = endpoint.host_str();
+        let allowed_insecure_http = self.allow_insecure_http
+            && endpoint.scheme() == "http"
+            && endpoint_host.is_some_and(|host| {
+                is_loopback_host(host)
+                    || self
+                        .insecure_http_hosts
+                        .iter()
+                        .any(|allowed| allowed.trim().eq_ignore_ascii_case(host))
+            });
         if (!secure_endpoint && !allowed_insecure_http)
-            || endpoint.host_str().is_none()
+            || endpoint_host.is_none()
             || endpoint.path() != "/"
             || endpoint.query().is_some()
             || endpoint.fragment().is_some()
@@ -143,6 +157,10 @@ impl R2Config {
         }
         Ok(())
     }
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    matches!(host, "localhost" | "127.0.0.1" | "[::1]" | "::1")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -699,6 +717,7 @@ mod tests {
             8 * 1024 * 1024,
             8 * 1024 * 1024,
             Duration::from_secs(900),
+            Vec::new(),
         )
         .is_ok());
         assert!(R2Config::new_insecure_http(
@@ -709,6 +728,18 @@ mod tests {
             8 * 1024 * 1024,
             8 * 1024 * 1024,
             Duration::from_secs(900),
+            Vec::new(),
+        )
+        .is_err());
+        assert!(R2Config::new_insecure_http(
+            "http://hosted-object-store:9000",
+            "bucket",
+            "access",
+            "secret",
+            8 * 1024 * 1024,
+            8 * 1024 * 1024,
+            Duration::from_secs(900),
+            vec!["hosted-object-store".to_string()],
         )
         .is_ok());
         assert!(R2Config::new(
@@ -797,6 +828,7 @@ mod tests {
             8 * 1024 * 1024,
             8 * 1024 * 1024,
             Duration::from_secs(900),
+            Vec::new(),
         )
         .unwrap()
         .with_session_token(Some("temporary-session".to_string()))

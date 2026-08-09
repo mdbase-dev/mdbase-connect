@@ -158,6 +158,8 @@ struct Arguments {
         default_value_t = false
     )]
     allow_insecure_r2: bool,
+    #[arg(long, env = "MDBASE_CONNECT_INSECURE_R2_HOSTS", value_delimiter = ',')]
+    insecure_r2_hosts: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -245,6 +247,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             arguments.r2_multipart_part_bytes,
             arguments.r2_download_part_bytes,
             Duration::from_secs(arguments.r2_presign_ttl_seconds),
+            arguments.insecure_r2_hosts,
         )?
     } else {
         R2Config::new(
