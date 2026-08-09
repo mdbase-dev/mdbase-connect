@@ -224,4 +224,21 @@ mod tests {
             Some(ConnectOperationOutcome::Rejected)
         );
     }
+
+    #[test]
+    fn sqlite_contention_is_retryable_and_not_sent() {
+        let error = ConnectError::Registry(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
+            None,
+        ));
+
+        let problem =
+            operation_problem(&error).with_operation_outcome(ConnectOperationOutcome::NotSent);
+
+        assert_eq!(problem.code, "registry_busy");
+        assert_eq!(
+            problem.operation_outcome,
+            Some(ConnectOperationOutcome::NotSent)
+        );
+    }
 }

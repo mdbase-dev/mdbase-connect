@@ -201,6 +201,14 @@ impl ConnectError {
             Self::AuthorityTransferInProgress { .. } => "authority_transfer_in_progress",
             Self::AuthorityRetired => "authority_retired",
             Self::AuthorityTransferMismatch => "authority_transfer_mismatch",
+            Self::Registry(error)
+                if matches!(
+                    error.sqlite_error_code(),
+                    Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked)
+                ) =>
+            {
+                "registry_busy"
+            }
             Self::Registry(_) => "registry_failed",
             Self::RegistryCorrupt { .. } => "registry_corrupt",
             Self::RegistrySchemaIncompatible { .. } => "registry_schema_incompatible",

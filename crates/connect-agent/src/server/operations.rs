@@ -570,7 +570,15 @@ impl AgentState {
                 )
             }
             Ok(EncryptedRequestClaim::Conflict) => return rejected(),
-            Err(_) => return rejected(),
+            Err(ConnectError::EncryptedRelayRejected) => return rejected(),
+            Err(error) => {
+                return encrypted_problem_response(
+                    &keys,
+                    metadata,
+                    operation_problem(&error)
+                        .with_operation_outcome(ConnectOperationOutcome::NotSent),
+                )
+            }
         }
 
         if let Some(mutation_identifier) = mutation {

@@ -434,6 +434,45 @@ fn encrypted_operations_round_trip_and_replays_return_the_durable_receipt() {
         panic!("expected cached encrypted response")
     };
     assert_eq!(replay_envelope, envelope);
+
+    let database = rusqlite::Connection::open(state_dir.join("connector.sqlite")).unwrap();
+    database.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let busy_metadata = RelayMetadata {
+        binding: &binding,
+        request_id: Uuid::new_v4(),
+        operation: "describe",
+        counter: "2",
+    };
+    let busy_ciphertext = keys
+        .encrypt_json(
+            RelayDirection::Request,
+            busy_metadata,
+            &serde_json::json!({}),
+        )
+        .unwrap();
+    let busy_response = state
+        .handle_relay_message(RelayMessage::EncryptedOperationRequest {
+            envelope: busy_metadata.envelope(busy_ciphertext),
+        })
+        .unwrap();
+    let RelayMessage::EncryptedOperationResponse {
+        envelope: busy_envelope,
+    } = busy_response
+    else {
+        panic!("expected encrypted registry contention response")
+    };
+    let busy_body: serde_json::Value = keys
+        .decrypt_json(
+            RelayDirection::Response,
+            busy_metadata,
+            &busy_envelope.ciphertext,
+        )
+        .unwrap();
+    assert_eq!(busy_body["ok"], false);
+    assert_eq!(busy_body["problem"]["code"], "registry_busy");
+    assert_eq!(busy_body["problem"]["operation_outcome"], "not_sent");
+    database.execute_batch("ROLLBACK").unwrap();
+
     fs::remove_dir_all(test_root).unwrap();
 }
 
