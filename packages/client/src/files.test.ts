@@ -538,6 +538,44 @@ describe("MdbaseFileClient", () => {
     expect(aborted).toBe(true);
   });
 
+  it("does not keep verified download bytes behind best-effort session cleanup", async () => {
+    const content = bytes("verified before cleanup");
+    const file = descriptor("Assets/verified.bin", content);
+    let releaseCleanup!: () => void;
+    let cleanupStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      cleanupStarted = resolve;
+    });
+    const cleanup = new Promise<void>((resolve) => {
+      releaseCleanup = resolve;
+    });
+    const client = fileClient(async (method, path, input) => {
+      if (path === "downloads") {
+        return uploadSession(
+          input.transfer_id,
+          { kind: "object_ranges", part_size: content.length },
+          content.length,
+          "download"
+        );
+      }
+      if (method === "DELETE") {
+        cleanupStarted();
+        await cleanup;
+        return { protocol_version: 1, type: "file_transfer_status", state: "aborted" };
+      }
+      throw new Error(`Unexpected control path ${path}`);
+    }, undefined, {
+      async downloadPart() {
+        return byteStream(content);
+      }
+    });
+
+    const result = client.downloadBytes(file);
+    await started;
+    await expect(result).resolves.toEqual(content);
+    releaseCleanup();
+  });
+
   it("fails closed on corrupt object bytes and cleans up the transfer", async () => {
     const content = bytes("expected");
     const file = descriptor("expected.bin", content);

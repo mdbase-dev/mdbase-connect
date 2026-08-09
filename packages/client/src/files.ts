@@ -567,8 +567,8 @@ export class MdbaseFileClient {
               if (!hostedReader) {
                 if (partIndex >= partCount) {
                   verify();
-                  await finish();
                   controller.close();
+                  void finish();
                   return;
                 }
                 const offset = partIndex * partSize;
@@ -624,8 +624,8 @@ export class MdbaseFileClient {
           }
           if (partIndex >= partCount) {
             verify();
-            await finish();
             controller.close();
+            void finish();
             return;
           }
           const offset = partIndex * partSize;
@@ -656,8 +656,8 @@ export class MdbaseFileClient {
           }
           controller.enqueue(chunk);
           if (partIndex === partCount) {
-            await finish();
             controller.close();
+            void finish();
           }
         } catch (error) {
           await finish();
