@@ -23,6 +23,12 @@ export async function createConnectEnvironment(options = {}) {
   validateOptions(options);
   const connectPort = options.connectPort ?? await availablePort();
   const natsPort = options.natsPort ?? await availablePort();
+  const embeddedHostedProviderPort = options.embeddedHostedProvider
+    ? options.hostedProviderPort ?? await availablePort()
+    : undefined;
+  const embeddedHostedProviderToken = options.randomizeCredentials === false
+    ? "local-hosted-provider-token-00000001"
+    : randomBytes(32).toString("base64url");
   const suffix = randomBytes(5).toString("hex");
   const projectName = sanitizeProjectName(
     options.projectName ?? `mdbase-connect-e2e-${process.pid}-${suffix}`
@@ -33,7 +39,10 @@ export async function createConnectEnvironment(options = {}) {
     : {
         POSTGRES_PASSWORD: randomBytes(24).toString("hex"),
         MDBASE_CONNECT_RELAY_NATS_TOKEN:
-          randomBytes(32).toString("base64url")
+          randomBytes(32).toString("base64url"),
+        ...(options.embeddedHostedProvider
+          ? { HOSTED_POSTGRES_PASSWORD: randomBytes(24).toString("hex") }
+          : {})
       };
   const processEnvironment = {
     ...process.env,
@@ -41,6 +50,20 @@ export async function createConnectEnvironment(options = {}) {
     PUBLIC_URL: serverUrl,
     MDBASE_CONNECT_BIND_PORT: String(connectPort),
     MDBASE_CONNECT_NATS_BIND_PORT: String(natsPort),
+    ...(options.embeddedHostedProvider
+      ? {
+          COMPOSE_PROFILES: "hosted",
+          MDBASE_CONNECT_HOSTED_PROVIDER_BIND_PORT:
+            String(embeddedHostedProviderPort),
+          MDBASE_CONNECT_HOSTED_COLLECTIONS: "1",
+          MDBASE_CONNECT_HOSTED_PROVIDER_URL: "http://hosted-provider:8790",
+          MDBASE_CONNECT_HOSTED_PROVIDER_PUBLIC_URL:
+            `http://127.0.0.1:${embeddedHostedProviderPort}`,
+          MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN:
+            embeddedHostedProviderToken,
+          MDBASE_CONNECT_ALLOW_INSECURE_HOSTED_PROVIDER: "1"
+        }
+      : {}),
     ...randomCredentials,
     ...(options.serverImage
       ? { MDBASE_CONNECT_SERVER_IMAGE: options.serverImage }
@@ -137,6 +160,9 @@ export async function createConnectEnvironment(options = {}) {
 }
 
 function validateOptions(options) {
+  if (options.embeddedHostedProvider && options.hostedProvider) {
+    throw new Error("embeddedHostedProvider and hostedProvider are mutually exclusive");
+  }
   if (!options.hostedProvider) return;
   for (const name of ["url", "internalToken"]) {
     if (

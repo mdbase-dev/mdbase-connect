@@ -15,7 +15,6 @@ import type { DatabasePool, DatabaseQueryable } from "../../db.js";
 import { queueHostedGrantRevocation } from "../../hosted-capability-lifecycle.js";
 import { contractRequirements, effectiveHostedContractDescriptors } from "../../hosted.js";
 import { HostedProviderClient } from "../../hosted-provider.js";
-import type { HostedAuthorityRegistry } from "../../hosted.js";
 import { fileCapabilityForRequirements } from "../../grant-planner.js";
 import { hostedReplicaCollectionOperations } from "../../hosted-replica-policy.js";
 import { RelayHub } from "../../relay.js";
@@ -169,7 +168,6 @@ export async function reconcileApplicationGrants(
   db: DatabasePool,
   relay: RelayHub,
   hostedProvider: HostedProviderClient | undefined,
-  hostedReference: HostedAuthorityRegistry | undefined,
   application: {
     id: string;
     family_identity: string;
@@ -240,11 +238,10 @@ export async function reconcileApplicationGrants(
       if (grant.connector_id) changedConnectors.add(grant.connector_id);
     }
     if (grant.hosted_replica_id) {
-      if (hostedProvider) {
-        await syncHostedNotificationGrant(db, hostedProvider, grant.id);
-      } else if (!hostedReference) {
+      if (!hostedProvider) {
         throw new Error("Hosted provider unavailable during notification reconciliation.");
       }
+      await syncHostedNotificationGrant(db, hostedProvider, grant.id);
     }
     const hostedDescriptors = grant.template
       ? effectiveHostedContractDescriptors(grant.hosted_contracts, grant.template)
@@ -287,6 +284,9 @@ export async function reconcileApplicationGrants(
         || isContractSubset(desiredScope.contracts, grant.scope.contracts));
     if ((scopeMatches || mayNarrow) && collectionCompatible && fileCapabilityMatches) {
       if (grant.hosted_replica_id) {
+        if (!hostedProvider) {
+          throw new Error("Hosted provider unavailable during grant reconciliation.");
+        }
         const write = grant.operations.some((operation) =>
           [
             "create",
@@ -307,31 +307,21 @@ export async function reconcileApplicationGrants(
         ) || desiredFileCapability?.actions.some((action) =>
           ["add", "replace", "move", "delete"].includes(action)
         ) === true;
-        if (hostedProvider) {
-          await hostedProvider.updateApplicationReplica(grant.hosted_replica_id, {
-            grantId: grant.id,
-            mode: write ? "read_write" : "read_only",
-            allowedTypes: desiredAllowedTypes,
-            contractScope: desiredScope.access === "contract" ? desiredScope.contracts : [],
-            fullCollection: application.requirements.access === "full_collection",
-            allowedOperations: hostedReplicaCollectionOperations(grant.operations),
-            fileCapability: desiredFileCapability,
-            allowedOrigin: grant.application_origin,
-            proofPublicKey: grant.proof_public_key,
-            applicationDeclarationId: declarationIdFromFamilyIdentity(
-              application.family_identity
-            ),
-            applicationDeclarationDigest: `sha256:${application.manifest_digest}`
-          });
-        } else if (hostedReference && grant.hosted_collection_id) {
-          await hostedReference.updateReplicaScope(
-            grant.hosted_collection_id,
-            grant.hosted_replica_id,
-            desiredAllowedTypes
-          );
-        } else {
-          throw new Error("Hosted provider unavailable during grant reconciliation.");
-        }
+        await hostedProvider.updateApplicationReplica(grant.hosted_replica_id, {
+          grantId: grant.id,
+          mode: write ? "read_write" : "read_only",
+          allowedTypes: desiredAllowedTypes,
+          contractScope: desiredScope.access === "contract" ? desiredScope.contracts : [],
+          fullCollection: application.requirements.access === "full_collection",
+          allowedOperations: hostedReplicaCollectionOperations(grant.operations),
+          fileCapability: desiredFileCapability,
+          allowedOrigin: grant.application_origin,
+          proofPublicKey: grant.proof_public_key,
+          applicationDeclarationId: declarationIdFromFamilyIdentity(
+            application.family_identity
+          ),
+          applicationDeclarationDigest: `sha256:${application.manifest_digest}`
+        });
         await db.query(
           "UPDATE hosted_replicas SET allowed_types = $2::jsonb, mode = $3 WHERE id = $1",
           [
@@ -352,36 +342,16 @@ export async function reconcileApplicationGrants(
       });
     } else {
       if (grant.hosted_replica_id) {
-        if (hostedReference && !hostedProvider && grant.hosted_collection_id) {
-          await hostedReference.revokeReplica(
-            grant.hosted_collection_id,
-            grant.hosted_replica_id
+        const queued = await queueHostedGrantRevocation(
+          db,
+          grant.user_id,
+          grant.id,
+          "application_manifest_change"
+        );
+        if (!queued) {
+          throw new Error(
+            "Active hosted grant disappeared during manifest reconciliation."
           );
-          await db.query(
-            "UPDATE hosted_replicas SET revoked_at = now() WHERE id = $1",
-            [grant.hosted_replica_id]
-          );
-          await db.query("UPDATE grants SET revoked_at = now() WHERE id = $1", [grant.id]);
-          await db.query(
-            "UPDATE access_tokens SET revoked_at = now() WHERE grant_id = $1",
-            [grant.id]
-          );
-          await db.query(
-            "UPDATE refresh_tokens SET revoked_at = now() WHERE grant_id = $1",
-            [grant.id]
-          );
-        } else {
-          const queued = await queueHostedGrantRevocation(
-            db,
-            grant.user_id,
-            grant.id,
-            "application_manifest_change"
-          );
-          if (!queued) {
-            throw new Error(
-              "Active hosted grant disappeared during manifest reconciliation."
-            );
-          }
         }
       } else {
         await db.query("UPDATE grants SET revoked_at = now() WHERE id = $1", [grant.id]);

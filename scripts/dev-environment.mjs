@@ -18,6 +18,7 @@ const environment = await createConnectEnvironment({
   projectName,
   connectPort: Number(bindPort),
   natsPort: Number(natsPort),
+  embeddedHostedProvider: true,
   build: true,
   disposable: false,
   randomizeCredentials: false,
@@ -31,8 +32,7 @@ const environment = await createConnectEnvironment({
       "local-onboarding-rate-limit-secret-0001",
     MDBASE_CONNECT_TERMS_URL: "https://mdbase.dev/terms/",
     MDBASE_CONNECT_PRIVACY_URL: "https://mdbase.dev/privacy/",
-    MDBASE_CONNECT_HOSTED_COLLECTIONS: "1",
-    MDBASE_CONNECT_HOSTED_REFERENCE_AUTHORITY: "1"
+    MDBASE_CONNECT_HOSTED_COLLECTIONS: "1"
   }
 });
 

@@ -57,3 +57,25 @@ test("configures persistent development environments without ephemeral secrets",
     Object.hasOwn(process.env, "POSTGRES_PASSWORD")
   );
 });
+
+test("configures an isolated embedded hosted provider", async () => {
+  const environment = await createConnectEnvironment({
+    projectName: "mdbase-connect-hosted-dev",
+    connectPort: 18788,
+    natsPort: 14223,
+    hostedProviderPort: 18790,
+    embeddedHostedProvider: true,
+    randomizeCredentials: false
+  });
+
+  assert.equal(environment.environment.COMPOSE_PROFILES, "hosted");
+  assert.equal(
+    environment.environment.MDBASE_CONNECT_HOSTED_PROVIDER_URL,
+    "http://hosted-provider:8790"
+  );
+  assert.equal(
+    environment.environment.MDBASE_CONNECT_HOSTED_PROVIDER_PUBLIC_URL,
+    "http://127.0.0.1:18790"
+  );
+  assert.equal(environment.environment.MDBASE_CONNECT_HOSTED_COLLECTIONS, "1");
+});

@@ -360,7 +360,7 @@ export async function buildApp(options: BuildOptions) {
     transports: options.notifications?.transports,
     hostedProvider: options.hostedProvider
   });
-  registerLocalOperationRoutes(app, { db: options.db, relay, hostedReference });
+  registerLocalOperationRoutes(app, { db: options.db, relay });
   registerLocalFileRoutes(app, { db: options.db, relay });
   registerConnectorHostedRoutes(app, {
     db: options.db,
@@ -370,8 +370,7 @@ export async function buildApp(options: BuildOptions) {
     hostedReference,
     approveAuthorization: (input) => approveHostedAuthorization(
       options.db,
-      options.hostedProvider,
-      hostedReference,
+      options.hostedProvider!,
       input
     )
   });
@@ -388,8 +387,7 @@ export async function buildApp(options: BuildOptions) {
     publicUrl,
     editorOrigin: options.editorOrigin,
     hostedCollections: options.hostedCollections,
-    hostedProvider: options.hostedProvider,
-    hostedReference
+    hostedProvider: options.hostedProvider
   });
   registerReferenceSyncRoutes(app, {
     db: options.db,
@@ -400,7 +398,6 @@ export async function buildApp(options: BuildOptions) {
     db: options.db,
     relay,
     hostedProvider: options.hostedProvider,
-    hostedReference,
     allowInsecureManifests: options.allowInsecureManifests
   });
   registerAccountOverviewRoute(app, {
@@ -421,7 +418,6 @@ export async function buildApp(options: BuildOptions) {
     tailscaleAuth: options.tailscaleAuth,
     hostedCollections: options.hostedCollections,
     hostedProvider: options.hostedProvider,
-    hostedReference,
     drainProviderRevocations: async () => {
       await providerRevocations?.drain();
     }

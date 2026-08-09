@@ -36,7 +36,7 @@ pub struct R2Config {
     pub multipart_part_bytes: u64,
     pub download_part_bytes: u64,
     pub presign_ttl: Duration,
-    allow_insecure_loopback: bool,
+    allow_insecure_http: bool,
 }
 
 impl fmt::Debug for R2Config {
@@ -54,7 +54,7 @@ impl fmt::Debug for R2Config {
             .field("multipart_part_bytes", &self.multipart_part_bytes)
             .field("download_part_bytes", &self.download_part_bytes)
             .field("presign_ttl", &self.presign_ttl)
-            .field("allow_insecure_loopback", &self.allow_insecure_loopback)
+            .field("allow_insecure_http", &self.allow_insecure_http)
             .finish()
     }
 }
@@ -78,13 +78,13 @@ impl R2Config {
             multipart_part_bytes,
             download_part_bytes,
             presign_ttl,
-            allow_insecure_loopback: false,
+            allow_insecure_http: false,
         };
         config.validate()?;
         Ok(config)
     }
 
-    pub fn new_insecure_loopback(
+    pub fn new_insecure_http(
         endpoint: impl Into<String>,
         bucket: impl Into<String>,
         access_key_id: impl Into<String>,
@@ -102,7 +102,7 @@ impl R2Config {
             multipart_part_bytes,
             download_part_bytes,
             presign_ttl,
-            allow_insecure_loopback: true,
+            allow_insecure_http: true,
         };
         config.validate()?;
         config.endpoint = config.endpoint.trim_end_matches('/').to_string();
@@ -118,12 +118,8 @@ impl R2Config {
     fn validate(&self) -> ApiResult<()> {
         let endpoint = Url::parse(&self.endpoint).map_err(|_| invalid_r2_config())?;
         let secure_endpoint = endpoint.scheme() == "https";
-        let allowed_loopback = self.allow_insecure_loopback
-            && endpoint.scheme() == "http"
-            && endpoint
-                .host_str()
-                .is_some_and(|host| matches!(host, "localhost" | "127.0.0.1" | "[::1]" | "::1"));
-        if (!secure_endpoint && !allowed_loopback)
+        let allowed_insecure_http = self.allow_insecure_http && endpoint.scheme() == "http";
+        if (!secure_endpoint && !allowed_insecure_http)
             || endpoint.host_str().is_none()
             || endpoint.path() != "/"
             || endpoint.query().is_some()
@@ -695,7 +691,7 @@ mod tests {
         ] {
             assert!(invalid.is_err());
         }
-        assert!(R2Config::new_insecure_loopback(
+        assert!(R2Config::new_insecure_http(
             "http://127.0.0.1:9000",
             "bucket",
             "access",
@@ -705,7 +701,7 @@ mod tests {
             Duration::from_secs(900),
         )
         .is_ok());
-        assert!(R2Config::new_insecure_loopback(
+        assert!(R2Config::new_insecure_http(
             "http://storage.example:9000",
             "bucket",
             "access",
@@ -714,7 +710,7 @@ mod tests {
             8 * 1024 * 1024,
             Duration::from_secs(900),
         )
-        .is_err());
+        .is_ok());
         assert!(R2Config::new(
             "https://account.r2.cloudflarestorage.com",
             "bucket",
@@ -793,7 +789,7 @@ mod tests {
             String::from_utf8(request).unwrap()
         });
 
-        let config = R2Config::new_insecure_loopback(
+        let config = R2Config::new_insecure_http(
             format!("http://{address}"),
             "private-bucket",
             "temporary-access",

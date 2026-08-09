@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseQueryable } from "./database-types.js";
-import type { HostedAuthorityRegistry } from "./hosted.js";
-import type { HostedProviderClient } from "./hosted-provider.js";
 import {
   createHostedCollectionForUser,
   type HostedServiceOptions
@@ -42,7 +40,6 @@ export async function scheduleStarterCollection(
 
 export async function provisionStarterCollection(
   options: HostedServiceOptions,
-  hostedReference: HostedAuthorityRegistry | undefined,
   publicUrl: string,
   userId: string
 ): Promise<StarterCollectionOnboarding> {
@@ -76,7 +73,7 @@ export async function provisionStarterCollection(
   try {
     await createHostedCollectionForUser(
       options,
-      hostedReference,
+      undefined,
       publicUrl,
       userId,
       STARTER_COLLECTION_NAME,
@@ -141,6 +138,4 @@ async function collectionStillExists(
 export interface StarterCollectionRouteOptions extends HostedServiceOptions {
   publicUrl: string;
   editorOrigin?: string;
-  hostedProvider?: HostedProviderClient;
-  hostedReference?: HostedAuthorityRegistry;
 }

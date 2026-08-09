@@ -1,4 +1,5 @@
 use mdbase_connect_protocol::SyncCollectionResources;
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -60,57 +61,44 @@ fn mdbase(timezone: &str, records: Vec<StoredDocument>) -> CollectionTemplate {
 }
 
 fn onboarding_records() -> Vec<StoredDocument> {
-    vec![
-        starter_record(
-            "019c0000-0000-7000-8000-000000000001",
-            "Start here.md",
-            r#"# Welcome to mdbase
+    let manifest: StarterTemplateManifest = serde_json::from_str(include_str!(
+        "../../../templates/onboarding/v1/template.json"
+    ))
+    .expect("the embedded onboarding template manifest is valid");
+    assert_eq!(manifest.id, "onboarding");
+    assert_eq!(manifest.version, "starter-v1");
+    assert_eq!(manifest.name, "Welcome to mdbase");
+    manifest
+        .records
+        .into_iter()
+        .map(|record| {
+            let document = match record.path.as_str() {
+                "Start here.md" => include_str!("../../../templates/onboarding/v1/Start here.md"),
+                "How collections work.md" => {
+                    include_str!("../../../templates/onboarding/v1/How collections work.md")
+                }
+                "Build with mdbase.md" => {
+                    include_str!("../../../templates/onboarding/v1/Build with mdbase.md")
+                }
+                path => panic!("onboarding template record has no embedded document: {path}"),
+            };
+            starter_record(&record.record_id, &record.path, document)
+        })
+        .collect()
+}
 
-This is your first hosted collection. It is private to your account until you explicitly give an app access.
+#[derive(Debug, Deserialize)]
+struct StarterTemplateManifest {
+    id: String,
+    version: String,
+    name: String,
+    records: Vec<StarterTemplateRecord>,
+}
 
-## Try the editor
-
-1. Change a sentence in this note and save it.
-2. Create a new note of your own.
-3. Move between notes using the collection list.
-
-Everything here is ordinary Markdown. The editor is one view of the collection, not the place your data is locked away.
-
-## When you are ready
-
-- Read [[How collections work]].
-- Open [[Build with mdbase]] when you want to connect another app or build one of your own.
-"#,
-        ),
-        starter_record(
-            "019c0000-0000-7000-8000-000000000002",
-            "How collections work.md",
-            r#"# How collections work
-
-A collection is a set of Markdown records with one authority. This starter collection is hosted by mdbase connect, so it is available wherever you sign in.
-
-Apps never receive access just because you have an account. When an app asks to connect, mdbase shows you the collection and permissions it wants. You approve that grant explicitly and can revoke it later.
-
-You can also mirror a hosted collection to a local folder with the desktop connector. The Markdown stays useful with or without a particular app.
-"#,
-        ),
-        starter_record(
-            "019c0000-0000-7000-8000-000000000003",
-            "Build with mdbase.md",
-            r#"# Build with mdbase
-
-The editor is your first mdbase app. It gives you a simple place to learn the model before you connect anything else.
-
-From here you can:
-
-- [install the desktop connector](https://mdbase.dev/downloads/) to mirror a collection to a folder;
-- authorize another mdbase app for only the collection and permissions it needs; or
-- [read the developer documentation](https://mdbase.dev/docs/) and build an app against mdbase connect.
-
-Keep this collection, rename it, or delete it when it has done its job. Deleting it will not make another starter collection appear.
-"#,
-        ),
-    ]
+#[derive(Debug, Deserialize)]
+struct StarterTemplateRecord {
+    record_id: String,
+    path: String,
 }
 
 fn starter_record(record_id: &str, path: &str, document: &str) -> StoredDocument {
@@ -124,6 +112,7 @@ fn starter_record(record_id: &str, path: &str, document: &str) -> StoredDocument
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     #[test]
     fn generic_mdbase_template_has_no_application_contracts() {
@@ -153,6 +142,24 @@ mod tests {
     fn onboarding_template_contains_a_small_editable_start() {
         let template = resources("onboarding", "UTC").unwrap();
         assert_eq!(template.records.len(), 3);
+        assert_eq!(
+            template
+                .records
+                .iter()
+                .map(|record| record.record_id)
+                .collect::<HashSet<_>>()
+                .len(),
+            template.records.len()
+        );
+        assert_eq!(
+            template
+                .records
+                .iter()
+                .map(|record| record.path.as_str())
+                .collect::<HashSet<_>>()
+                .len(),
+            template.records.len()
+        );
         assert_eq!(template.records[0].path, "Start here.md");
         assert!(template.records[0].document.contains("Try the editor"));
         assert!(template.records[2]

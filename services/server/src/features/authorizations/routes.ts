@@ -708,7 +708,7 @@ export function registerAuthorizationRoutes(
         !access
         || !hosted
         || hosted.locator.authorityState !== "active"
-        || (!options.hostedProvider && !options.hostedReference)
+        || !options.hostedProvider
       ) {
         return reply.code(404).send(apiError("collection_not_found", "Collection not found."));
       }
@@ -716,23 +716,18 @@ export function registerAuthorizationRoutes(
       if (input.contract_setups.length > 0) {
         requireCollectionAction(access, "schema.manage");
       }
-      approved = await approveHostedAuthorization(
-        options.db,
-        options.hostedProvider,
-        options.hostedReference,
-        {
-          requestId,
-          userId: user.id,
-          collectionId: input.collection_id,
-          operations: input.operations,
-          contracts: effectiveHostedContractDescriptors(
-            hosted.contracts,
-            hosted.template
-          ),
-          contractSetups: input.contract_setups,
-          access
-        }
-      );
+      approved = await approveHostedAuthorization(options.db, options.hostedProvider, {
+        requestId,
+        userId: user.id,
+        collectionId: input.collection_id,
+        operations: input.operations,
+        contracts: effectiveHostedContractDescriptors(
+          hosted.contracts,
+          hosted.template
+        ),
+        contractSetups: input.contract_setups,
+        access
+      });
     }
     if (!approved) return reply.code(404).send(apiError("authorization_not_found", "Authorization request expired or was not found."));
     return { ok: true };

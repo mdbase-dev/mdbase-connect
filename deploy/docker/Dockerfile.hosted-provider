@@ -16,6 +16,7 @@ COPY Cargo.toml ./
 # published revision above so a dirty sibling cannot affect the image graph.
 COPY deploy/docker/Cargo.lock.hosted-provider ./Cargo.lock
 COPY crates crates
+COPY templates templates
 RUN cargo build --locked --release -p mdbase-connect-hosted-provider
 
 FROM debian:bookworm-slim AS runtime

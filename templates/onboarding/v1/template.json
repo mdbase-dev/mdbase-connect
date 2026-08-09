@@ -1,0 +1,19 @@
+{
+  "id": "onboarding",
+  "version": "starter-v1",
+  "name": "Welcome to mdbase",
+  "records": [
+    {
+      "record_id": "019c0000-0000-7000-8000-000000000001",
+      "path": "Start here.md"
+    },
+    {
+      "record_id": "019c0000-0000-7000-8000-000000000002",
+      "path": "How collections work.md"
+    },
+    {
+      "record_id": "019c0000-0000-7000-8000-000000000003",
+      "path": "Build with mdbase.md"
+    }
+  ]
+}

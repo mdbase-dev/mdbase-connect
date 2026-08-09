@@ -237,7 +237,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 internal_token: secrets.internal_token.clone(),
             });
     let r2_config = if arguments.allow_insecure_r2 {
-        R2Config::new_insecure_loopback(
+        R2Config::new_insecure_http(
             arguments.r2_endpoint,
             arguments.r2_bucket,
             secrets.r2_access_key_id,

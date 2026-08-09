@@ -82,7 +82,7 @@ pnpm dev:environment:down
 and starts a clean stack.
 
 To replay the complete invited-account onboarding flow with a fresh database,
-a beta invitation, the reference hosted authority, and the local editor:
+a beta invitation, the Rust hosted provider, and the local editor:
 
 ```bash
 pnpm dev:onboarding -- onboarding@example.com

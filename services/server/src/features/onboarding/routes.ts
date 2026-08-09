@@ -14,12 +14,11 @@ export function registerOnboardingRoutes(
   app.post("/v1/onboarding/starter-collection", async (request, reply) => {
     const user = await requireUser(request, reply, options.db);
     if (!user) return;
-    if (!options.hostedCollections) {
+    if (!options.hostedCollections || !options.hostedProvider) {
       return reply.code(404).send(apiError("not_found", "Not found."));
     }
     const result = await provisionStarterCollection(
       options,
-      options.hostedReference,
       options.publicUrl,
       user.id
     );
