@@ -185,12 +185,14 @@ impl HostedProvider {
             }
             "create" | "update" | "delete" | "rename" => {
                 let request_input = input;
-                let mutation_lease = mutation_lease.ok_or_else(|| {
-                    ApiError::internal("Hosted record mutation has no journal lease.")
-                })?;
-                let prepared = self
-                    .load_operation_preparation(collection_id, mutation_lease)
-                    .await?;
+                let is_preflight =
+                    request_input.get("dry_run").and_then(Value::as_bool) == Some(true);
+                let prepared = if let Some(mutation_lease) = mutation_lease {
+                    self.load_operation_preparation(collection_id, mutation_lease)
+                        .await?
+                } else {
+                    None
+                };
                 let (input, selector) = if prepared.is_some() {
                     let selector = contract_scope
                         .as_ref()
@@ -239,8 +241,20 @@ impl HostedProvider {
                 } else {
                     (request_input.clone(), None)
                 };
-                let result = self
-                    .write_operation(
+                let result = if is_preflight {
+                    self.preflight_record_operation(
+                        collection_id,
+                        replica,
+                        operation,
+                        request_id,
+                        input,
+                    )
+                    .await?
+                } else {
+                    let mutation_lease = mutation_lease.ok_or_else(|| {
+                        ApiError::internal("Hosted record mutation has no journal lease.")
+                    })?;
+                    self.write_operation(
                         RecordOperationContext {
                             collection_id,
                             token,
@@ -252,7 +266,8 @@ impl HostedProvider {
                         input,
                         prepared,
                     )
-                    .await?;
+                    .await?
+                };
                 if operation == "delete" {
                     return Ok(result);
                 }

@@ -1,14 +1,19 @@
 use super::mutation_journal::HostedMutationLease;
 use super::*;
 
+enum RecordOperationPreparation<'a> {
+    Preflight,
+    Mutation(&'a HostedMutationLease),
+}
+
 impl HostedProvider {
-    pub(super) async fn prepare_record_operation(
+    async fn prepare_record_operation(
         &self,
         collection_id: Uuid,
         replica: &Replica,
         operation: &str,
         request_id: Uuid,
-        mutation_lease: &HostedMutationLease,
+        preparation: RecordOperationPreparation<'_>,
         input: Value,
     ) -> ApiResult<PreparedRecordOperation> {
         let mut operation_input = input.as_object().cloned().ok_or_else(|| {
@@ -165,22 +170,72 @@ impl HostedProvider {
             previous_path,
             include_document,
         };
-        if prepared
+        let dry_run = prepared
             .semantic_input
             .get("dry_run")
             .and_then(Value::as_bool)
-            != Some(true)
-        {
-            self.store_operation_preparation_in(
-                &mut transaction,
-                &data_key,
-                mutation_lease,
-                &prepared,
-            )
-            .await?;
+            == Some(true);
+        match (preparation, dry_run) {
+            (RecordOperationPreparation::Preflight, true) => {}
+            (RecordOperationPreparation::Mutation(mutation_lease), false) => {
+                self.store_operation_preparation_in(
+                    &mut transaction,
+                    &data_key,
+                    mutation_lease,
+                    &prepared,
+                )
+                .await?;
+            }
+            (RecordOperationPreparation::Preflight, false) => {
+                return Err(ApiError::internal(
+                    "Hosted record mutation entered read-only preparation.",
+                ));
+            }
+            (RecordOperationPreparation::Mutation(_), true) => {
+                return Err(ApiError::internal(
+                    "Hosted record preflight entered mutation preparation.",
+                ));
+            }
         }
         transaction.commit().await?;
         Ok(prepared)
+    }
+
+    pub(super) async fn preflight_record_operation(
+        &self,
+        collection_id: Uuid,
+        replica: &Replica,
+        operation: &str,
+        request_id: Uuid,
+        input: Value,
+    ) -> ApiResult<Value> {
+        if input.get("dry_run").and_then(Value::as_bool) != Some(true) {
+            return Err(ApiError::internal(
+                "Hosted record preflight requires a dry-run operation.",
+            ));
+        }
+        let prepared = self
+            .prepare_record_operation(
+                collection_id,
+                replica,
+                operation,
+                request_id,
+                RecordOperationPreparation::Preflight,
+                input,
+            )
+            .await?;
+        let result = self
+            .execute_read_operation(
+                collection_id,
+                &prepared.semantic_operation,
+                &Value::Object(prepared.semantic_input),
+            )
+            .await?;
+        serde_json::to_value(result).map_err(|error| {
+            ApiError::internal(format!(
+                "Hosted operation preflight could not serialize: {error}"
+            ))
+        })
     }
 
     pub(super) async fn write_operation(
@@ -198,29 +253,10 @@ impl HostedProvider {
                         context.replica,
                         context.operation,
                         context.request_id,
-                        context.mutation_lease,
+                        RecordOperationPreparation::Mutation(context.mutation_lease),
                         input,
                     )
                     .await?;
-                if prepared
-                    .semantic_input
-                    .get("dry_run")
-                    .and_then(Value::as_bool)
-                    == Some(true)
-                {
-                    let result = self
-                        .execute_read_operation(
-                            context.collection_id,
-                            &prepared.semantic_operation,
-                            &Value::Object(prepared.semantic_input),
-                        )
-                        .await?;
-                    return serde_json::to_value(result).map_err(|error| {
-                        ApiError::internal(format!(
-                            "Hosted operation preflight could not serialize: {error}"
-                        ))
-                    });
-                }
                 prepared
             }
         };
