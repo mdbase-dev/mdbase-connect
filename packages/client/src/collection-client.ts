@@ -919,13 +919,17 @@ function wireCollectionSetupAssessment(value: WireCollectionSetupAssessment): Co
     provisionDigest: value.provision_digest,
     collectionRevision: value.collection_revision,
     finalCollectionRevision: value.final_collection_revision,
+    baselineDiagnosticCount: value.baseline_diagnostic_count,
+    finalDiagnosticCount: value.final_diagnostic_count,
+    resolvedDiagnosticCount: value.resolved_diagnostic_count,
+    introducedDiagnosticCount: value.introduced_diagnostic_count,
+    baselineDiagnosticDigest: value.baseline_diagnostic_digest,
     configuration: value.configuration,
     typePacks: value.type_packs.map(wireTypePackAssessment),
     finalResourceRevisions: value.final_resource_revisions,
     assessmentDigest: value.assessment_digest
   };
 }
-
 function wireCollectionSetupReceipt(value: import("@mdbase-dev/connect-protocol").CollectionSetupReceipt): import("./operation-types.js").CollectionSetupReceipt {
   return {
     applicationId: value.application_id,

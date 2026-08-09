@@ -96,6 +96,11 @@ pub enum ConnectError {
         message: String,
         diagnostics: Vec<Value>,
     },
+    #[error("{message}")]
+    ApplicationSetupRejected {
+        message: String,
+        diagnostics: Vec<Value>,
+    },
     #[error("Collection identity {collection_id} is already registered at {existing_path}")]
     DuplicateCollectionIdentity {
         collection_id: Uuid,
@@ -184,6 +189,7 @@ impl ConnectError {
             Self::CollectionInit(_) => "collection_init_failed",
             Self::CollectionOpen(_) => "collection_open_failed",
             Self::CollectionInvalid { code, .. } => code.as_str(),
+            Self::ApplicationSetupRejected { .. } => "collection_setup_rejected",
             Self::DuplicateCollectionIdentity { .. } => "duplicate_collection_identity",
             Self::MirrorCannotRegister { .. } => "mirror_cannot_register",
             Self::InvalidMirrorMarker(_) => "invalid_mirror_marker",
@@ -216,6 +222,16 @@ impl ConnectError {
             Self::InvalidTimer(_) => "invalid_timer_request",
             Self::TimerRuntime(_) => "timer_runtime_failed",
             Self::Provider(_) => "collection_provider_failed",
+        }
+    }
+
+    pub fn details(&self) -> Option<Value> {
+        match self {
+            Self::CollectionInvalid { diagnostics, .. }
+            | Self::ApplicationSetupRejected { diagnostics, .. } => {
+                Some(json!({ "diagnostics": diagnostics }))
+            }
+            _ => None,
         }
     }
 

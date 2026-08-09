@@ -11,7 +11,8 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(
       response.status,
       body?.error?.message ?? `Request failed with HTTP ${response.status}.`,
-      typeof body?.error?.code === "string" ? body.error.code : undefined
+      typeof body?.error?.code === "string" ? body.error.code : undefined,
+      body?.error?.details
     );
   }
   return body as T;
@@ -21,7 +22,8 @@ export class ApiError extends Error {
   constructor(
     public readonly status: number,
     message: string,
-    public readonly code?: string
+    public readonly code?: string,
+    public readonly details?: unknown
   ) {
     super(message);
   }

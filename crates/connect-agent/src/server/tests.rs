@@ -200,6 +200,28 @@ fn live_authorization_is_acknowledged_only_after_the_grant_is_stored() {
     let collection = registry
         .create(test_root.join("collection"), Some("Live notes"), "UTC")
         .unwrap();
+    fs::write(
+        test_root.join("collection/_types/note.md"),
+        r#"---
+kind: mdbase.type
+name: note
+version: 1
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    required: [title]
+    properties:
+      title: { type: string }
+---
+"#,
+    )
+    .unwrap();
+    fs::write(
+        test_root.join("collection/broken.md"),
+        "---\ntype: note\n---\n",
+    )
+    .unwrap();
     let watcher = CollectionWatchService::start(registry.clone());
     let connector_identity = RelayIdentity::generate();
     let state =
@@ -306,6 +328,8 @@ fn live_authorization_is_acknowledged_only_after_the_grant_is_stored() {
         activation,
         RelayMessage::AuthorizationActivationResponse {
             ok: true,
+            setup_assessment: None,
+            provision_receipt: None,
             error: None,
             ..
         }

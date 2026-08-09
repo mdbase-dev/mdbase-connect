@@ -12,7 +12,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0-beta.49"
+version = "0.1.0-beta.50"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/mdbase-dev/mdbase-connect"
@@ -37,7 +37,7 @@ futures-util = "0.3"
 hkdf = "0.12"
 hmac = "0.12"
 mdbase = { path = "../mdbase-rs" }
-mdbase-interop = { version = "0.1.0-rc.2", git = "https://github.com/mdbase-dev/mdbase-spec.git", rev = "4f305d8b90408f58aefa62542d676f349956c151" }
+mdbase-interop = { version = "0.1.0-rc.2", git = "https://github.com/mdbase-dev/mdbase-spec.git", rev = "b133c8c24531d793e9ca0dbc93cb7a3b55d01776" }
 mdbase-runtime = { path = "../mdbase-rs/crates/mdbase-runtime" }
 notify = "8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-webpki-roots-no-provider"] }

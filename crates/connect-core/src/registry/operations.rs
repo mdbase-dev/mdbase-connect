@@ -854,24 +854,38 @@ fn add_reviewable_setup_adoptions(
 }
 
 fn type_pack_setup_error(result: &mdbase::v03::OperationResult) -> ConnectError {
-    ConnectError::AccessDenied(
-        result
-            .diagnostics
-            .first()
-            .map(|diagnostic| diagnostic.message.clone())
-            .or_else(|| {
-                result.result["resources"]
-                    .as_array()
-                    .and_then(|resources| {
-                        resources
-                            .iter()
-                            .find(|resource| resource["action"] == "conflict")
-                    })
-                    .and_then(|resource| resource["reason"].as_str())
-                    .map(str::to_string)
-            })
-            .unwrap_or_else(|| "Contract setup was rejected.".to_string()),
-    )
+    let message = result
+        .diagnostics
+        .first()
+        .map(|diagnostic| diagnostic.message.clone())
+        .or_else(|| {
+            result.result["resources"]
+                .as_array()
+                .and_then(|resources| {
+                    resources
+                        .iter()
+                        .find(|resource| resource["action"] == "conflict")
+                })
+                .and_then(|resource| resource["reason"].as_str())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "Contract setup was rejected.".to_string());
+    let mut diagnostics = result
+        .diagnostics
+        .iter()
+        .filter_map(|diagnostic| serde_json::to_value(diagnostic).ok())
+        .collect::<Vec<_>>();
+    if diagnostics.is_empty() {
+        diagnostics.push(json!({
+            "code": "collection_setup_conflict",
+            "severity": "error",
+            "message": message,
+        }));
+    }
+    ConnectError::ApplicationSetupRejected {
+        message,
+        diagnostics,
+    }
 }
 
 fn required_setup_string(result: &Value, key: &str) -> Result<String, ConnectError> {

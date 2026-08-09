@@ -621,8 +621,13 @@ schema:
         )
         .unwrap_err();
 
-    assert_eq!(error.code(), "access_denied");
+    assert_eq!(error.code(), "collection_setup_rejected");
     assert!(error.to_string().contains("changed after it was reviewed"));
+    assert!(error.details().is_some_and(|details| {
+        details["diagnostics"]
+            .as_array()
+            .is_some_and(|diagnostics| !diagnostics.is_empty())
+    }));
     assert_eq!(
         fs::read_to_string(root.join("_types/note.md")).unwrap(),
         original

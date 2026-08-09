@@ -77,3 +77,17 @@ generates a manifest for the staging editor origin, and targets the same-site
 `https://connect-staging.mdbase.dev` control-plane origin. The Pages API attaches the
 custom domain idempotently; Cloudflare DNS must proxy
 `editor-staging.mdbase.dev` to `staging.mdbase-editor.pages.dev`.
+
+To publish the current working tree to that development surface without waiting
+for CI, sign in with Wrangler once, then run:
+
+```sh
+pnpm dlx wrangler@4.114.0 login
+pnpm deploy:dev
+```
+
+The command builds workspace packages, generates the editor for the staging
+origins, deploys the `staging` Pages branch using Wrangler's current login, and
+verifies the deployed manifest and assets. The Pages project already owns the
+custom domain. The command restores the pre-existing local manifest after the
+build.

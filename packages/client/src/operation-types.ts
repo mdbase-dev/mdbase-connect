@@ -561,6 +561,11 @@ export interface CollectionSetupAssessment {
   provisionDigest: string;
   collectionRevision: string;
   finalCollectionRevision: string;
+  baselineDiagnosticCount: number;
+  finalDiagnosticCount: number;
+  resolvedDiagnosticCount: number;
+  introducedDiagnosticCount: number;
+  baselineDiagnosticDigest: string;
   configuration: ConfigurationSetupAssessment[];
   typePacks: TypePackAssessment[];
   finalResourceRevisions: Record<string, string>;

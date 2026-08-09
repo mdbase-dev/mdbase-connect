@@ -108,7 +108,7 @@ describe("live connector-mediated authorization", () => {
       if (socket.readyState === WebSocket.OPEN) socket.close();
     });
     const relayMessages: Array<Record<string, unknown>> = [];
-    let activationError: { code: string; message: string } | null = null;
+    let activationError: { code: string; message: string; details?: unknown } | null = null;
     let holdActivation = true;
     let releaseActivation!: () => void;
     let activationReceived!: () => void;
@@ -309,7 +309,15 @@ describe("live connector-mediated authorization", () => {
     holdActivation = false;
     activationError = {
       code: "access_paused",
-      message: "Remote access was paused before activation."
+      message: "Remote access was paused before activation.",
+      details: {
+        diagnostics: [{
+          code: "schema_required",
+          severity: "error",
+          path: "broken.md",
+          message: "Required property 'title' is missing."
+        }]
+      }
     };
     const rejectedRequestId = await createAuthorizationRequest(
       app,
@@ -335,7 +343,8 @@ describe("live connector-mediated authorization", () => {
     });
     expect(rejected.statusCode).toBe(409);
     expect(rejected.json().error).toMatchObject({
-      code: "access_paused"
+      code: "access_paused",
+      details: activationError.details
     });
     const abandoned = await db.query<{
       grant_id: string | null;

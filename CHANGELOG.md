@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-beta.50
+
+Beta.50 makes application authorization independent from collection repair and
+keeps collection-setup failures actionable.
+
+- Applications that require no collection setup can be authorized even when
+  unrelated existing records have validation errors.
+- Required setup compares staged diagnostics with the collection baseline,
+  preserving existing errors while rejecting errors introduced by the setup.
+- Connector diagnostics now survive the relay and appear in the portal with
+  their affected collection path while the selected collection stays in place.
+- The editor development deployment has a documented, verified staging helper.
+
 ## 0.1.0-beta.49
 
 Beta.49 gives new accounts a useful first collection and sends them directly

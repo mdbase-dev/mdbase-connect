@@ -74,6 +74,11 @@ export interface CollectionSetupAssessment {
   provision_digest: string;
   collection_revision: string;
   final_collection_revision: string;
+  baseline_diagnostic_count: number;
+  final_diagnostic_count: number;
+  resolved_diagnostic_count: number;
+  introduced_diagnostic_count: number;
+  baseline_diagnostic_digest: string;
   configuration: ConfigurationSetupAssessment[];
   type_packs: TypePackAssessment[];
   final_resource_revisions: Record<string, string>;

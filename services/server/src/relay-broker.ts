@@ -27,7 +27,7 @@ export interface RelayBrokerCommand {
 }
 
 export type RelayBrokerError =
-  | { kind: "connector"; problem: ConnectProblem }
+  | { kind: "connector"; problem: ConnectProblem; details?: unknown }
   | { kind: "unavailable" | "internal"; code: string; message: string };
 
 export type RelayBrokerReply = {

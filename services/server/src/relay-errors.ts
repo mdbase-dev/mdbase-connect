@@ -9,10 +9,17 @@ export class RelayUnavailableError extends Error {
 
 export class ConnectorOperationError extends Error {
   readonly problem: ConnectProblem;
+  readonly details: unknown;
 
-  constructor(public readonly code: string, message: string, problem?: ConnectProblem) {
+  constructor(
+    public readonly code: string,
+    message: string,
+    problem?: ConnectProblem,
+    details?: unknown
+  ) {
     super(message);
     this.problem = problem ?? normalizeConnectProblem(code, message);
+    this.details = details;
   }
 
   static fromProblem(problem: ConnectProblem): ConnectorOperationError {

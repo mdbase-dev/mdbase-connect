@@ -5,7 +5,7 @@ import type {
   TypePackProvision
 } from "./api";
 
-const editorBaseUrl = import.meta.env.VITE_MDBASE_EDITOR_URL ?? "https://editor.mdbase.dev/";
+const editorBaseUrl = import.meta.env?.VITE_MDBASE_EDITOR_URL ?? "https://editor.mdbase.dev/";
 
 export function editorConnectUrl(connectOrigin = location.origin): string {
   const url = new URL("connect", editorBaseUrl);
@@ -15,7 +15,19 @@ export function editorConnectUrl(connectOrigin = location.origin): string {
 
 export function initials(value: string) { return value.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase(); }
 export function message(value: unknown) {
-  const detail = value instanceof Error ? value.message : String(value);
+  let detail = value instanceof Error ? value.message : String(value);
+  if (value && typeof value === "object" && "details" in value) {
+    const diagnostics = (value.details as { diagnostics?: unknown } | undefined)?.diagnostics;
+    const first = Array.isArray(diagnostics) ? diagnostics[0] : undefined;
+    if (first && typeof first === "object") {
+      const diagnostic = first as { message?: unknown; path?: unknown };
+      if (typeof diagnostic.message === "string") {
+        detail = typeof diagnostic.path === "string"
+          ? `${diagnostic.message} (${diagnostic.path})`
+          : diagnostic.message;
+      }
+    }
+  }
   if (/failed to fetch|networkerror|network request failed/i.test(detail)) {
     return "mdbase connect could not reach the service. Check your connection and try again.";
   }

@@ -202,7 +202,7 @@ export class RelayHub {
           request_id?: string;
           ok?: boolean;
           result?: unknown;
-          error?: { code?: string; message?: string };
+          error?: { code?: string; message?: string; details?: unknown };
           problem?: unknown;
           protocol_version?: number;
           suite?: string;
@@ -299,7 +299,9 @@ export class RelayHub {
               message.request_id,
               new ConnectorOperationError(
                 message.error?.code ?? "authorization_activation_failed",
-                message.error?.message ?? "The connector could not activate this authorization."
+                message.error?.message ?? "The connector could not activate this authorization.",
+                undefined,
+                message.error?.details
               )
             );
           }
@@ -611,7 +613,14 @@ export class RelayHub {
     if (reply.ok) return reply.value;
     if (reply.error.kind === "unavailable") throw new RelayUnavailableError();
     if (reply.error.kind === "connector") {
-      throw ConnectorOperationError.fromProblem(reply.error.problem);
+      throw new ConnectorOperationError(
+        reply.error.problem.code === "unknown"
+          ? reply.error.problem.server_code
+          : reply.error.problem.code,
+        reply.error.problem.message,
+        reply.error.problem,
+        reply.error.details
+      );
     }
     throw new ConnectorOperationError(reply.error.code, reply.error.message);
   }
@@ -657,7 +666,7 @@ export class RelayHub {
           return brokerError("unavailable", "connector_offline", error.message);
         }
         if (error instanceof ConnectorOperationError) {
-          return brokerProblem(error.problem);
+          return brokerProblem(error.problem, error.details);
         }
         return brokerError("internal", "policy_delivery_failed", "The connector could not apply its policy.");
       }
@@ -684,7 +693,7 @@ export class RelayHub {
         return brokerError("unavailable", "connector_offline", error.message);
       }
       if (error instanceof ConnectorOperationError) {
-        return brokerProblem(error.problem);
+        return brokerProblem(error.problem, error.details);
       }
       return brokerError("internal", "relay_delivery_failed", "The relay could not deliver the request.");
     }
@@ -963,8 +972,9 @@ function brokerError(
   return { version: 1, ok: false, error: { kind, code, message } };
 }
 
-function brokerProblem(problem: ConnectProblem): RelayBrokerReply {
-  return { version: 1, ok: false, error: { kind: "connector", problem } };
+function brokerProblem(problem: ConnectProblem, details?: unknown): RelayBrokerReply {
+  const error = { kind: "connector" as const, problem, ...(details === undefined ? {} : { details }) };
+  return { version: 1, ok: false, error };
 }
 
 function matchesEncryptedMetadata(

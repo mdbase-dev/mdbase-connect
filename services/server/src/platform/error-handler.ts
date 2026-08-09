@@ -95,7 +95,7 @@ export function registerErrorHandler(app: FastifyInstance): void {
           "privacy-safe Connect metric"
         );
       }
-      return reply.code(409).send(apiError(error.code, error.message));
+      return reply.code(409).send(apiError(error.code, error.message, error.details));
     }
     if (error instanceof SyncError) {
       const denied =

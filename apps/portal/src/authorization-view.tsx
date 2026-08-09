@@ -128,6 +128,7 @@ export function Authorization({ requestId }: { requestId: string }) {
     () => new URLSearchParams(location.search).get("continue_in_desktop") === "1"
   );
   const [error, setError] = useState("");
+  const [decisionError, setDecisionError] = useState("");
   const returning = useRef(false);
   useSystemTheme();
 
@@ -170,6 +171,7 @@ export function Authorization({ requestId }: { requestId: string }) {
           redirect_uri?: string;
         }>(`/v1/authorization-requests/${requestId}/status`);
         if (returning.current) return;
+        if (decisionError && value.status === "setting_up") return;
         setStatus(value.status);
         if (value.redirect_uri) {
           returning.current = true;
@@ -182,7 +184,7 @@ export function Authorization({ requestId }: { requestId: string }) {
     void checkStatus();
     const timer = window.setInterval(() => void checkStatus(), 1_000);
     return () => window.clearInterval(timer);
-  }, [requestId]);
+  }, [decisionError, requestId]);
 
   if (!request) return <Loading error={error} />;
   const authorization = request.authorization;
@@ -215,7 +217,7 @@ export function Authorization({ requestId }: { requestId: string }) {
           />
         ) : status === "pending" ? <>
           <p>{authorization.application_name} wants to use one collection.</p>
-          {error && <div className="message error">{error}</div>}
+          {(decisionError || error) && <div className="message error" role="alert">{decisionError || error}</div>}
           <ApprovalForm
             request={authorization}
             canCreateHosted={request.hosted_collections_available !== false}
@@ -223,6 +225,7 @@ export function Authorization({ requestId }: { requestId: string }) {
             unavailableConnectors={request.unavailable_connectors}
             onContinueInDesktop={() => continueInDesktop(true)}
             onDecision={(decision) => setStatus(decision)}
+            onDecisionError={(detail) => { setDecisionError(detail); setStatus("pending"); }}
             onSetupActivityChange={setStructuralSetupRequested}
             onCollectionCreated={(collection) => setRequest((current) => current ? {
               ...current,
@@ -455,6 +458,7 @@ export function ApprovalForm({
   unavailableConnectors = [],
   onContinueInDesktop,
   onDecision,
+  onDecisionError,
   onSetupActivityChange,
   onCollectionCreated
 }: {
@@ -464,6 +468,7 @@ export function ApprovalForm({
   unavailableConnectors?: UnavailableConnector[];
   onContinueInDesktop?(): void;
   onDecision(decision: "approved" | "denied"): void | Promise<void>;
+  onDecisionError(detail: string): void;
   onSetupActivityChange?(active: boolean): void;
   onCollectionCreated(collection: AvailableCollection): void;
 }) {
@@ -646,6 +651,7 @@ export function ApprovalForm({
     if (preparingSetup) onSetupActivityChange?.(true);
     setSubmitting(decision);
     setError("");
+    onDecisionError("");
     try {
       await api(`/v1/authorization-requests/${request.id}/${decision === "approved" ? "approve" : "deny"}`, {
         method: "POST",
@@ -662,7 +668,7 @@ export function ApprovalForm({
       await onDecision(decision);
     } catch (decisionError) {
       if (preparingSetup) onSetupActivityChange?.(false);
-      setError(message(decisionError));
+      onDecisionError(message(decisionError));
       setSubmitting(null);
     }
   }
