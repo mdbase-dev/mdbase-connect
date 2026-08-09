@@ -955,3 +955,36 @@ fn change_pages_resume_by_cursor_and_omit_record_snapshots() {
     assert!(page.events[0].payload.get("after").is_none());
     assert_eq!(page.cursor, 1);
 }
+
+#[test]
+fn watcher_change_bursts_share_one_ordered_inventory_write() {
+    let state = tempdir().unwrap();
+    let collection_parent = tempdir().unwrap();
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let collection = registry
+        .create(collection_parent.path().join("notes"), Some("Notes"), "UTC")
+        .unwrap();
+    let events = ["one.md", "two.md"].map(|path| mdbase::watch::WatchEvent {
+        event_type: "mdbase.record.modified".to_string(),
+        sequence: 1,
+        occurred_at: "2026-08-09T12:00:00.000Z".to_string(),
+        payload: json!({ "path": path, "before": {}, "after": {} }),
+    });
+
+    assert_eq!(
+        registry.append_changes(collection.id, &events).unwrap(),
+        vec![1, 2]
+    );
+    let connection = registry.connection().unwrap();
+    let (observed_generation, changes): (u64, u64) = connection
+        .query_row(
+            "SELECT observed_generation,
+                    (SELECT COUNT(*) FROM collection_changes WHERE collection_id = ?1)
+             FROM collection_file_inventory_state WHERE collection_id = ?1",
+            [collection.id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(observed_generation, 2);
+    assert_eq!(changes, 2);
+}

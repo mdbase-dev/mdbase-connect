@@ -208,23 +208,31 @@ fn start_worker(
                     if let Err(error) = result {
                         tracing::warn!(collection_id = %collection_id, %error, "collection rescan failed");
                     }
+                    let mut events = Vec::new();
                     while let Ok(Some(event)) = watcher.recv_timeout(Duration::ZERO) {
-                        persist_event(&registry, collection_id, &event, runtime_events.as_ref());
+                        events.push(event);
                     }
+                    persist_events(&registry, collection_id, &events, runtime_events.as_ref());
                     let _ = ready.send(());
                 }
+                let mut events = Vec::new();
                 loop {
                     match watcher.recv_timeout(Duration::ZERO) {
-                        Ok(Some(event)) => {
-                            persist_event(&registry, collection_id, &event, runtime_events.as_ref())
-                        }
+                        Ok(Some(event)) => events.push(event),
                         Ok(None) => break,
                         Err(error) => {
+                            persist_events(
+                                &registry,
+                                collection_id,
+                                &events,
+                                runtime_events.as_ref(),
+                            );
                             tracing::warn!(collection_id = %collection_id, %error, "collection watcher stopped");
                             return;
                         }
                     }
                 }
+                persist_events(&registry, collection_id, &events, runtime_events.as_ref());
                 // External filesystem events may wait up to this interval;
                 // explicit mutation synchronization unparks the worker and is
                 // processed immediately without a polling tax.
@@ -239,12 +247,15 @@ fn start_worker(
     })
 }
 
-fn persist_event(
+fn persist_events(
     registry: &CollectionRegistry,
     collection_id: Uuid,
-    event: &mdbase::watch::WatchEvent,
+    events: &[mdbase::watch::WatchEvent],
     runtime_events: Option<&tokio::sync::mpsc::UnboundedSender<CollectionRuntimeEvent>>,
 ) {
+    if events.is_empty() {
+        return;
+    }
     match registry.get(collection_id) {
         Ok(collection) if collection.enabled => {}
         Ok(_) => {
@@ -263,22 +274,21 @@ fn persist_event(
             return;
         }
     }
-    if let Err(error) = registry.mark_file_inventory_dirty(collection_id) {
-        tracing::warn!(collection_id = %collection_id, %error, "failed to mark the file inventory dirty");
-    }
-    match registry.append_change(collection_id, event) {
+    match registry.append_changes(collection_id, events) {
         Err(error) => {
-            tracing::warn!(collection_id = %collection_id, %error, "failed to persist collection change");
+            tracing::warn!(collection_id = %collection_id, event_count = events.len(), %error, "failed to persist collection changes");
         }
-        Ok(cursor) => {
+        Ok(cursors) => {
             if let Some(runtime_events) = runtime_events {
-                let _ = runtime_events.send(CollectionRuntimeEvent {
-                    collection_id,
-                    cursor,
-                    event: event.clone(),
-                });
+                for (event, cursor) in events.iter().zip(cursors.iter().copied()) {
+                    let _ = runtime_events.send(CollectionRuntimeEvent {
+                        collection_id,
+                        cursor,
+                        event: event.clone(),
+                    });
+                }
             }
-            tracing::debug!(collection_id = %collection_id, event_type = %event.event_type, sequence = event.sequence, cursor, "collection change recorded");
+            tracing::debug!(collection_id = %collection_id, event_count = events.len(), first_cursor = cursors.first(), last_cursor = cursors.last(), "collection changes recorded");
         }
     }
 }

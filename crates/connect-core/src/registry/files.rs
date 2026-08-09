@@ -70,18 +70,27 @@ impl CollectionRegistry {
     /// for every collection watcher event, including record and configuration events.
     pub fn mark_file_inventory_dirty(&self, id: Uuid) -> Result<(), ConnectError> {
         self.get(id)?;
-        self.connection()?.execute(
+        Self::mark_file_inventory_dirty_in(&self.connection()?, id, 1)?;
+        Ok(())
+    }
+
+    pub(super) fn mark_file_inventory_dirty_in(
+        connection: &Connection,
+        id: Uuid,
+        generations: u64,
+    ) -> Result<(), ConnectError> {
+        let generations = i64::try_from(generations).unwrap_or(i64::MAX);
+        connection.execute(
             "INSERT INTO collection_file_inventory_state
                 (collection_id, observed_generation, reconciled_generation,
                  index_revision, reconciled_at_ms)
-             VALUES (?1, 1, 0, 0, 0)
+             VALUES (?1, ?2, 0, 0, 0)
              ON CONFLICT(collection_id) DO UPDATE SET
-                observed_generation = CASE
-                    WHEN observed_generation < 9223372036854775807
-                    THEN observed_generation + 1
-                    ELSE observed_generation
-                END",
-            [id.to_string()],
+                observed_generation = MIN(
+                    9223372036854775807,
+                    observed_generation + ?2
+                )",
+            params![id.to_string(), generations],
         )?;
         Ok(())
     }

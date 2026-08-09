@@ -114,37 +114,63 @@ impl CollectionRegistry {
         collection_id: Uuid,
         event: &mdbase::watch::WatchEvent,
     ) -> Result<u64, ConnectError> {
+        self.append_changes(collection_id, std::slice::from_ref(event))?
+            .into_iter()
+            .next()
+            .ok_or_else(|| ConnectError::InvalidInput("A collection change is required.".into()))
+    }
+
+    pub fn append_changes(
+        &self,
+        collection_id: Uuid,
+        events: &[mdbase::watch::WatchEvent],
+    ) -> Result<Vec<u64>, ConnectError> {
         self.get(collection_id)?;
-        let mut payload = event.payload.clone();
-        if let Some(object) = payload.as_object_mut() {
-            object.remove("before");
-            object.remove("after");
+        if events.is_empty() {
+            return Ok(Vec::new());
         }
         let mut connection = self.connection()?;
-        let transaction = connection.transaction()?;
-        let cursor: i64 = transaction.query_row(
-            "SELECT COALESCE(MAX(cursor), 0) + 1 FROM collection_changes WHERE collection_id = ?1",
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        Self::mark_file_inventory_dirty_in(
+            &transaction,
+            collection_id,
+            u64::try_from(events.len()).unwrap_or(u64::MAX),
+        )?;
+        let mut cursor: i64 = transaction.query_row(
+            "SELECT COALESCE(MAX(cursor), 0) FROM collection_changes WHERE collection_id = ?1",
             [collection_id.to_string()],
             |row| row.get(0),
         )?;
-        transaction.execute(
-            "INSERT INTO collection_changes
-               (collection_id, cursor, event_type, occurred_at, payload)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                collection_id.to_string(),
-                cursor,
-                event.event_type,
-                event.occurred_at,
-                serde_json::to_string(&payload)?,
-            ],
-        )?;
+        let mut cursors = Vec::with_capacity(events.len());
+        for event in events {
+            cursor = cursor.checked_add(1).ok_or_else(|| {
+                ConnectError::CollectionOpen("collection change cursor exhausted".into())
+            })?;
+            let mut payload = event.payload.clone();
+            if let Some(object) = payload.as_object_mut() {
+                object.remove("before");
+                object.remove("after");
+            }
+            transaction.execute(
+                "INSERT INTO collection_changes
+                   (collection_id, cursor, event_type, occurred_at, payload)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    collection_id.to_string(),
+                    cursor,
+                    event.event_type,
+                    event.occurred_at,
+                    serde_json::to_string(&payload)?,
+                ],
+            )?;
+            cursors.push(cursor as u64);
+        }
         transaction.execute(
             "DELETE FROM collection_changes WHERE collection_id = ?1 AND cursor <= ?2",
             params![collection_id.to_string(), cursor.saturating_sub(2_000)],
         )?;
         transaction.commit()?;
-        Ok(cursor as u64)
+        Ok(cursors)
     }
 
     pub(super) fn refresh_summary_metadata(
