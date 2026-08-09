@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.0-beta.49
+
+Beta.49 gives new accounts a useful first collection and sends them directly
+into the mdbase editor.
+
+- Invitation signup provisions a small hosted starter collection from a
+  versioned Markdown template, with an idempotent recovery path if provisioning
+  is interrupted.
+- The post-signup handoff opens the starter collection in the editor, where its
+  notes explain collections and the next ways to build with mdbase.
+- Writer mode renders Markdown and wiki links as readable links while preserving
+  source editing, and empty type views use a clearer centered state.
+- Hosted storage refuses insecure non-local R2 endpoints, and release builds
+  reuse Rust and BuildKit caches to shorten beta delivery time.
+
 ## 0.1.0-beta.48
 
 Beta.48 adds a safe recovery path for invitations affected by the beta.47

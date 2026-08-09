@@ -144,9 +144,9 @@ and production; tag creation never rebuilds them.
 The tag must exactly match every package and the Rust workspace version:
 
 ```bash
-pnpm version:check v0.1.0-beta.48
-git tag -a v0.1.0-beta.48 -m "mdbase connect 0.1.0-beta.48"
-git push origin v0.1.0-beta.48
+pnpm version:check v0.1.0-beta.49
+git tag -a v0.1.0-beta.49 -m "mdbase connect 0.1.0-beta.49"
+git push origin v0.1.0-beta.49
 ```
 
 If a tag-triggered npm or desktop run is lost during a GitHub Actions outage,
