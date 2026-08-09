@@ -11,6 +11,7 @@ import {
 } from "../../collection-access.js";
 import type { DatabaseQueryable } from "../../db.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
+import type { HostedAuthorityRegistry } from "../../hosted.js";
 import { randomToken, tokenHash } from "../../security.js";
 import { authorityUrl } from "../../platform/authority-url.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
@@ -19,6 +20,8 @@ import { normalizedApplicationOrigin } from "./redirects.js";
 export async function issueApplicationTokens(
   db: DatabaseQueryable,
   hostedProvider: HostedProviderClient | undefined,
+  hostedReference: HostedAuthorityRegistry | undefined,
+  publicUrl: string,
   grantId: string
 ): Promise<{
   access_token: string;
@@ -110,24 +113,39 @@ export async function issueApplicationTokens(
     proof_public_key?: string;
   } | undefined;
   if (grant.rows[0].hosted_collection_id) {
-    if (!hostedProvider || !grant.rows[0].hosted_replica_id || !grant.rows[0].provider_url) {
+    if (
+      (!hostedProvider && !hostedReference)
+      || !grant.rows[0].hosted_replica_id
+    ) {
       throw new RequestValidationError("The hosted application capability is unavailable.");
     }
     const providerToken = randomToken("hsa");
-    await hostedProvider.rotateReplicaToken(grant.rows[0].hosted_replica_id, providerToken, 3_600);
+    if (hostedProvider) {
+      await hostedProvider.rotateReplicaToken(
+        grant.rows[0].hosted_replica_id,
+        providerToken,
+        3_600
+      );
+    } else {
+      await db.query(
+        "UPDATE hosted_replicas SET token_hash = $2 WHERE id = $1",
+        [grant.rows[0].hosted_replica_id, tokenHash(providerToken)]
+      );
+    }
+    const hostedAuthorityUrl = grant.rows[0].provider_url ?? publicUrl;
     authority = {
       operations_url: authorityUrl(
-        grant.rows[0].provider_url,
+        hostedAuthorityUrl,
         grant.rows[0].collection_id,
         "operations"
       ),
       sync_url: authorityUrl(
-        grant.rows[0].provider_url,
+        hostedAuthorityUrl,
         grant.rows[0].collection_id,
         "sync"
       ),
       files_url: authorityUrl(
-        grant.rows[0].provider_url,
+        hostedAuthorityUrl,
         grant.rows[0].collection_id,
         "files"
       ),

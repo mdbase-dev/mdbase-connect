@@ -23,6 +23,7 @@ function config(overrides: Partial<Parameters<typeof validateRuntimeConfig>[0]> 
     resendWebhookSecret: null,
     hostedCollections: false,
     hostedProvider: null,
+    hostedReferenceAuthority: false,
     allowInsecureHostedProvider: false,
     trustProxy: false,
     relayBroker: null,
@@ -308,6 +309,22 @@ describe("public runtime configuration", () => {
       MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: "x".repeat(40),
       MDBASE_CONNECT_ALLOW_INSECURE_HOSTED_PROVIDER: "1"
     })).toThrow(/development authentication/);
+  });
+
+  it("allows the reference hosted authority only in loopback development", () => {
+    const value = runtimeConfigFromEnv({
+      PUBLIC_URL: "http://localhost:8787",
+      MDBASE_CONNECT_DEV_AUTH: "1",
+      MDBASE_CONNECT_HOSTED_COLLECTIONS: "1",
+      MDBASE_CONNECT_HOSTED_REFERENCE_AUTHORITY: "1"
+    });
+    expect(value.hostedReferenceAuthority).toBe(true);
+    expect(() => runtimeConfigFromEnv({
+      PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_TAILSCALE_AUTH: "1",
+      MDBASE_CONNECT_HOSTED_COLLECTIONS: "1",
+      MDBASE_CONNECT_HOSTED_REFERENCE_AUTHORITY: "1"
+    })).toThrow(/loopback development/);
   });
 
   it("loads provider configuration independently for one-shot administration", () => {

@@ -89,13 +89,15 @@ describe("invite-only password accounts", () => {
       name: "Person Example",
       password: "a durable private beta password",
       termsVersion: invitation.termsVersion,
-      privacyVersion: invitation.privacyVersion
+      privacyVersion: invitation.privacyVersion,
+      timezone: "Australia/Melbourne"
     });
     expect(accepted.user).toMatchObject({
       email: "person@example.com",
       name: "Person Example"
     });
     expect(accepted.token).toMatch(/^ses_/);
+    expect(accepted.starterCollectionPending).toBe(true);
 
     const account = await db.query<{
       account_email: string | null;
@@ -194,6 +196,22 @@ describe("invite-only password accounts", () => {
         - welcome.rows[0]!.created_at.getTime();
     expect(welcomeDelayMs).toBeGreaterThanOrEqual(86_399_000);
     expect(welcomeDelayMs).toBeLessThanOrEqual(86_401_000);
+    const onboarding = await db.query<{
+      starter_collection_id: string;
+      template_version: string;
+      timezone: string;
+      provisioned_at: Date | null;
+    }>(
+      `SELECT starter_collection_id, template_version, timezone, provisioned_at
+       FROM account_onboarding WHERE user_id = $1`,
+      [accepted.user.id]
+    );
+    expect(onboarding.rows[0]).toMatchObject({
+      template_version: "starter-v1",
+      timezone: "Australia/Melbourne",
+      provisioned_at: null
+    });
+    expect(onboarding.rows[0]?.starter_collection_id).toMatch(/^[0-9a-f-]{36}$/u);
   });
 
   it("supports password login without exposing unknown, wrong, or suspended accounts", async () => {

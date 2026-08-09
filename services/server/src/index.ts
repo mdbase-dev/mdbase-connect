@@ -41,6 +41,7 @@ const { app } = await buildApp({
     : undefined,
   resendWebhookSecret: runtime.resendWebhookSecret ?? undefined,
   hostedCollections: runtime.hostedCollections,
+  hostedReferenceAuthority: runtime.hostedReferenceAuthority,
   hostedProvider: runtime.hostedProvider
     ? new HostedProviderClient(runtime.hostedProvider)
     : undefined,

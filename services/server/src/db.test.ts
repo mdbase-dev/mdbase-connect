@@ -52,7 +52,8 @@ describe("database migrations", () => {
       "0014_connector_compatibility",
       "0015_authorization_binding_v3",
       "0016_authorization_binding_v4",
-      "0017_split_replica_entitlements"
+      "0017_split_replica_entitlements",
+      "0018_account_onboarding"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -532,7 +533,8 @@ describe("database migrations", () => {
       "0014_connector_compatibility",
       "0015_authorization_binding_v3",
       "0016_authorization_binding_v4",
-      "0017_split_replica_entitlements"
+      "0017_split_replica_entitlements",
+      "0018_account_onboarding"
     ]);
   });
 

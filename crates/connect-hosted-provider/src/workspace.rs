@@ -57,6 +57,33 @@ impl WorkingSet {
         })
     }
 
+    pub fn snapshot_records(&self) -> ApiResult<Vec<SyncRecord>> {
+        let collection = Collection::open(self.directory.path()).map_err(|error| {
+            ApiError::internal(format!(
+                "The hosted collection working set is invalid: {error}"
+            ))
+        })?;
+        self.records_by_path
+            .iter()
+            .map(|(path, record_id)| {
+                let snapshot = collection.snapshot_record(path).map_err(|error| {
+                    ApiError::internal(format!(
+                        "The hosted collection could not snapshot {path}: {error}"
+                    ))
+                })?;
+                Ok(SyncRecord {
+                    record_id: *record_id,
+                    path: snapshot.path,
+                    document: snapshot.document,
+                    revision: snapshot.revision,
+                    frontmatter: snapshot.frontmatter,
+                    body: snapshot.body,
+                    types: snapshot.types,
+                })
+            })
+            .collect()
+    }
+
     pub fn execute_semantic(
         &mut self,
         record_id: Uuid,

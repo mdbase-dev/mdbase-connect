@@ -22,6 +22,7 @@ import {
 import { Authorization, DeviceAuthorization } from "./authorization-view";
 import { editorRedirectTarget } from "./editor-redirect";
 import { editorConnectUrl } from "./portal-model";
+import { GettingStarted } from "./onboarding-view";
 import "./styles.css";
 
 function Portal() {
@@ -32,6 +33,7 @@ function Portal() {
   const authorizationId = location.pathname.match(/^\/authorize\/([0-9a-f-]+)$/i)?.[1];
   if (location.pathname === "/login") return <Login />;
   if (location.pathname === "/signup") return <Signup />;
+  if (location.pathname === "/getting-started") return <GettingStarted />;
   if (location.pathname === "/forgot-password") return <ForgotPassword />;
   if (location.pathname === "/reset-password") return <ResetPassword />;
   if (location.pathname === "/device") return <DeviceAuthorization />;

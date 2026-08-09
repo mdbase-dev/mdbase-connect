@@ -34,6 +34,7 @@ export interface RuntimeConfig {
   resendWebhookSecret: string | null;
   hostedCollections: boolean;
   hostedProvider: HostedProviderConfig | null;
+  hostedReferenceAuthority: boolean;
   allowInsecureHostedProvider: boolean;
   trustProxy: boolean;
   relayBroker: RelayBrokerConfig | null;
@@ -148,7 +149,13 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
         config.devAuth
       )
     : null;
-  if (config.hostedCollections && !hostedProvider) {
+  if (config.hostedProvider && config.hostedReferenceAuthority) {
+    throw new Error("Hosted provider and reference authority modes are mutually exclusive.");
+  }
+  if (config.hostedReferenceAuthority && !config.devAuth) {
+    throw new Error("The hosted reference authority is available only in loopback development.");
+  }
+  if (config.hostedCollections && !hostedProvider && !config.hostedReferenceAuthority) {
     throw new Error("Hosted collections require a configured hosted storage provider.");
   }
   if (config.allowInsecureHostedProvider && !config.devAuth) {
@@ -318,6 +325,8 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     transactionalEmail,
     resendWebhookSecret,
     hostedCollections: env.MDBASE_CONNECT_HOSTED_COLLECTIONS === "1",
+    hostedReferenceAuthority:
+      env.MDBASE_CONNECT_HOSTED_REFERENCE_AUTHORITY === "1",
     hostedProvider,
     allowInsecureHostedProvider:
       env.MDBASE_CONNECT_ALLOW_INSECURE_HOSTED_PROVIDER === "1",

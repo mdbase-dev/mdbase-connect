@@ -3,6 +3,7 @@ export { MirrorDivergenceError } from "./mirror-errors.js";
 export {
   authorityFileHash,
   authorityManifestDigest,
+  projectionMarkdownDocument,
   recordMarkdownDocument
 } from "./mirror-format.js";
 export {

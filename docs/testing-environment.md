@@ -81,6 +81,18 @@ pnpm dev:environment:down
 `pnpm dev:environment:reset` deletes only the named development database volume
 and starts a clean stack.
 
+To replay the complete invited-account onboarding flow with a fresh database,
+a beta invitation, the reference hosted authority, and the local editor:
+
+```bash
+pnpm dev:onboarding -- onboarding@example.com
+```
+
+Open the `invitation_url` printed by the command. The account form schedules a
+single starter collection, `/getting-started` provisions it, and the browser
+then opens that collection in the editor. Stop the editor with Ctrl+C; stop the
+persistent Connect stack separately with `pnpm dev:environment:down`.
+
 Launch Electron with a persistent development-only profile:
 
 ```bash

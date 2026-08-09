@@ -296,12 +296,18 @@ export async function createHostedCollectionForUser(
   userId: string,
   displayName: string,
   template: HostedTemplate,
-  timezone: string
+  timezone: string,
+  creation: {
+    collectionId?: string;
+    source?: "desktop" | "onboarding";
+  } = {}
 ): Promise<Record<string, unknown>> {
   if (!options.hostedCollections) {
     throw new RequestValidationError("Hosted collections are not enabled.");
   }
-  const collectionId = randomUUID();
+  const collectionId = creation.collectionId ?? randomUUID();
+  let insertedAt: string | Date | undefined;
+  let wasInserted = false;
   try {
     if (options.hostedProvider) {
       const account = await reconcileHostedAccount(
@@ -319,10 +325,12 @@ export async function createHostedCollectionForUser(
     } else {
       await hostedReference!.create(collectionId, template, timezone);
     }
-    await options.db.query(
+    const inserted = await options.db.query<{ created_at: string | Date }>(
       `INSERT INTO hosted_collections
          (id, user_id, display_name, template, provider_url, contracts)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+       ON CONFLICT (id) DO NOTHING
+       RETURNING created_at`,
       [
         collectionId,
         userId,
@@ -332,8 +340,36 @@ export async function createHostedCollectionForUser(
         JSON.stringify(hostedContractDescriptors(template))
       ]
     );
+    insertedAt = inserted.rows[0]?.created_at;
+    wasInserted = Boolean(insertedAt);
+    if (!insertedAt) {
+      const existing = await options.db.query<{
+        user_id: string;
+        display_name: string;
+        template: string;
+        created_at: string | Date;
+      }>(
+        `SELECT user_id, display_name, template, created_at
+         FROM hosted_collections WHERE id = $1`,
+        [collectionId]
+      );
+      const row = existing.rows[0];
+      if (
+        !row
+        || row.user_id !== userId
+        || row.display_name !== displayName
+        || row.template !== template
+      ) {
+        throw new RequestValidationError(
+          "A hosted collection already exists with different metadata."
+        );
+      }
+      insertedAt = row.created_at;
+    }
   } catch (error) {
-    if (options.hostedProvider) {
+    if (creation.collectionId) {
+      throw error;
+    } else if (options.hostedProvider) {
       await options.hostedProvider
         .deleteCollection(collectionId)
         .catch(() => undefined);
@@ -342,13 +378,15 @@ export async function createHostedCollectionForUser(
     }
     throw error;
   }
-  await audit(
-    options.db,
-    userId,
-    "hosted_collection.created",
-    collectionId,
-    { template, source: "desktop" }
-  );
+  if (wasInserted) {
+    await audit(
+      options.db,
+      userId,
+      "hosted_collection.created",
+      collectionId,
+      { template, source: creation.source ?? "desktop" }
+    );
+  }
   return {
     id: collectionId,
     display_name: displayName,
@@ -359,7 +397,7 @@ export async function createHostedCollectionForUser(
     authority_state: "active",
     authority_epoch: 1,
     transferred_collection_id: null,
-    created_at: new Date().toISOString(),
+    created_at: new Date(insertedAt ?? Date.now()).toISOString(),
     replicas: []
   };
 }

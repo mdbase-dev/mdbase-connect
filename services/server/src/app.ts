@@ -52,6 +52,7 @@ import { registerHostedAccountRoutes } from "./features/hosted/account-routes.js
 import { registerReferenceSyncRoutes } from "./features/hosted/reference-sync-routes.js";
 import { registerMirrorPairingRoutes } from "./features/mirrors/pairing-routes.js";
 import { registerNotificationRoutes } from "./features/notifications/routes.js";
+import { registerOnboardingRoutes } from "./features/onboarding/routes.js";
 import { registerLocalOperationRoutes } from "./features/operations/local-routes.js";
 import { registerSystemRoutes } from "./features/system/routes.js";
 import { registerErrorHandler } from "./platform/error-handler.js";
@@ -359,7 +360,7 @@ export async function buildApp(options: BuildOptions) {
     transports: options.notifications?.transports,
     hostedProvider: options.hostedProvider
   });
-  registerLocalOperationRoutes(app, { db: options.db, relay });
+  registerLocalOperationRoutes(app, { db: options.db, relay, hostedReference });
   registerLocalFileRoutes(app, { db: options.db, relay });
   registerConnectorHostedRoutes(app, {
     db: options.db,
@@ -369,7 +370,8 @@ export async function buildApp(options: BuildOptions) {
     hostedReference,
     approveAuthorization: (input) => approveHostedAuthorization(
       options.db,
-      options.hostedProvider!,
+      options.hostedProvider,
+      hostedReference,
       input
     )
   });
@@ -377,6 +379,14 @@ export async function buildApp(options: BuildOptions) {
     db: options.db,
     publicUrl,
     tailscaleAuth: options.tailscaleAuth,
+    hostedCollections: options.hostedCollections,
+    hostedProvider: options.hostedProvider,
+    hostedReference
+  });
+  registerOnboardingRoutes(app, {
+    db: options.db,
+    publicUrl,
+    editorOrigin: options.editorOrigin,
     hostedCollections: options.hostedCollections,
     hostedProvider: options.hostedProvider,
     hostedReference
@@ -390,6 +400,7 @@ export async function buildApp(options: BuildOptions) {
     db: options.db,
     relay,
     hostedProvider: options.hostedProvider,
+    hostedReference,
     allowInsecureManifests: options.allowInsecureManifests
   });
   registerAccountOverviewRoute(app, {
@@ -410,6 +421,7 @@ export async function buildApp(options: BuildOptions) {
     tailscaleAuth: options.tailscaleAuth,
     hostedCollections: options.hostedCollections,
     hostedProvider: options.hostedProvider,
+    hostedReference,
     drainProviderRevocations: async () => {
       await providerRevocations?.drain();
     }

@@ -12,17 +12,19 @@ import {
   type SyncTransport
 } from "@mdbase-dev/connect-sync";
 import {
-  authorityManifestDigest
+  authorityManifestDigest,
+  projectionMarkdownDocument
 } from "@mdbase-dev/connect-sync/mirror";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { DatabasePool } from "./db.js";
+import { starterCollectionRecords } from "./starter-collection.js";
 
 interface CachedAuthority {
   authority: MemoryAuthority;
   version: number;
 }
 
-export type HostedTemplate = "mdbase";
+export type HostedTemplate = "mdbase" | "onboarding";
 
 export interface ReferenceAuthorityTransfer {
   id: string;
@@ -54,7 +56,9 @@ export class HostedAuthorityRegistry {
         state jsonb,
         version bigint,
         updated_at timestamptz
-      )
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS hosted_authority_states_collection_idx
+        ON hosted_authority_states (collection_id)
     `);
   }
 
@@ -65,12 +69,19 @@ export class HostedAuthorityRegistry {
   ): Promise<void> {
     await this.schemaReady;
     const authority = new MemoryAuthority({ id: collectionId, ...authorityOptions(hostedResources(template, timezone)) });
-    await this.db.query(
+    if (template === "onboarding") authority.seed(starterCollectionRecords());
+    const inserted = await this.db.query(
       `INSERT INTO hosted_authority_states (collection_id, state, version)
-       VALUES ($1, $2::jsonb, 1)`,
+       VALUES ($1, $2::jsonb, 1)
+       ON CONFLICT (collection_id) DO NOTHING
+       RETURNING collection_id`,
       [collectionId, JSON.stringify(authority.serialize())]
     );
-    this.cache.set(collectionId, { authority, version: 1 });
+    if (inserted.rows[0]) {
+      this.cache.set(collectionId, { authority, version: 1 });
+      return;
+    }
+    await this.read(collectionId, () => undefined);
   }
 
   async delete(collectionId: string): Promise<void> {
@@ -89,8 +100,36 @@ export class HostedAuthorityRegistry {
     return this.write(collectionId, (authority) => authority.registerReplica(options));
   }
 
+  async updateReplicaScope(
+    collectionId: string,
+    replicaId: string,
+    allowedTypes: string[]
+  ): Promise<void> {
+    await this.write(
+      collectionId,
+      (authority) => authority.updateReplicaScope(replicaId, allowedTypes)
+    );
+  }
+
   async revokeReplica(collectionId: string, replicaId: string): Promise<void> {
     await this.write(collectionId, (authority) => authority.revokeReplica(replicaId));
+  }
+
+  async applicationOperation(
+    collectionId: string,
+    replicaId: string,
+    operation: string,
+    input: Record<string, unknown>,
+    context: { displayName: string; operations: string[] }
+  ): Promise<unknown> {
+    if (["create", "update", "delete", "rename"].includes(operation)) {
+      return this.write(collectionId, async (authority) =>
+        referenceMutation(authority, replicaId, operation, input)
+      );
+    }
+    return this.read(collectionId, (authority) =>
+      referenceRead(authority.serialize(), replicaId, operation, input, context)
+    );
   }
 
   async compactThrough(collectionId: string, sequence: number): Promise<void> {
@@ -386,6 +425,286 @@ function referenceTransfer(row: ReferenceTransferRow): ReferenceAuthorityTransfe
   };
 }
 
+function referenceRead(
+  state: SerializedMemoryAuthority,
+  replicaId: string,
+  operation: string,
+  input: Record<string, unknown>,
+  context: { displayName: string; operations: string[] }
+): unknown {
+  const replica = state.replicas.find(({ id }) => id === replicaId);
+  if (!replica || replica.revoked) {
+    throw new SyncError("replica_revoked", "Replica access was revoked.");
+  }
+  const records = state.records.filter((record) =>
+    replica.allowedTypes.length === 0
+    || record.types.some((type) => replica.allowedTypes.includes(type))
+  );
+  if (operation === "describe") {
+    return {
+      protocol_version: 1,
+      collection_id: state.collectionId,
+      display_name: context.displayName,
+      spec_version: state.resources?.spec_version ?? "0.3.0",
+      operations: context.operations,
+      change_cursor: state.head,
+      types: state.resources?.types ?? [],
+      contracts: state.resources?.contracts ?? []
+    };
+  }
+  if (operation === "changes") {
+    return {
+      events: [],
+      cursor: state.head,
+      has_more: false,
+      reset: false
+    };
+  }
+  if (operation === "query") {
+    const requestedTypes = Array.isArray(input.types)
+      ? input.types.filter((value): value is string => typeof value === "string")
+      : [];
+    const selected = requestedTypes.length === 0
+      ? records
+      : records.filter((record) =>
+          record.types.some((type) => requestedTypes.includes(type))
+        );
+    const offset = integer(input.offset, 0);
+    const limit = Math.max(1, integer(input.limit, 100));
+    const page = selected.slice(offset, offset + limit);
+    return operationEnvelope({
+      results: page.map((record) => queryRecord(record, input.include_body === true)),
+      meta: {
+        total_count: selected.length,
+        has_more: offset + page.length < selected.length,
+        snapshot: String(state.head)
+      }
+    });
+  }
+  if (operation === "read") {
+    const path = requiredString(input.path, "Record path is required.");
+    const record = records.find((candidate) => candidate.path === path);
+    if (!record) throw new SyncError("record_not_found", "Record not found.");
+    return operationEnvelope(recordDocument(record, input.include_document === true));
+  }
+  if (operation === "validate") {
+    return operationEnvelope({ valid: true });
+  }
+  throw new SyncError(
+    "unsupported_operation",
+    "The reference authority does not support that application operation."
+  );
+}
+
+async function referenceMutation(
+  authority: MemoryAuthority,
+  replicaId: string,
+  operation: string,
+  input: Record<string, unknown>
+): Promise<unknown> {
+  const state = authority.serialize();
+  const replica = state.replicas.find(({ id }) => id === replicaId);
+  if (!replica || replica.revoked) {
+    throw new SyncError("replica_revoked", "Replica access was revoked.");
+  }
+  const transport = authority.transport(replicaId);
+  if (operation === "create") {
+    const path = requiredString(input.path, "Record path is required.");
+    if (state.records.some((record) => record.path === path)) {
+      throw new SyncError("record_conflict", "A record already exists at that path.");
+    }
+    const frontmatter = jsonObject(input.frontmatter);
+    if (typeof input.type === "string" && !("type" in frontmatter)) {
+      frontmatter.type = input.type;
+    }
+    const receipt = await transport.mutate({
+      operation: "put",
+      mutation_id: randomUUID(),
+      replica_id: replicaId,
+      scope_epoch: replica.scopeEpoch,
+      record_id: randomUUID(),
+      path,
+      document: projectionMarkdownDocument({
+        frontmatter,
+        body: typeof input.body === "string" ? input.body : ""
+      }),
+      created_at: new Date().toISOString()
+    });
+    return operationEnvelope(recordDocument(appliedRecord(receipt), input.include_document === true));
+  }
+  if (operation === "update") {
+    const path = requiredString(input.path, "Record path is required.");
+    const current = state.records.find((record) => record.path === path);
+    if (!current) throw new SyncError("record_not_found", "Record not found.");
+    const expected = typeof input.if_revision === "string" ? input.if_revision : current.revision;
+    const document = typeof input.document === "string"
+      ? input.document
+      : projectionMarkdownDocument({
+          frontmatter: applyPatch(current.frontmatter, input.patch),
+          body: typeof input.body === "string" ? input.body : current.body
+        });
+    const receipt = await transport.mutate({
+      operation: "put",
+      mutation_id: randomUUID(),
+      replica_id: replicaId,
+      scope_epoch: replica.scopeEpoch,
+      record_id: current.record_id,
+      base_revision: expected,
+      path,
+      document,
+      created_at: new Date().toISOString()
+    });
+    return operationEnvelope(recordDocument(appliedRecord(receipt), input.include_document === true));
+  }
+  if (operation === "delete") {
+    const path = requiredString(input.path, "Record path is required.");
+    const current = state.records.find((record) => record.path === path);
+    if (!current) throw new SyncError("record_not_found", "Record not found.");
+    if (input.dry_run === true) {
+      return operationEnvelope({ path, deleted: false, dry_run: true, would_delete: true });
+    }
+    const receipt = await transport.mutate({
+      operation: "delete",
+      mutation_id: randomUUID(),
+      replica_id: replicaId,
+      scope_epoch: replica.scopeEpoch,
+      record_id: current.record_id,
+      base_revision: typeof input.if_revision === "string"
+        ? input.if_revision
+        : current.revision,
+      created_at: new Date().toISOString()
+    });
+    assertApplied(receipt);
+    return operationEnvelope({ path, deleted: true });
+  }
+  const from = requiredString(input.from, "Source path is required.");
+  const to = requiredString(input.to, "Destination path is required.");
+  const current = state.records.find((record) => record.path === from);
+  if (!current) throw new SyncError("record_not_found", "Record not found.");
+  if (input.dry_run === true) {
+    return operationEnvelope({
+      from,
+      to,
+      dry_run: true,
+      would_rename: true,
+      references_affected: [],
+      warnings: []
+    });
+  }
+  const receipt = await transport.mutate({
+    operation: "move",
+    mutation_id: randomUUID(),
+    replica_id: replicaId,
+    scope_epoch: replica.scopeEpoch,
+    record_id: current.record_id,
+    base_revision: typeof input.if_revision === "string"
+      ? input.if_revision
+      : current.revision,
+    path: to,
+    created_at: new Date().toISOString()
+  });
+  return operationEnvelope({
+    ...recordDocument(appliedRecord(receipt), input.include_document === true),
+    from,
+    to,
+    references_updated: []
+  });
+}
+
+function queryRecord(record: SerializedMemoryAuthority["records"][number], includeBody: boolean) {
+  return {
+    path: record.path,
+    frontmatter: record.frontmatter,
+    effective_frontmatter: record.frontmatter,
+    ...(includeBody ? { body: record.body } : {}),
+    types: record.types,
+    file: fileMetadata(record)
+  };
+}
+
+function recordDocument(
+  record: SerializedMemoryAuthority["records"][number],
+  includeDocument: boolean
+) {
+  return {
+    path: record.path,
+    revision: record.revision,
+    types: record.types,
+    frontmatter: record.frontmatter,
+    effective_frontmatter: record.frontmatter,
+    body: record.body,
+    ...(includeDocument ? { document: record.document } : {}),
+    file: fileMetadata(record)
+  };
+}
+
+function fileMetadata(record: SerializedMemoryAuthority["records"][number]) {
+  return {
+    path: record.path,
+    size: Buffer.byteLength(record.document),
+    mtime: "1970-01-01T00:00:00.000Z"
+  };
+}
+
+function operationEnvelope(result: unknown) {
+  return { valid: true, result, diagnostics: [] };
+}
+
+function appliedRecord(
+  receipt: Awaited<ReturnType<SyncTransport["mutate"]>>
+): SerializedMemoryAuthority["records"][number] {
+  if (receipt.status !== "applied" && receipt.status !== "previously_applied") {
+    assertApplied(receipt);
+    throw new SyncError("invalid_mutation_receipt", "Mutation did not apply.");
+  }
+  if (!receipt.record) {
+    throw new SyncError("invalid_mutation_receipt", "Applied mutation omitted its record.");
+  }
+  return receipt.record;
+}
+
+function assertApplied(receipt: Awaited<ReturnType<SyncTransport["mutate"]>>): void {
+  if (receipt.status === "applied" || receipt.status === "previously_applied") return;
+  if (receipt.status === "conflicted") {
+    throw new SyncError(
+      "record_conflict",
+      "The record changed before this operation completed."
+    );
+  }
+  if (receipt.status === "rejected") {
+    throw new SyncError(receipt.error.code, receipt.error.message);
+  }
+  throw new SyncError("invalid_mutation_receipt", "Mutation result is invalid.");
+}
+
+function applyPatch(frontmatter: Record<string, unknown>, value: unknown) {
+  const next = { ...frontmatter };
+  for (const [key, item] of Object.entries(jsonObject(value))) {
+    if (item === null) delete next[key];
+    else next[key] = item;
+  }
+  return next;
+}
+
+function jsonObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? { ...value as Record<string, unknown> }
+    : {};
+}
+
+function requiredString(value: unknown, message: string): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new SyncError("invalid_operation_input", message);
+  }
+  return value;
+}
+
+function integer(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
+    ? value
+    : fallback;
+}
+
 function manifestDigest(state: SerializedMemoryAuthority): string {
   return authorityManifestDigest([
     ...(state.resources?.documents ?? []).map((resource) => ({
@@ -412,7 +731,7 @@ export function asSyncMutation(value: unknown): SyncMutation {
 }
 
 export function hostedResources(template: string, timezone = "UTC"): SyncCollectionResources {
-  if (template === "mdbase") return mdbaseResources(timezone);
+  if (template === "mdbase" || template === "onboarding") return mdbaseResources(timezone);
   throw new SyncError("unsupported_template", "The hosted collection template is unavailable.");
 }
 

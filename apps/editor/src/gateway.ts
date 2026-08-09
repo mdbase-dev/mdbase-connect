@@ -86,10 +86,14 @@ export class ConnectCollectionGateway implements CollectionGateway {
       ?? import.meta.env.VITE_MDBASE_CONNECT_URL
       ?? "https://connect.mdbase.dev") {
     const appRoot = new URL(import.meta.env.BASE_URL, location.href);
+    const redirectUri = new URL(appRoot);
+    if (new URLSearchParams(location.search).has("server")) {
+      redirectUri.searchParams.set("server", new URL(serverUrl).origin);
+    }
     const connect = new MdbaseConnect<NoteFrontmatter>({
       serverUrl,
       manifest: new URL(".well-known/mdbase-app.json", appRoot).href,
-      redirectUri: appRoot.href
+      redirectUri: redirectUri.href
     });
     this.session = connect.application({
       selection: new MdbaseBrowserSelection({

@@ -21,6 +21,7 @@
     "dev:environment:up": "node scripts/dev-environment.mjs up",
     "dev:environment:down": "node scripts/dev-environment.mjs down",
     "dev:environment:reset": "node scripts/dev-environment.mjs reset",
+    "dev:onboarding": "node scripts/dev-environment.mjs onboarding",
     "dev:environment:status": "node scripts/dev-environment.mjs status",
     "dev:environment:logs": "node scripts/dev-environment.mjs logs",
     "dev:desktop:isolated": "node scripts/isolated-desktop.mjs",

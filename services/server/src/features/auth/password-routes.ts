@@ -8,6 +8,7 @@ import {
   type AuthRateLimitRule
 } from "../../auth-rate-limit.js";
 import { sessionClientName } from "../../account-sessions.js";
+import { ianaTimezoneSchema } from "../../platform/timezones.js";
 import type { AuthenticationPolicyStore } from "../../authentication-policy.js";
 import type { DatabasePool } from "../../database-types.js";
 import {
@@ -204,7 +205,8 @@ export function registerPasswordAuthRoutes(
       name: z.string().trim().min(1).max(100),
       password: z.string().min(1).max(PASSWORD_MAX_UTF8_BYTES),
       terms_version: z.string().min(1).max(100),
-      privacy_version: z.string().min(1).max(100)
+      privacy_version: z.string().min(1).max(100),
+      timezone: ianaTimezoneSchema.optional()
     }).strict().parse(request.body);
     const allowed = await consumeAuthenticationLimits(
       authenticationRateLimiter,
@@ -234,10 +236,16 @@ export function registerPasswordAuthRoutes(
       password: input.password,
       termsVersion: input.terms_version,
       privacyVersion: input.privacy_version,
+      timezone: input.timezone,
       clientName: sessionClientName(request.headers["user-agent"])
     });
     setSessionCookie(reply, session.token, options.publicUrl);
-    return reply.code(201).send({ user: session.user });
+    return reply.code(201).send({
+      user: session.user,
+      onboarding: session.starterCollectionPending
+        ? { starter_collection: "pending" }
+        : null
+    });
   });
 
   app.post("/v1/auth/password/invitation", async (request, reply) => {

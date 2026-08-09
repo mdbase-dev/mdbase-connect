@@ -124,6 +124,8 @@ export function registerAuthorizationPollingRoutes(
         const tokens = await issueApplicationTokens(
           connection,
           options.hostedProvider,
+          options.hostedReference,
+          options.publicUrl,
           consumed.rows[0].grant_id
         );
         await connection.query("COMMIT");
@@ -168,7 +170,13 @@ export function registerAuthorizationPollingRoutes(
       if (!consumed.rows[0]) {
         return reply.code(400).send(apiError("invalid_grant", "Authorization code has already been used."));
       }
-      return issueApplicationTokens(options.db, options.hostedProvider, authorizationCode.grant_id);
+      return issueApplicationTokens(
+        options.db,
+        options.hostedProvider,
+        options.hostedReference,
+        options.publicUrl,
+        authorizationCode.grant_id
+      );
     }
 
     const refresh = await options.db.query<{
@@ -223,6 +231,12 @@ export function registerAuthorizationPollingRoutes(
     if (!rotated.rows[0]) {
       return reply.code(400).send(apiError("invalid_grant", "Refresh token has already been used."));
     }
-    return issueApplicationTokens(options.db, options.hostedProvider, current.grant_id);
+    return issueApplicationTokens(
+      options.db,
+      options.hostedProvider,
+      options.hostedReference,
+      options.publicUrl,
+      current.grant_id
+    );
   });
 }

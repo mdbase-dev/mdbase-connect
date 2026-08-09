@@ -10,6 +10,7 @@ import { audit } from "../../platform/audit-events.js";
 import { authorityUrl } from "../../platform/authority-url.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireUser } from "../../platform/request-authentication.js";
+import { ianaTimezoneSchema } from "../../platform/timezones.js";
 import {
   createHostedCollectionForUser,
   canManageHostedReplica,
@@ -408,15 +409,6 @@ export function registerHostedAccountRoutes(
     }
   );
 }
-
-const ianaTimezoneSchema = z.string().trim().min(1).refine((timezone) => {
-  try {
-    new Intl.DateTimeFormat("en", { timeZone: timezone }).format();
-    return timezone.toLowerCase() !== "local" && !/^[+-]\d{2}:\d{2}$/.test(timezone);
-  } catch {
-    return false;
-  }
-}, "timezone must be a valid IANA identifier");
 
 async function activeReplicaForUser(
   options: HostedAccountRoutesOptions,

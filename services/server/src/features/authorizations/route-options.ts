@@ -1,5 +1,6 @@
 import type { DatabasePool } from "../../db.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
+import type { HostedAuthorityRegistry } from "../../hosted.js";
 import type { RelayHub } from "../../relay.js";
 
 export interface AuthorizationRouteOptions {
@@ -9,5 +10,6 @@ export interface AuthorizationRouteOptions {
   tailscaleAuth?: boolean;
   hostedCollections?: boolean;
   hostedProvider?: HostedProviderClient;
+  hostedReference?: HostedAuthorityRegistry;
   drainProviderRevocations(): Promise<void>;
 }

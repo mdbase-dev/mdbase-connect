@@ -61,7 +61,21 @@ impl HostedProvider {
                 "Hosted collection names must contain between 1 and 200 characters.",
             ));
         }
-        let (resources, documents) = template::resources(template_name, timezone)?;
+        let template = template::resources(template_name, timezone)?;
+        let seed_records = if template.records.is_empty() {
+            Vec::new()
+        } else {
+            WorkingSet::materialize(
+                template
+                    .documents
+                    .iter()
+                    .map(|resource| (resource.path.to_string(), resource.document.clone())),
+                template.records.clone(),
+            )?
+            .snapshot_records()?
+        };
+        let resources = template.resources;
+        let documents = template.documents;
         let data_key = self.crypto.generate_data_key();
         let wrapped_data_key = self.crypto.wrap_data_key(&data_key, collection_id).await?;
         let resources_ciphertext =
@@ -167,6 +181,44 @@ impl HostedProvider {
                 document.document.as_bytes(),
                 &resource_document_aad(collection_id, document.path),
             )?)
+            .execute(&mut *transaction)
+            .await?;
+        }
+        let initial_sequence = (!seed_records.is_empty()) as u64;
+        let content_bytes = seed_records
+            .iter()
+            .map(|record| record.document.len() as u64)
+            .sum::<u64>();
+        if seed_records.len() as u64 > self.limits.max_records_per_collection
+            || content_bytes > account.limits.hosted_storage_bytes
+        {
+            return Err(ApiError::conflict(
+                "hosted_collection_quota_exceeded",
+                "The collection template exceeds the hosted account quota.",
+            ));
+        }
+        for record in &seed_records {
+            persist_live_record(
+                &mut transaction,
+                &self.crypto,
+                &data_key,
+                collection_id,
+                initial_sequence,
+                record,
+            )
+            .await?;
+        }
+        if initial_sequence > 0 {
+            sqlx::query(
+                r#"UPDATE hosted_provider_collections
+                   SET head = $2, record_count = $3, content_bytes = $4,
+                       updated_at = now()
+                   WHERE id = $1"#,
+            )
+            .bind(collection_id)
+            .bind(to_i64(initial_sequence, "collection head")?)
+            .bind(to_i64(seed_records.len() as u64, "record count")?)
+            .bind(to_i64(content_bytes, "content size")?)
             .execute(&mut *transaction)
             .await?;
         }

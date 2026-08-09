@@ -2014,6 +2014,34 @@ select {
   border-color: color-mix(in oklch, var(--connected) 35%, var(--line));
 }
 
+.onboarding-progress {
+  width: min(25rem, 100%);
+  height: 2px;
+  margin-top: 1.8rem;
+  overflow: hidden;
+  background: var(--line);
+}
+
+.onboarding-progress > span {
+  display: block;
+  width: 34%;
+  height: 100%;
+  background: var(--accent-dark);
+  animation: onboarding-progress 1.15s ease-in-out infinite alternate;
+}
+
+@keyframes onboarding-progress {
+  from { transform: translateX(-15%); }
+  to { transform: translateX(210%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-progress > span {
+    width: 100%;
+    animation: none;
+  }
+}
+
 .center-page {
   display: grid;
   align-content: center;

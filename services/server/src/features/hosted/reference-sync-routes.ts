@@ -44,6 +44,25 @@ export function registerReferenceSyncRoutes(
   app: FastifyInstance,
   options: ReferenceSyncRoutesOptions
 ): void {
+  app.get(
+    "/v1/authorities/:collectionId/files",
+    async (request, reply) => {
+      const scoped = await scopedReplica(request, reply, options);
+      if (!scoped) return;
+      z.object({
+        protocol_version: z.coerce.number().int().min(1).max(1),
+        folder: z.string().optional(),
+        after: z.string().optional(),
+        limit: z.coerce.number().int().positive().max(1_000).optional()
+      }).parse(request.query);
+      return {
+        protocol_version: 1,
+        type: "files_page",
+        files: []
+      };
+    }
+  );
+
   app.post(
     "/v1/authorities/:collectionId/sync/sessions",
     async (request, reply) => {

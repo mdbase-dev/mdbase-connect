@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { DatabasePool } from "../../db.js";
 import { registerApplicationManifest } from "../../manifest.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
+import type { HostedAuthorityRegistry } from "../../hosted.js";
 import type { RelayHub } from "../../relay.js";
 import { reconcileApplicationGrants } from "../grants/service.js";
 import { upsertApplication } from "./store.js";
@@ -11,6 +12,7 @@ interface ApplicationRouteOptions {
   db: DatabasePool;
   relay: RelayHub;
   hostedProvider?: HostedProviderClient;
+  hostedReference?: HostedAuthorityRegistry;
   allowInsecureManifests?: boolean;
 }
 
@@ -45,6 +47,7 @@ export function registerApplicationRoutes(
       options.db,
       options.relay,
       options.hostedProvider,
+      options.hostedReference,
       application
     );
     return { application };

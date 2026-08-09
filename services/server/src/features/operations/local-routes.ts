@@ -7,6 +7,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { COLLECTION_OPERATIONS } from "../../collection-access.js";
 import type { DatabasePool } from "../../database-types.js";
+import type { HostedAuthorityRegistry } from "../../hosted.js";
 import {
   ConnectorOperationError,
   type RelayHub,
@@ -27,6 +28,7 @@ import {
 interface LocalOperationRoutesOptions {
   db: DatabasePool;
   relay: RelayHub;
+  hostedReference?: HostedAuthorityRegistry;
 }
 
 const operationSchema = z.enum(COLLECTION_OPERATIONS);
@@ -78,6 +80,51 @@ export function registerLocalOperationRoutes(
       );
       const grant = authorized.rows[0];
       if (!grant) {
+        if (options.hostedReference) {
+          const hosted = await options.db.query<{
+            replica_id: string;
+            display_name: string;
+            operations: string[];
+          }>(
+            `SELECT replica.id AS replica_id, hosted.display_name, g.operations
+             FROM hosted_replicas replica
+             JOIN grants g ON g.hosted_replica_id = replica.id
+             JOIN users usr ON usr.id = g.user_id
+             JOIN hosted_collections hosted ON hosted.id = replica.collection_id
+             WHERE replica.token_hash = $1 AND replica.revoked_at IS NULL
+               AND replica.collection_id = $2
+               AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
+               AND usr.suspended_at IS NULL`,
+            [tokenHash(bearer), params.collectionId]
+          );
+          const capability = hosted.rows[0];
+          if (capability) {
+            if (!capability.operations.includes(params.operation)) {
+              return reply.code(403).send(insufficientAccessError(
+                [params.operation],
+                capability.operations,
+                "The application is not allowed to perform this operation."
+              ));
+            }
+            const operationRequest = operationRequestSchema.parse(request.body);
+            const result = await options.hostedReference.applicationOperation(
+              params.collectionId,
+              capability.replica_id,
+              params.operation,
+              operationRequest.input as Record<string, unknown>,
+              {
+                displayName: capability.display_name,
+                operations: capability.operations
+              }
+            );
+            return {
+              protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
+              request_id: operationRequest.request_id,
+              ok: true,
+              result
+            };
+          }
+        }
         return reply.code(401).send(apiError(
           "invalid_token",
           "Access token is invalid or expired."

@@ -411,17 +411,23 @@ export function Signup() {
     setBusy(true);
     setError("");
     try {
-      await api("/v1/auth/password/signup", {
+      const result = await api<{
+        onboarding?: { starter_collection?: "pending" } | null;
+      }>("/v1/auth/password/signup", {
         method: "POST",
         body: JSON.stringify({
           invitation_token: invitationToken,
           name,
           password,
           terms_version: config.agreements.terms.version,
-          privacy_version: config.agreements.privacy.version
+          privacy_version: config.agreements.privacy.version,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
         })
       });
-      location.href = returnTarget();
+      location.href = result.onboarding?.starter_collection === "pending"
+        && !isAuthorizationReturnTarget()
+        ? "/getting-started"
+        : returnTarget();
     } catch (reason) {
       setError(message(reason));
       setBusy(false);
@@ -441,7 +447,7 @@ export function Signup() {
         <p className="eyebrow">Private preview / invitation</p>
         <h1>{ready ? "Create your account" : "This invitation can’t be opened"}</h1>
         <p>{ready
-          ? "Your email is already verified by this one-time invitation. Create a password to finish setting up your account."
+          ? "Your email is already verified by this one-time invitation. Create a password, then we’ll open a small starter collection in the editor."
           : invitationToken
             ? "The link is invalid, expired, already used, or account setup is temporarily unavailable."
             : "Open the complete account setup link from your invitation email."}</p>
@@ -518,7 +524,7 @@ export function Signup() {
               disabled={busy || !agreementsAccepted}
               type="submit"
             >
-              {busy ? "Creating account…" : "Create account"}
+              {busy ? "Creating account…" : "Create account and open editor"}
             </button>
           </form>
         )}

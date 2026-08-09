@@ -23,6 +23,7 @@ import {
   materializeInvitationEntitlement
 } from "./entitlements.js";
 import { scheduleBetaWelcomeEmail } from "./beta-welcome-email.js";
+import { scheduleStarterCollection } from "./account-onboarding.js";
 
 const DEFAULT_INVITATION_LIFETIME_SECONDS = 7 * 24 * 60 * 60;
 const MIN_INVITATION_LIFETIME_SECONDS = 5 * 60;
@@ -56,6 +57,7 @@ export interface AcceptInvitationInput {
   termsVersion: string;
   privacyVersion: string;
   clientName?: string;
+  timezone?: string;
 }
 
 export interface PasswordLoginInput {
@@ -86,6 +88,7 @@ export type InvitationDeliveryOutcome =
 
 export interface PasswordSession {
   token: string;
+  starterCollectionPending?: boolean;
   user: {
     id: string;
     email: string;
@@ -358,6 +361,7 @@ export class PasswordAccountService {
           userId,
           emailIdentityId
         });
+        await scheduleStarterCollection(connection, userId, input.timezone ?? "UTC");
       }
       await connection.query(
         `INSERT INTO sessions
@@ -377,6 +381,7 @@ export class PasswordAccountService {
       await connection.query("COMMIT");
       return {
         token: sessionToken,
+        starterCollectionPending: row.entitlement_profile === BETA_ENTITLEMENT_PROFILE,
         user: { id: userId, email: row.email, name }
       };
     } catch (error) {

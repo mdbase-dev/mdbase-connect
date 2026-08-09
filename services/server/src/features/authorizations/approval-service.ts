@@ -23,7 +23,10 @@ import {
   type CollectionAccessContext
 } from "../../collection-access.js";
 import type { DatabasePool } from "../../db.js";
-import { contractRequirements } from "../../hosted.js";
+import {
+  contractRequirements,
+  type HostedAuthorityRegistry
+} from "../../hosted.js";
 import { HostedProviderClient } from "../../hosted-provider.js";
 import { hostedReplicaCollectionOperations } from "../../hosted-replica-policy.js";
 import { planCollectionGrant } from "../../grant-planner.js";
@@ -497,7 +500,8 @@ function validateContractSetupChoices(
 
 export async function approveHostedAuthorization(
   db: DatabasePool,
-  provider: HostedProviderClient,
+  provider: HostedProviderClient | undefined,
+  hostedReference: HostedAuthorityRegistry | undefined,
   input: {
     requestId: string;
     userId: string;
@@ -508,6 +512,9 @@ export async function approveHostedAuthorization(
     access: CollectionAccessContext;
   }
 ): Promise<boolean> {
+  if (!provider && !hostedReference) {
+    throw new RequestValidationError("Hosted application access is unavailable.");
+  }
   const connection = await db.connect();
   let replicaId: string | null = null;
   let newReplicaId: string | null = null;
@@ -614,6 +621,11 @@ export async function approveHostedAuthorization(
     const hasApplicationSetup = provisions.length > 0
       || (pending.provisions.configuration?.length ?? 0) > 0;
     if (hasApplicationSetup) {
+      if (!provider) {
+        throw new RequestValidationError(
+          "Application setup is unavailable in the reference hosted authority."
+        );
+      }
       requireCollectionAction(input.access, "schema.manage");
       const setupResult = await provider.provisionApplicationSetup(
         input.collectionId,
@@ -706,7 +718,14 @@ export async function approveHostedAuthorization(
     replicaId = retained?.hosted_replica_id ?? randomUUID();
 
     for (const duplicate of existing.rows.slice(1)) {
-      await provider.revokeReplica(duplicate.hosted_replica_id);
+      if (provider) {
+        await provider.revokeReplica(duplicate.hosted_replica_id);
+      } else {
+        await hostedReference!.revokeReplica(
+          input.collectionId,
+          duplicate.hosted_replica_id
+        );
+      }
       await connection.query(
         "UPDATE hosted_replicas SET revoked_at = now() WHERE id = $1",
         [duplicate.hosted_replica_id]
@@ -733,7 +752,15 @@ export async function approveHostedAuthorization(
       applicationDeclarationDigest: `sha256:${pending.application_manifest_digest}`
     };
     if (retained) {
-      await provider.updateApplicationReplica(replicaId, replicaPolicy);
+      if (provider) {
+        await provider.updateApplicationReplica(replicaId, replicaPolicy);
+      } else {
+        await hostedReference!.updateReplicaScope(
+          input.collectionId,
+          replicaId,
+          allowedTypes
+        );
+      }
       await connection.query(
         `UPDATE hosted_replicas
          SET mode = $2, allowed_types = $3::jsonb, revoked_at = NULL
@@ -769,14 +796,23 @@ export async function approveHostedAuthorization(
       newReplicaId = replicaId;
       notificationGrantId = grantId;
       const bootstrapToken = randomToken("hsa");
-      await provider.registerReplica(input.collectionId, {
-        id: replicaId,
-        name: `${pending.application_name} application access`,
-        purpose: "application",
-        ...replicaPolicy,
-        token: bootstrapToken,
-        tokenTtlSeconds: 3_600
-      });
+      if (provider) {
+        await provider.registerReplica(input.collectionId, {
+          id: replicaId,
+          name: `${pending.application_name} application access`,
+          purpose: "application",
+          ...replicaPolicy,
+          token: bootstrapToken,
+          tokenTtlSeconds: 3_600
+        });
+      } else {
+        await hostedReference!.registerReplica(input.collectionId, {
+          id: replicaId,
+          name: `${pending.application_name} application access`,
+          mode: plan.replicaMode,
+          allowedTypes
+        });
+      }
       await connection.query(
         `INSERT INTO hosted_replicas
            (id, collection_id, authorized_user_id, name, purpose, mode,
@@ -827,17 +863,27 @@ export async function approveHostedAuthorization(
       scope,
       source: "portal"
     });
-    await syncHostedNotificationGrant(connection, provider, grantId);
+    if (provider) {
+      await syncHostedNotificationGrant(connection, provider, grantId);
+    }
     await connection.query("COMMIT");
     return true;
   } catch (error) {
     await connection.query("ROLLBACK");
-    if (notificationGrantId) {
+    if (notificationGrantId && provider) {
       await provider
         .revokeNotificationGrant(input.collectionId, notificationGrantId)
         .catch(() => undefined);
     }
-    if (newReplicaId) await provider.revokeReplica(newReplicaId).catch(() => undefined);
+    if (newReplicaId) {
+      if (provider) {
+        await provider.revokeReplica(newReplicaId).catch(() => undefined);
+      } else {
+        await hostedReference
+          ?.revokeReplica(input.collectionId, newReplicaId)
+          .catch(() => undefined);
+      }
+    }
     throw error;
   } finally {
     connection.release();
