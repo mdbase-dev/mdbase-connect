@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.0-beta.54
+
+Beta.54 makes application startup safe for large hosted collections when the
+requested collection setup is already current.
+
+- Current setup assessments no longer clone the complete collection into a
+  temporary preflight workspace.
+- Applicable setup changes still use the existing staged, revision-safe
+  transaction path.
+
 ## 0.1.0-beta.53
 
 Beta.53 requires application sessions that request full-collection access to
