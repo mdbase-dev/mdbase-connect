@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 FROM rust:1.94.0-bookworm AS build
 
 ARG MDBASE_RS_REPOSITORY=https://github.com/callumalpass/mdbase-rs.git
@@ -17,7 +18,14 @@ COPY Cargo.toml ./
 COPY deploy/docker/Cargo.lock.hosted-provider ./Cargo.lock
 COPY crates crates
 COPY templates templates
-RUN cargo build --locked --release -p mdbase-connect-hosted-provider
+RUN --mount=type=cache,id=hosted-provider-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=hosted-provider-cargo-git,target=/usr/local/cargo/git/db,sharing=locked \
+    --mount=type=cache,id=hosted-provider-target,target=/build/mdbase-connect/target,sharing=locked \
+    cargo build --locked --release -p mdbase-connect-hosted-provider \
+ && mkdir -p /build/output \
+ && cp target/release/mdbase-connect-hosted-provider /build/output/ \
+ && cp target/release/mdbase-hosted-key-admin /build/output/ \
+ && cp target/release/mdbase-hosted-backup-admin /build/output/
 
 FROM debian:bookworm-slim AS runtime
 
@@ -27,9 +35,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --create-home --uid 10001 mdbase
 
-COPY --from=build /build/mdbase-connect/target/release/mdbase-connect-hosted-provider /usr/local/bin/
-COPY --from=build /build/mdbase-connect/target/release/mdbase-hosted-key-admin /usr/local/bin/
-COPY --from=build /build/mdbase-connect/target/release/mdbase-hosted-backup-admin /usr/local/bin/
+COPY --from=build /build/output/ /usr/local/bin/
 
 ENV HOST=0.0.0.0 \
     PORT=8790 \
