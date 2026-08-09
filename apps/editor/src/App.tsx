@@ -1271,7 +1271,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     }
   }
 
-  async function saveRecordSource(path: string, source: string, previousSource: string): Promise<boolean> {
+  async function saveRecordSource(path: string, source: string, previousSource: string): Promise<NoteDocument | false> {
     const session = noteSessions.current.get(path);
     if (!session || session.deleted) return false;
     if (noteSessions.current.active === session) setPropertiesError(undefined);
@@ -1302,7 +1302,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         setSaveState("saved");
       }
       touchSession(session);
-      return true;
+      return updated;
     } catch (error) {
       const message = gatewayError(error);
       session.error = message;

@@ -89,7 +89,12 @@ describe("typed note properties", () => {
 
   it("shows and saves the complete exact record source", async () => {
     const user = userEvent.setup();
-    const onSaveDocument = vi.fn();
+    const onSaveDocument = vi.fn(async (document: string) => ({
+      ...sourceNote,
+      document,
+      body: document.slice(document.indexOf("---\n") + 4),
+      revision: "revision-6"
+    }));
     const onClose = vi.fn();
     render(<PropertiesPanel note={sourceNote} types={[]} onClose={onClose} onSave={async () => undefined} onSaveDocument={onSaveDocument} />);
 
@@ -106,8 +111,65 @@ describe("typed note properties", () => {
     onSaveDocument.mockClear();
     fireEvent.change(editor, { target: { value: `${normalized}More again.\n` } });
     await user.click(screen.getByRole("button", { name: "Save source" }));
-    await waitFor(() => expect(onSaveDocument).toHaveBeenCalledWith(`${normalized}More again.\n`, sourceNote.document));
+    await waitFor(() => expect(onSaveDocument).toHaveBeenCalledWith(`${normalized}More again.\n`, `${normalized}More.\n`));
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("rebases field drafts when an exact source save changes frontmatter", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn(async () => undefined);
+    const oldDocument = "---\ntitle: Quoted\ncustom: old\n---\nBody\n";
+    const noteWithFieldEdit = {
+      ...sourceNote,
+      frontmatter: { title: "Quoted", custom: "old" },
+      effectiveFrontmatter: { title: "Quoted", custom: "old" },
+      document: oldDocument,
+      body: "Body\n",
+      revision: "revision-fields"
+    };
+    const onSaveDocument = vi.fn(async (document: string): Promise<NoteDocument> => ({
+      ...noteWithFieldEdit,
+      frontmatter: { title: "Quoted", custom: "from-source" },
+      effectiveFrontmatter: { title: "Quoted", custom: "from-source" },
+      document,
+      revision: "revision-source"
+    }));
+    const view = render(<PropertiesPanel
+      note={sourceNote}
+      types={[]}
+      onClose={vi.fn()}
+      onSave={onSave}
+      onSaveDocument={onSaveDocument}
+    />);
+
+    await user.click(screen.getByRole("tab", { name: "JSON" }));
+    fireEvent.change(screen.getByLabelText("Raw frontmatter JSON"), {
+      target: { value: JSON.stringify(noteWithFieldEdit.frontmatter, null, 2) }
+    });
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(sourceNote.path, noteWithFieldEdit.frontmatter), { timeout: 1_500 });
+    view.rerender(<PropertiesPanel
+      note={noteWithFieldEdit}
+      types={[]}
+      onClose={vi.fn()}
+      onSave={onSave}
+      onSaveDocument={onSaveDocument}
+    />);
+
+    await user.click(screen.getByRole("tab", { name: "Source" }));
+    const sourceEditor = screen.getByLabelText("Complete record source");
+    const nextDocument = oldDocument.replace("custom: old", "custom: from-source");
+    fireEvent.change(sourceEditor, { target: { value: nextDocument } });
+    fireEvent.blur(sourceEditor);
+    await waitFor(() => expect(onSaveDocument).toHaveBeenCalledWith(nextDocument, oldDocument));
+    const fieldSaveCount = onSave.mock.calls.length;
+    await new Promise((resolve) => window.setTimeout(resolve, 650));
+    expect(onSave).toHaveBeenCalledTimes(fieldSaveCount);
+
+    await user.click(screen.getByRole("tab", { name: "JSON" }));
+    expect(screen.getByLabelText("Raw frontmatter JSON")).toHaveValue(JSON.stringify({
+      title: "Quoted",
+      custom: "from-source"
+    }, null, 2));
   });
 });
 

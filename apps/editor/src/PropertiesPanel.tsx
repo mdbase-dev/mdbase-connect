@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
 import { CodeEditor } from "./CodeEditor";
 import type { NoteDocument } from "./model";
-import { composeRecordSource } from "./record-source";
+import { composeRecordSource, parseRecordSource } from "./record-source";
 import { propertyValidationErrors, StructuredPropertiesEditor } from "./StructuredPropertiesEditor";
 
 interface PropertiesPanelProps {
@@ -17,7 +17,7 @@ interface PropertiesPanelProps {
   error?: string;
   onClose: () => void;
   onSave: (path: string, value: JsonObject) => Promise<void>;
-  onSaveDocument?: (document: string, previousDocument: string) => Promise<boolean> | boolean | void;
+  onSaveDocument?: (document: string, previousDocument: string) => Promise<NoteDocument | false> | NoteDocument | false;
 }
 
 export function PropertiesPanel({
@@ -33,21 +33,23 @@ export function PropertiesPanel({
   const initialDocument = note.document ?? composeRecordSource(note.frontmatter, note.body ?? "");
   const contract = useMemo(() => mergedSchema(note.types, types), [note.types, types]);
   const [draft, setDraft] = useState<JsonObject>(initial);
+  const [persistedFrontmatter, setPersistedFrontmatter] = useState(initial);
   const [mode, setMode] = useState<"fields" | "json" | "source">("fields");
   const [raw, setRaw] = useState(() => JSON.stringify(initial, null, 2));
   const [source, setSource] = useState(initialDocument);
+  const [persistedDocument, setPersistedDocument] = useState(initialDocument);
   const sourceBaseline = useRef(initialDocument);
   const latestSource = useRef(source);
   const sourceSaveCallback = useRef(onSaveDocument);
-  const sourceSavePromise = useRef<Promise<boolean> | undefined>(undefined);
+  const sourceSavePromise = useRef<Promise<NoteDocument | false> | undefined>(undefined);
   const lastSourceSubmitted = useRef(initialDocument);
   const [rawError, setRawError] = useState<string>();
   const [structuredFieldsValid, setStructuredFieldsValid] = useState(true);
   const [autoSaveState, setAutoSaveState] = useState<"saved" | "waiting" | "saving">("saved");
   const [saving, setSaving] = useState(false);
-  const changed = JSON.stringify(draft) !== JSON.stringify(initial);
-  const sourceChanged = source !== initialDocument;
-  const initialFingerprint = JSON.stringify(initial);
+  const changed = JSON.stringify(draft) !== JSON.stringify(persistedFrontmatter);
+  const sourceChanged = source !== persistedDocument;
+  const initialFingerprint = JSON.stringify(persistedFrontmatter);
   const draftFingerprint = JSON.stringify(draft);
   const validationFingerprint = JSON.stringify(propertyValidationErrors(draft, contract));
   const fieldsInvalid = Boolean(rawError) || !structuredFieldsValid || validationFingerprint !== "{}";
@@ -56,6 +58,7 @@ export function PropertiesPanel({
   const saveCallback = useRef(onSave);
   const lastSubmitted = useRef(initialFingerprint);
   const saveGeneration = useRef(0);
+  const fieldsBaseline = useRef(initial);
 
   useEffect(() => { latestDraft.current = draft; }, [draft]);
   useEffect(() => { latestFieldsInvalid.current = fieldsInvalid; }, [fieldsInvalid]);
@@ -63,8 +66,21 @@ export function PropertiesPanel({
   latestSource.current = source;
   sourceSaveCallback.current = onSaveDocument;
   useEffect(() => {
+    const previous = fieldsBaseline.current;
+    fieldsBaseline.current = initial;
+    setPersistedFrontmatter(initial);
+    setDraft((current) => {
+      if (JSON.stringify(current) !== JSON.stringify(previous)) return current;
+      setRaw(JSON.stringify(initial, null, 2));
+      latestDraft.current = initial;
+      lastSubmitted.current = JSON.stringify(initial);
+      return initial;
+    });
+  }, [initial]);
+  useEffect(() => {
     const previous = sourceBaseline.current;
     sourceBaseline.current = initialDocument;
+    setPersistedDocument(initialDocument);
     setSource((current) => {
       if (current !== previous) return current;
       latestSource.current = initialDocument;
@@ -134,23 +150,47 @@ export function PropertiesPanel({
       return;
     }
     if (sourceSavePromise.current) {
-      const succeeded = await sourceSavePromise.current;
-      if (succeeded && closeAfterSave) onClose();
+      const saved = await sourceSavePromise.current;
+      if (saved && closeAfterSave) onClose();
       return;
     }
     const next = source;
     const baseline = sourceBaseline.current;
     lastSourceSubmitted.current = next;
     setSaving(true);
-    const pending = Promise.resolve(onSaveDocument?.(next, baseline))
-      .then((result) => result !== false)
-      .catch(() => false);
+    const pending: Promise<NoteDocument | false> = onSaveDocument
+      ? Promise.resolve(onSaveDocument(next, baseline))
+        .catch(() => false as const)
+      : Promise.resolve(false as const);
     sourceSavePromise.current = pending;
-    const succeeded = await pending;
+    const saved = await pending;
     sourceSavePromise.current = undefined;
     setSaving(false);
-    if (!succeeded) lastSourceSubmitted.current = baseline;
-    if (succeeded && closeAfterSave) onClose();
+    if (!saved) {
+      lastSourceSubmitted.current = baseline;
+      return;
+    }
+    acceptPersistedDocument(saved, next);
+    if (closeAfterSave) onClose();
+  }
+
+  function acceptPersistedDocument(saved: NoteDocument, submittedSource: string) {
+    const persistedSource = saved.document ?? submittedSource;
+    const persistedFrontmatter = saved.frontmatter ?? parseRecordSource(persistedSource).frontmatter;
+    saveGeneration.current += 1;
+    fieldsBaseline.current = persistedFrontmatter;
+    sourceBaseline.current = persistedSource;
+    latestDraft.current = persistedFrontmatter;
+    latestSource.current = persistedSource;
+    lastSubmitted.current = JSON.stringify(persistedFrontmatter);
+    lastSourceSubmitted.current = persistedSource;
+    setDraft(structuredClone(persistedFrontmatter));
+    setPersistedFrontmatter(structuredClone(persistedFrontmatter));
+    setRaw(JSON.stringify(persistedFrontmatter, null, 2));
+    setRawError(undefined);
+    setSource(persistedSource);
+    setPersistedDocument(persistedSource);
+    setAutoSaveState("saved");
   }
 
   function closePanel() {
