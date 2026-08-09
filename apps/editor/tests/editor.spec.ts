@@ -570,7 +570,9 @@ test("filters collection facets, follows backlinks, and completes wikilinks", as
   expect(appearance.detailFont).toContain("Azeret Mono");
 
   await page.keyboard.type("the shape");
-  await expect(completion.getByText("The shape of useful tools", { exact: true }).first()).toBeVisible();
+  const selectedCompletion = completion.getByRole("option", { selected: true });
+  await expect(selectedCompletion).toContainText("The shape of useful tools");
+  await expect(body).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(body).toContainText("[[Notes/the-shape-of-useful-tools|The shape of useful tools]]");
   await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 2_000 });

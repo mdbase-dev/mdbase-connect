@@ -244,6 +244,9 @@ jobs:
           MDBASE_CONNECT_ENV: test
           MDBASE_CONNECT_SECRET_BACKEND: insecure-test-file
       - run: cargo build --locked --workspace
+      # The local system suite launches Chromium even though the standalone
+      # browser-storage and accessibility checks run in the parallel Node job.
+      - run: pnpm exec playwright install --with-deps chromium
       # Exercise the local connector/browser request path in normal CI as well
       # as the durable hosted-provider path below.
       - run: node test/system/run.mjs --suite local --no-prepare
