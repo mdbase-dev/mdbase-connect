@@ -277,6 +277,33 @@ test("renders linked collection images inline and in the file preview", async ({
   await expect(preview).not.toBeAttached();
 });
 
+test("focuses embedded PDFs in place and opens PDF wikilinks in the file workspace", async ({ page }) => {
+  await page.goto("?demo=12");
+  const body = page.getByRole("textbox", { name: "Note body" });
+  await body.locator(".cm-line").first().click();
+  await page.keyboard.press("Control+End");
+  await page.keyboard.insertText("\n\n![[Documents/interface-notes.pdf]]\n\n[[Documents/interface-notes.pdf]]");
+  await body.locator(".cm-line").first().click();
+
+  const open = page.getByRole("button", { name: "Open interface-notes.pdf" });
+  await expect(open).toBeVisible();
+  await open.click();
+
+  await expect(page.getByRole("dialog", { name: "Preview interface-notes.pdf" })).toHaveCount(0);
+  const inlineViewer = page.getByRole("region", { name: "Embedded PDF, interface-notes.pdf" });
+  await expect(inlineViewer).toBeFocused();
+  const embedPdf = inlineViewer.getByLabel("PDF viewer, interface-notes.pdf");
+  await expect(embedPdf).toBeVisible();
+  await expect.poll(() => embedPdf.evaluate((viewer) => {
+    const root = viewer.querySelector("embedpdf-container")?.shadowRoot;
+    return [...(root?.querySelectorAll("img") ?? [])].some((image) => image.naturalWidth > 0);
+  })).toBe(true);
+
+  await page.getByRole("link", { name: "Documents/interface-notes.pdf" }).click();
+  await expect(page.getByRole("main", { name: "File viewer, interface-notes.pdf" })).toBeVisible();
+  await expect(page.getByLabel("PDF viewer, interface-notes.pdf")).toBeVisible();
+});
+
 test("uses one fixed-choice control across settings, note creation, and type editing", async ({ page }) => {
   await page.goto("?demo=12");
 

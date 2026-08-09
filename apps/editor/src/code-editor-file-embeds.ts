@@ -4,6 +4,8 @@ import type { FileAssetSnapshot } from "./file-asset-store";
 import type { ResolvedFileReference } from "./use-file-assets";
 
 class FileEmbedWidget extends WidgetType {
+  private unmountInlinePdf?: () => void;
+
   constructor(
     readonly reference: ResolvedFileReference,
     readonly open: ((asset: Extract<FileAssetSnapshot, { status: "ready" }>) => void) | undefined
@@ -34,11 +36,17 @@ class FileEmbedWidget extends WidgetType {
         image.loading = "lazy";
         preview.append(image);
       } else if (asset.file.mediaClass === "pdf") {
-        const frame = document.createElement("iframe");
-        frame.src = `${asset.url}#toolbar=0&navpanes=0&view=FitH`;
-        frame.title = filename;
-        frame.tabIndex = -1;
-        preview.append(frame);
+        const cover = document.createElement("button");
+        cover.type = "button";
+        cover.className = "cm-file-embed-pdf-cover";
+        cover.setAttribute("aria-label", `Open ${filename}`);
+        const mark = document.createElement("span");
+        mark.textContent = "PDF";
+        const prompt = document.createElement("span");
+        prompt.textContent = "Open document";
+        cover.append(mark, prompt);
+        cover.addEventListener("click", () => this.activatePdf(preview, cover, asset.url, filename));
+        preview.append(cover);
       } else {
         const media = document.createElement(asset.file.mediaClass === "audio" ? "audio" : "video");
         media.src = asset.url;
@@ -62,7 +70,7 @@ class FileEmbedWidget extends WidgetType {
     name.textContent = label ?? filename;
     detail.textContent = asset.file.path;
     caption.append(name, detail);
-    if (asset.status === "ready" && asset.file.mediaClass !== "audio" && asset.file.mediaClass !== "video" && this.open) {
+    if (asset.status === "ready" && asset.file.mediaClass !== "audio" && asset.file.mediaClass !== "video" && asset.file.mediaClass !== "pdf" && this.open) {
       const open = document.createElement("button");
       open.type = "button";
       open.className = "cm-file-embed-open";
@@ -79,7 +87,29 @@ class FileEmbedWidget extends WidgetType {
   }
 
   ignoreEvent(event: Event) {
-    return event.target instanceof Element && Boolean(event.target.closest("button, audio, video"));
+    return event.target instanceof Element && Boolean(event.target.closest("button, audio, video, .cm-file-embed-pdf-viewer"));
+  }
+
+  destroy() {
+    this.unmountInlinePdf?.();
+  }
+
+  private activatePdf(preview: HTMLElement, cover: HTMLElement, src: string, filename: string) {
+    if (preview.classList.contains("cm-file-embed-active")) return;
+    preview.classList.add("cm-file-embed-active");
+    preview.setAttribute("aria-label", `PDF embed, ${filename}`);
+    const viewer = document.createElement("div");
+    viewer.className = "cm-file-embed-pdf-viewer";
+    viewer.tabIndex = 0;
+    viewer.setAttribute("role", "region");
+    viewer.setAttribute("aria-label", `Embedded PDF, ${filename}`);
+    cover.replaceWith(viewer);
+    viewer.focus({ preventScroll: true });
+    void import("./inline-pdf-viewer").then(({ mountInlinePdfViewer }) => {
+      if (!viewer.isConnected) return;
+      const root = mountInlinePdfViewer(viewer, src, filename);
+      this.unmountInlinePdf = () => root.unmount();
+    });
   }
 }
 

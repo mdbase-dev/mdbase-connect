@@ -1997,6 +1997,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
                 onDismissLinkPreview={notePreviewController.dismiss}
                 embeddedFiles={embeddedFiles}
                 onOpenFile={setOpenFileAsset}
+                files={fileInventory.files}
+                onOpenFileLink={navigateToFile}
                 insertion={attachments.insertion}
               />
             </Suspense>

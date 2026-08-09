@@ -4,6 +4,7 @@ import { ArrowLeftIcon as ArrowLeft, FileIcon as File, XIcon as X } from "./icon
 import type { FileAssetSnapshot } from "./file-asset-store";
 import type { CollectionFile } from "./model";
 import { collectionFileTitle, formatFileSize } from "./collection-browser";
+import { EmbedPdfViewer } from "./EmbedPdfViewer";
 
 export function FileWorkspace({ file, asset, leadingActions, onBack, onRetry }: {
   file: CollectionFile;
@@ -54,7 +55,7 @@ export function FileViewer({ asset, onClose }: {
 function FileContent({ asset }: { asset: Extract<FileAssetSnapshot, { status: "ready" }> }) {
   const filename = collectionFileTitle(asset.file);
   if (asset.file.mediaClass === "image") return <img src={asset.url} alt={filename} />;
-  if (asset.file.mediaClass === "pdf") return <iframe src={`${asset.url}#toolbar=1&navpanes=0&view=FitH`} title={filename} />;
+  if (asset.file.mediaClass === "pdf") return <EmbedPdfViewer src={asset.url} filename={filename} />;
   if (asset.file.mediaClass === "audio") return <audio src={asset.url} controls preload="metadata" aria-label={filename} />;
   if (asset.file.mediaClass === "video") return <video src={asset.url} controls preload="metadata" aria-label={filename} />;
   return <div className="file-workspace-message"><File aria-hidden="true" /><strong>{filename}</strong><span>{formatFileSize(asset.file.size)} · Preview unavailable. Use Open original to view this file.</span></div>;

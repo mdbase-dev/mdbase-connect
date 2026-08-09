@@ -29,6 +29,7 @@
     "@codemirror/search": "^6.7.1",
     "@codemirror/state": "^6.7.1",
     "@codemirror/view": "^6.43.6",
+    "@embedpdf/react-pdf-viewer": "^2.15.0",
     "@fontsource/atkinson-hyperlegible": "^5.3.0",
     "@fontsource/azeret-mono": "^5.3.0",
     "@lezer/highlight": "^1.2.3",

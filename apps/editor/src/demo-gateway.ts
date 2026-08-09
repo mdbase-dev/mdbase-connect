@@ -913,4 +913,23 @@ function mediaClass(path: string, mediaType: string): CollectionFile["mediaClass
 }
 
 const FRONTMATTER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540"><rect width="960" height="540" fill="#f5f8fb"/><g fill="none" stroke="#243444" stroke-width="16" stroke-linecap="square"><path d="M230 122h500M230 418h500"/><path d="M230 220h135M230 320h135"/></g><g fill="none" stroke-width="16" stroke-linecap="square"><path d="M415 220h315" stroke="#2878a6"/><path d="M415 320h315" stroke="#243444"/></g></svg>`;
-const DEMO_PDF = "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Count 0/Kids[]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF";
+const DEMO_PDF = `%PDF-1.4
+1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
+2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj
+3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Resources<</Font<</F1 4 0 R>>>>/Contents 5 0 R>>endobj
+4 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj
+5 0 obj<</Length 111>>stream
+BT /F1 24 Tf 72 700 Td (Interface notes) Tj /F1 12 Tf 0 -34 Td (A calm place for durable Markdown and its files.) Tj ET
+endstream endobj
+xref
+0 6
+0000000000 65535 f\x20
+0000000009 00000 n\x20
+0000000058 00000 n\x20
+0000000115 00000 n\x20
+0000000241 00000 n\x20
+0000000311 00000 n\x20
+trailer<</Size 6/Root 1 0 R>>
+startxref
+472
+%%EOF`;

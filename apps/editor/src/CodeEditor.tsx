@@ -36,10 +36,12 @@ import { tags } from "@lezer/highlight";
 import { useEffect, useRef } from "react";
 import { parseDocument as parseYamlDocument } from "yaml";
 import type { FileAssetSnapshot } from "./file-asset-store";
+import { resolveFileReference } from "./file-references";
 import type { ResolvedFileReference } from "./use-file-assets";
 import { fileEmbedPresentation } from "./code-editor-file-embeds";
 import { linkMatches, wikilinkFor, type LinkSuggestion } from "./links";
 import type { NotePreviewAnchor, NotePreviewSource } from "./NotePreview";
+import type { CollectionFile } from "./model";
 
 type EditorLanguage = "markdown" | "json" | "yaml" | "yaml-frontmatter" | "plain";
 type EditorVariant = "writer" | "source";
@@ -69,6 +71,8 @@ interface CodeEditorProps {
   onDismissLinkPreview?: () => void;
   embeddedFiles?: ResolvedFileReference[];
   onOpenFile?: (asset: Extract<FileAssetSnapshot, { status: "ready" }>) => void;
+  files?: CollectionFile[];
+  onOpenFileLink?: (file: CollectionFile) => void;
   insertion?: { id: number; text: string; block?: boolean };
   onBlur?: () => void;
 }
@@ -114,6 +118,8 @@ export function CodeEditor({
   onDismissLinkPreview,
   embeddedFiles = [],
   onOpenFile,
+  files = [],
+  onOpenFileLink,
   insertion,
   onBlur
 }: CodeEditorProps) {
@@ -137,6 +143,8 @@ export function CodeEditor({
   const onDismissLinkPreviewRef = useRef(onDismissLinkPreview);
   const embeddedFilesRef = useRef(embeddedFiles);
   const onOpenFileRef = useRef(onOpenFile);
+  const filesRef = useRef(files);
+  const onOpenFileLinkRef = useRef(onOpenFileLink);
   const appliedInsertion = useRef<number | undefined>(undefined);
   const lineSeparator = useRef(lineSeparatorFor(value));
 
@@ -150,6 +158,8 @@ export function CodeEditor({
   onDismissLinkPreviewRef.current = onDismissLinkPreview;
   embeddedFilesRef.current = embeddedFiles;
   onOpenFileRef.current = onOpenFile;
+  filesRef.current = files;
+  onOpenFileLinkRef.current = onOpenFileLink;
 
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
 
@@ -175,8 +185,10 @@ export function CodeEditor({
       ) : []),
       variant === "writer" ? writerInteractions(
         () => linkSuggestionsRef.current,
+        () => filesRef.current,
         () => currentPathRef.current,
         () => onOpenLinkRef.current,
+        () => onOpenFileLinkRef.current,
         () => onCreateLinkRef.current,
         () => onPreviewLinkRef.current,
         () => onDismissLinkPreviewRef.current
@@ -754,8 +766,10 @@ const markdownMarkerNames = new Set([
 
 function writerInteractions(
   suggestions: () => LinkSuggestion[],
+  files: () => CollectionFile[],
   currentPath: () => string | undefined,
   onOpenLink: () => ((path: string) => void) | undefined,
+  onOpenFileLink: () => ((file: CollectionFile) => void) | undefined,
   onCreateLink: () => ((target: string, label: string | undefined, format: "wikilink" | "markdown") => void) | undefined,
   onPreviewLink: () => ((path: string, anchor: NotePreviewAnchor, source: NotePreviewSource) => void) | undefined,
   onDismissLinkPreview: () => (() => void) | undefined
@@ -802,13 +816,17 @@ function writerInteractions(
       }
       if (!link.target || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(link.target)) return false;
       const path = resolveSuggestionPath(link.target, suggestions(), currentPath());
+      const file = resolveFileReference(link.target, link.format, files(), currentPath());
       const openLink = onOpenLink();
+      const openFileLink = onOpenFileLink();
       const createLink = onCreateLink();
-      if (!path && !createLink) return false;
+      if (!path && !file && !createLink) return false;
       if (path && !openLink) return false;
+      if (file && !openFileLink) return false;
       event.preventDefault();
       dismissPreview(view);
       if (path) openLink?.(path);
+      else if (file) openFileLink?.(file);
       else createLink?.(link.target, link.label, link.format);
       return true;
     },
