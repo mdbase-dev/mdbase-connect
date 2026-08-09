@@ -13,7 +13,8 @@ mod workspace;
 
 pub use backup_admin::{BackupHold, BackupHoldInventory, BackupHoldRelease, HostedBackupAdmin};
 pub use blob_store::{
-    BlobByteStream, BlobStore, BlobStreamError, PresignedPart, R2BlobStore, R2Config, UploadedPart,
+    BlobByteStream, BlobStore, BlobStreamError, PresignedPart, R2BlobStore, R2Config,
+    R2InsecureHttpConfig, UploadedPart,
 };
 pub use crypto::ProviderCrypto;
 pub use error::{ApiError, ApiResult};

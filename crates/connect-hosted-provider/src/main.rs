@@ -3,7 +3,7 @@ use std::{net::IpAddr, sync::Arc, time::Duration};
 use clap::{Parser, ValueEnum};
 use mdbase_connect_hosted_provider::{
     app, AppState, HostedNotificationConfig, HostedProvider, KeyWrappingBackend, KeyWrappingConfig,
-    ProviderCrypto, ProviderLimits, R2BlobStore, R2Config,
+    ProviderCrypto, ProviderLimits, R2BlobStore, R2Config, R2InsecureHttpConfig,
 };
 use tokio::{net::TcpListener, signal};
 use tracing_subscriber::EnvFilter;
@@ -239,16 +239,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 internal_token: secrets.internal_token.clone(),
             });
     let r2_config = if arguments.allow_insecure_r2 {
-        R2Config::new_insecure_http(
-            arguments.r2_endpoint,
-            arguments.r2_bucket,
-            secrets.r2_access_key_id,
-            secrets.r2_secret_access_key,
-            arguments.r2_multipart_part_bytes,
-            arguments.r2_download_part_bytes,
-            Duration::from_secs(arguments.r2_presign_ttl_seconds),
-            arguments.insecure_r2_hosts,
-        )?
+        R2Config::new_insecure_http(R2InsecureHttpConfig {
+            endpoint: arguments.r2_endpoint,
+            bucket: arguments.r2_bucket,
+            access_key_id: secrets.r2_access_key_id,
+            secret_access_key: secrets.r2_secret_access_key,
+            multipart_part_bytes: arguments.r2_multipart_part_bytes,
+            download_part_bytes: arguments.r2_download_part_bytes,
+            presign_ttl: Duration::from_secs(arguments.r2_presign_ttl_seconds),
+            insecure_http_hosts: arguments.insecure_r2_hosts,
+        })?
     } else {
         R2Config::new(
             arguments.r2_endpoint,
