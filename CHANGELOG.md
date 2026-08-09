@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.0-beta.52
+
+Beta.52 removes avoidable latency after a file download has already completed
+and passed integrity verification.
+
+- Browser clients expose verified file bytes immediately while best-effort
+  transfer cleanup continues outside the document-loading critical path.
+- Cancellation and failed downloads still wait for cleanup, preserving the
+  existing recovery and integrity guarantees.
+
 ## 0.1.0-beta.51
 
 Beta.51 improves resilience under local registry contention and reduces file
