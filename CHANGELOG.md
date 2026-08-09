@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-beta.51
+
+Beta.51 improves resilience under local registry contention and reduces file
+download latency.
+
+- Relay operations distinguish retryable SQLite contention from rejected
+  requests and report that the operation was not sent.
+- Connector watchers batch registry writes to shorten transactions and reduce
+  lock contention while preserving operation ordering.
+- Framed file downloads prefetch subsequent chunks without changing integrity
+  verification or retry behavior.
+
 ## 0.1.0-beta.50
 
 Beta.50 makes application authorization independent from collection repair and
