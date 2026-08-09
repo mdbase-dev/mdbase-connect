@@ -1,11 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "./api";
 import {
-  invitationTokenFromFragment,
   isAuthorizationReturnTarget,
   message,
-  returnTarget,
-  tokenFromFragment
+  returnTarget
 } from "./portal-model";
 import { Loading, PageBrand } from "./portal-ui";
 
@@ -257,8 +255,7 @@ export function ForgotPassword() {
   );
 }
 
-export function ResetPassword() {
-  const [resetToken] = useState(() => tokenFromFragment("reset"));
+export function ResetPassword({ resetToken }: { resetToken: string }) {
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
@@ -359,8 +356,7 @@ export function ResetPassword() {
   );
 }
 
-export function Signup() {
-  const [invitationToken] = useState(invitationTokenFromFragment);
+export function Signup({ invitationToken }: { invitationToken: string }) {
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [invitation, setInvitation] = useState<InvitationPreview | null>(null);
   const [name, setName] = useState("");

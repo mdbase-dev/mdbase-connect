@@ -70,17 +70,28 @@ export function returnTarget() {
   const target = new URL(requested, location.origin);
   return target.origin === location.origin ? target.href : "/";
 }
-export function invitationTokenFromFragment() {
-  return tokenFromFragment("invitation");
-}
-export function tokenFromFragment(name: string) {
-  const token = new URLSearchParams(location.hash.slice(1))
-    .get(name)
-    ?.trim() ?? "";
-  if (location.hash) {
-    history.replaceState(history.state, "", `${location.pathname}${location.search}`);
+export type PortalBootstrapSecrets = Readonly<{
+  invitationToken: string;
+  resetToken: string;
+}>;
+
+export function capturePortalBootstrapSecrets(
+  currentLocation: Pick<Location, "hash" | "pathname" | "search"> = location,
+  currentHistory: Pick<History, "replaceState" | "state"> = history
+): PortalBootstrapSecrets {
+  const parameters = new URLSearchParams(currentLocation.hash.slice(1));
+  const secrets = Object.freeze({
+    invitationToken: parameters.get("invitation")?.trim() ?? "",
+    resetToken: parameters.get("reset")?.trim() ?? ""
+  });
+  if (secrets.invitationToken || secrets.resetToken) {
+    currentHistory.replaceState(
+      currentHistory.state,
+      "",
+      `${currentLocation.pathname}${currentLocation.search}`
+    );
   }
-  return token;
+  return secrets;
 }
 export function isAuthorizationReturnTarget() {
   try {
