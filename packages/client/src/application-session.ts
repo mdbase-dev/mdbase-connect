@@ -433,7 +433,10 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
       return;
     }
     const context = this.context(current.connection);
-    if (!context.capabilities.requiredAvailable) {
+    if (
+      !context.capabilities.requiredAvailable
+      || !accessRequirementSatisfied(this.manifest, context.info)
+    ) {
       this.publish({ status: "authorization_required", ...context });
       return;
     }
@@ -651,6 +654,14 @@ function verificationValue(manifest: MdbaseAppManifest): string {
     requirements: manifest.requirements?.configuration ?? [],
     provisions: manifest.provisions ?? {}
   });
+}
+
+function accessRequirementSatisfied(
+  manifest: MdbaseAppManifest,
+  connection: MdbaseConnectionInfo
+): boolean {
+  return manifest.requirements?.access !== "full_collection"
+    || connection.scope.access === "full_collection";
 }
 
 function declarationIdFromFamilyIdentity(familyIdentity: string): string {

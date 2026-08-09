@@ -32,7 +32,8 @@ function manifest(overrides: Partial<MdbaseAppManifest> = {}): MdbaseAppManifest
 
 function connection(
   operations = ["describe", "read", "update"],
-  assessment?: CollectionSetupAssessment
+  assessment?: CollectionSetupAssessment,
+  access: "contract" | "full_collection" = "full_collection"
 ) {
   let currentAssessment = assessment;
   const applyCollectionSetup = vi.fn(async () => {
@@ -57,7 +58,7 @@ function connection(
       collectionId,
       displayName: "Test collection",
       operations,
-      scope: { contracts: [], access: "full_collection" },
+      scope: { contracts: [], access },
       authority: { kind: "hosted", durability: "provider" },
       route: "remote",
       directAccess: "disabled"
@@ -80,9 +81,10 @@ function connection(
 function connectFixture(
   declaration: MdbaseAppManifest,
   grantedOperations?: string[],
-  assessment?: CollectionSetupAssessment
+  assessment?: CollectionSetupAssessment,
+  access?: "contract" | "full_collection"
 ) {
-  const connected = connection(grantedOperations, assessment);
+  const connected = connection(grantedOperations, assessment, access);
   const authorize = vi.fn(async () => connectSuccess({ kind: "redirect", url: "https://connect.example" }));
   const register = vi.fn(async () => connectSuccess({
     id: "01922222-2222-7222-8222-222222222222",
@@ -230,6 +232,31 @@ describe("MdbaseApplicationSession", () => {
           "records.update": { state: "requires_authorization", requirement: "optional" }
         }
       }
+    });
+  });
+
+  it("requires renewed authorization when a full-collection application has a contract-scoped grant", async () => {
+    const declaration = manifest({
+      requirements: {
+        contracts: [],
+        access: "full_collection",
+        capabilities: {
+          contract_version: 1,
+          required: ["collection.inspect", "records.read"]
+        }
+      }
+    });
+    const fixture = connectFixture(declaration, undefined, undefined, "contract");
+    const session = new MdbaseApplicationSession(fixture.facade as never, {
+      selection: new MdbaseMemorySelection()
+    });
+
+    const started = await session.start();
+
+    expect(started.ok && started.value.status).toBe("authorization_required");
+    expect(session.getSnapshot()).toMatchObject({
+      status: "authorization_required",
+      info: { scope: { access: "contract" } }
     });
   });
 
