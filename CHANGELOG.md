@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.0-beta.53
+
+Beta.53 requires application sessions that request full-collection access to
+hold a matching full-collection grant.
+
+- Contract-scoped grants no longer satisfy full-collection application
+  requirements and trigger renewed authorization.
+- Contract-scoped application requirements continue to work with
+  contract-scoped grants.
+
 ## 0.1.0-beta.52
 
 Beta.52 removes avoidable latency after a file download has already completed
