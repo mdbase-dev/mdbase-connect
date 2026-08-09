@@ -903,7 +903,7 @@ describe("MdbaseFileClient", () => {
     expect(objectFetch).not.toHaveBeenCalled();
   });
 
-  it("streams encrypted frames in order with one negotiated part in memory", async () => {
+  it("prefetches encrypted frames concurrently and emits them in order", async () => {
     const content = bytes("framed chunks stay ordered");
     const file = descriptor("framed.bin", content);
     let active = 0;
@@ -933,7 +933,7 @@ describe("MdbaseFileClient", () => {
     }, framed);
 
     await expect(client.downloadBytes(file, { concurrency: 4 })).resolves.toEqual(content);
-    expect(maximumActive).toBe(1);
+    expect(maximumActive).toBe(4);
   });
 
   it("requires the streaming API for downloads above the bounded convenience limit", async () => {

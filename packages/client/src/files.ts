@@ -480,7 +480,7 @@ export class MdbaseFileClient {
     startupSignal: AbortSignal
   ): Promise<ReadableStream<Uint8Array>> {
     this.requireAction("read");
-    validConcurrency(options.concurrency);
+    const concurrency = validConcurrency(options.concurrency);
     const transferId = crypto.randomUUID();
     let session: FileTransferSession;
     try {
@@ -518,11 +518,38 @@ export class MdbaseFileClient {
     let hostedReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
     let receivedBytes = 0;
     let closed = false;
+    const deliveryController = new AbortController();
+    const deliverySignal = options.signal
+      ? AbortSignal.any([options.signal, deliveryController.signal])
+      : deliveryController.signal;
+    type FramedChunkResult =
+      | { readonly ok: true; readonly chunk: Uint8Array }
+      | { readonly ok: false; readonly error: unknown };
+    const framedChunks = new Map<number, Promise<FramedChunkResult>>();
+    let nextFramedPart = 0;
+    const queueFramedChunks = () => {
+      if (session.strategy.kind !== "framed_chunks") return;
+      while (nextFramedPart < partCount && framedChunks.size < concurrency) {
+        const index = nextFramedPart;
+        nextFramedPart += 1;
+        const pending = retryChunk(
+          () => this.framed!.downloadChunk(session, index, deliverySignal),
+          deliverySignal
+        ).then<FramedChunkResult, FramedChunkResult>(
+          (chunk) => ({ ok: true, chunk }),
+          (error: unknown) => ({ ok: false, error })
+        );
+        framedChunks.set(index, pending);
+      }
+    };
     const finish = async () => {
       if (closed) return;
       closed = true;
+      deliveryController.abort();
       await hostedReader?.cancel().catch(() => undefined);
       hostedReader = null;
+      await Promise.all(framedChunks.values());
+      framedChunks.clear();
       await this.abort(transferId);
     };
     const verify = () => {
@@ -534,7 +561,7 @@ export class MdbaseFileClient {
     return new ReadableStream<Uint8Array>({
       pull: async (controller) => {
         try {
-          throwIfAborted(options.signal);
+          throwIfAborted(deliverySignal);
           if (session.strategy.kind === "object_ranges") {
             while (true) {
               if (!hostedReader) {
@@ -551,9 +578,9 @@ export class MdbaseFileClient {
                     session,
                     partIndex,
                     partRemaining,
-                    options.signal
+                    deliverySignal
                   ),
-                  options.signal
+                  deliverySignal
                 );
                 hostedReader = body.getReader();
               }
@@ -603,16 +630,22 @@ export class MdbaseFileClient {
           }
           const offset = partIndex * partSize;
           const length = Math.min(partSize, file.size - offset);
-          const chunk = await retryChunk(
-            () => this.framed!.downloadChunk(session, partIndex, options.signal),
-            options.signal
-          );
+          queueFramedChunks();
+          const pending = framedChunks.get(partIndex);
+          if (!pending) {
+            throw connectError("invalid_operation_response", "A file chunk was not scheduled.");
+          }
+          const result = await pending;
+          framedChunks.delete(partIndex);
+          if (!result.ok) throw result.error;
+          const chunk = result.chunk;
           if (chunk.byteLength !== length) {
             throw connectError("invalid_operation_response", "A file chunk had the wrong byte length.");
           }
           hash.update(chunk);
           receivedBytes += chunk.byteLength;
           partIndex += 1;
+          queueFramedChunks();
           options.onProgress?.({
             phase: "downloading",
             transferredBytes: receivedBytes,
