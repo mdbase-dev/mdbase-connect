@@ -260,6 +260,27 @@ describe("MdbaseApplicationSession", () => {
     });
   });
 
+  it("accepts a contract-scoped grant for a contract-scoped application", async () => {
+    const declaration = manifest({
+      requirements: {
+        contracts: [],
+        access: "contract",
+        capabilities: {
+          contract_version: 1,
+          required: ["collection.inspect", "records.read"]
+        }
+      }
+    });
+    const fixture = connectFixture(declaration, undefined, undefined, "contract");
+    const session = new MdbaseApplicationSession(fixture.facade as never, {
+      selection: new MdbaseMemorySelection()
+    });
+
+    const started = await session.start();
+
+    expect(started.ok && started.value.status).toBe("ready");
+  });
+
   it("carries request options through ensureCapabilities authorization", async () => {
     const fixture = connectFixture(manifest(), ["describe", "read"]);
     const session = new MdbaseApplicationSession(fixture.facade as never, {
