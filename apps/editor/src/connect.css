@@ -207,6 +207,10 @@
   letter-spacing: -0.035em;
 }
 
+.connect-page > header h1:focus {
+  outline: none;
+}
+
 .connect-page > header > span {
   max-width: 650px;
   display: block;

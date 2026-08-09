@@ -665,23 +665,60 @@ class TaskCheckboxWidget extends WidgetType {
   }
 }
 
+class MarkdownLinkWidget extends WidgetType {
+  constructor(readonly from: number, readonly label: string, readonly target: string) {
+    super();
+  }
+
+  eq(other: MarkdownLinkWidget) {
+    return this.from === other.from && this.label === other.label && this.target === other.target;
+  }
+
+  toDOM() {
+    const link = document.createElement("a");
+    link.className = "cm-rendered-link";
+    link.dataset.linkFrom = String(this.from);
+    link.href = /^https?:\/\//i.test(this.target) ? this.target : "#";
+    if (/^https?:\/\//i.test(this.target)) {
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+    }
+    link.textContent = this.label;
+    return link;
+  }
+
+  ignoreEvent() {
+    return false;
+  }
+}
+
 function markdownDecorations(view: EditorView): DecorationSet {
   const ranges: Range<Decoration>[] = [];
   const activeLines = new Set(view.state.selection.ranges.map((range) => view.state.doc.lineAt(range.head).from));
   const visibleLines = new Set<number>();
+  const renderedLinks: Array<{ from: number; to: number }> = [];
   for (const visible of view.visibleRanges) {
-    syntaxTree(view.state).iterate({
-      from: visible.from,
-      to: visible.to,
-      enter(node) {
-        if (!markdownMarkerNames.has(node.name) || activeLines.has(view.state.doc.lineAt(node.from).from)) return;
-        ranges.push(Decoration.mark({ class: "cm-markdown-mark" }).range(node.from, node.to));
-      }
-    });
     let line = view.state.doc.lineAt(visible.from);
     while (line.from <= visible.to) {
       if (!visibleLines.has(line.from)) {
         visibleLines.add(line.from);
+        if (!activeLines.has(line.from)) {
+          for (const match of line.text.matchAll(/(?<!!)\[\[([^\]]+)\]\]|(?<!!)\[([^\]]*)\]\(([^)]+)\)/g)) {
+            const from = line.from + match.index;
+            const to = from + match[0].length;
+            const wikiParts = match[1]?.split("|", 2);
+            const target = wikiParts
+              ? wikiParts[0].trim()
+              : (match[3] ?? "").replace(/^<|>$/g, "").trim();
+            const label = wikiParts
+              ? wikiParts[1]?.trim() || wikiParts[0].trim()
+              : match[2]?.trim() || target;
+            renderedLinks.push({ from, to });
+            ranges.push(Decoration.replace({
+              widget: new MarkdownLinkWidget(from, label, target)
+            }).range(from, to));
+          }
+        }
         const task = /^(\s*(?:[-+*]|\d+[.)])\s+)\[([ xX])\](?=\s|$)/.exec(line.text);
         if (task && !activeLines.has(line.from)) {
           const from = line.from + task[1].length;
@@ -693,6 +730,15 @@ function markdownDecorations(view: EditorView): DecorationSet {
       if (line.to >= view.state.doc.length || line.to >= visible.to) break;
       line = view.state.doc.line(line.number + 1);
     }
+    syntaxTree(view.state).iterate({
+      from: visible.from,
+      to: visible.to,
+      enter(node) {
+        if (!markdownMarkerNames.has(node.name) || activeLines.has(view.state.doc.lineAt(node.from).from)) return;
+        if (renderedLinks.some((link) => node.from < link.to && node.to > link.from)) return;
+        ranges.push(Decoration.mark({ class: "cm-markdown-mark" }).range(node.from, node.to));
+      }
+    });
   }
   return Decoration.set(ranges, true);
 }
@@ -724,8 +770,13 @@ function writerInteractions(
   return EditorView.domEventHandlers({
     mousedown(event, view) {
       const task = taskTarget(event);
-      if (!task || event.button !== 0) return false;
-      return toggleTask(view, task, event);
+      if (task && event.button === 0) return toggleTask(view, task, event);
+      const renderedLink = event.target instanceof Element
+        ? event.target.closest(".cm-rendered-link")
+        : null;
+      if (!renderedLink || event.button !== 0) return false;
+      event.preventDefault();
+      return true;
     },
     keydown(event, view) {
       const task = taskTarget(event);
@@ -733,8 +784,14 @@ function writerInteractions(
       return toggleTask(view, task, event);
     },
     click(event, view) {
-      if (!event.metaKey && !event.ctrlKey) return false;
-      const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
+      const rendered = event.target instanceof Element
+        ? event.target.closest<HTMLElement>(".cm-rendered-link")
+        : null;
+      if (!rendered && !event.metaKey && !event.ctrlKey) return false;
+      const renderedFrom = rendered ? Number(rendered.dataset.linkFrom) : undefined;
+      const position = Number.isFinite(renderedFrom)
+        ? renderedFrom!
+        : view.posAtCoords({ x: event.clientX, y: event.clientY });
       if (position === null) return false;
       const link = markdownLinkAt(view.state.doc.toString(), position);
       if (!link) return false;

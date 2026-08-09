@@ -3124,6 +3124,19 @@ kbd {
   transition: opacity 160ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+.code-editor-writer .cm-rendered-link {
+  color: var(--syntax-link);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.code-editor-writer .cm-rendered-link:hover {
+  color: var(--accent);
+  text-decoration-thickness: 2px;
+}
+
 .code-editor-writer .cm-task-checkbox {
   width: 16px;
   height: 16px;
@@ -4484,6 +4497,17 @@ label.schema-value {
   min-height: 0;
   overflow-y: auto;
   border-top: 1px solid var(--line);
+}
+
+.type-list.empty {
+  display: grid;
+  place-items: center;
+}
+
+.type-list.empty > .quiet-empty {
+  margin: 0;
+  padding: 24px;
+  text-align: center;
 }
 
 .type-row {
@@ -7197,6 +7221,7 @@ label.schema-value {
 
 .empty-type {
   position: relative;
+  grid-template-rows: minmax(0, 1fr);
   place-items: center;
   color: var(--faint);
   font-size: 13px;

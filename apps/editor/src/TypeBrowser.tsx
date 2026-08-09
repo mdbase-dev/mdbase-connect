@@ -129,7 +129,7 @@ export function TypeList({ types, selectedName, packsSelected = false, leadingAc
         <ChevronRight aria-hidden="true" />
       </button>
     </nav>
-    <div className="type-list" role="listbox" aria-label="Collection types">
+    <div className={`type-list${!visible.length ? " empty" : ""}`} role="listbox" aria-label="Collection types">
       {visible.map((type) => <button key={type.name} role="option" aria-selected={selectedName === type.name} className={`type-row${selectedName === type.name ? " selected" : ""}`} onClick={() => onSelect(type.name)}>
         <span className="type-row-icon">{isPhosphorIconName(collectionTypeIcon(type))
           ? <PhosphorIcon name={collectionTypeIcon(type)} aria-hidden="true" />
