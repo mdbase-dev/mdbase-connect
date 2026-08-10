@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.0-beta.55
+
+Beta.55 hardens portal authorization startup, hosted record mutations, and
+editor projection consistency.
+
+- Portal auth fragments are captured before the first render.
+- Hosted record preflights are separated from mutation execution.
+- Editor projections rebase after source saves.
+
 ## 0.1.0-beta.54
 
 Beta.54 makes application startup safe for large hosted collections when the
