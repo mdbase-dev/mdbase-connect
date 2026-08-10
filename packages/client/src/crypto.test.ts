@@ -1,8 +1,15 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import type { GrantEncryption } from "@mdbase-dev/connect-protocol";
+import type {
+  EncryptedRelayOperationRequest,
+  EncryptedRelayOperationResponse,
+  GrantEncryption
+} from "@mdbase-dev/connect-protocol";
 import {
+  decryptRelayResponse,
   encryptRelayRequest,
   authorityProofMessage,
+  type GrantKeyStore,
   MemoryGrantKeyStore,
   RelayCryptoError,
   signAuthorityRequest
@@ -36,6 +43,92 @@ async function fixture() {
 }
 
 describe("encrypted relay client", () => {
+  it("decrypts the frozen beta55 v2 response without rewriting its pending request", async () => {
+    const fixture = JSON.parse(readFileSync(
+      new URL("../../protocol/test/fixtures/encrypted-relay-beta55-v2.json", import.meta.url),
+      "utf8"
+    ));
+    const applicationPublic = base64UrlBytes(fixture.application_public_key);
+    const privateKey = await crypto.subtle.importKey(
+      "jwk",
+      {
+        kty: "EC",
+        crv: "P-256",
+        x: bytesBase64Url(applicationPublic.slice(1, 33)),
+        y: bytesBase64Url(applicationPublic.slice(33, 65)),
+        d: fixture.application_private_key,
+        ext: false,
+        key_ops: ["deriveBits"]
+      },
+      { name: "ECDH", namedCurve: "P-256" },
+      false,
+      ["deriveBits"]
+    );
+    const store = {
+      async get() {
+        return {
+          handle: "legacy",
+          agreementPrivateKey: privateKey,
+          agreementPublicKey: fixture.application_public_key,
+          signingPrivateKey: privateKey,
+          signingPublicKey: "unused"
+        };
+      }
+    } as unknown as GrantKeyStore;
+    const encryption: GrantEncryption = {
+      protocol_version: 1,
+      suite: fixture.suite,
+      key_id: fixture.key_id,
+      scope_epoch: fixture.scope_epoch,
+      connector_id: fixture.connector_id,
+      collection_id: fixture.collection_id,
+      application_agreement_public_key: fixture.application_public_key,
+      connector_agreement_public_key: fixture.connector_public_key
+    };
+    const metadata = {
+      protocol_version: fixture.protocol_version,
+      suite: fixture.suite,
+      request_id: fixture.request_id,
+      grant_id: fixture.grant_id,
+      application_id: fixture.application_id,
+      connector_id: fixture.connector_id,
+      collection_id: fixture.collection_id,
+      operation: fixture.operation,
+      scope_epoch: fixture.scope_epoch,
+      key_id: fixture.key_id,
+      counter: fixture.counter
+    } as const;
+    const request: EncryptedRelayOperationRequest = {
+      type: "encrypted_operation_request",
+      ...metadata,
+      ciphertext: fixture.request.ciphertext
+    };
+    const response: EncryptedRelayOperationResponse = {
+      type: "encrypted_operation_response",
+      ...metadata,
+      ciphertext: fixture.response.ciphertext
+    };
+    await expect(decryptRelayResponse(
+      store,
+      "legacy",
+      { grantId: fixture.grant_id, applicationId: fixture.application_id, encryption },
+      request,
+      response
+    )).resolves.toEqual(fixture.response.plaintext);
+    expect(request).toEqual({
+      type: "encrypted_operation_request",
+      ...metadata,
+      ciphertext: fixture.request.ciphertext
+    });
+    await expect(decryptRelayResponse(
+      store,
+      "legacy",
+      { grantId: fixture.grant_id, applicationId: fixture.application_id, encryption },
+      { ...request, protocol_version: 3 },
+      response
+    )).rejects.toMatchObject({ code: "invalid_encrypted_response" });
+  });
+
   it("keeps private keys non-extractable and emits only ciphertext plus bound metadata", async () => {
     const { applicationStore, encryption } = await fixture();
     const key = await applicationStore.get("grant");
@@ -175,4 +268,8 @@ function base64UrlBytes(value: string): Uint8Array<ArrayBuffer> {
     bytes[index] = binary.charCodeAt(index);
   }
   return bytes;
+}
+
+function bytesBase64Url(value: Uint8Array): string {
+  return Buffer.from(value).toString("base64url");
 }

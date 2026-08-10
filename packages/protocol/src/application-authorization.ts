@@ -1,11 +1,24 @@
 import type { ApplicationFileRequirement } from "./files.js";
-import type { CollectionOperation } from "./operations.js";
-import type { ConnectContractRequirements } from "./compatibility.js";
+import {
+  isMutatingOperation,
+  type CollectionOperation
+} from "./operations.js";
+import type {
+  AuthorizationBindingProtocolVersion,
+  ConnectContractRequirements
+} from "./compatibility.js";
+import {
+  AUTHORIZATION_BINDING_PROTOCOL_VERSION,
+  LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION,
+  OPERATION_TRANSPORT_PROTOCOL_VERSION,
+  isSupportedAuthorizationBinding,
+  isSupportedOperationTransport
+} from "./compatibility.js";
 
 export type ApplicationAuthorizationFlow = "authorization_code" | "device_code";
 
 export interface ApplicationAuthorizationBinding {
-  protocol_version: 4;
+  protocol_version: AuthorizationBindingProtocolVersion;
   authorization_id: string;
   application_id: string;
   application_declaration_id: string;
@@ -35,8 +48,11 @@ export interface ApplicationAuthorizationProof {
 const INSTALLATION_ID_DOMAIN = new TextEncoder().encode(
   "mdbase-connect application installation id v2\0"
 );
-const AUTHORIZATION_PROOF_DOMAIN = new TextEncoder().encode(
+const AUTHORIZATION_PROOF_V4_DOMAIN = new TextEncoder().encode(
   "mdbase-connect application authorization proof v4\0"
+);
+const AUTHORIZATION_PROOF_V5_DOMAIN = new TextEncoder().encode(
+  "mdbase-connect application authorization proof v5\0"
 );
 
 export async function applicationInstallationIdFromPublicKey(
@@ -74,8 +90,13 @@ export function authorizationSigningMessage(
   const nonce = canonicalBase64(binding.authorization_nonce);
   const challenge = canonicalBase64(binding.code_challenge);
   const contracts = binding.contracts;
+  const recovery = contracts.operation_transport_recovery ?? [];
+  const requiresDurableMutation = binding.requested_operations.some((operation) =>
+    isMutatingOperation(operation, { action: "mutate" }))
+    || binding.requested_files?.actions.some((action) =>
+      !["list", "read"].includes(action)) === true;
   if (
-    binding.protocol_version !== 4
+    !isSupportedAuthorizationBinding(binding.protocol_version)
     || nonce.byteLength !== 32
     || !/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$/u.test(binding.application_declaration_id)
     || !/^[0-9a-f]{64}$/u.test(binding.application_manifest_digest)
@@ -88,6 +109,20 @@ export function authorizationSigningMessage(
       contracts.semantic_capabilities,
       contracts.durable_mutation ?? 1
     ].every((version) => Number.isInteger(version) && version > 0)
+    || contracts.authorization_binding !== binding.protocol_version
+    || !isSupportedOperationTransport(contracts.operation_transport)
+    || (binding.protocol_version === AUTHORIZATION_BINDING_PROTOCOL_VERSION
+      && contracts.operation_transport !== OPERATION_TRANSPORT_PROTOCOL_VERSION)
+    || recovery.some((version) =>
+      !isSupportedOperationTransport(version)
+      || version === contracts.operation_transport)
+    || new Set(recovery).size !== recovery.length
+    || (binding.protocol_version === LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION
+      && recovery.length > 0)
+    || (recovery.length > 0 && !requiresDurableMutation)
+    || (requiresDurableMutation
+      ? contracts.durable_mutation !== 1
+      : contracts.durable_mutation !== undefined)
     || (binding.requested_operations.length === 0 && binding.requested_files === undefined)
     || new Set(binding.requested_operations).size !== binding.requested_operations.length
     || binding.requested_operations.some((operation) => !operation || operation.includes("\0"))
@@ -103,7 +138,9 @@ export function authorizationSigningMessage(
   const operationFields = binding.requested_operations.map((operation) =>
     field(new TextEncoder().encode(operation)));
   return concat([
-    AUTHORIZATION_PROOF_DOMAIN,
+    binding.protocol_version === AUTHORIZATION_BINDING_PROTOCOL_VERSION
+      ? AUTHORIZATION_PROOF_V5_DOMAIN
+      : AUTHORIZATION_PROOF_V4_DOMAIN,
     u32(binding.protocol_version),
     field(uuidBytes(binding.application_id)),
     field(uuidBytes(binding.authorization_id)),
@@ -119,6 +156,9 @@ export function authorizationSigningMessage(
     optionalString(binding.state),
     field(new TextEncoder().encode(binding.code_challenge)),
     u32(contracts.operation_transport),
+    ...(binding.protocol_version === AUTHORIZATION_BINDING_PROTOCOL_VERSION
+      ? [u32(recovery.length), ...recovery.map(u32)]
+      : []),
     u32(contracts.authorization_binding),
     u32(contracts.semantic_capabilities),
     optionalU32(contracts.durable_mutation),

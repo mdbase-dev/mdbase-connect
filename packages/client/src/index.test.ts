@@ -2323,6 +2323,71 @@ describe("authorization renewal", () => {
     });
   });
 
+  it("signs v2 recovery only when an exact pending mutation matches the target and operation", async () => {
+    const storage = new MemoryStorage();
+    const target = TEST_COLLECTION_ID;
+    const other = "01999999-9999-7999-8999-999999999999";
+    const prefix = "mdbase-connect:https://connect.example:bundle:dev.tasks:pending-mutation";
+    const pending = (collectionId: string, operation: string, protocolVersion: number) => ({
+      collectionId,
+      operation,
+      inputFingerprint: `${collectionId}:${operation}`,
+      requestId: crypto.randomUUID(),
+      envelope: { protocol_version: protocolVersion },
+      createdAt: Date.now()
+    });
+    storage.setItem(`${prefix}:${target}:legacy`, JSON.stringify(pending(target, "create", 2)));
+    storage.setItem(`${prefix}:${other}:legacy`, JSON.stringify(pending(other, "create", 2)));
+    storage.setItem(`${prefix}:${target}:current`, JSON.stringify(pending(target, "create", 3)));
+    storage.setItem(`${prefix}:${target}:read`, JSON.stringify(pending(target, "read", 2)));
+    let proof: any;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/v1/apps/register")) {
+        return jsonResponse({ application: registeredApplication() });
+      }
+      const form = new URLSearchParams(String(init?.body));
+      proof = JSON.parse(form.get("application_authorization")!);
+      return jsonResponse({
+        authorization_id: proof.binding.authorization_id,
+        authorization_uri: `https://connect.example/oauth/authorize?request_id=${proof.binding.authorization_id}`,
+        expires_in: 600,
+        interval: 30
+      });
+    });
+    const manager = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifest: {
+        manifest_version: 1,
+        id: "dev.tasks",
+        name: "Tasks",
+        homepage: "https://tasks.example/",
+        redirect_uris: ["https://tasks.example/callback"]
+      },
+      redirectUri: "https://tasks.example/callback",
+      storage,
+      keyStore: new MemoryGrantKeyStore(),
+      identityStore: new MemoryApplicationIdentityStore(),
+      relayEncryption: "disabled",
+      navigate: vi.fn()
+    });
+
+    await expect(manager.authorize({
+      operations: ["create"],
+      target: { kind: "collection", collectionId: target }
+    })).resolves.toMatchObject({ ok: true, value: { kind: "redirecting" } });
+    expect(proof.binding).toMatchObject({
+      protocol_version: 5,
+      collection_id: target,
+      contracts: {
+        operation_transport: 3,
+        operation_transport_recovery: [2],
+        authorization_binding: 5,
+        semantic_capabilities: 1,
+        durable_mutation: 1
+      }
+    });
+  });
+
   it("returns a typed problem when persistent application identity is unavailable", async () => {
     const keyStore = new MemoryGrantKeyStore();
     const deleteKey = vi.spyOn(keyStore, "delete");

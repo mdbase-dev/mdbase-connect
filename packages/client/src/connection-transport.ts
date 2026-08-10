@@ -413,7 +413,9 @@ export class ConnectionTransport {
         throw error;
       }
     }
-    if (body?.protocol_version !== OPERATION_TRANSPORT_PROTOCOL_VERSION
+    const expectedProtocol = attempt.pendingMutationRecord?.request?.protocol_version
+      ?? OPERATION_TRANSPORT_PROTOCOL_VERSION;
+    if (body?.protocol_version !== expectedProtocol
         || body?.request_id !== attempt.requestId) {
       if (attempt.pendingMutation) throw unknownMutationOutcome(attempt.requestId,
         new Error("Operation response protocol or request ID did not match.")

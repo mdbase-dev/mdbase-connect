@@ -12,19 +12,20 @@ import type {
   GrantScope,
   ApplicationAuthorizationProof,
   ConnectContractSupport,
+  ConnectContractRequirements,
   ConnectProblem,
   RelayFileFrame
 } from "@mdbase-dev/connect-protocol";
 import {
-  CONTROL_PROTOCOL_VERSION,
   CONNECT_CONTRACT_SUPPORT,
+  CONTROL_PROTOCOL_VERSION,
   OPERATION_TRANSPORT_PROTOCOL_VERSION,
   CONTRACT_SETUP_CAPABILITY,
   isConnectProblem,
   MINIMUM_CONNECTOR_VERSION,
   normalizeConnectProblem,
   RELAY_CAPABILITIES,
-  RELAY_REQUIRED_CAPABILITIES
+  PROTOCOL_USAGE_REPORT_CAPABILITY
 } from "@mdbase-dev/connect-protocol";
 import type { DatabasePool } from "./db.js";
 import {
@@ -42,17 +43,24 @@ import {
 import { RelayFileBridge } from "./relay-file.js";
 import { canonicalSha256 } from "./canonical-json.js";
 import type { WebSocket } from "ws";
+import { recordConnectorProtocolUsage } from "./protocol-telemetry.js";
+import {
+  CONNECTOR_UPDATE_URL,
+  receiveRelayHello,
+  rejectIncompatibleRelay,
+  relayCapabilityMismatch,
+  relayContractMismatch,
+  type RelayHello
+} from "./relay-compatibility.js";
 
 export { ConnectorOperationError, RelayUnavailableError } from "./relay-errors.js";
+export { connectorVersionAtLeast } from "./relay-compatibility.js";
 
 const OPERATION_TIMEOUT_MS = 30_000;
 const BROKER_OPERATION_TIMEOUT_MS = OPERATION_TIMEOUT_MS + 1_000;
 const OFFER_TIMEOUT_MS = 3_000;
 const BROKER_OFFER_TIMEOUT_MS = OFFER_TIMEOUT_MS + 1_000;
 const POLICY_TIMEOUT_MS = 5_000;
-const HANDSHAKE_TIMEOUT_MS = 5_000;
-const INCOMPATIBLE_CLOSE_CODE = 4406;
-const CONNECTOR_UPDATE_URL = "https://github.com/mdbase-dev/mdbase-connect/releases/latest";
 
 interface PendingRequest {
   resolve(value: unknown): void;
@@ -74,13 +82,7 @@ interface ConnectorSession {
   binding: RelayBrokerBinding;
   capabilities: string[];
   contractSupport: ConnectContractSupport;
-}
-
-interface RelayHello {
-  protocol_version: number;
-  connector_version: string;
-  capabilities: string[];
-  contract_support: ConnectContractSupport;
+  lastUsageReportAt: number;
 }
 
 export class RelayHub {
@@ -112,10 +114,13 @@ export class RelayHub {
     const contractMismatch = hello
       ? relayContractMismatch(hello.contract_support)
       : undefined;
+    const capabilityMismatch = hello
+      ? relayCapabilityMismatch(hello.capabilities)
+      : undefined;
     if (!hello
         || hello.protocol_version !== CONTROL_PROTOCOL_VERSION
         || contractMismatch
-        || !RELAY_REQUIRED_CAPABILITIES.every((capability) => hello.capabilities.includes(capability))) {
+        || capabilityMismatch) {
       try {
         if (!this.isConnected(connectorId)) {
           await this.db.query(
@@ -129,14 +134,16 @@ export class RelayHub {
             [
               connectorId,
               hello?.connector_version ?? null,
-              contractMismatch?.code ?? "connector_upgrade_required",
+              contractMismatch?.code
+                ?? capabilityMismatch?.code
+                ?? "connector_upgrade_required",
               MINIMUM_CONNECTOR_VERSION,
               CONNECTOR_UPDATE_URL
             ]
           );
         }
       } finally {
-        rejectIncompatibleRelay(socket, contractMismatch);
+        rejectIncompatibleRelay(socket, contractMismatch ?? capabilityMismatch);
       }
       return;
     }
@@ -181,7 +188,8 @@ export class RelayHub {
       socket,
       binding,
       capabilities: [...hello.capabilities],
-      contractSupport: hello.contract_support
+      contractSupport: hello.contract_support,
+      lastUsageReportAt: 0
     };
 
     const previous = this.connectors.get(connectorId);
@@ -219,18 +227,45 @@ export class RelayHub {
           collections?: unknown[];
           contracts?: unknown[];
           revision?: string;
+          entries?: unknown[];
         };
-        const expectedProtocol = message.type === "operation_response"
-          || message.type === "encrypted_operation_response"
+        if (message.type === "protocol_usage_report") {
+          if (
+            message.protocol_version !== CONTROL_PROTOCOL_VERSION
+            || !session.capabilities.includes(PROTOCOL_USAGE_REPORT_CAPABILITY)
+            || !validProtocolUsageEntries(message.entries)
+          ) {
+            rejectIncompatibleRelay(socket);
+            return;
+          }
+          const now = Date.now();
+          if (now - session.lastUsageReportAt < 10_000) return;
+          session.lastUsageReportAt = now;
+          void recordConnectorProtocolUsage(
+            this.db,
+            connectorId,
+            message.entries.map((entry) => ({
+              version: entry.version,
+              count: entry.count
+            }))
+          ).catch(() => undefined);
+          return;
+        }
+        const pending = message.request_id
+          ? this.pending.get(message.request_id)
+          : undefined;
+        const expectedProtocol = message.type === "encrypted_operation_response"
           || message.type === "encrypted_operation_rejected"
-          ? OPERATION_TRANSPORT_PROTOCOL_VERSION
-          : CONTROL_PROTOCOL_VERSION;
+          ? pending?.expectedEncrypted?.protocol_version
+            ?? OPERATION_TRANSPORT_PROTOCOL_VERSION
+          : message.type === "operation_response"
+            ? OPERATION_TRANSPORT_PROTOCOL_VERSION
+            : CONTROL_PROTOCOL_VERSION;
         if (message.protocol_version !== expectedProtocol) {
           rejectIncompatibleRelay(socket);
           return;
         }
         if (!message.request_id) return;
-        const pending = this.pending.get(message.request_id);
         if (!pending || pending.socket !== socket) return;
         if (message.type === "encrypted_operation_rejected") {
           const problem = message.problem;
@@ -393,6 +428,23 @@ export class RelayHub {
 
   isConnected(connectorId: string): boolean {
     return this.connectors.get(connectorId)?.socket.readyState === 1;
+  }
+
+  supportsContracts(
+    connectorId: string,
+    required: ConnectContractRequirements
+  ): boolean {
+    const support = this.connectors.get(connectorId)?.contractSupport;
+    return Boolean(
+      support
+      && support.operation_transport.includes(required.operation_transport)
+      && (required.operation_transport_recovery ?? []).every((version) =>
+        support.operation_transport.includes(version))
+      && support.authorization_binding.includes(required.authorization_binding)
+      && support.semantic_capabilities.includes(required.semantic_capabilities)
+      && (required.durable_mutation === undefined
+        || support.durable_mutation.includes(required.durable_mutation))
+    );
   }
 
   async pushPolicy(connectorId: string): Promise<void> {
@@ -780,6 +832,25 @@ export class RelayHub {
   }
 }
 
+function validProtocolUsageEntries(
+  value: unknown
+): value is Array<{ axis: "operation_transport"; version: number; count: number }> {
+  return Array.isArray(value)
+    && value.length > 0
+    && value.length <= 4
+    && value.every((entry) => {
+      if (!entry || typeof entry !== "object") return false;
+      const candidate = entry as Record<string, unknown>;
+      return Object.keys(candidate).length === 3
+        && candidate.axis === "operation_transport"
+        && Number.isInteger(candidate.version)
+        && (candidate.version as number) > 0
+        && Number.isSafeInteger(candidate.count)
+        && (candidate.count as number) > 0
+        && (candidate.count as number) <= 100_000;
+    });
+}
+
 function requestIdFromMessage(message: unknown): string | null {
   if (typeof message !== "object" || message === null || Array.isArray(message)) return null;
   const requestId = (message as { request_id?: unknown }).request_id;
@@ -822,144 +893,6 @@ function expectedResponseType(message: unknown): PendingRequest["expectedType"] 
       return undefined;
   }
 }
-
-async function receiveRelayHello(socket: WebSocket): Promise<RelayHello | null> {
-  return new Promise((resolve) => {
-    const finish = (value: RelayHello | null) => {
-      clearTimeout(timer);
-      socket.off("message", onMessage);
-      socket.off("close", onClose);
-      resolve(value);
-    };
-    const onMessage = (raw: WebSocket.RawData) => {
-      try {
-        const value = JSON.parse(raw.toString()) as Record<string, unknown>;
-        finish(value.type === "relay_hello"
-          && typeof value.protocol_version === "number"
-          && typeof value.connector_version === "string"
-          && Array.isArray(value.capabilities)
-          && value.capabilities.every((capability) => typeof capability === "string")
-          && isContractSupport(value.contract_support)
-          ? {
-              protocol_version: value.protocol_version,
-              connector_version: value.connector_version,
-              capabilities: value.capabilities as string[],
-              contract_support: value.contract_support
-            }
-          : null);
-      } catch {
-        finish(null);
-      }
-    };
-    const onClose = () => finish(null);
-    const timer = setTimeout(() => finish(null), HANDSHAKE_TIMEOUT_MS);
-    socket.once("message", onMessage);
-    socket.once("close", onClose);
-  });
-}
-
-function isContractSupport(value: unknown): value is ConnectContractSupport {
-  if (!value || typeof value !== "object") return false;
-  const support = value as Record<string, unknown>;
-  return [
-    "operation_transport",
-    "authorization_binding",
-    "semantic_capabilities",
-    "durable_mutation"
-  ].every((axis) => Array.isArray(support[axis])
-    && (support[axis] as unknown[]).every((version) => Number.isInteger(version)));
-}
-
-interface RelayContractMismatch {
-  code: "transport_protocol_incompatible"
-    | "authorization_binding_incompatible"
-    | "capability_contract_incompatible"
-    | "durable_mutation_unsupported";
-  details: {
-    contract: string;
-    required: number[];
-    supported: number[];
-    peer: "connector";
-  };
-}
-
-function relayContractMismatch(
-  actual: ConnectContractSupport
-): RelayContractMismatch | undefined {
-  const axes = [
-    ["operation_transport", "transport_protocol_incompatible"],
-    ["authorization_binding", "authorization_binding_incompatible"],
-    ["semantic_capabilities", "capability_contract_incompatible"],
-    ["durable_mutation", "durable_mutation_unsupported"]
-  ] as const;
-  for (const [contract, code] of axes) {
-    const required = CONNECT_CONTRACT_SUPPORT[contract];
-    if (!required.every((version) => actual[contract].includes(version))) {
-      return {
-        code,
-        details: { contract, required: [...required], supported: actual[contract], peer: "connector" }
-      };
-    }
-  }
-  return undefined;
-}
-
-function rejectIncompatibleRelay(
-  socket: WebSocket,
-  mismatch?: RelayContractMismatch
-): void {
-  if (socket.readyState !== 1) return;
-  socket.send(JSON.stringify({
-    type: "relay_incompatible",
-    protocol_version: CONTROL_PROTOCOL_VERSION,
-    code: mismatch?.code ?? "connector_upgrade_required",
-    message: "This mdbase Connect version is no longer compatible. Update the desktop app and reconnect.",
-    ...(mismatch ? { details: mismatch.details } : {}),
-    minimum_connector_version: MINIMUM_CONNECTOR_VERSION,
-    update_url: CONNECTOR_UPDATE_URL
-  }), () => socket.close(INCOMPATIBLE_CLOSE_CODE, "Connector upgrade required"));
-}
-
-export function connectorVersionAtLeast(actual: string, minimum: string): boolean {
-  const left = parseConnectorVersion(actual);
-  const right = parseConnectorVersion(minimum);
-  if (!left || !right) return false;
-  for (let index = 0; index < 3; index += 1) {
-    if (left.core[index] !== right.core[index]) {
-      return left.core[index]! > right.core[index]!;
-    }
-  }
-  if (left.prerelease.length === 0) return true;
-  if (right.prerelease.length === 0) return false;
-  const length = Math.max(left.prerelease.length, right.prerelease.length);
-  for (let index = 0; index < length; index += 1) {
-    const leftPart = left.prerelease[index];
-    const rightPart = right.prerelease[index];
-    if (leftPart === undefined) return false;
-    if (rightPart === undefined) return true;
-    if (leftPart === rightPart) continue;
-    const leftNumber = /^[0-9]+$/u.test(leftPart) ? Number(leftPart) : null;
-    const rightNumber = /^[0-9]+$/u.test(rightPart) ? Number(rightPart) : null;
-    if (leftNumber !== null && rightNumber !== null) return leftNumber > rightNumber;
-    if (leftNumber !== null) return false;
-    if (rightNumber !== null) return true;
-    return leftPart > rightPart;
-  }
-  return true;
-}
-
-function parseConnectorVersion(value: string): {
-  core: [number, number, number];
-  prerelease: string[];
-} | null {
-  const match = /^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/u.exec(value);
-  if (!match) return null;
-  return {
-    core: [Number(match[1]), Number(match[2]), Number(match[3])],
-    prerelease: match[4]?.split(".") ?? []
-  };
-}
-
 
 function brokerError(
   kind: "unavailable" | "connector" | "internal",

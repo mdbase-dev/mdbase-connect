@@ -39,6 +39,11 @@ const grant = {
   connector_id: connectorId,
   local_id: collectionId,
   encryption,
+  contracts: {
+    operation_transport: OPERATION_TRANSPORT_PROTOCOL_VERSION,
+    authorization_binding: 5,
+    semantic_capabilities: 1
+  },
   file_capability: {
     kind: "files",
     protocol_version: 1,

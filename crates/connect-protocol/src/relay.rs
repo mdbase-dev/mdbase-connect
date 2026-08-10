@@ -21,6 +21,10 @@ pub enum RelayMessage {
         minimum_connector_version: String,
         update_url: String,
     },
+    ProtocolUsageReport {
+        protocol_version: u32,
+        entries: Vec<ProtocolUsageEntry>,
+    },
     PolicySnapshot {
         protocol_version: u32,
         request_id: Uuid,
@@ -110,4 +114,11 @@ pub enum RelayMessage {
         request_id: Uuid,
         problem: ConnectProblem,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProtocolUsageEntry {
+    pub axis: String,
+    pub version: u32,
+    pub count: u64,
 }

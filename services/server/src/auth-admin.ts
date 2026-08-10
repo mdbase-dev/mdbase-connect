@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { DatabasePool } from "./db.js";
+import { compatibilityReport } from "./auth-admin-compatibility.js";
 import {
   AuthenticationPolicyStore,
   type AuthenticationSettings
@@ -35,7 +36,6 @@ export interface AuthAdminContext {
   hostedReplicaRevoker?: HostedReplicaRevoker;
   hostedProvider?: HostedProviderClient;
 }
-
 export async function runAuthAdminCommand(
   argv: string[],
   context: AuthAdminContext
@@ -112,6 +112,11 @@ async function runCommand(
   }
   if (area === "audit" && action === "list") {
     return listAudit(rest, context);
+  }
+  if (area === "compatibility" && action === "report") {
+    return compatibilityReport(rest, context, (message) => {
+      throw new AuthAdminUsageError(message);
+    });
   }
   throw new AuthAdminUsageError(usage());
 }
@@ -954,6 +959,7 @@ export function usage(): string {
     "  auth-admin users restore --user <uuid|email> --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin users revoke-sessions --user <uuid|email> --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin audit list [--user-id <uuid>] [--event-type <type>] [--limit <n>] [--cursor <cursor>]",
+    "  auth-admin compatibility report [--days <1-365>]",
     "  auth-admin request <base64url-json-argv>",
     "",
     "Policy changes:",

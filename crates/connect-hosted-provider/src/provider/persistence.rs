@@ -94,6 +94,16 @@ pub(super) fn replica_from_row(row: Option<sqlx::postgres::PgRow>) -> ApiResult<
         })?,
         full_collection: row.get("full_collection"),
         allowed_operations: row.get("allowed_operations"),
+        operation_transport_protocol: row
+            .try_get::<Option<i32>, _>("operation_transport_protocol")
+            .unwrap_or(None)
+            .map(|version| version as u32),
+        operation_transport_recovery_protocols: row
+            .try_get::<Vec<i32>, _>("operation_transport_recovery_protocols")
+            .unwrap_or_default()
+            .into_iter()
+            .map(|version| version as u32)
+            .collect(),
         file_capability: row
             .get::<Option<Value>, _>("file_capability")
             .map(serde_json::from_value)

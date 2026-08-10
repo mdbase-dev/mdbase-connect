@@ -170,7 +170,7 @@ fn beta28_and_new_databases_converge_without_data_loss_and_reopen_twice() {
     assert_eq!(diagnostics.schema_version, Some(LATEST_SCHEMA_VERSION));
     assert_eq!(diagnostics.quick_check, ["ok"]);
     assert_eq!(diagnostics.integrity_check, ["ok"]);
-    assert_eq!(diagnostics.authority_schema_version, Some(1));
+    assert_eq!(diagnostics.authority_schema_version, Some(2));
     assert_eq!(diagnostics.authority_quick_check, ["ok"]);
     assert_eq!(diagnostics.authority_integrity_check, ["ok"]);
     assert_eq!(diagnostics.authority_receipts.referenced_count, 0);

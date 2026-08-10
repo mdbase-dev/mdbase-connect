@@ -1,6 +1,6 @@
 use crate::{
     EncryptedRelayEnvelope, GrantEncryption, OPERATION_TRANSPORT_PROTOCOL_VERSION,
-    RELAY_ENCRYPTION_SUITE,
+    RELAY_ENCRYPTION_SUITE, SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS,
 };
 use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
@@ -72,9 +72,25 @@ impl RelayIdentity {
         peer_public_key: &str,
         binding: &RelayBinding,
     ) -> Result<RelayKeys, RelayCryptoError> {
+        self.derive_for_protocol(
+            peer_public_key,
+            binding,
+            OPERATION_TRANSPORT_PROTOCOL_VERSION,
+        )
+    }
+
+    pub fn derive_for_protocol(
+        &self,
+        peer_public_key: &str,
+        binding: &RelayBinding,
+        protocol_version: u32,
+    ) -> Result<RelayKeys, RelayCryptoError> {
         binding.validate()?;
+        if !SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS.contains(&protocol_version) {
+            return Err(RelayCryptoError::InvalidBinding);
+        }
         let shared = self.shared_secret(peer_public_key)?;
-        RelayKeys::derive(&shared, binding)
+        RelayKeys::derive(&shared, binding, protocol_version)
     }
 
     pub(crate) fn shared_secret(&self, peer_public_key: &str) -> Result<Vec<u8>, RelayCryptoError> {
@@ -128,10 +144,10 @@ impl RelayBinding {
         Ok(())
     }
 
-    fn context(&self) -> String {
+    fn context(&self, protocol_version: u32) -> String {
         format!(
             "mdbase-connect|{}|{}|{}|{}|{}|{}|{}|{}",
-            OPERATION_TRANSPORT_PROTOCOL_VERSION,
+            protocol_version,
             self.suite,
             self.grant_id,
             self.application_id,
@@ -146,11 +162,16 @@ impl RelayBinding {
 pub struct RelayKeys {
     request: [u8; 32],
     response: [u8; 32],
+    protocol_version: u32,
 }
 
 impl RelayKeys {
-    fn derive(shared_secret: &[u8], binding: &RelayBinding) -> Result<Self, RelayCryptoError> {
-        let context = binding.context();
+    fn derive(
+        shared_secret: &[u8],
+        binding: &RelayBinding,
+        protocol_version: u32,
+    ) -> Result<Self, RelayCryptoError> {
+        let context = binding.context(protocol_version);
         let salt = Sha256::digest(context.as_bytes());
         let hkdf = Hkdf::<Sha256>::new(Some(&salt), shared_secret);
         let mut request = [0; 32];
@@ -159,7 +180,11 @@ impl RelayKeys {
             .map_err(|_| RelayCryptoError::InvalidBinding)?;
         hkdf.expand(RESPONSE_INFO, &mut response)
             .map_err(|_| RelayCryptoError::InvalidBinding)?;
-        Ok(Self { request, response })
+        Ok(Self {
+            request,
+            response,
+            protocol_version,
+        })
     }
 
     pub fn encrypt_json<T: Serialize>(
@@ -197,6 +222,9 @@ impl RelayKeys {
         metadata: RelayMetadata<'_>,
         plaintext: &[u8],
     ) -> Result<String, RelayCryptoError> {
+        if metadata.protocol_version != self.protocol_version {
+            return Err(RelayCryptoError::InvalidBinding);
+        }
         let counter = parse_counter(metadata.counter)?;
         let cipher = Aes256Gcm::new_from_slice(self.key(direction))
             .map_err(|_| RelayCryptoError::InvalidBinding)?;
@@ -220,6 +248,9 @@ impl RelayKeys {
         metadata: RelayMetadata<'_>,
         ciphertext: &str,
     ) -> Result<Vec<u8>, RelayCryptoError> {
+        if metadata.protocol_version != self.protocol_version {
+            return Err(RelayCryptoError::InvalidBinding);
+        }
         let counter = parse_counter(metadata.counter)?;
         let ciphertext = URL_SAFE_NO_PAD
             .decode(ciphertext)
@@ -265,6 +296,7 @@ impl RelayDirection {
 #[derive(Debug, Clone, Copy)]
 pub struct RelayMetadata<'a> {
     pub binding: &'a RelayBinding,
+    pub protocol_version: u32,
     pub request_id: Uuid,
     pub operation: &'a str,
     pub counter: &'a str,
@@ -274,7 +306,7 @@ impl RelayMetadata<'_> {
     pub fn aad(self, direction: RelayDirection) -> String {
         format!(
             "{}|{}|{}|{}|{}",
-            self.binding.context(),
+            self.binding.context(self.protocol_version),
             self.request_id,
             direction.as_str(),
             self.operation,
@@ -284,7 +316,7 @@ impl RelayMetadata<'_> {
 
     pub fn envelope(self, ciphertext: String) -> EncryptedRelayEnvelope {
         EncryptedRelayEnvelope {
-            protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
+            protocol_version: self.protocol_version,
             suite: self.binding.suite.clone(),
             request_id: self.request_id,
             grant_id: self.binding.grant_id,
@@ -306,7 +338,7 @@ pub fn validate_envelope(
 ) -> Result<(), RelayCryptoError> {
     binding.validate()?;
     parse_counter(&envelope.counter)?;
-    if envelope.protocol_version != OPERATION_TRANSPORT_PROTOCOL_VERSION
+    if !SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS.contains(&envelope.protocol_version)
         || envelope.suite != binding.suite
         || envelope.grant_id != binding.grant_id
         || envelope.application_id != binding.application_id
@@ -366,6 +398,7 @@ mod tests {
             .unwrap();
         let metadata = RelayMetadata {
             binding: &binding,
+            protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
             request_id: Uuid::from_u128(5),
             operation: "query",
             counter: "1",
@@ -384,6 +417,82 @@ mod tests {
     }
 
     #[test]
+    fn frozen_beta55_v2_ciphertext_is_interoperable_in_both_directions() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../packages/protocol/test/fixtures/encrypted-relay-beta55-v2.json"
+        ))
+        .unwrap();
+        let decode = |name: &str| {
+            URL_SAFE_NO_PAD
+                .decode(fixture[name].as_str().unwrap())
+                .unwrap()
+        };
+        let application = RelayIdentity::from_bytes(&decode("application_private_key")).unwrap();
+        let connector = RelayIdentity::from_bytes(&decode("connector_private_key")).unwrap();
+        assert_eq!(
+            application.public_key(),
+            fixture["application_public_key"].as_str().unwrap()
+        );
+        assert_eq!(
+            connector.public_key(),
+            fixture["connector_public_key"].as_str().unwrap()
+        );
+        let binding = RelayBinding {
+            grant_id: fixture["grant_id"].as_str().unwrap().parse().unwrap(),
+            application_id: fixture["application_id"].as_str().unwrap().parse().unwrap(),
+            connector_id: fixture["connector_id"].as_str().unwrap().parse().unwrap(),
+            collection_id: fixture["collection_id"].as_str().unwrap().parse().unwrap(),
+            scope_epoch: fixture["scope_epoch"].as_u64().unwrap(),
+            key_id: fixture["key_id"].as_str().unwrap().to_string(),
+            suite: fixture["suite"].as_str().unwrap().to_string(),
+        };
+        let protocol_version = fixture["protocol_version"].as_u64().unwrap() as u32;
+        let metadata = RelayMetadata {
+            binding: &binding,
+            protocol_version,
+            request_id: fixture["request_id"].as_str().unwrap().parse().unwrap(),
+            operation: fixture["operation"].as_str().unwrap(),
+            counter: fixture["counter"].as_str().unwrap(),
+        };
+        let application_keys = application
+            .derive_for_protocol(&connector.public_key(), &binding, protocol_version)
+            .unwrap();
+        let connector_keys = connector
+            .derive_for_protocol(&application.public_key(), &binding, protocol_version)
+            .unwrap();
+        let request_ciphertext = fixture["request"]["ciphertext"].as_str().unwrap();
+        let request: serde_json::Value = connector_keys
+            .decrypt_json(RelayDirection::Request, metadata, request_ciphertext)
+            .unwrap();
+        assert_eq!(request, fixture["request"]["plaintext"]);
+        assert_eq!(
+            application_keys
+                .encrypt(
+                    RelayDirection::Request,
+                    metadata,
+                    br#"{"path":"legacy.md","document":"pending beta55 mutation"}"#,
+                )
+                .unwrap(),
+            request_ciphertext
+        );
+        let response_ciphertext = fixture["response"]["ciphertext"].as_str().unwrap();
+        let response: serde_json::Value = application_keys
+            .decrypt_json(RelayDirection::Response, metadata, response_ciphertext)
+            .unwrap();
+        assert_eq!(response, fixture["response"]["plaintext"]);
+        assert_eq!(
+            connector_keys
+                .encrypt(
+                    RelayDirection::Response,
+                    metadata,
+                    br#"{"ok":true,"result":{"path":"legacy.md","revision":"legacy-revision"}}"#,
+                )
+                .unwrap(),
+            response_ciphertext
+        );
+    }
+
+    #[test]
     fn metadata_tampering_and_wrong_direction_fail_authentication() {
         let application = RelayIdentity::generate();
         let connector = RelayIdentity::generate();
@@ -396,6 +505,7 @@ mod tests {
             .unwrap();
         let metadata = RelayMetadata {
             binding: &binding,
+            protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
             request_id: Uuid::from_u128(5),
             operation: "read",
             counter: "9",

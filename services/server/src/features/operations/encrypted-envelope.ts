@@ -1,19 +1,25 @@
 import type {
   EncryptedRelayOperation,
+  ConnectContractRequirements,
   EncryptedRelayOperationRequest,
   GrantEncryption
 } from "@mdbase-dev/connect-protocol";
 import {
   OPERATION_TRANSPORT_PROTOCOL_VERSION,
+  LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION,
   GRANT_ENCRYPTION_PROTOCOL_VERSION,
-  RELAY_ENCRYPTION_SUITE
+  RELAY_ENCRYPTION_SUITE,
+  permitsOperationTransport
 } from "@mdbase-dev/connect-protocol";
 import { z } from "zod";
 import { COLLECTION_OPERATIONS } from "../../collection-access.js";
 
 export const encryptedRelayRequestSchema = z.object({
   type: z.literal("encrypted_operation_request"),
-  protocol_version: z.literal(OPERATION_TRANSPORT_PROTOCOL_VERSION),
+  protocol_version: z.union([
+    z.literal(OPERATION_TRANSPORT_PROTOCOL_VERSION),
+    z.literal(LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION)
+  ]),
   suite: z.literal(RELAY_ENCRYPTION_SUITE),
   request_id: z.uuid(),
   grant_id: z.uuid(),
@@ -42,11 +48,14 @@ interface GrantIdentity {
 
 export function matchesGrantEncryption(
   envelope: EncryptedRelayOperationRequest,
-  grant: GrantIdentity & { encryption: GrantEncryption },
+  grant: GrantIdentity & {
+    encryption: GrantEncryption;
+    contracts: ConnectContractRequirements;
+  },
   operation: EncryptedRelayOperation
 ): boolean {
   const encryption = grant.encryption;
-  return envelope.protocol_version === OPERATION_TRANSPORT_PROTOCOL_VERSION
+  return permitsOperationTransport(grant.contracts, envelope.protocol_version)
     && encryption.protocol_version === GRANT_ENCRYPTION_PROTOCOL_VERSION
     && envelope.suite === encryption.suite
     && envelope.grant_id === grant.grant_id
@@ -65,7 +74,10 @@ export function matchesGrantIdentity(
   grant: GrantIdentity,
   operation: EncryptedRelayOperation
 ): boolean {
-  return envelope.protocol_version === OPERATION_TRANSPORT_PROTOCOL_VERSION
+  return [
+    OPERATION_TRANSPORT_PROTOCOL_VERSION,
+    LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION
+  ].includes(envelope.protocol_version)
     && envelope.suite === RELAY_ENCRYPTION_SUITE
     && envelope.grant_id === grant.grant_id
     && envelope.application_id === grant.application_id

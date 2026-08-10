@@ -6,11 +6,16 @@ use std::sync::{mpsc, Condvar};
 use std::thread;
 use std::time::{Duration, Instant};
 
-const AUTHORITY_SCHEMA_VERSION: u32 = 1;
-const AUTHORITY_SCHEMA_NAME: &str = "isolated_authority_store";
-const AUTHORITY_SCHEMA_CHECKSUM: &str =
+const AUTHORITY_SCHEMA_VERSION: u32 = 2;
+const AUTHORITY_SCHEMA_V1_NAME: &str = "isolated_authority_store";
+const AUTHORITY_SCHEMA_V1_CHECKSUM: &str =
     "9130129006fd8b244b969bbbd6588d508e416fc10089df4fd1fe17cf1aca45b2";
-const AUTHORITY_SCHEMA_SQL: &str = include_str!("migrations/authority/0001_initial.sql");
+const AUTHORITY_SCHEMA_V1_SQL: &str = include_str!("migrations/authority/0001_initial.sql");
+const AUTHORITY_SCHEMA_V2_NAME: &str = "legacy_read_receipts";
+const AUTHORITY_SCHEMA_V2_CHECKSUM: &str =
+    "4caf46297b7c0f8b5461314b424d79d1ce0adba1c37e43f1400ab978eba79cfd";
+const AUTHORITY_SCHEMA_V2_SQL: &str =
+    include_str!("migrations/authority/0002_legacy_read_receipts.sql");
 const DATA_QUEUE_CAPACITY: usize = 128;
 const CONTROL_QUEUE_CAPACITY: usize = 16;
 const MAX_CONTROL_BURST: usize = 8;
@@ -213,6 +218,7 @@ pub(super) struct AuthorityStore {
     db_path: PathBuf,
     writer: AuthorityWriter,
     receipts: ReceiptStore,
+    legacy_read_receipts: Mutex<ReceiptStore>,
 }
 
 impl std::fmt::Debug for AuthorityStore {
@@ -229,13 +235,16 @@ impl AuthorityStore {
     pub(super) fn open(state_dir: &Path, legacy_path: &Path) -> Result<Self, ConnectError> {
         let db_path = state_dir.join("authority.sqlite");
         let receipt_path = state_dir.join("authority-receipts");
+        let legacy_read_receipt_path = state_dir.join("authority-legacy-read-receipts");
         migrate_authority_store(state_dir, legacy_path, &db_path, &receipt_path)?;
         let receipts = ReceiptStore::open(receipt_path)?;
+        let legacy_read_receipts = Mutex::new(ReceiptStore::open(legacy_read_receipt_path)?);
         let writer = AuthorityWriter::open(&db_path)?;
         Ok(Self {
             db_path,
             writer,
             receipts,
+            legacy_read_receipts,
         })
     }
 
@@ -273,6 +282,129 @@ impl AuthorityStore {
     ) -> Result<Option<String>, ConnectError> {
         self.receipts.response_from_metadata(value)
     }
+
+    pub(super) fn complete_legacy_read_receipt(
+        &self,
+        grant_id: Uuid,
+        key_id: &str,
+        request_id: Uuid,
+        request_fingerprint: &str,
+        process_epoch: Uuid,
+        response: &str,
+    ) -> Result<(), ConnectError> {
+        const MAX_RECEIPTS: usize = 256;
+        const MAX_BYTES: u64 = 256 * 1024 * 1024;
+        const MAX_AGE_MS: i64 = 7 * 24 * 60 * 60 * 1_000;
+
+        let receipts = self
+            .legacy_read_receipts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let reference = receipts.store(response)?;
+        let (_, response_bytes) = crate::registry::receipts::parse_receipt_reference(&reference)
+            .ok_or_else(|| ConnectError::AuthorityReceipt {
+                detail: "legacy read receipt reference is malformed".to_string(),
+            })?;
+        let write_key_id = key_id.to_string();
+        let write_fingerprint = request_fingerprint.to_string();
+        let write_reference = reference.clone();
+        let now = current_time_ms();
+        let expired = self.write(AuthorityWritePriority::Recovery, move |connection| {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let updated = transaction.execute(
+                "UPDATE grant_crypto_requests
+                 SET response_receipt = ?6, response_bytes = ?7,
+                     response_completed_at_ms = ?8, response_expired = 0
+                 WHERE grant_id = ?1 AND key_id = ?2 AND request_id = ?3
+                   AND request_fingerprint = ?4 AND replay_class = 'read'
+                   AND process_epoch = ?5 AND response_expired = 0",
+                params![
+                    grant_id.to_string(),
+                    write_key_id,
+                    request_id.to_string(),
+                    write_fingerprint,
+                    process_epoch.to_string(),
+                    write_reference,
+                    response_bytes,
+                    now
+                ],
+            )?;
+            if updated != 1 {
+                return Err(ConnectError::EncryptedRelayRejected);
+            }
+
+            let rows = {
+                let mut statement = transaction.prepare(
+                    "SELECT grant_id, key_id, request_id, response_receipt,
+                            response_bytes, response_completed_at_ms
+                     FROM grant_crypto_requests
+                     WHERE replay_class = 'read' AND response_receipt IS NOT NULL
+                     ORDER BY response_completed_at_ms DESC, rowid DESC",
+                )?;
+                let rows = statement
+                    .query_map([], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, String>(3)?,
+                            row.get::<_, u64>(4)?,
+                            row.get::<_, i64>(5)?,
+                        ))
+                    })?
+                    .collect::<Result<Vec<_>, _>>()?;
+                rows
+            };
+            let mut kept = 0_usize;
+            let mut kept_bytes = 0_u64;
+            let mut expired = Vec::new();
+            for (row_grant, row_key, row_request, row_reference, bytes, completed_at) in rows {
+                let within_age = completed_at >= now.saturating_sub(MAX_AGE_MS);
+                let within_count = kept < MAX_RECEIPTS;
+                let within_bytes = kept_bytes.saturating_add(bytes) <= MAX_BYTES;
+                if within_age && within_count && within_bytes {
+                    kept += 1;
+                    kept_bytes = kept_bytes.saturating_add(bytes);
+                    continue;
+                }
+                transaction.execute(
+                    "UPDATE grant_crypto_requests
+                     SET response_receipt = NULL, response_bytes = NULL,
+                         response_expired = 1
+                     WHERE grant_id = ?1 AND key_id = ?2 AND request_id = ?3",
+                    params![row_grant, row_key, row_request],
+                )?;
+                expired.push(row_reference);
+            }
+            transaction.commit()?;
+            Ok(expired)
+        })?;
+
+        let connection = self.connection()?;
+        for expired_reference in expired {
+            let still_referenced = connection
+                .query_row(
+                    "SELECT 1 FROM grant_crypto_requests
+                     WHERE response_receipt = ?1 LIMIT 1",
+                    [&expired_reference],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_some();
+            if !still_referenced {
+                receipts.remove(&expired_reference)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn load_legacy_read_receipt(&self, reference: &str) -> Result<String, ConnectError> {
+        self.legacy_read_receipts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .load(reference)
+    }
 }
 
 fn open_authority_connection(path: &Path, read_only: bool) -> Result<Connection, ConnectError> {
@@ -309,10 +441,15 @@ fn migrate_authority_store_with_hook(
     hook: &mut dyn FnMut(&'static str) -> Result<(), ConnectError>,
 ) -> Result<(), ConnectError> {
     debug_assert_eq!(
-        sha256_hex(AUTHORITY_SCHEMA_SQL.as_bytes()),
-        AUTHORITY_SCHEMA_CHECKSUM
+        sha256_hex(AUTHORITY_SCHEMA_V1_SQL.as_bytes()),
+        AUTHORITY_SCHEMA_V1_CHECKSUM
+    );
+    debug_assert_eq!(
+        sha256_hex(AUTHORITY_SCHEMA_V2_SQL.as_bytes()),
+        AUTHORITY_SCHEMA_V2_CHECKSUM
     );
     if authority_path.exists() {
+        upgrade_authority_store(authority_path)?;
         verify_authority_store(authority_path)?;
         if !receipt_path.is_dir() {
             return Err(ConnectError::AuthorityReceipt {
@@ -329,7 +466,7 @@ fn migrate_authority_store_with_hook(
     }
     let receipts = ReceiptStore::open(receipt_path.to_path_buf())?;
     let mut connection = open_authority_connection(&temporary, false)?;
-    connection.execute_batch(AUTHORITY_SCHEMA_SQL)?;
+    connection.execute_batch(AUTHORITY_SCHEMA_V1_SQL)?;
     hook("after_authority_schema")?;
     connection.execute(
         "ATTACH DATABASE ?1 AS legacy",
@@ -373,15 +510,16 @@ fn migrate_authority_store_with_hook(
     transaction.execute(
         "INSERT INTO authority_schema_migrations
          (version, name, checksum, applied_at_ms) VALUES (1, ?1, ?2, ?3)",
-        params![AUTHORITY_SCHEMA_NAME, AUTHORITY_SCHEMA_CHECKSUM, now],
+        params![AUTHORITY_SCHEMA_V1_NAME, AUTHORITY_SCHEMA_V1_CHECKSUM, now],
     )?;
-    transaction.pragma_update(None, "user_version", AUTHORITY_SCHEMA_VERSION)?;
+    transaction.pragma_update(None, "user_version", 1_u32)?;
     transaction.commit()?;
     connection.execute_batch("DETACH DATABASE legacy")?;
     hook("after_authority_copy")?;
 
     externalize_migrated_receipts(&mut connection, &receipts)?;
     hook("after_authority_receipts")?;
+    apply_authority_v2(&mut connection)?;
     connection.pragma_update(None, "journal_mode", "WAL")?;
     hook("after_authority_wal")?;
     let quick_check: String =
@@ -489,16 +627,29 @@ fn verify_authority_store(path: &Path) -> Result<(), ConnectError> {
             detail: "unsupported local authority schema".to_string(),
         });
     }
-    let checksum: String = connection.query_row(
-        "SELECT checksum FROM authority_schema_migrations WHERE version = 1 AND name = ?1",
-        [AUTHORITY_SCHEMA_NAME],
-        |row| row.get(0),
-    )?;
-    if checksum != AUTHORITY_SCHEMA_CHECKSUM {
-        return Err(ConnectError::RegistryCorrupt {
-            path: path.to_path_buf(),
-            detail: "authority migration checksum does not match this build".to_string(),
-        });
+    for (version, name, expected) in [
+        (
+            1_u32,
+            AUTHORITY_SCHEMA_V1_NAME,
+            AUTHORITY_SCHEMA_V1_CHECKSUM,
+        ),
+        (
+            2_u32,
+            AUTHORITY_SCHEMA_V2_NAME,
+            AUTHORITY_SCHEMA_V2_CHECKSUM,
+        ),
+    ] {
+        let checksum: String = connection.query_row(
+            "SELECT checksum FROM authority_schema_migrations WHERE version = ?1 AND name = ?2",
+            params![version, name],
+            |row| row.get(0),
+        )?;
+        if checksum != expected {
+            return Err(ConnectError::RegistryCorrupt {
+                path: path.to_path_buf(),
+                detail: format!("authority migration {version} checksum does not match this build"),
+            });
+        }
     }
     connection.pragma_update(None, "journal_mode", "WAL")?;
     let quick_check: String =
@@ -509,6 +660,51 @@ fn verify_authority_store(path: &Path) -> Result<(), ConnectError> {
             detail: format!("authority quick_check returned {quick_check}"),
         });
     }
+    Ok(())
+}
+
+fn upgrade_authority_store(path: &Path) -> Result<(), ConnectError> {
+    let mut connection = open_authority_connection(path, false)?;
+    let version: u32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    match version {
+        AUTHORITY_SCHEMA_VERSION => Ok(()),
+        1 => {
+            let checksum: String = connection.query_row(
+                "SELECT checksum FROM authority_schema_migrations WHERE version = 1 AND name = ?1",
+                [AUTHORITY_SCHEMA_V1_NAME],
+                |row| row.get(0),
+            )?;
+            if checksum != AUTHORITY_SCHEMA_V1_CHECKSUM {
+                return Err(ConnectError::RegistryCorrupt {
+                    path: path.to_path_buf(),
+                    detail: "authority migration 1 checksum does not match this build".to_string(),
+                });
+            }
+            apply_authority_v2(&mut connection)
+        }
+        found => Err(ConnectError::RegistrySchemaIncompatible {
+            path: path.to_path_buf(),
+            found,
+            supported: AUTHORITY_SCHEMA_VERSION,
+            detail: "unsupported local authority schema".to_string(),
+        }),
+    }
+}
+
+fn apply_authority_v2(connection: &mut Connection) -> Result<(), ConnectError> {
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    transaction.execute_batch(AUTHORITY_SCHEMA_V2_SQL)?;
+    transaction.execute(
+        "INSERT INTO authority_schema_migrations
+         (version, name, checksum, applied_at_ms) VALUES (2, ?1, ?2, ?3)",
+        params![
+            AUTHORITY_SCHEMA_V2_NAME,
+            AUTHORITY_SCHEMA_V2_CHECKSUM,
+            current_time_ms()
+        ],
+    )?;
+    transaction.pragma_update(None, "user_version", AUTHORITY_SCHEMA_VERSION)?;
+    transaction.commit()?;
     Ok(())
 }
 

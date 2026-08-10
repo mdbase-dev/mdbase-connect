@@ -121,6 +121,8 @@ pub(super) fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<
     match input.purpose {
         ReplicaPurpose::Mirror => {
             if !input.allowed_operations.is_empty()
+                || input.operation_transport_protocol.is_some()
+                || !input.operation_transport_recovery_protocols.is_empty()
                 || input.allowed_origin.is_some()
                 || input.proof_public_key.is_some()
                 || input.grant_id.is_some()
@@ -138,6 +140,32 @@ pub(super) fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<
         }
         ReplicaPurpose::Application => {
             validate_application_declaration_binding(input)?;
+            let Some(primary_transport) = input.operation_transport_protocol else {
+                return Err(ApiError::bad_request(
+                    "invalid_application_capability",
+                    "Application capabilities require an operation transport binding.",
+                ));
+            };
+            if !SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS.contains(&primary_transport)
+                || input
+                    .operation_transport_recovery_protocols
+                    .iter()
+                    .any(|version| {
+                        *version == primary_transport
+                            || !SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS.contains(version)
+                    })
+                || input
+                    .operation_transport_recovery_protocols
+                    .iter()
+                    .collect::<BTreeSet<_>>()
+                    .len()
+                    != input.operation_transport_recovery_protocols.len()
+            {
+                return Err(ApiError::bad_request(
+                    "invalid_application_capability",
+                    "Application operation transport bindings are invalid.",
+                ));
+            }
             if input.allowed_operations.is_empty() && input.file_capability.is_none() {
                 return Err(ApiError::bad_request(
                     "invalid_application_capability",

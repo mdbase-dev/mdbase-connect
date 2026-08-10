@@ -584,9 +584,10 @@ export async function narrowHostedGrantForUser(
     proof_public_key: string;
     application_family_identity: string;
     application_manifest_digest: string;
+    application_authorization: import("@mdbase-dev/connect-protocol").ApplicationAuthorizationProof;
   }>(
     `SELECT g.id, g.hosted_replica_id, g.operations, g.scope, g.file_capability,
-            g.application_origin, g.proof_public_key,
+            g.application_origin, g.proof_public_key, g.application_authorization,
             a.requirements,
             a.family_identity AS application_family_identity,
             a.manifest_digest AS application_manifest_digest,
@@ -652,6 +653,11 @@ export async function narrowHostedGrantForUser(
         : [],
       fullCollection: current.scope.access === "full_collection",
       allowedOperations: hostedReplicaCollectionOperations(operations),
+      operationTransportProtocol:
+        current.application_authorization.binding.contracts.operation_transport,
+      operationTransportRecoveryProtocols:
+        current.application_authorization.binding.contracts
+          .operation_transport_recovery ?? [],
       fileCapability: current.file_capability ?? undefined,
       allowedOrigin: current.application_origin,
       proofPublicKey: current.proof_public_key,

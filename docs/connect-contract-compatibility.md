@@ -1,96 +1,82 @@
 # Connect beta contract compatibility matrix
 
-Status: Phase 0 frozen contract matrix.
+Status: beta.57 expand phase. See ADR 0008.
 
-Connect versions independent contracts independently. An npm/package version
-is release identity, not proof of wire compatibility. Each operation declares
-the contracts it requires, and a peer rejects only when one of those required
-contracts is unsupported.
+Connect versions independent contract axes independently. An npm or desktop
+package version is release identity and telemetry, not proof that a wire
+operation is authorized.
 
-## Candidate release axes
+## Supported axes
 
-| Axis | beta.31 | Next candidate | Why it changes | Typed mismatch |
-| --- | ---: | ---: | --- | --- |
-| Package release | `0.1.0-beta.31` | `0.1.0-beta.32` | Coordinated breaking SDK release. | None by itself. |
-| Authority operation transport/wire | encrypted relay/operation v1 | operation v2 | Adds authenticated request creation/expiry, operation input schema version, and explicit feature advertisement required by durable recovery. | `transport_protocol_incompatible` |
-| Signed application authorization binding | v2 | v3 | Signs the required operation transport, semantic capability, and durable-mutation contract versions into the authorization ceiling. | `authorization_binding_incompatible` |
-| Semantic application capability contract | v1 | v1 | Capability names and their meaning do not change in this program. | `capability_contract_incompatible` when a future/unsupported value is requested. |
-| Durable mutation feature set | absent | v1 | Introduces fenced claims, recovery handles, canonical fingerprints, retention, and tombstones. | `durable_mutation_unsupported` |
+| Axis | Legacy | Current | Compatibility rule |
+| --- | ---: | ---: | --- |
+| Operation transport | v2 (beta.55) | v3 (beta.56+) | v3 is primary. v2 is accepted as a v4 primary or a v5 mutation-only recovery transport. |
+| Signed application authorization | v4 | v5 | The frozen v4 transcript remains byte-compatible. v5 signs the recovery list under a new domain. |
+| Semantic capabilities | v1 | v1 | No compatibility change. |
+| Durable mutation | v1 | v1 | Required for every mutation and every v2 recovery authorization. |
+| Grant encryption | v1 | v1 | Key agreement remains stable; transport-specific derivation and AAD distinguish v2 from v3. |
 
-Local admin control, sync wire, file frame, relay file-frame, manifest, mdbase
-spec, and Connect problem versions remain at their current values unless their
-own payload contract changes during implementation. They are not bumped merely
-because beta.32 ships. Grant encryption profile v1 also remains unchanged: it
-describes the key agreement and AEAD binding, while operation transport v2
-independently versions the encrypted request and response envelope.
+The server and beta.57 connector advertise support arrays rather than inferring
+wire behavior from a release number. Beta.55 advertises transport v2/binding
+v4; beta.56 advertises transport v3/binding v4; beta.57 advertises both
+supported versions and creates transport v3/binding v5 grants.
 
-## Mismatch details
+## Authorization contracts
 
-Every mismatch is a typed compatibility problem with safe details:
+A new binding-v5 grant normally signs:
 
-```ts
-interface ConnectContractMismatchDetails {
-  contract:
-    | "operation_transport"
-    | "authorization_binding"
-    | "semantic_capabilities"
-    | "durable_mutation";
-  required: number[];
-  supported: number[];
-  peer: "application" | "connector" | "hosted_provider" | "control_plane";
-  operation?: string;
+```json
+{
+  "operation_transport": 3,
+  "authorization_binding": 5,
+  "semantic_capabilities": 1,
+  "durable_mutation": 1
 }
 ```
 
-The response is produced before the affected authorization, read, or mutation.
-Mutation mismatches carry `operation_outcome: not_sent`. Peers never negotiate
-durable mutation v1 down to the beta.31 receipt behavior. A package version
-difference succeeds when every contract required by the operation intersects.
+When the SDK has a durable pending v2 mutation for the requested operation and
+collection, it additionally signs:
 
-An authority mismatch pauses only authority-backed access and sync. It does not
-prevent a consumer from reading its independent local replica, and it never
-prevents direct reading of canonical Markdown outside an incompatible Connect
-call.
+```json
+{ "operation_transport_recovery": [2] }
+```
 
-## Operation requirements
+The recovery list is invalid on binding v4, on a read-only authorization, when
+it duplicates the primary transport, or when it names an unsupported version.
+It never changes the primary transport and is never selected by automatic
+negotiation.
 
-| Operation class | Required axes |
+## Runtime rules
+
+| Request | Result |
 | --- | --- |
-| Manifest discovery/validation | Manifest contract only; package version is diagnostic. |
-| Authorization | authorization binding v3, semantic capability v1, and the operation transport/features being granted. |
-| Authority read | operation transport v2 plus the granted authorization binding. Durable-mutation v1 is not required. |
-| Authority mutation | operation transport v2, authorization binding v3, semantic capability v1 where a manifest capability produced the operation, and durable mutation v1. |
-| Independent local replica read | No live authority contract until refresh/sync is requested. |
+| New v3 read or mutation under a v5 grant | Normal current path. |
+| Exact pending v2 mutation under a v4 grant | Normal legacy-primary path during expansion. |
+| Exact pending v2 local mutation after v5 reauthorization | Recovery path only when the new grant signs v2 recovery and the old envelope matches the same installation, collection, connector, operation, and encryption binding. |
+| v2 read under v4 | Exact encrypted response is retained in the bounded legacy-read receipt store. |
+| v2 request under v5 without recovery | Rejected before authority work. |
+| v2 read or new v2 envelope presented as recovery | Rejected; recovery is mutation-only and historical-grant-bound. |
+| v3 duplicate read after cache loss | `fresh_request_required`; the SDK creates a fresh request and counter. |
+| Unsupported axis | Typed mismatch with `operation_outcome: not_sent` for mutations. |
 
-## Coordinated deployment switch
+Relayed encrypted bodies remain opaque to the control plane. Hosted replicas
+use the same signed primary/recovery policy, with a temporary unbound state
+only for rows that predate the expansion migration.
 
-1. Deploy the new control plane and hosted provider dark behind a versioned
-   route/service identity. They advertise the candidate axes but receive no
-   beta.31 traffic.
-2. Publish the candidate SDK artifacts and desktop connector from one immutable
-   Connect commit. Record package hashes, image digests, and source revision.
-3. Upgrade each staged consumer and connector without activating the new route.
-   Preflight the matrix and prove every incompatible pair returns the named
-   mismatch before authority work.
-4. Atomically switch discovery/routing to the candidate service identity and
-   activate the matching desktop connector/consumers as one train. Do not run a
-   reduced-semantics bridge.
-5. Canary packaged consumers in rollout order: Workouts, Editor, Pickle,
-   TaskNotes. Hold and observe after each.
-6. Rollback restores the previous service identity and consumer artifact set as
-   one operation, then restores verified pre-migration databases where beta.31
-   cannot open the candidate schema.
+## Deployment and sunset
 
-Mixed-version test fixtures remain mandatory even though mixed-version
-operation is intentionally unsupported. They prove fail-before-write behavior
-and the accuracy of mismatch details.
+Deploy in expand, migrate, contract order:
 
-## Beta.33 successor note
+1. Deploy beta.57-compatible server and hosted provider to staging.
+2. Publish and deploy the beta.57 connector and SDK consumers.
+3. Let retained beta.55/v4 work complete, then reauthorize applications without
+   recovery where necessary.
+4. Run `auth-admin compatibility report --days N` for at least one complete
+   observation window.
+5. Remove v2/v4 only after every report gate passes, and retain that report as
+   the release evidence.
 
-Beta.33 supersedes the undeployed beta.32 candidate without changing the
-contract-axis values in this matrix. Its deliberate breaks are confined to the
-application-facing SDK/package surface and the new declaration-bound collection
-setup workflow. Package identity advances to `0.1.0-beta.33`; operation
-transport remains v2, authorization binding v3, semantic capabilities v1, and
-durable mutation v1. The four controlled consumers and matching services move
-as one train, and beta.32 is retained only as immutable verification evidence.
+The privacy-safe report aggregates only internal user counts, surface,
+protocol version, sample count, and first/last seen timestamps. It contains no
+application, collection, grant, request, operation, path, input, payload, or
+record content.

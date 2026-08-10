@@ -248,8 +248,19 @@ export async function encryptRelayRequest(
     binding.encryption.application_agreement_public_key
   );
   const counter = await store.nextCounter(handle);
-  const metadata = { binding, requestId, operation, counter };
-  const key = await deriveDirectionalKey(record.agreementPrivateKey, binding, "request");
+  const metadata = {
+    binding,
+    protocolVersion: OPERATION_TRANSPORT_PROTOCOL_VERSION,
+    requestId,
+    operation,
+    counter
+  };
+  const key = await deriveDirectionalKey(
+    record.agreementPrivateKey,
+    binding,
+    metadata.protocolVersion,
+    "request"
+  );
   const plaintext = new TextEncoder().encode(JSON.stringify(input ?? {}));
   const ciphertext = await crypto.subtle.encrypt({
     name: "AES-GCM",
@@ -281,11 +292,17 @@ export async function decryptRelayResponse<Result>(
   );
   const metadata = {
     binding,
+    protocolVersion: request.protocol_version,
     requestId: request.request_id,
     operation: request.operation,
     counter: request.counter
   };
-  const key = await deriveDirectionalKey(record.agreementPrivateKey, binding, "response");
+  const key = await deriveDirectionalKey(
+    record.agreementPrivateKey,
+    binding,
+    request.protocol_version,
+    "response"
+  );
   try {
     const plaintext = await crypto.subtle.decrypt({
       name: "AES-GCM",
@@ -381,6 +398,7 @@ async function requireSigningKey(
 async function deriveDirectionalKey(
   privateKey: CryptoKey,
   binding: RelayBinding,
+  protocolVersion: EncryptedRelayOperationRequest["protocol_version"],
   direction: "request" | "response"
 ): Promise<CryptoKey> {
   const shared = await deriveP256SharedSecret(
@@ -388,7 +406,7 @@ async function deriveDirectionalKey(
     binding.encryption.connector_agreement_public_key
   );
   const material = await crypto.subtle.importKey("raw", shared, "HKDF", false, ["deriveKey"]);
-  const contextBytes = new TextEncoder().encode(context(binding));
+  const contextBytes = new TextEncoder().encode(context(binding, protocolVersion));
   const salt = await crypto.subtle.digest("SHA-256", contextBytes);
   return crypto.subtle.deriveKey({
     name: "HKDF",
@@ -417,11 +435,14 @@ export async function deriveP256SharedSecret(
   }
 }
 
-function context(binding: RelayBinding): string {
+function context(
+  binding: RelayBinding,
+  protocolVersion: EncryptedRelayOperationRequest["protocol_version"]
+): string {
   const value = binding.encryption;
   return [
     "mdbase-connect",
-    OPERATION_TRANSPORT_PROTOCOL_VERSION,
+    protocolVersion,
     value.suite,
     binding.grantId,
     binding.applicationId,
@@ -433,21 +454,34 @@ function context(binding: RelayBinding): string {
 }
 
 function aad(
-  metadata: { binding: RelayBinding; requestId: string; operation: EncryptedRelayOperation; counter: string },
+  metadata: {
+    binding: RelayBinding;
+    protocolVersion: EncryptedRelayOperationRequest["protocol_version"];
+    requestId: string;
+    operation: EncryptedRelayOperation;
+    counter: string;
+  },
   direction: "request" | "response"
 ): string {
-  return [context(metadata.binding), metadata.requestId, direction, metadata.operation, metadata.counter].join("|");
+  return [
+    context(metadata.binding, metadata.protocolVersion),
+    metadata.requestId,
+    direction,
+    metadata.operation,
+    metadata.counter
+  ].join("|");
 }
 
 function envelopeMetadata(metadata: {
   binding: RelayBinding;
+  protocolVersion: EncryptedRelayOperationRequest["protocol_version"];
   requestId: string;
   operation: EncryptedRelayOperation;
   counter: string;
 }): Omit<EncryptedRelayOperationRequest, "type" | "ciphertext"> {
   const encryption = metadata.binding.encryption;
   return {
-    protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
+    protocol_version: metadata.protocolVersion,
     suite: RELAY_ENCRYPTION_SUITE,
     request_id: metadata.requestId,
     grant_id: metadata.binding.grantId,

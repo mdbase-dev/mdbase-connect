@@ -1,0 +1,35 @@
+{
+  "description": "Frozen beta55 operation transport v2 encrypted relay fixture",
+  "protocol_version": 2,
+  "suite": "P256-HKDF-SHA256-AES256GCM",
+  "application_private_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE",
+  "application_public_key": "BGsX0fLhLEJH-Lzm5WOkQPJ3A32BLeszoPShOUXYmMKWT-NC4v4af5uO5-tKfA-eFivOM1drMV7Oy7ZAaDe_UfU",
+  "connector_private_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAI",
+  "connector_public_key": "BHzyexiNA09-ilI4AwS1GsPAiWnid_IbNaYLSPxHZpl4B3dVENuO0EApPZrGn3Qw27p9reY86YIpngS3nSJ4c9E",
+  "grant_id": "01911111-1111-7111-8111-111111111111",
+  "application_id": "01922222-2222-7222-8222-222222222222",
+  "connector_id": "01933333-3333-7333-8333-333333333333",
+  "collection_id": "01944444-4444-7444-8444-444444444444",
+  "request_id": "01955555-5555-7555-8555-555555555555",
+  "scope_epoch": 7,
+  "key_id": "beta55-fixture",
+  "operation": "create",
+  "counter": "9",
+  "request": {
+    "plaintext": {
+      "path": "legacy.md",
+      "document": "pending beta55 mutation"
+    },
+    "ciphertext": "ipqbGiF12SOivnCxWrQliiJBCNUu3rTg2Ce1xtGQmenEgrKWRlNzlyUYdUWY1CVc1jXjsyonDBBnjTqWQ90gB43eEZlkeYJBzw"
+  },
+  "response": {
+    "plaintext": {
+      "ok": true,
+      "result": {
+        "path": "legacy.md",
+        "revision": "legacy-revision"
+      }
+    },
+    "ciphertext": "aJPNy61xiSPnxJjjhZP8yahfuucYxo_DcEp8zmXHCw3Rx84JpBnceBCbMEGvkJx8FbZ7b-a4Btjfe_GVLz9q7LL9vmfXfAw8W1Xx-9033KZMQOnL5G4"
+  }
+}

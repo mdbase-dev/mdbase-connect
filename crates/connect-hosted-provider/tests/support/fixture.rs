@@ -86,6 +86,8 @@ impl FileLifecycleFixture {
                     contract_scope: Vec::new(),
                     full_collection: false,
                     allowed_operations: Vec::new(),
+                    operation_transport_protocol: None,
+                    operation_transport_recovery_protocols: Vec::new(),
                     file_capability: None,
                     allowed_origin: None,
                     proof_public_key: None,

@@ -112,13 +112,13 @@ describe("mdbase MCP gateway", () => {
     expect(firstUpstream.searchParams.get("request_id"))
       .toBe(upstream.authorizationProofs[0]?.binding.authorization_id);
     expect(upstream.authorizationProofs[0]?.binding).toMatchObject({
-      protocol_version: 4,
+      protocol_version: 5,
       application_id: applicationId,
       application_declaration_id: "dev.mdbase.mcp",
       flow: "authorization_code",
       contracts: {
         operation_transport: 3,
-        authorization_binding: 4,
+        authorization_binding: 5,
         semantic_capabilities: 1,
         durable_mutation: 1
       }

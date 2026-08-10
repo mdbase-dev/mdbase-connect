@@ -74,7 +74,9 @@ impl HostedProvider {
         if let Some(existing) = sqlx::query(
             r#"SELECT collection_id, name, purpose, mode, allowed_types, contract_scope,
                       full_collection,
-                      allowed_operations, file_capability, allowed_origin, proof_public_key, grant_id,
+                      allowed_operations, operation_transport_protocol,
+                      operation_transport_recovery_protocols,
+                      file_capability, allowed_origin, proof_public_key, grant_id,
                       application_declaration_id, application_declaration_digest,
                       token_hash, revoked_at
                FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE"#,
@@ -92,6 +94,16 @@ impl HostedProvider {
                 && existing.get::<Value, _>("contract_scope") == contract_scope
                 && existing.get::<bool, _>("full_collection") == input.full_collection
                 && existing.get::<Vec<String>, _>("allowed_operations") == input.allowed_operations
+                && existing.get::<Option<i32>, _>("operation_transport_protocol")
+                    == input
+                        .operation_transport_protocol
+                        .map(|version| version as i32)
+                && existing.get::<Vec<i32>, _>("operation_transport_recovery_protocols")
+                    == input
+                        .operation_transport_recovery_protocols
+                        .iter()
+                        .map(|version| *version as i32)
+                        .collect::<Vec<_>>()
                 && existing.get::<Option<Value>, _>("file_capability") == file_capability
                 && existing
                     .get::<Option<String>, _>("allowed_origin")
@@ -139,11 +151,14 @@ impl HostedProvider {
             r#"INSERT INTO hosted_provider_replicas
                  (id, collection_id, name, purpose, mode, allowed_types, contract_scope,
                   full_collection,
-                  allowed_operations, file_capability, allowed_origin, proof_public_key, grant_id,
+                  allowed_operations, operation_transport_protocol,
+                  operation_transport_recovery_protocols,
+                  file_capability, allowed_origin, proof_public_key, grant_id,
                   application_declaration_id, application_declaration_digest, token_hash,
                   token_expires_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                       $14, $15, $16, now() + ($17 * interval '1 second'))"#,
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                       $13, $14, $15, $16, $17, $18,
+                       now() + ($19 * interval '1 second'))"#,
         )
         .bind(input.replica_id)
         .bind(collection_id)
@@ -154,6 +169,18 @@ impl HostedProvider {
         .bind(contract_scope)
         .bind(input.full_collection)
         .bind(input.allowed_operations)
+        .bind(
+            input
+                .operation_transport_protocol
+                .map(|version| version as i32),
+        )
+        .bind(
+            input
+                .operation_transport_recovery_protocols
+                .into_iter()
+                .map(|version| version as i32)
+                .collect::<Vec<_>>(),
+        )
         .bind(file_capability)
         .bind(input.allowed_origin)
         .bind(input.proof_public_key)
@@ -263,17 +290,21 @@ impl HostedProvider {
         token: &str,
         request_origin: Option<&str>,
         proof: Option<&AuthorityRequestProof>,
-    ) -> ApiResult<()> {
+    ) -> ApiResult<AuthorizedRequest> {
         // Originless mirror traffic is authenticated again inside the requested
         // operation. Avoid a duplicate database round trip for that hot path.
         // Application capabilities with an allowed origin still fail closed in
         // the operation-level origin check when the header is omitted.
         if request_origin.is_none() && proof.is_none() {
-            return Ok(());
+            return Ok(AuthorizedRequest {
+                operation_transport_protocol: None,
+                operation_transport_recovery_protocols: Vec::new(),
+            });
         }
         let mut transaction = self.pool.begin().await?;
         let row = sqlx::query(
-            r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations, file_capability,
+            r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations,
+                      operation_transport_protocol, operation_transport_recovery_protocols, file_capability,
                       allowed_origin, proof_public_key, grant_id, scope_epoch
                FROM hosted_provider_replicas
                WHERE collection_id = $1 AND token_hash = $2
@@ -291,6 +322,8 @@ impl HostedProvider {
                 r#"SELECT replica.id, replica.purpose, replica.mode,
                           replica.allowed_types, replica.contract_scope,
                           replica.full_collection, replica.allowed_operations,
+                          replica.operation_transport_protocol,
+                          replica.operation_transport_recovery_protocols,
                           replica.file_capability, retired.allowed_origin,
                           retired.proof_public_key, replica.grant_id, replica.scope_epoch
                    FROM hosted_provider_retired_replay_credentials retired
@@ -349,8 +382,14 @@ impl HostedProvider {
                 }
             }
         }
+        let authorized = AuthorizedRequest {
+            operation_transport_protocol: replica.operation_transport_protocol,
+            operation_transport_recovery_protocols: replica
+                .operation_transport_recovery_protocols
+                .clone(),
+        };
         transaction.commit().await?;
-        Ok(())
+        Ok(authorized)
     }
 
     pub async fn update_application_replica(
@@ -371,6 +410,10 @@ impl HostedProvider {
             contract_scope: input.contract_scope.clone(),
             full_collection: input.full_collection,
             allowed_operations: input.allowed_operations.clone(),
+            operation_transport_protocol: Some(input.operation_transport_protocol),
+            operation_transport_recovery_protocols: input
+                .operation_transport_recovery_protocols
+                .clone(),
             file_capability: input.file_capability.clone(),
             allowed_origin: input.allowed_origin.clone(),
             proof_public_key: input.proof_public_key.clone(),
@@ -401,24 +444,28 @@ impl HostedProvider {
                        OR contract_scope IS DISTINCT FROM $4
                        OR full_collection IS DISTINCT FROM $5
                        OR allowed_operations IS DISTINCT FROM $6
-                       OR file_capability IS DISTINCT FROM $7
-                       OR grant_id IS DISTINCT FROM $8
-                       OR allowed_origin IS DISTINCT FROM $9
-                       OR proof_public_key IS DISTINCT FROM $10
-                       OR application_declaration_id IS DISTINCT FROM $11
-                       OR application_declaration_digest IS DISTINCT FROM $12
+                       OR operation_transport_protocol IS DISTINCT FROM $7
+                       OR operation_transport_recovery_protocols IS DISTINCT FROM $8
+                       OR file_capability IS DISTINCT FROM $9
+                       OR grant_id IS DISTINCT FROM $10
+                       OR allowed_origin IS DISTINCT FROM $11
+                       OR proof_public_key IS DISTINCT FROM $12
+                       OR application_declaration_id IS DISTINCT FROM $13
+                       OR application_declaration_digest IS DISTINCT FROM $14
                      THEN 1 ELSE 0 END,
                    mode = $2,
                    allowed_types = $3,
                    contract_scope = $4,
                    full_collection = $5,
                    allowed_operations = $6,
-                   file_capability = $7,
-                   grant_id = $8,
-                   allowed_origin = $9,
-                   proof_public_key = $10,
-                   application_declaration_id = $11,
-                   application_declaration_digest = $12
+                   operation_transport_protocol = $7,
+                   operation_transport_recovery_protocols = $8,
+                   file_capability = $9,
+                   grant_id = $10,
+                   allowed_origin = $11,
+                   proof_public_key = $12,
+                   application_declaration_id = $13,
+                   application_declaration_digest = $14
                WHERE id = $1 AND purpose = 'application' AND revoked_at IS NULL"#,
         )
         .bind(replica_id)
@@ -427,6 +474,14 @@ impl HostedProvider {
         .bind(contract_scope)
         .bind(input.full_collection)
         .bind(input.allowed_operations)
+        .bind(input.operation_transport_protocol as i32)
+        .bind(
+            input
+                .operation_transport_recovery_protocols
+                .into_iter()
+                .map(|version| version as i32)
+                .collect::<Vec<_>>(),
+        )
         .bind(file_capability)
         .bind(input.grant_id)
         .bind(input.allowed_origin)

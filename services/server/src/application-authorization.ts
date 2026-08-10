@@ -13,7 +13,12 @@ import {
 } from "@mdbase-dev/connect-protocol";
 import {
   APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
-  authorizationContractRequirements
+  CONNECT_CONTRACT_SUPPORT,
+  LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION,
+  OPERATION_TRANSPORT_PROTOCOL_VERSION,
+  isMutatingOperation,
+  isSupportedAuthorizationBinding,
+  isSupportedOperationTransport
 } from "@mdbase-dev/connect-protocol";
 import { z } from "zod";
 import { isP256PublicKey } from "./security.js";
@@ -40,7 +45,10 @@ const fileRequirementSchema = z.object({
 }).strict();
 
 const bindingSchema = z.object({
-  protocol_version: z.literal(APPLICATION_AUTHORIZATION_PROTOCOL_VERSION),
+  protocol_version: z.union([
+    z.literal(APPLICATION_AUTHORIZATION_PROTOCOL_VERSION),
+    z.literal(LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION)
+  ]),
   authorization_id: z.uuid(),
   application_id: z.uuid(),
   application_declaration_id: z.string().regex(/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$/),
@@ -58,6 +66,9 @@ const bindingSchema = z.object({
   code_challenge: z.string().min(43).max(128),
   contracts: z.object({
     operation_transport: z.number().int().positive(),
+    operation_transport_recovery: z.array(z.number().int().positive())
+      .max(2)
+      .optional(),
     authorization_binding: z.number().int().positive(),
     semantic_capabilities: z.number().int().positive(),
     durable_mutation: z.number().int().positive().optional()
@@ -128,12 +139,12 @@ export function parseApplicationAuthorization(value: unknown): ApplicationAuthor
     ? (decoded as { binding?: { protocol_version?: unknown } }).binding
     : undefined;
   if (typeof rawBinding?.protocol_version === "number"
-      && rawBinding.protocol_version !== APPLICATION_AUTHORIZATION_PROTOCOL_VERSION) {
+      && !isSupportedAuthorizationBinding(rawBinding.protocol_version)) {
     throw new ApplicationContractMismatchError(
       "authorization_binding_incompatible",
       {
         contract: "authorization_binding",
-        required: [APPLICATION_AUTHORIZATION_PROTOCOL_VERSION],
+        required: [...CONNECT_CONTRACT_SUPPORT.authorization_binding],
         supported: [rawBinding.protocol_version],
         peer: "application"
       }
@@ -152,11 +163,7 @@ export async function verifyApplicationAuthorization(
 ): Promise<ApplicationAuthorizationProof> {
   const proof = parseApplicationAuthorization(value);
   const binding = proof.binding;
-  assertContractRequirements(
-    binding.contracts,
-    authorizationContractRequirements(expected.requestedOperations, expected.requestedFiles),
-    expected.requestedOperations[0]
-  );
+  assertContractRequirements(binding, expected);
   const now = (expected.now ?? new Date()).getTime();
   const issuedAt = Date.parse(binding.issued_at);
   const expiresAt = Date.parse(binding.expires_at);
@@ -174,10 +181,6 @@ export async function verifyApplicationAuthorization(
     || binding.redirect_uri !== expected.redirectUri
     || binding.state !== expected.state
     || binding.code_challenge !== expected.codeChallenge
-    || !isDeepStrictEqual(
-      binding.contracts,
-      authorizationContractRequirements(expected.requestedOperations, expected.requestedFiles)
-    )
     || !isDeepStrictEqual(binding.requested_operations, expected.requestedOperations)
     || !isDeepStrictEqual(binding.requested_files, expected.requestedFiles)
     || binding.collection_id !== expected.collectionId
@@ -231,22 +234,74 @@ export async function verifyApplicationAuthorization(
 }
 
 function assertContractRequirements(
-  actual: ApplicationAuthorizationProof["binding"]["contracts"],
-  expected: ApplicationAuthorizationProof["binding"]["contracts"],
-  operation?: string
+  binding: ApplicationAuthorizationProof["binding"],
+  expected: ExpectedApplicationAuthorization
 ): void {
+  const actual = binding.contracts;
+  const operation = expected.requestedOperations[0];
+  if (!isSupportedAuthorizationBinding(binding.protocol_version)
+      || actual.authorization_binding !== binding.protocol_version) {
+    throw new ApplicationContractMismatchError("authorization_binding_incompatible", {
+      contract: "authorization_binding",
+      required: [...CONNECT_CONTRACT_SUPPORT.authorization_binding],
+      supported: [actual.authorization_binding],
+      peer: "application",
+      ...(operation ? { operation } : {})
+    });
+  }
+  if (!isSupportedOperationTransport(actual.operation_transport)) {
+    throw new ApplicationContractMismatchError("transport_protocol_incompatible", {
+      contract: "operation_transport",
+      required: [...CONNECT_CONTRACT_SUPPORT.operation_transport],
+      supported: [actual.operation_transport],
+      peer: "application",
+      ...(operation ? { operation } : {})
+    });
+  }
+  if (binding.protocol_version === APPLICATION_AUTHORIZATION_PROTOCOL_VERSION
+      && actual.operation_transport !== OPERATION_TRANSPORT_PROTOCOL_VERSION) {
+    throw new ApplicationContractMismatchError("transport_protocol_incompatible", {
+      contract: "operation_transport",
+      required: [OPERATION_TRANSPORT_PROTOCOL_VERSION],
+      supported: [actual.operation_transport],
+      peer: "application",
+      ...(operation ? { operation } : {})
+    });
+  }
+  const requiresDurableMutation = expected.requestedOperations.some((candidate) =>
+    isMutatingOperation(candidate, { action: "mutate" }))
+    || expected.requestedFiles?.actions.some((action) =>
+    !["list", "read"].includes(action)) === true;
+  const recovery = actual.operation_transport_recovery ?? [];
+  if (
+    new Set(recovery).size !== recovery.length
+    || recovery.includes(actual.operation_transport)
+    || recovery.some((version) => !isSupportedOperationTransport(version))
+    || (binding.protocol_version === LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION
+      && recovery.length > 0)
+    || (recovery.length > 0 && !requiresDurableMutation)
+  ) {
+    throw new ApplicationContractMismatchError("transport_protocol_incompatible", {
+      contract: "operation_transport",
+      required: [...CONNECT_CONTRACT_SUPPORT.operation_transport],
+      supported: [actual.operation_transport, ...recovery],
+      peer: "application",
+      ...(operation ? { operation } : {})
+    });
+  }
   const axes = [
-    ["operation_transport", "transport_protocol_incompatible"],
-    ["authorization_binding", "authorization_binding_incompatible"],
-    ["semantic_capabilities", "capability_contract_incompatible"],
-    ["durable_mutation", "durable_mutation_unsupported"]
+    ["semantic_capabilities", "capability_contract_incompatible", 1],
+    [
+      "durable_mutation",
+      "durable_mutation_unsupported",
+      requiresDurableMutation ? 1 : undefined
+    ]
   ] as const;
-  for (const [contract, code] of axes) {
-    const required = expected[contract];
-    if (required !== undefined && actual[contract] !== required) {
+  for (const [contract, code, required] of axes) {
+    if (actual[contract] !== required) {
       throw new ApplicationContractMismatchError(code, {
         contract,
-        required: [required],
+        required: required === undefined ? [] : [required],
         supported: actual[contract] === undefined ? [] : [actual[contract]],
         peer: "application",
         ...(operation ? { operation } : {})

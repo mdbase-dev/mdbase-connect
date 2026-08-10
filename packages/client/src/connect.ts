@@ -51,6 +51,11 @@ import {
   type StoredToken
 } from "./internal-types.js";
 import { uniqueOperations } from "./operation-helpers.js";
+import {
+  pendingMutationsUseKey,
+  pendingRecoveryTransports,
+  removePendingMutations
+} from "./pending-recovery-transports.js";
 import type { ConnectRequestOptions } from "./operation-types.js";
 import {
   resolveConnectTimeouts,
@@ -330,7 +335,16 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       redirect_uri: this.redirectUri,
       state,
       code_challenge: challenge,
-      contracts: authorizationContractRequirements(operations, application.requirements?.files),
+      contracts: authorizationContractRequirements(
+        operations,
+        application.requirements?.files,
+        pendingRecoveryTransports(
+          this.storage,
+          this.storagePrefix(),
+          operations,
+          targetCollectionId
+        )
+      ),
       requested_operations: operations,
       ...(application.requirements?.files
         ? { requested_files: application.requirements.files }
@@ -452,7 +466,16 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       issued_at: issuedAt.toISOString(),
       expires_at: new Date(issuedAt.getTime() + 10 * 60 * 1_000).toISOString(),
       code_challenge: challenge,
-      contracts: authorizationContractRequirements(operations, application.requirements?.files),
+      contracts: authorizationContractRequirements(
+        operations,
+        application.requirements?.files,
+        pendingRecoveryTransports(
+          this.storage,
+          this.storagePrefix(),
+          operations,
+          options.target?.kind === "collection" ? options.target.collectionId : undefined
+        )
+      ),
       requested_operations: operations,
       ...(application.requirements?.files
         ? { requested_files: application.requirements.files }
@@ -886,11 +909,21 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     discardPending = false
   ): void {
     this.invalidatedConnections.set(collectionId, reason);
-    if (keyHandle && (discardPending || !this.pendingMutationsUseKey(collectionId, keyHandle))) {
+    if (keyHandle && (discardPending || !pendingMutationsUseKey(
+      this.storage,
+      this.pendingMutationKey(collectionId),
+      keyHandle
+    ))) {
       void this.keyStore.delete(keyHandle).catch(() => undefined);
     }
     this.storage.removeItem(this.tokenKey(collectionId));
-    if (discardPending) this.removePendingMutations(collectionId);
+    if (discardPending) removePendingMutations(
+      this.storage,
+      this.pendingMutationKey(collectionId),
+      (pendingKeyHandle) => {
+        void this.keyStore.delete(pendingKeyHandle).catch(() => undefined);
+      }
+    );
     for (const transport of ["web_push", "fcm"] as const) {
       this.storage.removeItem(this.notificationKey(collectionId, transport));
     }
@@ -911,31 +944,6 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
 
   pendingMutationKey(collectionId: string): string {
     return `${this.storagePrefix()}:pending-mutation:${collectionId}`;
-  }
-
-  private removePendingMutations(collectionId: string): void {
-    const baseKey = this.pendingMutationKey(collectionId);
-    const keys = [baseKey];
-    for (let index = 0; index < this.storage.length; index += 1) {
-      const key = this.storage.key(index);
-      if (key?.startsWith(`${baseKey}:`)) keys.push(key);
-    }
-    for (const key of keys) {
-      const pending = parseStored<{ keyHandle?: string }>(this.storage.getItem(key));
-      if (pending?.keyHandle) void this.keyStore.delete(pending.keyHandle).catch(() => undefined);
-      this.storage.removeItem(key);
-    }
-  }
-
-  private pendingMutationsUseKey(collectionId: string, keyHandle: string): boolean {
-    const baseKey = this.pendingMutationKey(collectionId);
-    for (let index = 0; index < this.storage.length; index += 1) {
-      const key = this.storage.key(index);
-      if (key !== baseKey && !key?.startsWith(`${baseKey}:`)) continue;
-      const pending = parseStored<{ keyHandle?: string }>(this.storage.getItem(key));
-      if (pending?.keyHandle === keyHandle) return true;
-    }
-    return false;
   }
 
   notificationKey(collectionId: string, transport: "web_push" | "fcm" = "web_push"): string {

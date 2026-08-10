@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.0-beta.57
+
+Beta.57 adds a bounded migration bridge for durable beta.55 work while keeping
+transport v3 as the only current request path.
+
+- Authorization binding v5 signs an explicit mutation-only v2 recovery
+  contract; ordinary reads and new mutations cannot silently downgrade.
+- Frozen beta.55 v4 and transport-v2 fixtures preserve exact interoperability,
+  including durable legacy-read receipts across connector restarts.
+- Existing hosted replicas expand safely and are reconciled to their exact
+  signed transport policy before the compatibility window contracts.
+- Privacy-minimal protocol telemetry and fail-closed readiness gates make v2
+  and v4 removal depend on observed use and remaining recovery contracts.
+
 ## 0.1.0-beta.56
 
 Beta.56 isolates local authorization from application data-plane load and

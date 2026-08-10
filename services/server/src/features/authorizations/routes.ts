@@ -8,7 +8,6 @@ import type {
   GrantEncryption,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
-import { OPERATION_TRANSPORT_PROTOCOL_VERSION } from "@mdbase-dev/connect-protocol";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { verifyApplicationAuthorization } from "../../application-authorization.js";
@@ -182,7 +181,7 @@ export function registerAuthorizationRoutes(
         input.code_challenge,
         JSON.stringify(requestedOperations),
         input.collection_id ?? null,
-        OPERATION_TRANSPORT_PROTOCOL_VERSION,
+        proof.binding.contracts.operation_transport,
         proof.binding.grant_agreement_public_key,
         proof.binding.grant_signing_public_key,
         JSON.stringify(proof),
@@ -304,11 +303,12 @@ export function registerAuthorizationRoutes(
       file_capability: FileCapability | null;
       application_origin: string;
       proof_public_key: string;
+      application_authorization: import("@mdbase-dev/connect-protocol").ApplicationAuthorizationProof;
       application_family_identity: string;
       application_manifest_digest: string;
     }>(
       `SELECT g.id, g.operations, g.encryption, g.scope, g.file_capability,
-              g.application_origin, g.proof_public_key,
+              g.application_origin, g.proof_public_key, g.application_authorization,
               a.requirements,
               a.family_identity AS application_family_identity,
               a.manifest_digest AS application_manifest_digest,
@@ -348,6 +348,11 @@ export function registerAuthorizationRoutes(
         contractScope: current.scope.access === "contract" ? current.scope.contracts : [],
         fullCollection: current.scope.access === "full_collection",
         allowedOperations: hostedReplicaCollectionOperations(operations),
+        operationTransportProtocol:
+          current.application_authorization.binding.contracts.operation_transport,
+        operationTransportRecoveryProtocols:
+          current.application_authorization.binding.contracts
+            .operation_transport_recovery ?? [],
         fileCapability: current.file_capability ?? undefined,
         allowedOrigin: current.application_origin,
         proofPublicKey: current.proof_public_key,
@@ -450,7 +455,7 @@ export function registerAuthorizationRoutes(
         input.code_challenge,
         JSON.stringify(requestedOperations),
         input.collection_id ?? null,
-        OPERATION_TRANSPORT_PROTOCOL_VERSION,
+        proof.binding.contracts.operation_transport,
         proof.binding.grant_agreement_public_key,
         proof.binding.grant_signing_public_key,
         JSON.stringify(proof),

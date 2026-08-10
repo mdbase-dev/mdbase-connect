@@ -32,7 +32,7 @@ test("release canary uses the canonical signed authorization flow", async () => 
   assert.deepEqual(binding.requested_operations, ["describe"]);
   assert.deepEqual(binding.contracts, {
     operation_transport: 3,
-    authorization_binding: 4,
+    authorization_binding: 5,
     semantic_capabilities: 1
   });
   assert.equal(

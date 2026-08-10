@@ -12,7 +12,8 @@ import {
   type ApplicationAuthorizationBinding,
   type ApplicationAuthorizationProof,
   type ApplicationFileRequirement,
-  type CollectionOperation
+  type CollectionOperation,
+  type OperationTransportProtocolVersion
 } from "@mdbase-dev/connect-protocol";
 
 const P256_ORDER = BigInt(
@@ -27,6 +28,7 @@ export async function testApplicationAuthorization(input: {
   flow: "authorization_code" | "device_code";
   codeChallenge: string;
   requestedOperations: CollectionOperation[];
+  operationTransportRecovery?: OperationTransportProtocolVersion[];
   requestedFiles?: ApplicationFileRequirement;
   redirectUri?: string;
   state?: string;
@@ -62,7 +64,8 @@ export async function testApplicationAuthorization(input: {
     code_challenge: input.codeChallenge,
     contracts: authorizationContractRequirements(
       input.requestedOperations,
-      input.requestedFiles
+      input.requestedFiles,
+      input.operationTransportRecovery
     ),
     requested_operations: input.requestedOperations,
     ...(input.requestedFiles ? { requested_files: input.requestedFiles } : {}),

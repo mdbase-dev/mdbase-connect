@@ -19,7 +19,7 @@ use mdbase_connect_protocol::{
     SyncChangesPage, SyncFileSnapshotPage, SyncMutation, SyncMutationReceipt, SyncSession,
     SyncSnapshotPage, TypePackProvision, AUTHORITY_PROOF_NONCE_HEADER,
     AUTHORITY_PROOF_SIGNATURE_HEADER, AUTHORITY_PROOF_TIMESTAMP_HEADER,
-    AUTHORITY_PROOF_VERSION_HEADER, OPERATION_TRANSPORT_PROTOCOL_VERSION,
+    AUTHORITY_PROOF_VERSION_HEADER,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -191,6 +191,7 @@ pub fn app(state: AppState) -> Router {
         .max_age(std::time::Duration::from_secs(600));
     let internal = Router::new()
         .merge(account_routes())
+        .route("/internal/v1/protocol-usage", get(protocol_usage))
         .route(
             "/internal/v1/collections/{collection_id}",
             patch(rename_collection).delete(delete_collection),
@@ -401,6 +402,15 @@ async fn collection_usage(
     state.authorize_internal(&headers)?;
     let usage = state.provider.collection_usage(collection_id).await?;
     Ok(Json(json!({ "usage": usage })))
+}
+
+async fn protocol_usage(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> ApiResult<Json<Value>> {
+    state.authorize_internal(&headers)?;
+    let report = state.provider.protocol_usage_report().await?;
+    Ok(Json(json!({ "protocol_usage": report })))
 }
 
 async fn upsert_notification_grant(
@@ -892,29 +902,34 @@ async fn operation(
     let token = bearer(&headers)?;
     let origin = request_origin(&headers);
     let proof = request_proof(&headers, Method::POST, &uri, &body)?;
-    state
-        .provider
-        .authorize_request(collection_id, token, origin, proof.as_ref())
-        .await?;
     let request = serde_json::from_slice::<OperationRequest>(&body).map_err(|_| {
         ApiError::bad_request("invalid_json", "The hosted operation body is invalid.")
     })?;
-    if request.protocol_version != OPERATION_TRANSPORT_PROTOCOL_VERSION {
+    let authorization = state
+        .provider
+        .authorize_request(collection_id, token, origin, proof.as_ref())
+        .await?;
+    let recovery_only = mdbase_connect_protocol::is_mutating_operation(&operation, &request.input);
+    if !authorization.permits_operation_transport(request.protocol_version, recovery_only) {
         return Err(ApiError::bad_request(
             "transport_protocol_incompatible",
             format!(
-                "Operation protocol {} is unsupported; expected {}.",
-                request.protocol_version, OPERATION_TRANSPORT_PROTOCOL_VERSION
+                "Operation protocol {} is not permitted by this grant.",
+                request.protocol_version
             ),
         )
         .with_details(json!({
             "contract": "operation_transport",
-            "required": [OPERATION_TRANSPORT_PROTOCOL_VERSION],
+            "required": mdbase_connect_protocol::SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS,
             "supported": [request.protocol_version],
-            "peer": "control_plane",
+            "peer": "grant",
             "operation": operation,
         })));
     }
+    state
+        .provider
+        .record_operation_protocol_usage(collection_id, request.protocol_version)
+        .await?;
     let result = state
         .provider
         .operation(
@@ -928,7 +943,7 @@ async fn operation(
         .await?;
     Ok(Json(
         serde_json::to_value(OperationResponse {
-            protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
+            protocol_version: request.protocol_version,
             request_id: request.request_id,
             ok: true,
             result: Some(result),

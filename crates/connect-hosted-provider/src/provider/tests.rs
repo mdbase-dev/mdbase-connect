@@ -9,6 +9,27 @@ fn rollback_binaries_tolerate_newer_additive_migrations() {
 }
 
 #[test]
+fn hosted_transport_expansion_is_bounded_to_mutation_recovery() {
+    let temporarily_unbound = AuthorizedRequest {
+        operation_transport_protocol: None,
+        operation_transport_recovery_protocols: Vec::new(),
+    };
+    assert!(temporarily_unbound.permits_operation_transport(2, false));
+    assert!(temporarily_unbound.permits_operation_transport(3, false));
+    assert!(!temporarily_unbound.permits_operation_transport(99, true));
+
+    let v5 = AuthorizedRequest {
+        operation_transport_protocol: Some(3),
+        operation_transport_recovery_protocols: vec![2],
+    };
+    assert!(v5.permits_operation_transport(3, false));
+    assert!(v5.permits_operation_transport(3, true));
+    assert!(!v5.permits_operation_transport(2, false));
+    assert!(v5.permits_operation_transport(2, true));
+    assert!(!v5.permits_operation_transport(1, true));
+}
+
+#[test]
 fn contract_setup_targets_missing_contracts_only() {
     let digest = format!("sha256:{}", "0".repeat(64));
     let missing = BTreeSet::from([(
@@ -351,6 +372,8 @@ fn application_capabilities_bind_operations_mode_and_origin() {
             "list_views".to_string(),
             "execute_view".to_string(),
         ],
+        operation_transport_protocol: Some(3),
+        operation_transport_recovery_protocols: vec![2],
         file_capability: None,
         allowed_origin: Some("https://tasks.example".to_string()),
         proof_public_key: None,
@@ -389,6 +412,9 @@ fn application_capabilities_bind_operations_mode_and_origin() {
         contract_scope: portable_capability.contract_scope,
         full_collection: portable_capability.full_collection,
         allowed_operations: portable_capability.allowed_operations,
+        operation_transport_protocol: portable_capability.operation_transport_protocol,
+        operation_transport_recovery_protocols: portable_capability
+            .operation_transport_recovery_protocols,
         file_capability: portable_capability.file_capability,
         allowed_origin: portable_capability.allowed_origin,
         proof_public_key: portable_capability.proof_public_key,
@@ -453,6 +479,9 @@ fn application_capabilities_bind_operations_mode_and_origin() {
         contract_scope: contract_capability.contract_scope,
         full_collection: contract_capability.full_collection,
         allowed_operations: contract_capability.allowed_operations,
+        operation_transport_protocol: contract_capability.operation_transport_protocol,
+        operation_transport_recovery_protocols: contract_capability
+            .operation_transport_recovery_protocols,
         file_capability: contract_capability.file_capability,
         allowed_origin: contract_capability.allowed_origin,
         proof_public_key: contract_capability.proof_public_key,
@@ -473,6 +502,10 @@ fn application_capabilities_bind_operations_mode_and_origin() {
         contract_scope: capability.contract_scope,
         full_collection: capability.full_collection,
         allowed_operations: capability.allowed_operations,
+        operation_transport_protocol: capability.operation_transport_protocol,
+        operation_transport_recovery_protocols: capability
+            .operation_transport_recovery_protocols
+            .clone(),
         file_capability: capability.file_capability,
         allowed_origin: capability.allowed_origin,
         proof_public_key: capability.proof_public_key,
@@ -525,6 +558,8 @@ fn collection_setup_capabilities_require_and_enforce_their_declaration_binding()
         contract_scope: Vec::new(),
         full_collection: true,
         allowed_operations: vec!["apply_collection_setup".to_string()],
+        operation_transport_protocol: Some(3),
+        operation_transport_recovery_protocols: vec![2],
         file_capability: None,
         allowed_origin: Some("https://tasks.example".to_string()),
         proof_public_key: None,
@@ -620,6 +655,8 @@ fn mirror_sync_credentials_are_not_browser_capabilities() {
         contract_scope: Vec::new(),
         full_collection: false,
         allowed_operations: Vec::new(),
+        operation_transport_protocol: None,
+        operation_transport_recovery_protocols: Vec::new(),
         file_capability: None,
         allowed_origin: None,
         proof_public_key: None,
@@ -646,6 +683,8 @@ fn rejects_write_operations_on_read_only_application_capabilities() {
         contract_scope: Vec::new(),
         full_collection: false,
         allowed_operations: vec!["create".to_string()],
+        operation_transport_protocol: Some(3),
+        operation_transport_recovery_protocols: vec![2],
         file_capability: None,
         allowed_origin: Some("https://tasks.example".to_string()),
         proof_public_key: None,
@@ -672,6 +711,8 @@ fn file_capabilities_are_independent_scoped_and_mode_checked() {
         contract_scope: Vec::new(),
         full_collection: false,
         allowed_operations: Vec::new(),
+        operation_transport_protocol: Some(3),
+        operation_transport_recovery_protocols: vec![2],
         file_capability: Some(FileCapability {
             kind: mdbase_connect_protocol::FileCapabilityKind::Files,
             protocol_version: FILE_PROTOCOL_VERSION,
@@ -697,6 +738,10 @@ fn file_capabilities_are_independent_scoped_and_mode_checked() {
         contract_scope: Vec::new(),
         full_collection: false,
         allowed_operations: Vec::new(),
+        operation_transport_protocol: capability.operation_transport_protocol,
+        operation_transport_recovery_protocols: capability
+            .operation_transport_recovery_protocols
+            .clone(),
         file_capability: capability.file_capability.clone(),
         allowed_origin: capability.allowed_origin.clone(),
         proof_public_key: None,

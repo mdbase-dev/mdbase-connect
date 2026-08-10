@@ -22,6 +22,13 @@ const fixture = JSON.parse(readFileSync(
   new URL("../../protocol/test/fixtures/application-authorization-v4.json", import.meta.url),
   "utf8"
 )) as Fixture;
+const beta55Fixture = JSON.parse(readFileSync(
+  new URL(
+    "../../protocol/test/fixtures/application-authorization-beta55-v4.json",
+    import.meta.url
+  ),
+  "utf8"
+)) as Fixture;
 
 describe("application authorization identity", () => {
   it("matches the shared Rust installation id and transcript fixture", async () => {
@@ -33,6 +40,14 @@ describe("application authorization identity", () => {
       authorizationSigningMessage(fixture.binding) as BufferSource
     ));
     expect(hex(digest)).toBe(fixture.signing_message_sha256);
+  });
+
+  it("preserves the frozen beta55 v4 signing transcript byte-for-byte", async () => {
+    const digest = new Uint8Array(await crypto.subtle.digest(
+      "SHA-256",
+      authorizationSigningMessage(beta55Fixture.binding) as BufferSource
+    ));
+    expect(hex(digest)).toBe(beta55Fixture.signing_message_sha256);
   });
 
   it("creates a canonical P-256 proof that verifies and rejects tampering", async () => {

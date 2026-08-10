@@ -31,6 +31,8 @@ export interface HostedReplicaEnrollment {
   contractScope?: CollectionContractDescriptor[];
   fullCollection?: boolean;
   allowedOperations?: string[];
+  operationTransportProtocol?: number;
+  operationTransportRecoveryProtocols?: number[];
   fileCapability?: FileCapability;
   allowedOrigin?: string;
   proofPublicKey?: string;
@@ -83,6 +85,20 @@ export interface HostedAccountUsage extends HostedAccountLimits {
   live_content_bytes: number;
   live_file_bytes: number;
   retained_file_bytes: number;
+}
+
+export interface HostedProtocolUsageEntry {
+  account_id: string;
+  protocol_version: number;
+  sample_count: number;
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
+export interface HostedProtocolUsageReport {
+  entries: HostedProtocolUsageEntry[];
+  unbound_application_replicas: number;
+  v2_recovery_application_replicas: number;
 }
 
 export interface HostedAuthorityTransfer {
@@ -183,6 +199,21 @@ export class HostedProviderClient {
       );
     }
     return result.account;
+  }
+
+  async protocolUsage(): Promise<HostedProtocolUsageReport> {
+    const result = await this.request(
+      "GET",
+      "/internal/v1/protocol-usage"
+    ) as { protocol_usage?: HostedProtocolUsageReport } | undefined;
+    if (!result?.protocol_usage) {
+      throw new HostedProviderResponseError(
+        502,
+        "invalid_provider_response",
+        "Hosted protocol usage was missing from the provider response."
+      );
+    }
+    return result.protocol_usage;
   }
 
   async reconcileCollectionAccount(accountId: string, collectionId: string): Promise<void> {
@@ -307,6 +338,16 @@ export class HostedProviderClient {
         allowed_operations: hostedReplicaCollectionOperations(
           replica.allowedOperations ?? []
         ),
+        ...(replica.operationTransportProtocol !== undefined
+          ? { operation_transport_protocol: replica.operationTransportProtocol }
+          : {}),
+        ...(replica.operationTransportProtocol !== undefined
+          || replica.operationTransportRecoveryProtocols !== undefined
+          ? {
+              operation_transport_recovery_protocols:
+                replica.operationTransportRecoveryProtocols ?? []
+            }
+          : {}),
         ...(replica.fileCapability ? { file_capability: replica.fileCapability } : {}),
         ...(replica.allowedOrigin ? { allowed_origin: replica.allowedOrigin } : {}),
         ...(replica.proofPublicKey ? { proof_public_key: replica.proofPublicKey } : {}),
@@ -363,6 +404,8 @@ export class HostedProviderClient {
       contractScope: CollectionContractDescriptor[];
       fullCollection: boolean;
       allowedOperations: string[];
+      operationTransportProtocol: number;
+      operationTransportRecoveryProtocols: number[];
       fileCapability?: FileCapability;
       allowedOrigin: string | undefined;
       proofPublicKey: string;
@@ -382,6 +425,9 @@ export class HostedProviderClient {
         allowed_operations: hostedReplicaCollectionOperations(
           policy.allowedOperations
         ),
+        operation_transport_protocol: policy.operationTransportProtocol,
+        operation_transport_recovery_protocols:
+          policy.operationTransportRecoveryProtocols,
         ...(policy.fileCapability ? { file_capability: policy.fileCapability } : {}),
         allowed_origin: policy.allowedOrigin,
         proof_public_key: policy.proofPublicKey,

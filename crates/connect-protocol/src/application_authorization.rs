@@ -1,8 +1,9 @@
 use crate::{
     authorization_requires_durable_mutation, ApplicationFileRequirement,
     ConnectContractRequirements, FileAction, FileCapabilityKind, FileScope, GrantPolicy,
-    APPLICATION_AUTHORIZATION_PROTOCOL_VERSION, FILE_PROTOCOL_VERSION,
-    GRANT_ENCRYPTION_PROTOCOL_VERSION,
+    APPLICATION_AUTHORIZATION_PROTOCOL_VERSION, AUTHORIZATION_BINDING_PROTOCOL_VERSION,
+    FILE_PROTOCOL_VERSION, GRANT_ENCRYPTION_PROTOCOL_VERSION,
+    LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION,
 };
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -14,7 +15,8 @@ use thiserror::Error;
 use uuid::Uuid;
 
 const INSTALLATION_ID_DOMAIN: &[u8] = b"mdbase-connect application installation id v2\0";
-const AUTHORIZATION_PROOF_DOMAIN: &[u8] = b"mdbase-connect application authorization proof v4\0";
+const AUTHORIZATION_PROOF_V4_DOMAIN: &[u8] = b"mdbase-connect application authorization proof v4\0";
+const AUTHORIZATION_PROOF_V5_DOMAIN: &[u8] = b"mdbase-connect application authorization proof v5\0";
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ApplicationAuthorizationError {
@@ -86,6 +88,13 @@ impl ApplicationAuthorizationBinding {
             || self.contracts.authorization_binding == 0
             || self.contracts.semantic_capabilities == 0
             || self.contracts.durable_mutation == Some(0)
+            || self.contracts.authorization_binding != self.protocol_version
+            || !self
+                .contracts
+                .valid_for_authorization(authorization_requires_durable_mutation(
+                    &self.requested_operations,
+                    self.requested_files.as_ref(),
+                ))
             || (self.requested_operations.is_empty() && self.requested_files.is_none())
             || self
                 .requested_operations
@@ -119,7 +128,13 @@ impl ApplicationAuthorizationBinding {
         }
 
         let mut transcript = Vec::with_capacity(620);
-        transcript.extend_from_slice(AUTHORIZATION_PROOF_DOMAIN);
+        transcript.extend_from_slice(
+            if self.protocol_version == AUTHORIZATION_BINDING_PROTOCOL_VERSION {
+                AUTHORIZATION_PROOF_V5_DOMAIN
+            } else {
+                AUTHORIZATION_PROOF_V4_DOMAIN
+            },
+        );
         transcript.extend_from_slice(&self.protocol_version.to_be_bytes());
         append_field(&mut transcript, self.application_id.as_bytes());
         append_field(&mut transcript, self.authorization_id.as_bytes());
@@ -146,6 +161,14 @@ impl ApplicationAuthorizationBinding {
         append_optional_string(&mut transcript, self.state.as_deref());
         append_field(&mut transcript, self.code_challenge.as_bytes());
         transcript.extend_from_slice(&self.contracts.operation_transport.to_be_bytes());
+        if self.protocol_version == AUTHORIZATION_BINDING_PROTOCOL_VERSION {
+            transcript.extend_from_slice(
+                &(self.contracts.operation_transport_recovery.len() as u32).to_be_bytes(),
+            );
+            for version in &self.contracts.operation_transport_recovery {
+                transcript.extend_from_slice(&version.to_be_bytes());
+            }
+        }
         transcript.extend_from_slice(&self.contracts.authorization_binding.to_be_bytes());
         transcript.extend_from_slice(&self.contracts.semantic_capabilities.to_be_bytes());
         append_optional_u32(&mut transcript, self.contracts.durable_mutation);
@@ -159,7 +182,12 @@ impl ApplicationAuthorizationBinding {
     }
 
     fn validated_keys(&self) -> Result<AuthorizationKeys, ApplicationAuthorizationError> {
-        if self.protocol_version != APPLICATION_AUTHORIZATION_PROTOCOL_VERSION {
+        if ![
+            APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
+            LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION,
+        ]
+        .contains(&self.protocol_version)
+        {
             return Err(ApplicationAuthorizationError::UnsupportedVersion);
         }
         let keys = AuthorizationKeys {
@@ -240,11 +268,10 @@ impl GrantPolicy {
             }
             _ => false,
         };
-        let expected_contracts =
-            ConnectContractRequirements::current(authorization_requires_durable_mutation(
-                &authorization.requested_operations,
-                authorization.requested_files.as_ref(),
-            ));
+        let requires_durable_mutation = authorization_requires_durable_mutation(
+            &authorization.requested_operations,
+            authorization.requested_files.as_ref(),
+        );
         if authorization.application_id != self.application_id
             || authorization.grant_agreement_public_key
                 != encryption.application_agreement_public_key
@@ -261,7 +288,9 @@ impl GrantPolicy {
             })
             || !flow_matches
             || !files_match
-            || authorization.contracts != expected_contracts
+            || !authorization
+                .contracts
+                .valid_for_authorization(requires_durable_mutation)
         {
             return Err(ApplicationAuthorizationError::InvalidProof);
         }
@@ -512,6 +541,34 @@ mod tests {
         assert_eq!(
             application_installation_id(&binding.installation_signing_public_key).unwrap(),
             binding.application_installation_id
+        );
+        assert_eq!(
+            hex(&Sha256::digest(binding.signing_message().unwrap())),
+            fixture["signing_message_sha256"].as_str().unwrap()
+        );
+        ApplicationAuthorizationProof {
+            binding,
+            signature: fixture["signature"].as_str().unwrap().to_string(),
+        }
+        .verify()
+        .unwrap();
+    }
+
+    #[test]
+    fn frozen_beta55_v4_fixture_keeps_its_protocol_two_transcript_and_signature() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../packages/protocol/test/fixtures/application-authorization-beta55-v4.json"
+        ))
+        .unwrap();
+        let binding: ApplicationAuthorizationBinding =
+            serde_json::from_value(fixture["binding"].clone()).unwrap();
+        assert_eq!(
+            binding.protocol_version,
+            LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION
+        );
+        assert_eq!(
+            binding.contracts.operation_transport,
+            crate::LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION
         );
         assert_eq!(
             hex(&Sha256::digest(binding.signing_message().unwrap())),

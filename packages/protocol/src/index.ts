@@ -30,6 +30,7 @@ export const GRANT_ENCRYPTION_PROTOCOL_VERSION = 1 as const;
 export const SYNC_PROTOCOL_VERSION = 1 as const;
 export const CONTRACT_SETUP_CAPABILITY = "contract-setup-v1" as const;
 export const FILE_RELAY_CAPABILITY = "file-relay-v1" as const;
+export const PROTOCOL_USAGE_REPORT_CAPABILITY = "protocol-usage-report-v1" as const;
 export const RELAY_REQUIRED_CAPABILITIES = [
   "application-authorization-v4",
   "authorization-activation",
@@ -47,8 +48,10 @@ export const HOSTED_PROVIDER_CAPABILITIES = [
 ] as const;
 export const RELAY_CAPABILITIES = [
   ...RELAY_REQUIRED_CAPABILITIES,
+  "application-authorization-v5",
   CONTRACT_SETUP_CAPABILITY,
-  FILE_RELAY_CAPABILITY
+  FILE_RELAY_CAPABILITY,
+  PROTOCOL_USAGE_REPORT_CAPABILITY
 ] as const;
 export const AUTHORITY_PROOF_VERSION = 1 as const;
 export const AUTHORITY_PROOF_ALGORITHM = "P256-SHA256" as const;
@@ -240,7 +243,7 @@ export interface GrantScope {
 
 export interface RelayOperationRequest {
   type: "operation_request";
-  protocol_version: 3;
+  protocol_version: import("./compatibility.js").OperationTransportProtocolVersion;
   request_id: string;
   grant_id: string;
   collection_id: string;
@@ -252,34 +255,34 @@ export interface RelayOperationRequest {
 export type RelayOperationResponse =
   | {
       type: "operation_response";
-      protocol_version: 3;
+      protocol_version: import("./compatibility.js").OperationTransportProtocolVersion;
       request_id: string;
       ok: true;
       result: unknown;
     }
   | {
       type: "operation_response";
-      protocol_version: 3;
+      protocol_version: import("./compatibility.js").OperationTransportProtocolVersion;
       request_id: string;
       ok: false;
       problem: ConnectProblem;
     };
 
 export interface MdbaseOperationRequest<Input = unknown> {
-  protocol_version: 3;
+  protocol_version: import("./compatibility.js").OperationTransportProtocolVersion;
   request_id: string;
   input: Input;
 }
 
 export type MdbaseOperationResponse<Result = unknown> =
   | {
-      protocol_version: 3;
+      protocol_version: import("./compatibility.js").OperationTransportProtocolVersion;
       request_id: string;
       ok: true;
       result: Result;
     }
   | {
-      protocol_version: 3;
+      protocol_version: import("./compatibility.js").OperationTransportProtocolVersion;
       request_id: string;
       ok: false;
       problem: ConnectProblem;
@@ -331,7 +334,7 @@ export interface GrantEncryption {
 }
 
 export interface EncryptedRelayEnvelope {
-  protocol_version: 3;
+  protocol_version: import("./compatibility.js").OperationTransportProtocolVersion;
   suite: typeof RELAY_ENCRYPTION_SUITE;
   request_id: string;
   grant_id: string;
@@ -630,6 +633,16 @@ export interface RelayPolicyApplied {
     message: string;
     details?: unknown;
   };
+}
+
+export interface ProtocolUsageReport {
+  type: "protocol_usage_report";
+  protocol_version: 1;
+  entries: Array<{
+    axis: "operation_transport";
+    version: number;
+    count: number;
+  }>;
 }
 
 export interface AuthorizationCollectionOffer {

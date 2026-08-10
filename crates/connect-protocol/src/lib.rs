@@ -49,6 +49,7 @@ pub const HOSTED_PROVIDER_CAPABILITIES: &[&str] = &[
 ];
 pub const CONTRACT_SETUP_CAPABILITY: &str = "contract-setup-v1";
 pub const FILE_RELAY_CAPABILITY: &str = "file-relay-v1";
+pub const PROTOCOL_USAGE_REPORT_CAPABILITY: &str = "protocol-usage-report-v1";
 pub const RELAY_REQUIRED_CAPABILITIES: &[&str] = &[
     "application-authorization-v4",
     "authorization-activation",
@@ -57,11 +58,13 @@ pub const RELAY_REQUIRED_CAPABILITIES: &[&str] = &[
 ];
 pub const RELAY_CAPABILITIES: &[&str] = &[
     "application-authorization-v4",
+    "application-authorization-v5",
     "authorization-activation",
     "encrypted-relay",
     "policy-ack",
     CONTRACT_SETUP_CAPABILITY,
     FILE_RELAY_CAPABILITY,
+    PROTOCOL_USAGE_REPORT_CAPABILITY,
 ];
 pub const RELAY_ENCRYPTION_SUITE: &str = "P256-HKDF-SHA256-AES256GCM";
 pub const GRANT_ENCRYPTION_PROTOCOL_VERSION: u32 = 1;

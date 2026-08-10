@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
+  ConnectContractRequirements,
   EncryptedRelayOperationRequest,
   FileFrame,
   GrantEncryption,
@@ -41,6 +42,7 @@ interface LocalFileGrant {
   connector_id: string;
   local_id: string;
   encryption: GrantEncryption | null;
+  contracts: ConnectContractRequirements;
   file_capability: unknown | null;
 }
 
@@ -224,6 +226,7 @@ async function authorizedFileGrant(
   if (!bearer) return null;
   const result = await db.query<LocalFileGrant>(
     `SELECT g.id AS grant_id, g.application_id, g.encryption,
+            g.application_authorization->'binding'->'contracts' AS contracts,
             g.file_capability, col.connector_id, col.local_id
      FROM access_tokens tok
      JOIN grants g ON g.id = tok.grant_id

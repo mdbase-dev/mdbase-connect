@@ -18,7 +18,7 @@ use mdbase_connect_protocol::{
     AuthorizationCollectionOffer, AuthorizationCollectionTypes, ConnectOperationOutcome,
     ConnectProblem, ContractSetupChoice, ControlCommand, ControlError, ControlRequest,
     ControlResponse, RelayMessage, SyncReplicaMode, CONTROL_PROTOCOL_VERSION,
-    LOCAL_CONTROL_PROTOCOL_VERSION, OPERATION_TRANSPORT_PROTOCOL_VERSION,
+    LOCAL_CONTROL_PROTOCOL_VERSION,
 };
 use std::io;
 use std::sync::Arc;
@@ -54,6 +54,12 @@ mod scoped_operations;
 mod setup_binding;
 
 impl AgentState {
+    pub(crate) fn take_direct_protocol_usage(
+        &self,
+    ) -> Vec<mdbase_connect_protocol::ProtocolUsageEntry> {
+        metrics::take_direct_protocol_usage()
+    }
+
     #[cfg(test)]
     pub fn new(
         registry: CollectionRegistry,
@@ -251,9 +257,9 @@ fn elapsed_us(started: Instant) -> u64 {
     started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64
 }
 
-fn encrypted_rejection(request_id: uuid::Uuid) -> RelayMessage {
+fn encrypted_rejection(protocol_version: u32, request_id: uuid::Uuid) -> RelayMessage {
     RelayMessage::EncryptedOperationRejected {
-        protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
+        protocol_version,
         request_id,
         problem: ConnectProblem::new(
             "encrypted_relay_rejected",

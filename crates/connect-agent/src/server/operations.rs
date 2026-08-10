@@ -31,8 +31,9 @@ impl AgentState {
             .flatten()
             .is_some_and(|context| context.grant.application_origin == origin);
         if !origin_matches {
-            return encrypted_rejection(envelope.request_id);
+            return encrypted_rejection(envelope.protocol_version, envelope.request_id);
         }
+        metrics::direct_operation_transport(envelope.protocol_version);
         self.handle_encrypted_operation(envelope)
     }
 
@@ -296,7 +297,8 @@ impl AgentState {
                 operation,
                 input,
             } => {
-                if protocol_version != mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION
+                if !mdbase_connect_protocol::SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS
+                    .contains(&protocol_version)
                 {
                     return Some(operation_transport_rejection(
                         request_id,
@@ -305,6 +307,17 @@ impl AgentState {
                     ));
                 }
                 let context = self.registry.grant_context(grant_id).ok().flatten();
+                if context.as_ref().is_some_and(|grant| {
+                    !grant
+                        .contracts
+                        .permits_operation_transport(protocol_version, false)
+                }) {
+                    return Some(operation_transport_rejection(
+                        request_id,
+                        protocol_version,
+                        &operation,
+                    ));
+                }
                 let application_name = context
                     .as_ref()
                     .map(|grant| grant.application_name.as_str())
@@ -318,8 +331,7 @@ impl AgentState {
                     .is_some_and(|grant| grant.encryption.is_some())
                 {
                     return Some(RelayMessage::OperationResponse {
-                        protocol_version:
-                            mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
+                        protocol_version,
                         request_id,
                         ok: false,
                         result: None,
@@ -343,8 +355,7 @@ impl AgentState {
                         Some("Remote access is paused"),
                     );
                     return Some(RelayMessage::OperationResponse {
-                        protocol_version:
-                            mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
+                        protocol_version,
                         request_id,
                         ok: false,
                         result: None,
@@ -381,8 +392,7 @@ impl AgentState {
                         Some("Local grant did not allow this operation"),
                     );
                     return Some(RelayMessage::OperationResponse {
-                        protocol_version:
-                            mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
+                        protocol_version,
                         request_id,
                         ok: false,
                         result: None,
@@ -410,16 +420,14 @@ impl AgentState {
                 );
                 Some(match result {
                     Ok(result) => RelayMessage::OperationResponse {
-                        protocol_version:
-                            mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
+                        protocol_version,
                         request_id,
                         ok: true,
                         result: Some(result),
                         problem: None,
                     },
                     Err(error) => RelayMessage::OperationResponse {
-                        protocol_version:
-                            mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
+                        protocol_version,
                         request_id,
                         ok: false,
                         result: None,
@@ -438,7 +446,8 @@ impl AgentState {
             | RelayMessage::AuthorizationOfferResponse { .. }
             | RelayMessage::AuthorizationActivationResponse { .. }
             | RelayMessage::EncryptedOperationResponse { .. }
-            | RelayMessage::EncryptedOperationRejected { .. } => None,
+            | RelayMessage::EncryptedOperationRejected { .. }
+            | RelayMessage::ProtocolUsageReport { .. } => None,
         }
     }
 
@@ -446,12 +455,12 @@ impl AgentState {
         &self,
         envelope: mdbase_connect_protocol::EncryptedRelayEnvelope,
     ) -> RelayMessage {
-        if envelope.protocol_version
-            != mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION
+        if !mdbase_connect_protocol::SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS
+            .contains(&envelope.protocol_version)
         {
             return encrypted_operation_transport_rejection(&envelope);
         }
-        let rejected = || encrypted_rejection(envelope.request_id);
+        let rejected = || encrypted_rejection(envelope.protocol_version, envelope.request_id);
         let Some(replay_context) = self
             .registry
             .grant_replay_context(envelope.grant_id, &envelope.key_id)
@@ -464,6 +473,12 @@ impl AgentState {
         let application_installation_id = replay_context.application_installation_id;
         let grant_snapshot_digest = replay_context.grant_snapshot_digest.clone();
         let context = replay_context.grant;
+        if !context
+            .contracts
+            .permits_operation_transport(envelope.protocol_version, false)
+        {
+            return rejected();
+        }
         let Some(encryption) = context.encryption.as_ref() else {
             return rejected();
         };
@@ -485,14 +500,16 @@ impl AgentState {
         }
         let metadata = RelayMetadata {
             binding: &binding,
+            protocol_version: envelope.protocol_version,
             request_id: envelope.request_id,
             operation: &envelope.operation,
             counter: &envelope.counter,
         };
-        let Ok(keys) = self
-            .relay_identity
-            .derive(&encryption.application_agreement_public_key, &binding)
-        else {
+        let Ok(keys) = self.relay_identity.derive_for_protocol(
+            &encryption.application_agreement_public_key,
+            &binding,
+            envelope.protocol_version,
+        ) else {
             return rejected();
         };
 
@@ -533,6 +550,7 @@ impl AgentState {
             counter,
             envelope.request_id,
             &fingerprint,
+            envelope.protocol_version,
         ) {
             Ok(EncryptedRequestClaim::Fresh) => {}
             Ok(EncryptedRequestClaim::Completed(response)) => {
@@ -565,8 +583,7 @@ impl AgentState {
             Ok(EncryptedRequestClaim::InProgress) => {}
             Ok(EncryptedRequestClaim::FreshRequired) if mutation.is_none() => {
                 return RelayMessage::EncryptedOperationRejected {
-                    protocol_version:
-                        mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
+                    protocol_version: envelope.protocol_version,
                     request_id: envelope.request_id,
                     problem: ConnectProblem::new(
                         "fresh_request_required",
@@ -686,6 +703,7 @@ impl AgentState {
                 envelope.request_id,
                 &fingerprint,
                 &serialized_response,
+                envelope.protocol_version,
             )
             .is_err()
         {
@@ -762,7 +780,11 @@ impl AgentState {
             match claim {
                 MutationClaim::Terminal { state, receipt } => {
                     metrics::duplicate_replay(mutation_identifier, state);
-                    return serialized_encrypted_response(&receipt, metadata.request_id);
+                    return serialized_encrypted_response(
+                        &receipt,
+                        metadata.protocol_version,
+                        metadata.request_id,
+                    );
                 }
                 MutationClaim::Owned { lease, recovery } => {
                     if lease.fencing_generation > 1 {
@@ -831,7 +853,11 @@ impl AgentState {
             {
                 return pending_mutation_response(keys, metadata);
             }
-            return serialized_encrypted_response(&receipt, metadata.request_id);
+            return serialized_encrypted_response(
+                &receipt,
+                metadata.protocol_version,
+                metadata.request_id,
+            );
         }
 
         let before = match local_mutation_evidence(&self.registry, context.collection_id, operation)
@@ -843,7 +869,7 @@ impl AgentState {
                     "problem": operation_problem(&error),
                 });
                 let Some((message, serialized)) = encrypted_response(keys, metadata, &body) else {
-                    return encrypted_rejection(metadata.request_id);
+                    return encrypted_rejection(metadata.protocol_version, metadata.request_id);
                 };
                 if self
                     .registry
@@ -868,7 +894,7 @@ impl AgentState {
             );
         }
         if revoked {
-            return self.abandon_owned_mutation_after_revocation(keys, metadata, &lease);
+            return abandon_owned_mutation_after_revocation(&self.registry, keys, metadata, &lease);
         }
         if recovery.state != MutationJournalState::Prepared
             && self
@@ -930,7 +956,7 @@ impl AgentState {
             }),
         };
         let Some((message, serialized)) = encrypted_response(keys, metadata, &body) else {
-            return encrypted_rejection(metadata.request_id);
+            return encrypted_rejection(metadata.protocol_version, metadata.request_id);
         };
         let result_metadata = match self.registry.externalize_mutation_response(&serialized) {
             Ok(metadata) => metadata,
@@ -961,34 +987,6 @@ impl AgentState {
         if self
             .registry
             .complete_mutation(&lease, &serialized, Some(&result_metadata))
-            .is_err()
-        {
-            return pending_mutation_response(keys, metadata);
-        }
-        message
-    }
-
-    fn abandon_owned_mutation_after_revocation(
-        &self,
-        keys: &RelayKeys,
-        metadata: RelayMetadata<'_>,
-        lease: &MutationLease,
-    ) -> RelayMessage {
-        let body = serde_json::json!({
-            "ok": false,
-            "problem": ConnectProblem::new(
-                "access_denied",
-                "The grant was revoked before this accepted mutation began its effect.",
-            )
-            .with_details(serde_json::json!({ "request_id": metadata.request_id }))
-            .with_operation_outcome(ConnectOperationOutcome::NotSent),
-        });
-        let Some((message, serialized)) = encrypted_response(keys, metadata, &body) else {
-            return encrypted_rejection(metadata.request_id);
-        };
-        if self
-            .registry
-            .abandon_mutation(lease, &serialized, Some(&body))
             .is_err()
         {
             return pending_mutation_response(keys, metadata);

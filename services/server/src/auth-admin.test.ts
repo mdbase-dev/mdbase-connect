@@ -464,6 +464,141 @@ describe("authentication operator command", () => {
       { user_id: userId, subject_id: userId }
     ]);
   });
+
+  it("reports privacy-minimal compatibility usage and fail-closed sunset gates", async () => {
+    const context = await fixture();
+    const userId = "10000000-0000-4000-8000-000000000079";
+    const connectorId = "20000000-0000-4000-8000-000000000079";
+    const applicationId = "30000000-0000-4000-8000-000000000079";
+    const collectionId = "40000000-0000-4000-8000-000000000079";
+    const grantId = "50000000-0000-4000-8000-000000000079";
+    const providerAccountId = "60000000-0000-4000-8000-000000000079";
+    await context.db.query(
+      `INSERT INTO users (id, email, name)
+       VALUES ($1, 'compatibility@example.com', 'Compatibility user')`,
+      [userId]
+    );
+    await context.db.query(
+      `INSERT INTO connectors
+         (id, user_id, name, token_hash, connector_version, last_seen_at)
+       VALUES ($1, $2, 'legacy connector', 'legacy-connector-token',
+         '0.1.0-beta.55', now())`,
+      [connectorId, userId]
+    );
+    await context.db.query(
+      `INSERT INTO applications
+         (id, canonical_identity, name, homepage, redirect_uris)
+       VALUES ($1, 'https://tasks.example/app', 'Tasks',
+         'https://tasks.example', '[]'::jsonb)`,
+      [applicationId]
+    );
+    await context.db.query(
+      `INSERT INTO hosted_collections
+         (id, user_id, display_name, template)
+       VALUES ($1, $2, 'Tasks', 'blank')`,
+      [collectionId, userId]
+    );
+    await context.db.query(
+      `INSERT INTO grants
+         (id, user_id, application_id, hosted_collection_id, operations,
+          application_authorization, application_installation_id)
+       VALUES ($1, $2, $3, $4, '[]'::jsonb,
+         '{"binding":{"protocol_version":4}}'::jsonb,
+         '70000000-0000-4000-8000-000000000079')`,
+      [grantId, userId, applicationId, collectionId]
+    );
+    await context.db.query(
+      `INSERT INTO protocol_usage_telemetry
+         (user_id, surface, protocol_axis, protocol_version, sample_count)
+       VALUES ($1, 'relay', 'operation_transport', 2, 3)`,
+      [userId]
+    );
+    await context.db.query(
+      `INSERT INTO account_storage_accounts
+         (user_id, provider_account_id, entitlement_revision)
+       VALUES ($1, $2, 1)`,
+      [userId, providerAccountId]
+    );
+    await context.db.query(
+      `UPDATE schema_migrations
+       SET applied_at = now() - interval '31 days'
+       WHERE id = '0020_protocol_usage_telemetry'`
+    );
+    const now = new Date().toISOString();
+    const provider = {
+      ...fakeHostedProvider(),
+      async protocolUsage() {
+        return {
+          entries: [{
+            account_id: providerAccountId,
+            protocol_version: 2,
+            sample_count: 2,
+            first_seen_at: now,
+            last_seen_at: now
+          }],
+          unbound_application_replicas: 1,
+          v2_recovery_application_replicas: 1
+        };
+      }
+    } as unknown as HostedProviderClient;
+    const report = await runAuthAdminCommand([
+      "compatibility", "report", "--days", "30"
+    ], { ...context, hostedProvider: provider }) as {
+      telemetry: Array<{
+        surface: string;
+        protocol_version: number;
+        samples: number;
+        users: number;
+      }>;
+      connectors: {
+        beta55_or_earlier_users: number;
+        pre_beta57_users: number;
+      };
+      grants: { legacy_v4_users: number; recovery_v2_users: number };
+      hosted: {
+        unbound_application_replicas: number;
+        v2_recovery_application_replicas: number;
+      };
+      sunset_gates: Array<{ name: string; pass: boolean; value: unknown }>;
+      ready_to_remove_compatibility: boolean;
+    };
+    expect(report.telemetry).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        surface: "relay",
+        protocol_version: 2,
+        samples: 3,
+        users: 1
+      }),
+      expect.objectContaining({
+        surface: "hosted",
+        protocol_version: 2,
+        samples: 2,
+        users: 1
+      })
+    ]));
+    expect(report.connectors).toMatchObject({
+      beta55_or_earlier_users: 1,
+      pre_beta57_users: 1
+    });
+    expect(report.grants.legacy_v4_users).toBe(1);
+    expect(report.grants.recovery_v2_users).toBe(0);
+    expect(report.hosted.unbound_application_replicas).toBe(1);
+    expect(report.hosted.v2_recovery_application_replicas).toBe(1);
+    expect(report.sunset_gates).toEqual(expect.arrayContaining([
+      { name: "observation_window_complete", pass: true, value: expect.any(String) },
+      { name: "no_recent_v2_usage", pass: false, value: 5 },
+      { name: "no_active_pre_beta57_connectors", pass: false, value: 1 },
+      { name: "no_active_v4_or_unknown_grants", pass: false, value: 1 },
+      { name: "no_active_v2_recovery_grants", pass: true, value: 0 },
+      { name: "no_unbound_hosted_application_replicas", pass: false, value: 1 },
+      { name: "no_v2_recovery_hosted_application_replicas", pass: false, value: 1 }
+    ]));
+    expect(report.ready_to_remove_compatibility).toBe(false);
+    expect(JSON.stringify(report)).not.toContain(userId);
+    expect(JSON.stringify(report)).not.toContain(applicationId);
+    expect(JSON.stringify(report)).not.toContain(collectionId);
+    expect(JSON.stringify(report)).not.toContain(grantId);
+  });
 });
 
 function fakeHostedProvider(): HostedProviderClient {
@@ -489,6 +624,13 @@ function fakeHostedProvider(): HostedProviderClient {
     async accountUsage() {
       if (!usage) throw new Error("Hosted account was not reconciled.");
       return usage;
+    },
+    async protocolUsage() {
+      return {
+        entries: [],
+        unbound_application_replicas: 0,
+        v2_recovery_application_replicas: 0
+      };
     }
   } as unknown as HostedProviderClient;
 }

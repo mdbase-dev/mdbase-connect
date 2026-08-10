@@ -2,8 +2,9 @@ use crate::server::AgentState;
 use futures_util::{SinkExt, StreamExt};
 use mdbase_connect_protocol::{
     AgentConnectionState, ConnectContractSupport, ConnectOperationOutcome, ConnectProblem,
-    RelayFileFrame, RelayFileKind, RelayMessage, CONTROL_PROTOCOL_VERSION, RELAY_CAPABILITIES,
-    RELAY_HANDSHAKE_TIMEOUT_SECONDS, RELAY_REQUIRED_CAPABILITIES,
+    RelayFileFrame, RelayFileKind, RelayMessage, CONTROL_PROTOCOL_VERSION,
+    PROTOCOL_USAGE_REPORT_CAPABILITY, RELAY_CAPABILITIES, RELAY_HANDSHAKE_TIMEOUT_SECONDS,
+    RELAY_REQUIRED_CAPABILITIES,
 };
 use reqwest::Client;
 use std::sync::Arc;
@@ -68,7 +69,7 @@ async fn connect_once(
     let Message::Text(welcome) = welcome else {
         return Err("relay returned a non-text handshake response".into());
     };
-    match serde_json::from_str::<RelayMessage>(welcome.as_ref())? {
+    let usage_reporting = match serde_json::from_str::<RelayMessage>(welcome.as_ref())? {
         RelayMessage::RelayWelcome {
             protocol_version,
             capabilities,
@@ -78,10 +79,15 @@ async fn connect_once(
             && contract_support.supports_current()
             && RELAY_REQUIRED_CAPABILITIES
                 .iter()
-                .all(|required| capabilities.iter().any(|value| value == required)) => {}
+                .all(|required| capabilities.iter().any(|value| value == required)) =>
+        {
+            capabilities
+                .iter()
+                .any(|value| value == PROTOCOL_USAGE_REPORT_CAPABILITY)
+        }
         RelayMessage::RelayIncompatible { message, .. } => return Err(message.into()),
         _ => return Err("relay returned an incompatible handshake response".into()),
-    }
+    };
     let (mut writer, mut reader) = socket.split();
     let (responses, mut response_rx) = tokio::sync::mpsc::channel::<RelayMessage>(64);
     let (file_responses, mut file_response_rx) = tokio::sync::mpsc::channel::<RelayFileFrame>(8);
@@ -216,6 +222,17 @@ async fn connect_once(
                 writer.send(Message::Binary(response.encode()?.into())).await?;
             }
             _ = sync_interval.tick() => {
+                if usage_reporting {
+                    let entries = state.take_direct_protocol_usage();
+                    if !entries.is_empty() {
+                        writer.send(Message::Text(serde_json::to_string(
+                            &RelayMessage::ProtocolUsageReport {
+                                protocol_version: CONTROL_PROTOCOL_VERSION,
+                                entries,
+                            }
+                        )?.into())).await?;
+                    }
+                }
                 let client = client.clone();
                 let server_url = server_url.to_string();
                 let connector_token = connector_token.to_string();
@@ -242,8 +259,14 @@ fn relay_operation_rejection(request: &RelayMessage, message: &str) -> Option<Re
     };
     match request {
         RelayMessage::OperationRequest { request_id, .. } => {
+            let protocol_version = match request {
+                RelayMessage::OperationRequest {
+                    protocol_version, ..
+                } => *protocol_version,
+                _ => unreachable!(),
+            };
             Some(RelayMessage::OperationResponse {
-                protocol_version: mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
+                protocol_version,
                 request_id: *request_id,
                 ok: false,
                 result: None,
@@ -252,7 +275,7 @@ fn relay_operation_rejection(request: &RelayMessage, message: &str) -> Option<Re
         }
         RelayMessage::EncryptedOperationRequest { envelope } => {
             Some(RelayMessage::EncryptedOperationRejected {
-                protocol_version: mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
+                protocol_version: envelope.protocol_version,
                 request_id: envelope.request_id,
                 problem: problem(),
             })

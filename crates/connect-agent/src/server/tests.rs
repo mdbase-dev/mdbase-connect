@@ -2,8 +2,9 @@ use super::*;
 use mdbase_connect_core::CollectionRegistry;
 use mdbase_connect_protocol::crypto::{RelayDirection, RelayMetadata};
 use mdbase_connect_protocol::{
-    ApplicationAccess, ApplicationProvisions, ApplicationRequirements, ConnectContractRequirements,
-    GrantEncryption, GrantPolicy, GrantScope, RELAY_ENCRYPTION_SUITE,
+    ApplicationAccess, ApplicationProvisions, ApplicationRequirements, GrantEncryption,
+    GrantPolicy, GrantScope, LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION,
+    OPERATION_TRANSPORT_PROTOCOL_VERSION, RELAY_ENCRYPTION_SUITE,
 };
 use std::fs;
 use tokio::net::UnixStream;
@@ -406,6 +407,7 @@ fn encrypted_operations_round_trip_and_replays_return_the_durable_receipt() {
         .unwrap();
     let metadata = RelayMetadata {
         binding: &binding,
+        protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
         request_id: Uuid::new_v4(),
         operation: "describe",
         counter: "1",
@@ -439,6 +441,7 @@ fn encrypted_operations_round_trip_and_replays_return_the_durable_receipt() {
     database.execute_batch("BEGIN IMMEDIATE").unwrap();
     let busy_metadata = RelayMetadata {
         binding: &binding,
+        protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
         request_id: Uuid::new_v4(),
         operation: "describe",
         counter: "2",
@@ -475,7 +478,7 @@ fn encrypted_operations_round_trip_and_replays_return_the_durable_receipt() {
 }
 
 #[test]
-fn incompatible_authenticated_mutation_fails_before_replay_or_collection_write() {
+fn unauthorized_legacy_mutation_fails_before_replay_or_collection_write() {
     let test_root = std::env::temp_dir().join(format!(
         "mdbase-connect-contract-order-test-{}",
         uuid::Uuid::new_v4()
@@ -535,34 +538,20 @@ fn incompatible_authenticated_mutation_fails_before_replay_or_collection_write()
         }])
         .unwrap();
 
-    // Simulate a durably stored grant signed by a peer on an unsupported
-    // contract axis. Normal activation rejects it; this fixture proves the
-    // operation boundary still fails before either replay or authority state.
-    let incompatible = crate::test_support::application_security_with_contracts(
-        security_params(),
-        Some(ConnectContractRequirements {
-            durable_mutation: Some(99),
-            ..ConnectContractRequirements::current(true)
-        }),
-    );
     let database = rusqlite::Connection::open(state_dir.join("authority.sqlite")).unwrap();
-    database
-        .execute(
-            "UPDATE grants SET application_authorization = ?1 WHERE id = ?2",
-            rusqlite::params![
-                serde_json::to_string(&incompatible.proof).unwrap(),
-                grant_id.to_string()
-            ],
-        )
-        .unwrap();
 
     let state = AgentState::with_identity(registry, watcher, None, connector_identity);
     let binding = RelayBinding::from_grant(grant_id, application_id, &encryption);
     let keys = application_identity
-        .derive(&encryption.connector_agreement_public_key, &binding)
+        .derive_for_protocol(
+            &encryption.connector_agreement_public_key,
+            &binding,
+            LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION,
+        )
         .unwrap();
     let metadata = RelayMetadata {
         binding: &binding,
+        protocol_version: LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION,
         request_id: Uuid::new_v4(),
         operation: "create",
         counter: "1",
@@ -582,15 +571,20 @@ fn incompatible_authenticated_mutation_fails_before_replay_or_collection_write()
             envelope: metadata.envelope(ciphertext),
         })
         .unwrap();
-    let RelayMessage::EncryptedOperationResponse { envelope } = response else {
-        panic!("expected encrypted compatibility problem")
+    let RelayMessage::EncryptedOperationRejected {
+        protocol_version,
+        request_id,
+        problem,
+    } = response
+    else {
+        panic!("expected the legacy transport to be rejected")
     };
-    let body: serde_json::Value = keys
-        .decrypt_json(RelayDirection::Response, metadata, &envelope.ciphertext)
-        .unwrap();
-    assert_eq!(body["ok"], false);
-    assert_eq!(body["problem"]["code"], "durable_mutation_unsupported");
-    assert_eq!(body["problem"]["operation_outcome"], "not_sent");
+    assert_eq!(
+        protocol_version,
+        LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION
+    );
+    assert_eq!(request_id, metadata.request_id);
+    assert_eq!(problem.code, "encrypted_relay_rejected");
     let replay_rows: i64 = database
         .query_row("SELECT COUNT(*) FROM grant_crypto_requests", [], |row| {
             row.get(0)

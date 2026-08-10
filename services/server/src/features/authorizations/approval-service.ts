@@ -14,7 +14,7 @@ import type {
 } from "@mdbase-dev/connect-protocol";
 import {
   GRANT_ENCRYPTION_PROTOCOL_VERSION,
-  OPERATION_TRANSPORT_PROTOCOL_VERSION,
+  isSupportedOperationTransport,
   RELAY_ENCRYPTION_SUITE
 } from "@mdbase-dev/connect-protocol";
 import {
@@ -144,7 +144,7 @@ export async function approvePortalAuthorization(
     }
     if (
       !pending.application_authorization
-      || pending.operation_transport_protocol !== OPERATION_TRANSPORT_PROTOCOL_VERSION
+      || !isSupportedOperationTransport(pending.operation_transport_protocol ?? 0)
       || !pending.application_agreement_public_key
       || !pending.application_signing_public_key
     ) {
@@ -191,6 +191,14 @@ export async function approvePortalAuthorization(
     if (!selected) {
       throw new RequestValidationError(
         "That collection is no longer being offered by a live connector. Refresh and choose again."
+      );
+    }
+    if (!relay.supportsContracts(
+      selected.connector_id,
+      pending.application_authorization.binding.contracts
+    )) {
+      throw new RequestValidationError(
+        "Update mdbase connect on this computer before approving this application."
       );
     }
     grantAccess = requireCollectionAction(
@@ -366,6 +374,55 @@ export async function approvePortalAuthorization(
       [grantId, JSON.stringify(finalScope)]
     );
     grant!.scope = finalScope;
+    // Recovery is an exclusive transition for one app installation. Entering
+    // the bridge retires every earlier grant; leaving it retires the live
+    // recovery grant. Ordinary repeat authorizations keep their independent
+    // lifecycle and must not invalidate another browser or refresh token.
+    const entersRecovery = (
+      grant!.application_authorization.binding.contracts
+        .operation_transport_recovery ?? []
+    ).length > 0;
+    const superseded = [
+      input.userId,
+      grant!.application_id,
+      authorityRowId,
+      grant!.application_authorization.binding.application_installation_id,
+      grantId,
+      entersRecovery
+    ];
+    await finalize.query(
+      `UPDATE access_tokens SET revoked_at = COALESCE(revoked_at, now())
+       WHERE grant_id IN (
+         SELECT id FROM grants
+         WHERE user_id = $1 AND application_id = $2 AND collection_id = $3
+           AND application_installation_id = $4 AND id <> $5
+           AND revoked_at IS NULL AND activated_at IS NOT NULL
+           AND ($6 OR application_authorization->'binding'->'contracts'
+             ->'operation_transport_recovery' IS NOT NULL)
+       )`,
+      superseded
+    );
+    await finalize.query(
+      `UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, now())
+       WHERE grant_id IN (
+         SELECT id FROM grants
+         WHERE user_id = $1 AND application_id = $2 AND collection_id = $3
+           AND application_installation_id = $4 AND id <> $5
+           AND revoked_at IS NULL AND activated_at IS NOT NULL
+           AND ($6 OR application_authorization->'binding'->'contracts'
+             ->'operation_transport_recovery' IS NOT NULL)
+       )`,
+      superseded
+    );
+    await finalize.query(
+      `UPDATE grants SET revoked_at = now()
+       WHERE user_id = $1 AND application_id = $2 AND collection_id = $3
+         AND application_installation_id = $4 AND id <> $5
+         AND revoked_at IS NULL AND activated_at IS NOT NULL
+         AND ($6 OR application_authorization->'binding'->'contracts'
+           ->'operation_transport_recovery' IS NOT NULL)`,
+      superseded
+    );
     await finalize.query(
       `UPDATE authorization_collection_offers SET consumed_at = now()
        WHERE id = $1 AND authorization_id = $2`,
@@ -568,7 +625,7 @@ export async function approveHostedAuthorization(
       pending.distribution === "portable"
       && (
         pending.flow !== "device_code"
-        || pending.operation_transport_protocol !== OPERATION_TRANSPORT_PROTOCOL_VERSION
+        || !isSupportedOperationTransport(pending.operation_transport_protocol ?? 0)
         || !pending.application_agreement_public_key
         || !pending.application_signing_public_key
       )
@@ -583,7 +640,7 @@ export async function approveHostedAuthorization(
       );
     }
     if (
-      pending.operation_transport_protocol !== OPERATION_TRANSPORT_PROTOCOL_VERSION
+      !isSupportedOperationTransport(pending.operation_transport_protocol ?? 0)
       || !pending.application_agreement_public_key
       || !pending.application_signing_public_key
       || !pending.application_authorization
@@ -724,6 +781,11 @@ export async function approveHostedAuthorization(
       contractScope: scope.access === "contract" ? scope.contracts : [],
       fullCollection: scope.access === "full_collection",
       allowedOperations: hostedReplicaCollectionOperations(operations),
+      operationTransportProtocol:
+        pending.application_authorization.binding.contracts.operation_transport,
+      operationTransportRecoveryProtocols:
+        pending.application_authorization.binding.contracts
+          .operation_transport_recovery ?? [],
       fileCapability: plan.fileCapability,
       allowedOrigin,
       proofPublicKey: pending.application_signing_public_key,

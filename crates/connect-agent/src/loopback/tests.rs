@@ -6,7 +6,7 @@ use mdbase_connect_protocol::crypto::{RelayBinding, RelayDirection, RelayIdentit
 use mdbase_connect_protocol::{
     mutation_fingerprint, EncryptedRelayEnvelope, FileAction, FileCapability, FileCapabilityKind,
     FileScope, GrantEncryption, GrantPolicy, GrantScope, RelayMessage,
-    MUTATING_OPERATION_IDENTIFIERS, RELAY_ENCRYPTION_SUITE,
+    MUTATING_OPERATION_IDENTIFIERS, OPERATION_TRANSPORT_PROTOCOL_VERSION, RELAY_ENCRYPTION_SUITE,
 };
 use std::fs;
 use tower::ServiceExt;
@@ -726,6 +726,7 @@ impl Fixture {
         let counter = counter.to_string();
         let metadata = RelayMetadata {
             binding: &binding,
+            protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
             request_id: Uuid::new_v4(),
             operation,
             counter: &counter,
@@ -790,6 +791,7 @@ impl Fixture {
             .unwrap();
         let metadata = RelayMetadata {
             binding: &binding,
+            protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
             request_id: request_envelope.request_id,
             operation: "file_control",
             counter: &request_envelope.counter,
@@ -821,6 +823,7 @@ impl Fixture {
             .unwrap();
         let metadata = RelayMetadata {
             binding: &binding,
+            protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
             request_id: request_envelope.request_id,
             operation,
             counter: &request_envelope.counter,
@@ -842,6 +845,7 @@ impl Fixture {
             .unwrap();
         let metadata = RelayMetadata {
             binding: &binding,
+            protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
             request_id: request.request_id,
             operation: &request.operation,
             counter: &request.counter,

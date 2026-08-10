@@ -19,7 +19,7 @@ pub(super) fn receipt_diagnostics(
     state_dir: &Path,
     authority: &Connection,
 ) -> Result<AuthorityReceiptDiagnostics, ConnectError> {
-    let mut references = HashSet::new();
+    let mut authority_references = HashSet::new();
     let mut statement = authority.prepare(
         "SELECT final_receipt FROM mutation_journal WHERE final_receipt IS NOT NULL
          UNION ALL
@@ -32,25 +32,61 @@ pub(super) fn receipt_diagnostics(
         .collect::<Result<Vec<_>, _>>()?
     {
         if reference.starts_with(RECEIPT_REFERENCE_PREFIX) {
-            references.insert(reference);
+            authority_references.insert(reference);
         }
     }
-    let referenced_bytes = references.iter().try_fold(0_u64, |total, reference| {
-        let (_, bytes) =
-            parse_receipt_reference(reference).ok_or_else(|| ConnectError::AuthorityReceipt {
-                detail: "mutation journal contains an invalid receipt reference".to_string(),
+    let mut legacy_read_references = HashSet::new();
+    let mut statement = authority.prepare(
+        "SELECT response_receipt FROM grant_crypto_requests
+         WHERE response_receipt IS NOT NULL",
+    )?;
+    for reference in statement
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?
+    {
+        if reference.starts_with(RECEIPT_REFERENCE_PREFIX) {
+            legacy_read_references.insert(reference);
+        }
+    }
+    let referenced_bytes = authority_references
+        .iter()
+        .chain(legacy_read_references.iter())
+        .try_fold(0_u64, |total, reference| {
+            let (_, bytes) = parse_receipt_reference(reference).ok_or_else(|| {
+                ConnectError::AuthorityReceipt {
+                    detail: "authority store contains an invalid receipt reference".to_string(),
+                }
             })?;
-        Ok::<_, ConnectError>(total.saturating_add(bytes))
-    })?;
+            Ok::<_, ConnectError>(total.saturating_add(bytes))
+        })?;
 
     let mut result = AuthorityReceiptDiagnostics {
-        referenced_count: references.len() as u64,
+        referenced_count: authority_references
+            .len()
+            .saturating_add(legacy_read_references.len()) as u64,
         referenced_bytes,
         ..AuthorityReceiptDiagnostics::default()
     };
-    let root = state_dir.join("authority-receipts");
+    scan_receipt_root(
+        &state_dir.join("authority-receipts"),
+        &authority_references,
+        &mut result,
+    )?;
+    scan_receipt_root(
+        &state_dir.join("authority-legacy-read-receipts"),
+        &legacy_read_references,
+        &mut result,
+    )?;
+    Ok(result)
+}
+
+fn scan_receipt_root(
+    root: &Path,
+    references: &HashSet<String>,
+    result: &mut AuthorityReceiptDiagnostics,
+) -> Result<(), ConnectError> {
     let Ok(shards) = fs::read_dir(root) else {
-        return Ok(result);
+        return Ok(());
     };
     for shard in shards {
         let shard = shard?;
@@ -81,7 +117,7 @@ pub(super) fn receipt_diagnostics(
             }
         }
     }
-    Ok(result)
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -164,6 +200,21 @@ impl ReceiptStore {
         String::from_utf8(encoded).map_err(|error| ConnectError::AuthorityReceipt {
             detail: format!("receipt is not UTF-8: {error}"),
         })
+    }
+
+    pub(super) fn remove(&self, reference: &str) -> Result<(), ConnectError> {
+        let Some((digest, _)) = parse_receipt_reference(reference) else {
+            return Err(ConnectError::AuthorityReceipt {
+                detail: "receipt reference is malformed".to_string(),
+            });
+        };
+        let shard = self.root.join(&digest[..2]);
+        let path = shard.join(format!("{}.receipt", &digest[2..]));
+        match fs::remove_file(path) {
+            Ok(()) => sync_directory(&shard),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(ConnectError::Io(error)),
+        }
     }
 
     pub(super) fn externalize_metadata(&self, value: &Value) -> Result<Value, ConnectError> {

@@ -6,7 +6,14 @@ pub(super) fn operation_transport_rejection(
     operation: &str,
 ) -> RelayMessage {
     RelayMessage::OperationResponse {
-        protocol_version: mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
+        protocol_version:
+            if mdbase_connect_protocol::SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS
+                .contains(&supported_version)
+            {
+                supported_version
+            } else {
+                mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION
+            },
         request_id,
         ok: false,
         result: None,
@@ -18,7 +25,7 @@ pub(super) fn encrypted_operation_transport_rejection(
     envelope: &mdbase_connect_protocol::EncryptedRelayEnvelope,
 ) -> RelayMessage {
     RelayMessage::EncryptedOperationRejected {
-        protocol_version: mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
+        protocol_version: envelope.protocol_version,
         request_id: envelope.request_id,
         problem: operation_transport_problem(envelope.protocol_version, &envelope.operation),
     }
@@ -31,7 +38,7 @@ fn operation_transport_problem(supported_version: u32, operation: &str) -> Conne
     )
     .with_details(serde_json::json!({
         "contract": "operation_transport",
-        "required": [mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION],
+        "required": mdbase_connect_protocol::SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS,
         "supported": [supported_version],
         "peer": "application",
         "operation": operation,
@@ -52,10 +59,37 @@ pub(super) fn mark_owned_mutation_unknown(
         .with_operation_outcome(ConnectOperationOutcome::Unknown);
     let body = serde_json::json!({ "ok": false, "problem": problem });
     let Some((message, serialized)) = encrypted_response(keys, metadata, &body) else {
-        return encrypted_rejection(metadata.request_id);
+        return encrypted_rejection(metadata.protocol_version, metadata.request_id);
     };
     if registry
         .mark_mutation_outcome_unknown(lease, &serialized, Some(&body))
+        .is_err()
+    {
+        return pending_mutation_response(keys, metadata);
+    }
+    message
+}
+
+pub(super) fn abandon_owned_mutation_after_revocation(
+    registry: &CollectionRegistry,
+    keys: &RelayKeys,
+    metadata: RelayMetadata<'_>,
+    lease: &MutationLease,
+) -> RelayMessage {
+    let body = serde_json::json!({
+        "ok": false,
+        "problem": ConnectProblem::new(
+            "access_denied",
+            "The grant was revoked before this accepted mutation began its effect.",
+        )
+        .with_details(serde_json::json!({ "request_id": metadata.request_id }))
+        .with_operation_outcome(ConnectOperationOutcome::NotSent),
+    });
+    let Some((message, serialized)) = encrypted_response(keys, metadata, &body) else {
+        return encrypted_rejection(metadata.protocol_version, metadata.request_id);
+    };
+    if registry
+        .abandon_mutation(lease, &serialized, Some(&body))
         .is_err()
     {
         return pending_mutation_response(keys, metadata);
@@ -110,7 +144,7 @@ pub(super) fn encrypted_problem_response(
         &serde_json::json!({ "ok": false, "problem": problem }),
     )
     .map_or_else(
-        || encrypted_rejection(metadata.request_id),
+        || encrypted_rejection(metadata.protocol_version, metadata.request_id),
         |(message, _)| message,
     )
 }
@@ -120,7 +154,7 @@ pub(super) fn pending_mutation_response(
     metadata: RelayMetadata<'_>,
 ) -> RelayMessage {
     RelayMessage::EncryptedOperationRejected {
-        protocol_version: mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
+        protocol_version: metadata.protocol_version,
         request_id: metadata.request_id,
         problem: ConnectProblem::new(
             "pending_mutation_unresolved",
@@ -133,10 +167,11 @@ pub(super) fn pending_mutation_response(
 
 pub(super) fn serialized_encrypted_response(
     serialized: &str,
+    protocol_version: u32,
     request_id: uuid::Uuid,
 ) -> RelayMessage {
     serde_json::from_str(serialized).map_or_else(
-        |_| encrypted_rejection(request_id),
+        |_| encrypted_rejection(protocol_version, request_id),
         |envelope| RelayMessage::EncryptedOperationResponse { envelope },
     )
 }

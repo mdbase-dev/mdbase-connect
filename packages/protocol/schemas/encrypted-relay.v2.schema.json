@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mdbase.dev/connect/schemas/encrypted-relay.v2.json",
+  "title": "mdbase connect encrypted operation transport 2",
+  "description": "Opaque authenticated operation envelopes routed between an application and authority.",
+  "oneOf": [
+    { "$ref": "#/$defs/request" },
+    { "$ref": "#/$defs/response" },
+    { "$ref": "#/$defs/rejected" }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+    },
+    "operation": {
+      "enum": ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "create_view_source", "update_view_source", "delete_view_source", "validate", "create", "update", "delete", "rename", "read_type", "create_type", "update_type", "assess_type_pack", "apply_type_pack", "assess_collection_setup", "apply_collection_setup", "list_timers", "put_timer", "cancel_timer", "reconcile_timers", "sync", "file_control"]
+    },
+    "envelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "protocol_version", "suite", "request_id", "grant_id", "application_id", "connector_id", "collection_id", "operation", "scope_epoch", "key_id", "counter", "ciphertext"],
+      "properties": {
+        "type": { "enum": ["encrypted_operation_request", "encrypted_operation_response"] },
+        "protocol_version": { "const": 2 },
+        "suite": { "const": "P256-HKDF-SHA256-AES256GCM" },
+        "request_id": { "$ref": "#/$defs/uuid" },
+        "grant_id": { "$ref": "#/$defs/uuid" },
+        "application_id": { "$ref": "#/$defs/uuid" },
+        "connector_id": { "$ref": "#/$defs/uuid" },
+        "collection_id": { "$ref": "#/$defs/uuid" },
+        "operation": { "$ref": "#/$defs/operation" },
+        "scope_epoch": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "key_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "counter": { "type": "string", "pattern": "^[1-9][0-9]{0,19}$" },
+        "ciphertext": { "type": "string", "minLength": 1, "maxLength": 2800000, "pattern": "^[A-Za-z0-9_-]+$" }
+      }
+    },
+    "request": {
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        { "type": "object", "properties": { "type": { "const": "encrypted_operation_request" } } }
+      ]
+    },
+    "response": {
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        { "type": "object", "properties": { "type": { "const": "encrypted_operation_response" } } }
+      ]
+    },
+    "rejected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "protocol_version", "request_id", "problem"],
+      "properties": {
+        "type": { "const": "encrypted_operation_rejected" },
+        "protocol_version": { "const": 2 },
+        "request_id": { "$ref": "#/$defs/uuid" },
+        "problem": { "$ref": "https://schemas.mdbase.dev/connect/problem/v1" }
+      }
+    }
+  }
+}

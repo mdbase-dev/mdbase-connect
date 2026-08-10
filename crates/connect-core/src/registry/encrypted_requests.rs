@@ -178,6 +178,7 @@ impl CollectionRegistry {
         counter: u64,
         request_id: Uuid,
         request_fingerprint: &str,
+        protocol_version: u32,
     ) -> Result<EncryptedRequestClaim, ConnectError> {
         let key_id = key_id.to_string();
         let operation = operation.to_string();
@@ -193,7 +194,8 @@ impl CollectionRegistry {
                         connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
                     let existing = transaction
                         .query_row(
-                            "SELECT request_fingerprint, replay_class, process_epoch
+                            "SELECT request_fingerprint, replay_class, process_epoch,
+                                    response_receipt, response_expired
                          FROM grant_crypto_requests
                          WHERE grant_id = ?1 AND key_id = ?2 AND request_id = ?3",
                             params![grant_id.to_string(), write_key_id, request_id.to_string()],
@@ -202,23 +204,49 @@ impl CollectionRegistry {
                                     row.get::<_, String>(0)?,
                                     row.get::<_, String>(1)?,
                                     row.get::<_, String>(2)?,
+                                    row.get::<_, Option<String>>(3)?,
+                                    row.get::<_, bool>(4)?,
                                 ))
                             },
                         )
                         .optional()?;
-                    if let Some((fingerprint, stored_class, stored_epoch)) = existing {
-                        transaction.commit()?;
+                    if let Some((fingerprint, stored_class, stored_epoch, receipt, expired)) = existing {
                         if fingerprint != write_fingerprint || stored_class != replay_class.as_str()
                         {
+                            transaction.commit()?;
                             return Ok(DatabaseClaim::Conflict);
                         }
-                        return Ok(match replay_class {
+                        let claim = match replay_class {
                             EncryptedReplayClass::Mutation => DatabaseClaim::MutationReplay,
+                            EncryptedReplayClass::Read if expired => {
+                                DatabaseClaim::FreshReadRequired
+                            }
+                            EncryptedReplayClass::Read if receipt.is_some() => {
+                                DatabaseClaim::DurableReadReplay(receipt.expect("checked"))
+                            }
                             EncryptedReplayClass::Read if stored_epoch == write_process_epoch => {
                                 DatabaseClaim::LocalReadReplay
                             }
+                            EncryptedReplayClass::Read
+                                if protocol_version
+                                    == mdbase_connect_protocol::LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION =>
+                            {
+                                transaction.execute(
+                                    "UPDATE grant_crypto_requests SET process_epoch = ?4
+                                     WHERE grant_id = ?1 AND key_id = ?2 AND request_id = ?3",
+                                    params![
+                                        grant_id.to_string(),
+                                        write_key_id,
+                                        request_id.to_string(),
+                                        write_process_epoch
+                                    ],
+                                )?;
+                                DatabaseClaim::Fresh
+                            }
                             EncryptedReplayClass::Read => DatabaseClaim::FreshReadRequired,
-                        });
+                        };
+                        transaction.commit()?;
+                        return Ok(claim);
                     }
 
                     let authorization = transaction
@@ -344,6 +372,7 @@ impl CollectionRegistry {
                     transaction.execute(
                         "DELETE FROM grant_crypto_requests
                      WHERE grant_id = ?1 AND key_id = ?2 AND replay_class = 'read'
+                       AND response_receipt IS NULL
                        AND rowid NOT IN (
                          SELECT rowid FROM grant_crypto_requests
                          WHERE grant_id = ?1 AND key_id = ?2 AND replay_class = 'read'
@@ -373,6 +402,9 @@ impl CollectionRegistry {
                 EncryptedRequestClaim::Fresh
             }
             DatabaseClaim::LocalReadReplay => cache.claim(&cache_key),
+            DatabaseClaim::DurableReadReplay(reference) => EncryptedRequestClaim::Completed(
+                self.authority.load_legacy_read_receipt(&reference)?,
+            ),
             DatabaseClaim::FreshReadRequired => EncryptedRequestClaim::FreshRequired,
             DatabaseClaim::MutationReplay => EncryptedRequestClaim::InProgress,
             DatabaseClaim::Conflict => EncryptedRequestClaim::Conflict,
@@ -386,7 +418,33 @@ impl CollectionRegistry {
         request_id: Uuid,
         request_fingerprint: &str,
         response_envelope: &str,
+        protocol_version: u32,
     ) -> Result<(), ConnectError> {
+        if protocol_version == mdbase_connect_protocol::LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION
+        {
+            self.authority.complete_legacy_read_receipt(
+                grant_id,
+                key_id,
+                request_id,
+                request_fingerprint,
+                self.process_epoch,
+                response_envelope,
+            )?;
+            let _ = self
+                .ephemeral_responses
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .complete(
+                    EphemeralRequestKey {
+                        grant_id,
+                        key_id: key_id.to_string(),
+                        request_id,
+                        fingerprint: request_fingerprint.to_string(),
+                    },
+                    response_envelope.to_string(),
+                );
+            return Ok(());
+        }
         let exists = self
             .authority
             .connection()?
@@ -433,7 +491,7 @@ impl CollectionRegistry {
         request_id: Uuid,
         request_fingerprint: &str,
     ) -> Result<Option<String>, ConnectError> {
-        Ok(self
+        let cached = self
             .ephemeral_responses
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -442,13 +500,38 @@ impl CollectionRegistry {
                 key_id: key_id.to_string(),
                 request_id,
                 fingerprint: request_fingerprint.to_string(),
-            }))
+            });
+        if cached.is_some() {
+            return Ok(cached);
+        }
+        let reference = self
+            .authority
+            .connection()?
+            .query_row(
+                "SELECT response_receipt FROM grant_crypto_requests
+             WHERE grant_id = ?1 AND key_id = ?2 AND request_id = ?3
+               AND request_fingerprint = ?4 AND replay_class = 'read'
+               AND response_expired = 0",
+                params![
+                    grant_id.to_string(),
+                    key_id,
+                    request_id.to_string(),
+                    request_fingerprint
+                ],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten();
+        reference
+            .map(|reference| self.authority.load_legacy_read_receipt(&reference))
+            .transpose()
     }
 }
 
 enum DatabaseClaim {
     Fresh,
     LocalReadReplay,
+    DurableReadReplay(String),
     FreshReadRequired,
     MutationReplay,
     Conflict,

@@ -8,6 +8,26 @@ fn claim_read(
     request_id: Uuid,
     fingerprint: &str,
 ) -> Result<EncryptedRequestClaim, ConnectError> {
+    claim_read_at_protocol(
+        registry,
+        grant_id,
+        key_id,
+        counter,
+        request_id,
+        fingerprint,
+        mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
+    )
+}
+
+fn claim_read_at_protocol(
+    registry: &CollectionRegistry,
+    grant_id: Uuid,
+    key_id: &str,
+    counter: u64,
+    request_id: Uuid,
+    fingerprint: &str,
+    protocol_version: u32,
+) -> Result<EncryptedRequestClaim, ConnectError> {
     registry.claim_encrypted_request(
         grant_id,
         key_id,
@@ -16,7 +36,204 @@ fn claim_read(
         counter,
         request_id,
         fingerprint,
+        protocol_version,
     )
+}
+
+#[test]
+fn legacy_read_receipt_survives_restart_without_large_sqlite_response_bodies() {
+    let state = tempdir().unwrap();
+    let request_id = Uuid::new_v4();
+    let interrupted_request_id = Uuid::new_v4();
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let grant = signed_test_grant(&registry, vec!["read".to_string()]);
+    let grant_id = grant.id;
+    registry.replace_grants(&[grant]).unwrap();
+
+    assert_eq!(
+        claim_read_at_protocol(
+            &registry,
+            grant_id,
+            "key-1",
+            1,
+            request_id,
+            "legacy-completed",
+            mdbase_connect_protocol::LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION,
+        )
+        .unwrap(),
+        EncryptedRequestClaim::Fresh
+    );
+    let exact = format!("{}{}", "legacy-response:", "x".repeat(1024 * 1024));
+    registry
+        .complete_encrypted_request(
+            grant_id,
+            "key-1",
+            request_id,
+            "legacy-completed",
+            &exact,
+            mdbase_connect_protocol::LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION,
+        )
+        .unwrap();
+    assert_eq!(
+        claim_read_at_protocol(
+            &registry,
+            grant_id,
+            "key-1",
+            2,
+            interrupted_request_id,
+            "legacy-interrupted",
+            mdbase_connect_protocol::LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION,
+        )
+        .unwrap(),
+        EncryptedRequestClaim::Fresh
+    );
+    drop(registry);
+
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    assert_eq!(
+        claim_read_at_protocol(
+            &registry,
+            grant_id,
+            "key-1",
+            1,
+            request_id,
+            "legacy-completed",
+            mdbase_connect_protocol::LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION,
+        )
+        .unwrap(),
+        EncryptedRequestClaim::Completed(exact)
+    );
+    assert_eq!(
+        claim_read_at_protocol(
+            &registry,
+            grant_id,
+            "key-1",
+            2,
+            interrupted_request_id,
+            "legacy-interrupted",
+            mdbase_connect_protocol::LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION,
+        )
+        .unwrap(),
+        EncryptedRequestClaim::Fresh
+    );
+
+    let authority = registry.authority.connection().unwrap();
+    let (reference, bytes): (String, u64) = authority
+        .query_row(
+            "SELECT response_receipt, response_bytes FROM grant_crypto_requests
+             WHERE request_id = ?1",
+            [request_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert!(reference.starts_with("receipt-v1:sha256:"));
+    assert!(bytes > 1024 * 1024);
+    drop(authority);
+    for database_file in ["authority.sqlite", "authority.sqlite-wal"] {
+        let path = state.path().join(database_file);
+        if !path.exists() {
+            continue;
+        }
+        assert!(!fs::read(path)
+            .unwrap()
+            .windows("legacy-response:".len())
+            .any(|window| window == b"legacy-response:"));
+    }
+}
+
+#[test]
+fn expired_legacy_read_receipts_fail_closed_instead_of_reexecuting() {
+    let state = tempdir().unwrap();
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let grant = signed_test_grant(&registry, vec!["read".to_string()]);
+    let grant_id = grant.id;
+    registry.replace_grants(&[grant]).unwrap();
+    let expired_request = Uuid::new_v4();
+    assert_eq!(
+        claim_read_at_protocol(
+            &registry,
+            grant_id,
+            "key-1",
+            1,
+            expired_request,
+            "expired-read",
+            mdbase_connect_protocol::LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION,
+        )
+        .unwrap(),
+        EncryptedRequestClaim::Fresh
+    );
+    registry
+        .complete_encrypted_request(
+            grant_id,
+            "key-1",
+            expired_request,
+            "expired-read",
+            "expired-response",
+            mdbase_connect_protocol::LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION,
+        )
+        .unwrap();
+    registry
+        .authority
+        .connection()
+        .unwrap()
+        .execute(
+            "UPDATE grant_crypto_requests SET response_completed_at_ms = 0
+             WHERE request_id = ?1",
+            [expired_request.to_string()],
+        )
+        .unwrap();
+
+    let current_request = Uuid::new_v4();
+    assert_eq!(
+        claim_read_at_protocol(
+            &registry,
+            grant_id,
+            "key-1",
+            2,
+            current_request,
+            "current-read",
+            mdbase_connect_protocol::LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION,
+        )
+        .unwrap(),
+        EncryptedRequestClaim::Fresh
+    );
+    registry
+        .complete_encrypted_request(
+            grant_id,
+            "key-1",
+            current_request,
+            "current-read",
+            "current-response",
+            mdbase_connect_protocol::LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION,
+        )
+        .unwrap();
+
+    assert_eq!(
+        claim_read_at_protocol(
+            &registry,
+            grant_id,
+            "key-1",
+            1,
+            expired_request,
+            "expired-read",
+            mdbase_connect_protocol::LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION,
+        )
+        .unwrap(),
+        EncryptedRequestClaim::FreshRequired
+    );
+    let (reference, expired): (Option<String>, bool) = registry
+        .authority
+        .connection()
+        .unwrap()
+        .query_row(
+            "SELECT response_receipt, response_expired FROM grant_crypto_requests
+             WHERE request_id = ?1",
+            [expired_request.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert!(reference.is_none());
+    assert!(expired);
 }
 
 #[test]
@@ -109,6 +326,7 @@ fn encrypted_replay_window_survives_restart_allows_reordering_and_serializes_dup
             first_request,
             "fingerprint-1",
             r#"{"ciphertext":"response"}"#,
+            mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
         )
         .unwrap();
     drop(registry);
@@ -246,6 +464,7 @@ fn encrypted_replay_ledger_accepts_a_full_concurrent_request_burst() {
                     request_id,
                     &fingerprint,
                     r#"{"ciphertext":"response"}"#,
+                    mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
                 )?;
                 Ok::<_, ConnectError>(claim)
             })
@@ -295,6 +514,7 @@ fn policy_control_stays_bounded_during_maximum_size_read_completion_burst() {
                     request_id,
                     &fingerprint,
                     &format!("{index:04}{}", "x".repeat(1024 * 1024)),
+                    mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
                 )?;
                 Ok::<_, ConnectError>(claim)
             })

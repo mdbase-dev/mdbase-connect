@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { ApplicationAuthorizationProof } from "@mdbase-dev/connect-protocol";
+import { CONNECT_CONTRACT_SUPPORT } from "@mdbase-dev/connect-protocol";
 import { describe, expect, it } from "vitest";
 import {
   ApplicationAuthorizationError,
@@ -18,6 +19,17 @@ const fixture = JSON.parse(readFileSync(
 const proof: ApplicationAuthorizationProof = {
   binding: fixture.binding,
   signature: fixture.signature
+};
+const beta55FixtureDocument = JSON.parse(readFileSync(
+  fileURLToPath(new URL(
+    "../../../packages/protocol/test/fixtures/application-authorization-beta55-v4.json",
+    import.meta.url
+  )),
+  "utf8"
+)) as ApplicationAuthorizationProof & { signing_message_sha256: string };
+const beta55Fixture: ApplicationAuthorizationProof = {
+  binding: beta55FixtureDocument.binding,
+  signature: beta55FixtureDocument.signature
 };
 
 const expected = {
@@ -38,6 +50,14 @@ describe("application authorization proofs", () => {
   it("verifies the shared Rust/browser fixture", async () => {
     await expect(verifyApplicationAuthorization(proof, expected))
       .resolves.toEqual(expect.objectContaining({ signature: fixture.signature }));
+  });
+
+  it("verifies the frozen beta55 protocol-2/v4 proof without rewriting it", async () => {
+    await expect(verifyApplicationAuthorization(beta55Fixture, {
+      ...expected,
+      requestedOperations: beta55Fixture.binding.requested_operations,
+      requestedFiles: beta55Fixture.binding.requested_files
+    })).resolves.toEqual(beta55Fixture);
   });
 
   it("rejects every substituted security boundary", async () => {
@@ -91,7 +111,7 @@ describe("application authorization proofs", () => {
         }
       }, expected)).rejects.toMatchObject({
         code,
-        details: { contract: axis, required: [proof.binding.contracts[axis]] }
+        details: { contract: axis, required: CONNECT_CONTRACT_SUPPORT[axis] }
       });
     }
   });
@@ -107,7 +127,7 @@ describe("application authorization proofs", () => {
       code: "authorization_binding_incompatible",
       details: {
         contract: "authorization_binding",
-        required: [4],
+        required: [5, 4],
         supported: [2],
         peer: "application"
       }

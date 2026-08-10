@@ -150,9 +150,11 @@ again from the legacy database. A process death after publication opens only
 the new layout and resumes cleanup. Existing unresolved and terminal mutation
 receipts migrate losslessly; disposable read receipts do not.
 
-Transport v3 requires a matching SDK/connector upgrade in beta. Controlled
-staging consumers upgrade together. Unsupported transport versions fail before
-operation execution rather than entering a compatibility replay path.
+Transport v3 remains the current SDK/connector contract. ADR 0008 supersedes
+the original coordinated-only rollout: beta.57 adds a bounded, signed
+transport-v2 recovery path for durable work created before the upgrade.
+Unsupported or unsigned downgrade attempts still fail before operation
+execution.
 
 ## Consequences
 

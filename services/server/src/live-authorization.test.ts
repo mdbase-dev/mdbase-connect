@@ -5,8 +5,17 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import { pkceChallenge } from "./security.js";
-import { testApplicationAuthorization } from "./application-authorization.test-helper.js";
-import { CONNECT_CONTRACT_SUPPORT } from "@mdbase-dev/connect-protocol";
+import {
+  createTestApplicationIdentity,
+  testApplicationAuthorization,
+  type TestApplicationIdentity
+} from "./application-authorization.test-helper.js";
+import {
+  applicationInstallationIdFromPublicKey,
+  CONNECT_CONTRACT_SUPPORT,
+  type CollectionOperation,
+  type OperationTransportProtocolVersion
+} from "@mdbase-dev/connect-protocol";
 
 const resources: Array<() => Promise<void>> = [];
 
@@ -50,6 +59,7 @@ describe("live connector-mediated authorization", () => {
     expect(registered.statusCode).toBe(200);
     const applicationId = registered.json().application.id as string;
     const manifestDigest = registered.json().application.manifest_digest as string;
+    const installationIdentity = createTestApplicationIdentity();
     const connector = (await app.inject({
       method: "POST",
       url: "/v1/connectors",
@@ -212,7 +222,8 @@ describe("live connector-mediated authorization", () => {
       applicationId,
       manifestDigest,
       cookie,
-      "one"
+      "one",
+      installationIdentity
     );
     const offered = await app.inject({
       method: "GET",
@@ -272,7 +283,7 @@ describe("live connector-mediated authorization", () => {
     expect(settingUp.json()).toEqual({ status: "setting_up" });
     releaseActivation();
     const approved = await approval;
-    expect(approved.statusCode).toBe(200);
+    expect(approved.statusCode, JSON.stringify(approved.json())).toBe(200);
     const activation = relayMessages.find((message) =>
       message.type === "authorization_activation_request"
     );
@@ -307,6 +318,145 @@ describe("live connector-mediated authorization", () => {
     });
 
     holdActivation = false;
+    const replacementRequestId = await createAuthorizationRequest(
+      app,
+      applicationId,
+      manifestDigest,
+      cookie,
+      "replacement",
+      installationIdentity
+    );
+    const replacementOffer = (await app.inject({
+      method: "GET",
+      url: `/v1/authorization-requests/${replacementRequestId}`,
+      headers: { cookie }
+    })).json().collections[0];
+    const replacement = await app.inject({
+      method: "POST",
+      url: `/v1/authorization-requests/${replacementRequestId}/approve`,
+      headers: { cookie },
+      payload: {
+        collection_id: serverCollectionId,
+        offer_id: replacementOffer.offer_id,
+        operations: ["describe"]
+      }
+    });
+    expect(replacement.statusCode, JSON.stringify(replacement.json())).toBe(200);
+    const installationId = await applicationInstallationIdFromPublicKey(
+      installationIdentity.publicKey
+    );
+    const replacementGrants = await db.query<{
+      id: string;
+      revoked_at: Date | null;
+      collection_id: string;
+      application_installation_id: string;
+    }>(
+      `SELECT id, revoked_at, collection_id, application_installation_id
+       FROM grants WHERE application_id = $1
+       ORDER BY created_at, id`,
+      [applicationId]
+    );
+    expect(replacementGrants.rows).toHaveLength(2);
+    const authorityCollectionId = replacementGrants.rows[0].collection_id;
+    expect(replacementGrants.rows.every(({ collection_id }) =>
+      collection_id === authorityCollectionId)).toBe(true);
+    expect(replacementGrants.rows.every(({ application_installation_id }) =>
+      application_installation_id === installationId)).toBe(true);
+    expect(replacementGrants.rows.find(({ id }) => id === consented.rows[0].grant_id))
+      .toEqual(expect.objectContaining({
+        id: consented.rows[0].grant_id,
+        revoked_at: null
+      }));
+    const liveReplacement = replacementGrants.rows.filter(({ revoked_at }) => !revoked_at);
+    expect(liveReplacement).toHaveLength(2);
+
+    const recoveryRequestId = await createAuthorizationRequest(
+      app,
+      applicationId,
+      manifestDigest,
+      cookie,
+      "recovery",
+      installationIdentity,
+      ["create"],
+      [2]
+    );
+    const recoveryOffer = (await app.inject({
+      method: "GET",
+      url: `/v1/authorization-requests/${recoveryRequestId}`,
+      headers: { cookie }
+    })).json().collections[0];
+    const recovery = await app.inject({
+      method: "POST",
+      url: `/v1/authorization-requests/${recoveryRequestId}/approve`,
+      headers: { cookie },
+      payload: {
+        collection_id: serverCollectionId,
+        offer_id: recoveryOffer.offer_id,
+        operations: ["create"]
+      }
+    });
+    expect(recovery.statusCode, JSON.stringify(recovery.json())).toBe(200);
+    const afterRecovery = await db.query<{
+      id: string;
+      revoked_at: Date | null;
+      application_authorization: {
+        binding: { contracts: { operation_transport_recovery?: number[] } };
+      };
+    }>(
+      `SELECT id, revoked_at, application_authorization
+       FROM grants WHERE application_id = $1 ORDER BY created_at, id`,
+      [applicationId]
+    );
+    expect(afterRecovery.rows).toHaveLength(3);
+    const liveRecovery = afterRecovery.rows.filter(({ revoked_at }) => !revoked_at);
+    expect(liveRecovery).toHaveLength(1);
+    expect(liveRecovery[0].application_authorization.binding.contracts
+      .operation_transport_recovery).toEqual([2]);
+
+    const contractionRequestId = await createAuthorizationRequest(
+      app,
+      applicationId,
+      manifestDigest,
+      cookie,
+      "contraction",
+      installationIdentity,
+      ["create"]
+    );
+    const contractionOffer = (await app.inject({
+      method: "GET",
+      url: `/v1/authorization-requests/${contractionRequestId}`,
+      headers: { cookie }
+    })).json().collections[0];
+    const contraction = await app.inject({
+      method: "POST",
+      url: `/v1/authorization-requests/${contractionRequestId}/approve`,
+      headers: { cookie },
+      payload: {
+        collection_id: serverCollectionId,
+        offer_id: contractionOffer.offer_id,
+        operations: ["create"]
+      }
+    });
+    expect(contraction.statusCode, JSON.stringify(contraction.json())).toBe(200);
+    const afterContraction = await db.query<{
+      id: string;
+      revoked_at: Date | null;
+      application_authorization: {
+        binding: { contracts: { operation_transport_recovery?: number[] } };
+      };
+    }>(
+      `SELECT id, revoked_at, application_authorization
+       FROM grants WHERE application_id = $1 ORDER BY created_at, id`,
+      [applicationId]
+    );
+    expect(afterContraction.rows).toHaveLength(4);
+    const liveContraction = afterContraction.rows.filter(({ revoked_at }) => !revoked_at);
+    expect(liveContraction).toHaveLength(1);
+    expect(liveContraction[0].application_authorization.binding.contracts
+      .operation_transport_recovery).toBeUndefined();
+    expect(afterContraction.rows.find(({ id }) => id === liveRecovery[0].id)?.revoked_at)
+      .not.toBeNull();
+
     activationError = {
       code: "access_paused",
       message: "Remote access was paused before activation.",
@@ -324,7 +474,8 @@ describe("live connector-mediated authorization", () => {
       applicationId,
       manifestDigest,
       cookie,
-      "rejected"
+      "rejected",
+      installationIdentity
     );
     const rejectedOffer = (await app.inject({
       method: "GET",
@@ -418,7 +569,7 @@ describe("live connector-mediated authorization", () => {
       code: "transport_protocol_incompatible",
       details: {
         contract: "operation_transport",
-        required: [3],
+        required: [3, 2],
         supported: [1],
         peer: "connector"
       },
@@ -453,37 +604,133 @@ describe("live connector-mediated authorization", () => {
       update_url: "https://github.com/mdbase-dev/mdbase-connect/releases/latest"
     }));
 
+    const compatibleConnector = (await app.inject({
+      method: "POST",
+      url: "/v1/connectors",
+      headers: { cookie },
+      payload: { name: "Compatibility computer" }
+    })).json();
+
     const updatedSocket = new WebSocket(
       `${address.replace(/^http/, "ws")}/v1/relay`,
-      { headers: { authorization: `Bearer ${connector.token}` } }
+      { headers: { authorization: `Bearer ${compatibleConnector.token}` } }
     );
     await once(updatedSocket, "open");
-    const policy = once(updatedSocket, "message");
+    const policy = waitForSocketMessage(updatedSocket, "policy_snapshot");
     updatedSocket.send(JSON.stringify({
       type: "relay_hello",
       protocol_version: 1,
-      connector_version: "0.1.0-beta.30",
+      connector_version: "0.1.0-beta.55",
       capabilities: [
         "application-authorization-v4",
         "authorization-activation",
         "encrypted-relay",
         "policy-ack"
       ],
-      contract_support: CONNECT_CONTRACT_SUPPORT
+      contract_support: {
+        operation_transport: [2],
+        authorization_binding: [4],
+        semantic_capabilities: [1],
+        durable_mutation: [1]
+      }
     }));
-    await policy;
+    expect((await policy).type).toBe("policy_snapshot");
     const recovered = await db.query<{
       connector_version: string | null;
       incompatibility_code: string | null;
     }>(
       "SELECT connector_version, incompatibility_code FROM connectors WHERE id = $1",
-      [connector.connector.id]
+      [compatibleConnector.connector.id]
     );
     expect(recovered.rows[0]).toEqual({
-      connector_version: "0.1.0-beta.30",
+      connector_version: "0.1.0-beta.55",
       incompatibility_code: null
     });
     updatedSocket.close();
+    await once(updatedSocket, "close");
+
+    const beta56Socket = new WebSocket(
+      `${address.replace(/^http/, "ws")}/v1/relay`,
+      { headers: { authorization: `Bearer ${compatibleConnector.token}` } }
+    );
+    await once(beta56Socket, "open");
+    const beta56Policy = waitForSocketMessage(beta56Socket, "policy_snapshot");
+    beta56Socket.send(JSON.stringify({
+      type: "relay_hello",
+      protocol_version: 1,
+      connector_version: "0.1.0-beta.56",
+      capabilities: [
+        "application-authorization-v4",
+        "authorization-activation",
+        "encrypted-relay",
+        "policy-ack"
+      ],
+      contract_support: {
+        operation_transport: [3],
+        authorization_binding: [4],
+        semantic_capabilities: [1],
+        durable_mutation: [1]
+      }
+    }));
+    expect((await beta56Policy).type).toBe("policy_snapshot");
+    beta56Socket.close();
+    await once(beta56Socket, "close");
+
+    const beta57Socket = new WebSocket(
+      `${address.replace(/^http/, "ws")}/v1/relay`,
+      { headers: { authorization: `Bearer ${compatibleConnector.token}` } }
+    );
+    await once(beta57Socket, "open");
+    const beta57Policy = waitForSocketMessage(beta57Socket, "policy_snapshot");
+    beta57Socket.send(JSON.stringify({
+      type: "relay_hello",
+      protocol_version: 1,
+      connector_version: "0.1.0-beta.57",
+      capabilities: [
+        "application-authorization-v4",
+        "application-authorization-v5",
+        "authorization-activation",
+        "encrypted-relay",
+        "policy-ack",
+        "protocol-usage-report-v1"
+      ],
+      contract_support: CONNECT_CONTRACT_SUPPORT
+    }));
+    expect((await beta57Policy).type).toBe("policy_snapshot");
+    beta57Socket.send(JSON.stringify({
+      type: "protocol_usage_report",
+      protocol_version: 1,
+      entries: [
+        { axis: "operation_transport", version: 2, count: 2 },
+        { axis: "operation_transport", version: 3, count: 5 }
+      ]
+    }));
+    await expect.poll(async () => {
+      const usage = await db.query<{
+        protocol_version: number;
+        sample_count: number | string;
+      }>(
+        `SELECT protocol_version, sample_count
+         FROM protocol_usage_telemetry
+         WHERE surface = 'direct' ORDER BY protocol_version`
+      );
+      return usage.rows.map((row) => ({
+        version: Number(row.protocol_version),
+        count: Number(row.sample_count)
+      }));
+    }).toEqual([{ version: 2, count: 2 }, { version: 3, count: 5 }]);
+    beta57Socket.send(JSON.stringify({
+      type: "protocol_usage_report",
+      protocol_version: 1,
+      entries: [{ axis: "operation_transport", version: 2, count: 100 }]
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    const rateLimited = await db.query<{ sample_count: number | string }>(
+      `SELECT sample_count FROM protocol_usage_telemetry
+       WHERE surface = 'direct' AND protocol_version = 2`
+    );
+    expect(Number(rateLimited.rows[0].sample_count)).toBe(2);
+    beta57Socket.close();
   });
 });
 
@@ -493,12 +740,43 @@ function p256PublicKey(): string {
   return key.getPublicKey(undefined, "uncompressed").toString("base64url");
 }
 
+function waitForSocketMessage(
+  socket: WebSocket,
+  type: string
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const observed: Record<string, unknown>[] = [];
+    const onMessage = (raw: WebSocket.RawData) => {
+      const message = JSON.parse(raw.toString()) as Record<string, unknown>;
+      observed.push(message);
+      if (message.type !== type) return;
+      cleanup();
+      resolve(message);
+    };
+    const onClose = (code: number, reason: Buffer) => {
+      cleanup();
+      reject(new Error(
+        `Socket closed before ${type}: ${code} ${reason.toString()}; observed ${JSON.stringify(observed)}.`
+      ));
+    };
+    const cleanup = () => {
+      socket.off("message", onMessage);
+      socket.off("close", onClose);
+    };
+    socket.on("message", onMessage);
+    socket.on("close", onClose);
+  });
+}
+
 async function createAuthorizationRequest(
   app: Awaited<ReturnType<typeof buildApp>>["app"],
   applicationId: string,
   manifestDigest: string,
   cookie: string,
-  suffix: string
+  suffix: string,
+  installationIdentity?: TestApplicationIdentity,
+  requestedOperations: CollectionOperation[] = ["describe"],
+  operationTransportRecovery?: OperationTransportProtocolVersion[]
 ): Promise<string> {
   const verifier = `live-connector-verifier-${suffix}-that-is-long-enough-000001`;
   const state = `live-${suffix}`;
@@ -510,7 +788,9 @@ async function createAuthorizationRequest(
     redirectUri: "http://localhost:4180/callback",
     state,
     codeChallenge: pkceChallenge(verifier),
-    requestedOperations: ["describe"]
+    requestedOperations,
+    operationTransportRecovery,
+    installationIdentity
   });
   const started = await app.inject({
     method: "POST",
@@ -522,7 +802,7 @@ async function createAuthorizationRequest(
       code_challenge: pkceChallenge(verifier),
       code_challenge_method: "S256",
       state,
-      operations: "describe",
+      operations: requestedOperations.join(" "),
       application_authorization: JSON.stringify(proof)
     }).toString()
   });

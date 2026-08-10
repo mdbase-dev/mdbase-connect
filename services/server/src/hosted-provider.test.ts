@@ -178,11 +178,11 @@ describe("hosted provider control client", () => {
     await expect(provider.ready()).rejects.toBeInstanceOf(HostedProviderUnavailableError);
   });
 
-  it("accepts a provider with intersecting contract support and additional future versions", async () => {
+  it("accepts a provider with complete compatibility support and additional future versions", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(
       readinessDocument({
         operation_transport: [2, 3],
-        authorization_binding: [3, 4],
+        authorization_binding: [3, 4, 5],
         semantic_capabilities: [1, 2],
         durable_mutation: [1, 2]
       })

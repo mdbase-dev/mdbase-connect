@@ -4,13 +4,25 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub const OPERATION_TRANSPORT_PROTOCOL_VERSION: u32 = 3;
-pub const AUTHORIZATION_BINDING_PROTOCOL_VERSION: u32 = 4;
+pub const LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION: u32 = 2;
+pub const SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS: &[u32] = &[
+    OPERATION_TRANSPORT_PROTOCOL_VERSION,
+    LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION,
+];
+pub const AUTHORIZATION_BINDING_PROTOCOL_VERSION: u32 = 5;
+pub const LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION: u32 = 4;
+pub const SUPPORTED_AUTHORIZATION_BINDING_PROTOCOL_VERSIONS: &[u32] = &[
+    AUTHORIZATION_BINDING_PROTOCOL_VERSION,
+    LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION,
+];
 pub const SEMANTIC_CAPABILITY_CONTRACT_VERSION: u32 = 1;
 pub const DURABLE_MUTATION_CONTRACT_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConnectContractRequirements {
     pub operation_transport: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub operation_transport_recovery: Vec<u32>,
     pub authorization_binding: u32,
     pub semantic_capabilities: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -28,8 +40,8 @@ pub struct ConnectContractSupport {
 impl Default for ConnectContractSupport {
     fn default() -> Self {
         Self {
-            operation_transport: vec![OPERATION_TRANSPORT_PROTOCOL_VERSION],
-            authorization_binding: vec![AUTHORIZATION_BINDING_PROTOCOL_VERSION],
+            operation_transport: SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS.to_vec(),
+            authorization_binding: SUPPORTED_AUTHORIZATION_BINDING_PROTOCOL_VERSIONS.to_vec(),
             semantic_capabilities: vec![SEMANTIC_CAPABILITY_CONTRACT_VERSION],
             durable_mutation: vec![DURABLE_MUTATION_CONTRACT_VERSION],
         }
@@ -56,11 +68,54 @@ impl ConnectContractRequirements {
     pub fn current(requires_durable_mutation: bool) -> Self {
         Self {
             operation_transport: OPERATION_TRANSPORT_PROTOCOL_VERSION,
+            operation_transport_recovery: Vec::new(),
             authorization_binding: AUTHORIZATION_BINDING_PROTOCOL_VERSION,
             semantic_capabilities: SEMANTIC_CAPABILITY_CONTRACT_VERSION,
             durable_mutation: requires_durable_mutation
                 .then_some(DURABLE_MUTATION_CONTRACT_VERSION),
         }
+    }
+
+    pub fn with_operation_transport_recovery(mut self, versions: Vec<u32>) -> Self {
+        self.operation_transport_recovery = versions;
+        self.operation_transport_recovery
+            .sort_unstable_by(|a, b| b.cmp(a));
+        self.operation_transport_recovery.dedup();
+        self.operation_transport_recovery
+            .retain(|version| *version != self.operation_transport);
+        self
+    }
+
+    pub fn valid_for_authorization(&self, requires_durable_mutation: bool) -> bool {
+        SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS.contains(&self.operation_transport)
+            && SUPPORTED_AUTHORIZATION_BINDING_PROTOCOL_VERSIONS
+                .contains(&self.authorization_binding)
+            && self.semantic_capabilities == SEMANTIC_CAPABILITY_CONTRACT_VERSION
+            && (if requires_durable_mutation {
+                self.durable_mutation == Some(DURABLE_MUTATION_CONTRACT_VERSION)
+            } else {
+                self.durable_mutation.is_none()
+            })
+            && (self.authorization_binding != AUTHORIZATION_BINDING_PROTOCOL_VERSION
+                || self.operation_transport == OPERATION_TRANSPORT_PROTOCOL_VERSION)
+            && self.operation_transport_recovery.iter().all(|version| {
+                *version != self.operation_transport
+                    && SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS.contains(version)
+            })
+            && self
+                .operation_transport_recovery
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                == self.operation_transport_recovery.len()
+            && (self.authorization_binding != LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION
+                || self.operation_transport_recovery.is_empty())
+            && (self.operation_transport_recovery.is_empty() || requires_durable_mutation)
+    }
+
+    pub fn permits_operation_transport(&self, version: u32, recovery_only: bool) -> bool {
+        self.operation_transport == version
+            || (recovery_only && self.operation_transport_recovery.contains(&version))
     }
 
     pub fn mismatch_problem(
@@ -94,6 +149,18 @@ impl ConnectContractRequirements {
             if !versions.contains(&required) {
                 return Some(contract_problem(
                     code, contract, required, versions, peer, operation,
+                ));
+            }
+        }
+        for required in &self.operation_transport_recovery {
+            if !supported.operation_transport.contains(required) {
+                return Some(contract_problem(
+                    "transport_protocol_incompatible",
+                    "operation_transport",
+                    *required,
+                    &supported.operation_transport,
+                    peer,
+                    operation,
                 ));
             }
         }

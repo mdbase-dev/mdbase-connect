@@ -20,7 +20,7 @@ use mdbase_connect_protocol::{
     SyncMutation, SyncMutationError, SyncMutationOperation, SyncMutationReceipt, SyncRecord,
     SyncReplicaMode, SyncResourceDocument, SyncSession, SyncSnapshotPage, SyncSnapshotRecord,
     TypePackProvision, AUTHORITY_PROOF_DOMAIN, AUTHORITY_PROOF_VERSION, CONTROL_PROTOCOL_VERSION,
-    FILE_PROTOCOL_VERSION, SYNC_PROTOCOL_VERSION,
+    FILE_PROTOCOL_VERSION, SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS, SYNC_PROTOCOL_VERSION,
 };
 use mdbase_connect_runtime::contract_scope::{ContractScope, ContractSelector};
 use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
@@ -74,6 +74,7 @@ mod operation_types;
 mod operation_views;
 mod persistence;
 mod policy;
+mod protocol_usage;
 mod provider_state;
 mod replicas;
 mod sync_reads;
@@ -208,6 +209,10 @@ pub struct RegisterReplica {
     #[serde(default)]
     pub allowed_operations: Vec<String>,
     #[serde(default)]
+    pub operation_transport_protocol: Option<u32>,
+    #[serde(default)]
+    pub operation_transport_recovery_protocols: Vec<u32>,
+    #[serde(default)]
     pub file_capability: Option<FileCapability>,
     #[serde(default)]
     pub allowed_origin: Option<String>,
@@ -235,6 +240,9 @@ pub struct UpdateApplicationReplica {
     #[serde(default)]
     pub full_collection: bool,
     pub allowed_operations: Vec<String>,
+    pub operation_transport_protocol: u32,
+    #[serde(default)]
+    pub operation_transport_recovery_protocols: Vec<u32>,
     #[serde(default)]
     pub file_capability: Option<FileCapability>,
     #[serde(default)]
@@ -342,6 +350,8 @@ struct Replica {
     contract_scope: Vec<CollectionContractDescriptor>,
     full_collection: bool,
     allowed_operations: Vec<String>,
+    operation_transport_protocol: Option<u32>,
+    operation_transport_recovery_protocols: Vec<u32>,
     file_capability: Option<FileCapability>,
     allowed_origin: Option<String>,
     proof_public_key: Option<String>,
@@ -358,6 +368,24 @@ pub struct AuthorityRequestProof {
     pub method: String,
     pub target: String,
     pub body: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AuthorizedRequest {
+    operation_transport_protocol: Option<u32>,
+    operation_transport_recovery_protocols: Vec<u32>,
+}
+
+impl AuthorizedRequest {
+    pub fn permits_operation_transport(&self, version: u32, recovery_only: bool) -> bool {
+        self.operation_transport_protocol.is_none()
+            && SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS.contains(&version)
+            || self.operation_transport_protocol == Some(version)
+            || (recovery_only
+                && self
+                    .operation_transport_recovery_protocols
+                    .contains(&version))
+    }
 }
 
 type PersistedRecord = SyncRecord;

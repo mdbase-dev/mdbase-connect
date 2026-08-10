@@ -1,8 +1,14 @@
 import type {
+  ConnectContractRequirements,
   EncryptedRelayOperationRequest,
   GrantEncryption
 } from "@mdbase-dev/connect-protocol";
-import { OPERATION_TRANSPORT_PROTOCOL_VERSION } from "@mdbase-dev/connect-protocol";
+import {
+  isMutatingOperation,
+  LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION,
+  OPERATION_TRANSPORT_PROTOCOL_VERSION,
+  permitsOperationTransport
+} from "@mdbase-dev/connect-protocol";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { COLLECTION_OPERATIONS } from "../../collection-access.js";
@@ -13,6 +19,7 @@ import {
   RelayUnavailableError
 } from "../../relay.js";
 import { tokenHash } from "../../security.js";
+import { recordProtocolUsage } from "../../protocol-telemetry.js";
 import {
   apiError,
   insufficientAccessError
@@ -31,7 +38,10 @@ interface LocalOperationRoutesOptions {
 
 const operationSchema = z.enum(COLLECTION_OPERATIONS);
 const operationRequestSchema = z.object({
-  protocol_version: z.literal(OPERATION_TRANSPORT_PROTOCOL_VERSION),
+  protocol_version: z.union([
+    z.literal(OPERATION_TRANSPORT_PROTOCOL_VERSION),
+    z.literal(LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION)
+  ]),
   request_id: z.uuid(),
   input: z.unknown()
 }).strict();
@@ -56,14 +66,21 @@ export function registerLocalOperationRoutes(
       }
       const authorized = await options.db.query<{
         grant_id: string;
+        user_id: string;
         application_id: string;
+        application_installation_id: string;
+        collection_id: string;
         operations: string[];
         connector_id: string;
         local_id: string;
         encryption: GrantEncryption | null;
+        contracts: ConnectContractRequirements;
       }>(
-        `SELECT g.id AS grant_id, g.application_id, g.operations,
-                g.encryption, col.connector_id, col.local_id
+        `SELECT g.id AS grant_id, g.user_id, g.application_id,
+                g.application_installation_id, g.collection_id, g.operations,
+                g.encryption,
+                g.application_authorization->'binding'->'contracts' AS contracts,
+                col.connector_id, col.local_id
          FROM access_tokens tok
          JOIN grants g ON g.id = tok.grant_id
          JOIN users u ON u.id = g.user_id
@@ -91,6 +108,7 @@ export function registerLocalOperationRoutes(
         ));
       }
       let operationRequestId: string | undefined;
+      let operationRequestProtocol: number = OPERATION_TRANSPORT_PROTOCOL_VERSION;
       try {
         if (grant.encryption) {
           let envelope: EncryptedRelayOperationRequest;
@@ -104,24 +122,43 @@ export function registerLocalOperationRoutes(
               "This grant requires grant encryption profile 1."
             ));
           }
+          let routedGrant = grant;
           if (!matchesGrantEncryption(
             envelope,
             { ...grant, encryption: grant.encryption },
             params.operation
           )) {
-            if (matchesGrantIdentity(envelope, grant, params.operation)) {
+            const recoveryAllowed = isMutatingOperation(params.operation, {
+              action: "mutate"
+            }) && permitsOperationTransport(
+              grant.contracts,
+              envelope.protocol_version,
+              true
+            );
+            const recovered = recoveryAllowed
+              ? await recoveryGrant(options.db, grant, envelope, params.operation)
+              : null;
+            if (recovered) {
+              routedGrant = recovered;
+            } else if (matchesGrantIdentity(envelope, grant, params.operation)) {
               return reply.code(409).send(apiError(
                 "encryption_binding_stale",
                 "The encrypted grant binding changed. Refresh authorization and retry."
               ));
+            } else {
+              return reply.code(400).send(apiError(
+                "invalid_encrypted_envelope",
+                "Encrypted relay metadata does not match the active grant or an authorized recovery grant."
+              ));
             }
-            return reply.code(400).send(apiError(
-              "invalid_encrypted_envelope",
-              "Encrypted relay metadata does not match the active grant."
-            ));
           }
+          void recordProtocolUsage(options.db, {
+            userId: grant.user_id,
+            surface: "relay",
+            version: envelope.protocol_version
+          }).catch(() => undefined);
           const encryptedResponse = await options.relay.routeEncrypted(
-            grant.connector_id,
+            routedGrant.connector_id,
             envelope
           );
           return { ok: true, envelope: encryptedResponse };
@@ -137,6 +174,21 @@ export function registerLocalOperationRoutes(
         }
         const operationRequest = operationRequestSchema.parse(request.body);
         operationRequestId = operationRequest.request_id;
+        operationRequestProtocol = operationRequest.protocol_version;
+        if (!permitsOperationTransport(
+          grant.contracts,
+          operationRequest.protocol_version
+        )) {
+          return reply.code(400).send(apiError(
+            "transport_protocol_incompatible",
+            "The operation transport protocol does not match the signed grant."
+          ));
+        }
+        void recordProtocolUsage(options.db, {
+          userId: grant.user_id,
+          surface: "relay",
+          version: operationRequest.protocol_version
+        }).catch(() => undefined);
         const result = await options.relay.route({
           connectorId: grant.connector_id,
           localCollectionId: grant.local_id,
@@ -147,7 +199,7 @@ export function registerLocalOperationRoutes(
           operationInput: operationRequest.input
         });
         return {
-          protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
+          protocol_version: operationRequest.protocol_version,
           request_id: operationRequest.request_id,
           ok: true,
           result
@@ -164,7 +216,7 @@ export function registerLocalOperationRoutes(
             return reply.code(502).send(apiError(error.code, error.message));
           }
           return {
-            protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
+            protocol_version: operationRequestProtocol,
             request_id: operationRequestId,
             ok: false,
             problem: error.problem
@@ -174,4 +226,56 @@ export function registerLocalOperationRoutes(
       }
     }
   );
+}
+
+type LocalGrant = {
+  grant_id: string;
+  user_id: string;
+  application_id: string;
+  application_installation_id: string;
+  collection_id: string;
+  operations: string[];
+  connector_id: string;
+  local_id: string;
+  encryption: GrantEncryption | null;
+  contracts: ConnectContractRequirements;
+};
+
+async function recoveryGrant(
+  db: DatabasePool,
+  active: LocalGrant,
+  envelope: EncryptedRelayOperationRequest,
+  operation: typeof COLLECTION_OPERATIONS[number]
+): Promise<LocalGrant | null> {
+  const result = await db.query<LocalGrant>(
+    `SELECT old.id AS grant_id, old.user_id, old.application_id,
+            old.application_installation_id, old.collection_id, old.operations,
+            old.encryption,
+            old.application_authorization->'binding'->'contracts' AS contracts,
+            col.connector_id, col.local_id
+     FROM grants old
+     JOIN collections col ON col.id = old.collection_id
+     WHERE old.id = $1 AND old.user_id = $2 AND old.application_id = $3
+       AND old.application_installation_id = $4 AND old.collection_id = $5
+       AND old.activated_at IS NOT NULL
+       AND col.connector_id = $6 AND col.local_id = $7
+       AND col.enabled = true AND col.present = true
+       AND col.authority_state = 'active'`,
+    [
+      envelope.grant_id,
+      active.user_id,
+      active.application_id,
+      active.application_installation_id,
+      active.collection_id,
+      active.connector_id,
+      active.local_id
+    ]
+  );
+  const candidate = result.rows[0];
+  if (!candidate?.encryption || !candidate.operations.includes(operation)) return null;
+  return matchesGrantEncryption(
+    envelope,
+    { ...candidate, encryption: candidate.encryption },
+    operation
+  ) ? candidate : null;
 }
