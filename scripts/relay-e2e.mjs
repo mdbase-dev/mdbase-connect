@@ -13,6 +13,7 @@ import {
   encodeRelayFileFrame,
   FILE_TRANSFER_PROTOCOL_VERSION,
   GRANT_ENCRYPTION_PROTOCOL_VERSION,
+  MAX_FILE_CHUNK_BYTES,
   OPERATION_TRANSPORT_PROTOCOL_VERSION,
   RELAY_CAPABILITIES
 } from "../packages/protocol/dist/index.js";
@@ -240,7 +241,9 @@ try {
     encryption,
     transferId: uploadTransferId,
     direction: "upload",
-    plaintextLength: 128
+    // The encrypted frame is larger than NATS's 4 MiB max_payload once its
+    // protocol header and authentication tag are included.
+    plaintextLength: MAX_FILE_CHUNK_BYTES
   });
   const relayedUpload = await fetch(
     `${urlA}/v1/authorities/${fixture.localCollectionId}/files/upload`,
@@ -265,7 +268,7 @@ try {
     encryption,
     transferId: downloadTransferId,
     direction: "download",
-    plaintextLength: 96
+    plaintextLength: MAX_FILE_CHUNK_BYTES
   });
   connectorB.setDownloadFrame(downloadFrame);
   const relayedDownload = await fetch(
@@ -694,7 +697,7 @@ function opaqueFileFrame({ fixture, encryption, transferId, direction, plaintext
       collection_id: fixture.localCollectionId,
       transfer_id: transferId,
       direction,
-      chunk_size: 64 * 1024,
+      chunk_size: Math.max(64 * 1024, plaintextLength),
       chunk_index: 0,
       offset: 0,
       plaintext_length: plaintextLength,
