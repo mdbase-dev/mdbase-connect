@@ -9,7 +9,8 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::time::Duration;
 
-const LATEST_SCHEMA_VERSION: u32 = 2;
+const PRE_AUTHORITY_SCHEMA_VERSION: u32 = 2;
+const LATEST_SCHEMA_VERSION: u32 = 3;
 const BASELINE_NAME: &str = "beta28_baseline";
 const BASELINE_SQL: &str = include_str!("migrations/0001_beta28_baseline.sql");
 const BASELINE_CHECKSUM: &str = "2ea037f01e1e6a8c0feb52f88dbd2c2350ae60631e563a4e719c79b2a5ca32b7";
@@ -17,6 +18,10 @@ const MUTATION_JOURNAL_NAME: &str = "durable_mutation_journal";
 const MUTATION_JOURNAL_SQL: &str = include_str!("migrations/0002_durable_mutation_journal.sql");
 const MUTATION_JOURNAL_CHECKSUM: &str =
     "f06c9e746030f85b2586d3837e4637b61cca2cc1c9a39db44e293482f0634c15";
+const AUTHORITY_CLEANUP_NAME: &str = "isolated_authority_cleanup";
+const AUTHORITY_CLEANUP_SQL: &str = include_str!("migrations/0003_isolated_authority_cleanup.sql");
+const AUTHORITY_CLEANUP_CHECKSUM: &str =
+    "0268631b6b36497a3051f50f3eb8a62ecf100a90981008a76751d03faccda15a";
 const BACKUP_FORMAT_VERSION: u32 = 1;
 const BACKUP_DIRECTORY: &str = "registry-backups";
 const BACKUP_KEY_FILE: &str = ".registry-backup-auth-key";
@@ -102,6 +107,11 @@ pub struct RegistryDiagnostics {
     pub schema_version: Option<u32>,
     pub quick_check: Vec<String>,
     pub integrity_check: Vec<String>,
+    pub authority_database_path: PathBuf,
+    pub authority_schema_version: Option<u32>,
+    pub authority_quick_check: Vec<String>,
+    pub authority_integrity_check: Vec<String>,
+    pub authority_receipts: AuthorityReceiptDiagnostics,
     pub backups: Vec<RegistryBackupDiagnostic>,
 }
 
@@ -118,6 +128,10 @@ fn migrate_registry_with_hook(
         sha256_hex(MUTATION_JOURNAL_SQL.as_bytes()),
         MUTATION_JOURNAL_CHECKSUM
     );
+    debug_assert_eq!(
+        sha256_hex(AUTHORITY_CLEANUP_SQL.as_bytes()),
+        AUTHORITY_CLEANUP_CHECKSUM
+    );
     let had_database = path.metadata().is_ok_and(|metadata| metadata.len() > 0);
     let mut connection = open_database(path, false)?;
     configure_connection(path, &connection)?;
@@ -133,8 +147,8 @@ fn migrate_registry_with_hook(
             "the database was opened by a newer Connect build",
         ));
     }
-    if found == LATEST_SCHEMA_VERSION {
-        verify_ledger(path, &connection)?;
+    if found == LATEST_SCHEMA_VERSION || found == PRE_AUTHORITY_SCHEMA_VERSION {
+        verify_ledger(path, &connection, found)?;
         enable_wal(path, &connection)?;
         require_integrity(path, &connection, "on open")?;
         return Ok(());
@@ -212,7 +226,7 @@ fn migrate_registry_with_hook(
             .map_err(|error| migration_error(path, 2, error))?;
         hook("after_mutation_journal_ledger")?;
         transaction
-            .pragma_update(None, "user_version", LATEST_SCHEMA_VERSION)
+            .pragma_update(None, "user_version", PRE_AUTHORITY_SCHEMA_VERSION)
             .map_err(|error| migration_error(path, 2, error))?;
         hook("after_mutation_journal_user_version")?;
         transaction
@@ -223,7 +237,84 @@ fn migrate_registry_with_hook(
 
     enable_wal(path, &connection)?;
     require_integrity(path, &connection, "after migration")?;
-    verify_ledger(path, &connection)?;
+    verify_ledger(path, &connection, PRE_AUTHORITY_SCHEMA_VERSION)?;
+    Ok(())
+}
+
+/// Remove the now-inert authorization/replay copy only after the isolated authority store has
+/// been durably created and verified. The authenticated v2 backup makes the destructive half of
+/// the split explicitly recoverable; `secure_delete` and a resumable VACUUM reclaim old pages.
+pub(super) fn finalize_authority_split(path: &Path) -> Result<(), ConnectError> {
+    finalize_authority_split_with_hook(path, &mut |_| Ok(()))
+}
+
+fn finalize_authority_split_with_hook(
+    path: &Path,
+    hook: &mut dyn FnMut(&'static str) -> Result<(), ConnectError>,
+) -> Result<(), ConnectError> {
+    let mut connection = open_database(path, false)?;
+    configure_connection(path, &connection)?;
+    require_integrity(path, &connection, "before authority cleanup")?;
+    let found = schema_version(path, &connection)?;
+    if found == LATEST_SCHEMA_VERSION {
+        verify_ledger(path, &connection, found)?;
+        reclaim_free_pages(path, &connection)?;
+        return Ok(());
+    }
+    if found != PRE_AUTHORITY_SCHEMA_VERSION {
+        return Err(schema_incompatible(
+            path,
+            found,
+            "the authority cleanup requires the durable mutation journal schema",
+        ));
+    }
+    verify_ledger(path, &connection, found)?;
+    create_registry_backup(path, &connection, found)?;
+    hook("after_authority_cleanup_backup")?;
+    connection.pragma_update(None, "secure_delete", "ON")?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| migration_error(path, LATEST_SCHEMA_VERSION, error))?;
+    transaction
+        .execute_batch(AUTHORITY_CLEANUP_SQL)
+        .map_err(|error| migration_error(path, LATEST_SCHEMA_VERSION, error))?;
+    hook("after_authority_cleanup_schema")?;
+    let started_at = Utc::now().to_rfc3339();
+    transaction
+        .execute(
+            "INSERT INTO connect_schema_migrations
+             (version, name, checksum, state, started_at, completed_at)
+             VALUES (3, ?1, ?2, 'completed', ?3, ?3)",
+            params![
+                AUTHORITY_CLEANUP_NAME,
+                AUTHORITY_CLEANUP_CHECKSUM,
+                started_at
+            ],
+        )
+        .map_err(|error| migration_error(path, LATEST_SCHEMA_VERSION, error))?;
+    hook("after_authority_cleanup_ledger")?;
+    transaction
+        .pragma_update(None, "user_version", LATEST_SCHEMA_VERSION)
+        .map_err(|error| migration_error(path, LATEST_SCHEMA_VERSION, error))?;
+    hook("after_authority_cleanup_user_version")?;
+    transaction
+        .commit()
+        .map_err(|error| migration_error(path, LATEST_SCHEMA_VERSION, error))?;
+    hook("after_authority_cleanup_commit")?;
+    reclaim_free_pages(path, &connection)?;
+    hook("after_authority_cleanup_vacuum")?;
+    require_integrity(path, &connection, "after authority cleanup")?;
+    verify_ledger(path, &connection, LATEST_SCHEMA_VERSION)
+}
+
+fn reclaim_free_pages(path: &Path, connection: &Connection) -> Result<(), ConnectError> {
+    let free_pages: u64 =
+        connection.pragma_query_value(None, "freelist_count", |row| row.get(0))?;
+    if free_pages > 0 {
+        connection
+            .execute_batch("VACUUM;")
+            .map_err(|error| migration_error(path, LATEST_SCHEMA_VERSION, error))?;
+    }
     Ok(())
 }
 
@@ -248,12 +339,36 @@ impl CollectionRegistry {
             .as_ref()
             .and_then(|value| integrity_results(value, "integrity_check").ok())
             .unwrap_or_else(|| vec!["database could not be read".to_string()]);
+        let authority_database_path = state_dir.join("authority.sqlite");
+        let authority_connection = open_database(&authority_database_path, true).ok();
+        let authority_schema_version = authority_connection.as_ref().and_then(|value| {
+            value
+                .pragma_query_value(None, "user_version", |row| row.get(0))
+                .ok()
+        });
+        let authority_quick_check = authority_connection
+            .as_ref()
+            .and_then(|value| integrity_results(value, "quick_check").ok())
+            .unwrap_or_else(|| vec!["database could not be read".to_string()]);
+        let authority_integrity_check = authority_connection
+            .as_ref()
+            .and_then(|value| integrity_results(value, "integrity_check").ok())
+            .unwrap_or_else(|| vec!["database could not be read".to_string()]);
+        let authority_receipts = authority_connection
+            .as_ref()
+            .and_then(|value| super::receipts::receipt_diagnostics(state_dir, value).ok())
+            .unwrap_or_default();
         let backups = backup_diagnostics(state_dir)?;
         Ok(RegistryDiagnostics {
             database_path,
             schema_version,
             quick_check,
             integrity_check,
+            authority_database_path,
+            authority_schema_version,
+            authority_quick_check,
+            authority_integrity_check,
+            authority_receipts,
             backups,
         })
     }
@@ -273,13 +388,20 @@ impl CollectionRegistry {
 
     /// Deliberately rebuild SQLite indexes without discarding any table, grant, or receipt.
     pub fn rebuild_registry_indexes(state_dir: impl AsRef<Path>) -> Result<(), ConnectError> {
-        let path = state_dir.as_ref().join("connector.sqlite");
+        let state_dir = state_dir.as_ref();
+        let path = state_dir.join("connector.sqlite");
         let connection = open_database(&path, false)?;
         configure_connection(&path, &connection)?;
         connection
             .execute_batch("REINDEX;")
             .map_err(|error| database_error(&path, error))?;
-        require_integrity(&path, &connection, "after index rebuild")
+        require_integrity(&path, &connection, "after index rebuild")?;
+        let authority_path = state_dir.join("authority.sqlite");
+        let authority = open_database(&authority_path, false)?;
+        authority
+            .execute_batch("REINDEX;")
+            .map_err(|error| database_error(&authority_path, error))?;
+        require_integrity(&authority_path, &authority, "after authority index rebuild")
     }
 }
 
@@ -368,7 +490,11 @@ fn require_beta28_schema(path: &Path, connection: &Connection) -> Result<(), Con
     Ok(())
 }
 
-fn verify_ledger(path: &Path, connection: &Connection) -> Result<(), ConnectError> {
+fn verify_ledger(
+    path: &Path,
+    connection: &Connection,
+    schema_version: u32,
+) -> Result<(), ConnectError> {
     let mut statement = connection
         .prepare(
             "SELECT version, name, checksum, state
@@ -395,7 +521,16 @@ fn verify_ledger(path: &Path, connection: &Connection) -> Result<(), ConnectErro
             MUTATION_JOURNAL_CHECKSUM,
             "completed",
         ),
+        (
+            3,
+            AUTHORITY_CLEANUP_NAME,
+            AUTHORITY_CLEANUP_CHECKSUM,
+            "completed",
+        ),
     ];
+    let expected = &expected[..usize::try_from(schema_version)
+        .unwrap_or(usize::MAX)
+        .min(expected.len())];
     if rows.len() != expected.len()
         || rows
             .iter()

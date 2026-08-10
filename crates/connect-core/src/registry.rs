@@ -39,6 +39,7 @@ const MIRROR_MARKER_FILE: &str = "connect-role.json";
 
 mod agent_state;
 mod authority;
+mod authority_store;
 mod collections;
 mod database;
 mod descriptions;
@@ -51,9 +52,13 @@ mod migrations;
 mod mutation_journal;
 mod operation_execution;
 mod operations;
+mod receipts;
 mod scope;
 
-pub use encrypted_requests::{encrypted_request_fingerprint, EncryptedRequestClaim};
+use authority_store::{AuthorityStore, AuthorityWritePriority};
+pub use encrypted_requests::{
+    encrypted_request_fingerprint, EncryptedReplayClass, EncryptedRequestClaim,
+};
 use identity::{
     assert_local_authority_folder, clear_collection_identity, collection_display_name,
     ensure_collection_id, normalized_optional, read_collection_id, read_collection_metadata,
@@ -68,6 +73,7 @@ pub use mutation_journal::{
 use operation_execution::{
     error_message, execute_loaded, has_contract, operation_invalidation, supported_operations,
 };
+pub use receipts::AuthorityReceiptDiagnostics;
 use scope::{
     change_is_in_scope, contract_scope_error, ensure_no_new_out_of_scope_types,
     ensure_result_in_scope, ensure_types_in_scope, required_string, required_uuid, result_types,
@@ -120,6 +126,8 @@ pub enum ConnectError {
     InvalidInput(String),
     #[error("Application access denied: {0}")]
     AccessDenied(String),
+    #[error("Remote access is paused on this computer")]
+    AccessPaused,
     #[error("Encrypted relay request was rejected")]
     EncryptedRelayRejected,
     #[error("Collection authority transfer {transfer_id} is fencing mutations")]
@@ -141,6 +149,10 @@ pub enum ConnectError {
     },
     #[error("The local registry at {path} is busy; stop the other connector process and retry")]
     RegistryBusy { path: PathBuf },
+    #[error("The local authorization store is applying higher-priority work; retry shortly")]
+    AuthorityOverloaded,
+    #[error("Local authorization receipt error: {detail}")]
+    AuthorityReceipt { detail: String },
     #[error("Registry migration {version} failed for {path}: {detail}")]
     RegistryMigration {
         path: PathBuf,
@@ -197,6 +209,7 @@ impl ConnectError {
             Self::UnsupportedOperation(_) => "unsupported_operation",
             Self::InvalidInput(_) => "invalid_input",
             Self::AccessDenied(_) => "access_denied",
+            Self::AccessPaused => "access_paused",
             Self::EncryptedRelayRejected => "encrypted_relay_rejected",
             Self::AuthorityTransferInProgress { .. } => "authority_transfer_in_progress",
             Self::AuthorityRetired => "authority_retired",
@@ -213,6 +226,8 @@ impl ConnectError {
             Self::RegistryCorrupt { .. } => "registry_corrupt",
             Self::RegistrySchemaIncompatible { .. } => "registry_schema_incompatible",
             Self::RegistryBusy { .. } => "registry_busy",
+            Self::AuthorityOverloaded => "connector_busy",
+            Self::AuthorityReceipt { .. } => "pending_mutation_unresolved",
             Self::RegistryMigration { .. } => "registry_migration_failed",
             Self::RegistryBackupInvalid { .. } => "registry_backup_invalid",
             Self::MutationRequestConflict { .. } => "mutation_request_conflict",
@@ -348,10 +363,11 @@ pub(crate) fn ensure_private_state_dir(state_dir: &Path) -> Result<(), ConnectEr
 #[derive(Debug, Clone)]
 pub struct CollectionRegistry {
     db_path: PathBuf,
+    authority: Arc<AuthorityStore>,
     process_epoch: Uuid,
     providers: Arc<Mutex<HashMap<Uuid, Arc<FilesystemProvider>>>>,
     file_reconciles: Arc<Mutex<HashMap<Uuid, Arc<Mutex<()>>>>>,
-    encrypted_request_writes: Arc<Mutex<()>>,
+    ephemeral_responses: Arc<Mutex<encrypted_requests::EphemeralResponseCache>>,
 }
 
 #[derive(Debug, Clone)]

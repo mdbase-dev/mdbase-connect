@@ -93,6 +93,24 @@ fn preserved_counts(path: &Path) -> (u32, u32, u32) {
     )
 }
 
+fn split_counts(state_dir: &Path) -> (u32, u32, u32) {
+    let authority = Connection::open(state_dir.join("authority.sqlite")).unwrap();
+    let connector = Connection::open(state_dir.join("connector.sqlite")).unwrap();
+    (
+        authority
+            .query_row("SELECT COUNT(*) FROM grants", [], |row| row.get(0))
+            .unwrap(),
+        connector
+            .query_row("SELECT COUNT(*) FROM activity", [], |row| row.get(0))
+            .unwrap(),
+        authority
+            .query_row("SELECT COUNT(*) FROM grant_crypto_requests", [], |row| {
+                row.get(0)
+            })
+            .unwrap(),
+    )
+}
+
 fn schema(path: &Path) -> Vec<(String, String, String)> {
     let connection = Connection::open(path).unwrap();
     let mut statement = connection
@@ -132,16 +150,17 @@ fn beta28_and_new_databases_converge_without_data_loss_and_reopen_twice() {
     assert!(legacy.path().join("connector.sqlite-wal").exists());
 
     migrate_registry(&legacy.path().join("connector.sqlite")).unwrap();
-    let registry = CollectionRegistry::open(legacy.path()).unwrap();
-    drop(registry);
-    migrate_registry(&legacy.path().join("connector.sqlite")).unwrap();
     assert_eq!(
         preserved_counts(&legacy.path().join("connector.sqlite")),
         (1, 1, 1)
     );
+    let registry = CollectionRegistry::open(legacy.path()).unwrap();
+    drop(registry);
+    migrate_registry(&legacy.path().join("connector.sqlite")).unwrap();
+    assert_eq!(split_counts(legacy.path()), (1, 1, 1));
 
     let new = TempDir::new().unwrap();
-    migrate_registry(&new.path().join("connector.sqlite")).unwrap();
+    drop(CollectionRegistry::open(new.path()).unwrap());
     assert_eq!(
         schema(&legacy.path().join("connector.sqlite")),
         schema(&new.path().join("connector.sqlite"))
@@ -151,8 +170,12 @@ fn beta28_and_new_databases_converge_without_data_loss_and_reopen_twice() {
     assert_eq!(diagnostics.schema_version, Some(LATEST_SCHEMA_VERSION));
     assert_eq!(diagnostics.quick_check, ["ok"]);
     assert_eq!(diagnostics.integrity_check, ["ok"]);
-    assert_eq!(diagnostics.backups.len(), 1);
-    assert!(diagnostics.backups[0].valid);
+    assert_eq!(diagnostics.authority_schema_version, Some(1));
+    assert_eq!(diagnostics.authority_quick_check, ["ok"]);
+    assert_eq!(diagnostics.authority_integrity_check, ["ok"]);
+    assert_eq!(diagnostics.authority_receipts.referenced_count, 0);
+    assert_eq!(diagnostics.backups.len(), 2);
+    assert!(diagnostics.backups.iter().all(|backup| backup.valid));
 
     let restored = legacy.path().join("restored.sqlite");
     CollectionRegistry::restore_registry_backup(
@@ -208,7 +231,7 @@ fn every_transactional_migration_fault_recovers_and_is_idempotent() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
                 .unwrap(),
-            LATEST_SCHEMA_VERSION,
+            PRE_AUTHORITY_SCHEMA_VERSION,
             "fault {fault}"
         );
         assert_eq!(
@@ -220,7 +243,7 @@ fn every_transactional_migration_fault_recovers_and_is_idempotent() {
                     |row| row.get::<_, u32>(0),
                 )
                 .unwrap(),
-            LATEST_SCHEMA_VERSION,
+            PRE_AUTHORITY_SCHEMA_VERSION,
             "fault {fault}"
         );
     }
@@ -274,9 +297,70 @@ fn every_mutation_journal_migration_fault_recovers_and_preserves_legacy_receipts
                     |row| row.get::<_, u32>(0),
                 )
                 .unwrap(),
+            PRE_AUTHORITY_SCHEMA_VERSION,
+            "fault {fault}"
+        );
+    }
+}
+
+#[test]
+fn every_authority_cleanup_fault_resumes_without_losing_either_store() {
+    for fault in [
+        "after_authority_cleanup_backup",
+        "after_authority_cleanup_schema",
+        "after_authority_cleanup_ledger",
+        "after_authority_cleanup_user_version",
+        "after_authority_cleanup_commit",
+        "after_authority_cleanup_vacuum",
+    ] {
+        let state = TempDir::new().unwrap();
+        drop(beta28_fixture(state.path()));
+        let database = state.path().join("connector.sqlite");
+        migrate_registry(&database).unwrap();
+        drop(AuthorityStore::open(state.path(), &database).unwrap());
+
+        let result = finalize_authority_split_with_hook(&database, &mut |point| {
+            if point == fault {
+                Err(ConnectError::RegistryMigration {
+                    path: database.clone(),
+                    version: LATEST_SCHEMA_VERSION,
+                    detail: format!("injected process death at {point}"),
+                })
+            } else {
+                Ok(())
+            }
+        });
+        assert!(result.is_err(), "fault {fault} must stop the first open");
+
+        drop(CollectionRegistry::open(state.path()).unwrap());
+        drop(CollectionRegistry::open(state.path()).unwrap());
+        assert_eq!(split_counts(state.path()), (1, 1, 1), "fault {fault}");
+        let connector = Connection::open(&database).unwrap();
+        let sensitive_tables: u32 = connector
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_schema
+                 WHERE type = 'table' AND name IN (
+                   'grants', 'grant_crypto_state', 'grant_crypto_requests',
+                   'mutation_journal', 'mutation_journal_tombstones',
+                   'revoked_grant_replay_material', 'legacy_encrypted_operation_receipts'
+                 )",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(sensitive_tables, 0, "fault {fault}");
+        assert_eq!(
+            connector
+                .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+                .unwrap(),
             LATEST_SCHEMA_VERSION,
             "fault {fault}"
         );
+        assert!(CollectionRegistry::registry_diagnostics(state.path())
+            .unwrap()
+            .backups
+            .iter()
+            .all(|backup| backup.valid));
     }
 }
 

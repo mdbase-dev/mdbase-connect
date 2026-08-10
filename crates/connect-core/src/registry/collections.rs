@@ -121,6 +121,7 @@ impl CollectionRegistry {
                 metadata.spec_version
             ],
         )?;
+        self.set_collection_access_overlay(id, true)?;
 
         self.providers
             .lock()
@@ -187,23 +188,11 @@ impl CollectionRegistry {
         let new_id = Uuid::new_v4();
         write_collection_id(&path, new_id)?;
         let result = (|| {
+            self.set_collection_access_overlay(id, false)?;
+            self.retire_collection_grants(id)?;
             let mut connection = self.connection()?;
             let transaction =
                 connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            transaction.execute(
-                "DELETE FROM grant_crypto_state
-                 WHERE grant_id IN (SELECT id FROM grants WHERE collection_id = ?1)",
-                [id.to_string()],
-            )?;
-            transaction.execute(
-                "DELETE FROM grant_crypto_requests
-                 WHERE grant_id IN (SELECT id FROM grants WHERE collection_id = ?1)",
-                [id.to_string()],
-            )?;
-            transaction.execute(
-                "DELETE FROM grants WHERE collection_id = ?1",
-                [id.to_string()],
-            )?;
             transaction.execute(
                 "DELETE FROM collection_changes WHERE collection_id = ?1",
                 [id.to_string()],
@@ -213,6 +202,7 @@ impl CollectionRegistry {
                 params![new_id.to_string(), id.to_string()],
             )?;
             transaction.commit()?;
+            self.set_collection_access_overlay(new_id, true)?;
             Ok::<(), ConnectError>(())
         })();
         if let Err(error) = result {
@@ -338,12 +328,18 @@ impl CollectionRegistry {
         } else {
             store.assert_not_transferring(id)?;
         }
+        if !enabled {
+            self.set_collection_access_overlay(id, false)?;
+        }
         let changed = self.connection()?.execute(
             "UPDATE collections SET enabled = ?2, updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
             params![id.to_string(), enabled],
         )?;
         if changed == 0 {
             return Err(ConnectError::CollectionNotFound(id));
+        }
+        if enabled {
+            self.set_collection_access_overlay(id, true)?;
         }
         self.get(id)
     }
@@ -378,6 +374,7 @@ impl CollectionRegistry {
     pub fn remove(&self, id: Uuid) -> Result<CollectionSummary, ConnectError> {
         let collection = self.get(id)?;
         crate::LocalSyncStore::for_registry(self).assert_not_transferring(id)?;
+        self.set_collection_access_overlay(id, false)?;
         self.connection()?
             .execute("DELETE FROM collections WHERE id = ?1", [id.to_string()])?;
         self.providers
@@ -385,5 +382,45 @@ impl CollectionRegistry {
             .map_err(|_| ConnectError::CollectionOpen("provider registry lock poisoned".into()))?
             .remove(&id);
         Ok(collection)
+    }
+
+    fn set_collection_access_overlay(
+        &self,
+        collection_id: Uuid,
+        enabled: bool,
+    ) -> Result<(), ConnectError> {
+        self.authority
+            .write(AuthorityWritePriority::Control, move |connection| {
+                connection.execute(
+                    "INSERT INTO collection_access_overlays
+                     (collection_id, enabled, updated_at_ms)
+                     VALUES (?1, ?2, CAST(unixepoch('subsec') * 1000 AS INTEGER))
+                     ON CONFLICT(collection_id) DO UPDATE SET enabled = excluded.enabled,
+                         updated_at_ms = excluded.updated_at_ms",
+                    params![collection_id.to_string(), enabled],
+                )?;
+                Ok(())
+            })
+    }
+
+    fn retire_collection_grants(&self, collection_id: Uuid) -> Result<(), ConnectError> {
+        self.authority
+            .write(AuthorityWritePriority::Control, move |connection| {
+                let transaction = connection.transaction()?;
+                let grant_ids = {
+                    let mut statement =
+                        transaction.prepare("SELECT id FROM grants WHERE collection_id = ?1")?;
+                    let rows = statement
+                        .query_map([collection_id.to_string()], |row| row.get::<_, String>(0))?
+                        .collect::<Result<Vec<_>, _>>()?;
+                    rows
+                };
+                for grant_id in grant_ids {
+                    super::grants::archive_grant_replay_material(&transaction, &grant_id)?;
+                    transaction.execute("DELETE FROM grants WHERE id = ?1", [grant_id])?;
+                }
+                transaction.commit()?;
+                Ok(())
+            })
     }
 }

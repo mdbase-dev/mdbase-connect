@@ -4,8 +4,9 @@ use crate::runtime_notifications::RuntimeTimerHandle;
 use crate::watcher::CollectionWatchService;
 use mdbase_connect_core::{
     configure_cloud, disconnect_cloud, encrypted_request_fingerprint, load_cloud_configuration,
-    CloudConfiguration, CollectionRegistry, ConnectError, EncryptedRequestClaim, LocalReplica,
-    MutationClaim, MutationClaimRequest, MutationJournalState, MutationLease,
+    CloudConfiguration, CollectionRegistry, ConnectError, EncryptedReplayClass,
+    EncryptedRequestClaim, LocalReplica, MutationClaim, MutationClaimRequest, MutationJournalState,
+    MutationLease,
 };
 use mdbase_connect_protocol::crypto::{
     parse_counter, validate_envelope, RelayBinding, RelayDirection, RelayIdentity, RelayKeys,

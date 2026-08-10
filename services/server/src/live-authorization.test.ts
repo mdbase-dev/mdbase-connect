@@ -152,7 +152,7 @@ describe("live connector-mediated authorization", () => {
       if (message.type === "operation_request") {
         socket.send(JSON.stringify({
           type: "operation_response",
-          protocol_version: 2,
+          protocol_version: 3,
           request_id: message.request_id,
           ok: true,
           result: { display_name: "Current notes" }
@@ -418,7 +418,7 @@ describe("live connector-mediated authorization", () => {
       code: "transport_protocol_incompatible",
       details: {
         contract: "operation_transport",
-        required: [2],
+        required: [3],
         supported: [1],
         peer: "connector"
       },

@@ -50,7 +50,7 @@ describe("encrypted relay client", () => {
     );
     expect(request).toMatchObject({
       type: "encrypted_operation_request",
-      protocol_version: 2,
+      protocol_version: 3,
       grant_id: ids.grant,
       application_id: ids.application,
       connector_id: ids.connector,

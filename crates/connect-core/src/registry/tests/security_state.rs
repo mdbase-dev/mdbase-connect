@@ -1,5 +1,24 @@
 use super::*;
 
+fn claim_read(
+    registry: &CollectionRegistry,
+    grant_id: Uuid,
+    key_id: &str,
+    counter: u64,
+    request_id: Uuid,
+    fingerprint: &str,
+) -> Result<EncryptedRequestClaim, ConnectError> {
+    registry.claim_encrypted_request(
+        grant_id,
+        key_id,
+        "read",
+        EncryptedReplayClass::Read,
+        counter,
+        request_id,
+        fingerprint,
+    )
+}
+
 #[test]
 fn policy_snapshot_replaces_previous_local_authority() {
     let state = tempdir().unwrap();
@@ -66,13 +85,21 @@ fn policy_snapshots_fail_closed_after_signed_authorization_tampering() {
 #[test]
 fn encrypted_replay_window_survives_restart_allows_reordering_and_serializes_duplicates() {
     let state = tempdir().unwrap();
-    let grant_id = Uuid::new_v4();
     let first_request = Uuid::new_v4();
     let registry = CollectionRegistry::open(state.path()).unwrap();
+    let grant = signed_test_grant(&registry, vec!["read".to_string()]);
+    let grant_id = grant.id;
+    registry.replace_grants(&[grant]).unwrap();
     assert_eq!(
-        registry
-            .claim_encrypted_request(grant_id, "key-1", 40, first_request, "fingerprint-1")
-            .unwrap(),
+        claim_read(
+            &registry,
+            grant_id,
+            "key-1",
+            40,
+            first_request,
+            "fingerprint-1"
+        )
+        .unwrap(),
         EncryptedRequestClaim::Fresh
     );
     registry
@@ -88,31 +115,54 @@ fn encrypted_replay_window_survives_restart_allows_reordering_and_serializes_dup
 
     let registry = CollectionRegistry::open(state.path()).unwrap();
     assert!(matches!(
-        registry.claim_encrypted_request(grant_id, "key-1", 40, Uuid::new_v4(), "fingerprint-2"),
+        claim_read(
+            &registry,
+            grant_id,
+            "key-1",
+            40,
+            Uuid::new_v4(),
+            "fingerprint-2"
+        ),
         Err(ConnectError::EncryptedRelayRejected)
     ));
     assert_eq!(
-        registry
-            .claim_encrypted_request(grant_id, "key-1", 40, first_request, "fingerprint-1")
-            .unwrap(),
-        EncryptedRequestClaim::Completed(r#"{"ciphertext":"response"}"#.to_string())
+        claim_read(
+            &registry,
+            grant_id,
+            "key-1",
+            40,
+            first_request,
+            "fingerprint-1"
+        )
+        .unwrap(),
+        EncryptedRequestClaim::FreshRequired
     );
     assert_eq!(
-        registry
-            .claim_encrypted_request(grant_id, "key-1", 41, first_request, "tampered")
-            .unwrap(),
+        claim_read(&registry, grant_id, "key-1", 41, first_request, "tampered").unwrap(),
         EncryptedRequestClaim::Conflict
     );
     assert_eq!(
-        registry
-            .claim_encrypted_request(grant_id, "key-1", 42, Uuid::new_v4(), "fingerprint-42")
-            .unwrap(),
+        claim_read(
+            &registry,
+            grant_id,
+            "key-1",
+            42,
+            Uuid::new_v4(),
+            "fingerprint-42"
+        )
+        .unwrap(),
         EncryptedRequestClaim::Fresh
     );
     assert_eq!(
-        registry
-            .claim_encrypted_request(grant_id, "key-1", 41, Uuid::new_v4(), "fingerprint-41")
-            .unwrap(),
+        claim_read(
+            &registry,
+            grant_id,
+            "key-1",
+            41,
+            Uuid::new_v4(),
+            "fingerprint-41"
+        )
+        .unwrap(),
         EncryptedRequestClaim::Fresh
     );
 
@@ -122,7 +172,8 @@ fn encrypted_replay_window_survives_restart_allows_reordering_and_serializes_dup
         .map(|_| {
             let registry = shared.clone();
             std::thread::spawn(move || {
-                registry.claim_encrypted_request(
+                claim_read(
+                    &registry,
                     grant_id,
                     "key-1",
                     43,
@@ -139,14 +190,26 @@ fn encrypted_replay_window_survives_restart_allows_reordering_and_serializes_dup
         .count();
     assert_eq!(accepted, 1);
     assert_eq!(
-        shared
-            .claim_encrypted_request(grant_id, "key-1", 2_000, Uuid::new_v4(), "fingerprint-2000")
-            .unwrap(),
+        claim_read(
+            &shared,
+            grant_id,
+            "key-1",
+            2_000,
+            Uuid::new_v4(),
+            "fingerprint-2000"
+        )
+        .unwrap(),
         EncryptedRequestClaim::Fresh
     );
-    assert!(shared
-        .claim_encrypted_request(grant_id, "key-1", 975, Uuid::new_v4(), "fingerprint-stale")
-        .is_err());
+    assert!(claim_read(
+        &shared,
+        grant_id,
+        "key-1",
+        975,
+        Uuid::new_v4(),
+        "fingerprint-stale"
+    )
+    .is_err());
 }
 
 #[test]
@@ -154,8 +217,11 @@ fn encrypted_replay_ledger_accepts_a_full_concurrent_request_burst() {
     const REQUESTS: usize = 32;
 
     let state = tempdir().unwrap();
-    let registry = Arc::new(CollectionRegistry::open(state.path()).unwrap());
-    let grant_id = Uuid::new_v4();
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let grant = signed_test_grant(&registry, vec!["read".to_string()]);
+    let grant_id = grant.id;
+    registry.replace_grants(&[grant]).unwrap();
+    let registry = Arc::new(registry);
     let barrier = Arc::new(Barrier::new(REQUESTS));
     let threads = (0..REQUESTS)
         .map(|index| {
@@ -166,16 +232,17 @@ fn encrypted_replay_ledger_accepts_a_full_concurrent_request_burst() {
                 let request_id = Uuid::new_v4();
                 let fingerprint = format!("fingerprint-{counter}");
                 barrier.wait();
-                let claim = registry.claim_encrypted_request(
+                let claim = claim_read(
+                    &registry,
                     grant_id,
-                    "burst-key",
+                    "key-1",
                     counter,
                     request_id,
                     &fingerprint,
                 )?;
                 registry.complete_encrypted_request(
                     grant_id,
-                    "burst-key",
+                    "key-1",
                     request_id,
                     &fingerprint,
                     r#"{"ciphertext":"response"}"#,
@@ -190,6 +257,129 @@ fn encrypted_replay_ledger_accepts_a_full_concurrent_request_burst() {
         .map(|thread| thread.join().unwrap().unwrap())
         .collect::<Vec<_>>();
     assert_eq!(claims, vec![EncryptedRequestClaim::Fresh; REQUESTS]);
+}
+
+#[test]
+fn policy_control_stays_bounded_during_maximum_size_read_completion_burst() {
+    const REQUESTS: usize = 48;
+
+    let state = tempdir().unwrap();
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let grant = signed_test_grant(&registry, vec!["read".to_string()]);
+    let grant_id = grant.id;
+    registry
+        .replace_grants(std::slice::from_ref(&grant))
+        .unwrap();
+    let registry = Arc::new(registry);
+    let barrier = Arc::new(Barrier::new(REQUESTS + 1));
+    let threads = (0..REQUESTS)
+        .map(|index| {
+            let registry = registry.clone();
+            let barrier = barrier.clone();
+            thread::spawn(move || {
+                let counter = u64::try_from(index + 1).unwrap();
+                let request_id = Uuid::new_v4();
+                let fingerprint = format!("large-read-{counter}");
+                barrier.wait();
+                let claim = claim_read(
+                    &registry,
+                    grant_id,
+                    "key-1",
+                    counter,
+                    request_id,
+                    &fingerprint,
+                )?;
+                registry.complete_encrypted_request(
+                    grant_id,
+                    "key-1",
+                    request_id,
+                    &fingerprint,
+                    &format!("{index:04}{}", "x".repeat(1024 * 1024)),
+                )?;
+                Ok::<_, ConnectError>(claim)
+            })
+        })
+        .collect::<Vec<_>>();
+
+    barrier.wait();
+    let started = std::time::Instant::now();
+    registry
+        .replace_grants_at_revision("stress-policy-revision", std::slice::from_ref(&grant))
+        .unwrap();
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(2),
+        "policy replacement took {:?}",
+        started.elapsed()
+    );
+    for thread in threads {
+        assert_eq!(
+            thread.join().unwrap().unwrap(),
+            EncryptedRequestClaim::Fresh
+        );
+    }
+
+    let authority = registry.authority.connection().unwrap();
+    let page_count: u64 = authority
+        .pragma_query_value(None, "page_count", |row| row.get(0))
+        .unwrap();
+    let page_size: u64 = authority
+        .pragma_query_value(None, "page_size", |row| row.get(0))
+        .unwrap();
+    assert!(page_count * page_size < 8 * 1024 * 1024);
+    assert_eq!(
+        authority
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('grant_crypto_requests')
+                 WHERE name = 'response_envelope'",
+                [],
+                |row| row.get::<_, u64>(0),
+            )
+            .unwrap(),
+        0
+    );
+}
+
+#[test]
+fn fresh_admission_rechecks_pause_collection_overlay_and_revocation() {
+    let state = tempdir().unwrap();
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let grant = signed_test_grant(&registry, vec!["read".to_string()]);
+    registry
+        .replace_grants(std::slice::from_ref(&grant))
+        .unwrap();
+
+    registry.set_paused(true).unwrap();
+    assert!(matches!(
+        claim_read(&registry, grant.id, "key-1", 1, Uuid::new_v4(), "paused"),
+        Err(ConnectError::AccessPaused)
+    ));
+    registry.set_paused(false).unwrap();
+    assert_eq!(
+        claim_read(&registry, grant.id, "key-1", 1, Uuid::new_v4(), "resumed").unwrap(),
+        EncryptedRequestClaim::Fresh
+    );
+
+    let collection_id = grant.collection_id;
+    registry
+        .authority
+        .write(AuthorityWritePriority::Control, move |connection| {
+            connection.execute(
+                "UPDATE collection_access_overlays SET enabled = 0 WHERE collection_id = ?1",
+                [collection_id.to_string()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    assert!(matches!(
+        claim_read(&registry, grant.id, "key-1", 2, Uuid::new_v4(), "disabled"),
+        Err(ConnectError::AccessDenied(_))
+    ));
+
+    registry.replace_grants(&[]).unwrap();
+    assert!(matches!(
+        claim_read(&registry, grant.id, "key-1", 2, Uuid::new_v4(), "revoked"),
+        Err(ConnectError::AccessDenied(_))
+    ));
 }
 
 #[test]
@@ -316,14 +506,21 @@ fn policy_rotation_retains_only_authenticated_historical_replay_material() {
     registry
         .replace_grants(std::slice::from_ref(&grant))
         .unwrap();
-    registry
-        .claim_encrypted_request(grant.id, "key-1", 7, Uuid::new_v4(), "fingerprint")
-        .unwrap();
+    claim_read(
+        &registry,
+        grant.id,
+        "key-1",
+        7,
+        Uuid::new_v4(),
+        "fingerprint",
+    )
+    .unwrap();
 
     registry
         .replace_grants(std::slice::from_ref(&grant))
         .unwrap();
     let preserved = registry
+        .authority
         .connection()
         .unwrap()
         .query_row(
@@ -340,6 +537,7 @@ fn policy_rotation_retains_only_authenticated_historical_replay_material() {
         .replace_grants(std::slice::from_ref(&grant))
         .unwrap();
     let obsolete = registry
+        .authority
         .connection()
         .unwrap()
         .query_row(
@@ -350,6 +548,7 @@ fn policy_rotation_retains_only_authenticated_historical_replay_material() {
         .unwrap();
     assert_eq!(obsolete, 1);
     let archived = registry
+        .authority
         .connection()
         .unwrap()
         .query_row(

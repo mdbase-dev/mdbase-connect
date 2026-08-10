@@ -170,7 +170,7 @@
       "required": ["type", "protocol_version", "request_id", "grant_id", "collection_id", "application_id", "operation", "input"],
       "properties": {
         "type": { "const": "operation_request" },
-        "protocol_version": { "const": 2 },
+        "protocol_version": { "const": 3 },
         "request_id": { "$ref": "#/$defs/uuid" },
         "grant_id": { "$ref": "#/$defs/uuid" },
         "collection_id": { "$ref": "#/$defs/uuid" },
@@ -184,7 +184,7 @@
       "additionalProperties": false,
       "required": ["protocol_version", "request_id", "input"],
       "properties": {
-        "protocol_version": { "const": 2 },
+        "protocol_version": { "const": 3 },
         "request_id": { "$ref": "#/$defs/uuid" },
         "input": true
       }
@@ -194,7 +194,7 @@
       "additionalProperties": false,
       "required": ["protocol_version", "request_id", "ok"],
       "properties": {
-        "protocol_version": { "const": 2 },
+        "protocol_version": { "const": 3 },
         "request_id": { "$ref": "#/$defs/uuid" },
         "ok": { "type": "boolean" },
         "result": true,
@@ -220,7 +220,7 @@
       "required": ["type", "protocol_version", "request_id", "ok"],
       "properties": {
         "type": { "const": "operation_response" },
-        "protocol_version": { "const": 2 },
+        "protocol_version": { "const": 3 },
         "request_id": { "$ref": "#/$defs/uuid" },
         "ok": { "type": "boolean" },
         "result": true,

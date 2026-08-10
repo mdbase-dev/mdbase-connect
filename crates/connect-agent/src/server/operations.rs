@@ -60,7 +60,7 @@ impl AgentState {
                         }),
                     });
                 }
-                match self.registry.replace_grants(&grants) {
+                match self.registry.replace_grants_at_revision(&revision, &grants) {
                     Ok(()) => {
                         tracing::debug!(grants = grants.len(), %revision, "relay policy snapshot applied");
                         Some(RelayMessage::PolicyApplied {
@@ -524,6 +524,12 @@ impl AgentState {
         match self.registry.claim_encrypted_request(
             context.id,
             &encryption.key_id,
+            &envelope.operation,
+            if mutation.is_some() {
+                EncryptedReplayClass::Mutation
+            } else {
+                EncryptedReplayClass::Read
+            },
             counter,
             envelope.request_id,
             &fingerprint,
@@ -557,6 +563,19 @@ impl AgentState {
                 return rejected();
             }
             Ok(EncryptedRequestClaim::InProgress) => {}
+            Ok(EncryptedRequestClaim::FreshRequired) if mutation.is_none() => {
+                return RelayMessage::EncryptedOperationRejected {
+                    protocol_version:
+                        mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
+                    request_id: envelope.request_id,
+                    problem: ConnectProblem::new(
+                        "fresh_request_required",
+                        "The previous read receipt is no longer available; retry with a fresh request ID and counter.",
+                    )
+                    .with_operation_outcome(ConnectOperationOutcome::NotSent),
+                }
+            }
+            Ok(EncryptedRequestClaim::FreshRequired) => return rejected(),
             Ok(EncryptedRequestClaim::Conflict) if mutation.is_some() => {
                 return encrypted_problem_response(
                     &keys,
@@ -572,6 +591,17 @@ impl AgentState {
             Ok(EncryptedRequestClaim::Conflict) => return rejected(),
             Err(ConnectError::EncryptedRelayRejected) => return rejected(),
             Err(error) => {
+                if matches!(error, ConnectError::AccessPaused | ConnectError::AccessDenied(_)) {
+                    let _ = self.registry.record_activity(
+                        context.application_id,
+                        &context.application_name,
+                        context.collection_id,
+                        &context.collection_name,
+                        &envelope.operation,
+                        "denied",
+                        Some(&error.to_string()),
+                    );
+                }
                 return encrypted_problem_response(
                     &keys,
                     metadata,
@@ -773,12 +803,7 @@ impl AgentState {
         revoked: bool,
     ) -> RelayMessage {
         if recovery.state == MutationJournalState::Applied {
-            let Some(receipt) = recovery
-                .result_metadata
-                .as_ref()
-                .and_then(|value| value.get("response_envelope"))
-                .and_then(serde_json::Value::as_str)
-            else {
+            let Some(result_metadata) = recovery.result_metadata.as_ref() else {
                 return mark_owned_mutation_unknown(
                     &self.registry,
                     keys,
@@ -787,14 +812,26 @@ impl AgentState {
                     "Applied mutation evidence has no recoverable encrypted receipt.",
                 );
             };
+            let Ok(Some(receipt)) = self
+                .registry
+                .mutation_response_from_metadata(result_metadata)
+            else {
+                return mark_owned_mutation_unknown(
+                    &self.registry,
+                    keys,
+                    metadata,
+                    &lease,
+                    "Applied mutation evidence references an unavailable encrypted receipt.",
+                );
+            };
             if self
                 .registry
-                .complete_mutation(&lease, receipt, recovery.result_metadata.as_ref())
+                .complete_mutation(&lease, &receipt, recovery.result_metadata.as_ref())
                 .is_err()
             {
                 return pending_mutation_response(keys, metadata);
             }
-            return serialized_encrypted_response(receipt, metadata.request_id);
+            return serialized_encrypted_response(&receipt, metadata.request_id);
         }
 
         let before = match local_mutation_evidence(&self.registry, context.collection_id, operation)
@@ -895,7 +932,10 @@ impl AgentState {
         let Some((message, serialized)) = encrypted_response(keys, metadata, &body) else {
             return encrypted_rejection(metadata.request_id);
         };
-        let result_metadata = serde_json::json!({ "response_envelope": serialized });
+        let result_metadata = match self.registry.externalize_mutation_response(&serialized) {
+            Ok(metadata) => metadata,
+            Err(_) => return pending_mutation_response(keys, metadata),
+        };
         if succeeded {
             let after =
                 match local_mutation_evidence(&self.registry, context.collection_id, operation) {

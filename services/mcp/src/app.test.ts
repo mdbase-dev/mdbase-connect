@@ -117,7 +117,7 @@ describe("mdbase MCP gateway", () => {
       application_declaration_id: "dev.mdbase.mcp",
       flow: "authorization_code",
       contracts: {
-        operation_transport: 2,
+        operation_transport: 3,
         authorization_binding: 4,
         semantic_capabilities: 1,
         durable_mutation: 1

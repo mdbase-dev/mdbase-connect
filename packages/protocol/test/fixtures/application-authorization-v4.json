@@ -36,12 +36,12 @@
     },
     "collection_id": "01955555-5555-7555-8555-555555555555",
     "contracts": {
-      "operation_transport": 2,
+      "operation_transport": 3,
       "authorization_binding": 4,
       "semantic_capabilities": 1
     }
   },
   "installation_signing_private_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM",
-  "signature": "kx4qYr0Y5kk9N7ySEsLnAgk-_Cwu_QFv54Pz62VdiJ4IIhVeN8Im-HfrUGPZrUF7qnYQR7nAkiyHgjBmFAAfeA",
-  "signing_message_sha256": "5e9631f4c00c6f1b1d05b1ef36437362a46ffbda0842ab3f51c77542d5ecfdf0"
+  "signature": "efvaJ0nf4zl7DHY_fNuRwgcibYaGyxehSCXDz67S3CYZYB8lQUmUzUgT3-r2qP63D7LEYkhiRsARwbulXcLhjg",
+  "signing_message_sha256": "03dc3fd40272c18927c668ed9ddb506a75a2e19dc5f620f72817ab1c02d0df10"
 }

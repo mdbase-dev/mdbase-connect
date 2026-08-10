@@ -3,7 +3,7 @@ use crate::{ConnectOperationOutcome, ConnectProblem};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const OPERATION_TRANSPORT_PROTOCOL_VERSION: u32 = 2;
+pub const OPERATION_TRANSPORT_PROTOCOL_VERSION: u32 = 3;
 pub const AUTHORIZATION_BINDING_PROTOCOL_VERSION: u32 = 4;
 pub const SEMANTIC_CAPABILITY_CONTRACT_VERSION: u32 = 1;
 pub const DURABLE_MUTATION_CONTRACT_VERSION: u32 = 1;

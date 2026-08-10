@@ -17,7 +17,7 @@ import { hostname } from "node:os";
 import { promisify } from "node:util";
 import { ensureAgentReady, type AgentPing } from "./agent-startup";
 import { AgentControlError, requestAgent } from "./control-client";
-import { routeForDeepLink } from "./deep-link";
+import { routeForDeepLink, shouldRegisterDeepLinks } from "./deep-link";
 import { buildEditorUrl } from "./editor-url";
 import { ElectronUpdateBackend } from "./electron-update-backend";
 import { selectiveSyncPolicy } from "./selective-sync-input";
@@ -750,6 +750,7 @@ function restartApplication(delay = 250): void {
 }
 
 function registerDeepLinks(): void {
+  if (!shouldRegisterDeepLinks()) return;
   if (process.defaultApp && process.argv[1]) {
     app.setAsDefaultProtocolClient("mdbase-connect", process.execPath, [resolve(process.argv[1])]);
   } else {

@@ -1,6 +1,6 @@
 {
   "name": "mdbase-connect",
-  "version": "0.1.0-beta.55",
+  "version": "0.1.0-beta.56",
   "private": true,
   "packageManager": "pnpm@11.15.1",
   "engines": {
@@ -26,6 +26,7 @@
     "dev:environment:logs": "node scripts/dev-environment.mjs logs",
     "dev:desktop:isolated": "node scripts/isolated-desktop.mjs",
     "dev:desktop:fresh": "node scripts/isolated-desktop.mjs --fresh",
+    "dev:desktop:staging": "node scripts/isolated-desktop.mjs --staging",
     "deploy:dev": "node scripts/deploy-editor-dev.mjs",
     "e2e": "node test/system/run.mjs --suite local",
     "e2e:container": "node test/system/run.mjs --suite container",

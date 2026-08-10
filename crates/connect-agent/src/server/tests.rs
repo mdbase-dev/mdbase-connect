@@ -468,9 +468,7 @@ fn encrypted_operations_round_trip_and_replays_return_the_durable_receipt() {
             &busy_envelope.ciphertext,
         )
         .unwrap();
-    assert_eq!(busy_body["ok"], false);
-    assert_eq!(busy_body["problem"]["code"], "registry_busy");
-    assert_eq!(busy_body["problem"]["operation_outcome"], "not_sent");
+    assert_eq!(busy_body["ok"], true);
     database.execute_batch("ROLLBACK").unwrap();
 
     fs::remove_dir_all(test_root).unwrap();
@@ -547,7 +545,7 @@ fn incompatible_authenticated_mutation_fails_before_replay_or_collection_write()
             ..ConnectContractRequirements::current(true)
         }),
     );
-    let database = rusqlite::Connection::open(state_dir.join("connector.sqlite")).unwrap();
+    let database = rusqlite::Connection::open(state_dir.join("authority.sqlite")).unwrap();
     database
         .execute(
             "UPDATE grants SET application_authorization = ?1 WHERE id = ?2",

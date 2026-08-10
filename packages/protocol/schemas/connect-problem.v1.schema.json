@@ -1259,6 +1259,46 @@
           "const": 1
         },
         "code": {
+          "const": "connector_busy"
+        },
+        "category": {
+          "const": "availability"
+        },
+        "recovery": {
+          "const": "retry"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
           "const": "connector_identity_changed"
         },
         "category": {
@@ -1947,6 +1987,46 @@
         },
         "category": {
           "const": "conflict"
+        },
+        "recovery": {
+          "const": "retry"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "fresh_request_required"
+        },
+        "category": {
+          "const": "availability"
         },
         "recovery": {
           "const": "retry"

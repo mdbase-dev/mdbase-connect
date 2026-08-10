@@ -2,9 +2,23 @@ use super::*;
 
 impl CollectionRegistry {
     pub fn replace_grants(&self, grants: &[GrantPolicy]) -> Result<(), ConnectError> {
+        let digest = Sha256::digest(serde_json::to_vec(grants)?)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        self.replace_grants_at_revision(&format!("local:{digest}"), grants)
+    }
+
+    pub fn replace_grants_at_revision(
+        &self,
+        revision: &str,
+        grants: &[GrantPolicy],
+    ) -> Result<(), ConnectError> {
         for grant in grants {
             validate_grant_application_authorization(grant)?;
         }
+        let revision = revision.to_string();
+        let grants = grants.to_vec();
         let active_crypto_keys = grants
             .iter()
             .filter_map(|grant| {
@@ -14,131 +28,143 @@ impl CollectionRegistry {
                     .map(|encryption| (grant.id.to_string(), encryption.key_id.clone()))
             })
             .collect::<BTreeSet<_>>();
-        let mut connection = self.connection()?;
-        let transaction = connection.transaction()?;
-        let stored_crypto_keys = {
-            let mut statement = transaction.prepare(
-                "SELECT id, json_extract(encryption, '$.key_id')
-                 FROM grants WHERE encryption IS NOT NULL",
-            )?;
-            let rows = statement
-                .query_map([], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                })?
-                .collect::<Result<Vec<_>, _>>()?;
-            rows
-        };
-        for (grant_id, key_id) in stored_crypto_keys {
-            if !active_crypto_keys.contains(&(grant_id.clone(), key_id)) {
-                archive_grant_replay_material(&transaction, &grant_id)?;
-            }
-        }
-        transaction.execute("DELETE FROM grants", [])?;
-        {
-            let mut statement = transaction.prepare(
-                "INSERT INTO grants
-                   (id, application_id, collection_id, operations, scope, application_name,
-                    application_distribution, application_homepage, application_project_url,
-                    application_origin, application_icon, collection_name, created_at, encryption,
-                    file_capability, notification_criteria, application_authorization)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
-            )?;
-            for grant in grants {
-                statement.execute(params![
-                    grant.id.to_string(),
-                    grant.application_id.to_string(),
-                    grant.collection_id.to_string(),
-                    serde_json::to_string(&grant.operations)?,
-                    serde_json::to_string(&grant.scope)?,
-                    grant.application_name,
-                    grant.application_distribution,
-                    grant.application_homepage,
-                    grant.application_project_url,
-                    grant.application_origin,
-                    grant.application_icon,
-                    grant.collection_name,
-                    grant.created_at,
-                    grant
-                        .encryption
-                        .as_ref()
-                        .map(serde_json::to_string)
-                        .transpose()?,
-                    grant
-                        .file_capability
-                        .as_ref()
-                        .map(serde_json::to_string)
-                        .transpose()?,
-                    serde_json::to_string(&grant.notification_criteria)?,
-                    serde_json::to_string(&grant.application_authorization)?,
-                ])?;
-            }
-        }
-        transaction.commit()?;
-        Ok(())
+        self.authority
+            .write(AuthorityWritePriority::Control, move |connection| {
+                let transaction = connection.transaction()?;
+                let stored_crypto_keys = {
+                    let mut statement = transaction.prepare(
+                        "SELECT id, json_extract(encryption, '$.key_id')
+                         FROM grants WHERE encryption IS NOT NULL",
+                    )?;
+                    let rows = statement
+                        .query_map([], |row| {
+                            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                        })?
+                        .collect::<Result<Vec<_>, _>>()?;
+                    rows
+                };
+                for (grant_id, key_id) in stored_crypto_keys {
+                    if !active_crypto_keys.contains(&(grant_id.clone(), key_id)) {
+                        archive_grant_replay_material(&transaction, &grant_id)?;
+                    }
+                }
+                transaction.execute("DELETE FROM grants", [])?;
+                {
+                    let mut statement = transaction.prepare(
+                        "INSERT INTO grants
+                           (id, application_id, collection_id, operations, scope, application_name,
+                            application_distribution, application_homepage, application_project_url,
+                            application_origin, application_icon, collection_name, created_at, encryption,
+                            file_capability, notification_criteria, application_authorization)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                    )?;
+                    for grant in &grants {
+                        statement.execute(params![
+                            grant.id.to_string(),
+                            grant.application_id.to_string(),
+                            grant.collection_id.to_string(),
+                            serde_json::to_string(&grant.operations)?,
+                            serde_json::to_string(&grant.scope)?,
+                            grant.application_name,
+                            grant.application_distribution,
+                            grant.application_homepage,
+                            grant.application_project_url,
+                            grant.application_origin,
+                            grant.application_icon,
+                            grant.collection_name,
+                            grant.created_at,
+                            grant
+                                .encryption
+                                .as_ref()
+                                .map(serde_json::to_string)
+                                .transpose()?,
+                            grant
+                                .file_capability
+                                .as_ref()
+                                .map(serde_json::to_string)
+                                .transpose()?,
+                            serde_json::to_string(&grant.notification_criteria)?,
+                            serde_json::to_string(&grant.application_authorization)?,
+                        ])?;
+                    }
+                }
+                transaction.execute(
+                    "UPDATE policy_state
+                     SET revision = ?1, epoch = epoch + 1,
+                         applied_at_ms = CAST(unixepoch('subsec') * 1000 AS INTEGER)
+                     WHERE singleton = 1",
+                    [revision],
+                )?;
+                transaction.commit()?;
+                Ok(())
+            })
     }
 
     pub fn upsert_grant(&self, grant: &GrantPolicy) -> Result<(), ConnectError> {
-        let connection = self.connection()?;
         validate_grant_application_authorization(grant)?;
-        archive_grant_replay_material(&connection, &grant.id.to_string())?;
-        connection.execute(
-            "INSERT INTO grants
-               (id, application_id, collection_id, operations, scope, application_name,
-                application_distribution, application_homepage, application_project_url,
-                application_origin, application_icon, collection_name, created_at, encryption,
-                file_capability, notification_criteria, application_authorization)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
-             ON CONFLICT(id) DO UPDATE SET
-               application_id = excluded.application_id,
-               collection_id = excluded.collection_id,
-               operations = excluded.operations,
-               scope = excluded.scope,
-               application_name = excluded.application_name,
-               application_distribution = excluded.application_distribution,
-               application_homepage = excluded.application_homepage,
-               application_project_url = excluded.application_project_url,
-               application_origin = excluded.application_origin,
-               application_icon = excluded.application_icon,
-               collection_name = excluded.collection_name,
-               created_at = excluded.created_at,
-               encryption = excluded.encryption,
-               file_capability = excluded.file_capability,
-               notification_criteria = excluded.notification_criteria,
-               application_authorization = excluded.application_authorization,
-               updated_at = CURRENT_TIMESTAMP",
-            params![
-                grant.id.to_string(),
-                grant.application_id.to_string(),
-                grant.collection_id.to_string(),
-                serde_json::to_string(&grant.operations)?,
-                serde_json::to_string(&grant.scope)?,
-                grant.application_name,
-                grant.application_distribution,
-                grant.application_homepage,
-                grant.application_project_url,
-                grant.application_origin,
-                grant.application_icon,
-                grant.collection_name,
-                grant.created_at,
-                grant
-                    .encryption
-                    .as_ref()
-                    .map(serde_json::to_string)
-                    .transpose()?,
-                grant
-                    .file_capability
-                    .as_ref()
-                    .map(serde_json::to_string)
-                    .transpose()?,
-                serde_json::to_string(&grant.notification_criteria)?,
-                serde_json::to_string(&grant.application_authorization)?,
-            ],
-        )?;
-        Ok(())
+        let grant = grant.clone();
+        self.authority
+            .write(AuthorityWritePriority::Control, move |connection| {
+                archive_grant_replay_material(connection, &grant.id.to_string())?;
+                connection.execute(
+                    "INSERT INTO grants
+                       (id, application_id, collection_id, operations, scope, application_name,
+                        application_distribution, application_homepage, application_project_url,
+                        application_origin, application_icon, collection_name, created_at, encryption,
+                        file_capability, notification_criteria, application_authorization)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+                     ON CONFLICT(id) DO UPDATE SET
+                       application_id = excluded.application_id,
+                       collection_id = excluded.collection_id,
+                       operations = excluded.operations,
+                       scope = excluded.scope,
+                       application_name = excluded.application_name,
+                       application_distribution = excluded.application_distribution,
+                       application_homepage = excluded.application_homepage,
+                       application_project_url = excluded.application_project_url,
+                       application_origin = excluded.application_origin,
+                       application_icon = excluded.application_icon,
+                       collection_name = excluded.collection_name,
+                       created_at = excluded.created_at,
+                       encryption = excluded.encryption,
+                       file_capability = excluded.file_capability,
+                       notification_criteria = excluded.notification_criteria,
+                       application_authorization = excluded.application_authorization,
+                       updated_at = CURRENT_TIMESTAMP",
+                    params![
+                        grant.id.to_string(),
+                        grant.application_id.to_string(),
+                        grant.collection_id.to_string(),
+                        serde_json::to_string(&grant.operations)?,
+                        serde_json::to_string(&grant.scope)?,
+                        grant.application_name,
+                        grant.application_distribution,
+                        grant.application_homepage,
+                        grant.application_project_url,
+                        grant.application_origin,
+                        grant.application_icon,
+                        grant.collection_name,
+                        grant.created_at,
+                        grant
+                            .encryption
+                            .as_ref()
+                            .map(serde_json::to_string)
+                            .transpose()?,
+                        grant
+                            .file_capability
+                            .as_ref()
+                            .map(serde_json::to_string)
+                            .transpose()?,
+                        serde_json::to_string(&grant.notification_criteria)?,
+                        serde_json::to_string(&grant.application_authorization)?,
+                    ],
+                )?;
+                Ok(())
+            })
     }
 
     pub fn list_grants(&self) -> Result<Vec<GrantSummary>, ConnectError> {
-        let connection = self.connection()?;
+        let connection = self.authority.connection()?;
         let mut statement = connection.prepare(
             "SELECT id, application_id, application_name, application_distribution,
                     application_homepage, application_project_url, application_origin,
@@ -235,6 +261,7 @@ impl CollectionRegistry {
         grant_id: Uuid,
     ) -> Result<Option<(Uuid, String)>, ConnectError> {
         let authorization = self
+            .authority
             .connection()?
             .query_row(
                 "SELECT application_authorization FROM grants WHERE id = ?1",
@@ -282,6 +309,7 @@ impl CollectionRegistry {
         }
 
         let row = self
+            .authority
             .connection()?
             .query_row(
                 "SELECT application_id, application_name, application_distribution,
@@ -379,6 +407,7 @@ impl CollectionRegistry {
 
     pub fn replay_origin_allowed(&self, origin: &str) -> Result<bool, ConnectError> {
         Ok(self
+            .authority
             .connection()?
             .query_row(
                 "SELECT 1 FROM revoked_grant_replay_material
@@ -398,6 +427,7 @@ impl CollectionRegistry {
         operation: &str,
     ) -> Result<bool, ConnectError> {
         let operations = self
+            .authority
             .connection()?
             .query_row(
                 "SELECT operations FROM grants
@@ -434,7 +464,7 @@ fn invalid_grant_security(message: impl Into<String>) -> ConnectError {
     ))
 }
 
-fn archive_grant_replay_material(
+pub(super) fn archive_grant_replay_material(
     connection: &Connection,
     grant_id: &str,
 ) -> Result<(), ConnectError> {

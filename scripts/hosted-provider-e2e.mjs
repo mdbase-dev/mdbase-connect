@@ -35,6 +35,7 @@ import {
 process.env.NODE_ENV = "test";
 const execute = promisify(execFile);
 const repoRoot = resolve(import.meta.dirname, "..");
+const CONNECT_COMMAND_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 const operationCatalog = JSON.parse(await readFile(
   join(repoRoot, "packages", "protocol", "schemas", "operation-catalog.v1.json"),
   "utf8"
@@ -4080,7 +4081,11 @@ async function connectCommand(profile, command) {
   const { stdout } = await execute(
     connectBinary,
     connectArguments(profile, ["--json", ...command]),
-    { cwd: repoRoot, env: connectEnvironment() }
+    {
+      cwd: repoRoot,
+      env: connectEnvironment(),
+      maxBuffer: CONNECT_COMMAND_MAX_OUTPUT_BYTES
+    }
   );
   return JSON.parse(stdout);
 }

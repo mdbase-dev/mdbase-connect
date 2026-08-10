@@ -156,6 +156,7 @@
       }
     },
     "concurrent_modification": { "category": "conflict", "recovery": "refresh" },
+    "connector_busy": { "category": "availability", "recovery": "retry" },
     "connector_identity_changed": { "category": "integrity", "recovery": "reauthorize" },
     "connector_offline": {
       "category": "availability",
@@ -195,6 +196,7 @@
     "file_not_found": { "category": "conflict", "recovery": "refresh" },
     "file_source_mismatch": { "category": "conflict", "recovery": "refresh" },
     "file_upload_incomplete": { "category": "conflict", "recovery": "retry" },
+    "fresh_request_required": { "category": "availability", "recovery": "retry" },
     "hosted_provider_unavailable": { "category": "availability", "recovery": "retry" },
     "insufficient_access": {
       "category": "authorization",

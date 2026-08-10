@@ -104,7 +104,7 @@ fn assert_schema(reference: &str, value: Value) {
 
 fn assert_encrypted_schema(value: Value) {
     let schema: Value = serde_json::from_str(include_str!(
-        "../../../packages/protocol/schemas/encrypted-relay.v2.schema.json"
+        "../../../packages/protocol/schemas/encrypted-relay.v3.schema.json"
     ))
     .unwrap();
     let validator = jsonschema::JSONSchema::options()

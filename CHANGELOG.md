@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.0-beta.56
+
+Beta.56 isolates local authorization from application data-plane load and
+introduces the coordinated transport-v3 replay contract.
+
+- Policy, grants, admission counters, and mutation recovery move to a bounded
+  single-writer `authority.sqlite` store.
+- Exact mutation responses use immutable, content-addressed receipt files;
+  ordinary read responses remain only in a byte-, count-, and age-bounded cache.
+- SDK reads retry once with a fresh encrypted request after route uncertainty or
+  cache loss, while mutations retain their exact recoverable envelope.
+- Relay policy installation is ordered off the socket loop with bounded queues,
+  reserved control capacity, and typed overload responses.
+
 ## 0.1.0-beta.55
 
 Beta.55 hardens portal authorization startup, hosted record mutations, and

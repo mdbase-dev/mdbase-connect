@@ -116,18 +116,19 @@ pub(super) fn encrypted_problem_response(
 }
 
 pub(super) fn pending_mutation_response(
-    keys: &RelayKeys,
+    _keys: &RelayKeys,
     metadata: RelayMetadata<'_>,
 ) -> RelayMessage {
-    encrypted_problem_response(
-        keys,
-        metadata,
-        ConnectProblem::new(
+    RelayMessage::EncryptedOperationRejected {
+        protocol_version: mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
+        request_id: metadata.request_id,
+        problem: ConnectProblem::new(
             "pending_mutation_unresolved",
             "The authority accepted this mutation and is still recovering its durable receipt.",
         )
-        .with_details(serde_json::json!({ "request_id": metadata.request_id })),
-    )
+        .with_details(serde_json::json!({ "request_id": metadata.request_id }))
+        .with_operation_outcome(ConnectOperationOutcome::Unknown),
+    }
 }
 
 pub(super) fn serialized_encrypted_response(

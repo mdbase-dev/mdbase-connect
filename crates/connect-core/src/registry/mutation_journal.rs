@@ -166,167 +166,178 @@ impl CollectionRegistry {
             .unwrap_or(i64::MAX)
             .min(MAX_LEASE_MS);
         let now = now_ms();
-        let _write_guard = self
-            .encrypted_request_writes
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let mut connection = self.connection()?;
-        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let request = request.clone();
+        let process_epoch = self.process_epoch;
+        let claim = self.authority.write(
+            AuthorityWritePriority::Recovery,
+            move |connection| {
+                let transaction =
+                    connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
 
-        if let Some((operation, schema, digest)) = transaction
-            .query_row(
-                "SELECT operation_kind, input_schema_version, input_digest
-                 FROM mutation_journal_tombstones
-                 WHERE application_installation_id = ?1 AND grant_id = ?2 AND request_id = ?3",
-                identity_params(request),
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, u32>(1)?,
-                        row.get::<_, String>(2)?,
-                    ))
-                },
-            )
-            .optional()?
-        {
-            if operation != request.operation_kind
-                || schema != request.input_schema_version
-                || digest != request.input_digest
-            {
-                return Err(ConnectError::MutationRequestConflict {
-                    request_id: request.request_id,
-                });
-            }
-            return Err(ConnectError::MutationRecoveryExpired {
-                request_id: request.request_id,
-            });
-        }
+                if let Some((operation, schema, digest)) = transaction
+                    .query_row(
+                        "SELECT operation_kind, input_schema_version, input_digest
+                         FROM mutation_journal_tombstones
+                         WHERE application_installation_id = ?1 AND grant_id = ?2 AND request_id = ?3",
+                        identity_params(&request),
+                        |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, u32>(1)?,
+                                row.get::<_, String>(2)?,
+                            ))
+                        },
+                    )
+                    .optional()?
+                {
+                    if operation != request.operation_kind
+                        || schema != request.input_schema_version
+                        || digest != request.input_digest
+                    {
+                        return Err(ConnectError::MutationRequestConflict {
+                            request_id: request.request_id,
+                        });
+                    }
+                    return Err(ConnectError::MutationRecoveryExpired {
+                        request_id: request.request_id,
+                    });
+                }
 
-        let existing = load_mutation(&transaction, request)?;
-        if let Some(existing) = existing {
-            if existing.operation_kind != request.operation_kind
-                || existing.input_schema_version != request.input_schema_version
-                || existing.input_digest != request.input_digest
-            {
-                return Err(ConnectError::MutationRequestConflict {
-                    request_id: request.request_id,
-                });
-            }
-            if existing.state.is_terminal() {
-                let receipt =
-                    existing
-                        .final_receipt
-                        .ok_or_else(|| ConnectError::RegistryCorrupt {
-                            path: self.db_path.clone(),
-                            detail: "terminal mutation journal row has no receipt".to_string(),
+                let existing = load_mutation(&transaction, &request)?;
+                if let Some(existing) = existing {
+                    if existing.operation_kind != request.operation_kind
+                        || existing.input_schema_version != request.input_schema_version
+                        || existing.input_digest != request.input_digest
+                    {
+                        return Err(ConnectError::MutationRequestConflict {
+                            request_id: request.request_id,
+                        });
+                    }
+                    if existing.state.is_terminal() {
+                        let receipt = existing.final_receipt.ok_or_else(|| {
+                            ConnectError::RegistryCorrupt {
+                                path: PathBuf::from("authority.sqlite"),
+                                detail: "terminal mutation journal row has no receipt".to_string(),
+                            }
                         })?;
+                        transaction.commit()?;
+                        return Ok(MutationClaim::Terminal {
+                            state: existing.state,
+                            receipt,
+                        });
+                    }
+
+                    let lease_is_live = existing.process_epoch == process_epoch
+                        && existing.lease_expires_at_ms > now
+                        && existing.lease_expires_at_ms <= now.saturating_add(MAX_LEASE_MS);
+                    if lease_is_live {
+                        let retry_after_ms = existing.lease_expires_at_ms.saturating_sub(now) as u64;
+                        transaction.commit()?;
+                        return Ok(MutationClaim::Live {
+                            fencing_generation: existing.fencing_generation,
+                            retry_after_ms,
+                        });
+                    }
+
+                    let owner = Uuid::new_v4();
+                    let generation = existing.fencing_generation.saturating_add(1);
+                    let updated = transaction.execute(
+                        "UPDATE mutation_journal
+                         SET process_epoch = ?4, lease_owner = ?5, lease_expires_at_ms = ?6,
+                             fencing_generation = ?7, updated_at_ms = ?8
+                         WHERE application_installation_id = ?1 AND grant_id = ?2 AND request_id = ?3
+                           AND input_digest = ?9 AND fencing_generation = ?10
+                           AND state IN ('claimed', 'prepared', 'applied')",
+                        params![
+                            request.application_installation_id.to_string(),
+                            request.grant_id.to_string(),
+                            request.request_id.to_string(),
+                            process_epoch.to_string(),
+                            owner.to_string(),
+                            now.saturating_add(lease_ms),
+                            generation,
+                            now,
+                            request.input_digest,
+                            existing.fencing_generation,
+                        ],
+                    )?;
+                    if updated != 1 {
+                        return Err(ConnectError::MutationFenceLost {
+                            request_id: request.request_id,
+                        });
+                    }
+                    transaction.commit()?;
+                    return Ok(MutationClaim::Owned {
+                        lease: MutationLease {
+                            application_installation_id: request.application_installation_id,
+                            grant_id: request.grant_id,
+                            request_id: request.request_id,
+                            input_digest: request.input_digest.clone(),
+                            owner,
+                            process_epoch,
+                            fencing_generation: generation,
+                        },
+                        recovery: Box::new(recovery_data(existing)?),
+                    });
+                }
+
+                let owner = Uuid::new_v4();
+                if !request.allow_new
+                    || !fresh_mutation_still_authorized(&transaction, &request)?
+                {
+                    return Err(ConnectError::AccessDenied(
+                        "The grant was revoked before this mutation was accepted.".to_string(),
+                    ));
+                }
+                transaction.execute(
+                    "INSERT INTO mutation_journal (
+                        application_installation_id, grant_id, request_id, operation_kind,
+                        input_schema_version, input_digest, state, process_epoch, lease_owner,
+                        lease_expires_at_ms, fencing_generation, grant_snapshot_digest,
+                        accepted_at_ms, updated_at_ms
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'claimed', ?7, ?8, ?9, 1, ?10, ?11, ?11)",
+                    params![
+                        request.application_installation_id.to_string(),
+                        request.grant_id.to_string(),
+                        request.request_id.to_string(),
+                        request.operation_kind,
+                        request.input_schema_version,
+                        request.input_digest,
+                        process_epoch.to_string(),
+                        owner.to_string(),
+                        now.saturating_add(lease_ms),
+                        request.grant_snapshot_digest,
+                        now,
+                    ],
+                )?;
                 transaction.commit()?;
-                return Ok(MutationClaim::Terminal {
-                    state: existing.state,
-                    receipt,
-                });
-            }
-
-            let lease_is_live = existing.process_epoch == self.process_epoch
-                && existing.lease_expires_at_ms > now
-                && existing.lease_expires_at_ms <= now.saturating_add(MAX_LEASE_MS);
-            if lease_is_live {
-                let retry_after_ms = existing.lease_expires_at_ms.saturating_sub(now) as u64;
-                transaction.commit()?;
-                return Ok(MutationClaim::Live {
-                    fencing_generation: existing.fencing_generation,
-                    retry_after_ms,
-                });
-            }
-
-            let owner = Uuid::new_v4();
-            let generation = existing.fencing_generation.saturating_add(1);
-            let updated = transaction.execute(
-                "UPDATE mutation_journal
-                 SET process_epoch = ?4, lease_owner = ?5, lease_expires_at_ms = ?6,
-                     fencing_generation = ?7, updated_at_ms = ?8
-                 WHERE application_installation_id = ?1 AND grant_id = ?2 AND request_id = ?3
-                   AND input_digest = ?9 AND fencing_generation = ?10
-                   AND state IN ('claimed', 'prepared', 'applied')",
-                params![
-                    request.application_installation_id.to_string(),
-                    request.grant_id.to_string(),
-                    request.request_id.to_string(),
-                    self.process_epoch.to_string(),
-                    owner.to_string(),
-                    now.saturating_add(lease_ms),
-                    generation,
-                    now,
-                    request.input_digest,
-                    existing.fencing_generation,
-                ],
-            )?;
-            if updated != 1 {
-                return Err(ConnectError::MutationFenceLost {
-                    request_id: request.request_id,
-                });
-            }
-            transaction.commit()?;
-            return Ok(MutationClaim::Owned {
-                lease: MutationLease {
-                    application_installation_id: request.application_installation_id,
-                    grant_id: request.grant_id,
-                    request_id: request.request_id,
-                    input_digest: request.input_digest.clone(),
-                    owner,
-                    process_epoch: self.process_epoch,
-                    fencing_generation: generation,
-                },
-                recovery: Box::new(recovery_data(existing)?),
-            });
-        }
-
-        let owner = Uuid::new_v4();
-        if !request.allow_new {
-            return Err(ConnectError::AccessDenied(
-                "The grant was revoked before this mutation was accepted.".to_string(),
-            ));
-        }
-        transaction.execute(
-            "INSERT INTO mutation_journal (
-                application_installation_id, grant_id, request_id, operation_kind,
-                input_schema_version, input_digest, state, process_epoch, lease_owner,
-                lease_expires_at_ms, fencing_generation, grant_snapshot_digest,
-                accepted_at_ms, updated_at_ms
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'claimed', ?7, ?8, ?9, 1, ?10, ?11, ?11)",
-            params![
-                request.application_installation_id.to_string(),
-                request.grant_id.to_string(),
-                request.request_id.to_string(),
-                request.operation_kind,
-                request.input_schema_version,
-                request.input_digest,
-                self.process_epoch.to_string(),
-                owner.to_string(),
-                now.saturating_add(lease_ms),
-                request.grant_snapshot_digest,
-                now,
-            ],
-        )?;
-        transaction.commit()?;
-        Ok(MutationClaim::Owned {
-            lease: MutationLease {
-                application_installation_id: request.application_installation_id,
-                grant_id: request.grant_id,
-                request_id: request.request_id,
-                input_digest: request.input_digest.clone(),
-                owner,
-                process_epoch: self.process_epoch,
-                fencing_generation: 1,
+                Ok(MutationClaim::Owned {
+                    lease: MutationLease {
+                        application_installation_id: request.application_installation_id,
+                        grant_id: request.grant_id,
+                        request_id: request.request_id,
+                        input_digest: request.input_digest.clone(),
+                        owner,
+                        process_epoch,
+                        fencing_generation: 1,
+                    },
+                    recovery: Box::new(MutationRecoveryData {
+                        state: MutationJournalState::Claimed,
+                        prepared_data: None,
+                        before_evidence: None,
+                        after_evidence: None,
+                        result_metadata: None,
+                    }),
+                })
             },
-            recovery: Box::new(MutationRecoveryData {
-                state: MutationJournalState::Claimed,
-                prepared_data: None,
-                before_evidence: None,
-                after_evidence: None,
-                result_metadata: None,
+        )?;
+        match claim {
+            MutationClaim::Terminal { state, receipt } => Ok(MutationClaim::Terminal {
+                state,
+                receipt: self.authority.load_receipt(&receipt)?,
             }),
-        })
+            claim => Ok(claim),
+        }
     }
 
     pub fn prepare_mutation(
@@ -384,22 +395,28 @@ impl CollectionRegistry {
                AND input_digest = ?4 AND process_epoch = ?5 AND lease_owner = ?6
                AND fencing_generation = ?10 AND state IN ({states})"
         );
-        let updated = self.connection()?.execute(
-            &sql,
-            params![
-                lease.application_installation_id.to_string(),
-                lease.grant_id.to_string(),
-                lease.request_id.to_string(),
-                lease.input_digest,
-                lease.process_epoch.to_string(),
-                lease.owner.to_string(),
-                now_ms(),
-                first.map(serde_json::to_string).transpose()?,
-                second.map(serde_json::to_string).transpose()?,
-                lease.fencing_generation,
-            ],
-        )?;
-        require_fence(updated, lease.request_id)
+        let lease = lease.clone();
+        let first = first.map(serde_json::to_string).transpose()?;
+        let second = second.map(serde_json::to_string).transpose()?;
+        self.authority
+            .write(AuthorityWritePriority::Recovery, move |connection| {
+                let updated = connection.execute(
+                    &sql,
+                    params![
+                        lease.application_installation_id.to_string(),
+                        lease.grant_id.to_string(),
+                        lease.request_id.to_string(),
+                        lease.input_digest,
+                        lease.process_epoch.to_string(),
+                        lease.owner.to_string(),
+                        now_ms(),
+                        first,
+                        second,
+                        lease.fencing_generation,
+                    ],
+                )?;
+                require_fence(updated, lease.request_id)
+            })
     }
 
     pub fn complete_mutation(
@@ -465,6 +482,13 @@ impl CollectionRegistry {
         result_metadata: Option<&Value>,
         allowed: &[MutationJournalState],
     ) -> Result<(), ConnectError> {
+        let receipt_reference = self.authority.store_receipt(receipt)?;
+        let result_metadata = result_metadata
+            .map(|value| self.authority.externalize_metadata(value))
+            .transpose()?
+            .map(|value| serde_json::to_string(&value))
+            .transpose()?;
+        let receipt_hash = receipt_digest(receipt.as_bytes());
         let now = now_ms();
         let states = allowed
             .iter()
@@ -480,24 +504,28 @@ impl CollectionRegistry {
                AND input_digest = ?4 AND process_epoch = ?5 AND lease_owner = ?6
                AND fencing_generation = ?12 AND state IN ({states})"
         );
-        let updated = self.connection()?.execute(
-            &sql,
-            params![
-                lease.application_installation_id.to_string(),
-                lease.grant_id.to_string(),
-                lease.request_id.to_string(),
-                lease.input_digest,
-                lease.process_epoch.to_string(),
-                lease.owner.to_string(),
-                now,
-                state.as_str(),
-                result_metadata.map(serde_json::to_string).transpose()?,
-                receipt,
-                receipt_digest(receipt.as_bytes()),
-                lease.fencing_generation,
-            ],
-        )?;
-        require_fence(updated, lease.request_id)
+        let lease = lease.clone();
+        self.authority
+            .write(AuthorityWritePriority::Recovery, move |connection| {
+                let updated = connection.execute(
+                    &sql,
+                    params![
+                        lease.application_installation_id.to_string(),
+                        lease.grant_id.to_string(),
+                        lease.request_id.to_string(),
+                        lease.input_digest,
+                        lease.process_epoch.to_string(),
+                        lease.owner.to_string(),
+                        now,
+                        state.as_str(),
+                        result_metadata,
+                        receipt_reference,
+                        receipt_hash,
+                        lease.fencing_generation,
+                    ],
+                )?;
+                require_fence(updated, lease.request_id)
+            })
     }
 
     pub fn acknowledge_mutation(
@@ -507,51 +535,53 @@ impl CollectionRegistry {
         request_id: Uuid,
         input_digest: &str,
     ) -> Result<(), ConnectError> {
-        let now = now_ms();
-        let updated = self.connection()?.execute(
-            "UPDATE mutation_journal
-             SET state = 'acknowledged', acknowledged_at_ms = ?5, updated_at_ms = ?5
-             WHERE application_installation_id = ?1 AND grant_id = ?2 AND request_id = ?3
-               AND input_digest = ?4 AND state = 'completed'",
-            params![
-                application_installation_id.to_string(),
-                grant_id.to_string(),
-                request_id.to_string(),
-                input_digest,
-                now,
-            ],
-        )?;
-        if updated == 0 {
-            let state: Option<String> = self
-                .connection()?
-                .query_row(
-                    "SELECT state FROM mutation_journal
-                     WHERE application_installation_id = ?1 AND grant_id = ?2
-                       AND request_id = ?3 AND input_digest = ?4",
+        let input_digest = input_digest.to_string();
+        self.authority
+            .write(AuthorityWritePriority::Recovery, move |connection| {
+                let now = now_ms();
+                let transaction = connection.transaction()?;
+                let updated = transaction.execute(
+                    "UPDATE mutation_journal
+                 SET state = 'acknowledged', acknowledged_at_ms = ?5, updated_at_ms = ?5
+                 WHERE application_installation_id = ?1 AND grant_id = ?2 AND request_id = ?3
+                   AND input_digest = ?4 AND state = 'completed'",
                     params![
                         application_installation_id.to_string(),
                         grant_id.to_string(),
                         request_id.to_string(),
                         input_digest,
+                        now,
                     ],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            if state.as_deref() != Some("acknowledged") {
-                return Err(ConnectError::MutationFenceLost { request_id });
-            }
-        }
-        Ok(())
+                )?;
+                if updated == 0 {
+                    let state: Option<String> = transaction
+                        .query_row(
+                            "SELECT state FROM mutation_journal
+                     WHERE application_installation_id = ?1 AND grant_id = ?2
+                       AND request_id = ?3 AND input_digest = ?4",
+                            params![
+                                application_installation_id.to_string(),
+                                grant_id.to_string(),
+                                request_id.to_string(),
+                                input_digest,
+                            ],
+                            |row| row.get(0),
+                        )
+                        .optional()?;
+                    if state.as_deref() != Some("acknowledged") {
+                        return Err(ConnectError::MutationFenceLost { request_id });
+                    }
+                }
+                transaction.commit()?;
+                Ok(())
+            })
     }
 
     pub fn compact_mutation_journal(&self, at_ms: i64) -> Result<u64, ConnectError> {
-        let _write_guard = self
-            .encrypted_request_writes
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let mut connection = self.connection()?;
-        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let compacted = transaction.execute(
+        self.authority.write(AuthorityWritePriority::Maintenance, move |connection| {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let compacted = transaction.execute(
             "INSERT INTO mutation_journal_tombstones (
                 application_installation_id, grant_id, request_id, operation_kind,
                 input_schema_version, input_digest, terminal_state, receipt_digest,
@@ -571,8 +601,8 @@ impl CollectionRegistry {
                 at_ms.saturating_sub(ONLINE_RECOVERY_MS),
                 at_ms.saturating_sub(ACKNOWLEDGED_RECOVERY_MS),
             ],
-        )? as u64;
-        transaction.execute(
+            )? as u64;
+            transaction.execute(
             "DELETE FROM mutation_journal
              WHERE EXISTS (
                SELECT 1 FROM mutation_journal_tombstones tombstone
@@ -581,13 +611,14 @@ impl CollectionRegistry {
                  AND tombstone.request_id = mutation_journal.request_id
              )",
             [],
-        )?;
-        transaction.commit()?;
-        Ok(compacted)
+            )?;
+            transaction.commit()?;
+            Ok(compacted)
+        })
     }
 
     pub fn mutation_journal_diagnostics(&self) -> Result<MutationJournalDiagnostics, ConnectError> {
-        let connection = self.connection()?;
+        let connection = self.authority.connection()?;
         let now = now_ms();
         let mut statement = connection.prepare(
             "SELECT state, COUNT(*) FROM mutation_journal GROUP BY state ORDER BY state",
@@ -640,6 +671,86 @@ impl CollectionRegistry {
             tombstones,
         })
     }
+
+    pub fn externalize_mutation_response(
+        &self,
+        response_envelope: &str,
+    ) -> Result<Value, ConnectError> {
+        self.authority
+            .externalize_metadata(&serde_json::json!({ "response_envelope": response_envelope }))
+    }
+
+    pub fn mutation_response_from_metadata(
+        &self,
+        metadata: &Value,
+    ) -> Result<Option<String>, ConnectError> {
+        self.authority.response_from_metadata(metadata)
+    }
+}
+
+fn fresh_mutation_still_authorized(
+    connection: &Connection,
+    request: &MutationClaimRequest,
+) -> Result<bool, ConnectError> {
+    let stored = connection
+        .query_row(
+            "SELECT operations, application_authorization, collection_id, file_capability
+             FROM grants WHERE id = ?1",
+            [request.grant_id.to_string()],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((operations, authorization, collection_id, file_capability)) = stored else {
+        return Ok(false);
+    };
+    let paused = connection
+        .query_row(
+            "SELECT value FROM authority_settings WHERE key = 'access_paused'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .as_deref()
+        == Some("true");
+    let collection_enabled = connection
+        .query_row(
+            "SELECT enabled FROM collection_access_overlays WHERE collection_id = ?1",
+            [collection_id],
+            |row| row.get::<_, bool>(0),
+        )
+        .optional()?
+        .unwrap_or(false);
+    if paused {
+        return Err(ConnectError::AccessPaused);
+    }
+    if !collection_enabled {
+        return Ok(false);
+    }
+    let operations: Vec<String> = serde_json::from_str(&operations)?;
+    let proof: ApplicationAuthorizationProof = serde_json::from_str(&authorization)?;
+    let authorization_operation = request
+        .operation_kind
+        .split(':')
+        .next()
+        .unwrap_or(&request.operation_kind);
+    let operation_allowed = if authorization_operation == "file_control" {
+        file_capability.is_some()
+    } else {
+        operations
+            .iter()
+            .any(|operation| operation == authorization_operation)
+    };
+    Ok(
+        proof.binding.application_installation_id == request.application_installation_id
+            && operation_allowed,
+    )
 }
 
 fn identity_params(request: &MutationClaimRequest) -> [String; 3] {

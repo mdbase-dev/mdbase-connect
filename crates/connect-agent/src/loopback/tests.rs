@@ -422,6 +422,10 @@ async fn preflight_pause_tampering_and_revocation_fail_closed() {
     assert_eq!(paused["problem"]["code"], "access_paused");
     assert_eq!(paused["problem"]["category"], "availability");
     assert_eq!(paused["problem"]["recovery"], "resume_connector_access");
+    let activity = fixture.registry.list_activity(20).unwrap();
+    assert!(activity
+        .iter()
+        .any(|entry| entry.operation == "query" && entry.outcome == "denied"));
     fixture.registry.set_paused(false).unwrap();
 
     let mut tampered = fixture.encrypted_request("query", json!({}), 2);
@@ -452,7 +456,7 @@ async fn preflight_pause_tampering_and_revocation_fail_closed() {
     let revoked = fixture.direct(&app, "query", json!({}), 3).await;
     assert_eq!(revoked["ok"], false);
     assert_eq!(revoked["problem"]["code"], "access_denied");
-    assert_eq!(revoked["problem"]["operation_outcome"], "rejected");
+    assert_eq!(revoked["problem"]["operation_outcome"], "not_sent");
 
     fs::remove_dir_all(fixture.root).unwrap();
 }

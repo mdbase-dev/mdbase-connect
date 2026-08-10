@@ -29,6 +29,7 @@ export const CONNECT_PROBLEM_CATALOG = {
   "collection_type_registry_invalid": { category: "validation", recovery: "repair_collection" },
   "collection_version_unsupported": { category: "compatibility", recovery: "upgrade_collection" },
   "concurrent_modification": { category: "conflict", recovery: "refresh" },
+  "connector_busy": { category: "availability", recovery: "retry" },
   "connector_identity_changed": { category: "integrity", recovery: "reauthorize" },
   "connector_offline": { category: "availability", recovery: "retry" },
   "connector_upgrade_required": { category: "compatibility", recovery: "upgrade_connector" },
@@ -46,6 +47,7 @@ export const CONNECT_PROBLEM_CATALOG = {
   "file_not_found": { category: "conflict", recovery: "refresh" },
   "file_source_mismatch": { category: "conflict", recovery: "refresh" },
   "file_upload_incomplete": { category: "conflict", recovery: "retry" },
+  "fresh_request_required": { category: "availability", recovery: "retry" },
   "hosted_provider_unavailable": { category: "availability", recovery: "retry" },
   "insufficient_access": { category: "authorization", recovery: "reauthorize" },
   "invalid_application_authorization": { category: "validation", recovery: "fix_request" },
@@ -184,6 +186,7 @@ export interface ConnectProblemDetailsByCode {
   "required_version": string;
 };
   "concurrent_modification": undefined;
+  "connector_busy": undefined;
   "connector_identity_changed": undefined;
   "connector_offline": {
   "connector_name"?: string;
@@ -209,6 +212,7 @@ export interface ConnectProblemDetailsByCode {
   "file_not_found": undefined;
   "file_source_mismatch": undefined;
   "file_upload_incomplete": undefined;
+  "fresh_request_required": undefined;
   "hosted_provider_unavailable": undefined;
   "insufficient_access": {
   "required_operations": Array<string>;
@@ -457,6 +461,12 @@ export interface ConnectProblemByCode {
     recovery: "refresh";
     details?: never;
   };
+  "connector_busy": ConnectProblemBase & {
+    code: "connector_busy";
+    category: "availability";
+    recovery: "retry";
+    details?: never;
+  };
   "connector_identity_changed": ConnectProblemBase & {
     code: "connector_identity_changed";
     category: "integrity";
@@ -556,6 +566,12 @@ export interface ConnectProblemByCode {
   "file_upload_incomplete": ConnectProblemBase & {
     code: "file_upload_incomplete";
     category: "conflict";
+    recovery: "retry";
+    details?: never;
+  };
+  "fresh_request_required": ConnectProblemBase & {
+    code: "fresh_request_required";
+    category: "availability";
     recovery: "retry";
     details?: never;
   };

@@ -1,9 +1,9 @@
 use crate::server::AgentState;
 use futures_util::{SinkExt, StreamExt};
 use mdbase_connect_protocol::{
-    AgentConnectionState, ConnectContractSupport, RelayFileFrame, RelayMessage,
-    CONTROL_PROTOCOL_VERSION, RELAY_CAPABILITIES, RELAY_HANDSHAKE_TIMEOUT_SECONDS,
-    RELAY_REQUIRED_CAPABILITIES,
+    AgentConnectionState, ConnectContractSupport, ConnectOperationOutcome, ConnectProblem,
+    RelayFileFrame, RelayFileKind, RelayMessage, CONTROL_PROTOCOL_VERSION, RELAY_CAPABILITIES,
+    RELAY_HANDSHAKE_TIMEOUT_SECONDS, RELAY_REQUIRED_CAPABILITIES,
 };
 use reqwest::Client;
 use std::sync::Arc;
@@ -85,6 +85,26 @@ async fn connect_once(
     let (mut writer, mut reader) = socket.split();
     let (responses, mut response_rx) = tokio::sync::mpsc::channel::<RelayMessage>(64);
     let (file_responses, mut file_response_rx) = tokio::sync::mpsc::channel::<RelayFileFrame>(8);
+    let (policy_jobs, mut policy_job_rx) = tokio::sync::mpsc::channel::<(u64, RelayMessage)>(8);
+    let (policy_applied, policy_applied_rx) = tokio::sync::watch::channel((0_u64, true));
+    let policy_state = state.clone();
+    let policy_responses = responses.clone();
+    tokio::spawn(async move {
+        while let Some((generation, message)) = policy_job_rx.recv().await {
+            let state = policy_state.clone();
+            let mut usable = false;
+            match tokio::task::spawn_blocking(move || state.handle_relay_message(message)).await {
+                Ok(Some(response)) => {
+                    usable = matches!(&response, RelayMessage::PolicyApplied { ok: true, .. });
+                    let _ = policy_responses.send(response).await;
+                }
+                Ok(None) => {}
+                Err(error) => tracing::warn!(%error, generation, "relay policy task failed"),
+            }
+            policy_applied.send_replace((generation, usable));
+        }
+    });
+    let mut received_policy_generation = 0_u64;
     let operation_slots = Arc::new(tokio::sync::Semaphore::new(16));
     let file_slots = Arc::new(tokio::sync::Semaphore::new(8));
     state.set_connection_state(AgentConnectionState::Connected);
@@ -99,22 +119,41 @@ async fn connect_once(
                     Message::Text(text) => {
                         let relay_message: RelayMessage = serde_json::from_str(text.as_ref())?;
                         if matches!(&relay_message, RelayMessage::PolicySnapshot { .. }) {
-                            // Apply policy in receive order so every subsequently
-                            // accepted operation sees the latest local grant state.
-                            if let Some(response) = state.handle_relay_message(relay_message) {
-                                writer.send(Message::Text(
-                                    serde_json::to_string(&response)?.into()
-                                )).await?;
-                            }
+                            // A dedicated single consumer preserves snapshot order without
+                            // blocking websocket pings or reads on SQLite. Every subsequent
+                            // operation captures this generation and waits for its commit.
+                            received_policy_generation = received_policy_generation
+                                .checked_add(1)
+                                .ok_or("relay policy generation overflow")?;
+                            policy_jobs
+                                .try_send((received_policy_generation, relay_message))
+                                .map_err(|_| "relay policy queue is full")?;
                         } else {
                             let state_for_operation = state.clone();
                             let responses = responses.clone();
-                            let operation_slots = operation_slots.clone();
+                            let policy_applied = policy_applied_rx.clone();
+                            let required_policy_generation = received_policy_generation;
+                            let Ok(permit) = operation_slots.clone().try_acquire_owned() else {
+                                if let Some(response) = relay_operation_rejection(
+                                    &relay_message,
+                                    "The connector is processing its bounded operation queue.",
+                                ) {
+                                    let _ = responses.try_send(response);
+                                }
+                                continue;
+                            };
                             tokio::spawn(async move {
-                                let Ok(_permit) = operation_slots.acquire_owned().await else {
+                                if !wait_for_policy(policy_applied, required_policy_generation).await.unwrap_or(false) {
+                                    if let Some(response) = relay_operation_rejection(
+                                        &relay_message,
+                                        "The connector could not install the required policy snapshot.",
+                                    ) {
+                                        let _ = responses.send(response).await;
+                                    }
                                     return;
-                                };
+                                }
                                 match tokio::task::spawn_blocking(move || {
+                                    let _permit = permit;
                                     state_for_operation.handle_relay_message(relay_message)
                                 }).await {
                                     Ok(Some(response)) => {
@@ -134,12 +173,19 @@ async fn connect_once(
                                 continue;
                             }
                         };
-                        // Acquire before spawning so the websocket itself provides bounded
-                        // backpressure instead of retaining an unbounded queue of file frames.
-                        let permit = file_slots.clone().acquire_owned().await?;
+                        let Ok(permit) = file_slots.clone().try_acquire_owned() else {
+                            let _ = file_responses.try_send(rejected_file_frame(&request));
+                            continue;
+                        };
                         let state_for_file = state.clone();
                         let file_responses = file_responses.clone();
+                        let policy_applied = policy_applied_rx.clone();
+                        let required_policy_generation = received_policy_generation;
                         tokio::spawn(async move {
+                            if !wait_for_policy(policy_applied, required_policy_generation).await.unwrap_or(false) {
+                                let _ = file_responses.send(rejected_file_frame(&request)).await;
+                                return;
+                            }
                             let response = tokio::task::spawn_blocking(move || {
                                 let _permit = permit;
                                 state_for_file.handle_relay_file_frame(request)
@@ -187,6 +233,54 @@ async fn connect_once(
             }
         }
     }
+}
+
+fn relay_operation_rejection(request: &RelayMessage, message: &str) -> Option<RelayMessage> {
+    let problem = || {
+        ConnectProblem::new("connector_busy", message)
+            .with_operation_outcome(ConnectOperationOutcome::Rejected)
+    };
+    match request {
+        RelayMessage::OperationRequest { request_id, .. } => {
+            Some(RelayMessage::OperationResponse {
+                protocol_version: mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
+                request_id: *request_id,
+                ok: false,
+                result: None,
+                problem: Some(problem()),
+            })
+        }
+        RelayMessage::EncryptedOperationRequest { envelope } => {
+            Some(RelayMessage::EncryptedOperationRejected {
+                protocol_version: mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
+                request_id: envelope.request_id,
+                problem: problem(),
+            })
+        }
+        _ => None,
+    }
+}
+
+fn rejected_file_frame(request: &RelayFileFrame) -> RelayFileFrame {
+    RelayFileFrame {
+        kind: RelayFileKind::Rejected,
+        header: mdbase_connect_protocol::RelayFileHeader {
+            message_type: RelayFileKind::Rejected,
+            ..request.header.clone()
+        },
+        payload: Vec::new(),
+    }
+}
+
+async fn wait_for_policy(
+    mut applied: tokio::sync::watch::Receiver<(u64, bool)>,
+    required_generation: u64,
+) -> Result<bool, tokio::sync::watch::error::RecvError> {
+    while applied.borrow_and_update().0 < required_generation {
+        applied.changed().await?;
+    }
+    let (generation, usable) = *applied.borrow_and_update();
+    Ok(generation == required_generation && usable)
 }
 
 async fn sync_collections(
@@ -252,5 +346,42 @@ mod tests {
                 .as_str(),
             "wss://connect.example/v1/relay"
         );
+    }
+
+    #[tokio::test]
+    async fn policy_barrier_orders_generations_and_fails_closed() {
+        let (sender, receiver) = tokio::sync::watch::channel((0_u64, true));
+        let waiting = tokio::spawn(wait_for_policy(receiver.clone(), 2));
+        sender.send_replace((1, true));
+        tokio::task::yield_now().await;
+        assert!(!waiting.is_finished());
+        sender.send_replace((2, true));
+        assert!(waiting.await.unwrap().unwrap());
+
+        let failed = tokio::spawn(wait_for_policy(receiver, 3));
+        sender.send_replace((3, false));
+        assert!(!failed.await.unwrap().unwrap());
+    }
+
+    #[test]
+    fn overload_rejections_preserve_request_identity() {
+        let request_id = uuid::Uuid::new_v4();
+        let request = RelayMessage::OperationRequest {
+            protocol_version: mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
+            request_id,
+            grant_id: uuid::Uuid::new_v4(),
+            collection_id: uuid::Uuid::new_v4(),
+            application_id: uuid::Uuid::new_v4(),
+            operation: "read".to_string(),
+            input: serde_json::json!({}),
+        };
+        assert!(matches!(
+            relay_operation_rejection(&request, "busy"),
+            Some(RelayMessage::OperationResponse {
+                request_id: returned,
+                problem: Some(problem),
+                ..
+            }) if returned == request_id && problem.code == "connector_busy"
+        ));
     }
 }

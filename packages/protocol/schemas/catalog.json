@@ -8,7 +8,7 @@
     "connect_problem": "./connect-problem.v1.schema.json",
     "connect_problem_catalog": "./connect-problems.v1.catalog.json",
     "mdbase_query_v0_3": "./mdbase-query.v0.3.schema.json",
-    "encrypted_relay": "./encrypted-relay.v2.schema.json",
+    "encrypted_relay": "./encrypted-relay.v3.schema.json",
     "files": "./files.v1.schema.json",
     "notification_webhook": "./notification-webhook.v1.schema.json",
     "sync": "./sync.v1.schema.json"

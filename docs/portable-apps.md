@@ -51,7 +51,7 @@ The SDK uses OAuth device authorization with PKCE:
    the operations.
 5. The SDK polls at the server-provided interval. Every successful response is
    bound to the opaque application origin `null`. A local grant must also
-   contain the application agreement public key, operation transport v2, and
+   contain the application agreement public key, operation transport v3, and
    grant encryption profile v1;
    a hosted grant instead contains a scoped provider capability bound to the
    application signing public key.

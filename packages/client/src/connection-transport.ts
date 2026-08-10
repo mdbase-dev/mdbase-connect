@@ -60,32 +60,17 @@ import {
   withCooperativeRequestBudget,
   withRequestBudget
 } from "./request-budget.js";
+import { sendAuthoritySyncRequest } from "./authority-sync-request.js";
+import { freshEncryptedRequest } from "./fresh-encrypted-request.js";
+import type {
+  ConnectionTransportInternals,
+  ConnectionTransportOptions
+} from "./connection-transport-internals.js";
 
-export interface ConnectionTransportInternals {
-  readonly relayEncryption: "required" | "disabled";
-  removeToken(
-    collectionId: string,
-    keyHandle?: string,
-    reason?: "not_authorized" | "authorization_lost" | "invalid_stored_grant",
-    discardPending?: boolean
-  ): void;
-  storeTokenResponse(body: any, clientId: string, keyHandle?: string): StoredToken;
-  tokenKey(collectionId: string): string;
-  pendingMutationKey(collectionId: string): string;
-  directPreferenceKey(): string;
-}
-
-export interface ConnectionTransportOptions {
-  serverUrl: string;
-  storage: Storage;
-  keyStore: GrantKeyStore;
-  directAccessMode: "auto" | "disabled";
-  loopbackUrl: string;
-  collectionId: string;
-  internals: ConnectionTransportInternals;
-  onChange(): void;
-  timeouts: ResolvedConnectTimeouts;
-}
+export type {
+  ConnectionTransportInternals,
+  ConnectionTransportOptions
+} from "./connection-transport-internals.js";
 
 export class ConnectionTransport {
   private readonly serverUrl: string;
@@ -256,7 +241,8 @@ export class ConnectionTransport {
     operation: CollectionOperation,
     input: unknown,
     options: ConnectRequestOptions,
-    storedPending?: PendingMutation
+    storedPending?: PendingMutation,
+    freshReadRetried = false
   ): Promise<Result> {
     throwIfCancelled(options.signal);
     let token = this.currentToken();
@@ -341,6 +327,17 @@ export class ConnectionTransport {
     }
     if (!response.ok) {
       const error = apiError(body, "operation_failed", "Collection operation failed.", response.status);
+      if (error.code === "fresh_request_required"
+          && !attempt.pendingMutation
+          && !freshReadRetried) {
+        return this.performOperationWithinBudget<Result>(
+          operation,
+          input,
+          options,
+          undefined,
+          true
+        );
+      }
       if (attempt.pendingMutation
           && (attempt.directDeliveryUncertain
             || (attempt.encryptedRequest && attempt.resumingMutation))) {
@@ -382,6 +379,18 @@ export class ConnectionTransport {
           attempt.encryptedRequest,
           encryptedResponse
         );
+        if (!decrypted.ok
+            && decrypted.problem.code === "fresh_request_required"
+            && !attempt.pendingMutation
+            && !freshReadRetried) {
+          return this.performOperationWithinBudget<Result>(
+            operation,
+            input,
+            options,
+            undefined,
+            true
+          );
+        }
         if (attempt.pendingMutation) this.clearPendingMutation(attempt.requestId);
         if (!decrypted.ok) throw serverConnectError(
           decrypted.problem.code === "unknown"
@@ -459,7 +468,14 @@ export class ConnectionTransport {
         );
       }
       try {
-        let response = await this.sendAuthoritySyncRequest(token, method, path, input, budget.signal);
+        let response = await sendAuthoritySyncRequest(
+          this.keyStore,
+          token,
+          method,
+          path,
+          input,
+          budget.signal
+        );
         if (response.status === 401 && token.refreshToken) {
           token = await this.refreshAuthorization(budget.signal);
           if (!token.authority
@@ -470,7 +486,14 @@ export class ConnectionTransport {
               "Reconnect this collection authority before synchronizing."
             );
           }
-          response = await this.sendAuthoritySyncRequest(token, method, path, input, budget.signal);
+          response = await sendAuthoritySyncRequest(
+            this.keyStore,
+            token,
+            method,
+            path,
+            input,
+            budget.signal
+          );
         }
         const body = await decodeJsonResponse(
           response,
@@ -495,41 +518,6 @@ export class ConnectionTransport {
         );
       }
     });
-  }
-
-  private async sendAuthoritySyncRequest(
-    token: StoredToken,
-    method: "GET" | "POST",
-    path: string,
-    input: unknown,
-    signal: AbortSignal
-  ): Promise<Response> {
-    if (!token.authority) {
-      throw connectError("not_remote_authority", "This authorization has no remote authority endpoint.");
-    }
-    const url = `${token.authority.syncUrl}/${path}`;
-    const body = input === undefined ? undefined : JSON.stringify(input);
-    const proof = await authorityProofHeaders(
-      this.keyStore,
-      token,
-      method,
-      url,
-      body,
-      token.authority.accessToken
-    );
-    return fetch(
-      url,
-      {
-        method,
-        headers: {
-          authorization: `Bearer ${token.authority.accessToken}`,
-          ...(input === undefined ? {} : { "content-type": "application/json" }),
-          ...proof
-        },
-        ...(body === undefined ? {} : { body }),
-        signal
-      }
-    );
   }
 
   private async sendOperation(
@@ -629,6 +617,7 @@ export class ConnectionTransport {
         if (error instanceof RelayCryptoError) throw serverConnectError(error.code, error.message);
         throw error;
       }
+      requestId = encryptedRequest.request_id;
       body = encryptedRequest;
     } else {
       const request: MdbaseOperationRequest = pending?.request ?? {
@@ -691,6 +680,15 @@ export class ConnectionTransport {
         throw error;
       }
       let response: Response;
+      if (!pendingMutation) {
+        encryptedRequest = await freshEncryptedRequest(
+          this.keyStore,
+          relayToken,
+          operation,
+          input
+        );
+        requestId = encryptedRequest.request_id;
+      }
       try {
         response = await fetch(
           `${this.serverUrl}/v1/authorities/${encodeURIComponent(relayToken.collectionId)}/operations/${operation}`,

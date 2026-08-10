@@ -1,3 +1,9 @@
+export function shouldRegisterDeepLinks(
+  environment: NodeJS.ProcessEnv = process.env
+): boolean {
+  return environment.MDBASE_CONNECT_REGISTER_DEEP_LINKS !== "0";
+}
+
 export function routeForDeepLink(value: string | undefined): string | null {
   if (!value) return null;
   try {

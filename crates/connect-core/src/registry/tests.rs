@@ -23,10 +23,22 @@ fn signed_test_grant(_registry: &CollectionRegistry, operations: Vec<String>) ->
     };
     proof.verify().unwrap();
     let connector_id = Uuid::parse_str("01977777-7777-7777-8777-777777777777").unwrap();
+    let collection_id = binding.collection_id.unwrap();
+    _registry
+        .authority
+        .write(AuthorityWritePriority::Control, move |connection| {
+            connection.execute(
+                "INSERT OR REPLACE INTO collection_access_overlays
+                 (collection_id, enabled, updated_at_ms) VALUES (?1, 1, 0)",
+                [collection_id.to_string()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
     GrantPolicy {
         id: Uuid::new_v4(),
         application_id: binding.application_id,
-        collection_id: binding.collection_id.unwrap(),
+        collection_id,
         operations,
         scope: GrantScope::full_collection(),
         application_name: "Test application".to_string(),
@@ -44,7 +56,7 @@ fn signed_test_grant(_registry: &CollectionRegistry, operations: Vec<String>) ->
             key_id: "key-1".to_string(),
             scope_epoch: 1,
             connector_id,
-            collection_id: binding.collection_id.unwrap(),
+            collection_id,
             application_agreement_public_key: binding.grant_agreement_public_key,
             connector_agreement_public_key: binding.grant_signing_public_key.clone(),
         }),

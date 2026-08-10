@@ -51,11 +51,23 @@ export class LocalFileTransport {
     input: unknown,
     signal?: AbortSignal
   ): Promise<Result> {
+    return this.controlAttempt<Result>(token, method, path, input, signal, false);
+  }
+
+  private async controlAttempt<Result>(
+    token: StoredToken,
+    method: "GET" | "POST" | "DELETE",
+    path: string,
+    input: unknown,
+    signal: AbortSignal | undefined,
+    freshReadRetried: boolean
+  ): Promise<Result> {
     requireEncryption(token);
     const controlInput = localFileControlInput(method, path, input);
     let encryptedRequest = await this.encryptControl(token, controlInput);
     let response: Response | undefined;
-    if (await this.options.shouldAttemptDirect(token)) {
+    const triedDirect = await this.options.shouldAttemptDirect(token);
+    if (triedDirect) {
       try {
         response = await fetch(
           `${this.options.loopbackUrl}/v1/files/control`,
@@ -72,9 +84,25 @@ export class LocalFileTransport {
       }
       if (response && !directFallbackStatus(response.status)) {
         if (response.ok) this.options.onDirectAvailable();
-        return this.decryptControlResponse<Result>(token, encryptedRequest, response);
+        return this.decryptControlResponse<Result>(
+          token,
+          method,
+          path,
+          input,
+          signal,
+          encryptedRequest,
+          response,
+          freshReadRetried
+        );
       }
       if (response) this.options.onDirectUnavailable();
+    }
+    if (triedDirect && method === "GET") {
+      token = token.expiresAt > Date.now() + 30_000
+        ? token
+        : await this.options.refreshAuthorization(signal);
+      requireLocalFileToken(token);
+      encryptedRequest = await this.encryptControl(token, controlInput);
     }
     response = await this.sendRelayControl(token, encryptedRequest, signal);
     if (await refreshableBindingFailure(response, token)) {
@@ -84,13 +112,27 @@ export class LocalFileTransport {
       response = await this.sendRelayControl(token, encryptedRequest, signal);
     }
     if (response.ok) this.options.onRelayAvailable();
-    return this.decryptControlResponse<Result>(token, encryptedRequest, response);
+    return this.decryptControlResponse<Result>(
+      token,
+      method,
+      path,
+      input,
+      signal,
+      encryptedRequest,
+      response,
+      freshReadRetried
+    );
   }
 
   private async decryptControlResponse<Result>(
     token: StoredToken,
+    method: "GET" | "POST" | "DELETE",
+    path: string,
+    input: unknown,
+    signal: AbortSignal | undefined,
     encryptedRequest: EncryptedRelayOperationRequest,
-    response: Response
+    response: Response,
+    freshReadRetried: boolean
   ): Promise<Result> {
     const body = await decodeJsonResponse(
       response,
@@ -98,7 +140,18 @@ export class LocalFileTransport {
       "The collection authority returned an invalid file control response."
     );
     if (!response.ok) {
-      throw apiError(body, "operation_failed", "Collection file request failed.", response.status);
+      const error = apiError(
+        body,
+        "operation_failed",
+        "Collection file request failed.",
+        response.status
+      );
+      if (error.code === "fresh_request_required"
+          && method === "GET"
+          && !freshReadRetried) {
+        return this.controlAttempt<Result>(token, method, path, input, signal, true);
+      }
+      throw error;
     }
     const encryptedResponse = body?.envelope as EncryptedRelayOperationResponse | undefined;
     if (!encryptedResponse) {
@@ -114,6 +167,12 @@ export class LocalFileTransport {
       encryptedRequest,
       encryptedResponse
     );
+    if (!decrypted.ok
+        && decrypted.problem.code === "fresh_request_required"
+        && method === "GET"
+        && !freshReadRetried) {
+      return this.controlAttempt<Result>(token, method, path, input, signal, true);
+    }
     if (!decrypted.ok) throwEncryptedProblem(decrypted.problem);
     return decrypted.result;
   }

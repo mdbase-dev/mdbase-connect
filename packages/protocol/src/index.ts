@@ -90,7 +90,7 @@ export const CONNECT_SCHEMA_IDS = {
   dataContract: "https://mdbase.dev/schemas/v0.3/data-contract.schema.json",
   eventActionInterop: "https://mdbase.dev/schemas/interop/v0.1/profile.schema.json",
   protocol: "https://mdbase.dev/connect/schemas/connect-protocol.v1.json",
-  encryptedRelay: "https://mdbase.dev/connect/schemas/encrypted-relay.v2.json",
+  encryptedRelay: "https://mdbase.dev/connect/schemas/encrypted-relay.v3.json",
   files: "https://mdbase.dev/connect/schemas/files.v1.json",
   sync: "https://mdbase.dev/connect/schemas/sync.v1.json"
 } as const;
@@ -240,7 +240,7 @@ export interface GrantScope {
 
 export interface RelayOperationRequest {
   type: "operation_request";
-  protocol_version: 2;
+  protocol_version: 3;
   request_id: string;
   grant_id: string;
   collection_id: string;
@@ -252,34 +252,34 @@ export interface RelayOperationRequest {
 export type RelayOperationResponse =
   | {
       type: "operation_response";
-      protocol_version: 2;
+      protocol_version: 3;
       request_id: string;
       ok: true;
       result: unknown;
     }
   | {
       type: "operation_response";
-      protocol_version: 2;
+      protocol_version: 3;
       request_id: string;
       ok: false;
       problem: ConnectProblem;
     };
 
 export interface MdbaseOperationRequest<Input = unknown> {
-  protocol_version: 2;
+  protocol_version: 3;
   request_id: string;
   input: Input;
 }
 
 export type MdbaseOperationResponse<Result = unknown> =
   | {
-      protocol_version: 2;
+      protocol_version: 3;
       request_id: string;
       ok: true;
       result: Result;
     }
   | {
-      protocol_version: 2;
+      protocol_version: 3;
       request_id: string;
       ok: false;
       problem: ConnectProblem;
@@ -331,7 +331,7 @@ export interface GrantEncryption {
 }
 
 export interface EncryptedRelayEnvelope {
-  protocol_version: 2;
+  protocol_version: 3;
   suite: typeof RELAY_ENCRYPTION_SUITE;
   request_id: string;
   grant_id: string;

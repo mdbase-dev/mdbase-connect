@@ -2,19 +2,25 @@ use super::*;
 
 impl CollectionRegistry {
     pub fn set_paused(&self, paused: bool) -> Result<(), ConnectError> {
-        self.connection()?.execute(
-            "INSERT INTO settings (key, value) VALUES ('access_paused', ?1)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP",
-            [if paused { "true" } else { "false" }],
-        )?;
-        Ok(())
+        self.authority
+            .write(AuthorityWritePriority::Control, move |connection| {
+                connection.execute(
+                    "INSERT INTO authority_settings (key, value, updated_at_ms)
+                     VALUES ('access_paused', ?1, CAST(unixepoch('subsec') * 1000 AS INTEGER))
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+                         updated_at_ms = excluded.updated_at_ms",
+                    [if paused { "true" } else { "false" }],
+                )?;
+                Ok(())
+            })
     }
 
     pub fn paused(&self) -> Result<bool, ConnectError> {
         let value = self
+            .authority
             .connection()?
             .query_row(
-                "SELECT value FROM settings WHERE key = 'access_paused'",
+                "SELECT value FROM authority_settings WHERE key = 'access_paused'",
                 [],
                 |row| row.get::<_, String>(0),
             )

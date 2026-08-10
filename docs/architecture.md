@@ -319,7 +319,7 @@ token. Refresh tokens are single-use, bound to the application and grant, and
 revoked with the grant. Browser clients renew shortly before expiry and retain
 the rotated credential in application-owned storage.
 
-New authorizations use operation transport v2 and grant encryption profile v1
+New authorizations use operation transport v3 and grant encryption profile v1
 to encrypt each operation end to end between an authorized application
 installation and the local connector. The relay sees the operation and routing
 metadata but carries opaque request and response payloads. Hosted collections

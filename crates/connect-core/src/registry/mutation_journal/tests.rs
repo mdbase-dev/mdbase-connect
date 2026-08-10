@@ -4,7 +4,7 @@ use tempfile::TempDir;
 
 fn request() -> MutationClaimRequest {
     MutationClaimRequest {
-        application_installation_id: Uuid::parse_str("01911111-1111-7111-8111-111111111111")
+        application_installation_id: Uuid::parse_str("6f7343cc-7951-8615-a13e-62c17fd8b4b1")
             .unwrap(),
         grant_id: Uuid::parse_str("01922222-2222-7222-8222-222222222222").unwrap(),
         request_id: Uuid::parse_str("01933333-3333-7333-8333-333333333333").unwrap(),
@@ -14,6 +14,50 @@ fn request() -> MutationClaimRequest {
         grant_snapshot_digest: "grant-snapshot-v1".to_string(),
         allow_new: true,
     }
+}
+
+fn install_test_authority(registry: &CollectionRegistry) {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../../packages/protocol/test/fixtures/application-authorization-v4.json"
+    ))
+    .unwrap();
+    let proof: ApplicationAuthorizationProof = serde_json::from_value(fixture).unwrap();
+    let application_id = proof.binding.application_id;
+    let collection_id = proof.binding.collection_id.unwrap();
+    let operations = MUTATING_OPERATION_IDENTIFIERS
+        .iter()
+        .map(|operation| operation.split(':').next().unwrap().to_string())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    registry
+        .authority
+        .write(AuthorityWritePriority::Control, move |connection| {
+            connection.execute(
+                "INSERT INTO grants (
+                    id, application_id, collection_id, operations, scope,
+                    application_name, application_distribution, application_homepage,
+                    application_origin, collection_name, notification_criteria,
+                    application_authorization, file_capability, created_at
+                 ) VALUES (?1, ?2, ?3, ?4, '{}', 'Test application', 'web',
+                           'https://app.example', 'https://app.example', 'Test collection',
+                           '[]', ?5, '{}', '2026-08-02T00:00:00Z')",
+                params![
+                    request().grant_id.to_string(),
+                    application_id.to_string(),
+                    collection_id.to_string(),
+                    serde_json::to_string(&operations)?,
+                    serde_json::to_string(&proof)?,
+                ],
+            )?;
+            connection.execute(
+                "INSERT OR REPLACE INTO collection_access_overlays
+                 (collection_id, enabled, updated_at_ms) VALUES (?1, 1, 0)",
+                [collection_id.to_string()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
 }
 
 fn owned(claim: MutationClaim) -> (MutationLease, MutationRecoveryData) {
@@ -27,6 +71,7 @@ fn owned(claim: MutationClaim) -> (MutationLease, MutationRecoveryData) {
 fn restart_takeover_recovers_state_and_fences_the_stale_owner() {
     let state = TempDir::new().unwrap();
     let first = CollectionRegistry::open(state.path()).unwrap();
+    install_test_authority(&first);
     let (old_lease, recovery) = owned(first.claim_mutation(&request()).unwrap());
     assert_eq!(recovery.state, MutationJournalState::Claimed);
     first
@@ -84,6 +129,7 @@ fn restart_takeover_recovers_state_and_fences_the_stale_owner() {
 fn concurrent_duplicates_conflicting_reuse_and_terminal_cardinality_fail_closed() {
     let state = TempDir::new().unwrap();
     let registry = CollectionRegistry::open(state.path()).unwrap();
+    install_test_authority(&registry);
     let (lease, _) = owned(registry.claim_mutation(&request()).unwrap());
     assert!(matches!(
         registry.claim_mutation(&request()).unwrap(),
@@ -110,6 +156,7 @@ fn concurrent_duplicates_conflicting_reuse_and_terminal_cardinality_fail_closed(
 fn unknown_requires_prepare_and_compaction_keeps_conflict_tombstones() {
     let state = TempDir::new().unwrap();
     let registry = CollectionRegistry::open(state.path()).unwrap();
+    install_test_authority(&registry);
     let (lease, _) = owned(registry.claim_mutation(&request()).unwrap());
     assert!(matches!(
         registry.mark_mutation_outcome_unknown(&lease, "too early", None),
@@ -128,6 +175,7 @@ fn unknown_requires_prepare_and_compaction_keeps_conflict_tombstones() {
 
     let now = now_ms();
     registry
+        .authority
         .connection()
         .unwrap()
         .execute(
@@ -158,6 +206,7 @@ fn unknown_requires_prepare_and_compaction_keeps_conflict_tombstones() {
         .complete_mutation(&lease, "completed", None)
         .unwrap();
     registry
+        .authority
         .connection()
         .unwrap()
         .execute(
@@ -187,6 +236,7 @@ fn unknown_requires_prepare_and_compaction_keeps_conflict_tombstones() {
 fn acknowledgement_and_diagnostics_are_privacy_safe() {
     let state = TempDir::new().unwrap();
     let registry = CollectionRegistry::open(state.path()).unwrap();
+    install_test_authority(&registry);
     let request = request();
     let (lease, _) = owned(registry.claim_mutation(&request).unwrap());
     registry.complete_mutation(&lease, "receipt", None).unwrap();
@@ -211,6 +261,7 @@ fn acknowledgement_and_diagnostics_are_privacy_safe() {
 fn every_canonical_mutator_uses_the_same_state_machine_contract() {
     let state = TempDir::new().unwrap();
     let registry = CollectionRegistry::open(state.path()).unwrap();
+    install_test_authority(&registry);
     for operation in MUTATING_OPERATION_IDENTIFIERS {
         let request = MutationClaimRequest {
             request_id: Uuid::new_v4(),
@@ -269,6 +320,7 @@ fn every_canonical_mutator_recovers_at_every_termination_boundary() {
         for boundary in BOUNDARIES {
             let state = TempDir::new().unwrap();
             let first = CollectionRegistry::open(state.path()).unwrap();
+            install_test_authority(&first);
             let request = MutationClaimRequest {
                 request_id: Uuid::new_v4(),
                 operation_kind: (*operation).to_string(),
@@ -382,10 +434,12 @@ fn every_canonical_mutator_recovers_at_every_termination_boundary() {
 fn lease_clock_bounds_and_compaction_edges_fail_safe() {
     let state = TempDir::new().unwrap();
     let registry = CollectionRegistry::open(state.path()).unwrap();
+    install_test_authority(&registry);
 
     let expired = request();
     let (expired_lease, _) = owned(registry.claim_mutation(&expired).unwrap());
     registry
+        .authority
         .connection()
         .unwrap()
         .execute(
@@ -406,6 +460,7 @@ fn lease_clock_bounds_and_compaction_edges_fail_safe() {
     };
     let (future_lease, _) = owned(registry.claim_mutation(&future).unwrap());
     registry
+        .authority
         .connection()
         .unwrap()
         .execute(
@@ -435,6 +490,7 @@ fn lease_clock_bounds_and_compaction_edges_fail_safe() {
         let (lease, _) = owned(registry.claim_mutation(&candidate).unwrap());
         registry.complete_mutation(&lease, "receipt", None).unwrap();
         registry
+            .authority
             .connection()
             .unwrap()
             .execute(

@@ -19,9 +19,11 @@ import {
   MemoryApplicationIdentityStore,
   MemoryGrantKeyStore
 } from "./crypto-entry.js";
+import { deriveP256SharedSecret } from "./crypto.js";
 import { MdbaseSession } from "./session.js";
 import type {
   GrantEncryption,
+  EncryptedRelayOperationRequest,
   MdbaseAppManifest,
   TypePackProvision
 } from "@mdbase-dev/connect-protocol";
@@ -924,7 +926,7 @@ describe("provider-neutral collection client", () => {
         providerHeaders = init?.headers as Record<string, string>;
         const operation = JSON.parse(String(init?.body));
         return jsonResponse({
-          protocol_version: 2,
+          protocol_version: 3,
           request_id: operation.request_id,
           ok: true,
           result: { valid: true, result: { results: [] }, diagnostics: [] }
@@ -1051,7 +1053,7 @@ describe("provider-neutral collection client", () => {
           grant_id: "00000000-0000-0000-0000-000000000003",
           application_origin: "null",
           encryption: {
-            protocol_version: 2,
+            protocol_version: 3,
             suite: "P256-HKDF-SHA256-AES256GCM",
             key_id: "portable-key",
             scope_epoch: 1,
@@ -1387,7 +1389,7 @@ describe("actionable SDK errors", () => {
     fetchMock.mockImplementationOnce(async (_request, init) => {
       const request = JSON.parse(String(init?.body));
       return jsonResponse({
-        protocol_version: 2,
+        protocol_version: 3,
         request_id: request.request_id,
         ok: false,
         problem: {
@@ -1403,7 +1405,7 @@ describe("actionable SDK errors", () => {
     fetchMock.mockImplementationOnce(async (_request, init) => {
       const request = JSON.parse(String(init?.body));
       return jsonResponse({
-        protocol_version: 2,
+        protocol_version: 3,
         request_id: request.request_id,
         ok: false,
         problem: {
@@ -2653,7 +2655,7 @@ describe("authorization renewal", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_request, init) => {
       const operation = JSON.parse(String(init?.body));
       return new Response(JSON.stringify({
-        protocol_version: 2,
+        protocol_version: 3,
         request_id: operation.request_id,
         ok: true,
         result: { valid: true, result: { results: [] }, diagnostics: [] }
@@ -2775,7 +2777,7 @@ describe("authorization renewal", () => {
       .mockImplementationOnce(async (_request, init) => {
         const operation = JSON.parse(String(init?.body));
         return new Response(JSON.stringify({
-          protocol_version: 2,
+          protocol_version: 3,
           request_id: operation.request_id,
           ok: true,
           result: { valid: true, result: { results: [] }, diagnostics: [] }
@@ -2840,7 +2842,7 @@ describe("authorization renewal", () => {
       .mockImplementationOnce(async (_request, init) => {
         const operation = JSON.parse(String(init?.body));
         return new Response(JSON.stringify({
-          protocol_version: 2,
+          protocol_version: 3,
           request_id: operation.request_id,
           ok: true,
           result: { valid: true, result: { results: [] }, diagnostics: [] }
@@ -3171,13 +3173,16 @@ schema:
   it("backs off an unavailable loopback route while keeping relay operations usable", async () => {
     const fixture = await encryptedConnection();
     const urls: string[] = [];
+    const bodies: string[] = [];
     const fetchMock = vi.spyOn(globalThis, "fetch")
-      .mockImplementationOnce(async (input) => {
+      .mockImplementationOnce(async (input, init) => {
         urls.push(String(input));
+        bodies.push(String(init?.body));
         throw new TypeError("connector absent");
       })
-      .mockImplementation(async (input) => {
+      .mockImplementation(async (input, init) => {
         urls.push(String(input));
+        bodies.push(String(init?.body));
         return new Response(JSON.stringify({
           error: { code: "connector_offline", message: "Connector offline." }
         }), { status: 503, headers: { "content-type": "application/json" } });
@@ -3197,6 +3202,68 @@ schema:
       `${fixture.serverUrl}/v1/authorities/${fixture.collectionId}/operations/query`,
       `${fixture.serverUrl}/v1/authorities/${fixture.collectionId}/operations/query`
     ]);
+    const firstDirect = JSON.parse(bodies[0]!);
+    const firstRelay = JSON.parse(bodies[1]!);
+    expect(firstRelay.request_id).not.toBe(firstDirect.request_id);
+    expect(firstRelay.counter).not.toBe(firstDirect.counter);
+  });
+
+  it("retries an evicted encrypted read exactly once with a fresh request", async () => {
+    const fixture = await encryptedConnection();
+    fixture.connect.disableDirectAccess();
+    const requests: EncryptedRelayOperationRequest[] = [];
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const request = JSON.parse(String(init?.body)) as EncryptedRelayOperationRequest;
+      requests.push(request);
+      if (requests.length === 1) {
+        return new Response(JSON.stringify({
+          error: normalizeConnectProblem(
+            "fresh_request_required",
+            "Use a fresh request."
+          )
+        }), {
+          status: 409,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      const envelope = await encryptedFixtureResponse(
+        fixture,
+        request,
+        {
+          ok: true,
+          result: { valid: true, result: { results: [] }, diagnostics: [] }
+        }
+      );
+      return new Response(JSON.stringify({ envelope }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    });
+
+    await expect(fixture.connect.query()).resolves.toMatchObject({ ok: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(requests[1]?.request_id).not.toBe(requests[0]?.request_id);
+    expect(requests[1]?.counter).not.toBe(requests[0]?.counter);
+  });
+
+  it("never converts a mutation fresh-request response into a second execution", async () => {
+    const fixture = await encryptedConnection();
+    fixture.connect.disableDirectAccess();
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      return new Response(JSON.stringify({
+        error: normalizeConnectProblem(
+          "fresh_request_required",
+          "Use a fresh request."
+        )
+      }), {
+        status: 409,
+        headers: { "content-type": "application/json" }
+      });
+    });
+
+    await expect(fixture.connect.create({ path: "once.md", frontmatter: {} }))
+      .resolves.toMatchObject({ ok: false, problem: { code: "fresh_request_required" } });
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("renews a stale binding after an uncertain direct read without reporting an unknown write", async () => {
@@ -3237,7 +3304,7 @@ schema:
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       service: "mdbase-connect",
       loopback_protocol_version: 1,
-      operation_transport_protocol_version: 2
+      operation_transport_protocol_version: 3
     }), { status: 200, headers: { "content-type": "application/json" } }));
     const changes: string[] = [];
     fixture.connect.onConnectionChange((connection) => {
@@ -3262,7 +3329,7 @@ schema:
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       service: "mdbase-connect",
       loopback_protocol_version: 1,
-      operation_transport_protocol_version: 2
+      operation_transport_protocol_version: 3
     }), { status: 200, headers: { "content-type": "application/json" } }));
 
     await expect(fixture.connect.requestDirectAccess()).resolves.toMatchObject({
@@ -3350,7 +3417,7 @@ describe("bounded watch subscriptions", () => {
       .mockImplementationOnce(async (_input, init) => {
         const request = JSON.parse(String(init?.body));
         return jsonResponse({
-          protocol_version: 2,
+          protocol_version: 3,
           request_id: request.request_id,
           ok: true,
           result: { events: [change], cursor: 2, has_more: false }
@@ -3392,7 +3459,7 @@ describe("durable pending mutation handles", () => {
         bodies.push(body);
         const request = JSON.parse(body);
         return jsonResponse({
-          protocol_version: 2,
+          protocol_version: 3,
           request_id: request.request_id,
           ok: true,
           result: {
@@ -3435,7 +3502,7 @@ describe("durable pending mutation handles", () => {
         bodies.push(body);
         const request = JSON.parse(body);
         return jsonResponse({
-          protocol_version: 2,
+          protocol_version: 3,
           request_id: request.request_id,
           ok: true,
           result: {
@@ -3549,7 +3616,64 @@ async function encryptedConnection() {
     storage,
     tokenKey,
     keyStore,
+    connectorKeys,
+    encryption,
+    grantId: "01911111-1111-7111-8111-111111111111",
+    applicationId: "01922222-2222-7222-8222-222222222222",
     connect: manager.connection(collectionId)!
+  };
+}
+
+async function encryptedFixtureResponse(
+  fixture: Awaited<ReturnType<typeof encryptedConnection>>,
+  request: EncryptedRelayOperationRequest,
+  plaintext: unknown
+) {
+  const connector = await fixture.connectorKeys.get("connector-key");
+  if (!connector) throw new Error("fixture connector key is missing");
+  const shared = await deriveP256SharedSecret(
+    connector.agreementPrivateKey,
+    fixture.encryption.application_agreement_public_key
+  );
+  const context = [
+    "mdbase-connect",
+    3,
+    fixture.encryption.suite,
+    fixture.grantId,
+    fixture.applicationId,
+    fixture.encryption.connector_id,
+    fixture.encryption.collection_id,
+    fixture.encryption.scope_epoch,
+    fixture.encryption.key_id
+  ].join("|");
+  const material = await crypto.subtle.importKey("raw", shared, "HKDF", false, ["deriveKey"]);
+  const key = await crypto.subtle.deriveKey({
+    name: "HKDF",
+    hash: "SHA-256",
+    salt: await crypto.subtle.digest("SHA-256", new TextEncoder().encode(context)),
+    info: new TextEncoder().encode("mdbase-connect relay response key v1")
+  }, material, { name: "AES-GCM", length: 256 }, false, ["encrypt"]);
+  const nonce = new Uint8Array(12);
+  new DataView(nonce.buffer).setBigUint64(4, BigInt(request.counter), false);
+  const ciphertext = await crypto.subtle.encrypt({
+    name: "AES-GCM",
+    iv: nonce,
+    additionalData: new TextEncoder().encode([
+      context,
+      request.request_id,
+      "response",
+      request.operation,
+      request.counter
+    ].join("|")),
+    tagLength: 128
+  }, key, new TextEncoder().encode(JSON.stringify(plaintext)));
+  return {
+    ...request,
+    type: "encrypted_operation_response" as const,
+    ciphertext: btoa(String.fromCharCode(...new Uint8Array(ciphertext)))
+      .replaceAll("+", "-")
+      .replaceAll("/", "_")
+      .replace(/=+$/u, "")
   };
 }
 

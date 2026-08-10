@@ -355,7 +355,7 @@ describe("canonical developer validation", () => {
     expect(validateProtocolValue({ valid: true, result: {} }, "operationEnvelope").valid)
       .toBe(false);
     const rejected = {
-      protocol_version: 2,
+      protocol_version: 3,
       request_id: "00000000-0000-4000-8000-000000000001",
       ok: false,
       problem: {

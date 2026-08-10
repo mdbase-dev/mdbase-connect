@@ -207,6 +207,75 @@ describe("LocalFileTransport", () => {
       }));
   });
 
+  it("uses a fresh encrypted request when a file read falls back to relay", async () => {
+    const fixture = await transportFixture("upload");
+    const requests: Array<{ request_id: string; counter: string }> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      requests.push(JSON.parse(String(init?.body)));
+      if (requests.length === 1) throw new TypeError("loopback unavailable");
+      return new Response(
+        JSON.stringify({ error: { code: "connector_offline", message: "Offline" } }),
+        { status: 503, headers: { "content-type": "application/json" } }
+      );
+    });
+
+    await expect(fixture.transport.control(fixture.token, "GET", "", undefined))
+      .rejects.toMatchObject({ code: "connector_offline" });
+
+    expect(requests).toHaveLength(2);
+    expect(requests[1]?.request_id).not.toBe(requests[0]?.request_id);
+    expect(requests[1]?.counter).not.toBe(requests[0]?.counter);
+  });
+
+  it("retries an evicted file read once with a fresh encrypted request", async () => {
+    const fixture = await transportFixture("upload", false);
+    const requests: Array<{ request_id: string; counter: string }> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      requests.push(JSON.parse(String(init?.body)));
+      return new Response(JSON.stringify({
+        error: {
+          code: requests.length === 1 ? "fresh_request_required" : "connector_offline",
+          message: requests.length === 1 ? "Use a fresh request." : "Offline"
+        }
+      }), {
+        status: requests.length === 1 ? 409 : 503,
+        headers: { "content-type": "application/json" }
+      });
+    });
+
+    await expect(fixture.transport.control(fixture.token, "GET", "", undefined))
+      .rejects.toMatchObject({ code: "connector_offline" });
+    expect(requests).toHaveLength(2);
+    expect(requests[1]?.request_id).not.toBe(requests[0]?.request_id);
+    expect(requests[1]?.counter).not.toBe(requests[0]?.counter);
+  });
+
+  it("keeps the exact encrypted request when a file mutation falls back to relay", async () => {
+    const fixture = await transportFixture("upload");
+    const request = {
+      protocol_version: 1,
+      type: "open_file_upload",
+      mutation_id: "01977777-7777-7777-8777-777777777777",
+      path: "Assets/file.bin",
+      size: 12
+    };
+    const requests: Array<{ request_id: string; counter: string; ciphertext: string }> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      requests.push(JSON.parse(String(init?.body)));
+      if (requests.length === 1) throw new TypeError("loopback unavailable");
+      return new Response(
+        JSON.stringify({ error: { code: "connector_offline", message: "Offline" } }),
+        { status: 503, headers: { "content-type": "application/json" } }
+      );
+    });
+
+    await expect(fixture.transport.control(fixture.token, "POST", "uploads", request))
+      .rejects.toMatchObject({ code: "connector_offline" });
+
+    expect(requests).toHaveLength(2);
+    expect(requests[1]).toEqual(requests[0]);
+  });
+
   it("maps lifecycle mutations to explicit encrypted control routes", async () => {
     const fixture = await transportFixture("upload", false);
     const fileId = "01966666-6666-7666-8666-666666666666";

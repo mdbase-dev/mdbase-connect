@@ -3,7 +3,12 @@ import { createRequire } from "node:module";
 import test from "node:test";
 
 const require = createRequire(import.meta.url);
-const { routeForDeepLink } = require("../dist/main/deep-link.js");
+const { routeForDeepLink, shouldRegisterDeepLinks } = require("../dist/main/deep-link.js");
+
+test("isolated profiles do not replace the operating system deep-link owner", () => {
+  assert.equal(shouldRegisterDeepLinks({ MDBASE_CONNECT_REGISTER_DEEP_LINKS: "0" }), false);
+  assert.equal(shouldRegisterDeepLinks({}), true);
+});
 
 test("authorization links preserve the exact request route", () => {
   assert.equal(
