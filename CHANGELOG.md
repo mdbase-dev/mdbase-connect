@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-beta.58
+
+Beta.58 closes two staging findings from the beta.57 compatibility rollout.
+
+- Connector control snapshots include the exact signed declaration, manifest,
+  and protocol contracts required to deserialize and install active grants.
+- Cold or changed binary indexes warm once outside the relay request path;
+  stable files reuse verified digests, and exact downloads still verify the
+  selected bytes before delivery.
+- The SDK retries typed index-warming responses under a dedicated file-index
+  budget instead of leaving a timed-out relay request hashing in the daemon.
+
 ## 0.1.0-beta.57
 
 Beta.57 adds a bounded migration bridge for durable beta.55 work while keeping
