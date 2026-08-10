@@ -289,6 +289,100 @@ describe("mdbase connect server", () => {
     expect(pairing.json().error.code).toBe("pairing_not_found");
   });
 
+  it("returns complete signed grant summaries to local connectors", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const userId = "10000000-0000-4000-8000-000000000081";
+    const connectorId = "20000000-0000-4000-8000-000000000081";
+    const localCollectionId = "30000000-0000-4000-8000-000000000081";
+    const collectionId = "40000000-0000-4000-8000-000000000081";
+    const applicationId = "50000000-0000-4000-8000-000000000081";
+    const grantId = "60000000-0000-4000-8000-000000000081";
+    const connectorToken = "connector-complete-grant-summary-token";
+    const applicationDeclarationId = "dev.mdbase.complete.summary";
+    const applicationManifestDigest = "a".repeat(64);
+    const proof = await testApplicationAuthorization({
+      applicationId,
+      applicationDeclarationId,
+      applicationManifestDigest,
+      flow: "device_code",
+      codeChallenge: pkceChallenge(
+        "complete-grant-summary-verifier-that-is-long-enough-for-pkce"
+      ),
+      requestedOperations: ["describe", "query"],
+      collectionId: localCollectionId
+    });
+    await db.query(
+      `INSERT INTO users (id, email, name)
+       VALUES ($1, 'summary@example.com', 'Summary')`,
+      [userId]
+    );
+    await db.query(
+      `INSERT INTO connectors (id, user_id, name, token_hash)
+       VALUES ($1, $2, 'Summary computer', $3)`,
+      [connectorId, userId, tokenHash(connectorToken)]
+    );
+    await db.query(
+      `INSERT INTO collections
+         (id, user_id, connector_id, local_id, display_name, spec_version)
+       VALUES ($1, $2, $3, $4, 'Summary collection', '0.3.0')`,
+      [collectionId, userId, connectorId, localCollectionId]
+    );
+    await db.query(
+      `INSERT INTO applications
+         (id, canonical_identity, family_identity, manifest_digest, name,
+          homepage, redirect_uris)
+       VALUES ($1, $2, $3, $4, 'Summary application',
+         'https://summary.example', '["https://summary.example/callback"]'::jsonb)`,
+      [
+        applicationId,
+        `bundle:${applicationDeclarationId}:sha256:${applicationManifestDigest}`,
+        `bundle:${applicationDeclarationId}`,
+        applicationManifestDigest
+      ]
+    );
+    await db.query(
+      `INSERT INTO grants
+         (id, user_id, application_id, collection_id, operations,
+          application_authorization, application_installation_id)
+       VALUES ($1, $2, $3, $4, '["describe","query"]'::jsonb,
+               $5::jsonb, $6)`,
+      [
+        grantId,
+        userId,
+        applicationId,
+        collectionId,
+        JSON.stringify(proof),
+        proof.binding.application_installation_id
+      ]
+    );
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      publicUrl: "http://connect.test"
+    });
+    resources.push(() => app.close());
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/connectors/control",
+      headers: { authorization: `Bearer ${connectorToken}` }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().grants).toEqual([
+      expect.objectContaining({
+        id: grantId,
+        application_declaration_id: applicationDeclarationId,
+        application_manifest_digest: applicationManifestDigest,
+        contracts: proof.binding.contracts
+      })
+    ]);
+    expect(response.json().grants[0]).not.toHaveProperty(
+      "application_authorization"
+    );
+  });
+
   it("registers exact bundled declarations as immutable application identities", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
