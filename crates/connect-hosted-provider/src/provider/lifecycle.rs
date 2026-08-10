@@ -29,13 +29,14 @@ impl HostedProvider {
                                 limits,
                                 working_sets: Arc::new(Mutex::new(HashMap::new())),
                                 notifications,
+                                notification_recovery_guard: Arc::new(Mutex::new(())),
                                 notification_recovery: Arc::new(RwLock::new(
                                     NotificationRecoveryStatus {
                                         configured: notification_config.is_some(),
                                         recovery: if notification_config.is_some() {
-                                            "pending"
+                                            NotificationRecoveryState::Pending
                                         } else {
-                                            "disabled"
+                                            NotificationRecoveryState::Disabled
                                         },
                                         consecutive_failures: 0,
                                         last_success_at: None,
@@ -46,7 +47,17 @@ impl HostedProvider {
                             provider.migrate_legacy_sync_receipts().await?;
                             if let Some(notifications) = &provider.notifications {
                                 notifications.prepare().await?;
-                                provider.recover_notifications(1_000).await?;
+                                // Notification delivery calls back into the Connect control
+                                // plane. It is durable and retryable, but it is not a core
+                                // dependency of the provider's storage and sync surfaces.
+                                // Failing startup here creates a readiness cycle when Connect
+                                // also probes this provider before becoming ready.
+                                if let Err(error) = provider.recover_notifications(1_000).await {
+                                    tracing::warn!(
+                                        error_code = %error.code,
+                                        "initial hosted notification recovery deferred"
+                                    );
+                                }
                             }
                             return Ok(provider);
                         }
@@ -102,15 +113,12 @@ impl HostedProvider {
         sqlx::query("SELECT 1").execute(&self.pool).await?;
         self.blob_store.ready().await?;
         self.verify_key_readiness().await?;
-        let status = self.notification_recovery.read().await.clone();
-        if status.configured && status.recovery != "ok" {
-            return Err(ApiError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "notification_recovery_unavailable",
-                "Hosted notification recovery has not completed successfully.",
-            ));
-        }
-        Ok(status)
+        // Keep readiness acyclic: notification delivery is an outbound,
+        // durably-retried dependency on the Connect control plane, while
+        // Connect itself checks this endpoint before advertising readiness.
+        // Report degradation for operators without inviting the platform to
+        // restart a provider that can still serve authoritative data.
+        Ok(self.notification_recovery.read().await.clone())
     }
 
     async fn verify_key_readiness(&self) -> ApiResult<()> {
@@ -166,23 +174,65 @@ impl HostedProvider {
         let Some(notifications) = &self.notifications else {
             return Ok(0);
         };
+        // Mutation-triggered recovery and the periodic recovery loop can fire
+        // together. Only one sweep may own runtime leases and update the
+        // operator-visible state; callers that lose the race can rely on the
+        // in-flight durable sweep.
+        let Ok(_guard) = self.notification_recovery_guard.try_lock() else {
+            return Ok(0);
+        };
         match notifications.recover(limit).await {
             Ok(processed) => {
-                *self.notification_recovery.write().await = NotificationRecoveryStatus {
+                let pending = match notifications.has_pending_delivery().await {
+                    Ok(pending) => pending,
+                    Err(error) => {
+                        self.mark_notification_recovery_degraded(&error).await;
+                        return Err(error);
+                    }
+                };
+                let mut status = self.notification_recovery.write().await;
+                if pending {
+                    if status.recovery != NotificationRecoveryState::Degraded {
+                        status.recovery = NotificationRecoveryState::Pending;
+                    }
+                    return Ok(processed);
+                }
+                let recovered_from_degraded =
+                    status.recovery == NotificationRecoveryState::Degraded;
+                *status = NotificationRecoveryStatus {
                     configured: true,
-                    recovery: "ok",
+                    recovery: NotificationRecoveryState::Ok,
                     consecutive_failures: 0,
                     last_success_at: Some(Utc::now()),
                 };
+                drop(status);
+                if recovered_from_degraded {
+                    tracing::info!(
+                        target: "mdbase_connect::metrics",
+                        metric = "notification_recovery_restored",
+                        "privacy-safe hosted provider metric"
+                    );
+                }
                 Ok(processed)
             }
             Err(error) => {
-                let mut status = self.notification_recovery.write().await;
-                status.recovery = "degraded";
-                status.consecutive_failures = status.consecutive_failures.saturating_add(1);
+                self.mark_notification_recovery_degraded(&error).await;
                 Err(error)
             }
         }
+    }
+
+    async fn mark_notification_recovery_degraded(&self, error: &ApiError) {
+        let mut status = self.notification_recovery.write().await;
+        status.recovery = NotificationRecoveryState::Degraded;
+        status.consecutive_failures = status.consecutive_failures.saturating_add(1);
+        tracing::warn!(
+            target: "mdbase_connect::metrics",
+            metric = "notification_recovery_degraded",
+            error_code = %error.code,
+            consecutive_failures = status.consecutive_failures,
+            "privacy-safe hosted provider metric"
+        );
     }
 }
 
@@ -234,6 +284,18 @@ mod key_readiness_tests {
         state.healthy = false;
         assert!(!state.should_probe(start + KEY_READINESS_FAILURE_TTL - Duration::from_millis(1)));
         assert!(state.should_probe(start + KEY_READINESS_FAILURE_TTL));
+    }
+
+    #[test]
+    fn notification_recovery_states_have_stable_operator_values() {
+        for (state, expected) in [
+            (NotificationRecoveryState::Disabled, "disabled"),
+            (NotificationRecoveryState::Pending, "pending"),
+            (NotificationRecoveryState::Ok, "ok"),
+            (NotificationRecoveryState::Degraded, "degraded"),
+        ] {
+            assert_eq!(serde_json::to_value(state).unwrap(), json!(expected));
+        }
     }
 }
 

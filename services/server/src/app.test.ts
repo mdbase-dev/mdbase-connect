@@ -12,12 +12,14 @@ import type {
 } from "@mdbase-dev/connect-protocol";
 import {
   AUTHORITY_PROOF_HEADERS,
-  AUTHORITY_PROOF_VERSION
+  AUTHORITY_PROOF_VERSION,
+  CONNECT_CONTRACT_SUPPORT,
+  HOSTED_PROVIDER_REQUIRED_CAPABILITIES
 } from "@mdbase-dev/connect-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
-import type { HostedProviderClient } from "./hosted-provider.js";
+import { HostedProviderClient } from "./hosted-provider.js";
 import { authorityProofMessage } from "./authority-proof.js";
 import { pkceChallenge, tokenHash } from "./security.js";
 import {
@@ -40,6 +42,7 @@ function p256PublicKey(): string {
 
 afterEach(async () => {
   while (resources.length) await resources.pop()?.();
+  vi.restoreAllMocks();
 });
 
 describe("mdbase connect server", () => {
@@ -110,6 +113,41 @@ describe("mdbase connect server", () => {
       protocol_version: 1,
       revision: "ae3a8d9"
     });
+  });
+
+  it("stays ready when the hosted provider reports retryable notification degradation", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      status: "ready",
+      provider: {
+        version: "0.1.0-beta.61",
+        capabilities: [...HOSTED_PROVIDER_REQUIRED_CAPABILITIES],
+        contract_support: CONNECT_CONTRACT_SUPPORT
+      },
+      notifications: {
+        configured: true,
+        recovery: "degraded",
+        consecutive_failures: 2
+      }
+    }), { status: 200 }));
+    const hostedProvider = new HostedProviderClient({
+      url: "https://provider.example",
+      internalToken: "x".repeat(40)
+    });
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      hostedCollections: true,
+      hostedProvider,
+      publicUrl: "http://connect.test"
+    });
+    resources.push(() => app.close());
+
+    const ready = await app.inject({ method: "GET", url: "/ready" });
+
+    expect(ready.statusCode).toBe(200);
+    expect(ready.json()).toEqual({ ok: true, service: "mdbase-connect" });
   });
 
   it("keeps malformed and oversized request bodies out of the server-error path", async () => {

@@ -210,6 +210,26 @@ impl HostedNotificationRuntime {
         Ok(processed)
     }
 
+    pub async fn has_pending_delivery(&self) -> ApiResult<bool> {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT
+               EXISTS (
+                 SELECT 1
+                 FROM hosted_provider_runtime_outbox
+                 WHERE processed_at IS NULL
+               )
+               OR EXISTS (
+                 SELECT 1
+                 FROM mdbase_runtime_runs
+                 WHERE namespace LIKE 'connect-hosted:%:notifications'
+                   AND status IN ('queued', 'running', 'waiting')
+               )",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(ApiError::from)
+    }
+
     async fn process_outbox(&self, limit: usize) -> ApiResult<usize> {
         let rows = sqlx::query(
             "SELECT candidate.collection_id, candidate.sequence, candidate.event_type,

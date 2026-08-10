@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.0-beta.61
+
+Beta.61 makes hosted-provider readiness acyclic while retaining an exact,
+operator-visible account of durable notification recovery.
+
+- Provider readiness now covers only the authoritative database, blob store,
+  and key hierarchy; retryable notification callbacks no longer keep Connect
+  and its provider waiting on each other or trigger a platform restart loop.
+- Startup attempts notification recovery without making callback availability
+  a process-start dependency, and the background worker safely replays the
+  same durable invocation after the control plane recovers.
+- Recovery is single-flight and reports `pending`, `degraded`, or `ok` from the
+  actual durable outbox and runtime state, with privacy-safe transition metrics
+  and no false healthy result from an overlapping or lease-blocked sweep.
+
 ## 0.1.0-beta.60
 
 Beta.60 keeps large local collections responsive while binary files are served

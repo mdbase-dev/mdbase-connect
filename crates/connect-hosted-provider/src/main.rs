@@ -388,7 +388,10 @@ async fn maintain_notifications(provider: HostedProvider, period: Duration) {
     loop {
         interval.tick().await;
         if let Err(error) = provider.recover_notifications(1_000).await {
-            tracing::error!(%error, "hosted notification recovery failed");
+            tracing::warn!(
+                error_code = %error.code,
+                "hosted notification recovery deferred"
+            );
         }
     }
 }

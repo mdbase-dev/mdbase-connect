@@ -627,7 +627,10 @@ impl HostedProvider {
             let provider = self.clone();
             tokio::spawn(async move {
                 if let Err(error) = provider.recover_notifications(100).await {
-                    tracing::warn!(%error, "hosted notification recovery deferred");
+                    tracing::warn!(
+                        error_code = %error.code,
+                        "hosted notification recovery deferred"
+                    );
                 }
             });
         }

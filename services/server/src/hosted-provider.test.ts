@@ -194,6 +194,23 @@ describe("hosted provider control client", () => {
     await expect(provider.ready()).resolves.toBeUndefined();
   });
 
+  it("accepts core readiness while durable notification delivery is degraded", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      ...readinessDocument(),
+      notifications: {
+        configured: true,
+        recovery: "degraded",
+        consecutive_failures: 3
+      }
+    }), { status: 200 }));
+    const provider = new HostedProviderClient({
+      url: "https://provider.example",
+      internalToken: "internal-secret"
+    });
+
+    await expect(provider.ready()).resolves.toBeUndefined();
+  });
+
   it.each<keyof ConnectContractSupport>([
     "operation_transport",
     "authorization_binding",

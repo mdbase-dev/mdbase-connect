@@ -180,6 +180,7 @@ pub struct HostedProvider {
     limits: ProviderLimits,
     working_sets: WorkingSetRegistry,
     notifications: Option<HostedNotificationRuntime>,
+    notification_recovery_guard: Arc<Mutex<()>>,
     notification_recovery: Arc<RwLock<NotificationRecoveryStatus>>,
     blob_store: Arc<dyn BlobStore>,
 }
@@ -187,10 +188,19 @@ pub struct HostedProvider {
 #[derive(Debug, Clone, Serialize)]
 pub struct NotificationRecoveryStatus {
     pub configured: bool,
-    pub recovery: &'static str,
+    pub recovery: NotificationRecoveryState,
     pub consecutive_failures: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_success_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationRecoveryState {
+    Disabled,
+    Pending,
+    Ok,
+    Degraded,
 }
 
 #[derive(Debug, Clone, Deserialize)]

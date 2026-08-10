@@ -855,6 +855,7 @@ schema:
   phase("running a hosted mutation through the durable notification runtime");
   const notificationSignals = [];
   const notificationRequests = [];
+  let notificationControlPlaneAvailable = false;
   const callbackPort = await availableTcpPort();
   notificationCallbackServer = createServer(async (request, response) => {
     const chunks = [];
@@ -862,7 +863,7 @@ schema:
     assert.equal(request.headers.authorization, `Bearer ${internalToken}`);
     const signal = JSON.parse(Buffer.concat(chunks).toString("utf8"));
     notificationRequests.push(signal);
-    if (notificationRequests.length === 1) {
+    if (!notificationControlPlaneAvailable) {
       response.writeHead(503, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: { code: "temporarily_unavailable" } }));
       return;
@@ -875,11 +876,17 @@ schema:
     notificationCallbackServer.once("error", reject);
     notificationCallbackServer.listen(callbackPort, "127.0.0.1", resolveListen);
   });
-  const notificationProvider = await startProvider(databaseUrl, 0, masterKey, {
+  const notificationEnvironment = {
     MDBASE_CONNECT_CONTROL_PLANE_URL: `http://127.0.0.1:${callbackPort}`,
     MDBASE_CONNECT_HOSTED_MAINTENANCE_INTERVAL_SECONDS: "1",
     MDBASE_CONNECT_HOSTED_NOTIFICATION_INTERVAL_SECONDS: "1"
-  });
+  };
+  let notificationProvider = await startProvider(
+    databaseUrl,
+    0,
+    masterKey,
+    notificationEnvironment
+  );
   const notificationReady = await rawRequest(notificationProvider.url, "/ready");
   assert.equal(notificationReady.status, 200);
   assert.equal(notificationReady.body.notifications.configured, true);
@@ -987,6 +994,62 @@ schema:
     "Private notification title"
   ));
   assert.equal(notificationReceipt.status, "applied");
+  await waitFor(
+    () => notificationRequests.length >= 1,
+    "Hosted runtime did not attempt the unavailable notification callback",
+    600
+  );
+  const degradedReady = await waitFor(async () => {
+    const readiness = await rawRequest(notificationProvider.url, "/ready");
+    return readiness.status === 200 && readiness.body.notifications.recovery === "degraded"
+      ? readiness
+      : undefined;
+  }, "Hosted readiness did not report notification degradation", 600);
+  assert.equal(degradedReady.status, 200, JSON.stringify(degradedReady.body));
+  assert.equal(degradedReady.body.status, "ready");
+  assert.equal(degradedReady.body.notifications.recovery, "degraded");
+  assert.ok(degradedReady.body.notifications.consecutive_failures >= 1);
+
+  // Reproduce the production topology: Connect waits for provider readiness,
+  // while the provider's durable notification callback waits for Connect. A
+  // queued callback must not prevent the provider from binding or advertising
+  // its independent core readiness after restart.
+  await stopProvider(notificationProvider);
+  notificationProvider = await startProvider(
+    databaseUrl,
+    0,
+    masterKey,
+    notificationEnvironment
+  );
+  const restartedPendingReady = await rawRequest(notificationProvider.url, "/ready");
+  assert.equal(restartedPendingReady.status, 200, JSON.stringify(restartedPendingReady.body));
+  assert.equal(restartedPendingReady.body.status, "ready");
+  assert.ok(
+    ["pending", "degraded"].includes(restartedPendingReady.body.notifications.recovery),
+    JSON.stringify(restartedPendingReady.body)
+  );
+  if (restartedPendingReady.body.notifications.recovery === "degraded") {
+    assert.ok(restartedPendingReady.body.notifications.consecutive_failures >= 1);
+  }
+
+  notificationControlPlaneAvailable = true;
+  await waitFor(
+    () => notificationSignals.length === 1,
+    "Hosted runtime did not safely replay the notification after control-plane recovery",
+    600
+  );
+  const replayAttempts = notificationRequests.filter(
+    (request) => request.signal_id === notificationSignals[0].signal_id
+  );
+  assert.ok(replayAttempts.length >= 2);
+  for (const replay of replayAttempts) assert.deepEqual(replay, notificationSignals[0]);
+  await waitFor(async () => {
+    const recovery = await rawRequest(notificationProvider.url, "/ready");
+    return recovery.status === 200
+      && recovery.body.notifications.recovery === "ok"
+      && recovery.body.notifications.consecutive_failures === 0;
+  }, "Hosted notification recovery did not return to healthy", 600);
+
   const secondNotificationReceipt = await new HttpSyncTransport(
     authoritySyncUrl(notificationProvider.url, notificationCollectionId),
     notificationToken
@@ -1007,8 +1070,6 @@ schema:
   assert.match(notificationSignals[0].signal_id, /^inv_/);
   assert.equal(JSON.stringify(notificationSignals[0]).includes("private-notification"), false);
   assert.equal(JSON.stringify(notificationSignals[0]).includes("Private notification title"), false);
-  assert.equal(notificationRequests.length, 3);
-  assert.deepEqual(notificationRequests[0], notificationRequests[1]);
   assert.equal(notificationSignals[1].criterion_id, "task.created");
   assert.equal(Number(notificationSignals[0].cursor) < Number(notificationSignals[1].cursor), true);
   assert.notEqual(notificationSignals[0].signal_id, notificationSignals[1].signal_id);
