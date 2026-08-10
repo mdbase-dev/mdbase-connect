@@ -17,6 +17,7 @@ impl CollectionRegistry {
             process_epoch: Uuid::new_v4(),
             providers: Arc::new(Mutex::new(HashMap::new())),
             file_reconciles: Arc::new(Mutex::new(HashMap::new())),
+            file_warmups: Arc::new(Mutex::new(HashMap::new())),
             ephemeral_responses: Arc::new(Mutex::new(
                 encrypted_requests::EphemeralResponseCache::default(),
             )),

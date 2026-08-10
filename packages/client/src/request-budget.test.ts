@@ -39,15 +39,18 @@ describe("request budgets", () => {
     expect(resolveConnectTimeouts({
       requestMs: 5_000,
       watchStartMs: null,
+      fileIndexMs: 120_000,
       uploadMs: 90_000,
       syncMs: 45_000
     })).toEqual({
       requestMs: 5_000,
       watchStartMs: null,
+      fileIndexMs: 120_000,
       uploadMs: 90_000,
       syncMs: 45_000
     });
     expect(() => resolveConnectTimeouts({ requestMs: 0 })).toThrow(TypeError);
+    expect(() => resolveConnectTimeouts({ fileIndexMs: 0 })).toThrow(TypeError);
   });
 
   it("composes caller cancellation and removes its listener", () => {

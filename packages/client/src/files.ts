@@ -11,6 +11,7 @@ import type {
   UploadedFilePart
 } from "@mdbase-dev/connect-protocol";
 import { FILE_PROTOCOL_VERSION } from "@mdbase-dev/connect-protocol";
+import { abortableDelay } from "./async.js";
 import { MdbaseConnectError, connectError } from "./errors.js";
 import { IncrementalSha256 } from "./file-sha256.js";
 import { BinaryPartReader } from "./file-stream-source.js";
@@ -89,6 +90,8 @@ export interface MdbaseFileProgress {
 export interface MdbaseFileListOptions extends ConnectRequestOptions {
   folder?: string;
   pageSize?: number;
+  /** Called while a cold or changed collection builds its verified binary index. */
+  onIndexing?: () => void;
 }
 
 export interface MdbaseFileUploadOptions extends ConnectRequestOptions {
@@ -165,7 +168,7 @@ export class MdbaseFileClient {
   ) {}
 
   async *list(options: MdbaseFileListOptions = {}): AsyncGenerator<CollectionFileDescriptor> {
-    const budget = createRequestBudget(options, this.timeouts.requestMs);
+    const budget = createRequestBudget(options, this.timeouts.fileIndexMs);
     const signal = budget.signal;
     try {
     this.requireAction("list");
@@ -178,12 +181,23 @@ export class MdbaseFileClient {
         ...(after ? { after } : {}),
         ...(options.pageSize ? { limit: String(validPageSize(options.pageSize)) } : {})
       });
-      const page = await this.request<ListFilesPage>(
-        "GET",
-        `?${query.toString()}`,
-        undefined,
-        signal
-      );
+      let page: ListFilesPage;
+      while (true) {
+        try {
+          page = await this.request<ListFilesPage>(
+            "GET",
+            `?${query.toString()}`,
+            undefined,
+            signal
+          );
+          break;
+        } catch (error) {
+          const normalized = normalizeFileError(error);
+          if (normalized.code !== "file_index_warming") throw normalized;
+          options.onIndexing?.();
+          await abortableDelay(500, signal);
+        }
+      }
       if (page.protocol_version !== 1 || page.type !== "files_page" || !Array.isArray(page.files)) {
         throw connectError("invalid_operation_response", "The authority returned an invalid file page.");
       }

@@ -443,6 +443,32 @@ fn download_is_revision_pinned_resumable_and_snapshot_backed() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn download_reuses_unchanged_inventory_digests_before_verifying_selected_bytes() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (_state, root, registry, id) = registered();
+    fs::write(root.path().join("selected.bin"), b"selected bytes").unwrap();
+    fs::write(root.path().join("unrelated.bin"), b"unrelated bytes").unwrap();
+    let files = registry.reconcile_files(id).unwrap();
+    let selected = files
+        .into_iter()
+        .find(|file| file.path == "selected.bin")
+        .unwrap();
+    fs::set_permissions(
+        root.path().join("unrelated.bin"),
+        fs::Permissions::from_mode(0o000),
+    )
+    .unwrap();
+
+    let session = registry
+        .open_file_download(id, owner(), &download_request(&selected), |_| Ok(()))
+        .unwrap();
+
+    assert_eq!(session.total_size, b"selected bytes".len() as u64);
+}
+
 #[test]
 fn download_rejects_stale_revisions_other_owners_and_expired_snapshots() {
     let (_state, root, registry, id) = registered();

@@ -42,6 +42,7 @@ export const CONNECT_PROBLEM_CATALOG = {
   "expired_token": { category: "authorization", recovery: "reauthorize" },
   "file_changed_during_move": { category: "conflict", recovery: "refresh" },
   "file_changed_during_read": { category: "conflict", recovery: "refresh" },
+  "file_index_warming": { category: "availability", recovery: "retry" },
   "file_move_failed": { category: "internal", recovery: "contact_support" },
   "file_mutation_conflict": { category: "conflict", recovery: "resolve_conflict" },
   "file_not_found": { category: "conflict", recovery: "refresh" },
@@ -207,6 +208,7 @@ export interface ConnectProblemDetailsByCode {
   "expired_token": undefined;
   "file_changed_during_move": undefined;
   "file_changed_during_read": undefined;
+  "file_index_warming": undefined;
   "file_move_failed": undefined;
   "file_mutation_conflict": undefined;
   "file_not_found": undefined;
@@ -537,6 +539,12 @@ export interface ConnectProblemByCode {
     code: "file_changed_during_read";
     category: "conflict";
     recovery: "refresh";
+    details?: never;
+  };
+  "file_index_warming": ConnectProblemBase & {
+    code: "file_index_warming";
+    category: "availability";
+    recovery: "retry";
     details?: never;
   };
   "file_move_failed": ConnectProblemBase & {

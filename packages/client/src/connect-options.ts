@@ -5,6 +5,7 @@ import type { ApplicationIdentityStore } from "./application-identity.js";
 export interface MdbaseConnectTimeouts {
   requestMs?: number | null;
   watchStartMs?: number | null;
+  fileIndexMs?: number | null;
   uploadMs?: number | null;
   syncMs?: number | null;
 }

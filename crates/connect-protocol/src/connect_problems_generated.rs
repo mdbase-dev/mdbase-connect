@@ -112,6 +112,7 @@ pub fn connect_problem_definition(code: &str) -> Option<ConnectProblemDefinition
         "expired_token" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Authorization, recovery: ConnectRecoveryAction::Reauthorize }),
         "file_changed_during_move" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Conflict, recovery: ConnectRecoveryAction::Refresh }),
         "file_changed_during_read" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Conflict, recovery: ConnectRecoveryAction::Refresh }),
+        "file_index_warming" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Availability, recovery: ConnectRecoveryAction::Retry }),
         "file_move_failed" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Internal, recovery: ConnectRecoveryAction::ContactSupport }),
         "file_mutation_conflict" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Conflict, recovery: ConnectRecoveryAction::ResolveConflict }),
         "file_not_found" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Conflict, recovery: ConnectRecoveryAction::Refresh }),

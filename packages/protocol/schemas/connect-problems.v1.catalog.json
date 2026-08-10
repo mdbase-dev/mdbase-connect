@@ -191,6 +191,7 @@
     "expired_token": { "category": "authorization", "recovery": "reauthorize" },
     "file_changed_during_move": { "category": "conflict", "recovery": "refresh" },
     "file_changed_during_read": { "category": "conflict", "recovery": "refresh" },
+    "file_index_warming": { "category": "availability", "recovery": "retry" },
     "file_move_failed": { "category": "internal", "recovery": "contact_support" },
     "file_mutation_conflict": { "category": "conflict", "recovery": "resolve_conflict" },
     "file_not_found": { "category": "conflict", "recovery": "refresh" },

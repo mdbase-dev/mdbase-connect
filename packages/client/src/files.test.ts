@@ -4,7 +4,7 @@ import type {
   FileCapability
 } from "@mdbase-dev/connect-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MdbaseConnectError } from "./errors.js";
+import { MdbaseConnectError, connectError } from "./errors.js";
 import {
   MdbaseFileClient,
   type CollectionFileDescriptor,
@@ -19,7 +19,10 @@ const capability: FileCapability = {
   scope: { kind: "collection" }
 };
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
 
 describe("MdbaseFileClient", () => {
   it("hides cursor paging behind an async iterable", async () => {
@@ -38,6 +41,39 @@ describe("MdbaseFileClient", () => {
     expect(calls[0]).toContain("folder=Assets");
     expect(calls[0]).toContain("limit=25");
     expect(calls[1]).toContain("after=next");
+  });
+
+  it("waits for a cold authority file index without holding one request open", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const indexing = vi.fn();
+    const client = fileClient(async () => {
+      calls += 1;
+      if (calls === 1) {
+        throw connectError(
+          "file_index_warming",
+          "The collection file index is warming; retry shortly."
+        );
+      }
+      return {
+        protocol_version: 1,
+        type: "files_page",
+        files: [wireDescriptor("ready.bin", bytes("ready"))]
+      };
+    });
+    const listed = (async () => {
+      const files = [];
+      for await (const file of client.list({ onIndexing: indexing })) {
+        files.push(file.path);
+      }
+      return files;
+    })();
+
+    await vi.advanceTimersByTimeAsync(500);
+
+    await expect(listed).resolves.toEqual(["ready.bin"]);
+    expect(indexing).toHaveBeenCalledOnce();
+    expect(calls).toBe(2);
   });
 
   it("hashes and uploads a single object without exposing prepared storage details", async () => {

@@ -41,11 +41,16 @@ impl AgentState {
                     }
                     (revision, Some(path.to_string()))
                 } else {
-                    (
-                        self.registry
-                            .refresh_file_index_if_needed(grant.collection_id)?,
-                        None,
-                    )
+                    let Some(revision) = self
+                        .registry
+                        .prepare_file_index_for_listing(grant.collection_id)?
+                    else {
+                        return Err(local_file_error(
+                            "file_index_warming",
+                            "The collection file index is warming; retry shortly.",
+                        ));
+                    };
+                    (revision, None)
                 };
                 let batch_size = limit.saturating_add(1).clamp(128, 1_001);
                 let mut files = Vec::with_capacity(limit.saturating_add(1));
@@ -758,6 +763,9 @@ mod tests {
         }
         let registry = CollectionRegistry::open(state_dir.path()).unwrap();
         let collection = registry.add(root.path()).unwrap();
+        registry
+            .refresh_file_index_if_needed(collection.id)
+            .unwrap();
         let watcher = CollectionWatchService::start(registry.clone());
         let state = AgentState::new(registry.clone(), watcher, None);
         let grant = file_grant(collection.id, vec![FileAction::List]);
@@ -790,8 +798,8 @@ mod tests {
 
         fs::write(root.path().join("Allowed/d.bin"), b"d.bin").unwrap();
         registry.mark_file_inventory_dirty(collection.id).unwrap();
-        state
-            .file_control(&grant, serde_json::to_value(&request).unwrap())
+        registry
+            .refresh_file_index_if_needed(collection.id)
             .unwrap();
         assert_eq!(
             state

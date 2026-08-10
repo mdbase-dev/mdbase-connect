@@ -367,7 +367,14 @@ pub struct CollectionRegistry {
     process_epoch: Uuid,
     providers: Arc<Mutex<HashMap<Uuid, Arc<FilesystemProvider>>>>,
     file_reconciles: Arc<Mutex<HashMap<Uuid, Arc<Mutex<()>>>>>,
+    file_warmups: Arc<Mutex<HashMap<Uuid, FileWarmupState>>>,
     ephemeral_responses: Arc<Mutex<encrypted_requests::EphemeralResponseCache>>,
+}
+
+#[derive(Debug, Clone)]
+enum FileWarmupState {
+    Running,
+    Failed { code: String, message: String },
 }
 
 #[derive(Debug, Clone)]

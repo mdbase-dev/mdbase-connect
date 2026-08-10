@@ -49,7 +49,11 @@ impl CollectionRegistry {
         provider.with_collection_read(|collection| {
             crate::LocalSyncStore::for_registry(self).assert_authority_available(id)?;
             let snapshot = collection.snapshot()?;
-            let files = self.reconcile_files_loaded(&registered, collection, &snapshot)?;
+            let files = self.reconcile_files_loaded_reusing_cached_digests(
+                &registered,
+                collection,
+                &snapshot,
+            )?;
             let descriptor = files
                 .into_iter()
                 .find(|file| {

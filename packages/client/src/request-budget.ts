@@ -4,12 +4,14 @@ import type { MdbaseConnectTimeouts } from "./connect-options.js";
 
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 export const DEFAULT_STARTUP_TIMEOUT_MS = 10_000;
+export const DEFAULT_FILE_INDEX_TIMEOUT_MS = 10 * 60_000;
 export const DEFAULT_UPLOAD_TIMEOUT_MS = 120_000;
 export const DEFAULT_SYNC_TIMEOUT_MS = 60_000;
 
 export interface ResolvedConnectTimeouts {
   requestMs: number | null;
   watchStartMs: number | null;
+  fileIndexMs: number | null;
   uploadMs: number | null;
   syncMs: number | null;
 }
@@ -20,6 +22,11 @@ export function resolveConnectTimeouts(
   return {
     requestMs: configuredTimeout(timeouts.requestMs, DEFAULT_REQUEST_TIMEOUT_MS, "requestMs"),
     watchStartMs: configuredTimeout(timeouts.watchStartMs, DEFAULT_STARTUP_TIMEOUT_MS, "watchStartMs"),
+    fileIndexMs: configuredTimeout(
+      timeouts.fileIndexMs,
+      DEFAULT_FILE_INDEX_TIMEOUT_MS,
+      "fileIndexMs"
+    ),
     uploadMs: configuredTimeout(timeouts.uploadMs, DEFAULT_UPLOAD_TIMEOUT_MS, "uploadMs"),
     syncMs: configuredTimeout(timeouts.syncMs, DEFAULT_SYNC_TIMEOUT_MS, "syncMs")
   };
