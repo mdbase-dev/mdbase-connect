@@ -140,6 +140,24 @@ try {
   assert(largeResult.status === 200 && largeResult.body.result?.input_bytes === large.length,
     `Large transient relay payload failed: ${JSON.stringify(largeResult.body)}`);
 
+  const oversizedBrokerResponseBytes = 6 * 1_024 * 1_024;
+  const oversizedBrokerResponse = await operation(urlB, fixture, "query", {
+    response_bytes: oversizedBrokerResponseBytes
+  });
+  assert(
+    oversizedBrokerResponse.status === 200
+      && oversizedBrokerResponse.body.result?.blob?.length === oversizedBrokerResponseBytes,
+    `A legitimate response above NATS max_payload did not use bounded framing: ${JSON.stringify({
+      status: oversizedBrokerResponse.status,
+      body: oversizedBrokerResponse.body.result && {
+        ...oversizedBrokerResponse.body.result,
+        blob: `[${oversizedBrokerResponse.body.result.blob?.length} bytes]`
+      }
+    })}`
+  );
+  assert((await fetch(`${urlA}/health`)).ok && (await fetch(`${urlB}/health`)).ok,
+    "A large framed response terminated a Connect instance");
+
   await database.query("UPDATE grants SET operations = $2::jsonb WHERE id = $1", [
     fixture.grantId,
     JSON.stringify(["read"])
@@ -610,7 +628,10 @@ async function connectFakeConnector({ WebSocket: Socket, serverUrl, token, owner
       result: {
         owner,
         operation: message.operation,
-        input_bytes: typeof message.input?.blob === "string" ? message.input.blob.length : 0
+        input_bytes: typeof message.input?.blob === "string" ? message.input.blob.length : 0,
+        ...(Number.isSafeInteger(message.input?.response_bytes)
+          ? { blob: "x".repeat(message.input.response_bytes) }
+          : {})
       }
     }));
   });

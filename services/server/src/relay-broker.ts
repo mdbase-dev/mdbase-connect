@@ -1,7 +1,5 @@
 import {
   connect,
-  RequestError,
-  TimeoutError,
   type Msg,
   type NatsConnection,
   type Subscription
@@ -10,6 +8,10 @@ import {
   isConnectProblem,
   type ConnectProblem
 } from "@mdbase-dev/connect-protocol";
+import {
+  NatsFramedTransport,
+  NatsFramedTransportError
+} from "./relay-broker-framing.js";
 
 const SUBJECT_PREFIX = "mdbase.connect.relay.v1";
 const encoder = new TextEncoder();
@@ -163,8 +165,10 @@ export class LocalRelayBroker implements RelayBroker {
 
 export class NatsRelayBroker implements RelayBroker {
   private available = true;
+  private readonly framed: NatsFramedTransport;
 
   private constructor(private readonly connection: NatsConnection) {
+    this.framed = new NatsFramedTransport(connection);
     void this.monitorConnection();
   }
 
@@ -192,14 +196,14 @@ export class NatsRelayBroker implements RelayBroker {
     assertSubjectParts(input.connectorId, input.generation);
     const delivery = this.connection.subscribe(deliverySubject(input.connectorId, input.generation), {
       callback: (error, message) => {
-        void this.handleRequest(error, message, input.handle);
+        void this.handleRequest(error, message, input.handle).catch(() => undefined);
       }
     });
     const binaryDelivery = this.connection.subscribe(
       binaryDeliverySubject(input.connectorId, input.generation),
       {
         callback: (error, message) => {
-          void this.handleBinaryRequest(error, message, input.handleBinary);
+          void this.handleBinaryRequest(error, message, input.handleBinary).catch(() => undefined);
         }
       }
     );
@@ -226,20 +230,19 @@ export class NatsRelayBroker implements RelayBroker {
     this.assertAvailable();
     assertSubjectParts(connectorId, generation);
     try {
-      const response = await this.connection.request(
+      const response = await this.framed.request(
         deliverySubject(connectorId, generation),
         encodeJson(command),
-        { timeout: timeoutMs }
+        timeoutMs
       );
-      const reply = decodeJson(response.data);
+      const reply = decodeJson(response);
       if (!isRelayBrokerReply(reply)) {
         throw new RelayBrokerUnavailableError("The relay broker returned an invalid response.");
       }
       return reply;
     } catch (error) {
       if (error instanceof RelayBrokerUnavailableError) throw error;
-      if (error instanceof TimeoutError
-          || (error instanceof RequestError && error.isNoResponders())) {
+      if (isMissingRelayError(error)) {
         throw new RelayBrokerUnavailableError("No relay owns the current connector session.", {
           cause: error
         });
@@ -257,16 +260,15 @@ export class NatsRelayBroker implements RelayBroker {
     this.assertAvailable();
     assertSubjectParts(connectorId, generation);
     try {
-      const response = await this.connection.request(
+      const response = await this.framed.request(
         binaryDeliverySubject(connectorId, generation),
         frame,
-        { timeout: timeoutMs }
+        timeoutMs
       );
-      return decodeBinaryReply(response.data);
+      return decodeBinaryReply(response);
     } catch (error) {
       if (error instanceof RelayBrokerUnavailableError) throw error;
-      if (error instanceof TimeoutError
-          || (error instanceof RequestError && error.isNoResponders())) {
+      if (isMissingRelayError(error)) {
         throw new RelayBrokerUnavailableError("No relay owns the current connector session.", {
           cause: error
         });
@@ -291,6 +293,7 @@ export class NatsRelayBroker implements RelayBroker {
 
   async close(): Promise<void> {
     this.available = false;
+    this.framed.close();
     if (!this.connection.isClosed()) await this.connection.drain();
   }
 
@@ -318,19 +321,28 @@ export class NatsRelayBroker implements RelayBroker {
     message: Msg,
     handle: (command: RelayBrokerCommand) => Promise<RelayBrokerReply>
   ): Promise<void> {
-    if (error || !message.reply) return;
-    const decoded = decodeJson(message.data);
-    let reply: RelayBrokerReply;
-    if (!isRelayBrokerCommand(decoded)) {
-      reply = internalError("invalid_broker_command", "The relay command was invalid.");
-    } else {
-      try {
-        reply = await handle(decoded);
-      } catch {
-        reply = internalError("relay_delivery_failed", "The relay could not deliver the request.");
-      }
-    }
-    this.connection.publish(message.reply, encodeJson(reply));
+    await this.framed.handle(
+      error,
+      message,
+      async (data) => {
+        const decoded = decodeJson(data);
+        let reply: RelayBrokerReply;
+        if (!isRelayBrokerCommand(decoded)) {
+          reply = internalError("invalid_broker_command", "The relay command was invalid.");
+        } else {
+          try {
+            reply = await handle(decoded);
+          } catch {
+            reply = internalError("relay_delivery_failed", "The relay could not deliver the request.");
+          }
+        }
+        return encodeJson(reply);
+      },
+      () => encodeJson(internalError(
+        "relay_broker_payload_invalid",
+        "The relay broker message was invalid or exceeded its bounded transport limit."
+      ))
+    );
   }
 
   private async handleBinaryRequest(
@@ -338,14 +350,26 @@ export class NatsRelayBroker implements RelayBroker {
     message: Msg,
     handle: (frame: Uint8Array) => Promise<RelayBrokerBinaryReply>
   ): Promise<void> {
-    if (error || !message.reply) return;
-    let reply: RelayBrokerBinaryReply;
-    try {
-      reply = await handle(message.data);
-    } catch {
-      reply = binaryInternalError("relay_file_delivery_failed", "The relay could not deliver the file frame.");
-    }
-    this.connection.publish(message.reply, encodeBinaryReply(reply));
+    await this.framed.handle(
+      error,
+      message,
+      async (data) => {
+        let reply: RelayBrokerBinaryReply;
+        try {
+          reply = await handle(data);
+        } catch {
+          reply = binaryInternalError(
+            "relay_file_delivery_failed",
+            "The relay could not deliver the file frame."
+          );
+        }
+        return encodeBinaryReply(reply);
+      },
+      () => encodeBinaryReply(binaryInternalError(
+        "relay_broker_payload_invalid",
+        "The relay broker file message was invalid or exceeded its bounded transport limit."
+      ))
+    );
   }
 }
 
@@ -388,6 +412,11 @@ function assertSubjectParts(connectorId: string, generation: string): void {
       || !/^[0-9]+$/.test(generation)) {
     throw new RelayBrokerUnavailableError("Invalid relay routing metadata.");
   }
+}
+
+function isMissingRelayError(error: unknown): boolean {
+  return error instanceof NatsFramedTransportError
+    && (error.code === "broker_no_responders" || error.code === "broker_response_timeout");
 }
 
 function compareGeneration(left: string, right: string): number {

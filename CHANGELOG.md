@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-beta.59
+
+Beta.59 makes legitimate large relay operations independent of the broker's
+per-message payload ceiling.
+
+- Relay requests and responses use bounded, versioned fragmentation below the
+  active NATS `max_payload`, with strict logical-message and aggregate-memory
+  limits, assembly deadlines, and malformed-frame rejection.
+- JSON operations and opaque binary file frames share the same transport, so
+  large collection listings and file traffic cannot terminate a Connect server.
+- Multi-instance relay coverage now exercises requests and responses above the
+  broker ceiling, concurrency, connector fencing, disconnects, and recovery.
+
 ## 0.1.0-beta.58
 
 Beta.58 closes two staging findings from the beta.57 compatibility rollout.
