@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DatabasePool } from "../../database-types.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
-import type { RelayHub } from "../../relay.js";
+import { ConnectorOperationError, type RelayHub } from "../../relay.js";
 import { registerLocalOperationRoutes } from "./local-routes.js";
 
 const collectionId = "11111111-1111-4111-8111-111111111111";
@@ -19,6 +19,25 @@ afterEach(async () => {
 });
 
 describe("local operation access failures", () => {
+  it("returns explicit overload as retryable HTTP availability", async () => {
+    const { app, relay } = recoveryFixture();
+    vi.mocked(relay.routeEncrypted).mockRejectedValue(new ConnectorOperationError(
+      "connector_busy",
+      "The connector is processing its bounded operation queue."
+    ));
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/v1/authorities/${collectionId}/operations/create`,
+      headers: { authorization: "Bearer current-v5-token" },
+      payload: encryptedEnvelope(oldGrantId, "old-key", "create")
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.headers["retry-after"]).toBe("1");
+    expect(response.json().error.code).toBe("connector_busy");
+  });
+
   it("returns the typed required, granted, and missing operation details", async () => {
     const app = Fastify();
     apps.push(app);

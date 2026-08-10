@@ -152,12 +152,7 @@ async fn encrypted_control(
         );
     }
     let Some(permit) = operation_permit(&state).await else {
-        return cors_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "connector_busy",
-            "The local connector is busy.",
-            &origin,
-        );
+        return cors_busy("The local connector is busy.", &origin);
     };
     let agent = state.agent.clone();
     let operation_origin = origin.clone();

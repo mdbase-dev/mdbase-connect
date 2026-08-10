@@ -27,6 +27,12 @@ import {
   loopbackRequest
 } from "./operation-helpers.js";
 import { apiError, decodeJsonResponse } from "./runtime-utils.js";
+import {
+  isConnectorBusy,
+  isExplicitConnectorBusyResponse,
+  MAX_CONNECTOR_BUSY_RETRIES,
+  waitForConnectorAvailability
+} from "./transient-retry.js";
 
 interface LocalFileTransportOptions {
   keyStore: GrantKeyStore;
@@ -51,7 +57,7 @@ export class LocalFileTransport {
     input: unknown,
     signal?: AbortSignal
   ): Promise<Result> {
-    return this.controlAttempt<Result>(token, method, path, input, signal, false);
+    return this.controlAttempt<Result>(token, method, path, input, signal, false, 0);
   }
 
   private async controlAttempt<Result>(
@@ -60,7 +66,8 @@ export class LocalFileTransport {
     path: string,
     input: unknown,
     signal: AbortSignal | undefined,
-    freshReadRetried: boolean
+    freshReadRetried: boolean,
+    connectorBusyRetries: number
   ): Promise<Result> {
     requireEncryption(token);
     const controlInput = localFileControlInput(method, path, input);
@@ -82,7 +89,10 @@ export class LocalFileTransport {
         if (signal?.aborted) throw error;
         this.options.onDirectUnavailable();
       }
-      if (response && !directFallbackStatus(response.status)) {
+      if (response && (
+        !directFallbackStatus(response.status)
+        || await isExplicitConnectorBusyResponse(response)
+      )) {
         if (response.ok) this.options.onDirectAvailable();
         return this.decryptControlResponse<Result>(
           token,
@@ -92,7 +102,8 @@ export class LocalFileTransport {
           signal,
           encryptedRequest,
           response,
-          freshReadRetried
+          freshReadRetried,
+          connectorBusyRetries
         );
       }
       if (response) this.options.onDirectUnavailable();
@@ -120,7 +131,8 @@ export class LocalFileTransport {
       signal,
       encryptedRequest,
       response,
-      freshReadRetried
+      freshReadRetried,
+      connectorBusyRetries
     );
   }
 
@@ -132,7 +144,8 @@ export class LocalFileTransport {
     signal: AbortSignal | undefined,
     encryptedRequest: EncryptedRelayOperationRequest,
     response: Response,
-    freshReadRetried: boolean
+    freshReadRetried: boolean,
+    connectorBusyRetries: number
   ): Promise<Result> {
     const body = await decodeJsonResponse(
       response,
@@ -146,10 +159,31 @@ export class LocalFileTransport {
         "Collection file request failed.",
         response.status
       );
+      if (isConnectorBusy(error)
+          && connectorBusyRetries < MAX_CONNECTOR_BUSY_RETRIES) {
+        await waitForConnectorAvailability(connectorBusyRetries, signal);
+        return this.controlAttempt<Result>(
+          token,
+          method,
+          path,
+          input,
+          signal,
+          freshReadRetried,
+          connectorBusyRetries + 1
+        );
+      }
       if (error.code === "fresh_request_required"
           && method === "GET"
           && !freshReadRetried) {
-        return this.controlAttempt<Result>(token, method, path, input, signal, true);
+        return this.controlAttempt<Result>(
+          token,
+          method,
+          path,
+          input,
+          signal,
+          true,
+          connectorBusyRetries
+        );
       }
       throw error;
     }
@@ -171,9 +205,33 @@ export class LocalFileTransport {
         && decrypted.problem.code === "fresh_request_required"
         && method === "GET"
         && !freshReadRetried) {
-      return this.controlAttempt<Result>(token, method, path, input, signal, true);
+      return this.controlAttempt<Result>(
+        token,
+        method,
+        path,
+        input,
+        signal,
+        true,
+        connectorBusyRetries
+      );
     }
-    if (!decrypted.ok) throwEncryptedProblem(decrypted.problem);
+    if (!decrypted.ok) {
+      const error = encryptedProblem(decrypted.problem);
+      if (isConnectorBusy(error)
+          && connectorBusyRetries < MAX_CONNECTOR_BUSY_RETRIES) {
+        await waitForConnectorAvailability(connectorBusyRetries, signal);
+        return this.controlAttempt<Result>(
+          token,
+          method,
+          path,
+          input,
+          signal,
+          freshReadRetried,
+          connectorBusyRetries + 1
+        );
+      }
+      throw error;
+    }
     return decrypted.result;
   }
 
@@ -203,7 +261,10 @@ export class LocalFileTransport {
         if (signal?.aborted) throw error;
         this.options.onDirectUnavailable();
       }
-      if (response && !directFallbackStatus(response.status)) {
+      if (response && (
+        !directFallbackStatus(response.status)
+        || await isExplicitConnectorBusyResponse(response)
+      )) {
         if (response.ok) this.options.onDirectAvailable();
         return requireSuccessfulChunkResponse(
           response,
@@ -258,7 +319,10 @@ export class LocalFileTransport {
         if (signal?.aborted) throw error;
         this.options.onDirectUnavailable();
       }
-      if (response && !directFallbackStatus(response.status)) {
+      if (response && (
+        !directFallbackStatus(response.status)
+        || await isExplicitConnectorBusyResponse(response)
+      )) {
         if (response.ok) this.options.onDirectAvailable();
         return this.decryptDownloadResponse(token, session, chunkIndex, response);
       }
@@ -552,8 +616,8 @@ function validateDownloadFrame(
   }
 }
 
-function throwEncryptedProblem(problem: ConnectProblem): never {
-  throw serverConnectError(
+function encryptedProblem(problem: ConnectProblem): MdbaseConnectError {
+  return serverConnectError(
     problem.code === "unknown" ? problem.server_code : problem.code,
     problem.message,
     {

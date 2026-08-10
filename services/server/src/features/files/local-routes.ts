@@ -313,6 +313,12 @@ function relayError(reply: FastifyReply, error: unknown): unknown {
     return reply.code(503).send(apiError("connector_offline", error.message));
   }
   if (error instanceof ConnectorOperationError) {
+    if (error.code === "connector_busy") {
+      return reply
+        .header("retry-after", "1")
+        .code(503)
+        .send(apiError(error.code, error.message));
+    }
     return reply.code(502).send(apiError(error.code, error.message));
   }
   throw error;

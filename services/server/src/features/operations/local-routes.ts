@@ -213,6 +213,12 @@ export function registerLocalOperationRoutes(
         }
         if (error instanceof ConnectorOperationError) {
           if (!operationRequestId) {
+            if (error.code === "connector_busy") {
+              return reply
+                .header("retry-after", "1")
+                .code(503)
+                .send(apiError(error.code, error.message));
+            }
             return reply.code(502).send(apiError(error.code, error.message));
           }
           return {

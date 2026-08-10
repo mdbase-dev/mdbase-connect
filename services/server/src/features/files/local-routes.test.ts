@@ -13,7 +13,7 @@ import {
 import Fastify from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DatabasePool } from "../../database-types.js";
-import type { RelayHub } from "../../relay.js";
+import { ConnectorOperationError, type RelayHub } from "../../relay.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
 import { registerLocalFileRoutes } from "./local-routes.js";
 
@@ -59,6 +59,25 @@ afterEach(async () => {
 });
 
 describe("local collection file relay routes", () => {
+  it("returns explicit file overload as retryable HTTP availability", async () => {
+    const { app, relay } = await fixture();
+    vi.mocked(relay.routeEncrypted).mockRejectedValue(new ConnectorOperationError(
+      "connector_busy",
+      "The connector is processing its bounded operation queue."
+    ));
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/v1/authorities/${collectionId}/files/control`,
+      headers: { authorization: "Bearer token" },
+      payload: encryptedEnvelope()
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.headers["retry-after"]).toBe("1");
+    expect(response.json().error.code).toBe("connector_busy");
+  });
+
   it("routes an exactly bound encrypted control envelope", async () => {
     const { app, relay } = await fixture();
     const envelope = encryptedEnvelope();

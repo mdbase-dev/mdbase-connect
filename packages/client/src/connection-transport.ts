@@ -66,6 +66,11 @@ import type {
   ConnectionTransportInternals,
   ConnectionTransportOptions
 } from "./connection-transport-internals.js";
+import {
+  isExplicitConnectorBusyResponse,
+  retryExplicitConnectorBusy
+} from "./transient-retry.js";
+import { probeLoopbackAccess, tokenSupportsDirectAccess } from "./direct-access.js";
 
 export type {
   ConnectionTransportInternals,
@@ -133,9 +138,7 @@ export class ConnectionTransport {
     return this.currentToken()?.authority ? "remote" : this.currentRoute;
   }
 
-  notifyStorageChanged(): void {
-    this.emitConnection();
-  }
+  notifyStorageChanged(): void { this.emitConnection(); }
 
   async checkDirectAccess(options: ConnectRequestOptions = {}): Promise<DirectAccessStatus> {
     return withRequestBudget(options, this.timeouts.watchStartMs, (budget) =>
@@ -176,12 +179,7 @@ export class ConnectionTransport {
     this.setRoute("relay");
   }
 
-  /**
-   * Return one offline-replication transport regardless of whether the
-   * authority is remote, directly connected, or relay connected.
-   * Authority credentials and routing stay private inside the SDK.
-   */
-
+  /** Return pending writes without exposing authority transport credentials. */
   pendingMutations(): readonly PendingMutationSummary[] {
     return this.storedPendingMutations().map((pending) => ({
       requestId: pending.requestId,
@@ -242,7 +240,9 @@ export class ConnectionTransport {
     input: unknown,
     options: ConnectRequestOptions,
     storedPending?: PendingMutation,
-    freshReadRetried = false
+    freshReadRetried = false,
+    connectorBusyRetries = 0,
+    knownRejectedMutationRetry = false
   ): Promise<Result> {
     throwIfCancelled(options.signal);
     let token = this.currentToken();
@@ -265,7 +265,8 @@ export class ConnectionTransport {
       ?? (isMutation(operation, input) ? crypto.randomUUID() : undefined);
     let attempt: OperationAttempt;
     try {
-      attempt = await this.sendOperation(token, operation, input, tryDirect, options, pendingRequestId);
+      attempt = await this.sendOperation(token, operation, input, tryDirect, options,
+        pendingRequestId, knownRejectedMutationRetry);
     } catch (error) {
       throw operationTransportError(
         error,
@@ -297,7 +298,8 @@ export class ConnectionTransport {
       token = await this.refreshAuthorization(options.signal);
       tryDirect = await this.shouldAttemptDirect(token);
       try {
-        attempt = await this.sendOperation(token, operation, input, tryDirect, options, pendingRequestId);
+        attempt = await this.sendOperation(token, operation, input, tryDirect, options,
+          pendingRequestId, knownRejectedMutationRetry);
       } catch (error) {
         throw operationTransportError(
           error,
@@ -310,6 +312,18 @@ export class ConnectionTransport {
       }
       response = attempt.response;
     }
+    const retryBusy = (error: unknown) => retryExplicitConnectorBusy<Result>({
+      error,
+      attempt,
+      completedRetries: connectorBusyRetries,
+      signal: options.signal,
+      knownRejectedMutationRetry,
+      clearPending: (requestId) => this.clearPendingMutation(requestId),
+      retry: (pending, knownRejected) => this.performOperationWithinBudget<Result>(
+        operation, input, options, pending, freshReadRetried, connectorBusyRetries + 1,
+        knownRejected
+      )
+    });
     let body: any;
     try {
       body = await decodeJsonResponse(
@@ -327,6 +341,8 @@ export class ConnectionTransport {
     }
     if (!response.ok) {
       const error = apiError(body, "operation_failed", "Collection operation failed.", response.status);
+      const recovery = await retryBusy(error);
+      if (recovery.retried) return recovery.result;
       if (error.code === "fresh_request_required"
           && !attempt.pendingMutation
           && !freshReadRetried) {
@@ -435,8 +451,11 @@ export class ConnectionTransport {
           "The collection authority returned an invalid operation problem."
         );
       }
+      const error = new MdbaseConnectError(body.problem);
+      const recovery = await retryBusy(error);
+      if (recovery.retried) return recovery.result;
       if (attempt.pendingMutation) this.clearPendingMutation(attempt.requestId);
-      throw new MdbaseConnectError(body.problem);
+      throw error;
     }
     if (body.ok !== true || !("result" in body)) {
       if (attempt.pendingMutation) throw unknownMutationOutcome(attempt.requestId,
@@ -528,7 +547,8 @@ export class ConnectionTransport {
     input: unknown,
     tryDirect: boolean,
     options: ConnectRequestOptions = {},
-    pendingRequestId?: string
+    pendingRequestId?: string,
+    knownRejectedMutationRetry = false
   ): Promise<OperationAttempt> {
     let body: unknown = input ?? {};
     let encryptedRequest: Awaited<ReturnType<typeof encryptRelayRequest>> | undefined;
@@ -551,7 +571,7 @@ export class ConnectionTransport {
           );
         }
         requestId = pending.requestId;
-        resumingMutation = true;
+        resumingMutation = !knownRejectedMutationRetry;
       }
       pendingMutation = true;
     }
@@ -650,7 +670,10 @@ export class ConnectionTransport {
           body: JSON.stringify(encryptedRequest),
           signal: options.signal
         }));
-        if (!directFallbackStatus(response.status)) {
+        if (
+          !directFallbackStatus(response.status)
+          || await isExplicitConnectorBusyResponse(response)
+        ) {
           if (response.ok) {
             this.markDirectAvailable();
             this.setRoute("direct");
@@ -755,18 +778,10 @@ export class ConnectionTransport {
   }
 
   private directCapable(token: StoredToken | null): boolean {
-    if (!token || token.authority || !token.encryption || !token.grantId || !token.keyHandle) return false;
-    if (this.directAccessMode === "disabled") return false;
-    if (typeof location !== "undefined"
-        && token.applicationOrigin
-        && token.applicationOrigin !== location.origin) return false;
-    return true;
+    return tokenSupportsDirectAccess(token, this.directAccessMode);
   }
 
-  hasResumableMutationTransport(): boolean {
-    const token = this.currentToken();
-    return Boolean(token);
-  }
+  hasResumableMutationTransport(): boolean { return this.currentToken() !== null; }
 
   private directEligible(token: StoredToken | null): token is StoredToken {
     return token !== null
@@ -794,26 +809,13 @@ export class ConnectionTransport {
 
   private async probeDirectAccess(signal?: AbortSignal): Promise<DirectAccessStatus> {
     this.setDirectStatus("checking");
-    try {
-      const response = await fetch(`${this.loopbackUrl}/v1/ready`, loopbackRequest({
-        method: "GET",
-        cache: "no-store",
-        signal
-      }));
-      const body = await decodeJsonResponse(
-        response,
-        "invalid_operation_response",
-        "The connector returned an invalid readiness response."
-      ).catch(() => null);
-      if (response.ok
-          && body?.service === "mdbase-connect"
-          && body?.loopback_protocol_version === 1
-          && body?.operation_transport_protocol_version === OPERATION_TRANSPORT_PROTOCOL_VERSION) {
-        this.markDirectAvailable();
-        return "available";
-      }
-    } catch {
-      // Permission denial, unsupported mixed content, and an absent connector all reject fetch.
+    if (await probeLoopbackAccess(
+      this.loopbackUrl,
+      OPERATION_TRANSPORT_PROTOCOL_VERSION,
+      signal
+    )) {
+      this.markDirectAvailable();
+      return "available";
     }
     if ((await localNetworkPermission()) === "denied") return this.setDirectStatus("denied");
     this.markDirectUnavailable();
@@ -847,9 +849,7 @@ export class ConnectionTransport {
     }
   }
 
-  private emitConnection(): void {
-    this.onChange();
-  }
+  private emitConnection(): void { this.onChange(); }
 
   private invalidateRejectedAuthorization(rejected: StoredToken): void {
     const current = parseStored<StoredToken>(this.storage.getItem(

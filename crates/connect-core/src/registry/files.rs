@@ -27,6 +27,13 @@ struct IndexedFile {
     physical_identity: Option<PhysicalFileIdentity>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum IndexedFileLocation {
+    Current,
+    Moved(String),
+    Missing,
+}
+
 #[derive(Debug)]
 struct ObservedFile<'a> {
     candidate: &'a CollectionFileCandidate,
@@ -280,21 +287,6 @@ impl CollectionRegistry {
         self.reconcile_files_loaded_internal(registered, collection, snapshot, preferences, false)
     }
 
-    pub(super) fn reconcile_files_loaded_reusing_cached_digests(
-        &self,
-        registered: &CollectionSummary,
-        collection: &mdbase::Collection,
-        snapshot: &CollectionSnapshot,
-    ) -> Result<Vec<CollectionFileDescriptor>, ConnectError> {
-        self.reconcile_files_loaded_internal(
-            registered,
-            collection,
-            snapshot,
-            &FileReconcilePreferences::default(),
-            true,
-        )
-    }
-
     fn reconcile_files_loaded_internal(
         &self,
         registered: &CollectionSummary,
@@ -344,6 +336,57 @@ impl CollectionRegistry {
             .into_values()
             .map(|file| file.descriptor)
             .collect())
+    }
+
+    /// Confirm one indexed file's current path without hashing or reconciling
+    /// unrelated files. A physical move is reported so authorization can be
+    /// checked against the live path before the stale revision is rejected.
+    pub(super) fn indexed_file_location(
+        &self,
+        registered: &CollectionSummary,
+        file_id: Uuid,
+    ) -> Result<IndexedFileLocation, ConnectError> {
+        let indexed = read_indexed_files(&self.connection()?, registered.id)?
+            .remove(&file_id)
+            .ok_or_else(|| ConnectError::File {
+                code: "file_revision_not_found".to_string(),
+                message: "The requested file revision is no longer available locally.".to_string(),
+            })?;
+        let indexed_path = Path::new(&registered.path).join(&indexed.descriptor.path);
+        if fs::symlink_metadata(&indexed_path).is_ok_and(|metadata| {
+            metadata.is_file()
+                && !metadata.file_type().is_symlink()
+                && physical_identity_matches(&metadata, indexed.physical_identity.as_ref())
+        }) {
+            return Ok(IndexedFileLocation::Current);
+        }
+        let Some(identity) = indexed.physical_identity.as_ref() else {
+            return Ok(IndexedFileLocation::Missing);
+        };
+        let provider = self.provider_for(registered)?;
+        let moved = provider.with_collection_read(|collection| {
+            let snapshot = collection.snapshot()?;
+            let managed_paths = snapshot
+                .resources
+                .iter()
+                .map(|resource| resource.path.clone())
+                .chain(snapshot.records.iter().map(|record| record.path.clone()))
+                .collect::<BTreeSet<_>>();
+            let inventory = discover_collection_files(collection, &managed_paths)?;
+            Ok::<_, ConnectError>(
+                inventory
+                    .files
+                    .into_iter()
+                    .find(|candidate| candidate.physical_identity.as_ref() == Some(identity))
+                    .map(|candidate| candidate.path),
+            )
+        })?;
+        if let Some(path) = moved {
+            self.mark_file_inventory_dirty(registered.id)?;
+            let _ = self.start_file_index_warmup(registered.id);
+            return Ok(IndexedFileLocation::Moved(path));
+        }
+        Ok(IndexedFileLocation::Missing)
     }
 
     fn reconcile_observed_files(
@@ -528,7 +571,7 @@ impl CollectionRegistry {
             .map_err(ConnectError::from)
     }
 
-    fn file_reconcile_lock(&self, id: Uuid) -> Result<Arc<Mutex<()>>, ConnectError> {
+    pub(super) fn file_reconcile_lock(&self, id: Uuid) -> Result<Arc<Mutex<()>>, ConnectError> {
         let mut locks = self
             .file_reconciles
             .lock()

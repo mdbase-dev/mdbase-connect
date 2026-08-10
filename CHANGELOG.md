@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.0-beta.60
+
+Beta.60 keeps large local collections responsive while binary files are served
+and makes bounded connector backpressure recoverable by applications.
+
+- Opening one indexed download no longer reconciles or hashes the rest of the
+  vault; the selected snapshot is still copied and digest-verified before any
+  bytes are released.
+- Stale paths are resolved with a metadata-only identity scan so authorization
+  is rechecked against a file's current path without restoring whole-vault work
+  to the request path.
+- Connector overload is an explicit `503` with `Retry-After`; the SDK applies
+  deadline-bound jittered backoff, reuses exact mutation envelopes, refreshes
+  read envelopes, and never retries unknown mutation outcomes.
+- File chunks use bounded retry backoff long enough to bridge a desktop daemon
+  restart while preserving cancellation and integrity checks.
+
 ## 0.1.0-beta.59
 
 Beta.59 makes legitimate large relay operations independent of the broker's

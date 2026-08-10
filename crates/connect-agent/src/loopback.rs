@@ -187,6 +187,19 @@ fn cors_error(status: StatusCode, code: &str, message: &str, origin: &str) -> Re
     )
 }
 
+fn cors_busy(message: &str, origin: &str) -> Response<Body> {
+    let mut response = cors_error(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "connector_busy",
+        message,
+        origin,
+    );
+    response
+        .headers_mut()
+        .insert(header::RETRY_AFTER, HeaderValue::from_static("1"));
+    response
+}
+
 fn cors_response(mut response: Response<Body>, origin: &str) -> Response<Body> {
     if let Ok(value) = HeaderValue::from_str(origin) {
         response

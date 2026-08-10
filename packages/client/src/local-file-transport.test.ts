@@ -28,6 +28,32 @@ const ids = {
 afterEach(() => vi.restoreAllMocks());
 
 describe("LocalFileTransport", () => {
+  it("backs off an explicit busy control response before sending a fresh envelope", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const fixture = await transportFixture("download", false);
+    const requests: Array<{ request_id: string; counter: string }> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      requests.push(JSON.parse(String(init?.body)));
+      const code = requests.length === 1 ? "connector_busy" : "connector_offline";
+      return new Response(
+        JSON.stringify({ error: { code, message: code } }),
+        { status: 503, headers: { "content-type": "application/json" } }
+      );
+    });
+
+    const controlled = fixture.transport.control(
+      fixture.token,
+      "GET",
+      "?limit=10",
+      undefined
+    );
+
+    await expect(controlled).rejects.toMatchObject({ code: "connector_offline" });
+    expect(requests).toHaveLength(2);
+    expect(requests[1]?.request_id).not.toBe(requests[0]?.request_id);
+    expect(requests[1]?.counter).not.toBe(requests[0]?.counter);
+  });
+
   it("encrypts upload frames with the exact negotiated transfer binding", async () => {
     const fixture = await transportFixture("upload");
     const plaintext = new TextEncoder().encode("local upload");

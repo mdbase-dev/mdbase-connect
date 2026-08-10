@@ -45,83 +45,101 @@ impl CollectionRegistry {
                 "This collection is disabled on its computer.".to_string(),
             ));
         }
-        let provider = self.provider_for(&registered)?;
-        provider.with_collection_read(|collection| {
-            crate::LocalSyncStore::for_registry(self).assert_authority_available(id)?;
-            let snapshot = collection.snapshot()?;
-            let files = self.reconcile_files_loaded_reusing_cached_digests(
-                &registered,
-                collection,
-                &snapshot,
-            )?;
-            let descriptor = files
-                .into_iter()
-                .find(|file| {
-                    file.file_id == request.file_id
-                        && request
-                            .revision
-                            .as_ref()
-                            .is_none_or(|revision| revision == &file.revision)
-                })
-                .ok_or_else(|| {
-                    file_error(
-                        "file_revision_not_found",
-                        "The requested file revision is no longer available locally.",
-                    )
-                })?;
-            authorize_path(&descriptor.path)?;
-            let staging_name = format!("{}.download", request.transfer_id);
-            let staging = ensure_staging_root(Path::new(&registered.path))?.join(&staging_name);
-            remove_file_if_present(&staging)?;
-            create_private_staging_file(&staging)?;
-            let source = Path::new(&registered.path).join(&descriptor.path);
-            if let Err(error) = copy_verified_download(
-                &source,
-                &staging,
+        crate::LocalSyncStore::for_registry(self).assert_authority_available(id)?;
+        // The descriptor came from the durable file inventory. Do not refresh the
+        // entire collection while opening one download: a watcher-driven warmup may
+        // be hashing unrelated multi-gigabyte files and holds the reconcile lock.
+        // The snapshot copy below re-verifies the selected file's exact size and
+        // digest before any bytes are released, so a stale inventory still fails
+        // closed with file_changed_during_read.
+        let descriptor = self
+            .indexed_files(id)?
+            .into_iter()
+            .find(|file| file.file_id == request.file_id)
+            .ok_or_else(|| {
+                file_error(
+                    "file_revision_not_found",
+                    "The requested file revision is no longer available locally.",
+                )
+            })?;
+        match self.indexed_file_location(&registered, descriptor.file_id)? {
+            super::super::files::IndexedFileLocation::Current => {}
+            super::super::files::IndexedFileLocation::Moved(path) => {
+                authorize_path(&path)?;
+                return Err(file_error(
+                    "file_revision_not_found",
+                    "The file moved after it was listed; list files again before downloading.",
+                ));
+            }
+            super::super::files::IndexedFileLocation::Missing => {
+                return Err(file_error(
+                    "file_revision_not_found",
+                    "The requested file revision is no longer available locally.",
+                ));
+            }
+        }
+        if request
+            .revision
+            .as_ref()
+            .is_some_and(|revision| revision != &descriptor.revision)
+        {
+            return Err(file_error(
+                "file_revision_not_found",
+                "The requested file revision is no longer available locally.",
+            ));
+        }
+        authorize_path(&descriptor.path)?;
+        let staging_name = format!("{}.download", request.transfer_id);
+        let staging = ensure_staging_root(Path::new(&registered.path))?.join(&staging_name);
+        remove_file_if_present(&staging)?;
+        create_private_staging_file(&staging)?;
+        let source = Path::new(&registered.path).join(&descriptor.path);
+        if let Err(error) = copy_verified_download(
+            &source,
+            &staging,
+            descriptor.size,
+            &descriptor.content_digest,
+        ) {
+            let _ = remove_file_if_present(&staging);
+            return Err(error);
+        }
+        let created_at = Utc::now();
+        let expires_at = created_at + Duration::hours(TRANSFER_LIFETIME_HOURS);
+        let path_key = portable_path_key(&descriptor.path);
+        let inserted = self.connection()?.execute(
+            "INSERT INTO collection_file_transfers
+               (transfer_id, collection_id, owner_id, direction, state, file_id, path,
+                path_key, expected_size, expected_digest, media_type, base_revision,
+                chunk_size, staging_path, created_at, expires_at)
+             VALUES (?1, ?2, ?3, 'download', 'open', ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+                     ?11, ?12, ?13, ?14)",
+            params![
+                request.transfer_id.to_string(),
+                id.to_string(),
+                owner_id.to_string(),
+                descriptor.file_id.to_string(),
+                descriptor.path,
+                path_key,
                 descriptor.size,
-                &descriptor.content_digest,
-            ) {
-                let _ = remove_file_if_present(&staging);
-                return Err(error);
-            }
-            let created_at = Utc::now();
-            let expires_at = created_at + Duration::hours(TRANSFER_LIFETIME_HOURS);
-            let path_key = portable_path_key(&descriptor.path);
-            let inserted = self.connection()?.execute(
-                "INSERT INTO collection_file_transfers
-                   (transfer_id, collection_id, owner_id, direction, state, file_id, path,
-                    path_key, expected_size, expected_digest, media_type, base_revision,
-                    chunk_size, staging_path, created_at, expires_at)
-                 VALUES (?1, ?2, ?3, 'download', 'open', ?4, ?5, ?6, ?7, ?8, ?9, ?10,
-                         ?11, ?12, ?13, ?14)",
-                params![
-                    request.transfer_id.to_string(),
-                    id.to_string(),
-                    owner_id.to_string(),
-                    descriptor.file_id.to_string(),
-                    descriptor.path,
-                    path_key,
-                    descriptor.size,
-                    descriptor.content_digest,
-                    descriptor.media_type,
-                    descriptor.revision,
-                    DEFAULT_FILE_CHUNK_BYTES,
-                    staging_name,
-                    created_at.to_rfc3339_opts(SecondsFormat::Millis, true),
-                    expires_at.to_rfc3339_opts(SecondsFormat::Millis, true),
-                ],
-            );
-            if let Err(error) = inserted {
-                let _ = remove_file_if_present(&staging);
-                return Err(error.into());
-            }
-            Ok(download_session(&required_download(
-                &self.connection()?,
-                id,
-                Some(owner_id),
-                request.transfer_id,
-            )?))
-        })
+                descriptor.content_digest,
+                descriptor.media_type,
+                descriptor.revision,
+                DEFAULT_FILE_CHUNK_BYTES,
+                staging_name,
+                created_at.to_rfc3339_opts(SecondsFormat::Millis, true),
+                expires_at.to_rfc3339_opts(SecondsFormat::Millis, true),
+            ],
+        );
+        if let Err(error) = inserted {
+            let _ = remove_file_if_present(&staging);
+            return Err(error.into());
+        }
+        Ok(download_session(&required_download(
+            &self.connection()?,
+            id,
+            Some(owner_id),
+            request.transfer_id,
+        )?))
     }
 
     pub fn read_file_download_chunk(

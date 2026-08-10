@@ -5,6 +5,10 @@ import type {
 } from "@mdbase-dev/connect-protocol";
 import { MdbaseConnectError, connectError } from "./errors.js";
 import { IncrementalSha256 } from "./file-sha256.js";
+import {
+  MAX_TRANSIENT_CHUNK_ATTEMPTS,
+  waitForTransientChunkRetry
+} from "./transient-retry.js";
 
 const HASH_CHUNK_BYTES = 1024 * 1024;
 const DEFAULT_CONCURRENCY = 4;
@@ -193,12 +197,17 @@ export async function retryChunk<Result>(
   work: () => Promise<Result>,
   signal?: AbortSignal
 ): Promise<Result> {
-  for (let attempt = 1; attempt <= MAX_OBJECT_ATTEMPTS; attempt += 1) {
+  for (let attempt = 1; attempt <= MAX_TRANSIENT_CHUNK_ATTEMPTS; attempt += 1) {
     throwIfAborted(signal);
     try {
       return await work();
     } catch (error) {
-      if (signal?.aborted || attempt === MAX_OBJECT_ATTEMPTS) throw error;
+      if (
+        signal?.aborted
+        || attempt === MAX_TRANSIENT_CHUNK_ATTEMPTS
+        || (error instanceof MdbaseConnectError && !error.retryable)
+      ) throw error;
+      await waitForTransientChunkRetry(attempt, signal);
     }
   }
   throw new Error("Unreachable file chunk retry state.");

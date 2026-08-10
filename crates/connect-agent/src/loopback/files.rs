@@ -52,12 +52,7 @@ async fn file_upload(
         );
     }
     let Some(permit) = operation_permit(&state).await else {
-        return cors_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "connector_busy",
-            "The local connector is busy.",
-            &origin,
-        );
+        return cors_busy("The local connector is busy.", &origin);
     };
     let agent = state.agent.clone();
     let upload_origin = origin.clone();
@@ -98,12 +93,7 @@ async fn file_download(
         return denied();
     };
     let Some(permit) = operation_permit(&state).await else {
-        return cors_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "connector_busy",
-            "The local connector is busy.",
-            &origin,
-        );
+        return cors_busy("The local connector is busy.", &origin);
     };
     let agent = state.agent.clone();
     let download_origin = origin.clone();

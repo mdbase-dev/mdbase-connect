@@ -12,6 +12,17 @@ use std::fs;
 use tower::ServiceExt;
 use uuid::Uuid;
 
+#[test]
+fn busy_responses_are_explicitly_retryable() {
+    let response = cors_busy("Busy.", "https://app.example");
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(response.headers().get(header::RETRY_AFTER).unwrap(), "1");
+    assert_eq!(
+        response.headers().get(ACCESS_CONTROL_ALLOW_ORIGIN).unwrap(),
+        "https://app.example"
+    );
+}
+
 #[tokio::test]
 async fn exact_origin_host_and_protocol_one_are_enforced() {
     let fixture = fixture();

@@ -3311,6 +3311,117 @@ schema:
     expect(requests[1]?.counter).not.toBe(requests[0]?.counter);
   });
 
+  it("backs off explicit connector overload and retries reads with fresh envelopes", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const fixture = await encryptedConnection();
+    fixture.connect.disableDirectAccess();
+    const requests: EncryptedRelayOperationRequest[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const request = JSON.parse(String(init?.body)) as EncryptedRelayOperationRequest;
+      requests.push(request);
+      if (requests.length < 3) {
+        return new Response(JSON.stringify({
+          error: normalizeConnectProblem("connector_busy", "Try again shortly.")
+        }), {
+          status: 503,
+          headers: { "content-type": "application/json", "retry-after": "1" }
+        });
+      }
+      const envelope = await encryptedFixtureResponse(
+        fixture,
+        request,
+        {
+          ok: true,
+          result: { valid: true, result: { results: [] }, diagnostics: [] }
+        }
+      );
+      return new Response(JSON.stringify({ envelope }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    });
+
+    const outcome = fixture.connect.query();
+
+    await expect(outcome).resolves.toMatchObject({ ok: true });
+    expect(requests).toHaveLength(3);
+    expect(new Set(requests.map(({ request_id }) => request_id)).size).toBe(3);
+    expect(new Set(requests.map(({ counter }) => counter)).size).toBe(3);
+  });
+
+  it("retries a definitively rejected write with its exact encrypted envelope", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const fixture = await encryptedConnection();
+    fixture.connect.disableDirectAccess();
+    const bodies: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const body = String(init?.body);
+      const request = JSON.parse(body) as EncryptedRelayOperationRequest;
+      bodies.push(body);
+      if (bodies.length === 1) {
+        return new Response(JSON.stringify({
+          error: normalizeConnectProblem("connector_busy", "Try again shortly.")
+        }), {
+          status: 503,
+          headers: { "content-type": "application/json", "retry-after": "1" }
+        });
+      }
+      const record = {
+        path: "busy-once.md",
+        revision: "sha256:record",
+        types: [],
+        frontmatter: {},
+        effective_frontmatter: {},
+        body: "",
+        file: { path: "busy-once.md" }
+      };
+      const envelope = await encryptedFixtureResponse(
+        fixture,
+        request,
+        { ok: true, result: { valid: true, result: record, diagnostics: [] } }
+      );
+      return new Response(JSON.stringify({ envelope }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    });
+
+    const outcome = fixture.connect.create({ path: "busy-once.md", frontmatter: {} });
+
+    await expect(outcome).resolves.toMatchObject({
+      ok: true,
+      value: { path: "busy-once.md" }
+    });
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toBe(bodies[0]);
+    expect(fixture.connect.pendingMutations()).toEqual([]);
+  });
+
+  it("clears a definitively busy write when its retry wait is cancelled", async () => {
+    const fixture = await encryptedConnection();
+    fixture.connect.disableDirectAccess();
+    const controller = new AbortController();
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      controller.abort("stop waiting");
+      return new Response(JSON.stringify({
+        error: normalizeConnectProblem("connector_busy", "Try again shortly.")
+      }), {
+        status: 503,
+        headers: { "content-type": "application/json" }
+      });
+    });
+
+    await expect(fixture.connect.create(
+      { path: "cancelled-busy.md", frontmatter: {} },
+      { signal: controller.signal }
+    )).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "operation_cancelled", operation_outcome: "not_sent" }
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fixture.connect.pendingMutations()).toEqual([]);
+  });
+
   it("never converts a mutation fresh-request response into a second execution", async () => {
     const fixture = await encryptedConnection();
     fixture.connect.disableDirectAccess();

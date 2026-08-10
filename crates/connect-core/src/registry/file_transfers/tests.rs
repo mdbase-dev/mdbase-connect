@@ -470,6 +470,38 @@ fn download_reuses_unchanged_inventory_digests_before_verifying_selected_bytes()
 }
 
 #[test]
+fn download_open_does_not_wait_for_an_unrelated_inventory_reconcile() {
+    let (_state, root, registry, id) = registered();
+    fs::write(root.path().join("selected.bin"), b"selected bytes").unwrap();
+    fs::write(root.path().join("unrelated.bin"), b"unrelated bytes").unwrap();
+    let selected = registry
+        .reconcile_files(id)
+        .unwrap()
+        .into_iter()
+        .find(|file| file.path == "selected.bin")
+        .unwrap();
+
+    let reconcile_lock = registry.file_reconcile_lock(id).unwrap();
+    let reconcile_guard = reconcile_lock.lock().unwrap();
+    let request = download_request(&selected);
+    let worker_registry = registry.clone();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        sender
+            .send(worker_registry.open_file_download(id, owner(), &request, |_| Ok(())))
+            .unwrap();
+    });
+
+    let session = receiver
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .expect("one-file download preparation must not wait for inventory reconciliation")
+        .unwrap();
+    assert_eq!(session.total_size, b"selected bytes".len() as u64);
+    drop(reconcile_guard);
+    worker.join().unwrap();
+}
+
+#[test]
 fn download_rejects_stale_revisions_other_owners_and_expired_snapshots() {
     let (_state, root, registry, id) = registered();
     fs::write(root.path().join("asset.bin"), b"download").unwrap();
