@@ -222,8 +222,10 @@ environment and verify it first.
   legal-document URLs before it is enabled.
 - Every secret is unique, stable where required, and stored outside Git.
 - Databases have encrypted off-host backups and a tested restore procedure.
-- `/ready`, resource exhaustion, certificate expiry, and backup failures alert
-  an operator.
+- Core `/ready` failures, persistent hosted-notification `pending`/`degraded`
+  states, resource exhaustion, certificate expiry, and backup failures alert an
+  operator. Notification degradation must not be wired back into platform
+  readiness or automatic process restarts.
 - Logs exclude authorization headers, request bodies, decrypted Markdown,
   private keys, and database credentials.
 - Deployments use immutable release tags and record the exact Git commit.

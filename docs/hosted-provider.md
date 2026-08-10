@@ -3,11 +3,22 @@
 Status: accepted implementation architecture for the production hosted path
 
 The provider does not report readiness until its SQL migrations, embedded
-runtime migration, persisted grant validation, and an initial notification
-recovery pass all succeed. `/ready` includes the current notification recovery
-state; deployment and external smoke checks treat anything other than `ok` as a
-failed candidate. Serialized grant and runtime JSON therefore follows the same
-version-and-migrate discipline as ordinary SQL columns.
+runtime migration, persisted grant validation, authoritative database, object
+store, and key hierarchy are ready. Startup also attempts one bounded
+notification recovery pass, but the reverse callback into the Connect control
+plane is durable background work rather than a startup or readiness dependency.
+This keeps readiness acyclic because Connect itself checks the provider before
+advertising its own readiness.
+
+`/ready` includes the current notification recovery state. `pending` and
+`degraded` remain HTTP 200 core-readiness responses: deployment health checks
+must not restart the provider for them. External smoke tests and alerts instead
+track whether recovery remains non-`ok` beyond a bounded rollout or incident
+window, and release soak requires it to return to `ok`. Recovery is
+single-flight, preserves the exact durable invocation, and cannot return to
+`ok` while its outbox or non-terminal runtime work remains. Serialized grant
+and runtime JSON therefore follows the same version-and-migrate discipline as
+ordinary SQL columns.
 
 ## Boundaries
 
