@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
+use std::future::Future;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex, RwLock};
@@ -27,6 +28,8 @@ use tokio::time::Instant;
 use uuid::Uuid;
 
 const SYNC_INTERVAL: Duration = Duration::from_secs(5);
+const MIRROR_SYNC_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+const MIRROR_SLOW_OPERATION_WARNING: Duration = Duration::from_secs(60);
 const MAX_BACKGROUND_BACKOFF: Duration = Duration::from_secs(5 * 60);
 const TOKEN_RENEWAL_WINDOW_SECONDS: i64 = 24 * 60 * 60;
 
@@ -153,7 +156,7 @@ pub struct MirrorManager {
     secrets: SystemSecretStore,
     credential_store_error: Option<String>,
     entries: RwLock<Vec<MirrorRegistryEntry>>,
-    syncing: StdMutex<HashSet<Uuid>>,
+    syncing: StdMutex<HashMap<Uuid, MirrorOperationState>>,
     operation_finished: Notify,
     errors: RwLock<HashMap<Uuid, String>>,
 }

@@ -1,4 +1,8 @@
 use super::*;
+use std::time::Duration;
+
+const HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+const HTTP_READ_TIMEOUT: Duration = Duration::from_secs(2 * 60);
 
 #[async_trait]
 pub trait SyncTransport: Send + Sync {
@@ -48,6 +52,20 @@ fn ensure_tls_crypto_provider() {
 
 impl HttpSyncTransport {
     pub fn new(sync_url: &str, replica_token: impl Into<String>) -> Result<Self, MirrorError> {
+        Self::new_with_timeouts(
+            sync_url,
+            replica_token,
+            HTTP_CONNECT_TIMEOUT,
+            HTTP_READ_TIMEOUT,
+        )
+    }
+
+    fn new_with_timeouts(
+        sync_url: &str,
+        replica_token: impl Into<String>,
+        connect_timeout: Duration,
+        read_timeout: Duration,
+    ) -> Result<Self, MirrorError> {
         ensure_tls_crypto_provider();
         let endpoint = Url::parse(sync_url).map_err(|_| {
             MirrorError::new(
@@ -93,6 +111,8 @@ impl HttpSyncTransport {
             + "/files";
         let client = Client::builder()
             .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(connect_timeout)
+            .read_timeout(read_timeout)
             .build()
             .map_err(|error| {
                 MirrorError::new(
@@ -132,16 +152,14 @@ impl HttpSyncTransport {
             request = request.json(body);
         }
         let response = request.send().await.map_err(|error| {
-            MirrorError::new(
-                "mirror_offline",
-                format!("Hosted authority is unavailable: {error}"),
-            )
+            transport_error(error, "mirror_offline", "Hosted authority is unavailable")
         })?;
         let status = response.status();
         let value = response.json::<Value>().await.map_err(|error| {
-            MirrorError::new(
+            transport_error(
+                error,
                 "invalid_sync_response",
-                format!("Hosted authority returned invalid JSON: {error}"),
+                "Hosted authority returned invalid JSON",
             )
         })?;
         if !status.is_success() {
@@ -182,6 +200,17 @@ impl HttpSyncTransport {
             )
             .await;
     }
+}
+
+fn transport_error(error: reqwest::Error, fallback_code: &str, context: &str) -> MirrorError {
+    MirrorError::new(
+        if error.is_timeout() {
+            "mirror_transport_timeout"
+        } else {
+            fallback_code
+        },
+        format!("{context}: {error}"),
+    )
 }
 
 #[async_trait]
@@ -422,10 +451,7 @@ impl HttpSyncTransport {
                 upload = upload.header(&name, &value);
             }
             let response = upload.send().await.map_err(|error| {
-                MirrorError::new(
-                    "file_upload_failed",
-                    format!("Object upload failed: {error}"),
-                )
+                transport_error(error, "file_upload_failed", "Object upload failed")
             })?;
             if !response.status().is_success() {
                 return Err(MirrorError::new(
@@ -534,10 +560,7 @@ impl HttpSyncTransport {
                 .send()
                 .await
                 .map_err(|error| {
-                    MirrorError::new(
-                        "mirror_offline",
-                        format!("Hosted authority is unavailable: {error}"),
-                    )
+                    transport_error(error, "mirror_offline", "Hosted authority is unavailable")
                 })?;
             if !response.status().is_success() {
                 let status = response.status();
@@ -565,9 +588,10 @@ impl HttpSyncTransport {
             }
             let mut received = 0_u64;
             while let Some(bytes) = response.chunk().await.map_err(|error| {
-                MirrorError::new(
+                transport_error(
+                    error,
                     "file_download_failed",
-                    format!("Could not read the hosted file response: {error}"),
+                    "Could not read the hosted file response",
                 )
             })? {
                 received = received.checked_add(bytes.len() as u64).ok_or_else(|| {
@@ -860,5 +884,31 @@ mod tests {
                 "invalid_sync_url"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn stalled_authority_request_returns_a_typed_transport_timeout() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (_socket, _) = listener.accept().await.unwrap();
+            std::future::pending::<()>().await;
+        });
+        let authority_id = Uuid::new_v4();
+        let transport = HttpSyncTransport::new_with_timeouts(
+            &format!("http://{address}/v1/authorities/{authority_id}/sync"),
+            "token",
+            Duration::from_secs(1),
+            Duration::from_millis(50),
+        )
+        .unwrap();
+
+        let error = tokio::time::timeout(Duration::from_secs(2), transport.open_session())
+            .await
+            .expect("the transport must enforce its own shorter timeout")
+            .unwrap_err();
+        assert_eq!(error.code, "mirror_transport_timeout");
+        server.abort();
+        assert!(server.await.unwrap_err().is_cancelled());
     }
 }

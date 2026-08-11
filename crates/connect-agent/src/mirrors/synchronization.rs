@@ -36,7 +36,7 @@ impl MirrorManager {
             .syncing
             .lock()
             .expect("mirror sync lock poisoned")
-            .contains(&entry.replica_id);
+            .contains_key(&entry.replica_id);
         Ok(MirrorSummary {
             collection_id: entry.collection_id,
             replica_id: entry.replica_id,
@@ -77,7 +77,7 @@ impl MirrorManager {
         entry: MirrorRegistryEntry,
         skip_if_busy: bool,
     ) -> Result<(), ConnectError> {
-        let _guard = self.begin_operation(entry.replica_id, skip_if_busy)?;
+        let _guard = self.begin_operation_named(entry.replica_id, skip_if_busy, "sync")?;
         self.sync_entry_exclusive(entry).await
     }
 
@@ -85,10 +85,16 @@ impl MirrorManager {
         &self,
         entry: MirrorRegistryEntry,
     ) -> Result<(), ConnectError> {
-        let result = async {
+        let started_at = Instant::now();
+        tracing::debug!(
+            replica_id = %entry.replica_id,
+            timeout_seconds = MIRROR_SYNC_TIMEOUT.as_secs(),
+            "hosted mirror synchronization started"
+        );
+        let result = with_mirror_operation_timeout(MIRROR_SYNC_TIMEOUT, async {
             let mirror = self.mirror(&entry).await?;
             mirror.sync().await.map_err(from_mirror)
-        }
+        })
         .await;
         match &result {
             Ok(()) => {
@@ -104,6 +110,19 @@ impl MirrorManager {
                     .insert(entry.replica_id, error.to_string());
             }
         }
+        match &result {
+            Ok(()) => tracing::debug!(
+                replica_id = %entry.replica_id,
+                elapsed_ms = u64::try_from(started_at.elapsed().as_millis()).unwrap_or(u64::MAX),
+                "hosted mirror synchronization completed"
+            ),
+            Err(error) => tracing::warn!(
+                replica_id = %entry.replica_id,
+                code = error.code(),
+                elapsed_ms = u64::try_from(started_at.elapsed().as_millis()).unwrap_or(u64::MAX),
+                "hosted mirror synchronization stopped"
+            ),
+        }
         result
     }
 
@@ -112,8 +131,17 @@ impl MirrorManager {
         replica_id: Uuid,
         skip_if_busy: bool,
     ) -> Result<MirrorOperationGuard<'_>, ConnectError> {
+        self.begin_operation_named(replica_id, skip_if_busy, "exclusive")
+    }
+
+    pub(super) fn begin_operation_named(
+        &self,
+        replica_id: Uuid,
+        skip_if_busy: bool,
+        kind: &'static str,
+    ) -> Result<MirrorOperationGuard<'_>, ConnectError> {
         let mut syncing = self.syncing.lock().expect("mirror sync lock poisoned");
-        if !syncing.insert(replica_id) {
+        if syncing.contains_key(&replica_id) {
             return Err(mirror_error(
                 if skip_if_busy {
                     "mirror_sync_skipped"
@@ -123,11 +151,40 @@ impl MirrorManager {
                 "This mirror is already synchronizing.",
             ));
         }
+        syncing.insert(
+            replica_id,
+            MirrorOperationState {
+                kind,
+                started_at: Instant::now(),
+                warned_slow: false,
+            },
+        );
+        tracing::debug!(
+            replica_id = %replica_id,
+            operation = kind,
+            "hosted mirror operation started"
+        );
         Ok(MirrorOperationGuard {
             replica_id,
             syncing: &self.syncing,
             operation_finished: &self.operation_finished,
         })
+    }
+
+    pub(super) fn warn_slow_operations(&self) {
+        let mut syncing = self.syncing.lock().expect("mirror sync lock poisoned");
+        for (replica_id, state) in syncing.iter_mut() {
+            let elapsed = state.started_at.elapsed();
+            if !state.warned_slow && elapsed >= MIRROR_SLOW_OPERATION_WARNING {
+                state.warned_slow = true;
+                tracing::warn!(
+                    replica_id = %replica_id,
+                    operation = state.kind,
+                    elapsed_ms = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
+                    "hosted mirror operation is still active"
+                );
+            }
+        }
     }
 
     pub(super) async fn begin_operation_waiting(

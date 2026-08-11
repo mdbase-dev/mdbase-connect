@@ -1,8 +1,14 @@
 use super::*;
 
+pub(super) struct MirrorOperationState {
+    pub(super) kind: &'static str,
+    pub(super) started_at: Instant,
+    pub(super) warned_slow: bool,
+}
+
 pub(super) struct MirrorOperationGuard<'a> {
     pub(super) replica_id: Uuid,
-    pub(super) syncing: &'a StdMutex<HashSet<Uuid>>,
+    pub(super) syncing: &'a StdMutex<HashMap<Uuid, MirrorOperationState>>,
     pub(super) operation_finished: &'a Notify,
 }
 
@@ -22,12 +28,37 @@ impl Default for BackgroundRetry {
 
 impl Drop for MirrorOperationGuard<'_> {
     fn drop(&mut self) {
-        self.syncing
+        let state = self
+            .syncing
             .lock()
             .expect("mirror sync lock poisoned")
             .remove(&self.replica_id);
+        if let Some(state) = state {
+            tracing::debug!(
+                replica_id = %self.replica_id,
+                operation = state.kind,
+                elapsed_ms = u64::try_from(state.started_at.elapsed().as_millis())
+                    .unwrap_or(u64::MAX),
+                "hosted mirror operation finished"
+            );
+        }
         self.operation_finished.notify_one();
     }
+}
+
+pub(super) async fn with_mirror_operation_timeout<T, F>(
+    timeout: Duration,
+    operation: F,
+) -> Result<T, ConnectError>
+where
+    F: Future<Output = Result<T, ConnectError>>,
+{
+    tokio::time::timeout(timeout, operation).await.map_err(|_| {
+        mirror_error(
+            "mirror_sync_timeout",
+            "Hosted mirror synchronization exceeded its bounded operation deadline and will resume from its durable checkpoint.",
+        )
+    })?
 }
 
 pub(super) fn read_registry(path: &Path) -> Result<Vec<MirrorRegistryEntry>, ConnectError> {

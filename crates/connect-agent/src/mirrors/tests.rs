@@ -137,3 +137,55 @@ fn unavailable_mirror_summary_is_structured_and_local_to_one_replica() {
     );
     assert_eq!(summary.pending, 0);
 }
+
+#[tokio::test]
+async fn aborting_an_operation_releases_the_mirror_guard() {
+    let temporary = tempfile::tempdir().unwrap();
+    let registry = CollectionRegistry::open(temporary.path()).unwrap();
+    let manager = MirrorManager::open(temporary.path(), registry, None, None).unwrap();
+    let replica_id = Uuid::new_v4();
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    let running = manager.clone();
+    let task = tokio::spawn(async move {
+        let _guard = running
+            .begin_operation_named(replica_id, false, "abort-test")
+            .unwrap();
+        started_tx.send(()).unwrap();
+        std::future::pending::<()>().await;
+    });
+
+    started_rx.await.unwrap();
+    assert_eq!(
+        manager
+            .begin_operation(replica_id, false)
+            .err()
+            .unwrap()
+            .code(),
+        "mirror_busy"
+    );
+    task.abort();
+    assert!(task.await.unwrap_err().is_cancelled());
+
+    let _replacement = manager.begin_operation(replica_id, false).unwrap();
+}
+
+#[tokio::test]
+async fn timed_out_sync_future_releases_the_mirror_guard() {
+    let temporary = tempfile::tempdir().unwrap();
+    let registry = CollectionRegistry::open(temporary.path()).unwrap();
+    let manager = MirrorManager::open(temporary.path(), registry, None, None).unwrap();
+    let replica_id = Uuid::new_v4();
+
+    let result = async {
+        let _guard = manager.begin_operation_named(replica_id, false, "timeout-test")?;
+        with_mirror_operation_timeout(
+            Duration::from_millis(10),
+            std::future::pending::<Result<(), ConnectError>>(),
+        )
+        .await
+    }
+    .await;
+    assert_eq!(result.unwrap_err().code(), "mirror_sync_timeout");
+
+    let _replacement = manager.begin_operation(replica_id, false).unwrap();
+}

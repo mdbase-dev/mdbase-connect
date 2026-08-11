@@ -28,7 +28,7 @@ impl MirrorManager {
             secrets: SystemSecretStore::new(state_dir),
             credential_store_error,
             entries: RwLock::new(entries),
-            syncing: StdMutex::new(HashSet::new()),
+            syncing: StdMutex::new(HashMap::new()),
             operation_finished: Notify::new(),
             errors: RwLock::new(HashMap::new()),
         }))
@@ -47,6 +47,7 @@ impl MirrorManager {
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
+                        manager.warn_slow_operations();
                         let entries = manager.entries();
                         let actionable = entries
                             .iter()
