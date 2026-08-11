@@ -176,7 +176,11 @@ export interface QueryInput {
   summaries?: QuerySummary[];
   limit?: number;
   offset?: number;
-  /** Opaque token returned by the first metadata page for consistent, fast pagination. */
+  /** Request generation-pinned cursor pagination from a supporting authority. */
+  pagination?: "cursor";
+  /** Opaque, single-use token returned for the next generation-pinned page. */
+  cursor?: string;
+  /** Legacy stable-query token used by older authorities. */
   snapshot?: string;
   includeBody?: boolean;
   frontmatterMode?: "effective" | "persisted" | "both";
@@ -189,6 +193,7 @@ export interface QueryResult<Record extends JsonObject = JsonObject> {
   meta?: {
     totalCount: number;
     hasMore: boolean;
+    cursor?: string;
     snapshot?: string;
   };
 }
@@ -199,6 +204,7 @@ export interface QueryPagesOptions<Record extends JsonObject = JsonObject> {
   signal?: AbortSignal;
   /** Independent budget for each page requested by this caller-driven iterator. */
   pageTimeoutMs?: number | null;
+  coordination?: RequestCoordinationOptions;
   onProgress?: (page: QueryPage<Record>) => void;
 }
 
@@ -216,6 +222,8 @@ export interface QueryPage<Record extends JsonObject = JsonObject> {
   offset: number;
   loaded: number;
   complete: boolean;
+  /** Opaque token for the next page while this iterator remains open. */
+  cursor?: string;
   snapshot?: string;
 }
 
@@ -223,6 +231,20 @@ export interface ConnectRequestOptions {
   signal?: AbortSignal;
   /** Relative request budget. `null` deliberately disables the SDK default. */
   timeoutMs?: number | null;
+  /** Optional coordination for replaceable reads on this selected connection. */
+  coordination?: RequestCoordinationOptions;
+}
+
+export interface RequestCoordinationOptions {
+  /**
+   * Stable UI/request family. Required when `latestWins` is enabled; a newer
+   * request in the same family cancels the older read or query.
+   */
+  family?: string;
+  /** Explicitly cancel older work in this family. Mutations never allow this. */
+  latestWins?: boolean;
+  /** Disable automatic coalescing of identical signal-free reads. */
+  coalesce?: boolean;
 }
 
 export interface MutationEstimate {

@@ -169,6 +169,7 @@
       }
     },
     "connector_upgrade_required": { "category": "compatibility", "recovery": "upgrade_connector" },
+    "cursor_capacity_exhausted": { "category": "availability", "recovery": "retry" },
     "device_authorization_failed": { "category": "authorization", "recovery": "reauthorize" },
     "direct_operation_rejected": { "category": "authorization", "recovery": "reauthorize" },
     "discovery_failed": { "category": "availability", "recovery": "retry" },
@@ -198,6 +199,7 @@
     "file_source_mismatch": { "category": "conflict", "recovery": "refresh" },
     "file_upload_incomplete": { "category": "conflict", "recovery": "retry" },
     "fresh_request_required": { "category": "availability", "recovery": "retry" },
+    "generation_expired": { "category": "conflict", "recovery": "refresh" },
     "hosted_provider_unavailable": { "category": "availability", "recovery": "retry" },
     "insufficient_access": {
       "category": "authorization",
@@ -244,6 +246,7 @@
     "invalid_preflight": { "category": "conflict", "recovery": "refresh" },
     "invalid_push_payload": { "category": "validation", "recovery": "fix_request" },
     "invalid_push_subscription": { "category": "validation", "recovery": "fix_request" },
+    "invalid_read_cursor": { "category": "validation", "recovery": "fix_request" },
     "invalid_request": { "category": "validation", "recovery": "fix_request" },
     "invalid_token_response": { "category": "integrity", "recovery": "contact_support" },
     "managed_fcm_not_declared": { "category": "compatibility", "recovery": "fix_request" },

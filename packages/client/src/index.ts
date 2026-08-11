@@ -115,6 +115,7 @@ export type {
   MutationProgressState,
   MutationProgress,
   MutationProgressOptions,
+  RequestCoordinationOptions,
   RenameProgressOptions,
   DeleteProgressOptions,
   PendingMutationSummary,

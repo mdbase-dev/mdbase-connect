@@ -130,6 +130,7 @@ import {
   withCooperativeRequestBudget,
   withRequestBudget
 } from "./request-budget.js";
+import { CollectionRequestCoordinator } from "./request-coordinator.js";
 
 export type MdbaseAuthorizationTarget =
   | { kind: "choose" }
@@ -230,10 +231,10 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       },
       internals.timeouts
     );
-    this.collectionClient = new MdbaseCollectionClient({
+    this.collectionClient = new MdbaseCollectionClient(new CollectionRequestCoordinator({
       operation: (operation, input, requestOptions) =>
         this.transport.performOperation(operation, input, requestOptions)
-    }, internals.timeouts.requestMs);
+    }, internals.timeouts.requestMs), internals.timeouts.requestMs);
     this.notifications = new ConnectionNotifications({
       serverUrl: internals.serverUrl,
       storage: internals.storage,

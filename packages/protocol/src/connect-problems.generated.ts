@@ -33,6 +33,7 @@ export const CONNECT_PROBLEM_CATALOG = {
   "connector_identity_changed": { category: "integrity", recovery: "reauthorize" },
   "connector_offline": { category: "availability", recovery: "retry" },
   "connector_upgrade_required": { category: "compatibility", recovery: "upgrade_connector" },
+  "cursor_capacity_exhausted": { category: "availability", recovery: "retry" },
   "device_authorization_failed": { category: "authorization", recovery: "reauthorize" },
   "direct_operation_rejected": { category: "authorization", recovery: "reauthorize" },
   "discovery_failed": { category: "availability", recovery: "retry" },
@@ -49,6 +50,7 @@ export const CONNECT_PROBLEM_CATALOG = {
   "file_source_mismatch": { category: "conflict", recovery: "refresh" },
   "file_upload_incomplete": { category: "conflict", recovery: "retry" },
   "fresh_request_required": { category: "availability", recovery: "retry" },
+  "generation_expired": { category: "conflict", recovery: "refresh" },
   "hosted_provider_unavailable": { category: "availability", recovery: "retry" },
   "insufficient_access": { category: "authorization", recovery: "reauthorize" },
   "invalid_application_authorization": { category: "validation", recovery: "fix_request" },
@@ -63,6 +65,7 @@ export const CONNECT_PROBLEM_CATALOG = {
   "invalid_preflight": { category: "conflict", recovery: "refresh" },
   "invalid_push_payload": { category: "validation", recovery: "fix_request" },
   "invalid_push_subscription": { category: "validation", recovery: "fix_request" },
+  "invalid_read_cursor": { category: "validation", recovery: "fix_request" },
   "invalid_request": { category: "validation", recovery: "fix_request" },
   "invalid_token_response": { category: "integrity", recovery: "contact_support" },
   "managed_fcm_not_declared": { category: "compatibility", recovery: "fix_request" },
@@ -193,6 +196,7 @@ export interface ConnectProblemDetailsByCode {
   "connector_name"?: string;
 };
   "connector_upgrade_required": undefined;
+  "cursor_capacity_exhausted": undefined;
   "device_authorization_failed": undefined;
   "direct_operation_rejected": undefined;
   "discovery_failed": undefined;
@@ -215,6 +219,7 @@ export interface ConnectProblemDetailsByCode {
   "file_source_mismatch": undefined;
   "file_upload_incomplete": undefined;
   "fresh_request_required": undefined;
+  "generation_expired": undefined;
   "hosted_provider_unavailable": undefined;
   "insufficient_access": {
   "required_operations": Array<string>;
@@ -240,6 +245,7 @@ export interface ConnectProblemDetailsByCode {
   "invalid_preflight": undefined;
   "invalid_push_payload": undefined;
   "invalid_push_subscription": undefined;
+  "invalid_read_cursor": undefined;
   "invalid_request": undefined;
   "invalid_token_response": undefined;
   "managed_fcm_not_declared": undefined;
@@ -487,6 +493,12 @@ export interface ConnectProblemByCode {
     recovery: "upgrade_connector";
     details?: never;
   };
+  "cursor_capacity_exhausted": ConnectProblemBase & {
+    code: "cursor_capacity_exhausted";
+    category: "availability";
+    recovery: "retry";
+    details?: never;
+  };
   "device_authorization_failed": ConnectProblemBase & {
     code: "device_authorization_failed";
     category: "authorization";
@@ -583,6 +595,12 @@ export interface ConnectProblemByCode {
     recovery: "retry";
     details?: never;
   };
+  "generation_expired": ConnectProblemBase & {
+    code: "generation_expired";
+    category: "conflict";
+    recovery: "refresh";
+    details?: never;
+  };
   "hosted_provider_unavailable": ConnectProblemBase & {
     code: "hosted_provider_unavailable";
     category: "availability";
@@ -663,6 +681,12 @@ export interface ConnectProblemByCode {
   };
   "invalid_push_subscription": ConnectProblemBase & {
     code: "invalid_push_subscription";
+    category: "validation";
+    recovery: "fix_request";
+    details?: never;
+  };
+  "invalid_read_cursor": ConnectProblemBase & {
+    code: "invalid_read_cursor";
     category: "validation";
     recovery: "fix_request";
     details?: never;

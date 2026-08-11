@@ -266,6 +266,9 @@ export type CollectionReadProblemCode =
   | "operation_invalid";
 export type CollectionQueryProblemCode =
   | CollectionReadProblemCode
+  | "cursor_capacity_exhausted"
+  | "generation_expired"
+  | "invalid_read_cursor"
   | "query_snapshot_changed"
   | "sandbox_unsupported";
 export type CollectionMutationProblemCode =
@@ -296,6 +299,9 @@ export const COLLECTION_READ_PROBLEM_CODES = [
 
 export const COLLECTION_QUERY_PROBLEM_CODES = [
   ...COLLECTION_READ_PROBLEM_CODES,
+  "cursor_capacity_exhausted",
+  "generation_expired",
+  "invalid_read_cursor",
   "query_snapshot_changed",
   "sandbox_unsupported"
 ] as const satisfies readonly CollectionQueryProblemCode[];

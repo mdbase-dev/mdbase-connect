@@ -437,8 +437,45 @@ describe("provider-neutral collection client", () => {
     expect(loaded).toEqual(["one.md", "two.md", "three.md"]);
     expect(progress).toEqual([{ loaded: 1, complete: false }, { loaded: 3, complete: true }]);
     expect(calls).toEqual([
-      { include_body: false, order_by: [{ field: "file.mtime", direction: "desc" }], timezone: "Australia/Melbourne", offset: 0, limit: 1 },
+      { include_body: false, order_by: [{ field: "file.mtime", direction: "desc" }], timezone: "Australia/Melbourne", offset: 0, limit: 1, pagination: "cursor" },
       { include_body: false, order_by: [{ field: "file.mtime", direction: "desc" }], timezone: "Australia/Melbourne", offset: 1, limit: 2, snapshot: "stable-query" }
+    ]);
+  });
+
+  it("uses generation cursors and releases an abandoned iterator", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const client = new MdbaseCollectionClient({
+      async operation<Result>(_operation: string, input: unknown) {
+        const query = input as Record<string, unknown>;
+        calls.push(query);
+        if (query.release_cursor) {
+          return {
+            valid: true,
+            diagnostics: [],
+            result: { results: [], meta: { total_count: 0, has_more: false } }
+          } as Result;
+        }
+        return {
+          valid: true,
+          diagnostics: [],
+          result: {
+            results: [{ path: "one.md", frontmatter: {}, types: [] }],
+            meta: { total_count: 2, has_more: true, cursor: "cursor:next" }
+          }
+        } as Result;
+      }
+    });
+    const iterator = client.queryPages({}, { firstPageSize: 1, pageSize: 1 });
+
+    await expect(iterator.next()).resolves.toMatchObject({
+      done: false,
+      value: { ok: true, value: { cursor: "cursor:next", complete: false } }
+    });
+    await iterator.return(undefined);
+
+    expect(calls).toEqual([
+      { limit: 1, offset: 0, pagination: "cursor" },
+      { release_cursor: "cursor:next" }
     ]);
   });
 

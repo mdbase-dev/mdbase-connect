@@ -24,6 +24,7 @@ import type {
   TypePackAssessment as WireTypePackAssessment,
 } from "@mdbase-dev/connect-protocol";
 import { abortableDelay } from "./async.js";
+import { coordinatedQueryPages } from "./query-pagination.js";
 import {
   MdbaseConnectError,
   connectError,
@@ -165,6 +166,7 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
         meta: {
           totalCount: meta.total_count,
           hasMore: meta.has_more,
+          ...(meta.cursor ? { cursor: meta.cursor } : {}),
           ...(meta.snapshot ? { snapshot: meta.snapshot } : {})
         }
       } : {})
@@ -175,57 +177,12 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
     input: QueryInput = {},
     options: QueryPagesOptions<Frontmatter> = {}
   ): AsyncGenerator<ConnectOutcome<QueryPage<Frontmatter>, CollectionQueryProblemCode>> {
-    const {
-      offset: requestedOffset,
-      limit: requestedLimit,
-      snapshot: requestedSnapshot,
-      ...criteria
-    } = input;
-    let offset = nonNegativeInteger(requestedOffset, 0);
-    const firstPageSize = positiveInteger(options.firstPageSize ?? requestedLimit, 200);
-    const pageSize = positiveInteger(options.pageSize ?? requestedLimit, 1_000);
-    let snapshot = requestedSnapshot;
-    let loaded = 0;
-    let pageNumber = 0;
-
-    while (!options.signal?.aborted) {
-      const queried = await this.query({
-        ...criteria,
-        offset,
-        limit: pageNumber === 0 ? firstPageSize : pageSize,
-        ...(snapshot ? { snapshot } : {})
-      }, { signal: options.signal, timeoutMs: options.pageTimeoutMs });
-      if (!queried.ok) {
-        yield queried;
-        return;
-      }
-      const result = queried.value;
-      const returnedSnapshot = result.meta?.snapshot;
-      if (snapshot && returnedSnapshot && snapshot !== returnedSnapshot) {
-        yield connectFailure(connectProblem(
-          "query_snapshot_changed",
-          "The collection query snapshot changed while paging. Refresh the query before continuing."
-        ));
-        return;
-      }
-      if (!snapshot && returnedSnapshot) snapshot = returnedSnapshot;
-      loaded += result.results.length;
-      const complete = !result.meta?.hasMore || result.results.length === 0;
-      const page: QueryPage<Frontmatter> = {
-        results: result.results,
-        ...(result.meta ? { meta: result.meta } : {}),
-        page: pageNumber,
-        offset,
-        loaded,
-        complete,
-        ...(snapshot ? { snapshot } : {})
-      };
-      options.onProgress?.(page);
-      yield connectSuccess(page, queried.diagnostics);
-      if (complete) return;
-      offset += result.results.length;
-      pageNumber += 1;
-    }
+    yield* coordinatedQueryPages(
+      (pageInput, pageOptions) => this.query(pageInput, pageOptions),
+      (cursor) => this.releaseQueryCursor(cursor),
+      input,
+      options
+    );
   }
 
   async queryAll(
@@ -242,6 +199,7 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
         pageSize: options.pageSize,
         signal: budget.signal,
         pageTimeoutMs: null,
+        coordination: options.coordination,
         onProgress: options.onProgress
       })) {
         if (!outcome.ok) return outcome;
@@ -254,7 +212,6 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
       return connectSuccess({
         results,
         meta: {
-          ...(finalPage?.meta ?? {}),
           totalCount: finalPage?.meta?.totalCount ?? results.length,
           hasMore: finalPage ? !finalPage.complete : false,
           ...(finalPage?.snapshot ? { snapshot: finalPage.snapshot } : {})
@@ -506,6 +463,19 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
     );
   }
 
+  private async releaseQueryCursor(cursor: string): Promise<void> {
+    try {
+      await this.envelopeOperation<WireQueryResult<Frontmatter>, CollectionQueryProblemCode>(
+        "query",
+        { release_cursor: cursor },
+        COLLECTION_QUERY_PROBLEM_CODES,
+        { timeoutMs: 2_000, coordination: { coalesce: false } }
+      );
+    } catch {
+      // Lease expiry is bounded by the authority; cleanup never masks query results.
+    }
+  }
+
   private async envelopeOperation<Result, Code extends CollectionReadProblemCode | CollectionQueryProblemCode | CollectionMutationProblemCode | CollectionTypeProblemCode>(
     operation: CollectionOperation,
     input: unknown,
@@ -527,7 +497,7 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
 
 interface WireQueryResult<Frontmatter extends JsonObject> {
   results: Array<import("@mdbase-dev/connect-protocol").QueryRecord<Frontmatter>>;
-  meta?: { total_count: number; has_more: boolean; snapshot?: string };
+  meta?: { total_count: number; has_more: boolean; cursor?: string; snapshot?: string };
 }
 
 interface WireDeleteResult {
@@ -620,6 +590,8 @@ function wireQueryInput(input: QueryInput) {
     ...(input.summaries ? { summaries: input.summaries } : {}),
     ...(input.limit === undefined ? {} : { limit: input.limit }),
     ...(input.offset === undefined ? {} : { offset: input.offset }),
+    ...(input.pagination ? { pagination: input.pagination } : {}),
+    ...(input.cursor ? { cursor: input.cursor } : {}),
     ...(input.snapshot ? { snapshot: input.snapshot } : {}),
     ...(input.includeBody === undefined ? {} : { include_body: input.includeBody }),
     ...(input.frontmatterMode ? { frontmatter_mode: input.frontmatterMode } : {}),
@@ -988,13 +960,4 @@ function wireCollectionDescription(value: WireCollectionDescription): Collection
     })),
     ...(value.configuration ? { configuration: value.configuration } : {})
   };
-}
-
-
-function nonNegativeInteger(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : fallback;
-}
-
-function positiveInteger(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }
