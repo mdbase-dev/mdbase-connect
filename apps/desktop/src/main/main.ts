@@ -20,6 +20,7 @@ import { AgentControlError, requestAgent } from "./control-client";
 import { routeForDeepLink, shouldRegisterDeepLinks } from "./deep-link";
 import { buildEditorUrl } from "./editor-url";
 import { ElectronUpdateBackend } from "./electron-update-backend";
+import { createHostedSnapshotLoader, type HostedControlSnapshot } from "./hosted-snapshot";
 import { selectiveSyncPolicy } from "./selective-sync-input";
 import { createTrayImage } from "./tray-image";
 import { UpdateCoordinator } from "./update-coordinator";
@@ -158,6 +159,10 @@ async function chooseFolder(): Promise<string | null> {
 }
 
 function registerIpc(): void {
+  const loadHostedSnapshot = createHostedSnapshotLoader(
+    () => requestReadyAgent<HostedControlSnapshot>("hosted.snapshot", undefined, 30_000)
+  );
+
   ipcMain.handle("connect:status", async (event) => {
     trustedIpc(event);
     return requestReadyAgent("status");
@@ -516,7 +521,7 @@ function registerIpc(): void {
   });
   ipcMain.handle("connect:hosted:snapshot", async (event) => {
     trustedIpc(event);
-    return requestReadyAgent("hosted.snapshot", undefined, 30_000);
+    return loadHostedSnapshot();
   });
   ipcMain.handle("connect:hosted:create", async (event, input: unknown) => {
     trustedIpc(event);
