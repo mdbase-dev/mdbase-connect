@@ -2,7 +2,8 @@ import {
   isMutatingOperation,
   mutationFingerprint,
   type CollectionOperation,
-  type ConnectProblem
+  type ConnectProblem,
+  type EncryptedRelayOperationRequest
 } from "@mdbase-dev/connect-protocol";
 import { MdbaseConnectError, connectError, serverConnectError } from "./errors.js";
 import type { StoredToken } from "./internal-types.js";
@@ -40,6 +41,18 @@ export function directFallbackStatus(status: number): boolean {
 
 export function isMutation(operation: CollectionOperation, input?: unknown): boolean {
   return isMutatingOperation(operation, input);
+}
+
+export function withOperationDeadline(
+  request: EncryptedRelayOperationRequest,
+  deadlineUnixMs?: number
+): EncryptedRelayOperationRequest {
+  if (request.deadline_unix_ms === deadlineUnixMs) return request;
+  const { deadline_unix_ms: _previousDeadline, ...identity } = request;
+  return {
+    ...identity,
+    ...(deadlineUnixMs === undefined ? {} : { deadline_unix_ms: deadlineUnixMs })
+  };
 }
 
 export function uniqueOperations(operations: CollectionOperation[]): CollectionOperation[] {

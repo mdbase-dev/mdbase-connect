@@ -3057,7 +3057,9 @@ describe("direct loopback routing", () => {
     }]);
   });
 
-  it("retains and recovers an encrypted unknown mutation receipt", async () => {
+  it("retains and recovers an encrypted unknown mutation receipt with a fresh deadline", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-11T00:00:00Z"));
     const fixture = await encryptedConnection();
     fixture.connect.disableDirectAccess();
     const bodies: string[] = [];
@@ -3103,19 +3105,25 @@ describe("direct loopback routing", () => {
     await expect(fixture.connect.create({
       path: "encrypted-deadline.md",
       frontmatter: {}
-    })).resolves.toMatchObject({
+    }, { timeoutMs: 1_000 })).resolves.toMatchObject({
       ok: false,
       problem: { code: "operation_outcome_unknown", operation_outcome: "unknown" }
     });
     const pending = fixture.connect.pendingMutations<{ path: string }>();
     expect(pending).toHaveLength(1);
 
-    await expect(pending[0]!.recover()).resolves.toMatchObject({
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(pending[0]!.recover({ timeoutMs: 10_000 })).resolves.toMatchObject({
       ok: true,
       value: { path: "encrypted-deadline.md" }
     });
     expect(bodies).toHaveLength(2);
-    expect(bodies[1]).toBe(bodies[0]);
+    const [initial, recovered] = bodies.map((body) =>
+      JSON.parse(body) as EncryptedRelayOperationRequest
+    );
+    expect(recovered!.deadline_unix_ms).toBeGreaterThan(initial!.deadline_unix_ms!);
+    expect({ ...recovered, deadline_unix_ms: undefined })
+      .toEqual({ ...initial, deadline_unix_ms: undefined });
     expect(fixture.connect.pendingMutations()).toEqual([]);
   });
 
@@ -3189,11 +3197,16 @@ schema:
       ok: false,
       problem: { code: "operation_outcome_unknown", operation_outcome: "unknown" }
     });
-    expect(requests.at(-1)!.body).toBe(requests[0].body);
+    const originalEnvelope = JSON.parse(requests[0].body) as EncryptedRelayOperationRequest;
+    const recoveredEnvelope = JSON.parse(requests.at(-1)!.body) as EncryptedRelayOperationRequest;
+    expect(recoveredEnvelope.deadline_unix_ms)
+      .toBeGreaterThanOrEqual(originalEnvelope.deadline_unix_ms!);
+    expect({ ...recoveredEnvelope, deadline_unix_ms: undefined })
+      .toEqual({ ...originalEnvelope, deadline_unix_ms: undefined });
     expect(fixture.connect.pendingMutations()).toHaveLength(2);
   });
 
-  it("keeps an exact encrypted mutation resumable when waiting is cancelled after dispatch", async () => {
+  it("keeps an encrypted mutation identity resumable with a fresh recovery deadline", async () => {
     const fixture = await encryptedConnection();
     const controller = new AbortController();
     const input = { path: "cancelled.md", frontmatter: { title: "Cancelled wait" } };
@@ -3247,7 +3260,14 @@ schema:
       "http://127.0.0.1:28485/v1/operations",
       `${fixture.serverUrl}/v1/authorities/${fixture.collectionId}/operations/create`
     ]);
-    expect(new Set(requests.map(({ body }) => body))).toHaveLength(1);
+    const envelopes = requests.map(({ body }) =>
+      JSON.parse(body) as EncryptedRelayOperationRequest
+    );
+    expect(envelopes[1]!.deadline_unix_ms).toBeGreaterThanOrEqual(envelopes[0]!.deadline_unix_ms!);
+    expect(envelopes[2]!.deadline_unix_ms).toBe(envelopes[1]!.deadline_unix_ms);
+    expect(new Set(envelopes.map(({ deadline_unix_ms: _deadline, ...identity }) =>
+      JSON.stringify(identity)
+    ))).toHaveLength(1);
     expect(fixture.connect.pendingMutation(pending!.requestId)).toMatchObject({ operation: "create" });
   });
 

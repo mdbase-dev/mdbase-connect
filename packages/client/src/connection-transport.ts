@@ -48,7 +48,8 @@ import {
   operationTransportError,
   sameAuthorization,
   throwIfCancelled,
-  unknownMutationOutcome
+  unknownMutationOutcome,
+  withOperationDeadline
 } from "./operation-helpers.js";
 import {
   apiError,
@@ -218,7 +219,7 @@ export class ConnectionTransport {
       this.performOperationWithinBudget<Result>(
         pending.operation,
         pending.request?.input ?? {},
-        { ...options, signal: budget.signal },
+        requestOptionsWithinBudget(options ?? {}, budget),
         pending
       )
     );
@@ -595,7 +596,9 @@ export class ConnectionTransport {
                 "The pending write belongs to a different transport. Reconnect before retrying it."
               );
             }
-            encryptedRequest = pending.envelope;
+            // Preserve the durable identity and ciphertext, but refresh the
+            // unauthenticated scheduling deadline for this recovery attempt.
+            encryptedRequest = withOperationDeadline(pending.envelope, options.deadlineUnixMs);
           } else {
             encryptedRequest = await encryptRelayRequest(
               this.keyStore,
