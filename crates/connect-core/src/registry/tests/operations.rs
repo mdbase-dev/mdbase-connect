@@ -5,50 +5,42 @@ use mdbase_connect_protocol::{
 };
 
 #[test]
-fn portable_mutation_results_produce_targeted_invalidations() {
-    let output = serde_json::to_value(mdbase::v03::OperationResult {
-        valid: true,
-        result: json!({
-            "from": "old.md",
-            "to": "new.md",
-            "references_updated": [{"path": "linked.md"}],
-        }),
-        diagnostics: vec![],
-    })
-    .unwrap();
-    assert_eq!(
-        operation_invalidation(
-            "rename",
-            &json!({"from": "old.md", "to": "new.md"}),
-            &output,
-        ),
-        CollectionInvalidation::Records(
-            ["linked.md", "new.md", "old.md"]
-                .into_iter()
-                .map(str::to_string)
-                .collect()
+fn runtime_outcomes_drive_the_connect_change_journal_without_inference() {
+    let state = tempdir().unwrap();
+    let collection_parent = tempdir().unwrap();
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let collection = registry
+        .create(collection_parent.path().join("notes"), Some("Notes"), "UTC")
+        .unwrap();
+
+    registry
+        .operation(
+            collection.id,
+            "create",
+            &json!({"path": "note.md", "frontmatter": {"title": "One"}}),
         )
-    );
-    assert_eq!(
-        operation_invalidation(
+        .unwrap();
+    let events = registry
+        .finalize_runtime_changes(collection.id, &mdbase::OperationCancellation::new())
+        .unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].0.event_type, "mdbase.record.created");
+    assert_eq!(events[0].0.payload["path"], "note.md");
+    assert_eq!(events[0].0.payload["runtime"]["origin"], "known_mutation");
+    assert_eq!(events[0].1, 1);
+
+    let rejected = registry
+        .operation(
+            collection.id,
             "update",
-            &json!({"path": "private.md"}),
-            &json!({"valid": false}),
-        ),
-        CollectionInvalidation::None,
-    );
-    assert_eq!(
-        operation_invalidation(
-            "rename",
-            &json!({"from": "old.md", "to": "new.md", "dry_run": true}),
-            &json!({"valid": true, "result": {"would_rename": true}}),
-        ),
-        CollectionInvalidation::None,
-    );
-    assert_eq!(
-        operation_invalidation("update_type", &json!({}), &json!({"valid": true})),
-        CollectionInvalidation::All,
-    );
+            &json!({"path": "missing.md", "patch": {"title": "No"}}),
+        )
+        .unwrap();
+    assert_eq!(rejected["valid"], false);
+    assert!(registry
+        .finalize_runtime_changes(collection.id, &mdbase::OperationCancellation::new())
+        .unwrap()
+        .is_empty());
 }
 
 #[test]
@@ -124,7 +116,7 @@ fn cancelled_unscoped_reads_stop_before_collection_execution() {
             "query",
             &json!({"limit": 1}),
             &cancellation,
-            |_| {},
+            || Ok(()),
         ),
         Err(ConnectError::OperationCancelled)
     ));
@@ -547,6 +539,7 @@ This body is documentation and must remain byte-for-byte intact.
 "#;
     fs::create_dir_all(root.join("_types")).unwrap();
     fs::write(root.join("_types/note.md"), original).unwrap();
+    synchronize_external_fixture(&registry, collection.id);
     let description = registry.describe(collection.id).unwrap();
     let note = description
         .types
@@ -617,6 +610,7 @@ schema:
 "#;
     fs::create_dir_all(root.join("_types")).unwrap();
     fs::write(root.join("_types/note.md"), original).unwrap();
+    synchronize_external_fixture(&registry, collection.id);
     let (requirements, provision) = work_item_provision();
     let setup = ContractSetupChoice {
         contract: requirements.contracts[0].clone(),
@@ -769,6 +763,7 @@ implements:
 "#,
     )
     .unwrap();
+    synchronize_external_fixture(&registry, collection.id);
     let created = registry
         .operation(
             collection.id,
@@ -977,6 +972,225 @@ fn change_pages_resume_by_cursor_and_omit_record_snapshots() {
     assert!(page.events[0].payload.get("before").is_none());
     assert!(page.events[0].payload.get("after").is_none());
     assert_eq!(page.cursor, 1);
+}
+
+#[test]
+fn durable_runtime_claim_replays_once_and_acknowledges_exact_outcome() {
+    let state = tempdir().unwrap();
+    let collection_parent = tempdir().unwrap();
+    let root = collection_parent.path().join("durable-claim");
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let collection = registry
+        .create(&root, Some("Durable claim"), "UTC")
+        .unwrap();
+    let claim = mdbase::runtime::HostClaimId::generate();
+    let cancellation = mdbase::OperationCancellation::new();
+    let input = json!({
+        "path": "once.md",
+        "frontmatter": {"title": "Exactly once"},
+        "body": "one durable body"
+    });
+    let scope = GrantScope::full_collection();
+
+    let first = registry
+        .scoped_operation_with_host_claim(
+            collection.id,
+            "create",
+            &input,
+            &scope,
+            &claim,
+            &cancellation,
+        )
+        .unwrap();
+    let replay = registry
+        .scoped_operation_with_host_claim(
+            collection.id,
+            "create",
+            &input,
+            &scope,
+            &claim,
+            &cancellation,
+        )
+        .unwrap();
+    assert_eq!(replay, first);
+    assert_eq!(
+        fs::read_to_string(root.join("once.md")).unwrap(),
+        "---\ntitle: Exactly once\n---\none durable body\n"
+    );
+
+    let evidence = registry
+        .runtime_host_claim_evidence(collection.id, &claim)
+        .unwrap()
+        .unwrap();
+    assert_eq!(evidence["provider_state"], "committed");
+    let changes = registry
+        .finalize_runtime_changes(collection.id, &cancellation)
+        .unwrap();
+    assert_eq!(
+        changes
+            .iter()
+            .filter(|(event, _)| event.payload["path"] == "once.md")
+            .count(),
+        1
+    );
+
+    registry
+        .acknowledge_runtime_host_claim(collection.id, &claim)
+        .unwrap();
+    assert!(registry
+        .runtime_host_claim_evidence(collection.id, &claim)
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn cancelled_runtime_claim_is_a_safe_terminal_not_sent_outcome() {
+    let state = tempdir().unwrap();
+    let collection_parent = tempdir().unwrap();
+    let root = collection_parent.path().join("cancelled-claim");
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let collection = registry
+        .create(&root, Some("Cancelled claim"), "UTC")
+        .unwrap();
+    let registered = registry.get(collection.id).unwrap();
+    let runtime = registry
+        .executor_for(&registered)
+        .unwrap()
+        .runtime()
+        .unwrap();
+    let claim = mdbase::runtime::HostClaimId::generate();
+    let cancellation = mdbase::OperationCancellation::new();
+    let context = mdbase::runtime::OperationContext::new(
+        &cancellation,
+        mdbase::runtime::OperationDeadline::after(std::time::Duration::from_secs(30)),
+    );
+    let request = mdbase::runtime::OperationRequest {
+        operation: mdbase::runtime::OperationKind::Create,
+        input: json!({
+            "path": "never.md",
+            "frontmatter": {"title": "Never committed"}
+        }),
+    };
+    let prepared = match runtime.prepare(&request, &claim, &context).unwrap() {
+        mdbase::runtime::PreparationOutcome::Prepared(prepared) => prepared,
+        other => panic!("expected a prepared mutation, got {other:?}"),
+    };
+    assert!(matches!(
+        runtime.cancel(&prepared, &context).unwrap(),
+        mdbase::runtime::CancelOutcome::CancelledBeforeCommit
+    ));
+
+    assert!(registry
+        .cancel_runtime_host_claim(collection.id, &claim)
+        .unwrap());
+    assert!(registry
+        .cancel_runtime_host_claim(collection.id, &claim)
+        .unwrap());
+    assert!(!root.join("never.md").exists());
+    let error = registry
+        .scoped_operation_with_host_claim(
+            collection.id,
+            "create",
+            &request.input,
+            &GrantScope::full_collection(),
+            &claim,
+            &cancellation,
+        )
+        .unwrap_err();
+    assert_eq!(error.code(), "commit_cancelled_before_start");
+    assert!(!root.join("never.md").exists());
+}
+
+#[test]
+fn query_cursor_pins_one_generation_replays_and_releases_explicitly() {
+    let state = tempdir().unwrap();
+    let collection_parent = tempdir().unwrap();
+    let root = collection_parent.path().join("cursor-pages");
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let collection = registry.create(&root, Some("Cursor pages"), "UTC").unwrap();
+    for title in ["a", "b", "c"] {
+        registry
+            .operation(
+                collection.id,
+                "create",
+                &json!({
+                    "path": format!("{title}.md"),
+                    "frontmatter": {"title": title}
+                }),
+            )
+            .unwrap();
+    }
+    let scope = GrantScope::full_collection();
+    let criteria = json!({
+        "pagination": "cursor",
+        "limit": 1,
+        "order_by": [{"field": "file.path", "direction": "asc"}]
+    });
+    let first = registry
+        .scoped_operation(collection.id, "query", &criteria, &scope)
+        .unwrap();
+    assert_eq!(first["result"]["results"][0]["path"], "a.md");
+    let cursor = first["result"]["meta"]["cursor"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let retained = registry.runtime_residency_diagnostics().unwrap();
+    assert_eq!(retained.active_read_snapshots, 1);
+    assert!(retained.retained_read_snapshot_bytes > 0);
+
+    registry
+        .operation(
+            collection.id,
+            "create",
+            &json!({"path": "d.md", "frontmatter": {"title": "d"}}),
+        )
+        .unwrap();
+    let second_input = json!({
+        "cursor": cursor,
+        "order_by": [{"field": "file.path", "direction": "asc"}]
+    });
+    let second = registry
+        .scoped_operation(collection.id, "query", &second_input, &scope)
+        .unwrap();
+    let replay = registry
+        .scoped_operation(collection.id, "query", &second_input, &scope)
+        .unwrap();
+    assert_eq!(second, replay);
+    assert_eq!(second["result"]["results"][0]["path"], "b.md");
+    assert_eq!(second["result"]["meta"]["total_count"], 3);
+    let final_cursor = second["result"]["meta"]["cursor"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let third = registry
+        .scoped_operation(
+            collection.id,
+            "query",
+            &json!({
+                "cursor": final_cursor,
+                "order_by": [{"field": "file.path", "direction": "asc"}]
+            }),
+            &scope,
+        )
+        .unwrap();
+    assert_eq!(third["result"]["results"][0]["path"], "c.md");
+    assert!(third["result"]["meta"].get("cursor").is_none());
+
+    registry
+        .scoped_operation(
+            collection.id,
+            "query",
+            &json!({"release_cursor": final_cursor}),
+            &scope,
+        )
+        .unwrap();
+    let released = registry.runtime_residency_diagnostics().unwrap();
+    assert_eq!(released.active_read_snapshots, 0);
+    assert_eq!(released.retained_read_snapshot_bytes, 0);
+    let expired = registry
+        .scoped_operation(collection.id, "query", &second_input, &scope)
+        .unwrap_err();
+    assert_eq!(expired.code(), "generation_expired");
 }
 
 #[test]

@@ -1,4 +1,4 @@
-use super::{metrics, operation_responses::*, *};
+use super::{metrics, operation_responses::*, runtime_mutations::runtime_host_claim, *};
 impl AgentState {
     pub(crate) fn handle_direct_encrypted_operation_cancellable(
         &self,
@@ -688,6 +688,7 @@ impl AgentState {
                 application_installation_id,
                 grant_snapshot_digest,
                 revoked,
+                cancellation,
                 execution_state,
             );
         }
@@ -777,6 +778,7 @@ impl AgentState {
         lease: MutationLease,
         recovery: mdbase_connect_core::MutationRecoveryData,
         revoked: bool,
+        cancellation: &mdbase::OperationCancellation,
     ) -> RelayMessage {
         if recovery.state == MutationJournalState::Applied {
             let Some(result_metadata) = recovery.result_metadata.as_ref() else {
@@ -807,10 +809,32 @@ impl AgentState {
             {
                 return pending_mutation_response(keys, metadata);
             }
+            if let Some(claim) = runtime_host_claim(&recovery) {
+                let _ = self
+                    .registry
+                    .acknowledge_runtime_host_claim(context.collection_id, &claim);
+            }
             return serialized_encrypted_response(
                 &receipt,
                 metadata.protocol_version,
                 metadata.request_id,
+            );
+        }
+
+        if operation != "file_control"
+            && (recovery.state != MutationJournalState::Prepared
+                || runtime_host_claim(&recovery).is_some())
+        {
+            return self.execute_owned_runtime_mutation(
+                context,
+                operation,
+                input,
+                metadata,
+                keys,
+                lease,
+                recovery,
+                revoked,
+                cancellation,
             );
         }
 

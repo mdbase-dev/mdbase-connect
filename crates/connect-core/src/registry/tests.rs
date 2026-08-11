@@ -87,6 +87,22 @@ fn mark_mirror(root: &Path, collection_id: Uuid) {
     .unwrap();
 }
 
+fn copy_tree(source: &Path, destination: &Path) {
+    fs::create_dir_all(destination).unwrap();
+    for entry in fs::read_dir(source).unwrap() {
+        let entry = entry.unwrap();
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        let metadata = fs::symlink_metadata(&source_path).unwrap();
+        assert!(!metadata.file_type().is_symlink());
+        if metadata.is_dir() {
+            copy_tree(&source_path, &destination_path);
+        } else {
+            fs::copy(&source_path, &destination_path).unwrap();
+        }
+    }
+}
+
 fn write_work_item_contract(root: &Path) {
     fs::write(
         root.join("_contracts/example.work-item.md"),
@@ -108,6 +124,16 @@ record_schema:
 "#,
     )
     .unwrap();
+}
+
+fn synchronize_external_fixture(registry: &CollectionRegistry, collection_id: Uuid) {
+    let cancellation = mdbase::OperationCancellation::new();
+    registry
+        .synchronize_runtime(collection_id, &cancellation)
+        .unwrap();
+    registry
+        .finalize_runtime_changes(collection_id, &cancellation)
+        .unwrap();
 }
 
 fn work_item_scope(registry: &CollectionRegistry, collection_id: Uuid) -> GrantScope {

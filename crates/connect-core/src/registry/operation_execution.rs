@@ -305,6 +305,119 @@ fn engine_collection_setup(
     })
 }
 
+pub(super) fn runtime_operation_request(
+    operation: &str,
+    input: &Value,
+) -> Result<mdbase::runtime::OperationRequest, ConnectError> {
+    let kind = operation
+        .parse::<mdbase::runtime::OperationKind>()
+        .map_err(|_| ConnectError::UnsupportedOperation(operation.to_string()))?;
+    let input = match operation {
+        "assess_collection_setup" => {
+            let request = serde_json::from_value::<AssessCollectionSetupInput>(input.clone())
+                .map_err(|error| {
+                    ConnectError::InvalidInput(format!(
+                        "The collection setup assessment is invalid: {error}"
+                    ))
+                })?;
+            json!({"setup": engine_collection_setup(&request)?})
+        }
+        "apply_collection_setup" => {
+            let request = serde_json::from_value::<ApplyCollectionSetupInput>(input.clone())
+                .map_err(|error| {
+                    ConnectError::InvalidInput(format!(
+                        "The collection setup apply request is invalid: {error}"
+                    ))
+                })?;
+            json!({
+                "setup": engine_collection_setup(&request.setup)?,
+                "options": {
+                    "expected_assessment_digest": request.expected_assessment_digest,
+                    "expected_collection_revision": request.expected_collection_revision,
+                    "expected_provision_digest": request.expected_provision_digest,
+                    "allow_type_pack_downgrades": request.allow_type_pack_downgrades,
+                }
+            })
+        }
+        "assess_type_pack" | "apply_type_pack" => {
+            let (
+                provision,
+                installed_by,
+                adopt_resources,
+                preserve_seed_targets,
+                target_overrides,
+                contract_setups,
+                expected_assessment_digest,
+                allow_downgrade,
+            ) = if operation == "assess_type_pack" {
+                let request = serde_json::from_value::<AssessTypePackInput>(input.clone())
+                    .map_err(|error| {
+                        ConnectError::InvalidInput(format!(
+                            "The type-pack assessment is invalid: {error}"
+                        ))
+                    })?;
+                (
+                    request.provision,
+                    request.installed_by,
+                    request.adopt_resources,
+                    request.preserve_seed_targets,
+                    request.target_overrides,
+                    request.contract_setups,
+                    None,
+                    false,
+                )
+            } else {
+                let request = serde_json::from_value::<ApplyTypePackInput>(input.clone()).map_err(
+                    |error| {
+                        ConnectError::InvalidInput(format!(
+                            "The type-pack apply request is invalid: {error}"
+                        ))
+                    },
+                )?;
+                (
+                    request.provision,
+                    request.installed_by,
+                    request.adopt_resources,
+                    request.preserve_seed_targets,
+                    request.target_overrides,
+                    request.contract_setups,
+                    Some(request.expected_assessment_digest),
+                    request.allow_downgrade,
+                )
+            };
+            let provision = mdbase::v03::TypePackProvision {
+                manifest: serde_json::to_value(&provision.manifest)?,
+                resources: provision
+                    .resources
+                    .into_iter()
+                    .map(|resource| mdbase::v03::TypePackResource {
+                        source: resource.source,
+                        document: resource.document,
+                    })
+                    .collect(),
+            };
+            let contract_setups = contract_setups
+                .iter()
+                .map(CollectionRegistry::engine_contract_setup)
+                .collect::<Vec<_>>();
+            let mut options = json!({
+                "installed_by": installed_by,
+                "adopt_resources": adopt_resources,
+                "preserve_seed_targets": preserve_seed_targets,
+                "target_overrides": target_overrides,
+                "contract_setups": contract_setups,
+            });
+            if let Some(expected) = expected_assessment_digest {
+                options["expected_assessment_digest"] = Value::String(expected);
+                options["allow_downgrade"] = Value::Bool(allow_downgrade);
+            }
+            json!({"provision": provision, "options": options})
+        }
+        _ => input.clone(),
+    };
+    Ok(mdbase::runtime::OperationRequest::new(kind, input))
+}
+
 pub(super) fn typed_result<Request, Output>(
     collection: &Collection,
     request: Result<Request, mdbase::api::MdbaseError>,
@@ -472,47 +585,6 @@ pub(super) fn parse_v02_query(
     serde_json::from_value(Value::Object(typed)).map_err(|error| MdbaseError::InvalidRequest {
         message: error.to_string(),
     })
-}
-
-pub(super) fn operation_invalidation(
-    operation: &str,
-    input: &Value,
-    output: &Value,
-) -> CollectionInvalidation {
-    if input.get("dry_run").and_then(Value::as_bool) == Some(true)
-        || !(operation == "batch" || is_mutating_operation(operation, input))
-        || output.get("valid").and_then(Value::as_bool) == Some(false)
-        || output.get("error").is_some()
-    {
-        return CollectionInvalidation::None;
-    }
-    if matches!(
-        operation,
-        "create_type"
-            | "update_type"
-            | "apply_type_pack"
-            | "apply_collection_setup"
-            | "create_view_source"
-            | "update_view_source"
-            | "delete_view_source"
-    ) {
-        return CollectionInvalidation::All;
-    }
-
-    let Ok(kind) = operation.parse::<mdbase::runtime::OperationKind>() else {
-        return CollectionInvalidation::All;
-    };
-    let Ok(result) = serde_json::from_value::<mdbase::v03::OperationResult>(output.clone()) else {
-        // Legacy profiles do not expose the portable operation envelope. The
-        // operation is still valid, but a full reload is the only safe hint.
-        return CollectionInvalidation::All;
-    };
-    let paths = mdbase::runtime::OperationRequest::new(kind, input.clone()).affected_paths(&result);
-    if paths.is_empty() {
-        CollectionInvalidation::All
-    } else {
-        CollectionInvalidation::Records(paths)
-    }
 }
 
 pub(super) fn supported_operations(profile: SpecProfile) -> &'static [&'static str] {

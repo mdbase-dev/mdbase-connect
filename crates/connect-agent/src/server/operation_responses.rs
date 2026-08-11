@@ -192,8 +192,15 @@ pub(super) fn serialized_encrypted_response(
 }
 
 pub(super) fn operation_problem(error: &ConnectError) -> ConnectProblem {
-    if matches!(error, ConnectError::OperationCancelled) {
-        return ConnectProblem::new(error.code(), error.to_string())
+    if matches!(
+        error,
+        ConnectError::OperationCancelled
+            | ConnectError::Provider(
+                mdbase::runtime::ProviderError::OperationCancelled
+                    | mdbase::runtime::ProviderError::OperationDeadline
+            )
+    ) {
+        return ConnectProblem::new("operation_cancelled", error.to_string())
             .with_operation_outcome(ConnectOperationOutcome::NotSent);
     }
     if let ConnectError::MutationRequestConflict { request_id } = error {

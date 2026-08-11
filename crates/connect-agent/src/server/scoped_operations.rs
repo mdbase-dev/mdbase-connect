@@ -15,10 +15,11 @@ impl AgentState {
             operation,
             input,
             cancellation,
-            |invalidation| {
+            || {
                 let synchronize_started = Instant::now();
-                self.watcher.synchronize(collection_id, invalidation);
+                let finalized = self.watcher.finalize(collection_id);
                 synchronize_us.set(elapsed_us(synchronize_started));
+                finalized
             },
         );
         profile_operation("control", operation, started, synchronize_us.get(), &result);
@@ -106,10 +107,11 @@ impl AgentState {
                 },
                 &grant.scope,
                 cancellation,
-                |invalidation| {
+                || {
                     let synchronize_started = Instant::now();
-                    self.watcher.synchronize(collection_id, invalidation);
+                    let finalized = self.watcher.finalize(collection_id);
                     synchronize_us.set(elapsed_us(synchronize_started));
+                    finalized
                 },
             );
             profile_operation(transport, operation, started, synchronize_us.get(), &result);
@@ -121,10 +123,11 @@ impl AgentState {
             input,
             &grant.scope,
             cancellation,
-            |invalidation| {
+            || {
                 let synchronize_started = Instant::now();
-                self.watcher.synchronize(collection_id, invalidation);
+                let finalized = self.watcher.finalize(collection_id);
                 synchronize_us.set(elapsed_us(synchronize_started));
+                finalized
             },
         );
         profile_operation(transport, operation, started, synchronize_us.get(), &result);

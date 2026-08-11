@@ -27,6 +27,62 @@ fn create_register_list_and_remove_collection() {
 }
 
 #[test]
+fn runtime_residency_is_bounded_and_evicted_collections_reopen_from_markdown() {
+    let state = tempdir().unwrap();
+    let collection_parent = tempdir().unwrap();
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let mut collections = Vec::new();
+
+    for index in 0..11 {
+        collections.push(
+            registry
+                .create(
+                    collection_parent.path().join(format!("collection-{index}")),
+                    Some(&format!("Collection {index}")),
+                    "UTC",
+                )
+                .unwrap(),
+        );
+    }
+
+    let bounded = registry.runtime_residency_diagnostics().unwrap();
+    assert_eq!(bounded.capacity, 8);
+    assert_eq!(bounded.resident, 8);
+    assert_eq!(bounded.active, 0);
+    assert_eq!(bounded.idle, 8);
+    let first = &collections[0];
+    assert!(!registry.executors.lock().unwrap().contains_key(&first.id));
+
+    fs::write(
+        Path::new(&first.path).join("external.md"),
+        "---\ntitle: Written while evicted\n---\nCanonical body\n",
+    )
+    .unwrap();
+    assert!(!registry
+        .ingest_runtime_external(
+            first.id,
+            std::time::Duration::ZERO,
+            &mdbase::OperationCancellation::new(),
+        )
+        .unwrap());
+    assert!(registry
+        .finalize_resident_runtime_changes(first.id, &mdbase::OperationCancellation::new())
+        .unwrap()
+        .is_empty());
+    assert!(!registry.executors.lock().unwrap().contains_key(&first.id));
+    let reopened = registry
+        .operation(first.id, "read", &json!({"path": "external.md"}))
+        .unwrap();
+    assert_eq!(reopened["valid"], true, "{reopened:#?}");
+    assert_eq!(reopened["result"]["path"], "external.md");
+    assert_eq!(registry.get(first.id).unwrap().id, first.id);
+
+    let after_reopen = registry.runtime_residency_diagnostics().unwrap();
+    assert_eq!(after_reopen.resident, 8);
+    assert_eq!(after_reopen.active, 0);
+}
+
+#[test]
 fn create_captures_a_validated_authority_timezone() {
     let state = tempdir().unwrap();
     let collection_parent = tempdir().unwrap();
@@ -142,6 +198,55 @@ fn copied_collection_can_be_registered_with_a_new_identity() {
     );
     assert_eq!(read_collection_id(&copy).unwrap(), Some(registered_copy.id));
     assert_eq!(registry.list().unwrap().len(), 2);
+}
+
+#[test]
+fn copied_collection_starts_with_fresh_runtime_support_and_preserves_markdown() {
+    let state = tempdir().unwrap();
+    let collection_parent = tempdir().unwrap();
+    let original = collection_parent.path().join("durable-original");
+    let copy = collection_parent.path().join("durable-copy");
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let created = registry
+        .create(&original, Some("Durable original"), "UTC")
+        .unwrap();
+    registry
+        .operation(
+            created.id,
+            "create",
+            &json!({
+                "path": "copied.md",
+                "frontmatter": {"title": "Copied"},
+                "body": "canonical body"
+            }),
+        )
+        .unwrap();
+    assert!(original.join(".mdbase/runtime/change-feed.json").is_file());
+    copy_tree(&original, &copy);
+
+    let registered_copy = registry.add_copy(&copy).unwrap();
+    assert_ne!(registered_copy.id, created.id);
+    let read = registry
+        .operation(registered_copy.id, "read", &json!({"path": "copied.md"}))
+        .unwrap();
+    assert_eq!(read["result"]["frontmatter"]["title"], "Copied");
+    assert_eq!(read["result"]["body"], "canonical body\n");
+    assert!(registry
+        .changes(registered_copy.id, &json!({"after": 0}))
+        .unwrap()
+        .events
+        .is_empty());
+
+    let mutation = registry
+        .operation(
+            registered_copy.id,
+            "create",
+            &json!({"path": "new.md", "frontmatter": {"title": "New identity"}}),
+        )
+        .unwrap();
+    assert_eq!(mutation["valid"], true);
+    assert!(copy.join("new.md").is_file());
+    assert!(!original.join("new.md").exists());
 }
 
 #[test]

@@ -1,12 +1,12 @@
-use mdbase::watch::CollectionWatcher;
-use mdbase_connect_core::{CollectionInvalidation, CollectionRegistry};
+use mdbase_connect_core::{CollectionRegistry, ConnectError};
 use mdbase_connect_protocol::CollectionSummary;
-use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::collections::BTreeSet;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 use uuid::Uuid;
+
+const EXTERNAL_POLL: Duration = Duration::from_millis(50);
 
 #[derive(Debug, Clone)]
 pub struct CollectionRuntimeEvent {
@@ -15,25 +15,20 @@ pub struct CollectionRuntimeEvent {
     pub event: mdbase::watch::WatchEvent,
 }
 
+/// Finalizes the durable mdbase change feed into Connect notifications.
+///
+/// This is deliberately not a collection watcher. Each `FilesystemRuntime`
+/// owns its watcher; this service has one process-wide worker that polls those
+/// runtimes and persists their already-normalized, ordered feed events.
 #[derive(Clone)]
 pub struct CollectionWatchService {
-    commands: mpsc::Sender<WatchCommand>,
+    commands: mpsc::Sender<Command>,
 }
 
-enum WatchCommand {
+enum Command {
     Refresh(Vec<CollectionSummary>, mpsc::SyncSender<()>),
-    Synchronize(Uuid, CollectionInvalidation, mpsc::SyncSender<()>),
-}
-
-struct WatchWorker {
-    stop: mpsc::Sender<()>,
-    synchronize: mpsc::Sender<SynchronizeRequest>,
-    worker: thread::JoinHandle<()>,
-}
-
-enum SynchronizeRequest {
-    All(mpsc::SyncSender<()>),
-    Paths(Vec<PathBuf>, mpsc::SyncSender<()>),
+    Finalize(Uuid, mpsc::SyncSender<Result<(), ConnectError>>),
+    Reconcile(Uuid, mpsc::SyncSender<()>),
 }
 
 impl CollectionWatchService {
@@ -48,253 +43,195 @@ impl CollectionWatchService {
     ) -> Self {
         let (commands, receiver) = mpsc::channel();
         thread::Builder::new()
-            .name("mdbase-connect-watch-supervisor".to_string())
-            .spawn(move || watch_supervisor(registry, receiver, runtime_events))
-            .expect("failed to start collection watcher supervisor");
+            .name("mdbase-connect-runtime-finalizer".to_string())
+            .spawn(move || run_finalizer(registry, receiver, runtime_events))
+            .expect("failed to start collection runtime finalizer");
         Self { commands }
     }
 
     pub fn refresh(&self, collections: &[CollectionSummary]) {
         let (ready, receiver) = mpsc::sync_channel(0);
-        let command = WatchCommand::Refresh(
-            collections
-                .iter()
-                .filter(|collection| collection.enabled)
-                .cloned()
-                .collect(),
-            ready,
-        );
-        if let Err(error) = self.commands.send(command) {
-            tracing::warn!(%error, "collection watcher is unavailable");
+        let active = collections
+            .iter()
+            .filter(|collection| collection.enabled)
+            .cloned()
+            .collect();
+        if self.commands.send(Command::Refresh(active, ready)).is_err() {
+            tracing::warn!("collection runtime finalizer is unavailable");
             return;
         }
-        if let Err(error) = receiver.recv() {
-            tracing::warn!(%error, "collection watcher did not acknowledge readiness");
+        if receiver.recv().is_err() {
+            tracing::warn!("collection runtime finalizer did not acknowledge readiness");
         }
     }
 
+    /// Persist known mutation events already committed by the runtime.
+    pub fn finalize(&self, collection_id: Uuid) -> Result<(), ConnectError> {
+        self.request(collection_id, false)
+    }
+
+    /// Explicit lifecycle reconciliation for control/file paths outside normal
+    /// canonical operation execution.
     pub fn rescan(&self, collection_id: Uuid) {
-        self.synchronize(collection_id, &CollectionInvalidation::All);
+        if let Err(error) = self.request(collection_id, true) {
+            tracing::warn!(collection_id = %collection_id, code = error.code(), %error, "runtime reconciliation request failed");
+        }
     }
 
-    pub fn synchronize(&self, collection_id: Uuid, invalidation: &CollectionInvalidation) {
-        if matches!(invalidation, CollectionInvalidation::None) {
-            return;
+    fn request(&self, collection_id: Uuid, reconcile: bool) -> Result<(), ConnectError> {
+        if reconcile {
+            let (ready, receiver) = mpsc::sync_channel(0);
+            self.commands
+                .send(Command::Reconcile(collection_id, ready))
+                .map_err(|_| {
+                    ConnectError::CollectionOpen(
+                        "collection runtime finalizer is unavailable".to_string(),
+                    )
+                })?;
+            receiver.recv().map_err(|_| {
+                ConnectError::CollectionOpen(
+                    "collection runtime finalizer did not complete reconciliation".to_string(),
+                )
+            })?;
+            return Ok(());
         }
         let (ready, receiver) = mpsc::sync_channel(0);
-        if let Err(error) = self.commands.send(WatchCommand::Synchronize(
-            collection_id,
-            invalidation.clone(),
-            ready,
-        )) {
-            tracing::warn!(%error, "collection watcher is unavailable");
-            return;
-        }
-        if let Err(error) = receiver.recv() {
-            tracing::warn!(%error, "collection watcher did not complete the requested rescan");
-        }
+        self.commands
+            .send(Command::Finalize(collection_id, ready))
+            .map_err(|_| {
+                ConnectError::CollectionOpen(
+                    "collection runtime finalizer is unavailable".to_string(),
+                )
+            })?;
+        receiver.recv().map_err(|_| {
+            ConnectError::CollectionOpen(
+                "collection runtime finalizer did not complete the request".to_string(),
+            )
+        })?
     }
 }
 
-fn watch_supervisor(
+fn run_finalizer(
     registry: CollectionRegistry,
-    commands: mpsc::Receiver<WatchCommand>,
+    commands: mpsc::Receiver<Command>,
     runtime_events: Option<tokio::sync::mpsc::UnboundedSender<CollectionRuntimeEvent>>,
 ) {
-    let mut workers: HashMap<Uuid, WatchWorker> = HashMap::new();
-    while let Ok(command) = commands.recv() {
-        match command {
-            WatchCommand::Refresh(collections, ready) => {
-                refresh_workers(&registry, &mut workers, collections, runtime_events.clone());
-                let _ = ready.send(());
-            }
-            WatchCommand::Synchronize(collection_id, invalidation, ready) => {
-                if let Some(worker) = workers.get(&collection_id) {
-                    let request = match invalidation {
-                        CollectionInvalidation::None => {
-                            let _ = ready.send(());
-                            continue;
-                        }
-                        CollectionInvalidation::All => SynchronizeRequest::All(ready),
-                        CollectionInvalidation::Records(paths) => SynchronizeRequest::Paths(
-                            paths.into_iter().map(PathBuf::from).collect(),
-                            ready,
-                        ),
-                    };
-                    if let Err(error) = worker.synchronize.send(request) {
-                        match error.0 {
-                            SynchronizeRequest::All(ready)
-                            | SynchronizeRequest::Paths(_, ready) => {
-                                let _ = ready.send(());
-                            }
-                        }
-                    } else {
-                        worker.worker.thread().unpark();
-                    }
-                } else {
-                    let _ = ready.send(());
-                }
+    let mut active = BTreeSet::new();
+    loop {
+        match commands.recv_timeout(EXTERNAL_POLL) {
+            Ok(command) => handle_command(&registry, &mut active, command, runtime_events.as_ref()),
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => return,
+        }
+        while let Ok(command) = commands.try_recv() {
+            handle_command(&registry, &mut active, command, runtime_events.as_ref());
+        }
+        for collection_id in active.iter().copied().collect::<Vec<_>>() {
+            let cancellation = mdbase::OperationCancellation::new();
+            match registry.ingest_runtime_external(collection_id, Duration::ZERO, &cancellation) {
+                Ok(true) => log_finalize(&registry, collection_id, runtime_events.as_ref()),
+                Ok(false) => {}
+                Err(error) => tracing::warn!(
+                    collection_id = %collection_id,
+                    code = error.code(),
+                    %error,
+                    "runtime external-change ingestion failed"
+                ),
             }
         }
     }
-    for (_, worker) in workers {
-        stop_worker(worker);
-    }
 }
 
-fn refresh_workers(
+fn handle_command(
     registry: &CollectionRegistry,
-    workers: &mut HashMap<Uuid, WatchWorker>,
-    collections: Vec<CollectionSummary>,
-    runtime_events: Option<tokio::sync::mpsc::UnboundedSender<CollectionRuntimeEvent>>,
-) {
-    let requested = collections
-        .iter()
-        .map(|collection| collection.id)
-        .collect::<HashSet<_>>();
-    for removed in workers
-        .keys()
-        .filter(|id| !requested.contains(id))
-        .copied()
-        .collect::<Vec<_>>()
-    {
-        if let Some(worker) = workers.remove(&removed) {
-            stop_worker(worker);
-        }
-    }
-    for collection in collections {
-        if let std::collections::hash_map::Entry::Vacant(entry) = workers.entry(collection.id) {
-            if let Some(worker) = start_worker(
-                registry.clone(),
-                collection.id,
-                PathBuf::from(collection.path),
-                runtime_events.clone(),
-            ) {
-                entry.insert(worker);
-            }
-        }
-    }
-}
-
-fn start_worker(
-    registry: CollectionRegistry,
-    collection_id: Uuid,
-    root: PathBuf,
-    runtime_events: Option<tokio::sync::mpsc::UnboundedSender<CollectionRuntimeEvent>>,
-) -> Option<WatchWorker> {
-    let watcher = match CollectionWatcher::open(&root, Duration::from_millis(120)) {
-        Ok(watcher) => watcher,
-        Err(error) => {
-            tracing::error!(collection_id = %collection_id, path = %root.display(), %error, "failed to watch collection");
-            return None;
-        }
-    };
-    let (stop, stop_rx) = mpsc::channel();
-    let (synchronize, synchronize_rx) = mpsc::channel::<SynchronizeRequest>();
-    let worker = thread::Builder::new()
-        .name(format!("mdbase-connect-watch-{collection_id}"))
-        .spawn(move || {
-            loop {
-                if stop_rx.try_recv().is_ok() {
-                    return;
-                }
-                while let Ok(request) = synchronize_rx.try_recv() {
-                    let (result, ready) = match request {
-                        SynchronizeRequest::All(ready) => (watcher.rescan(), ready),
-                        SynchronizeRequest::Paths(paths, ready) => {
-                            (watcher.rescan_paths(paths), ready)
-                        }
-                    };
-                    if let Err(error) = result {
-                        tracing::warn!(collection_id = %collection_id, %error, "collection rescan failed");
-                    }
-                    let mut events = Vec::new();
-                    while let Ok(Some(event)) = watcher.recv_timeout(Duration::ZERO) {
-                        events.push(event);
-                    }
-                    persist_events(&registry, collection_id, &events, runtime_events.as_ref());
-                    let _ = ready.send(());
-                }
-                let mut events = Vec::new();
-                loop {
-                    match watcher.recv_timeout(Duration::ZERO) {
-                        Ok(Some(event)) => events.push(event),
-                        Ok(None) => break,
-                        Err(error) => {
-                            persist_events(
-                                &registry,
-                                collection_id,
-                                &events,
-                                runtime_events.as_ref(),
-                            );
-                            tracing::warn!(collection_id = %collection_id, %error, "collection watcher stopped");
-                            return;
-                        }
-                    }
-                }
-                persist_events(&registry, collection_id, &events, runtime_events.as_ref());
-                // External filesystem events may wait up to this interval;
-                // explicit mutation synchronization unparks the worker and is
-                // processed immediately without a polling tax.
-                thread::park_timeout(Duration::from_millis(100));
-            }
-        })
-        .expect("failed to start collection watcher thread");
-    Some(WatchWorker {
-        stop,
-        synchronize,
-        worker,
-    })
-}
-
-fn persist_events(
-    registry: &CollectionRegistry,
-    collection_id: Uuid,
-    events: &[mdbase::watch::WatchEvent],
+    active: &mut BTreeSet<Uuid>,
+    command: Command,
     runtime_events: Option<&tokio::sync::mpsc::UnboundedSender<CollectionRuntimeEvent>>,
 ) {
-    if events.is_empty() {
-        return;
+    match command {
+        Command::Refresh(collections, ready) => {
+            *active = collections
+                .into_iter()
+                .map(|collection| collection.id)
+                .collect();
+            for collection_id in active.iter().copied() {
+                log_finalize_resident(registry, collection_id, runtime_events);
+            }
+            let _ = ready.send(());
+        }
+        Command::Finalize(collection_id, ready) => {
+            let _ = ready.send(finalize(registry, collection_id, runtime_events));
+        }
+        Command::Reconcile(collection_id, ready) => {
+            let cancellation = mdbase::OperationCancellation::new();
+            let reconciled = registry
+                .synchronize_runtime(collection_id, &cancellation)
+                .and_then(|()| finalize(registry, collection_id, runtime_events));
+            if let Err(error) = reconciled {
+                tracing::warn!(collection_id = %collection_id, code = error.code(), %error, "runtime reconciliation failed");
+            }
+            let _ = ready.send(());
+        }
     }
-    match registry.get(collection_id) {
-        Ok(collection) if collection.enabled => {}
-        Ok(_) => {
-            tracing::debug!(
-                collection_id = %collection_id,
-                "ignored a filesystem event for an unavailable collection"
-            );
-            return;
-        }
-        Err(error) => {
-            tracing::warn!(
-                collection_id = %collection_id,
-                %error,
-                "ignored a filesystem event because collection authority could not be confirmed"
-            );
-            return;
+}
+
+fn finalize(
+    registry: &CollectionRegistry,
+    collection_id: Uuid,
+    runtime_events: Option<&tokio::sync::mpsc::UnboundedSender<CollectionRuntimeEvent>>,
+) -> Result<(), ConnectError> {
+    let cancellation = mdbase::OperationCancellation::new();
+    let events = registry.finalize_runtime_changes(collection_id, &cancellation)?;
+    if let Some(runtime_events) = runtime_events {
+        for (event, cursor) in events {
+            let _ = runtime_events.send(CollectionRuntimeEvent {
+                collection_id,
+                cursor,
+                event,
+            });
         }
     }
-    match registry.append_changes(collection_id, events) {
-        Err(error) => {
-            tracing::warn!(collection_id = %collection_id, event_count = events.len(), %error, "failed to persist collection changes");
-        }
-        Ok(cursors) => {
+    Ok(())
+}
+
+fn log_finalize(
+    registry: &CollectionRegistry,
+    collection_id: Uuid,
+    runtime_events: Option<&tokio::sync::mpsc::UnboundedSender<CollectionRuntimeEvent>>,
+) {
+    if let Err(error) = finalize(registry, collection_id, runtime_events) {
+        tracing::warn!(
+            collection_id = %collection_id,
+            code = error.code(),
+            %error,
+            "runtime change finalization failed"
+        );
+    }
+}
+
+fn log_finalize_resident(
+    registry: &CollectionRegistry,
+    collection_id: Uuid,
+    runtime_events: Option<&tokio::sync::mpsc::UnboundedSender<CollectionRuntimeEvent>>,
+) {
+    let cancellation = mdbase::OperationCancellation::new();
+    match registry.finalize_resident_runtime_changes(collection_id, &cancellation) {
+        Ok(events) => {
             if let Some(runtime_events) = runtime_events {
-                for (event, cursor) in events.iter().zip(cursors.iter().copied()) {
+                for (event, cursor) in events {
                     let _ = runtime_events.send(CollectionRuntimeEvent {
                         collection_id,
                         cursor,
-                        event: event.clone(),
+                        event,
                     });
                 }
             }
-            tracing::debug!(collection_id = %collection_id, event_count = events.len(), first_cursor = cursors.first(), last_cursor = cursors.last(), "collection changes recorded");
         }
+        Err(error) => tracing::warn!(
+            collection_id = %collection_id,
+            code = error.code(),
+            %error,
+            "resident runtime change finalization failed"
+        ),
     }
-}
-
-fn stop_worker(worker: WatchWorker) {
-    let _ = worker.stop.send(());
-    worker.worker.thread().unpark();
-    let _ = worker.worker.join();
 }

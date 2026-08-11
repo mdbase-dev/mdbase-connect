@@ -1,5 +1,5 @@
 use directories::ProjectDirs;
-use mdbase::runtime::FilesystemProvider;
+use mdbase::runtime::{FilesystemProvider, FilesystemRuntime};
 use mdbase::{Collection, SpecProfile};
 use mdbase_connect_protocol::is_mutating_operation;
 use mdbase_connect_protocol::{
@@ -11,7 +11,7 @@ use mdbase_connect_protocol::{
     GrantSummary, SyncCollectionResources, SyncMutation, SyncMutationReceipt, SyncResourceDocument,
     TypePackProvision, CONTROL_PROTOCOL_VERSION,
 };
-use mdbase_connect_runtime::contract_scope::{ContractScope, ContractScopeError};
+use mdbase_connect_runtime::contract_scope::{ContractScope, ContractScopeError, ContractSelector};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -30,6 +30,17 @@ pub struct ApplicationSetupResult {
     pub contracts: Vec<CollectionContractDescriptor>,
     pub assessment: Value,
     pub receipt: Value,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RuntimeResidencyDiagnostics {
+    pub capacity: usize,
+    pub resident: usize,
+    pub active: usize,
+    pub idle: usize,
+    pub loaded_type_definitions: usize,
+    pub active_read_snapshots: usize,
+    pub retained_read_snapshot_bytes: usize,
 }
 
 const CONNECT_EXTENSION: &str = "x-mdbase-connect";
@@ -54,6 +65,10 @@ mod operation_execution;
 mod operation_setup;
 mod operations;
 mod receipts;
+mod runtime_changes;
+mod runtime_executor;
+mod runtime_operations;
+mod runtime_residency;
 mod scope;
 
 use authority_store::{AuthorityStore, AuthorityWritePriority};
@@ -72,10 +87,15 @@ pub use mutation_journal::{
     MutationLease, MutationRecoveryData,
 };
 use operation_execution::{
-    error_message, execute_loaded_cancellable, has_contract, operation_invalidation,
+    error_message, execute_loaded_cancellable, has_contract, runtime_operation_request,
     supported_operations,
 };
 pub use receipts::AuthorityReceiptDiagnostics;
+use runtime_executor::CollectionExecutor;
+use runtime_operations::{
+    execute_runtime_read, execute_runtime_request, operation_context, require_runtime,
+    scope_binding,
+};
 use scope::{
     change_is_in_scope, contract_scope_error, ensure_no_new_out_of_scope_types,
     ensure_result_in_scope, ensure_types_in_scope, required_string, required_uuid, result_types,
@@ -249,7 +269,7 @@ impl ConnectError {
             Self::File { code, .. } => code.as_str(),
             Self::InvalidTimer(_) => "invalid_timer_request",
             Self::TimerRuntime(_) => "timer_runtime_failed",
-            Self::Provider(_) => "collection_provider_failed",
+            Self::Provider(error) => error.code(),
         }
     }
 
@@ -370,7 +390,7 @@ pub struct CollectionRegistry {
     db_path: PathBuf,
     authority: Arc<AuthorityStore>,
     process_epoch: Uuid,
-    providers: Arc<Mutex<HashMap<Uuid, Arc<FilesystemProvider>>>>,
+    executors: Arc<Mutex<HashMap<Uuid, Arc<CollectionExecutor>>>>,
     file_reconciles: Arc<Mutex<HashMap<Uuid, Arc<Mutex<()>>>>>,
     file_warmups: Arc<Mutex<HashMap<Uuid, FileWarmupState>>>,
     ephemeral_responses: Arc<Mutex<encrypted_requests::EphemeralResponseCache>>,
@@ -388,16 +408,6 @@ pub struct GrantReplayContext {
     pub revoked: bool,
     pub application_installation_id: Uuid,
     pub grant_snapshot_digest: String,
-}
-
-/// Filesystem state that must be synchronized after a successful operation.
-/// Record paths come from mdbase's canonical operation envelope; collection
-/// metadata and type mutations intentionally request a full watcher reload.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CollectionInvalidation {
-    None,
-    Records(BTreeSet<String>),
-    All,
 }
 
 fn parse_registry_uuid(value: &str) -> Result<Uuid, ConnectError> {

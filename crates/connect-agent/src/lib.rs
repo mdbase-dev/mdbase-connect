@@ -179,8 +179,29 @@ pub async fn run(options: DaemonOptions) -> Result<(), Box<dyn std::error::Error
     let result = server::serve(&endpoint, state, move || {
         let worker = tokio::spawn(async move {
             match registry.list() {
-                Ok(collections) => watcher.refresh(&collections),
-                Err(error) => tracing::error!(%error, "failed to initialize collection watchers"),
+                Ok(collections) => {
+                    watcher.refresh(&collections);
+                    match registry.runtime_residency_diagnostics() {
+                        Ok(residency) => tracing::info!(
+                            target: "mdbase_connect::metrics",
+                            metric = "runtime_residency_snapshot",
+                            capacity = residency.capacity,
+                            resident = residency.resident,
+                            active = residency.active,
+                            idle = residency.idle,
+                            loaded_type_definitions = residency.loaded_type_definitions,
+                            active_read_snapshots = residency.active_read_snapshots,
+                            retained_read_snapshot_bytes = residency.retained_read_snapshot_bytes,
+                            "privacy-safe connector metric"
+                        ),
+                        Err(error) => tracing::warn!(
+                            code = error.code(),
+                            %error,
+                            "runtime residency diagnostics unavailable"
+                        ),
+                    }
+                }
+                Err(error) => tracing::error!(%error, "failed to initialize collection runtimes"),
             }
             initialization_state.mark_initialized();
             if let Some((server_url, connector_token)) = relay {

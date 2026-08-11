@@ -58,6 +58,7 @@ implements:
 "#,
     )
     .unwrap();
+    synchronize_external_fixture(&registry, collection.id);
 
     let description = registry.describe(collection.id).unwrap();
     assert_eq!(description.protocol_version, 1);
@@ -142,6 +143,7 @@ schema:
 "#,
     )
     .unwrap();
+    synchronize_external_fixture(&registry, collection.id);
     for (path, type_name, field, value) in [
         ("tasks/one.md", "task", "title", "Visible"),
         ("private/one.md", "private", "secret", "Hidden"),
@@ -361,6 +363,7 @@ schema:
         Err(ConnectError::AccessDenied(_))
     ));
 
+    let change_cursor = registry.changes(collection.id, &json!({})).unwrap().cursor;
     for (path, type_name) in [
         ("tasks/changed.md", "task"),
         ("private/changed.md", "private"),
@@ -393,7 +396,12 @@ schema:
         )
         .unwrap();
     let changes = registry
-        .scoped_operation(collection.id, "changes", &json!({ "after": 0 }), &scope)
+        .scoped_operation(
+            collection.id,
+            "changes",
+            &json!({ "after": change_cursor }),
+            &scope,
+        )
         .unwrap();
     assert_eq!(changes["events"].as_array().unwrap().len(), 2);
     assert_eq!(changes["events"][0]["payload"]["path"], "tasks/changed.md");
@@ -436,6 +444,7 @@ implements:
         )
         .unwrap();
     }
+    synchronize_external_fixture(&registry, collection.id);
     for (path, type_name, field) in [
         ("tasks/one.md", "task", "title"),
         ("actions/one.md", "action", "summary"),
@@ -557,6 +566,7 @@ implements:
 "#,
     )
     .unwrap();
+    synchronize_external_fixture(&registry, collection.id);
 
     assert!(matches!(
         registry.scoped_operation(collection.id, "query", &json!({}), &scope),

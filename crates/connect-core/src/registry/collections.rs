@@ -79,9 +79,8 @@ impl CollectionRegistry {
             return Err(ConnectError::NotACollection(path.display().to_string()));
         }
 
-        let provider = Arc::new(FilesystemProvider::open(&path)?);
-
         let id = ensure_collection_id(&path)?;
+        let executor = self.open_executor(id, &path)?;
         let metadata = read_collection_metadata(&path)?;
         let path_string = path.to_string_lossy().to_string();
         let display_name = collection_display_name(&metadata, &path);
@@ -123,10 +122,7 @@ impl CollectionRegistry {
         )?;
         self.set_collection_access_overlay(id, true)?;
 
-        self.providers
-            .lock()
-            .map_err(|_| ConnectError::CollectionOpen("provider registry lock poisoned".into()))?
-            .insert(id, provider);
+        self.cache_executor(id, executor)?;
 
         self.get(id)
     }
@@ -143,7 +139,7 @@ impl CollectionRegistry {
         if !path.join("mdbase.yaml").is_file() {
             return Err(ConnectError::NotACollection(path.display().to_string()));
         }
-        FilesystemProvider::open(&path)?;
+        let provider = FilesystemProvider::open(&path)?;
 
         let copied_id = read_collection_id(&path)?.ok_or_else(|| {
             ConnectError::NotARegisteredCollectionCopy(
@@ -177,8 +173,22 @@ impl CollectionRegistry {
             ));
         }
 
-        write_collection_id(&path, Uuid::new_v4())?;
-        self.add(path)
+        let context = mdbase::runtime::OperationContext::new(
+            &mdbase::OperationCancellation::new(),
+            mdbase::runtime::OperationDeadline::after(std::time::Duration::from_secs(30)),
+        );
+        provider.reset_runtime_support_for_fork(&context)?;
+
+        let independent_id = Uuid::new_v4();
+        write_collection_id(&path, independent_id)?;
+        match self.add(&path) {
+            Ok(registered) => Ok(registered),
+            Err(error) => {
+                let _ = write_collection_id(&path, copied_id);
+                let _ = self.delete_runtime_feed_owner(independent_id);
+                Err(error)
+            }
+        }
     }
 
     pub fn make_independent(&self, id: Uuid) -> Result<CollectionSummary, ConnectError> {
@@ -209,14 +219,15 @@ impl CollectionRegistry {
             let _ = write_collection_id(&path, id);
             return Err(error);
         }
-        let mut providers = self
-            .providers
+        let mut executors = self
+            .executors
             .lock()
-            .map_err(|_| ConnectError::CollectionOpen("provider registry lock poisoned".into()))?;
-        if let Some(provider) = providers.remove(&id) {
-            providers.insert(new_id, provider);
+            .map_err(|_| ConnectError::CollectionOpen("executor registry lock poisoned".into()))?;
+        if let Some(executor) = executors.remove(&id) {
+            executors.insert(new_id, executor);
         }
-        drop(providers);
+        drop(executors);
+        self.move_runtime_feed_owner(id, new_id)?;
         self.get(new_id)
     }
 
@@ -312,9 +323,9 @@ impl CollectionRegistry {
 
         let mut updated = registered;
         self.refresh_summary_metadata(&mut updated)?;
-        self.providers
+        self.executors
             .lock()
-            .map_err(|_| ConnectError::CollectionOpen("provider registry lock poisoned".into()))?
+            .map_err(|_| ConnectError::CollectionOpen("executor registry lock poisoned".into()))?
             .remove(&id);
         Ok(updated)
     }
@@ -377,9 +388,9 @@ impl CollectionRegistry {
         self.set_collection_access_overlay(id, false)?;
         self.connection()?
             .execute("DELETE FROM collections WHERE id = ?1", [id.to_string()])?;
-        self.providers
+        self.executors
             .lock()
-            .map_err(|_| ConnectError::CollectionOpen("provider registry lock poisoned".into()))?
+            .map_err(|_| ConnectError::CollectionOpen("executor registry lock poisoned".into()))?
             .remove(&id);
         Ok(collection)
     }

@@ -13,6 +13,7 @@ impl AgentState {
         application_installation_id: uuid::Uuid,
         grant_snapshot_digest: String,
         revoked: bool,
+        cancellation: &mdbase::OperationCancellation,
         execution_state: &OperationExecutionState,
     ) -> RelayMessage {
         let Some(input_schema_version) = operation_input_schema_version(operation, input) else {
@@ -102,6 +103,7 @@ impl AgentState {
                         lease,
                         *recovery,
                         revoked,
+                        cancellation,
                     );
                 }
                 MutationClaim::Live { .. } => {

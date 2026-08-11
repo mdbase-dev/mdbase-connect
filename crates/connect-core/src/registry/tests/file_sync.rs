@@ -13,7 +13,7 @@ fn sync(
             &input,
             replica.clone(),
             &GrantScope::full_collection(),
-            |_| {},
+            || Ok(()),
         )
         .unwrap()
 }
@@ -41,7 +41,7 @@ fn cancelled_sync_reads_stop_before_snapshot_work() {
             replica,
             &GrantScope::full_collection(),
             &cancellation,
-            |_| {},
+            || Ok(()),
         ),
         Err(ConnectError::OperationCancelled)
     ));

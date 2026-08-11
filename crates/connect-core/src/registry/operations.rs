@@ -3,6 +3,7 @@ use super::operation_setup::{
 };
 use super::*;
 use std::collections::BTreeMap;
+
 impl CollectionRegistry {
     pub fn validate(&self, id: Uuid) -> Result<Value, ConnectError> {
         self.operation(id, "validate", &json!({}))
@@ -14,7 +15,7 @@ impl CollectionRegistry {
         operation: &str,
         input: &Value,
     ) -> Result<Value, ConnectError> {
-        self.operation_synchronized(id, operation, input, |_| {})
+        self.operation_synchronized(id, operation, input, || Ok(()))
     }
 
     pub fn operation_synchronized(
@@ -22,7 +23,7 @@ impl CollectionRegistry {
         id: Uuid,
         operation: &str,
         input: &Value,
-        synchronize: impl FnOnce(&CollectionInvalidation),
+        synchronize: impl FnOnce() -> Result<(), ConnectError>,
     ) -> Result<Value, ConnectError> {
         self.operation_synchronized_cancellable(
             id,
@@ -39,39 +40,67 @@ impl CollectionRegistry {
         operation: &str,
         input: &Value,
         cancellation: &mdbase::OperationCancellation,
-        synchronize: impl FnOnce(&CollectionInvalidation),
+        synchronize: impl FnOnce() -> Result<(), ConnectError>,
     ) -> Result<Value, ConnectError> {
+        cancellation
+            .check()
+            .map_err(|_| ConnectError::OperationCancelled)?;
         let registered = self.get(id)?;
         assert_local_authority_folder(Path::new(&registered.path))?;
         if operation == "changes" {
             return serde_json::to_value(self.changes(id, input)?).map_err(ConnectError::from);
         }
-        let provider = self.provider_for(&registered)?;
         let sync_store = crate::LocalSyncStore::for_registry(self);
-        let execute = |collection: &Collection| {
-            sync_store.assert_authority_available(id)?;
-            if operation == "describe" {
-                return serde_json::to_value(self.describe_loaded(&registered, collection)?)
-                    .map_err(ConnectError::from);
-            }
-            execute_loaded_cancellable(
-                collection,
-                &registered.spec_version,
-                operation,
-                input,
-                cancellation,
-            )
-        };
-        let result = if operation == "batch" || is_mutating_operation(operation, input) {
-            provider.with_collection(|collection| {
+        sync_store.assert_authority_available(id)?;
+        let executor = self.executor_for(&registered)?;
+        let context = operation_context(cancellation);
+        let result = if registered.spec_version.starts_with("0.3") && operation != "describe" {
+            let request = runtime_operation_request(operation, input)?;
+            if request.operation.is_mutation() {
                 sync_store.assert_mutation_allowed(id)?;
-                let result = execute(collection)?;
-                let invalidation = operation_invalidation(operation, input, &result);
-                synchronize(&invalidation);
-                Ok(result)
-            })
+                let result = executor.with_mutation(&context, |runtime| {
+                    execute_runtime_request(require_runtime(runtime)?, &request, None, &context)
+                })?;
+                synchronize()?;
+                Ok(serde_json::to_value(result.result)?)
+            } else {
+                let execution = execute_runtime_read(
+                    &executor,
+                    &request,
+                    input,
+                    &scope_binding(&GrantScope::full_collection())?,
+                    &context,
+                )?;
+                serde_json::to_value(execution.result).map_err(ConnectError::from)
+            }
         } else {
-            provider.with_collection_read(execute)
+            let provider = executor.provider();
+            let execute = |collection: &Collection| {
+                if operation == "describe" {
+                    return serde_json::to_value(self.describe_loaded(&registered, collection)?)
+                        .map_err(ConnectError::from);
+                }
+                execute_loaded_cancellable(
+                    collection,
+                    &registered.spec_version,
+                    operation,
+                    input,
+                    cancellation,
+                )
+            };
+            if operation == "batch" || is_mutating_operation(operation, input) {
+                let result = executor.with_mutation(&context, |_| {
+                    provider.with_collection::<_, ConnectError>(|collection| {
+                        sync_store.assert_mutation_allowed(id)?;
+                        execute(collection)
+                    })
+                })?;
+                executor.synchronize(&context)?;
+                synchronize()?;
+                Ok(result)
+            } else {
+                executor.with_foreground(&context, |_| provider.with_collection_read(execute))
+            }
         };
         result.map_err(|error| classify_collection_error(&registered, error))
     }
@@ -256,8 +285,9 @@ impl CollectionRegistry {
             },
         };
         let registered = self.get(id)?;
-        let provider = self.provider_for(&registered)?;
-        let applied = provider.with_collection(|collection| {
+        let executor = self.executor_for(&registered)?;
+        let provider = executor.provider();
+        let (setup, options) = provider.with_collection_read(|collection| {
             let mut assessment = collection.assess_collection_setup(&setup);
             if assessment.result["applicable"].as_bool() != Some(true)
                 && add_reviewable_setup_adoptions(&mut setup, &assessment)
@@ -273,15 +303,25 @@ impl CollectionRegistry {
                 required_setup_string(&assessment.result, "collection_revision")?;
             let expected_provision_digest =
                 required_setup_string(&assessment.result, "provision_digest")?;
-            let result = collection.apply_collection_setup(
-                &setup,
-                &mdbase::v03::CollectionSetupApplyOptions {
+            Ok::<_, ConnectError>((
+                setup,
+                mdbase::v03::CollectionSetupApplyOptions {
                     expected_assessment_digest,
                     expected_collection_revision,
                     expected_provision_digest,
                     allow_type_pack_downgrades: BTreeSet::new(),
                 },
-            );
+            ))
+        })?;
+        let request = mdbase::runtime::OperationRequest::new(
+            mdbase::runtime::OperationKind::ApplyCollectionSetup,
+            json!({"setup": setup, "options": options}),
+        );
+        let context = operation_context(&mdbase::OperationCancellation::new());
+        let applied = executor.with_mutation(&context, |runtime| {
+            let result =
+                execute_runtime_request(require_runtime(runtime)?, &request, None, &context)?
+                    .result;
             if !result.valid {
                 return Err(type_pack_setup_error(&result));
             }
@@ -355,7 +395,7 @@ impl CollectionRegistry {
         input: &Value,
         scope: &GrantScope,
     ) -> Result<Value, ConnectError> {
-        self.scoped_operation_synchronized(id, operation, input, scope, |_| {})
+        self.scoped_operation_synchronized(id, operation, input, scope, || Ok(()))
     }
 
     pub fn scoped_operation_synchronized(
@@ -364,7 +404,7 @@ impl CollectionRegistry {
         operation: &str,
         input: &Value,
         scope: &GrantScope,
-        synchronize: impl FnOnce(&CollectionInvalidation),
+        synchronize: impl FnOnce() -> Result<(), ConnectError>,
     ) -> Result<Value, ConnectError> {
         self.scoped_operation_synchronized_cancellable(
             id,
@@ -383,16 +423,37 @@ impl CollectionRegistry {
         input: &Value,
         scope: &GrantScope,
         cancellation: &mdbase::OperationCancellation,
-        synchronize: impl FnOnce(&CollectionInvalidation),
+        synchronize: impl FnOnce() -> Result<(), ConnectError>,
     ) -> Result<Value, ConnectError> {
+        cancellation
+            .check()
+            .map_err(|_| ConnectError::OperationCancelled)?;
         let registered = self.get(id)?;
         if !registered.enabled {
             return Err(ConnectError::AccessDenied(
                 "This collection is disabled on its computer.".to_string(),
             ));
         }
-        let provider = self.provider_for(&registered)?;
         let sync_store = crate::LocalSyncStore::for_registry(self);
+        sync_store.assert_authority_available(id)?;
+        let executor = self.executor_for(&registered)?;
+        let context = operation_context(cancellation);
+        if registered.spec_version.starts_with("0.3") {
+            let result = self.scoped_runtime_operation(
+                &registered,
+                &executor,
+                operation,
+                input,
+                scope,
+                cancellation,
+                None,
+            )?;
+            if is_mutating_operation(operation, input) || operation == "batch" {
+                synchronize()?;
+            }
+            return Ok(result);
+        }
+        let provider = executor.provider();
         let execute = |collection: &Collection| {
             sync_store.assert_authority_available(id)?;
             self.scoped_operation_loaded(
@@ -405,191 +466,21 @@ impl CollectionRegistry {
             )
         };
         if operation == "batch" || is_mutating_operation(operation, input) {
-            provider.with_collection(|collection| {
-                sync_store.assert_mutation_allowed(id)?;
-                let result = execute(collection)?;
-                let invalidation = operation_invalidation(operation, input, &result);
-                synchronize(&invalidation);
-                Ok(result)
-            })
+            let result = executor.with_mutation(&context, |_| {
+                provider.with_collection(|collection| {
+                    sync_store.assert_mutation_allowed(id)?;
+                    execute(collection)
+                })
+            })?;
+            executor.synchronize(&context)?;
+            synchronize()?;
+            Ok(result)
         } else {
-            provider.with_collection_read(execute)
+            executor.with_foreground(&context, |_| provider.with_collection_read(execute))
         }
     }
 
-    pub fn sync_operation_synchronized(
-        &self,
-        id: Uuid,
-        input: &Value,
-        replica: crate::LocalReplica,
-        scope: &GrantScope,
-        synchronize: impl FnOnce(&CollectionInvalidation),
-    ) -> Result<Value, ConnectError> {
-        self.sync_operation_synchronized_cancellable(
-            id,
-            input,
-            replica,
-            scope,
-            &mdbase::OperationCancellation::new(),
-            synchronize,
-        )
-    }
-
-    pub fn sync_operation_synchronized_cancellable(
-        &self,
-        id: Uuid,
-        input: &Value,
-        mut replica: crate::LocalReplica,
-        scope: &GrantScope,
-        cancellation: &mdbase::OperationCancellation,
-        synchronize: impl FnOnce(&CollectionInvalidation),
-    ) -> Result<Value, ConnectError> {
-        if scope.access == mdbase_connect_protocol::ApplicationAccess::Contract {
-            return Err(ConnectError::AccessDenied(
-                "Contract-scoped replicas are not available because the sync document format contains whole records. Use projected read/query/create/update operations, or request explicit full-collection access."
-                    .to_string(),
-            ));
-        }
-        let registered = self.get(id)?;
-        if !registered.enabled {
-            return Err(ConnectError::AccessDenied(
-                "This collection is disabled on its computer.".to_string(),
-            ));
-        }
-        let action = input.get("action").and_then(Value::as_str).ok_or_else(|| {
-            ConnectError::AccessDenied("Sync request action is required.".to_string())
-        })?;
-        let provider = self.provider_for(&registered)?;
-        let store = crate::LocalSyncStore::for_registry(self);
-        let execute = |collection: &Collection| -> Result<Value, ConnectError> {
-            cancellation
-                .check()
-                .map_err(|_| ConnectError::OperationCancelled)?;
-            store.assert_authority_available(id)?;
-            replica.allowed_types = self
-                .resolve_scope_types_loaded(&registered, collection, scope)?
-                .unwrap_or_default();
-            let snapshot = collection.snapshot()?;
-            cancellation
-                .check()
-                .map_err(|_| ConnectError::OperationCancelled)?;
-            store.reconcile(id, &snapshot, &HashMap::new())?;
-            let files = self.reconcile_files_loaded(&registered, collection, &snapshot)?;
-            cancellation
-                .check()
-                .map_err(|_| ConnectError::OperationCancelled)?;
-            let result = match action {
-                "open_session" => {
-                    let description = self.describe_loaded(&registered, collection)?;
-                    let resources = sync_resources(&snapshot, description, &replica.allowed_types);
-                    serde_json::to_value(
-                        store.open_session(id, &replica, resources, &snapshot, &files)?,
-                    )
-                    .map_err(Into::into)
-                }
-                "snapshot" => {
-                    store.ensure_replica(id, &replica)?;
-                    let snapshot_id = required_uuid(input, "snapshot_id")?;
-                    let page = input.get("page").and_then(Value::as_str);
-                    serde_json::to_value(store.snapshot(id, replica.id, snapshot_id, page)?)
-                        .map_err(Into::into)
-                }
-                "file_snapshot" => {
-                    store.ensure_replica(id, &replica)?;
-                    let snapshot_id = required_uuid(input, "snapshot_id")?;
-                    let page = input.get("page").and_then(Value::as_str);
-                    serde_json::to_value(store.file_snapshot(id, replica.id, snapshot_id, page)?)
-                        .map_err(Into::into)
-                }
-                "changes" => {
-                    store.ensure_replica(id, &replica)?;
-                    let after = input.get("after").and_then(Value::as_u64).ok_or_else(|| {
-                        ConnectError::AccessDenied("Sync changes cursor is required.".to_string())
-                    })?;
-                    let limit = input
-                        .get("limit")
-                        .and_then(Value::as_u64)
-                        .unwrap_or(200)
-                        .clamp(1, 500) as usize;
-                    serde_json::to_value(store.changes(id, replica.id, after, limit)?)
-                        .map_err(Into::into)
-                }
-                "mutate" => {
-                    store.assert_mutation_allowed(id)?;
-                    store.ensure_replica(id, &replica)?;
-                    let mutation: SyncMutation = serde_json::from_value(
-                        input.get("mutation").cloned().ok_or_else(|| {
-                            ConnectError::AccessDenied(
-                                "Sync mutation body is required.".to_string(),
-                            )
-                        })?,
-                    )?;
-                    let plan = store.plan_mutation(id, replica.id, &mutation)?;
-                    let crate::local_sync::MutationPlan::Apply {
-                        operation,
-                        input: operation_input,
-                        preferred_path,
-                    } = plan
-                    else {
-                        let crate::local_sync::MutationPlan::Return(receipt) = plan else {
-                            unreachable!()
-                        };
-                        store.store_receipt(replica.id, &receipt)?;
-                        return serde_json::to_value(receipt).map_err(Into::into);
-                    };
-                    let result = self.scoped_operation_loaded(
-                        &registered,
-                        collection,
-                        operation,
-                        &operation_input,
-                        scope,
-                        &mdbase::OperationCancellation::new(),
-                    )?;
-                    if result.get("valid").and_then(Value::as_bool) != Some(true) {
-                        let receipt = SyncMutationReceipt::Rejected {
-                            mutation_id: mutation.mutation_id,
-                            error: mdbase_connect_protocol::SyncMutationError {
-                                code: result
-                                    .pointer("/diagnostics/0/code")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("mutation_rejected")
-                                    .to_string(),
-                                message: error_message(&result, "The mutation was rejected."),
-                            },
-                        };
-                        store.store_receipt(replica.id, &receipt)?;
-                        return serde_json::to_value(receipt).map_err(Into::into);
-                    }
-                    let invalidation = operation_invalidation(operation, &operation_input, &result);
-                    synchronize(&invalidation);
-                    let after = collection.snapshot()?;
-                    let preferred = preferred_path
-                        .map(|path| HashMap::from([(path, mutation.record_id)]))
-                        .unwrap_or_default();
-                    store.reconcile(id, &after, &preferred)?;
-                    let receipt = store.applied_receipt(id, &mutation)?;
-                    store.store_receipt(replica.id, &receipt)?;
-                    serde_json::to_value(receipt).map_err(Into::into)
-                }
-                other => Err(ConnectError::AccessDenied(format!(
-                    "Unsupported sync action: {other}"
-                ))),
-            };
-            if result.is_ok() {
-                cancellation
-                    .check()
-                    .map_err(|_| ConnectError::OperationCancelled)?;
-            }
-            result
-        };
-        if action == "mutate" {
-            provider.with_collection(execute)
-        } else {
-            provider.with_collection_read(execute)
-        }
-    }
-
-    fn scoped_operation_loaded(
+    pub(super) fn scoped_operation_loaded(
         &self,
         registered: &CollectionSummary,
         collection: &Collection,
@@ -854,24 +745,7 @@ impl CollectionRegistry {
         }
     }
 
-    pub(super) fn provider_for(
-        &self,
-        registered: &CollectionSummary,
-    ) -> Result<Arc<FilesystemProvider>, ConnectError> {
-        assert_local_authority_folder(Path::new(&registered.path))?;
-        let mut providers = self
-            .providers
-            .lock()
-            .map_err(|_| ConnectError::CollectionOpen("provider registry lock poisoned".into()))?;
-        if let Some(provider) = providers.get(&registered.id) {
-            return Ok(provider.clone());
-        }
-        let provider = Arc::new(FilesystemProvider::open(Path::new(&registered.path))?);
-        providers.insert(registered.id, provider.clone());
-        Ok(provider)
-    }
-
-    fn resolve_scope_types_loaded(
+    pub(super) fn resolve_scope_types_loaded(
         &self,
         registered: &CollectionSummary,
         collection: &Collection,
@@ -882,7 +756,7 @@ impl CollectionRegistry {
             .map(|scope| scope.allowed_types))
     }
 
-    fn resolve_operation_contract_scope_loaded(
+    pub(super) fn resolve_operation_contract_scope_loaded(
         &self,
         registered: &CollectionSummary,
         collection: &Collection,

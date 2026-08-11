@@ -227,23 +227,27 @@ fn authority_transfer_fence_is_durable_exclusive_and_idempotent() {
             transfer_id: actual
         }) if actual == transfer_id
     ));
-    assert!(matches!(
-        registry.sync_operation_synchronized(
-            collection.id,
-            &json!({"action": "mutate"}),
-            crate::LocalReplica {
-                id: Uuid::new_v4(),
-                name: "Test replica".to_string(),
-                mode: mdbase_connect_protocol::SyncReplicaMode::ReadWrite,
-                allowed_types: BTreeSet::new(),
-            },
-            &full_scope,
-            |_| {},
-        ),
+    let fenced_sync = registry.sync_operation_synchronized(
+        collection.id,
+        &json!({"action": "mutate"}),
+        crate::LocalReplica {
+            id: Uuid::new_v4(),
+            name: "Test replica".to_string(),
+            mode: mdbase_connect_protocol::SyncReplicaMode::ReadWrite,
+            allowed_types: BTreeSet::new(),
+        },
+        &full_scope,
+        || Ok(()),
+    );
+    assert!(
+        matches!(
+            fenced_sync,
         Err(ConnectError::AuthorityTransferInProgress {
             transfer_id: actual
         }) if actual == transfer_id
-    ));
+        ),
+        "unexpected fenced sync result: {fenced_sync:?}"
+    );
     assert!(!root.join("blocked.md").exists());
     assert!(matches!(
         registry.resume_authority(collection.id, Uuid::new_v4()),
