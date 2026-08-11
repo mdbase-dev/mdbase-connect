@@ -20,21 +20,6 @@ pub(super) fn has_contract(
     })
 }
 
-pub(super) fn execute_loaded(
-    collection: &Collection,
-    current_version: &str,
-    operation: &str,
-    input: &Value,
-) -> Result<Value, ConnectError> {
-    execute_loaded_cancellable(
-        collection,
-        current_version,
-        operation,
-        input,
-        &mdbase::OperationCancellation::new(),
-    )
-}
-
 pub(super) fn execute_loaded_cancellable(
     collection: &Collection,
     current_version: &str,
@@ -42,6 +27,9 @@ pub(super) fn execute_loaded_cancellable(
     input: &Value,
     cancellation: &mdbase::OperationCancellation,
 ) -> Result<Value, ConnectError> {
+    cancellation
+        .check()
+        .map_err(|_| ConnectError::OperationCancelled)?;
     if collection.spec_profile() == SpecProfile::V03 {
         if operation == "assess_collection_setup" || operation == "apply_collection_setup" {
             let result = if operation == "assess_collection_setup" {
@@ -69,6 +57,9 @@ pub(super) fn execute_loaded_cancellable(
                     },
                 )
             };
+            cancellation
+                .check()
+                .map_err(|_| ConnectError::OperationCancelled)?;
             return serde_json::to_value(result).map_err(ConnectError::from);
         }
         if operation == "assess_type_pack" || operation == "apply_type_pack" {
@@ -156,6 +147,9 @@ pub(super) fn execute_loaded_cancellable(
                     },
                 ),
             };
+            cancellation
+                .check()
+                .map_err(|_| ConnectError::OperationCancelled)?;
             return serde_json::to_value(result).map_err(ConnectError::from);
         }
         let operations = collection
@@ -184,6 +178,9 @@ pub(super) fn execute_loaded_cancellable(
             "update_type" => operations.update_type(input),
             other => return Err(ConnectError::UnsupportedOperation(other.to_string())),
         };
+        cancellation
+            .check()
+            .map_err(|_| ConnectError::OperationCancelled)?;
         return serde_json::to_value(result).map_err(ConnectError::from);
     }
 
@@ -205,6 +202,9 @@ pub(super) fn execute_loaded_cancellable(
         }
         other => return Err(ConnectError::UnsupportedOperation(other.to_string())),
     };
+    cancellation
+        .check()
+        .map_err(|_| ConnectError::OperationCancelled)?;
     Ok(result)
 }
 

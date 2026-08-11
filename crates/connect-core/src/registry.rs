@@ -51,6 +51,7 @@ mod identity;
 mod migrations;
 mod mutation_journal;
 mod operation_execution;
+mod operation_setup;
 mod operations;
 mod receipts;
 mod scope;
@@ -71,8 +72,8 @@ pub use mutation_journal::{
     MutationLease, MutationRecoveryData,
 };
 use operation_execution::{
-    error_message, execute_loaded, execute_loaded_cancellable, has_contract,
-    operation_invalidation, supported_operations,
+    error_message, execute_loaded_cancellable, has_contract, operation_invalidation,
+    supported_operations,
 };
 pub use receipts::AuthorityReceiptDiagnostics;
 use scope::{

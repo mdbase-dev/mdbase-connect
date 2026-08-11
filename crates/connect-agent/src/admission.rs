@@ -1,7 +1,7 @@
 use mdbase_connect_protocol::mutation_operation_identifier;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::{timeout_at, Instant as TokioInstant};
@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 const DEFAULT_QUEUE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 const MAX_OPERATION_EXECUTION: Duration = Duration::from_secs(30);
+const MAX_RETAINED_KEYED_SEMAPHORES: usize = 128;
 
 /// Convert the client's optional absolute deadline into a local, monotonic
 /// window. The hint can only shorten the connector's own maximum.
@@ -164,9 +165,9 @@ pub(crate) struct AdmissionScheduler {
     reads: Arc<Semaphore>,
     background: Arc<Semaphore>,
     files: Arc<Semaphore>,
-    operation_grants: Mutex<HashMap<Uuid, Arc<Semaphore>>>,
-    file_grants: Mutex<HashMap<Uuid, Arc<Semaphore>>>,
-    mutation_collections: Mutex<HashMap<Uuid, Arc<Semaphore>>>,
+    operation_grants: Mutex<HashMap<Uuid, Weak<Semaphore>>>,
+    file_grants: Mutex<HashMap<Uuid, Weak<Semaphore>>>,
+    mutation_collections: Mutex<HashMap<Uuid, Weak<Semaphore>>>,
     queue_counts: Arc<Mutex<QueueCounts>>,
 }
 
@@ -263,21 +264,35 @@ impl AdmissionScheduler {
         } else {
             (&self.operation_grants, self.limits.operations_per_grant)
         };
-        let mut map = map.lock().expect("admission grant lock poisoned");
-        map.entry(grant_id)
-            .or_insert_with(|| Arc::new(Semaphore::new(permits)))
-            .clone()
+        keyed_semaphore(map, grant_id, permits, "admission grant lock poisoned")
     }
 
     fn collection_mutation_semaphore(&self, collection_id: Uuid) -> Arc<Semaphore> {
-        let mut map = self
-            .mutation_collections
-            .lock()
-            .expect("admission collection lock poisoned");
-        map.entry(collection_id)
-            .or_insert_with(|| Arc::new(Semaphore::new(1)))
-            .clone()
+        keyed_semaphore(
+            &self.mutation_collections,
+            collection_id,
+            1,
+            "admission collection lock poisoned",
+        )
     }
+}
+
+fn keyed_semaphore(
+    map: &Mutex<HashMap<Uuid, Weak<Semaphore>>>,
+    id: Uuid,
+    permits: usize,
+    poisoned: &str,
+) -> Arc<Semaphore> {
+    let mut map = map.lock().expect(poisoned);
+    if let Some(semaphore) = map.get(&id).and_then(Weak::upgrade) {
+        return semaphore;
+    }
+    if map.len() >= MAX_RETAINED_KEYED_SEMAPHORES {
+        map.retain(|_, semaphore| semaphore.strong_count() > 0);
+    }
+    let semaphore = Arc::new(Semaphore::new(permits));
+    map.insert(id, Arc::downgrade(&semaphore));
+    semaphore
 }
 
 async fn acquire_before(
@@ -291,10 +306,11 @@ async fn acquire_before(
 }
 
 pub(crate) fn classify_operation(operation: &str, input: Option<&Value>) -> WorkClass {
-    let mutation = input.map_or_else(
-        || conservative_mutation_operation(operation),
-        |input| mutation_operation_identifier(operation, input).is_some(),
-    );
+    let mutation = operation == "batch"
+        || input.map_or_else(
+            || conservative_mutation_operation(operation),
+            |input| mutation_operation_identifier(operation, input).is_some(),
+        );
     if mutation {
         WorkClass::Mutation
     } else if matches!(operation, "changes" | "list_timers") {
@@ -449,11 +465,39 @@ mod tests {
             .is_ok());
     }
 
+    #[tokio::test]
+    async fn keyed_admission_state_is_bounded_across_identity_churn() {
+        let scheduler = AdmissionScheduler::with_limits(limits());
+        for identity in 1..=(MAX_RETAINED_KEYED_SEMAPHORES as u128 * 4) {
+            drop(
+                scheduler
+                    .admit(request(identity, identity, WorkClass::Mutation))
+                    .await
+                    .unwrap(),
+            );
+        }
+
+        let operation_grants = scheduler.operation_grants.lock().unwrap();
+        let mutation_collections = scheduler.mutation_collections.lock().unwrap();
+        assert!(operation_grants.len() <= MAX_RETAINED_KEYED_SEMAPHORES);
+        assert!(mutation_collections.len() <= MAX_RETAINED_KEYED_SEMAPHORES);
+        assert!(operation_grants
+            .values()
+            .all(|entry| entry.strong_count() == 0));
+        assert!(mutation_collections
+            .values()
+            .all(|entry| entry.strong_count() == 0));
+    }
+
     #[test]
     fn operation_classification_is_conservative_before_decryption() {
         assert_eq!(classify_operation("query", None), WorkClass::Foreground);
         assert_eq!(classify_operation("changes", None), WorkClass::Background);
         assert_eq!(classify_operation("sync", None), WorkClass::Mutation);
+        assert_eq!(
+            classify_operation("batch", Some(&serde_json::json!({"operations": []}))),
+            WorkClass::Mutation
+        );
         assert_eq!(
             classify_operation("create", Some(&serde_json::json!({"dry_run": true}))),
             WorkClass::Foreground

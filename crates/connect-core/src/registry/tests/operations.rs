@@ -108,6 +108,29 @@ fn generic_operation_uses_v03_envelope() {
 }
 
 #[test]
+fn cancelled_unscoped_reads_stop_before_collection_execution() {
+    let state = tempdir().unwrap();
+    let collection_parent = tempdir().unwrap();
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let collection = registry
+        .create(collection_parent.path().join("notes"), Some("Notes"), "UTC")
+        .unwrap();
+    let cancellation = mdbase::OperationCancellation::new();
+    cancellation.cancel();
+
+    assert!(matches!(
+        registry.operation_synchronized_cancellable(
+            collection.id,
+            "query",
+            &json!({"limit": 1}),
+            &cancellation,
+            |_| {},
+        ),
+        Err(ConnectError::OperationCancelled)
+    ));
+}
+
+#[test]
 fn legacy_description_only_advertises_executable_operations() {
     let state = tempdir().unwrap();
     let collection_parent = tempdir().unwrap();

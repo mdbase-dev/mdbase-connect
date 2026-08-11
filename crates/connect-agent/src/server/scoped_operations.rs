@@ -1,21 +1,26 @@
 use super::*;
 
 impl AgentState {
-    pub(super) fn local_operation(
+    pub(super) fn execute_local_operation(
         &self,
         collection_id: uuid::Uuid,
         operation: &str,
         input: &serde_json::Value,
+        cancellation: &mdbase::OperationCancellation,
     ) -> Result<serde_json::Value, ConnectError> {
         let started = Instant::now();
         let synchronize_us = std::cell::Cell::new(0_u64);
-        let result =
-            self.registry
-                .operation_synchronized(collection_id, operation, input, |invalidation| {
-                    let synchronize_started = Instant::now();
-                    self.watcher.synchronize(collection_id, invalidation);
-                    synchronize_us.set(elapsed_us(synchronize_started));
-                });
+        let result = self.registry.operation_synchronized_cancellable(
+            collection_id,
+            operation,
+            input,
+            cancellation,
+            |invalidation| {
+                let synchronize_started = Instant::now();
+                self.watcher.synchronize(collection_id, invalidation);
+                synchronize_us.set(elapsed_us(synchronize_started));
+            },
+        );
         profile_operation("control", operation, started, synchronize_us.get(), &result);
         result
     }
@@ -90,7 +95,7 @@ impl AgentState {
             } else {
                 SyncReplicaMode::ReadOnly
             };
-            let result = self.registry.sync_operation_synchronized(
+            let result = self.registry.sync_operation_synchronized_cancellable(
                 collection_id,
                 input,
                 LocalReplica {
@@ -100,6 +105,7 @@ impl AgentState {
                     allowed_types: Default::default(),
                 },
                 &grant.scope,
+                cancellation,
                 |invalidation| {
                     let synchronize_started = Instant::now();
                     self.watcher.synchronize(collection_id, invalidation);

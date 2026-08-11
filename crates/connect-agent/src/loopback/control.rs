@@ -1,7 +1,6 @@
 use super::*;
-use crate::admission::{
-    classify_operation, execution_timeout, queue_deadline, AdmissionRequest, WorkClass,
-};
+use crate::admission::{classify_operation, execution_timeout, queue_deadline, AdmissionRequest};
+use crate::server::OperationExecutionState;
 use axum::routing::{get, post};
 use mdbase_connect_protocol::{
     ConnectOperationOutcome, ConnectProblem, RelayMessage, LOOPBACK_PROTOCOL_VERSION,
@@ -162,7 +161,6 @@ async fn encrypted_control(
         class: classify_operation(&envelope.operation, None),
         weight_bytes: envelope.ciphertext.len(),
     };
-    let class = admission.class;
     let request_id = envelope.request_id;
     let Ok(permit) = state
         .agent
@@ -179,6 +177,8 @@ async fn encrypted_control(
     let cancellation = mdbase::OperationCancellation::new();
     let worker_cancellation = cancellation.clone();
     let mut cancel_on_drop = CancelOnDrop(Some(cancellation));
+    let execution_state = Arc::new(OperationExecutionState::default());
+    let worker_execution_state = execution_state.clone();
     let agent = state.agent.clone();
     let operation_origin = origin.clone();
     let execution = tokio::task::spawn_blocking(move || {
@@ -187,12 +187,20 @@ async fn encrypted_control(
             &operation_origin,
             envelope,
             &worker_cancellation,
+            &worker_execution_state,
         )
     });
     let outcome = tokio::time::timeout(execution_timeout(deadline_unix_ms), execution).await;
-    if outcome.is_ok() {
+    let timed_out_durable_mutation = if outcome.is_err() {
+        let durable_mutation = execution_state.begin_timeout();
+        if let Some(cancellation) = cancel_on_drop.0.take() {
+            cancellation.cancel();
+        }
+        durable_mutation
+    } else {
         cancel_on_drop.0 = None;
-    }
+        false
+    };
     match outcome {
         Ok(Ok(RelayMessage::EncryptedOperationResponse { envelope })) => cors_response(
             Json(json!({
@@ -214,7 +222,7 @@ async fn encrypted_control(
             "The local connector could not complete this operation.",
             &origin,
         ),
-        Err(_) if class == WorkClass::Mutation => cors_problem(
+        Err(_) if timed_out_durable_mutation => cors_problem(
             StatusCode::CONFLICT,
             ConnectProblem::new(
                 "operation_outcome_unknown",

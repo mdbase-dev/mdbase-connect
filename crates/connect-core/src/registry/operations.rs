@@ -1,3 +1,6 @@
+use super::operation_setup::{
+    add_reviewable_setup_adoptions, required_setup_string, type_pack_setup_error,
+};
 use super::*;
 use std::collections::BTreeMap;
 impl CollectionRegistry {
@@ -21,6 +24,23 @@ impl CollectionRegistry {
         input: &Value,
         synchronize: impl FnOnce(&CollectionInvalidation),
     ) -> Result<Value, ConnectError> {
+        self.operation_synchronized_cancellable(
+            id,
+            operation,
+            input,
+            &mdbase::OperationCancellation::new(),
+            synchronize,
+        )
+    }
+
+    pub fn operation_synchronized_cancellable(
+        &self,
+        id: Uuid,
+        operation: &str,
+        input: &Value,
+        cancellation: &mdbase::OperationCancellation,
+        synchronize: impl FnOnce(&CollectionInvalidation),
+    ) -> Result<Value, ConnectError> {
         let registered = self.get(id)?;
         assert_local_authority_folder(Path::new(&registered.path))?;
         if operation == "changes" {
@@ -34,7 +54,13 @@ impl CollectionRegistry {
                 return serde_json::to_value(self.describe_loaded(&registered, collection)?)
                     .map_err(ConnectError::from);
             }
-            execute_loaded(collection, &registered.spec_version, operation, input)
+            execute_loaded_cancellable(
+                collection,
+                &registered.spec_version,
+                operation,
+                input,
+                cancellation,
+            )
         };
         let result = if operation == "batch" || is_mutating_operation(operation, input) {
             provider.with_collection(|collection| {
@@ -395,8 +421,27 @@ impl CollectionRegistry {
         &self,
         id: Uuid,
         input: &Value,
+        replica: crate::LocalReplica,
+        scope: &GrantScope,
+        synchronize: impl FnOnce(&CollectionInvalidation),
+    ) -> Result<Value, ConnectError> {
+        self.sync_operation_synchronized_cancellable(
+            id,
+            input,
+            replica,
+            scope,
+            &mdbase::OperationCancellation::new(),
+            synchronize,
+        )
+    }
+
+    pub fn sync_operation_synchronized_cancellable(
+        &self,
+        id: Uuid,
+        input: &Value,
         mut replica: crate::LocalReplica,
         scope: &GrantScope,
+        cancellation: &mdbase::OperationCancellation,
         synchronize: impl FnOnce(&CollectionInvalidation),
     ) -> Result<Value, ConnectError> {
         if scope.access == mdbase_connect_protocol::ApplicationAccess::Contract {
@@ -417,14 +462,23 @@ impl CollectionRegistry {
         let provider = self.provider_for(&registered)?;
         let store = crate::LocalSyncStore::for_registry(self);
         let execute = |collection: &Collection| -> Result<Value, ConnectError> {
+            cancellation
+                .check()
+                .map_err(|_| ConnectError::OperationCancelled)?;
             store.assert_authority_available(id)?;
             replica.allowed_types = self
                 .resolve_scope_types_loaded(&registered, collection, scope)?
                 .unwrap_or_default();
             let snapshot = collection.snapshot()?;
+            cancellation
+                .check()
+                .map_err(|_| ConnectError::OperationCancelled)?;
             store.reconcile(id, &snapshot, &HashMap::new())?;
             let files = self.reconcile_files_loaded(&registered, collection, &snapshot)?;
-            match action {
+            cancellation
+                .check()
+                .map_err(|_| ConnectError::OperationCancelled)?;
+            let result = match action {
                 "open_session" => {
                     let description = self.describe_loaded(&registered, collection)?;
                     let resources = sync_resources(&snapshot, description, &replica.allowed_types);
@@ -520,7 +574,13 @@ impl CollectionRegistry {
                 other => Err(ConnectError::AccessDenied(format!(
                     "Unsupported sync action: {other}"
                 ))),
+            };
+            if result.is_ok() {
+                cancellation
+                    .check()
+                    .map_err(|_| ConnectError::OperationCancelled)?;
             }
+            result
         };
         if action == "mutate" {
             provider.with_collection(execute)
@@ -607,7 +667,13 @@ impl CollectionRegistry {
                 let (input, selector) = resolved_scope
                     .read_input(input)
                     .map_err(contract_scope_error)?;
-                let result = execute_loaded(collection, &registered.spec_version, operation, &input)?;
+                let result = execute_loaded_cancellable(
+                    collection,
+                    &registered.spec_version,
+                    operation,
+                    &input,
+                    cancellation,
+                )?;
                 ensure_result_in_scope(&result, allowed_types)?;
                 resolved_scope
                     .project_result(collection, result, selector.as_ref())
@@ -632,7 +698,13 @@ impl CollectionRegistry {
                     &BTreeSet::new(),
                     allowed_types,
                 )?;
-                let result = execute_loaded(collection, &registered.spec_version, operation, &input)?;
+                let result = execute_loaded_cancellable(
+                    collection,
+                    &registered.spec_version,
+                    operation,
+                    &input,
+                    cancellation,
+                )?;
                 if result.get("valid").and_then(Value::as_bool) != Some(false) {
                     ensure_result_in_scope(&result, allowed_types)?;
                 }
@@ -645,11 +717,12 @@ impl CollectionRegistry {
                     .map_write_input(input, false)
                     .map_err(contract_scope_error)?;
                 let path = required_string(&input, "path")?;
-                let current = execute_loaded(
+                let current = execute_loaded_cancellable(
                     collection,
                     &registered.spec_version,
                     "read",
                     &json!({ "path": path }),
+                    cancellation,
                 )?;
                 ensure_result_in_scope(&current, allowed_types)?;
                 let current_types = result_types(&current);
@@ -675,7 +748,13 @@ impl CollectionRegistry {
                     &current_types,
                     allowed_types,
                 )?;
-                let result = execute_loaded(collection, &registered.spec_version, operation, &input)?;
+                let result = execute_loaded_cancellable(
+                    collection,
+                    &registered.spec_version,
+                    operation,
+                    &input,
+                    cancellation,
+                )?;
                 resolved_scope
                     .project_result(collection, result, Some(&selector))
                     .map_err(contract_scope_error)
@@ -685,11 +764,12 @@ impl CollectionRegistry {
                     .identity_input(input)
                     .map_err(contract_scope_error)?;
                 let path = required_string(&scoped_input, "path")?;
-                let current = execute_loaded(
+                let current = execute_loaded_cancellable(
                     collection,
                     &registered.spec_version,
                     "read",
                     &json!({ "path": path }),
+                    cancellation,
                 )?;
                 ensure_result_in_scope(&current, allowed_types)?;
                 resolved_scope
@@ -699,11 +779,12 @@ impl CollectionRegistry {
                 if let Some(object) = scoped_input.as_object_mut() {
                     object.insert("check_backlinks".to_string(), Value::Bool(false));
                 }
-                execute_loaded(
+                execute_loaded_cancellable(
                     collection,
                     &registered.spec_version,
                     operation,
                     &scoped_input,
+                    cancellation,
                 )
             }
             "rename" => {
@@ -718,11 +799,12 @@ impl CollectionRegistry {
                             .to_string(),
                     ));
                 }
-                let current = execute_loaded(
+                let current = execute_loaded_cancellable(
                     collection,
                     &registered.spec_version,
                     "read",
                     &json!({ "path": from }),
+                    cancellation,
                 )?;
                 ensure_result_in_scope(&current, allowed_types)?;
                 resolved_scope
@@ -740,11 +822,12 @@ impl CollectionRegistry {
                     &current_types,
                     allowed_types,
                 )?;
-                let result = execute_loaded(
+                let result = execute_loaded_cancellable(
                     collection,
                     &registered.spec_version,
                     operation,
                     &scoped_input,
+                    cancellation,
                 )?;
                 resolved_scope
                     .project_result(collection, result, selector.as_ref())
@@ -864,72 +947,4 @@ impl CollectionRegistry {
         debug_assert_eq!(resolved.allowed_types, allowed_types);
         Ok(Some(resolved))
     }
-}
-
-fn add_reviewable_setup_adoptions(
-    setup: &mut mdbase::v03::CollectionSetup,
-    result: &mdbase::v03::OperationResult,
-) -> bool {
-    let adoptions = mdbase_connect_protocol::reviewable_type_pack_adoptions(&result.result);
-    let mut changed = false;
-    for (pack_id, resources) in adoptions {
-        let Some(pack) = setup
-            .provisions
-            .type_packs
-            .iter_mut()
-            .find(|pack| pack.provision.manifest["id"].as_str() == Some(pack_id.as_str()))
-        else {
-            continue;
-        };
-        for (target, current_digest) in resources {
-            changed |= pack
-                .options
-                .adopt_resources
-                .insert(target, current_digest.clone())
-                .as_deref()
-                != Some(current_digest.as_str());
-        }
-    }
-    changed
-}
-
-fn type_pack_setup_error(result: &mdbase::v03::OperationResult) -> ConnectError {
-    let message = result
-        .diagnostics
-        .first()
-        .map(|diagnostic| diagnostic.message.clone())
-        .or_else(|| {
-            result.result["resources"]
-                .as_array()
-                .and_then(|resources| {
-                    resources
-                        .iter()
-                        .find(|resource| resource["action"] == "conflict")
-                })
-                .and_then(|resource| resource["reason"].as_str())
-                .map(str::to_string)
-        })
-        .unwrap_or_else(|| "Contract setup was rejected.".to_string());
-    let mut diagnostics = result
-        .diagnostics
-        .iter()
-        .filter_map(|diagnostic| serde_json::to_value(diagnostic).ok())
-        .collect::<Vec<_>>();
-    if diagnostics.is_empty() {
-        diagnostics.push(json!({
-            "code": "collection_setup_conflict",
-            "severity": "error",
-            "message": message,
-        }));
-    }
-    ConnectError::ApplicationSetupRejected {
-        message,
-        diagnostics,
-    }
-}
-
-fn required_setup_string(result: &Value, key: &str) -> Result<String, ConnectError> {
-    result[key].as_str().map(str::to_string).ok_or_else(|| {
-        ConnectError::InvalidInput(format!("Collection setup assessment returned no {key}."))
-    })
 }

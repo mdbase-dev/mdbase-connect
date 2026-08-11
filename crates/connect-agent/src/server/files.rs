@@ -15,6 +15,18 @@ impl AgentState {
         grant: &mdbase_connect_protocol::GrantSummary,
         input: serde_json::Value,
     ) -> Result<serde_json::Value, ConnectError> {
+        self.file_control_cancellable(grant, input, &mdbase::OperationCancellation::new())
+    }
+
+    pub(super) fn file_control_cancellable(
+        &self,
+        grant: &mdbase_connect_protocol::GrantSummary,
+        input: serde_json::Value,
+        cancellation: &mdbase::OperationCancellation,
+    ) -> Result<serde_json::Value, ConnectError> {
+        cancellation
+            .check()
+            .map_err(|_| ConnectError::OperationCancelled)?;
         let message_type = input
             .get("type")
             .and_then(serde_json::Value::as_str)
@@ -24,7 +36,7 @@ impl AgentState {
                     "File control requires a message type.",
                 )
             })?;
-        match message_type {
+        let result = match message_type {
             "list_files" => {
                 let request: ListFilesRequest = parse_file_control(input)?;
                 let limit = validate_list_request(&request)?;
@@ -55,6 +67,9 @@ impl AgentState {
                 let batch_size = limit.saturating_add(1).clamp(128, 1_001);
                 let mut files = Vec::with_capacity(limit.saturating_add(1));
                 while files.len() <= limit {
+                    cancellation
+                        .check()
+                        .map_err(|_| ConnectError::OperationCancelled)?;
                     let batch = self.registry.indexed_files_page(
                         grant.collection_id,
                         scan_after.as_deref(),
@@ -196,7 +211,13 @@ impl AgentState {
                 "invalid_file_request",
                 "The file control message type is unsupported.",
             )),
+        };
+        if result.is_ok() {
+            cancellation
+                .check()
+                .map_err(|_| ConnectError::OperationCancelled)?;
         }
+        result
     }
 
     pub fn handle_direct_file_upload_frame(
@@ -744,6 +765,26 @@ mod tests {
         );
         assert!(parse_local_file_cursor("Assets/images/one.png").is_err());
         assert!(parse_local_file_cursor("local-v1:0:Assets/images/one.png").is_err());
+    }
+
+    #[test]
+    fn cancelled_file_listing_stops_before_index_work() {
+        let state_dir = tempdir().unwrap();
+        let registry = CollectionRegistry::open(state_dir.path()).unwrap();
+        let watcher = CollectionWatchService::start(registry.clone());
+        let state = AgentState::new(registry, watcher, None);
+        let grant = file_grant(Uuid::new_v4(), vec![FileAction::List]);
+        let cancellation = mdbase::OperationCancellation::new();
+        cancellation.cancel();
+
+        assert!(matches!(
+            state.file_control_cancellable(
+                &grant,
+                serde_json::to_value(list_request()).unwrap(),
+                &cancellation,
+            ),
+            Err(ConnectError::OperationCancelled)
+        ));
     }
 
     #[test]

@@ -404,7 +404,10 @@ enum CliAuthorityTarget {
     Remote,
 }
 
-#[tokio::main]
+// The daemon's collection concurrency is explicitly capped at four. Keep its
+// async I/O runtime independent of host core count as well, so large response
+// serialization cannot leave one allocator high-water arena per CPU worker.
+#[tokio::main(worker_threads = 4)]
 pub async fn run() -> i32 {
     let raw_arguments = std::env::args_os().collect::<Vec<_>>();
     let requested_json = raw_arguments

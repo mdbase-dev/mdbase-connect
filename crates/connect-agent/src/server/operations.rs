@@ -5,6 +5,7 @@ impl AgentState {
         origin: &str,
         envelope: mdbase_connect_protocol::EncryptedRelayEnvelope,
         cancellation: &mdbase::OperationCancellation,
+        execution_state: &OperationExecutionState,
     ) -> RelayMessage {
         let origin_matches = self
             .registry
@@ -16,17 +17,22 @@ impl AgentState {
             return encrypted_rejection(envelope.protocol_version, envelope.request_id);
         }
         metrics::direct_operation_transport(envelope.protocol_version);
-        self.handle_encrypted_operation(envelope, cancellation)
+        self.handle_encrypted_operation(envelope, cancellation, execution_state)
     }
 
     pub fn handle_relay_message(&self, message: RelayMessage) -> Option<RelayMessage> {
-        self.handle_relay_message_cancellable(message, &mdbase::OperationCancellation::new())
+        self.handle_relay_message_cancellable(
+            message,
+            &mdbase::OperationCancellation::new(),
+            &OperationExecutionState::default(),
+        )
     }
 
     pub(crate) fn handle_relay_message_cancellable(
         &self,
         message: RelayMessage,
         cancellation: &mdbase::OperationCancellation,
+        execution_state: &OperationExecutionState,
     ) -> Option<RelayMessage> {
         match message {
             RelayMessage::PolicySnapshot {
@@ -334,6 +340,34 @@ impl AgentState {
                         ),
                     });
                 }
+                if operation == "batch" {
+                    return Some(RelayMessage::OperationResponse {
+                        protocol_version,
+                        request_id,
+                        ok: false,
+                        result: None,
+                        problem: Some(
+                            ConnectProblem::new(
+                                "invalid_request",
+                                "Batch operations are available only to the local collection owner.",
+                            )
+                            .with_operation_outcome(ConnectOperationOutcome::Rejected),
+                        ),
+                    });
+                }
+                if let Some(problem) = context.as_ref().and_then(|grant| {
+                    grant
+                        .contracts
+                        .mismatch_problem(&operation, &input, "connector")
+                }) {
+                    return Some(RelayMessage::OperationResponse {
+                        protocol_version,
+                        request_id,
+                        ok: false,
+                        result: None,
+                        problem: Some(problem),
+                    });
+                }
                 if self.registry.paused().unwrap_or(true) {
                     let _ = self.registry.record_activity(
                         application_id,
@@ -427,7 +461,7 @@ impl AgentState {
                 })
             }
             RelayMessage::EncryptedOperationRequest { envelope } => {
-                Some(self.handle_encrypted_operation(envelope, cancellation))
+                Some(self.handle_encrypted_operation(envelope, cancellation, execution_state))
             }
             RelayMessage::RelayHello { .. }
             | RelayMessage::RelayWelcome { .. }
@@ -446,6 +480,7 @@ impl AgentState {
         &self,
         envelope: mdbase_connect_protocol::EncryptedRelayEnvelope,
         cancellation: &mdbase::OperationCancellation,
+        execution_state: &OperationExecutionState,
     ) -> RelayMessage {
         if !mdbase_connect_protocol::SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS
             .contains(&envelope.protocol_version)
@@ -518,6 +553,17 @@ impl AgentState {
         let Ok(input) = serde_json::from_slice::<serde_json::Value>(&plaintext) else {
             return rejected();
         };
+        if envelope.operation == "batch" {
+            return encrypted_problem_response(
+                &keys,
+                metadata,
+                ConnectProblem::new(
+                    "invalid_request",
+                    "Batch operations are available only to the local collection owner.",
+                )
+                .with_operation_outcome(ConnectOperationOutcome::Rejected),
+            );
+        }
         if let Some(problem) =
             context
                 .contracts
@@ -642,6 +688,7 @@ impl AgentState {
                 application_installation_id,
                 grant_snapshot_digest,
                 revoked,
+                execution_state,
             );
         }
 
@@ -655,7 +702,7 @@ impl AgentState {
                 "Remote access is paused on this computer.".to_string(),
             ))
         } else if file_control {
-            self.file_control(&context, input)
+            self.file_control_cancellable(&context, input, cancellation)
         } else {
             self.scoped_operation_cancellable(
                 "encrypted",
@@ -719,105 +766,7 @@ impl AgentState {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn handle_durable_encrypted_mutation(
-        &self,
-        context: &mdbase_connect_protocol::GrantSummary,
-        operation: &str,
-        mutation_identifier: &str,
-        input: &serde_json::Value,
-        metadata: RelayMetadata<'_>,
-        keys: &RelayKeys,
-        application_installation_id: uuid::Uuid,
-        grant_snapshot_digest: String,
-        revoked: bool,
-    ) -> RelayMessage {
-        let Some(input_schema_version) = operation_input_schema_version(operation, input) else {
-            return encrypted_problem_response(
-                keys,
-                metadata,
-                ConnectProblem::new(
-                    "invalid_request",
-                    "The mutation input schema version is not defined.",
-                )
-                .with_operation_outcome(ConnectOperationOutcome::Rejected),
-            );
-        };
-        let Ok(input_digest) = mutation_fingerprint(operation, input) else {
-            return encrypted_problem_response(
-                keys,
-                metadata,
-                ConnectProblem::new(
-                    "invalid_request",
-                    "The mutation input is not canonical I-JSON.",
-                )
-                .with_operation_outcome(ConnectOperationOutcome::Rejected),
-            );
-        };
-        let claim_request = MutationClaimRequest {
-            application_installation_id,
-            grant_id: context.id,
-            request_id: metadata.request_id,
-            operation_kind: mutation_identifier.to_string(),
-            input_schema_version,
-            input_digest,
-            grant_snapshot_digest,
-            allow_new: !revoked,
-        };
-
-        let mut claim = match self.registry.claim_mutation(&claim_request) {
-            Ok(claim) => claim,
-            Err(ConnectError::AccessDenied(message)) if revoked => {
-                return encrypted_problem_response(
-                    keys,
-                    metadata,
-                    ConnectProblem::new("access_denied", message)
-                        .with_details(serde_json::json!({ "request_id": metadata.request_id }))
-                        .with_operation_outcome(ConnectOperationOutcome::NotSent),
-                )
-            }
-            Err(error) => {
-                metrics::claim_error(mutation_identifier, &error);
-                return encrypted_problem_response(keys, metadata, operation_problem(&error));
-            }
-        };
-        for _ in 0..1_000 {
-            match claim {
-                MutationClaim::Terminal { state, receipt } => {
-                    metrics::duplicate_replay(mutation_identifier, state);
-                    return serialized_encrypted_response(
-                        &receipt,
-                        metadata.protocol_version,
-                        metadata.request_id,
-                    );
-                }
-                MutationClaim::Owned { lease, recovery } => {
-                    if lease.fencing_generation > 1 {
-                        metrics::lease_takeover(mutation_identifier, recovery.state);
-                    }
-                    return self.execute_owned_mutation(
-                        context, operation, input, metadata, keys, lease, *recovery, revoked,
-                    );
-                }
-                MutationClaim::Live { .. } => {
-                    std::thread::sleep(std::time::Duration::from_millis(25));
-                    claim = match self.registry.claim_mutation(&claim_request) {
-                        Ok(claim) => claim,
-                        Err(error) => {
-                            return encrypted_problem_response(
-                                keys,
-                                metadata,
-                                operation_problem(&error),
-                            )
-                        }
-                    };
-                }
-            }
-        }
-        pending_mutation_response(keys, metadata)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn execute_owned_mutation(
+    pub(super) fn execute_owned_mutation(
         &self,
         context: &mdbase_connect_protocol::GrantSummary,
         operation: &str,

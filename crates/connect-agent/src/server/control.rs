@@ -1,7 +1,8 @@
 use super::*;
+use crate::admission::{classify_operation, execution_timeout, AdmissionRequest, WorkClass};
 
 impl AgentState {
-    pub(super) async fn execute(&self, request: ControlRequest) -> ControlResponse {
+    pub(super) async fn execute(self: &Arc<Self>, request: ControlRequest) -> ControlResponse {
         let id = request.id;
         if request.protocol_version != LOCAL_CONTROL_PROTOCOL_VERSION {
             return ControlResponse::failure(
@@ -116,10 +117,16 @@ impl AgentState {
                 result.and_then(|value| serde_json::to_value(value).map_err(ConnectError::from))
             }
             ControlCommand::CollectionValidate(params) => {
-                self.registry.validate(params.collection_id)
+                self.local_operation(
+                    params.collection_id,
+                    "validate".to_string(),
+                    serde_json::json!({}),
+                )
+                .await
             }
             ControlCommand::CollectionOperation(params) => {
-                self.local_operation(params.collection_id, &params.operation, &params.input)
+                self.local_operation(params.collection_id, params.operation, params.input)
+                    .await
             }
             ControlCommand::AccessSnapshot => self.access_snapshot().await,
             ControlCommand::AccessPause(params) => self
@@ -301,6 +308,73 @@ impl AgentState {
         match result {
             Ok(result) => ControlResponse::success(id, result),
             Err(error) => ControlResponse::failure(id, error.code(), error.to_string()),
+        }
+    }
+
+    async fn local_operation(
+        self: &Arc<Self>,
+        collection_id: uuid::Uuid,
+        operation: String,
+        input: serde_json::Value,
+    ) -> Result<serde_json::Value, ConnectError> {
+        let weight_bytes = serde_json::to_vec(&input)?
+            .len()
+            .saturating_add(operation.len())
+            .saturating_add(1024);
+        let class = classify_operation(&operation, Some(&input));
+        let permit = self
+            .admission()
+            .admit(AdmissionRequest {
+                // Local control is one trusted authority principal. A stable
+                // identity keeps concurrent CLI callers within the same
+                // per-principal limit instead of bypassing it per request.
+                grant_id: uuid::Uuid::nil(),
+                collection_id,
+                class,
+                weight_bytes,
+            })
+            .await
+            .map_err(|_| ConnectError::AuthorityOverloaded)?;
+        tracing::debug!(
+            queue_wait_us = permit.queue_wait_us,
+            "admitted local connector operation"
+        );
+
+        let cancellation = mdbase::OperationCancellation::new();
+        let worker_cancellation = cancellation.clone();
+        let state = Arc::clone(self);
+        let execution = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            state.execute_local_operation(collection_id, &operation, &input, &worker_cancellation)
+        });
+        if class == WorkClass::Mutation {
+            return execution.await.map_err(local_operation_task_error)?;
+        }
+
+        let mut cancel_on_drop = CancelLocalOperationOnDrop(Some(cancellation));
+        let outcome = tokio::time::timeout(execution_timeout(None), execution).await;
+        if outcome.is_ok() {
+            cancel_on_drop.0 = None;
+        }
+        match outcome {
+            Ok(result) => result.map_err(local_operation_task_error)?,
+            Err(_) => Err(ConnectError::OperationCancelled),
+        }
+    }
+}
+
+fn local_operation_task_error(error: tokio::task::JoinError) -> ConnectError {
+    ConnectError::Io(std::io::Error::other(format!(
+        "local collection operation task failed: {error}"
+    )))
+}
+
+struct CancelLocalOperationOnDrop(Option<mdbase::OperationCancellation>);
+
+impl Drop for CancelLocalOperationOnDrop {
+    fn drop(&mut self) {
+        if let Some(cancellation) = self.0.take() {
+            cancellation.cancel();
         }
     }
 }

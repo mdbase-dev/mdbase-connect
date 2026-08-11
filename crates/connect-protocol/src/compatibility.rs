@@ -164,7 +164,7 @@ impl ConnectContractRequirements {
                 ));
             }
         }
-        if crate::is_mutating_operation(operation, input) {
+        if operation == "batch" || crate::is_mutating_operation(operation, input) {
             let required = self.durable_mutation;
             if required.is_none_or(|version| !supported.durable_mutation.contains(&version)) {
                 return Some(contract_problem(
@@ -188,7 +188,8 @@ pub fn authorization_requires_durable_mutation(
     operations.iter().any(|operation| {
         matches!(
             operation.as_str(),
-            "create_view_source"
+            "batch"
+                | "create_view_source"
                 | "update_view_source"
                 | "delete_view_source"
                 | "create"
@@ -259,14 +260,16 @@ mod tests {
     #[test]
     fn mutations_fail_not_sent_without_durable_mutation_support() {
         let requirements = ConnectContractRequirements::current(false);
-        let problem = requirements
-            .mismatch_problem("create", &serde_json::json!({}), "connector")
-            .expect("mutation must require durable recovery");
-        assert_eq!(problem.code, "durable_mutation_unsupported");
-        assert_eq!(
-            problem.operation_outcome,
-            Some(ConnectOperationOutcome::NotSent)
-        );
+        for operation in ["create", "batch"] {
+            let problem = requirements
+                .mismatch_problem(operation, &serde_json::json!({}), "connector")
+                .expect("mutation must require durable recovery");
+            assert_eq!(problem.code, "durable_mutation_unsupported");
+            assert_eq!(
+                problem.operation_outcome,
+                Some(ConnectOperationOutcome::NotSent)
+            );
+        }
     }
 
     #[test]

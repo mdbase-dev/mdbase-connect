@@ -19,6 +19,35 @@ fn sync(
 }
 
 #[test]
+fn cancelled_sync_reads_stop_before_snapshot_work() {
+    let state = tempdir().unwrap();
+    let root = tempdir().unwrap();
+    fs::write(root.path().join("mdbase.yaml"), "spec_version: 0.3.0\n").unwrap();
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let collection = registry.add(root.path()).unwrap();
+    let replica = crate::LocalReplica {
+        id: Uuid::new_v4(),
+        name: "Cancelled mirror".to_string(),
+        mode: mdbase_connect_protocol::SyncReplicaMode::ReadOnly,
+        allowed_types: BTreeSet::new(),
+    };
+    let cancellation = mdbase::OperationCancellation::new();
+    cancellation.cancel();
+
+    assert!(matches!(
+        registry.sync_operation_synchronized_cancellable(
+            collection.id,
+            &json!({"action": "open_session"}),
+            replica,
+            &GrantScope::full_collection(),
+            &cancellation,
+            |_| {},
+        ),
+        Err(ConnectError::OperationCancelled)
+    ));
+}
+
+#[test]
 fn file_snapshots_and_changes_share_the_record_cursor() {
     let state = tempdir().unwrap();
     let root = tempdir().unwrap();

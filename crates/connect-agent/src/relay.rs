@@ -1,7 +1,7 @@
 use crate::admission::{
     classify_operation, execution_timeout, queue_deadline, AdmissionRequest, WorkClass,
 };
-use crate::server::AgentState;
+use crate::server::{AgentState, OperationExecutionState};
 use futures_util::{SinkExt, StreamExt};
 use mdbase_connect_protocol::{
     AgentConnectionState, ConnectContractSupport, ConnectOperationOutcome, ConnectProblem,
@@ -175,15 +175,16 @@ async fn connect_once(
                                 );
                                 let cancellation = mdbase::OperationCancellation::new();
                                 let worker_cancellation = cancellation.clone();
-                                let timeout_response = relay_operation_timeout(
-                                    &relay_message,
-                                    admission.class,
-                                );
+                                let execution_state = Arc::new(OperationExecutionState::default());
+                                let worker_execution_state = execution_state.clone();
+                                let timeout_request = RelayTimeoutRequest::from_message(&relay_message)
+                                    .expect("admitted operation has timeout response metadata");
                                 let execution = tokio::task::spawn_blocking(move || {
                                     let _permit = permit;
                                     state_for_operation.handle_relay_message_cancellable(
                                         relay_message,
                                         &worker_cancellation,
+                                        &worker_execution_state,
                                     )
                                 });
                                 match tokio::time::timeout(execution_timeout(deadline_unix_ms), execution).await {
@@ -193,9 +194,13 @@ async fn connect_once(
                                     Ok(Ok(None)) => {}
                                     Ok(Err(error)) => tracing::warn!(%error, "relay operation task failed"),
                                     Err(_) => {
+                                        let durable_mutation = execution_state.begin_timeout();
                                         cancellation.cancel();
                                         tracing::warn!("relayed connector operation exceeded its execution deadline");
-                                        if let Some(response) = timeout_response {
+                                        if let Some(response) = relay_operation_timeout(
+                                            &timeout_request,
+                                            durable_mutation,
+                                        ) {
                                             let _ = responses.send(response).await;
                                         }
                                     }
@@ -334,15 +339,45 @@ fn relay_operation_rejection(
     )
 }
 
-fn relay_operation_timeout(request: &RelayMessage, class: WorkClass) -> Option<RelayMessage> {
-    let durable_mutation = class == WorkClass::Mutation
-        && matches!(request, RelayMessage::EncryptedOperationRequest { .. });
+#[derive(Clone, Copy)]
+struct RelayTimeoutRequest {
+    protocol_version: u32,
+    request_id: uuid::Uuid,
+    encrypted: bool,
+}
+
+impl RelayTimeoutRequest {
+    fn from_message(request: &RelayMessage) -> Option<Self> {
+        match request {
+            RelayMessage::OperationRequest {
+                protocol_version,
+                request_id,
+                ..
+            } => Some(Self {
+                protocol_version: *protocol_version,
+                request_id: *request_id,
+                encrypted: false,
+            }),
+            RelayMessage::EncryptedOperationRequest { envelope } => Some(Self {
+                protocol_version: envelope.protocol_version,
+                request_id: envelope.request_id,
+                encrypted: true,
+            }),
+            _ => None,
+        }
+    }
+}
+
+fn relay_operation_timeout(
+    request: &RelayTimeoutRequest,
+    durable_mutation: bool,
+) -> Option<RelayMessage> {
     let problem = if durable_mutation {
         ConnectProblem::new(
             "operation_outcome_unknown",
             "The durable mutation may have completed after its caller's deadline expired. Retry the exact same request to recover its result.",
         )
-        .with_details(serde_json::json!({ "request_id": relay_request_id(request)? }))
+        .with_details(serde_json::json!({ "request_id": request.request_id }))
         .with_operation_outcome(ConnectOperationOutcome::Unknown)
     } else {
         ConnectProblem::new(
@@ -351,15 +386,21 @@ fn relay_operation_timeout(request: &RelayMessage, class: WorkClass) -> Option<R
         )
         .with_operation_outcome(ConnectOperationOutcome::NotSent)
     };
-    relay_operation_problem(request, problem)
-}
-
-fn relay_request_id(request: &RelayMessage) -> Option<uuid::Uuid> {
-    match request {
-        RelayMessage::OperationRequest { request_id, .. } => Some(*request_id),
-        RelayMessage::EncryptedOperationRequest { envelope } => Some(envelope.request_id),
-        _ => None,
-    }
+    Some(if request.encrypted {
+        RelayMessage::EncryptedOperationRejected {
+            protocol_version: request.protocol_version,
+            request_id: request.request_id,
+            problem,
+        }
+    } else {
+        RelayMessage::OperationResponse {
+            protocol_version: request.protocol_version,
+            request_id: request.request_id,
+            ok: false,
+            result: None,
+            problem: Some(problem),
+        }
+    })
 }
 
 fn relay_operation_problem(
@@ -549,7 +590,7 @@ mod tests {
     }
 
     #[test]
-    fn execution_deadlines_never_report_admitted_mutations_as_not_sent() {
+    fn execution_deadlines_report_durable_mutations_as_unknown() {
         let request_id = uuid::Uuid::new_v4();
         let encrypted = RelayMessage::EncryptedOperationRequest {
             envelope: mdbase_connect_protocol::EncryptedRelayEnvelope {
@@ -568,8 +609,9 @@ mod tests {
                 ciphertext: "ciphertext".to_string(),
             },
         };
+        let timeout = RelayTimeoutRequest::from_message(&encrypted).unwrap();
         assert!(matches!(
-            relay_operation_timeout(&encrypted, WorkClass::Mutation),
+            relay_operation_timeout(&timeout, true),
             Some(RelayMessage::EncryptedOperationRejected {
                 request_id: returned,
                 problem,
@@ -579,6 +621,41 @@ mod tests {
                 && problem.operation_outcome == Some(ConnectOperationOutcome::Unknown)
                 && problem.details == Some(serde_json::json!({ "request_id": request_id }))
         ));
+    }
+
+    #[test]
+    fn conservative_admission_does_not_make_encrypted_reads_outcome_unknown() {
+        for operation in ["sync", "file_control"] {
+            let request_id = uuid::Uuid::new_v4();
+            let encrypted = RelayMessage::EncryptedOperationRequest {
+                envelope: mdbase_connect_protocol::EncryptedRelayEnvelope {
+                    protocol_version: mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
+                    suite: "P256-HKDF-SHA256-AES256GCM".to_string(),
+                    request_id,
+                    grant_id: uuid::Uuid::new_v4(),
+                    application_id: uuid::Uuid::new_v4(),
+                    connector_id: uuid::Uuid::new_v4(),
+                    collection_id: uuid::Uuid::new_v4(),
+                    operation: operation.to_string(),
+                    scope_epoch: 1,
+                    key_id: "deadline-test".to_string(),
+                    counter: "1".to_string(),
+                    deadline_unix_ms: Some(1),
+                    ciphertext: "ciphertext".to_string(),
+                },
+            };
+            let timeout = RelayTimeoutRequest::from_message(&encrypted).unwrap();
+            assert!(matches!(
+                relay_operation_timeout(&timeout, false),
+                Some(RelayMessage::EncryptedOperationRejected {
+                    request_id: returned,
+                    problem,
+                    ..
+                }) if returned == request_id
+                    && problem.code == "operation_cancelled"
+                    && problem.operation_outcome == Some(ConnectOperationOutcome::NotSent)
+            ));
+        }
     }
 
     #[test]
@@ -593,8 +670,9 @@ mod tests {
             operation: "query".to_string(),
             input: serde_json::json!({}),
         };
+        let timeout = RelayTimeoutRequest::from_message(&request).unwrap();
         assert!(matches!(
-            relay_operation_timeout(&request, WorkClass::Foreground),
+            relay_operation_timeout(&timeout, false),
             Some(RelayMessage::OperationResponse {
                 request_id: returned,
                 problem: Some(problem),

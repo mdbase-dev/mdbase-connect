@@ -79,7 +79,7 @@ async fn rejects_an_unsupported_local_control_protocol() {
     ));
     let registry = CollectionRegistry::open(&test_root).unwrap();
     let watcher = CollectionWatchService::start(registry.clone());
-    let state = AgentState::new(registry, watcher, None);
+    let state = Arc::new(AgentState::new(registry, watcher, None));
     let mut request = ControlRequest::new(ControlCommand::Ping);
     request.protocol_version = LOCAL_CONTROL_PROTOCOL_VERSION + 1;
 
@@ -102,7 +102,7 @@ async fn status_reports_the_running_binary_version_for_upgrade_health_checks() {
     ));
     let registry = CollectionRegistry::open(&test_root).unwrap();
     let watcher = CollectionWatchService::start(registry.clone());
-    let state = AgentState::new(registry, watcher, None);
+    let state = Arc::new(AgentState::new(registry, watcher, None));
 
     let response = state
         .execute(ControlRequest::new(ControlCommand::Status))
@@ -144,6 +144,104 @@ async fn bounds_local_control_request_memory() {
     );
     handler.await.unwrap().unwrap();
     fs::remove_dir_all(test_root).unwrap();
+}
+
+#[tokio::test]
+async fn local_collection_operations_share_admission_without_blocking_control() {
+    use crate::admission::{AdmissionRequest, WorkClass};
+
+    let test_root = std::env::temp_dir().join(format!(
+        "mdbase-connect-local-admission-test-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let registry = CollectionRegistry::open(test_root.join("state")).unwrap();
+    let collection = registry
+        .create(test_root.join("collection"), Some("Local admission"), "UTC")
+        .unwrap();
+    let watcher = CollectionWatchService::start(registry.clone());
+    let state = Arc::new(AgentState::new(registry, watcher, None));
+
+    let mut held_reads = Vec::new();
+    for principal in 1..=3 {
+        held_reads.push(
+            state
+                .admission()
+                .admit(AdmissionRequest {
+                    grant_id: Uuid::from_u128(principal),
+                    collection_id: collection.id,
+                    class: WorkClass::Foreground,
+                    weight_bytes: 1,
+                })
+                .await
+                .unwrap(),
+        );
+    }
+
+    let queued_state = state.clone();
+    let queued = tokio::spawn(async move {
+        queued_state
+            .execute(ControlRequest::new(ControlCommand::CollectionOperation(
+                mdbase_connect_protocol::CollectionOperationParams {
+                    collection_id: collection.id,
+                    operation: "query".to_string(),
+                    input: serde_json::json!({ "limit": 1 }),
+                },
+            )))
+            .await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    assert!(
+        !queued.is_finished(),
+        "a local read must wait behind the shared read limit"
+    );
+
+    let mutation = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        state.execute(ControlRequest::new(ControlCommand::CollectionOperation(
+            mdbase_connect_protocol::CollectionOperationParams {
+                collection_id: collection.id,
+                operation: "create".to_string(),
+                input: serde_json::json!({
+                    "path": "mutation-capacity.md",
+                    "frontmatter": { "title": "Reserved mutation capacity" },
+                    "body": "The queued local read did not consume this slot."
+                }),
+            },
+        ))),
+    )
+    .await
+    .expect("queued local reads must leave the mutation lane available");
+    assert!(mutation.ok, "{:?}", mutation.error);
+    assert_eq!(mutation.result.unwrap()["valid"], true);
+
+    let ping = tokio::time::timeout(
+        std::time::Duration::from_millis(250),
+        state.execute(ControlRequest::new(ControlCommand::Ping)),
+    )
+    .await
+    .expect("queued collection work must not block local control");
+    assert!(ping.ok);
+
+    drop(held_reads.pop());
+    let response = tokio::time::timeout(std::time::Duration::from_secs(2), queued)
+        .await
+        .expect("the admitted local query must finish")
+        .unwrap();
+    assert!(response.ok, "{:?}", response.error);
+
+    drop(held_reads);
+    fs::remove_dir_all(test_root).unwrap();
+}
+
+#[test]
+fn timeout_and_durable_mutation_use_one_atomic_boundary() {
+    let timeout_first = OperationExecutionState::default();
+    assert!(!timeout_first.begin_timeout());
+    assert!(!timeout_first.begin_durable_mutation());
+
+    let mutation_first = OperationExecutionState::default();
+    assert!(mutation_first.begin_durable_mutation());
+    assert!(mutation_first.begin_timeout());
 }
 
 #[tokio::test]

@@ -21,11 +21,54 @@ use mdbase_connect_protocol::{
     LOCAL_CONTROL_PROTOCOL_VERSION,
 };
 use std::io;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 const MAX_LOCAL_CONTROL_REQUEST_BYTES: u64 = 8 * 1024 * 1024;
+
+/// Tracks whether an encrypted request has crossed from cancellable work into
+/// the durable mutation path. Admission is deliberately conservative before
+/// decryption, so its work class cannot safely answer this question.
+#[derive(Default)]
+pub(crate) struct OperationExecutionState {
+    state: AtomicU8,
+}
+
+impl OperationExecutionState {
+    const OPEN: u8 = 0;
+    const TIMED_OUT: u8 = 1;
+    const DURABLE_MUTATION: u8 = 2;
+
+    /// Atomically crosses the durable boundary. If timeout won the race, the
+    /// worker must not claim or execute the mutation.
+    pub(crate) fn begin_durable_mutation(&self) -> bool {
+        self.state
+            .compare_exchange(
+                Self::OPEN,
+                Self::DURABLE_MUTATION,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
+
+    /// Atomically closes the cancellable boundary. Returns true only when the
+    /// worker had already won the durable transition.
+    pub(crate) fn begin_timeout(&self) -> bool {
+        match self.state.compare_exchange(
+            Self::OPEN,
+            Self::TIMED_OUT,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(_) | Err(Self::TIMED_OUT) => false,
+            Err(Self::DURABLE_MUTATION) => true,
+            Err(_) => unreachable!("operation execution state is closed"),
+        }
+    }
+}
 
 pub struct AgentState {
     registry: CollectionRegistry,
@@ -47,6 +90,7 @@ pub struct AgentState {
 mod account;
 mod authorization;
 mod control;
+mod durable_mutations;
 mod files;
 mod metrics;
 mod operation_responses;
