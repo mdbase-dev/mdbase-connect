@@ -3,23 +3,31 @@ import { fileURLToPath } from "node:url";
 
 const source = process.argv[2];
 const expectedHomepage = process.argv[3];
+const expectedConnectOrigin = process.argv[4];
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   if (!source || !expectedHomepage) {
-    throw new Error("Usage: node scripts/verify-deployment-manifest.mjs <path-or-url> <expected-homepage>");
+    throw new Error(
+      "Usage: node scripts/verify-deployment-manifest.mjs <path-or-url> <expected-homepage> [expected-connect-origin]"
+    );
   }
-  await verifyManifest(source, expectedHomepage, {
+  await verifyManifest(source, expectedHomepage, expectedConnectOrigin, {
     attempts: positiveInteger(process.env.MDBASE_MANIFEST_VERIFY_ATTEMPTS, 1),
     delayMs: nonNegativeInteger(process.env.MDBASE_MANIFEST_VERIFY_DELAY_MS, 0)
   });
 }
 
-export async function verifyManifest(source, expectedHomepage, { attempts = 1, delayMs = 0 } = {}) {
+export async function verifyManifest(
+  source,
+  expectedHomepage,
+  expectedConnectOrigin,
+  { attempts = 1, delayMs = 0 } = {}
+) {
   let failure;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       const manifest = await loadManifest(source, attempt);
-      assertEditorManifest(manifest, expectedHomepage);
+      assertEditorManifest(manifest, expectedHomepage, expectedConnectOrigin);
       console.log(`Verified editor file access in ${source}`);
       return;
     } catch (error) {
@@ -30,7 +38,7 @@ export async function verifyManifest(source, expectedHomepage, { attempts = 1, d
   throw failure;
 }
 
-export function assertEditorManifest(manifest, expectedHomepage) {
+export function assertEditorManifest(manifest, expectedHomepage, expectedConnectOrigin) {
   const required = manifest?.requirements?.capabilities?.required;
   const actions = manifest?.requirements?.files?.actions;
   const scope = manifest?.requirements?.files?.scope;
@@ -39,6 +47,13 @@ export function assertEditorManifest(manifest, expectedHomepage) {
   if (manifest?.homepage !== expectedHomepage) problems.push(`homepage must be ${expectedHomepage}`);
   if (!Array.isArray(manifest?.redirect_uris) || manifest.redirect_uris[0] !== expectedHomepage) {
     problems.push(`first redirect URI must be ${expectedHomepage}`);
+  }
+  if (expectedConnectOrigin) {
+    const callback = new URL(expectedHomepage);
+    callback.searchParams.set("server", new URL(expectedConnectOrigin).origin);
+    if (!manifest?.redirect_uris?.includes(callback.href)) {
+      problems.push(`redirect URIs must include ${callback.href}`);
+    }
   }
   if (manifest?.requirements?.access !== "full_collection") problems.push("access must be full_collection");
   if (!Array.isArray(required) || !required.includes("files.list")) problems.push("files.list capability is required");

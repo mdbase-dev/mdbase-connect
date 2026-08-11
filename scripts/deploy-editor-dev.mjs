@@ -25,6 +25,7 @@ export async function deployDevelopmentEditor(environment, run = runCommand) {
     ...environment,
     MDBASE_EDITOR_ORIGIN: developmentDeployment.editorOrigin,
     MDBASE_EDITOR_BASE_PATH: "/",
+    MDBASE_CONNECT_URL: developmentDeployment.connectOrigin,
     VITE_MDBASE_CONNECT_URL: developmentDeployment.connectOrigin
   };
 
@@ -34,7 +35,8 @@ export async function deployDevelopmentEditor(environment, run = runCommand) {
     await run("node", [
       "apps/editor/scripts/verify-deployment-manifest.mjs",
       "apps/editor/dist/.well-known/mdbase-app.json",
-      `${developmentDeployment.editorOrigin}/`
+      `${developmentDeployment.editorOrigin}/`,
+      developmentDeployment.connectOrigin
     ], deploymentEnvironment);
     await run("pnpm", [
       "dlx",
@@ -48,7 +50,8 @@ export async function deployDevelopmentEditor(environment, run = runCommand) {
     await run("node", [
       "apps/editor/scripts/verify-deployment-manifest.mjs",
       `${developmentDeployment.editorOrigin}/.well-known/mdbase-app.json`,
-      `${developmentDeployment.editorOrigin}/`
+      `${developmentDeployment.editorOrigin}/`,
+      developmentDeployment.connectOrigin
     ], {
       ...deploymentEnvironment,
       MDBASE_MANIFEST_VERIFY_ATTEMPTS: "12",
