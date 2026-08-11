@@ -3,6 +3,7 @@ use crate::admission::{
 };
 use crate::server::AgentState;
 use futures_util::{SinkExt, StreamExt};
+use mdbase_connect_core::ConnectError;
 use mdbase_connect_protocol::{
     AgentConnectionState, ConnectContractSupport, ConnectOperationOutcome, ConnectProblem,
     RelayFileFrame, RelayFileKind, RelayMessage, CONTROL_PROTOCOL_VERSION,
@@ -40,7 +41,12 @@ async fn connect_once(
     connector_token: &str,
     state: Arc<AgentState>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    sync_collections(client, server_url, connector_token, &state).await?;
+    sync_collections(client, server_url, connector_token, &state)
+        .await
+        .map_err(|error| {
+            warn_collection_sync_error(&error);
+            Box::new(error) as Box<dyn std::error::Error + Send + Sync>
+        })?;
     let websocket_url = websocket_url(server_url)?;
     let mut request = websocket_url.as_str().into_client_request()?;
     request.headers_mut().insert(
@@ -309,7 +315,7 @@ async fn connect_once(
                         &connector_token,
                         &state,
                     ).await {
-                        tracing::warn!(%error, "collection sync failed");
+                        warn_collection_sync_error(&error);
                     }
                 });
             }
@@ -451,9 +457,20 @@ async fn sync_collections(
     server_url: &str,
     connector_token: &str,
     state: &AgentState,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let collections = state.collections()?;
-    let inventory_revision = state.next_inventory_revision()?;
+) -> Result<(), CollectionSyncError> {
+    let collections = state
+        .collections()
+        .map_err(|source| CollectionSyncError::Registry {
+            operation: "list_collections",
+            source,
+        })?;
+    let inventory_revision =
+        state
+            .next_inventory_revision()
+            .map_err(|source| CollectionSyncError::Registry {
+                operation: "next_inventory_revision",
+                source,
+            })?;
     let payload = serde_json::json!({
         "relay_public_key": state.relay_public_key(),
         "inventory_revision": inventory_revision,
@@ -475,9 +492,47 @@ async fn sync_collections(
         .send()
         .await?;
     if !response.status().is_success() {
-        return Err(format!("collection sync failed with HTTP {}", response.status()).into());
+        return Err(CollectionSyncError::Http(response.status()));
     }
     Ok(())
+}
+
+#[derive(Debug, thiserror::Error)]
+enum CollectionSyncError {
+    #[error("{source}")]
+    Registry {
+        operation: &'static str,
+        #[source]
+        source: ConnectError,
+    },
+    #[error(transparent)]
+    Request(#[from] reqwest::Error),
+    #[error("collection sync failed with HTTP {0}")]
+    Http(reqwest::StatusCode),
+}
+
+fn warn_collection_sync_error(error: &CollectionSyncError) {
+    if let CollectionSyncError::Registry { operation, source } = error {
+        let sqlite = source.registry_sqlite_diagnostic();
+        tracing::warn!(
+            error_code = source.code(),
+            registry_database = "connector",
+            registry_operation = *operation,
+            sqlite_diagnostic_available = sqlite.is_some(),
+            sqlite_primary_code = sqlite
+                .as_ref()
+                .map(|diagnostic| diagnostic.primary_code.as_str())
+                .unwrap_or("unavailable"),
+            sqlite_extended_code = sqlite
+                .as_ref()
+                .map(|diagnostic| diagnostic.extended_code)
+                .unwrap_or(0),
+            %error,
+            "collection sync failed"
+        );
+    } else {
+        tracing::warn!(%error, "collection sync failed");
+    }
 }
 
 fn websocket_url(server_url: &str) -> Result<Url, Box<dyn std::error::Error + Send + Sync>> {
@@ -508,6 +563,30 @@ mod tests {
                 .unwrap()
                 .as_str(),
             "wss://connect.example/v1/relay"
+        );
+    }
+
+    #[test]
+    fn collection_sync_errors_preserve_registry_phase_and_sqlite_subcode() {
+        let source = ConnectError::Registry(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_IOERR_FSYNC),
+            Some("fsync failed".to_string()),
+        ));
+        let error = CollectionSyncError::Registry {
+            operation: "next_inventory_revision",
+            source,
+        };
+
+        let CollectionSyncError::Registry { operation, source } = error else {
+            panic!("expected registry sync error");
+        };
+        assert_eq!(operation, "next_inventory_revision");
+        assert_eq!(
+            source.registry_sqlite_diagnostic(),
+            Some(mdbase_connect_core::RegistrySqliteDiagnostic {
+                primary_code: "SystemIoFailure".to_string(),
+                extended_code: rusqlite::ffi::SQLITE_IOERR_FSYNC,
+            })
         );
     }
 
