@@ -217,9 +217,11 @@ export function registerLocalOperationRoutes(
               return reply
                 .header("retry-after", "1")
                 .code(503)
-                .send(apiError(error.code, error.message));
+                .send({ error: error.problem });
             }
-            return reply.code(502).send(apiError(error.code, error.message));
+            return reply
+              .code(error.code === "operation_outcome_unknown" ? 409 : 502)
+              .send({ error: error.problem });
           }
           return {
             protocol_version: operationRequestProtocol,

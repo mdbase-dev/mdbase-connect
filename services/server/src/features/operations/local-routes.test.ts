@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { normalizeConnectProblem } from "@mdbase-dev/connect-protocol";
 import type { DatabasePool } from "../../database-types.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
 import { ConnectorOperationError, type RelayHub } from "../../relay.js";
@@ -36,6 +37,37 @@ describe("local operation access failures", () => {
     expect(response.statusCode).toBe(503);
     expect(response.headers["retry-after"]).toBe("1");
     expect(response.json().error.code).toBe("connector_busy");
+  });
+
+  it("preserves an encrypted durable mutation's unknown outcome at the HTTP boundary", async () => {
+    const { app, relay } = recoveryFixture();
+    vi.mocked(relay.routeEncrypted).mockRejectedValue(ConnectorOperationError.fromProblem(
+      normalizeConnectProblem(
+        "operation_outcome_unknown",
+        "The durable mutation continued after the deadline.",
+        {
+          operation_outcome: "unknown",
+          details: { request_id: requestId }
+        }
+      )
+    ));
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/v1/authorities/${collectionId}/operations/create`,
+      headers: { authorization: "Bearer current-v5-token" },
+      payload: {
+        ...encryptedEnvelope(activeGrantId, "current-key", "create"),
+        protocol_version: 3
+      }
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error).toMatchObject({
+      code: "operation_outcome_unknown",
+      operation_outcome: "unknown",
+      details: { request_id: requestId }
+    });
   });
 
   it("returns the typed required, granted, and missing operation details", async () => {

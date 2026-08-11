@@ -22,6 +22,7 @@ import {
   OPERATION_TRANSPORT_PROTOCOL_VERSION,
   CONTRACT_SETUP_CAPABILITY,
   isConnectProblem,
+  isMutatingOperation,
   MINIMUM_CONNECTOR_VERSION,
   normalizeConnectProblem,
   RELAY_CAPABILITIES,
@@ -793,17 +794,17 @@ export class RelayHub {
       ? OPERATION_TIMEOUT_MS
       : expectedEncrypted.deadline_unix_ms - Date.now();
     if (deadlineTimeout <= 0) {
-      return Promise.reject(new ConnectorOperationError(
+      return Promise.reject(ConnectorOperationError.fromProblem(normalizeConnectProblem(
         "operation_cancelled",
-        "The operation deadline expired before connector execution."
-      ));
+        "The operation deadline expired before connector execution.",
+        { operation_outcome: "not_sent" }
+      )));
     }
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
-        reject(new ConnectorOperationError(
-          "connector_timeout",
-          "The connector operation timed out."
+        reject(ConnectorOperationError.fromProblem(
+          relayExecutionTimeoutProblem(expectedEncrypted, requestId)
         ));
       }, expectedType === "authorization_offer_response"
         ? OFFER_TIMEOUT_MS
@@ -864,6 +865,33 @@ export class RelayHub {
     }
     this.files.rejectForSocket(socket, error);
   }
+}
+
+export function relayExecutionTimeoutProblem(
+  request: EncryptedRelayEnvelope | undefined,
+  requestId: string
+): ConnectProblem {
+  if (request && encryptedOperationMayMutate(request.operation)) {
+    return normalizeConnectProblem(
+      "operation_outcome_unknown",
+      "The durable mutation may have completed after its caller's deadline expired. Retry the same mutation identity to recover its result.",
+      {
+        operation_outcome: "unknown",
+        details: { request_id: requestId }
+      }
+    );
+  }
+  return normalizeConnectProblem(
+    "operation_cancelled",
+    "The connector operation exceeded its execution deadline.",
+    { operation_outcome: "not_sent" }
+  );
+}
+
+function encryptedOperationMayMutate(operation: EncryptedRelayEnvelope["operation"]): boolean {
+  return operation === "file_control"
+    || operation === "sync"
+    || isMutatingOperation(operation, {});
 }
 
 function validProtocolUsageEntries(
