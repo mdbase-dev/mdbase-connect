@@ -327,6 +327,7 @@ impl RelayMetadata<'_> {
             scope_epoch: self.binding.scope_epoch,
             key_id: self.binding.key_id.clone(),
             counter: self.counter.to_string(),
+            deadline_unix_ms: None,
             ciphertext,
         }
     }

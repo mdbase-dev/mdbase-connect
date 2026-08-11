@@ -500,6 +500,11 @@ pub struct EncryptedRelayEnvelope {
     pub scope_epoch: u64,
     pub key_id: String,
     pub counter: String,
+    /// Untrusted scheduling hint. Authorities may only shorten their own
+    /// bounded execution window from this value; it is not part of the
+    /// encrypted operation's authenticated data.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deadline_unix_ms: Option<u64>,
     pub ciphertext: String,
 }
 

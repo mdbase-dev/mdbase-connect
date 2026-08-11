@@ -52,6 +52,10 @@ import {
   relayContractMismatch,
   type RelayHello
 } from "./relay-compatibility.js";
+import {
+  grantIdFromMessage,
+  hasPendingOperationCapacity
+} from "./relay-admission.js";
 
 export { ConnectorOperationError, RelayUnavailableError } from "./relay-errors.js";
 export { connectorVersionAtLeast } from "./relay-compatibility.js";
@@ -67,6 +71,9 @@ interface PendingRequest {
   reject(error: Error): void;
   timer: NodeJS.Timeout;
   socket: WebSocket;
+  connectorId?: string;
+  grantId?: string;
+  requestBytes?: number;
   expectedEncrypted?: EncryptedRelayEnvelope;
   expectedType?:
     | "operation_response"
@@ -706,6 +713,8 @@ export class RelayHub {
       try {
         const value = await this.sendToConnector(
           session.socket,
+          connectorId,
+          undefined,
           requestId,
           command.message,
           undefined,
@@ -728,12 +737,15 @@ export class RelayHub {
       return brokerError("internal", "invalid_relay_request", "The relay request did not contain a request ID.");
     }
     const expectedEncrypted = encryptedRequestFromMessage(command.message);
+    const grantId = grantIdFromMessage(command.message);
     const expectedType = expectedEncrypted
       ? undefined
       : expectedResponseType(command.message);
     try {
       const value = await this.sendToConnector(
         session.socket,
+        connectorId,
+        grantId,
         requestId,
         command.message,
         expectedEncrypted,
@@ -753,6 +765,8 @@ export class RelayHub {
 
   private sendToConnector(
     socket: WebSocket,
+    connectorId: string,
+    grantId: string | undefined,
     requestId: string,
     message: unknown,
     expectedEncrypted?: EncryptedRelayEnvelope,
@@ -765,6 +779,25 @@ export class RelayHub {
         "The encrypted request ID is already in use."
       ));
     }
+    const encoded = JSON.stringify(message);
+    const requestBytes = Buffer.byteLength(encoded);
+    if (grantId && !hasPendingOperationCapacity(
+      this.pending.values(), connectorId, grantId, requestBytes
+    )) {
+      return Promise.reject(new ConnectorOperationError(
+        "connector_busy",
+        "The connector is processing its bounded operation queue."
+      ));
+    }
+    const deadlineTimeout = expectedEncrypted?.deadline_unix_ms === undefined
+      ? OPERATION_TIMEOUT_MS
+      : expectedEncrypted.deadline_unix_ms - Date.now();
+    if (deadlineTimeout <= 0) {
+      return Promise.reject(new ConnectorOperationError(
+        "operation_cancelled",
+        "The operation deadline expired before connector execution."
+      ));
+    }
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
@@ -774,18 +807,19 @@ export class RelayHub {
         ));
       }, expectedType === "authorization_offer_response"
         ? OFFER_TIMEOUT_MS
-        : OPERATION_TIMEOUT_MS);
+        : Math.min(OPERATION_TIMEOUT_MS, deadlineTimeout));
       this.pending.set(requestId, {
         resolve,
         reject,
         timer,
         socket,
+        ...(grantId ? { connectorId, grantId, requestBytes } : {}),
         expectedEncrypted,
         expectedType,
         expectedPolicyRevision
       });
       try {
-        socket.send(JSON.stringify(message), (error) => {
+        socket.send(encoded, (error) => {
           if (error) this.rejectPending(requestId, new RelayUnavailableError());
         });
       } catch {

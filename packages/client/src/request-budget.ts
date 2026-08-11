@@ -39,6 +39,22 @@ export interface RequestBudget {
   dispose(): void;
 }
 
+export type OperationRequestOptions = ConnectRequestOptions & {
+  /** Absolute budget shared with the connector; never supplied directly by callers. */
+  deadlineUnixMs?: number;
+};
+
+export function requestOptionsWithinBudget(
+  options: ConnectRequestOptions,
+  budget: RequestBudget
+): OperationRequestOptions {
+  return {
+    ...options,
+    signal: budget.signal,
+    ...(budget.deadline === null ? {} : { deadlineUnixMs: budget.deadline })
+  };
+}
+
 export function createRequestBudget(
   options: ConnectRequestOptions = {},
   defaultTimeoutMs: number | null = DEFAULT_REQUEST_TIMEOUT_MS,

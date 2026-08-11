@@ -1,28 +1,10 @@
 use super::{metrics, operation_responses::*, *};
 impl AgentState {
-    pub(super) fn local_operation(
-        &self,
-        collection_id: uuid::Uuid,
-        operation: &str,
-        input: &serde_json::Value,
-    ) -> Result<serde_json::Value, ConnectError> {
-        let started = Instant::now();
-        let synchronize_us = std::cell::Cell::new(0_u64);
-        let result =
-            self.registry
-                .operation_synchronized(collection_id, operation, input, |invalidation| {
-                    let synchronize_started = Instant::now();
-                    self.watcher.synchronize(collection_id, invalidation);
-                    synchronize_us.set(elapsed_us(synchronize_started));
-                });
-        profile_operation("control", operation, started, synchronize_us.get(), &result);
-        result
-    }
-
-    pub fn handle_direct_encrypted_operation(
+    pub(crate) fn handle_direct_encrypted_operation_cancellable(
         &self,
         origin: &str,
         envelope: mdbase_connect_protocol::EncryptedRelayEnvelope,
+        cancellation: &mdbase::OperationCancellation,
     ) -> RelayMessage {
         let origin_matches = self
             .registry
@@ -34,10 +16,18 @@ impl AgentState {
             return encrypted_rejection(envelope.protocol_version, envelope.request_id);
         }
         metrics::direct_operation_transport(envelope.protocol_version);
-        self.handle_encrypted_operation(envelope)
+        self.handle_encrypted_operation(envelope, cancellation)
     }
 
     pub fn handle_relay_message(&self, message: RelayMessage) -> Option<RelayMessage> {
+        self.handle_relay_message_cancellable(message, &mdbase::OperationCancellation::new())
+    }
+
+    pub(crate) fn handle_relay_message_cancellable(
+        &self,
+        message: RelayMessage,
+        cancellation: &mdbase::OperationCancellation,
+    ) -> Option<RelayMessage> {
         match message {
             RelayMessage::PolicySnapshot {
                 protocol_version,
@@ -374,12 +364,13 @@ impl AgentState {
                         && grant.operations.iter().any(|allowed| allowed == &operation)
                 });
                 let result = if authorized {
-                    self.scoped_operation(
+                    self.scoped_operation_cancellable(
                         "relay",
                         collection_id,
                         &operation,
                         &input,
                         context.as_ref().expect("authorized grant must exist"),
+                        cancellation,
                     )
                 } else {
                     let _ = self.registry.record_activity(
@@ -436,7 +427,7 @@ impl AgentState {
                 })
             }
             RelayMessage::EncryptedOperationRequest { envelope } => {
-                Some(self.handle_encrypted_operation(envelope))
+                Some(self.handle_encrypted_operation(envelope, cancellation))
             }
             RelayMessage::RelayHello { .. }
             | RelayMessage::RelayWelcome { .. }
@@ -454,6 +445,7 @@ impl AgentState {
     fn handle_encrypted_operation(
         &self,
         envelope: mdbase_connect_protocol::EncryptedRelayEnvelope,
+        cancellation: &mdbase::OperationCancellation,
     ) -> RelayMessage {
         if !mdbase_connect_protocol::SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS
             .contains(&envelope.protocol_version)
@@ -561,6 +553,17 @@ impl AgentState {
             }
             Ok(EncryptedRequestClaim::InProgress) if mutation.is_none() => {
                 for _ in 0..1_000 {
+                    if cancellation.is_cancelled() {
+                        return encrypted_problem_response(
+                            &keys,
+                            metadata,
+                            ConnectProblem::new(
+                                "operation_cancelled",
+                                "The operation was cancelled after its caller's deadline expired.",
+                            )
+                            .with_operation_outcome(ConnectOperationOutcome::NotSent),
+                        );
+                    }
                     std::thread::sleep(std::time::Duration::from_millis(25));
                     match self.registry.encrypted_request_response(
                         context.id,
@@ -654,12 +657,13 @@ impl AgentState {
         } else if file_control {
             self.file_control(&context, input)
         } else {
-            self.scoped_operation(
+            self.scoped_operation_cancellable(
                 "encrypted",
                 context.collection_id,
                 &envelope.operation,
                 &input,
                 &context,
+                cancellation,
             )
         };
         let (outcome, detail) = match &result {

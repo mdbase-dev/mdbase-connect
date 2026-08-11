@@ -71,7 +71,8 @@ pub use mutation_journal::{
     MutationLease, MutationRecoveryData,
 };
 use operation_execution::{
-    error_message, execute_loaded, has_contract, operation_invalidation, supported_operations,
+    error_message, execute_loaded, execute_loaded_cancellable, has_contract,
+    operation_invalidation, supported_operations,
 };
 pub use receipts::AuthorityReceiptDiagnostics;
 use scope::{
@@ -130,6 +131,8 @@ pub enum ConnectError {
     AccessPaused,
     #[error("Encrypted relay request was rejected")]
     EncryptedRelayRejected,
+    #[error("The collection operation was cancelled after its caller's deadline expired")]
+    OperationCancelled,
     #[error("Collection authority transfer {transfer_id} is fencing mutations")]
     AuthorityTransferInProgress { transfer_id: Uuid },
     #[error("This collection is no longer authoritative on this computer")]
@@ -211,6 +214,7 @@ impl ConnectError {
             Self::AccessDenied(_) => "access_denied",
             Self::AccessPaused => "access_paused",
             Self::EncryptedRelayRejected => "encrypted_relay_rejected",
+            Self::OperationCancelled => "operation_cancelled",
             Self::AuthorityTransferInProgress { .. } => "authority_transfer_in_progress",
             Self::AuthorityRetired => "authority_retired",
             Self::AuthorityTransferMismatch => "authority_transfer_mismatch",

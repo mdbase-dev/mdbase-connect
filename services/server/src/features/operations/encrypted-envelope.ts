@@ -33,6 +33,7 @@ export const encryptedRelayRequestSchema = z.object({
   scope_epoch: z.number().int().positive(),
   key_id: z.string().min(1).max(200),
   counter: z.string().regex(/^[1-9][0-9]{0,19}$/),
+  deadline_unix_ms: z.number().int().positive().safe().optional(),
   ciphertext: z.string()
     .min(1)
     .max(2_800_000)

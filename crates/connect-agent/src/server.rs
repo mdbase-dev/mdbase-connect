@@ -41,6 +41,7 @@ pub struct AgentState {
     shutdown: tokio::sync::Notify,
     state_dir: std::sync::RwLock<Option<std::path::PathBuf>>,
     account_configuration_lock: std::sync::Mutex<()>,
+    admission: crate::admission::AdmissionScheduler,
 }
 
 mod account;
@@ -89,6 +90,7 @@ impl AgentState {
             shutdown: tokio::sync::Notify::new(),
             state_dir: std::sync::RwLock::new(None),
             account_configuration_lock: std::sync::Mutex::new(()),
+            admission: crate::admission::AdmissionScheduler::default(),
         }
     }
 
@@ -180,6 +182,10 @@ impl AgentState {
                     .iter()
                     .any(|grant| grant.application_origin == origin && grant.encryption.is_some())
             }) || self.registry.replay_origin_allowed(origin).unwrap_or(false))
+    }
+
+    pub(crate) fn admission(&self) -> &crate::admission::AdmissionScheduler {
+        &self.admission
     }
 }
 

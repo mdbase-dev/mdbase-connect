@@ -1,3 +1,6 @@
+use crate::admission::{
+    classify_operation, execution_timeout, queue_deadline, AdmissionRequest, WorkClass,
+};
 use crate::server::AgentState;
 use futures_util::{SinkExt, StreamExt};
 use mdbase_connect_protocol::{
@@ -111,8 +114,7 @@ async fn connect_once(
         }
     });
     let mut received_policy_generation = 0_u64;
-    let operation_slots = Arc::new(tokio::sync::Semaphore::new(16));
-    let file_slots = Arc::new(tokio::sync::Semaphore::new(8));
+    let control_slots = Arc::new(tokio::sync::Semaphore::new(2));
     state.set_connection_state(AgentConnectionState::Connected);
     tracing::info!(server = server_url, "connected to cloud relay");
     let mut sync_interval = tokio::time::interval(Duration::from_secs(15));
@@ -134,39 +136,94 @@ async fn connect_once(
                             policy_jobs
                                 .try_send((received_policy_generation, relay_message))
                                 .map_err(|_| "relay policy queue is full")?;
-                        } else {
+                        } else if let Some(admission) = relay_admission_request(&relay_message) {
                             let state_for_operation = state.clone();
                             let responses = responses.clone();
                             let policy_applied = policy_applied_rx.clone();
                             let required_policy_generation = received_policy_generation;
-                            let Ok(permit) = operation_slots.clone().try_acquire_owned() else {
-                                if let Some(response) = relay_operation_rejection(
-                                    &relay_message,
-                                    "The connector is processing its bounded operation queue.",
-                                ) {
-                                    let _ = responses.try_send(response);
-                                }
-                                continue;
-                            };
                             tokio::spawn(async move {
                                 if !wait_for_policy(policy_applied, required_policy_generation).await.unwrap_or(false) {
                                     if let Some(response) = relay_operation_rejection(
                                         &relay_message,
+                                        "connector_busy",
                                         "The connector could not install the required policy snapshot.",
                                     ) {
                                         let _ = responses.send(response).await;
                                     }
                                     return;
                                 }
+                                let deadline_unix_ms = relay_operation_deadline(&relay_message);
+                                let permit = match state_for_operation
+                                    .admission()
+                                    .admit_before(admission, queue_deadline(deadline_unix_ms))
+                                    .await {
+                                    Ok(permit) => permit,
+                                    Err(_) => {
+                                        if let Some(response) = relay_operation_rejection(
+                                            &relay_message,
+                                            "connector_busy",
+                                            "The connector is processing its bounded operation queue.",
+                                        ) {
+                                            let _ = responses.send(response).await;
+                                        }
+                                        return;
+                                    }
+                                };
+                                tracing::debug!(
+                                    queue_wait_us = permit.queue_wait_us,
+                                    "admitted relayed connector operation"
+                                );
+                                let cancellation = mdbase::OperationCancellation::new();
+                                let worker_cancellation = cancellation.clone();
+                                let timeout_response = relay_operation_rejection(
+                                    &relay_message,
+                                    "operation_cancelled",
+                                    "The connector operation exceeded its execution deadline.",
+                                );
+                                let execution = tokio::task::spawn_blocking(move || {
+                                    let _permit = permit;
+                                    state_for_operation.handle_relay_message_cancellable(
+                                        relay_message,
+                                        &worker_cancellation,
+                                    )
+                                });
+                                match tokio::time::timeout(execution_timeout(deadline_unix_ms), execution).await {
+                                    Ok(Ok(Some(response))) => {
+                                        let _ = responses.send(response).await;
+                                    }
+                                    Ok(Ok(None)) => {}
+                                    Ok(Err(error)) => tracing::warn!(%error, "relay operation task failed"),
+                                    Err(_) => {
+                                        cancellation.cancel();
+                                        tracing::warn!("relayed connector operation exceeded its execution deadline");
+                                        if let Some(response) = timeout_response {
+                                            let _ = responses.send(response).await;
+                                        }
+                                    }
+                                }
+                            });
+                        } else {
+                            let state_for_control = state.clone();
+                            let responses = responses.clone();
+                            let policy_applied = policy_applied_rx.clone();
+                            let required_policy_generation = received_policy_generation;
+                            let control_slots = control_slots.clone();
+                            tokio::spawn(async move {
+                                if !wait_for_policy(policy_applied, required_policy_generation).await.unwrap_or(false) {
+                                    return;
+                                }
+                                let Ok(permit) = control_slots.acquire_owned().await else {
+                                    return;
+                                };
                                 match tokio::task::spawn_blocking(move || {
                                     let _permit = permit;
-                                    state_for_operation.handle_relay_message(relay_message)
+                                    state_for_control.handle_relay_message(relay_message)
                                 }).await {
                                     Ok(Some(response)) => {
                                         let _ = responses.send(response).await;
                                     }
                                     Ok(None) => {}
-                                    Err(error) => tracing::warn!(%error, "relay operation task failed"),
+                                    Err(error) => tracing::warn!(%error, "relay control task failed"),
                                 }
                             });
                         }
@@ -179,9 +236,11 @@ async fn connect_once(
                                 continue;
                             }
                         };
-                        let Ok(permit) = file_slots.clone().try_acquire_owned() else {
-                            let _ = file_responses.try_send(rejected_file_frame(&request));
-                            continue;
+                        let admission = AdmissionRequest {
+                            grant_id: request.header.grant_id,
+                            collection_id: uuid::Uuid::nil(),
+                            class: WorkClass::File,
+                            weight_bytes: request.payload.len().saturating_add(1024),
                         };
                         let state_for_file = state.clone();
                         let file_responses = file_responses.clone();
@@ -192,6 +251,13 @@ async fn connect_once(
                                 let _ = file_responses.send(rejected_file_frame(&request)).await;
                                 return;
                             }
+                            let permit = match state_for_file.admission().admit(admission).await {
+                                Ok(permit) => permit,
+                                Err(_) => {
+                                    let _ = file_responses.send(rejected_file_frame(&request)).await;
+                                    return;
+                                }
+                            };
                             let response = tokio::task::spawn_blocking(move || {
                                 let _permit = permit;
                                 state_for_file.handle_relay_file_frame(request)
@@ -252,10 +318,19 @@ async fn connect_once(
     }
 }
 
-fn relay_operation_rejection(request: &RelayMessage, message: &str) -> Option<RelayMessage> {
+fn relay_operation_rejection(
+    request: &RelayMessage,
+    code: &str,
+    message: &str,
+) -> Option<RelayMessage> {
     let problem = || {
-        ConnectProblem::new("connector_busy", message)
-            .with_operation_outcome(ConnectOperationOutcome::Rejected)
+        ConnectProblem::new(code, message).with_operation_outcome(
+            if code == "operation_cancelled" {
+                ConnectOperationOutcome::NotSent
+            } else {
+                ConnectOperationOutcome::Rejected
+            },
+        )
     };
     match request {
         RelayMessage::OperationRequest { request_id, .. } => {
@@ -280,6 +355,37 @@ fn relay_operation_rejection(request: &RelayMessage, message: &str) -> Option<Re
                 problem: problem(),
             })
         }
+        _ => None,
+    }
+}
+
+fn relay_operation_deadline(message: &RelayMessage) -> Option<u64> {
+    match message {
+        RelayMessage::EncryptedOperationRequest { envelope } => envelope.deadline_unix_ms,
+        _ => None,
+    }
+}
+
+fn relay_admission_request(message: &RelayMessage) -> Option<AdmissionRequest> {
+    match message {
+        RelayMessage::OperationRequest {
+            grant_id,
+            collection_id,
+            operation,
+            input,
+            ..
+        } => Some(AdmissionRequest {
+            grant_id: *grant_id,
+            collection_id: *collection_id,
+            class: classify_operation(operation, Some(input)),
+            weight_bytes: serde_json::to_vec(input).map_or(0, |value| value.len()),
+        }),
+        RelayMessage::EncryptedOperationRequest { envelope } => Some(AdmissionRequest {
+            grant_id: envelope.grant_id,
+            collection_id: envelope.collection_id,
+            class: classify_operation(&envelope.operation, None),
+            weight_bytes: envelope.ciphertext.len(),
+        }),
         _ => None,
     }
 }
@@ -399,7 +505,7 @@ mod tests {
             input: serde_json::json!({}),
         };
         assert!(matches!(
-            relay_operation_rejection(&request, "busy"),
+            relay_operation_rejection(&request, "connector_busy", "busy"),
             Some(RelayMessage::OperationResponse {
                 request_id: returned,
                 problem: Some(problem),

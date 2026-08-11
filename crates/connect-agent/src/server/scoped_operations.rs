@@ -1,6 +1,25 @@
 use super::*;
 
 impl AgentState {
+    pub(super) fn local_operation(
+        &self,
+        collection_id: uuid::Uuid,
+        operation: &str,
+        input: &serde_json::Value,
+    ) -> Result<serde_json::Value, ConnectError> {
+        let started = Instant::now();
+        let synchronize_us = std::cell::Cell::new(0_u64);
+        let result =
+            self.registry
+                .operation_synchronized(collection_id, operation, input, |invalidation| {
+                    let synchronize_started = Instant::now();
+                    self.watcher.synchronize(collection_id, invalidation);
+                    synchronize_us.set(elapsed_us(synchronize_started));
+                });
+        profile_operation("control", operation, started, synchronize_us.get(), &result);
+        result
+    }
+
     pub(super) fn scoped_operation(
         &self,
         transport: &'static str,
@@ -8,6 +27,25 @@ impl AgentState {
         operation: &str,
         input: &serde_json::Value,
         grant: &mdbase_connect_protocol::GrantSummary,
+    ) -> Result<serde_json::Value, ConnectError> {
+        self.scoped_operation_cancellable(
+            transport,
+            collection_id,
+            operation,
+            input,
+            grant,
+            &mdbase::OperationCancellation::new(),
+        )
+    }
+
+    pub(super) fn scoped_operation_cancellable(
+        &self,
+        transport: &'static str,
+        collection_id: uuid::Uuid,
+        operation: &str,
+        input: &serde_json::Value,
+        grant: &mdbase_connect_protocol::GrantSummary,
+        cancellation: &mdbase::OperationCancellation,
     ) -> Result<serde_json::Value, ConnectError> {
         let started = Instant::now();
         let synchronize_us = std::cell::Cell::new(0_u64);
@@ -71,11 +109,12 @@ impl AgentState {
             profile_operation(transport, operation, started, synchronize_us.get(), &result);
             return result;
         }
-        let result = self.registry.scoped_operation_synchronized(
+        let result = self.registry.scoped_operation_synchronized_cancellable(
             collection_id,
             operation,
             input,
             &grant.scope,
+            cancellation,
             |invalidation| {
                 let synchronize_started = Instant::now();
                 self.watcher.synchronize(collection_id, invalidation);

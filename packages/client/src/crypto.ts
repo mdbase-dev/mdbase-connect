@@ -239,9 +239,14 @@ export async function encryptRelayRequest(
   binding: RelayBinding,
   operation: EncryptedRelayOperation,
   input: unknown,
-  requestId: string = crypto.randomUUID()
+  requestId: string = crypto.randomUUID(),
+  deadlineUnixMs?: number
 ): Promise<EncryptedRelayOperationRequest> {
   validateGrantEncryption(binding.encryption);
+  if (deadlineUnixMs !== undefined
+      && (!Number.isSafeInteger(deadlineUnixMs) || deadlineUnixMs <= 0)) {
+    throw new RelayCryptoError("invalid_deadline", "The operation deadline is invalid.");
+  }
   const record = await requireAgreementKey(
     store,
     handle,
@@ -271,6 +276,7 @@ export async function encryptRelayRequest(
   return {
     type: "encrypted_operation_request",
     ...envelopeMetadata(metadata),
+    ...(deadlineUnixMs === undefined ? {} : { deadline_unix_ms: deadlineUnixMs }),
     ciphertext: bytesToBase64Url(new Uint8Array(ciphertext))
   };
 }

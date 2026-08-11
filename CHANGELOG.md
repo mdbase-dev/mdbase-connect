@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.0-beta.62
+
+Beta.62 bounds collection-query memory and connector admission under load while
+preserving capacity for interactive reads and mutations.
+
+- Metadata-only typed queries page through the engine cache instead of
+  materializing the full collection, and expired queries stop cooperatively
+  during cache refresh, snapshot loading, and record evaluation.
+- Direct and relayed work share one bounded scheduler with per-grant limits,
+  reserved mutation capacity, foreground read capacity, per-collection
+  mutation serialization, and count- plus byte-bounded queues.
+- SDK requests carry an optional absolute deadline that can only shorten the
+  connector's local execution window; it remains outside durable replay
+  identity so retry and recovery semantics do not change.
+- The control plane bounds pending encrypted operations by grant, connector,
+  process count, and retained request bytes while policy and control traffic
+  retain dedicated capacity.
+
 ## 0.1.0-beta.61
 
 Beta.61 makes hosted-provider readiness acyclic while retaining an exact,

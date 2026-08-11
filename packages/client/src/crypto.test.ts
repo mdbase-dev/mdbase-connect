@@ -156,6 +156,23 @@ describe("encrypted relay client", () => {
     expect(JSON.stringify(request)).not.toContain("MUST_NOT_APPEAR");
   });
 
+  it("carries an absolute scheduling deadline outside the authenticated payload", async () => {
+    const { applicationStore, encryption } = await fixture();
+    const deadline = 1_800_000_000_000;
+    const request = await encryptRelayRequest(
+      applicationStore,
+      "grant",
+      { grantId: ids.grant, applicationId: ids.application, encryption },
+      "query",
+      { marker: "MUST_REMAIN_ENCRYPTED" },
+      ids.request,
+      deadline
+    );
+
+    expect(request.deadline_unix_ms).toBe(deadline);
+    expect(JSON.stringify(request)).not.toContain("MUST_REMAIN_ENCRYPTED");
+  });
+
   it("allocates unique monotonic counters under concurrent load", async () => {
     const { applicationStore, encryption } = await fixture();
     const requests = await Promise.all(Array.from({ length: 50 }, (_, index) =>

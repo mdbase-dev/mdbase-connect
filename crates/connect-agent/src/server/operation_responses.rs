@@ -177,6 +177,10 @@ pub(super) fn serialized_encrypted_response(
 }
 
 pub(super) fn operation_problem(error: &ConnectError) -> ConnectProblem {
+    if matches!(error, ConnectError::OperationCancelled) {
+        return ConnectProblem::new(error.code(), error.to_string())
+            .with_operation_outcome(ConnectOperationOutcome::NotSent);
+    }
     if let ConnectError::MutationRequestConflict { request_id } = error {
         return ConnectProblem::new(error.code(), error.to_string())
             .with_details(serde_json::json!({ "request_id": request_id }))

@@ -199,17 +199,11 @@ impl AgentState {
         }
     }
 
-    pub fn handle_direct_file_upload(
+    pub fn handle_direct_file_upload_frame(
         &self,
         origin: &str,
-        encoded: &[u8],
+        frame: FileFrame,
     ) -> Result<(), ConnectError> {
-        let frame = FileFrame::decode(encoded).map_err(|error| {
-            local_file_error(
-                "invalid_file_frame",
-                format!("The file frame is invalid: {error}"),
-            )
-        })?;
         self.handle_file_upload(Some(origin), frame)
     }
 

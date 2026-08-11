@@ -10,11 +10,9 @@ use std::io;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
-use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 
 const MAX_REQUEST_BYTES: usize = 3 * 1024 * 1024;
-const MAX_CONCURRENT_OPERATIONS: usize = 32;
 const MAX_REQUESTS_PER_MINUTE_PER_ORIGIN: u32 = 600;
 
 mod control;
@@ -24,7 +22,6 @@ mod files;
 struct LoopbackState {
     agent: Arc<AgentState>,
     port: u16,
-    operations: Arc<Semaphore>,
     rates: Arc<Mutex<HashMap<String, (Instant, u32)>>>,
 }
 
@@ -76,7 +73,6 @@ fn router(agent: Arc<AgentState>, port: u16) -> Router {
     let state = LoopbackState {
         agent,
         port,
-        operations: Arc::new(Semaphore::new(MAX_CONCURRENT_OPERATIONS)),
         rates: Arc::new(Mutex::new(HashMap::new())),
     };
     Router::new()
@@ -100,16 +96,6 @@ fn request_for_authorization(
     let (mut parts, _) = request.into_parts();
     parts.headers = headers;
     Request::from_parts(parts, Body::empty())
-}
-
-async fn operation_permit(state: &LoopbackState) -> Option<tokio::sync::OwnedSemaphorePermit> {
-    tokio::time::timeout(
-        Duration::from_secs(5),
-        state.operations.clone().acquire_owned(),
-    )
-    .await
-    .ok()?
-    .ok()
 }
 
 async fn not_found() -> Response<Body> {

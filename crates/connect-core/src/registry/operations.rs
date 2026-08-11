@@ -340,6 +340,25 @@ impl CollectionRegistry {
         scope: &GrantScope,
         synchronize: impl FnOnce(&CollectionInvalidation),
     ) -> Result<Value, ConnectError> {
+        self.scoped_operation_synchronized_cancellable(
+            id,
+            operation,
+            input,
+            scope,
+            &mdbase::OperationCancellation::new(),
+            synchronize,
+        )
+    }
+
+    pub fn scoped_operation_synchronized_cancellable(
+        &self,
+        id: Uuid,
+        operation: &str,
+        input: &Value,
+        scope: &GrantScope,
+        cancellation: &mdbase::OperationCancellation,
+        synchronize: impl FnOnce(&CollectionInvalidation),
+    ) -> Result<Value, ConnectError> {
         let registered = self.get(id)?;
         if !registered.enabled {
             return Err(ConnectError::AccessDenied(
@@ -350,7 +369,14 @@ impl CollectionRegistry {
         let sync_store = crate::LocalSyncStore::for_registry(self);
         let execute = |collection: &Collection| {
             sync_store.assert_authority_available(id)?;
-            self.scoped_operation_loaded(&registered, collection, operation, input, scope)
+            self.scoped_operation_loaded(
+                &registered,
+                collection,
+                operation,
+                input,
+                scope,
+                cancellation,
+            )
         };
         if operation == "batch" || is_mutating_operation(operation, input) {
             provider.with_collection(|collection| {
@@ -463,6 +489,7 @@ impl CollectionRegistry {
                         operation,
                         &operation_input,
                         scope,
+                        &mdbase::OperationCancellation::new(),
                     )?;
                     if result.get("valid").and_then(Value::as_bool) != Some(true) {
                         let receipt = SyncMutationReceipt::Rejected {
@@ -509,6 +536,7 @@ impl CollectionRegistry {
         operation: &str,
         input: &Value,
         scope: &GrantScope,
+        cancellation: &mdbase::OperationCancellation,
     ) -> Result<Value, ConnectError> {
         let Some(resolved_scope) = self.resolve_operation_contract_scope_loaded(
             registered, collection, scope, operation, input,
@@ -519,7 +547,13 @@ impl CollectionRegistry {
                     .map_err(ConnectError::from),
                 "changes" => serde_json::to_value(self.changes(registered.id, input)?)
                     .map_err(ConnectError::from),
-                _ => execute_loaded(collection, &registered.spec_version, operation, input),
+                _ => execute_loaded_cancellable(
+                    collection,
+                    &registered.spec_version,
+                    operation,
+                    input,
+                    cancellation,
+                ),
             };
         };
         let allowed_types = &resolved_scope.allowed_types;
@@ -549,7 +583,13 @@ impl CollectionRegistry {
                 let (input, selector) = resolved_scope
                     .query_input(input)
                     .map_err(contract_scope_error)?;
-                let result = execute_loaded(collection, &registered.spec_version, operation, &input)?;
+                let result = execute_loaded_cancellable(
+                    collection,
+                    &registered.spec_version,
+                    operation,
+                    &input,
+                    cancellation,
+                )?;
                 resolved_scope
                     .project_result(collection, result, selector.as_ref())
                     .map_err(contract_scope_error)

@@ -14,7 +14,8 @@ export async function freshEncryptedRequest(
   keyStore: GrantKeyStore,
   token: StoredToken,
   operation: CollectionOperation,
-  input: unknown
+  input: unknown,
+  deadlineUnixMs?: number
 ): Promise<EncryptedRelayOperationRequest> {
   if (!token.encryption || !token.grantId || !token.keyHandle) {
     throw connectError(
@@ -41,7 +42,9 @@ export async function freshEncryptedRequest(
         encryption: token.encryption
       },
       operation,
-      input
+      input,
+      undefined,
+      deadlineUnixMs
     );
   } catch (error) {
     if (error instanceof RelayCryptoError) {

@@ -732,6 +732,7 @@ fn rust_encrypted_relay_messages_match_the_canonical_wire_schema() {
         scope_epoch: 1,
         key_id: "enc_test".to_string(),
         counter: "1".to_string(),
+        deadline_unix_ms: Some(1_800_000_000_000),
         ciphertext: "opaque_ciphertext".to_string(),
     };
     assert_encrypted_schema(

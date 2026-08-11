@@ -111,6 +111,24 @@ describe("local operation access failures", () => {
     expect(relay.routeEncrypted).not.toHaveBeenCalled();
   });
 
+  it("accepts and forwards a bounded v3 connector deadline hint", async () => {
+    const { app, relay } = recoveryFixture();
+    const envelope = {
+      ...encryptedEnvelope(activeGrantId, "current-key", "read"),
+      protocol_version: 3 as const,
+      deadline_unix_ms: Date.now() + 5_000
+    };
+    const response = await app.inject({
+      method: "POST",
+      url: `/v1/authorities/${collectionId}/operations/read`,
+      headers: { authorization: "Bearer current-v5-token" },
+      payload: envelope
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(relay.routeEncrypted).toHaveBeenCalledWith(connectorId, envelope);
+  });
+
   it("rejects a newly constructed v2 mutation under the active v5 grant", async () => {
     const { app, relay } = recoveryFixture();
     const response = await app.inject({

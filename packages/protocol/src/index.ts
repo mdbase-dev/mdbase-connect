@@ -345,6 +345,8 @@ export interface EncryptedRelayEnvelope {
   scope_epoch: number;
   key_id: string;
   counter: string;
+  /** Untrusted scheduling hint; an authority may use it only to shorten work. */
+  deadline_unix_ms?: number;
   ciphertext: string;
 }
 

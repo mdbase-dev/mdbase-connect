@@ -56,7 +56,7 @@ import {
 } from "./runtime-utils.js";
 import { readStoredToken } from "./stored-token.js";
 import {
-  type ResolvedConnectTimeouts,
+  type OperationRequestOptions, type ResolvedConnectTimeouts, requestOptionsWithinBudget,
   withCooperativeRequestBudget,
   withRequestBudget
 } from "./request-budget.js";
@@ -228,17 +228,14 @@ export class ConnectionTransport {
     options: ConnectRequestOptions = {}
   ): Promise<Result> {
     return withCooperativeRequestBudget(options, this.timeouts.requestMs, (budget) =>
-      this.performOperationWithinBudget<Result>(operation, input, {
-        ...options,
-        signal: budget.signal
-      })
+      this.performOperationWithinBudget<Result>(operation, input, requestOptionsWithinBudget(options, budget))
     );
   }
 
   private async performOperationWithinBudget<Result>(
     operation: CollectionOperation,
     input: unknown,
-    options: ConnectRequestOptions,
+    options: OperationRequestOptions,
     storedPending?: PendingMutation,
     freshReadRetried = false,
     connectorBusyRetries = 0,
@@ -546,7 +543,7 @@ export class ConnectionTransport {
     operation: CollectionOperation,
     input: unknown,
     tryDirect: boolean,
-    options: ConnectRequestOptions = {},
+    options: OperationRequestOptions = {},
     pendingRequestId?: string,
     knownRejectedMutationRetry = false
   ): Promise<OperationAttempt> {
@@ -609,7 +606,7 @@ export class ConnectionTransport {
               { grantId: token.grantId, applicationId: token.clientId, encryption: token.encryption },
               operation,
               input,
-              requestId
+              requestId, options.deadlineUnixMs
             );
             this.pendingMutationStore.store({
               collectionId: token.collectionId,
@@ -632,7 +629,8 @@ export class ConnectionTransport {
             token.keyHandle,
             { grantId: token.grantId, applicationId: token.clientId, encryption: token.encryption },
             operation,
-            input
+            input,
+            undefined, options.deadlineUnixMs
           );
         }
       } catch (error) {
@@ -710,7 +708,7 @@ export class ConnectionTransport {
           this.keyStore,
           relayToken,
           operation,
-          input
+          input, options.deadlineUnixMs
         );
         requestId = encryptedRequest.request_id;
       }

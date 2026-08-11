@@ -161,7 +161,11 @@ impl EphemeralResponseCache {
 pub fn encrypted_request_fingerprint(
     envelope: &EncryptedRelayEnvelope,
 ) -> Result<String, ConnectError> {
-    let digest = Sha256::digest(serde_json::to_vec(envelope)?);
+    // Scheduling hints are intentionally not authenticated and must not alter
+    // the durable replay identity of the encrypted operation.
+    let mut authenticated_envelope = envelope.clone();
+    authenticated_envelope.deadline_unix_ms = None;
+    let digest = Sha256::digest(serde_json::to_vec(&authenticated_envelope)?);
     Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
@@ -541,6 +545,24 @@ enum DatabaseClaim {
 mod cache_tests {
     use super::*;
 
+    fn envelope(deadline_unix_ms: Option<u64>) -> EncryptedRelayEnvelope {
+        EncryptedRelayEnvelope {
+            protocol_version: 3,
+            suite: "test-suite".to_string(),
+            request_id: Uuid::from_u128(1),
+            grant_id: Uuid::from_u128(2),
+            application_id: Uuid::from_u128(3),
+            connector_id: Uuid::from_u128(4),
+            collection_id: Uuid::from_u128(5),
+            operation: "query".to_string(),
+            scope_epoch: 1,
+            key_id: "test-key".to_string(),
+            counter: "1".to_string(),
+            deadline_unix_ms,
+            ciphertext: "opaque".to_string(),
+        }
+    }
+
     fn key() -> EphemeralRequestKey {
         EphemeralRequestKey {
             grant_id: Uuid::nil(),
@@ -562,6 +584,14 @@ mod cache_tests {
             cache.claim(&key),
             EncryptedRequestClaim::Completed("response".to_string())
         );
+    }
+
+    #[test]
+    fn scheduling_deadlines_do_not_change_durable_replay_identity() {
+        let without_deadline = encrypted_request_fingerprint(&envelope(None)).unwrap();
+        let with_deadline =
+            encrypted_request_fingerprint(&envelope(Some(1_800_000_000_000))).unwrap();
+        assert_eq!(without_deadline, with_deadline);
     }
 
     #[test]

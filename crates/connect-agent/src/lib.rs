@@ -1,3 +1,4 @@
+pub(crate) mod admission;
 mod bootstrap;
 mod cloud;
 mod loopback;

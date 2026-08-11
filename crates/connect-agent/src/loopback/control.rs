@@ -1,4 +1,5 @@
 use super::*;
+use crate::admission::{classify_operation, execution_timeout, queue_deadline, AdmissionRequest};
 use axum::routing::{get, post};
 use mdbase_connect_protocol::{
     RelayMessage, LOOPBACK_PROTOCOL_VERSION, OPERATION_TRANSPORT_PROTOCOL_VERSION,
@@ -151,16 +152,43 @@ async fn encrypted_control(
             &origin,
         );
     }
-    let Some(permit) = operation_permit(&state).await else {
+    let deadline_unix_ms = envelope.deadline_unix_ms;
+    let admission = AdmissionRequest {
+        grant_id: envelope.grant_id,
+        collection_id: envelope.collection_id,
+        class: classify_operation(&envelope.operation, None),
+        weight_bytes: envelope.ciphertext.len(),
+    };
+    let Ok(permit) = state
+        .agent
+        .admission()
+        .admit_before(admission, queue_deadline(deadline_unix_ms))
+        .await
+    else {
         return cors_busy("The local connector is busy.", &origin);
     };
+    tracing::debug!(
+        queue_wait_us = permit.queue_wait_us,
+        "admitted direct connector operation"
+    );
+    let cancellation = mdbase::OperationCancellation::new();
+    let worker_cancellation = cancellation.clone();
+    let mut cancel_on_drop = CancelOnDrop(Some(cancellation));
     let agent = state.agent.clone();
     let operation_origin = origin.clone();
     let execution = tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        agent.handle_direct_encrypted_operation(&operation_origin, envelope)
+        agent.handle_direct_encrypted_operation_cancellable(
+            &operation_origin,
+            envelope,
+            &worker_cancellation,
+        )
     });
-    match tokio::time::timeout(Duration::from_secs(30), execution).await {
+    let outcome = tokio::time::timeout(execution_timeout(deadline_unix_ms), execution).await;
+    if outcome.is_ok() {
+        cancel_on_drop.0 = None;
+    }
+    match outcome {
         Ok(Ok(RelayMessage::EncryptedOperationResponse { envelope })) => cors_response(
             Json(json!({
                 "ok": true,
@@ -187,5 +215,15 @@ async fn encrypted_control(
             "The local connector did not complete this operation in time.",
             &origin,
         ),
+    }
+}
+
+struct CancelOnDrop(Option<mdbase::OperationCancellation>);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        if let Some(cancellation) = self.0.take() {
+            cancellation.cancel();
+        }
     }
 }

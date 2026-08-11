@@ -1,9 +1,10 @@
 use super::*;
+use crate::admission::{AdmissionRequest, WorkClass};
 use axum::body::Bytes;
 use axum::extract::Path;
 use axum::routing::{get, post};
 use mdbase_connect_protocol::{
-    FILE_FRAME_PREFIX_BYTES, MAX_FILE_CHUNK_BYTES, MAX_FILE_FRAME_HEADER_BYTES,
+    FileFrame, FILE_FRAME_PREFIX_BYTES, MAX_FILE_CHUNK_BYTES, MAX_FILE_FRAME_HEADER_BYTES,
 };
 
 pub(super) const MAX_FILE_REQUEST_BYTES: usize =
@@ -51,14 +52,28 @@ async fn file_upload(
             &origin,
         );
     }
-    let Some(permit) = operation_permit(&state).await else {
+    let Ok(frame) = FileFrame::decode(&body) else {
+        return cors_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_file_frame",
+            "The encrypted file frame is invalid.",
+            &origin,
+        );
+    };
+    let admission = AdmissionRequest {
+        grant_id: frame.header.grant_id,
+        collection_id: frame.header.collection_id,
+        class: WorkClass::File,
+        weight_bytes: body.len(),
+    };
+    let Ok(permit) = state.agent.admission().admit(admission).await else {
         return cors_busy("The local connector is busy.", &origin);
     };
     let agent = state.agent.clone();
     let upload_origin = origin.clone();
     let execution = tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        agent.handle_direct_file_upload(&upload_origin, &body)
+        agent.handle_direct_file_upload_frame(&upload_origin, frame)
     });
     match tokio::time::timeout(Duration::from_secs(30), execution).await {
         Ok(Ok(Ok(()))) => cors_response(StatusCode::NO_CONTENT.into_response(), &origin),
@@ -92,7 +107,13 @@ async fn file_download(
     let Ok(origin) = authorize_browser_request(&state, &request, false) else {
         return denied();
     };
-    let Some(permit) = operation_permit(&state).await else {
+    let admission = AdmissionRequest {
+        grant_id,
+        collection_id: uuid::Uuid::nil(),
+        class: WorkClass::File,
+        weight_bytes: 1,
+    };
+    let Ok(permit) = state.agent.admission().admit(admission).await else {
         return cors_busy("The local connector is busy.", &origin);
     };
     let agent = state.agent.clone();

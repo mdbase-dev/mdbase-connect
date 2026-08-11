@@ -26,6 +26,22 @@ pub(super) fn execute_loaded(
     operation: &str,
     input: &Value,
 ) -> Result<Value, ConnectError> {
+    execute_loaded_cancellable(
+        collection,
+        current_version,
+        operation,
+        input,
+        &mdbase::OperationCancellation::new(),
+    )
+}
+
+pub(super) fn execute_loaded_cancellable(
+    collection: &Collection,
+    current_version: &str,
+    operation: &str,
+    input: &Value,
+    cancellation: &mdbase::OperationCancellation,
+) -> Result<Value, ConnectError> {
     if collection.spec_profile() == SpecProfile::V03 {
         if operation == "assess_collection_setup" || operation == "apply_collection_setup" {
             let result = if operation == "assess_collection_setup" {
@@ -147,7 +163,9 @@ pub(super) fn execute_loaded(
             .map_err(|diagnostic| ConnectError::invalid_collection(vec![*diagnostic]))?;
         let result = match operation {
             "read" => operations.read(input),
-            "query" => operations.query(input),
+            "query" => operations
+                .query_cancellable(input, cancellation)
+                .map_err(|_| ConnectError::OperationCancelled)?,
             "list_views" => operations.list_views(input),
             "execute_view" => operations.execute_view(input),
             "read_view_source" => operations.read_view_source(input),
