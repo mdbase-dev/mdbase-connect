@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.1.0-beta.65
+
+Beta.65 makes one coordinated mdbase runtime the local execution owner for
+each active collection and removes the duplicate Connect watcher and mutation
+invalidation paths.
+
+- The provider now returns exact generation-bound execution outcomes, owns
+  durable prepare/commit/cancel settlement and a pull/ack change feed, applies
+  sparse record mutations, and maintains its rebuildable cache and reverse-link
+  index incrementally.
+- Connect gives each resident collection separate bounded mutation,
+  foreground-read, and background lanes. Known mutations and external edits
+  enter one durable ordered change path, and post-commit work remains owned
+  after the caller's deadline.
+- Runtime residency is bounded to eight idle/active collection handles;
+  inactive runtimes can be evicted and reopened from canonical Markdown without
+  changing collection identity or grants. Privacy-safe diagnostics expose only
+  aggregate resident state and retained snapshot bytes.
+- The SDK coordinates requests once per selected connection, keeps a reserved
+  ordered mutation lane, bounds foreground pressure, coalesces only safe reads,
+  and supports explicit latest-wins query families.
+- Query iteration uses opaque generation-pinned cursors when supported, releases
+  cursor leases on early exit, and retains the legacy snapshot/offset path for
+  older staging-compatible authorities.
+- The hosted mirror transport has bounded connect, read, and whole-sync
+  deadlines so a stalled binary transfer releases its mirror guard and resumes
+  through durable journal recovery.
+
 ## 0.1.0-beta.64
 
 Beta.64 keeps large local and relayed collections inside one explicit resource
