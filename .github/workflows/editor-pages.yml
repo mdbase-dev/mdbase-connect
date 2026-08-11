@@ -14,6 +14,15 @@ on:
       - "pnpm-workspace.yaml"
       - ".github/workflows/editor-pages.yml"
   workflow_dispatch:
+    inputs:
+      target:
+        description: Deploy staging by default; production requires an explicit dispatch
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
 
 permissions:
   contents: read
@@ -49,7 +58,11 @@ jobs:
       - run: pnpm --filter mdbase-editor check:csp
 
   deploy-cloudflare:
-    if: github.event_name != 'pull_request' && vars.CLOUDFLARE_PAGES_ENABLED == '1'
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.target == 'production' &&
+      vars.CLOUDFLARE_PAGES_ENABLED == '1'
     needs: test
     runs-on: ubuntu-latest
     environment:
@@ -90,8 +103,12 @@ jobs:
           MDBASE_ASSET_VERIFY_DELAY_MS: 5000
 
   deploy-cloudflare-staging:
-    if: github.event_name != 'pull_request' && vars.CLOUDFLARE_PAGES_ENABLED == '1'
-    needs: [test, deploy-cloudflare]
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/main' &&
+      vars.CLOUDFLARE_PAGES_ENABLED == '1' &&
+      (github.event_name == 'push' || inputs.target == 'staging')
+    needs: test
     runs-on: ubuntu-latest
     environment:
       name: cloudflare-pages-staging
