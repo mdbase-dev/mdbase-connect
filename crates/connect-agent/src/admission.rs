@@ -59,6 +59,9 @@ struct AdmissionLimits {
     background: usize,
     files: usize,
     operations_per_grant: usize,
+    mutations_per_grant: usize,
+    reads_per_grant: usize,
+    background_per_grant: usize,
     files_per_grant: usize,
     queued: usize,
     queued_per_grant: usize,
@@ -77,7 +80,13 @@ impl Default for AdmissionLimits {
             reads: operations - reserved_mutations,
             background: 2.min(operations - reserved_mutations),
             files: 4,
-            operations_per_grant: 2,
+            // A grant can run two reads while retaining one independent
+            // mutation lane. Background work gets only one of the read lanes
+            // so it cannot occupy all foreground capacity for that grant.
+            operations_per_grant: 3,
+            mutations_per_grant: 1,
+            reads_per_grant: 2,
+            background_per_grant: 1,
             files_per_grant: 2,
             queued: 64,
             queued_per_grant: 8,
@@ -166,6 +175,9 @@ pub(crate) struct AdmissionScheduler {
     background: Arc<Semaphore>,
     files: Arc<Semaphore>,
     operation_grants: Mutex<HashMap<Uuid, Weak<Semaphore>>>,
+    mutation_grants: Mutex<HashMap<Uuid, Weak<Semaphore>>>,
+    read_grants: Mutex<HashMap<Uuid, Weak<Semaphore>>>,
+    background_grants: Mutex<HashMap<Uuid, Weak<Semaphore>>>,
     file_grants: Mutex<HashMap<Uuid, Weak<Semaphore>>>,
     mutation_collections: Mutex<HashMap<Uuid, Weak<Semaphore>>>,
     queue_counts: Arc<Mutex<QueueCounts>>,
@@ -180,6 +192,9 @@ impl Default for AdmissionScheduler {
 impl AdmissionScheduler {
     fn with_limits(limits: AdmissionLimits) -> Self {
         debug_assert!(limits.reads < limits.operations);
+        debug_assert!(limits.mutations_per_grant < limits.operations_per_grant);
+        debug_assert!(limits.reads_per_grant < limits.operations_per_grant);
+        debug_assert!(limits.background_per_grant < limits.reads_per_grant);
         Self {
             limits,
             operations: Arc::new(Semaphore::new(limits.operations)),
@@ -187,6 +202,9 @@ impl AdmissionScheduler {
             background: Arc::new(Semaphore::new(limits.background)),
             files: Arc::new(Semaphore::new(limits.files)),
             operation_grants: Mutex::new(HashMap::new()),
+            mutation_grants: Mutex::new(HashMap::new()),
+            read_grants: Mutex::new(HashMap::new()),
+            background_grants: Mutex::new(HashMap::new()),
             file_grants: Mutex::new(HashMap::new()),
             mutation_collections: Mutex::new(HashMap::new()),
             queue_counts: Arc::new(Mutex::new(QueueCounts::default())),
@@ -213,18 +231,23 @@ impl AdmissionScheduler {
             request.grant_id,
             request.weight_bytes,
         )?;
-        let mut permits = Vec::with_capacity(4);
+        let mut permits = Vec::with_capacity(6);
 
         match request.class {
             WorkClass::File => {
                 permits.push(
-                    acquire_before(self.grant_semaphore(request.grant_id, true), deadline).await?,
+                    acquire_before(self.file_grant_semaphore(request.grant_id), deadline).await?,
                 );
                 permits.push(acquire_before(self.files.clone(), deadline).await?);
             }
             WorkClass::Mutation => {
                 permits.push(
-                    acquire_before(self.grant_semaphore(request.grant_id, false), deadline).await?,
+                    acquire_before(self.mutation_grant_semaphore(request.grant_id), deadline)
+                        .await?,
+                );
+                permits.push(
+                    acquire_before(self.operation_grant_semaphore(request.grant_id), deadline)
+                        .await?,
                 );
                 permits.push(
                     acquire_before(
@@ -237,16 +260,28 @@ impl AdmissionScheduler {
             }
             WorkClass::Foreground => {
                 permits.push(
-                    acquire_before(self.grant_semaphore(request.grant_id, false), deadline).await?,
+                    acquire_before(self.read_grant_semaphore(request.grant_id), deadline).await?,
+                );
+                permits.push(
+                    acquire_before(self.operation_grant_semaphore(request.grant_id), deadline)
+                        .await?,
                 );
                 permits.push(acquire_before(self.reads.clone(), deadline).await?);
                 permits.push(acquire_before(self.operations.clone(), deadline).await?);
             }
             WorkClass::Background => {
                 permits.push(
-                    acquire_before(self.grant_semaphore(request.grant_id, false), deadline).await?,
+                    acquire_before(self.background_grant_semaphore(request.grant_id), deadline)
+                        .await?,
                 );
                 permits.push(acquire_before(self.background.clone(), deadline).await?);
+                permits.push(
+                    acquire_before(self.read_grant_semaphore(request.grant_id), deadline).await?,
+                );
+                permits.push(
+                    acquire_before(self.operation_grant_semaphore(request.grant_id), deadline)
+                        .await?,
+                );
                 permits.push(acquire_before(self.reads.clone(), deadline).await?);
                 permits.push(acquire_before(self.operations.clone(), deadline).await?);
             }
@@ -258,13 +293,49 @@ impl AdmissionScheduler {
         })
     }
 
-    fn grant_semaphore(&self, grant_id: Uuid, file: bool) -> Arc<Semaphore> {
-        let (map, permits) = if file {
-            (&self.file_grants, self.limits.files_per_grant)
-        } else {
-            (&self.operation_grants, self.limits.operations_per_grant)
-        };
-        keyed_semaphore(map, grant_id, permits, "admission grant lock poisoned")
+    fn operation_grant_semaphore(&self, grant_id: Uuid) -> Arc<Semaphore> {
+        keyed_semaphore(
+            &self.operation_grants,
+            grant_id,
+            self.limits.operations_per_grant,
+            "admission operation grant lock poisoned",
+        )
+    }
+
+    fn read_grant_semaphore(&self, grant_id: Uuid) -> Arc<Semaphore> {
+        keyed_semaphore(
+            &self.read_grants,
+            grant_id,
+            self.limits.reads_per_grant,
+            "admission read grant lock poisoned",
+        )
+    }
+
+    fn mutation_grant_semaphore(&self, grant_id: Uuid) -> Arc<Semaphore> {
+        keyed_semaphore(
+            &self.mutation_grants,
+            grant_id,
+            self.limits.mutations_per_grant,
+            "admission mutation grant lock poisoned",
+        )
+    }
+
+    fn background_grant_semaphore(&self, grant_id: Uuid) -> Arc<Semaphore> {
+        keyed_semaphore(
+            &self.background_grants,
+            grant_id,
+            self.limits.background_per_grant,
+            "admission background grant lock poisoned",
+        )
+    }
+
+    fn file_grant_semaphore(&self, grant_id: Uuid) -> Arc<Semaphore> {
+        keyed_semaphore(
+            &self.file_grants,
+            grant_id,
+            self.limits.files_per_grant,
+            "admission file grant lock poisoned",
+        )
     }
 
     fn collection_mutation_semaphore(&self, collection_id: Uuid) -> Arc<Semaphore> {
@@ -362,7 +433,10 @@ mod tests {
             reads: 3,
             background: 1,
             files: 2,
-            operations_per_grant: 2,
+            operations_per_grant: 3,
+            mutations_per_grant: 1,
+            reads_per_grant: 2,
+            background_per_grant: 1,
             files_per_grant: 1,
             queued: 8,
             queued_per_grant: 4,
@@ -408,7 +482,6 @@ mod tests {
         let mut limits = limits();
         limits.operations = 2;
         limits.reads = 1;
-        limits.operations_per_grant = 1;
         limits.queued_bytes = 16;
         limits.queued_bytes_per_grant = 8;
         let scheduler = Arc::new(AdmissionScheduler::with_limits(limits));
@@ -445,6 +518,75 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn queued_reads_cannot_head_of_line_block_the_same_grants_mutation() {
+        let scheduler = Arc::new(AdmissionScheduler::with_limits(limits()));
+        let first = scheduler
+            .admit(request(1, 1, WorkClass::Foreground))
+            .await
+            .unwrap();
+        let second = scheduler
+            .admit(request(1, 1, WorkClass::Foreground))
+            .await
+            .unwrap();
+        let queued_scheduler = scheduler.clone();
+        let queued_read = tokio::spawn(async move {
+            queued_scheduler
+                .admit_before(
+                    request(1, 1, WorkClass::Foreground),
+                    TokioInstant::now() + Duration::from_secs(1),
+                )
+                .await
+        });
+        tokio::task::yield_now().await;
+
+        let mutation = scheduler
+            .admit_before(
+                request(1, 2, WorkClass::Mutation),
+                TokioInstant::now() + Duration::from_millis(20),
+            )
+            .await
+            .unwrap();
+        drop(mutation);
+        assert!(!queued_read.is_finished());
+
+        drop(first);
+        drop(second);
+        assert!(queued_read.await.unwrap().is_ok());
+    }
+
+    #[tokio::test]
+    async fn background_work_leaves_same_grant_capacity_for_foreground_reads() {
+        let scheduler = Arc::new(AdmissionScheduler::with_limits(limits()));
+        let _background = scheduler
+            .admit(request(1, 1, WorkClass::Background))
+            .await
+            .unwrap();
+        let queued_scheduler = scheduler.clone();
+        let second_background = tokio::spawn(async move {
+            queued_scheduler
+                .admit_before(
+                    request(1, 1, WorkClass::Background),
+                    TokioInstant::now() + Duration::from_secs(1),
+                )
+                .await
+        });
+        tokio::task::yield_now().await;
+
+        let foreground = scheduler
+            .admit_before(
+                request(1, 1, WorkClass::Foreground),
+                TokioInstant::now() + Duration::from_millis(20),
+            )
+            .await
+            .unwrap();
+        assert!(!second_background.is_finished());
+
+        drop(foreground);
+        drop(_background);
+        assert!(second_background.await.unwrap().is_ok());
+    }
+
+    #[tokio::test]
     async fn mutations_are_serialized_per_collection() {
         let scheduler = AdmissionScheduler::with_limits(limits());
         let _first = scheduler
@@ -466,20 +608,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn one_grant_has_one_mutation_lane_across_collections() {
+        let scheduler = AdmissionScheduler::with_limits(limits());
+        let _first = scheduler
+            .admit(request(1, 9, WorkClass::Mutation))
+            .await
+            .unwrap();
+        let second = scheduler.admit_before(
+            request(1, 10, WorkClass::Mutation),
+            TokioInstant::now() + Duration::from_millis(10),
+        );
+        let other_grant = scheduler.admit_before(
+            request(2, 10, WorkClass::Mutation),
+            TokioInstant::now() + Duration::from_millis(10),
+        );
+
+        assert_eq!(second.await.unwrap_err(), AdmissionError::DeadlineExceeded);
+        assert!(other_grant.await.is_ok());
+    }
+
+    #[tokio::test]
     async fn keyed_admission_state_is_bounded_across_identity_churn() {
         let scheduler = AdmissionScheduler::with_limits(limits());
         for identity in 1..=(MAX_RETAINED_KEYED_SEMAPHORES as u128 * 4) {
-            drop(
-                scheduler
-                    .admit(request(identity, identity, WorkClass::Mutation))
-                    .await
-                    .unwrap(),
-            );
+            for class in [
+                WorkClass::Mutation,
+                WorkClass::Foreground,
+                WorkClass::Background,
+                WorkClass::File,
+            ] {
+                drop(
+                    scheduler
+                        .admit(request(identity, identity, class))
+                        .await
+                        .unwrap(),
+                );
+            }
         }
 
         let operation_grants = scheduler.operation_grants.lock().unwrap();
+        let mutation_grants = scheduler.mutation_grants.lock().unwrap();
+        let read_grants = scheduler.read_grants.lock().unwrap();
+        let background_grants = scheduler.background_grants.lock().unwrap();
+        let file_grants = scheduler.file_grants.lock().unwrap();
         let mutation_collections = scheduler.mutation_collections.lock().unwrap();
         assert!(operation_grants.len() <= MAX_RETAINED_KEYED_SEMAPHORES);
+        assert!(mutation_grants.len() <= MAX_RETAINED_KEYED_SEMAPHORES);
+        assert!(read_grants.len() <= MAX_RETAINED_KEYED_SEMAPHORES);
+        assert!(background_grants.len() <= MAX_RETAINED_KEYED_SEMAPHORES);
+        assert!(file_grants.len() <= MAX_RETAINED_KEYED_SEMAPHORES);
         assert!(mutation_collections.len() <= MAX_RETAINED_KEYED_SEMAPHORES);
         assert!(operation_grants
             .values()
@@ -487,6 +664,14 @@ mod tests {
         assert!(mutation_collections
             .values()
             .all(|entry| entry.strong_count() == 0));
+        assert!(mutation_grants
+            .values()
+            .all(|entry| entry.strong_count() == 0));
+        assert!(read_grants.values().all(|entry| entry.strong_count() == 0));
+        assert!(background_grants
+            .values()
+            .all(|entry| entry.strong_count() == 0));
+        assert!(file_grants.values().all(|entry| entry.strong_count() == 0));
     }
 
     #[test]
