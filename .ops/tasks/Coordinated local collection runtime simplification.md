@@ -1,8 +1,8 @@
 ---
 title: Coordinated local collection runtime simplification
-status: planned
+status: in_progress
 priority: high
-owner: unassigned
+owner: codex
 tags:
   - architecture
   - mdbase-rs
@@ -15,7 +15,7 @@ tags:
   - caching
   - observability
 created_at: 2026-08-11T18:24:43+10:00
-updated_at: 2026-08-11T18:24:43+10:00
+updated_at: 2026-08-11T23:48:00+10:00
 type: task
 ---
 
@@ -556,16 +556,71 @@ unrelated view-model, import, or transport redesign.
 | Generation semantics become a distributed consensus mechanism | Keep generations local and opaque; they order one authority's snapshots and changes, not multiple authorities globally. |
 | Performance work expands without evidence | Use existing phase timings and soak history; omit compiled plans or transaction-journal changes when measurements do not justify them. |
 
+## Implementation evidence — 2026-08-11
+
+The user approved this program for implementation while staging acceptance
+continues. Production remains on beta55. Beta64 is the frozen compatibility and
+performance baseline; NATS replacement and a production rollout remain out of
+scope for this phase.
+
+Phase 0 is complete and published for review:
+
+- provider contract, executable fixtures, and reproducible baseline:
+  `callumalpass/mdbase-rs#48` at `2454cb2`;
+- Connect execution, persistence, and cutover ADR:
+  `mdbase-dev/mdbase-connect#250` at `719ab9c` before this registry update;
+- the contract passed six independent red-team passes with no remaining P0/P1
+  contradiction.
+
+The accepted contract fixes the implementation boundaries before behavior changes:
+
+- host claim, application request, commit, event, and collection generation
+  identities are separate and crash-resolvable;
+- all blocking provider/feed work receives one deadline-bearing operation context;
+- preparation is cancellable, a pre-commit rejection is a durable final outcome,
+  and only the fsynced commit transition transfers settlement ownership to mdbase;
+- exact normalized changes are paged and digest-bound, including explicit body
+  change metadata;
+- mdbase owns a durable, singleton, fenced pull/ack feed and the only application
+  change writer after an explicit per-collection cutover;
+- transfer intent/receipt/ack handling is crash-idempotent, and baseline feed
+  initialization sets every cursor and watermark explicitly;
+- Connect does not retain a dual writer or permanent compatibility runtime after
+  a collection cuts over.
+
+The current-main release baseline used mdbase source `a363419` and Connect
+`d4138fb9`. Both 2,000- and 10,000-record workloads passed correctness, 160 mixed
+requests per concurrency scenario, and 1,600 soak requests with zero errors. The
+10,000-record provider mutation mean was 4,125.60 ms and same-collection mixed
+throughput was 2.53 requests/s, while between-request RSS/PSS stayed flat at roughly
+76,652/74,012 KiB. This points at repeated coordination/rebuild work as the primary
+provider-runtime cost in the harness rather than an unbounded provider-memory leak.
+
+Beta64 staging heavy testing also found a separate hosted-mirror liveness problem:
+an HTTP sync transport that stopped making progress could hold the mirror RAII guard
+indefinitely, leaving `syncing=true` and manual recovery at `mirror_busy` until daemon
+restart. Draft `mdbase-dev/mdbase-connect#249` at `5dec13c` adds bounded connect/read
+and whole-sync deadlines, typed timeout outcomes, resumable journal settlement, and
+abort/timeout cleanup tests. It passed the complete Rust workspace, formatting,
+clippy, TypeScript typecheck/tests, and local daemon/relay E2E path. It still requires
+a new prerelease and deployed hosted/binary/restart staging acceptance before merge
+to any production rollout.
+
+Next implementation step: land the provider contract, create a clean mdbase-rs
+worktree from that merge, and implement Phase 1 outcomes/feed primitives without
+changing the public Connect/NATS wire. Carry the baseline harness forward as a
+correctness and comparative-observation tool, not a fixed timing gate.
+
 ## Handoff
 
-Begin with Phase 0 in mdbase-rs: draft the provider-level
-`ExecutionOutcome`, `ChangeSet`, and generation contract beside the current
-`OperationRequest`/`OperationResult` types. Use create, update, delete, rename
-with reference updates, view-source mutation, and one external edit as the API
-review fixtures.
+Begin Phase 1 in mdbase-rs from the merged provider contract. Implement the
+accepted identities, preparation/outcome states, normalized paged changes, and
+durable feed primitives behind current public behavior. Preserve the existing
+Connect path until fixtures and crash/cancellation tests prove the provider
+boundary; then pin the exact mdbase revision into a new Connect worktree.
 
-Do not start by changing Connect's scheduler. The executor becomes simpler once
-mdbase can return exact changes and own one coherent collection runtime. After
-the API fixture is accepted, implement outcome production without changing the
-existing Connect path, pin it into a Connect branch, and only then replace and
-delete the duplicate watcher/invalidation path.
+Do not start with a second Connect scheduler or a dual watcher. Phase 4 introduces
+the per-collection executor only when it can cut each collection atomically to the
+provider feed and delete the legacy inference/watcher writer. Keep production on
+beta55 until the new prerelease passes direct, relay, hosted, migration, binary,
+large-vault, contention, cancellation, and deployed-consumer staging acceptance.
