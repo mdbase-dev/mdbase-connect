@@ -3,6 +3,7 @@ mod bootstrap;
 mod cloud;
 mod loopback;
 mod mirrors;
+mod operation_executor;
 mod relay;
 mod runtime_notifications;
 mod server;

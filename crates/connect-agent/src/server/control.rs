@@ -1,5 +1,6 @@
 use super::*;
 use crate::admission::{classify_operation, execution_timeout, AdmissionRequest, WorkClass};
+use crate::operation_executor;
 
 impl AgentState {
     pub(super) async fn execute(self: &Arc<Self>, request: ControlRequest) -> ControlResponse {
@@ -343,7 +344,7 @@ impl AgentState {
         let cancellation = mdbase::OperationCancellation::new();
         let worker_cancellation = cancellation.clone();
         let state = Arc::clone(self);
-        let execution = tokio::task::spawn_blocking(move || {
+        let execution = operation_executor::spawn_blocking(class, move || {
             let _permit = permit;
             state.execute_local_operation(collection_id, &operation, &input, &worker_cancellation)
         });

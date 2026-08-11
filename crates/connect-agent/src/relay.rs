@@ -1,6 +1,8 @@
 use crate::admission::{
-    classify_operation, execution_timeout, queue_deadline, AdmissionRequest, WorkClass,
+    classify_operation, execution_timeout, queue_deadline, AdmissionPermit, AdmissionRequest,
+    WorkClass,
 };
+use crate::operation_executor;
 use crate::server::{AgentState, OperationExecutionState};
 use futures_util::{SinkExt, StreamExt};
 use mdbase_connect_protocol::{
@@ -17,6 +19,11 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
 use url::Url;
+
+struct EncodedOperationResponse {
+    body: String,
+    _permit: AdmissionPermit,
+}
 
 pub async fn run(server_url: String, connector_token: String, state: Arc<AgentState>) {
     crate::ensure_tls_crypto_provider();
@@ -93,6 +100,8 @@ async fn connect_once(
     };
     let (mut writer, mut reader) = socket.split();
     let (responses, mut response_rx) = tokio::sync::mpsc::channel::<RelayMessage>(64);
+    let (operation_responses, mut operation_response_rx) =
+        tokio::sync::mpsc::channel::<EncodedOperationResponse>(8);
     let (file_responses, mut file_response_rx) = tokio::sync::mpsc::channel::<RelayFileFrame>(8);
     let (policy_jobs, mut policy_job_rx) = tokio::sync::mpsc::channel::<(u64, RelayMessage)>(8);
     let (policy_applied, policy_applied_rx) = tokio::sync::watch::channel((0_u64, true));
@@ -139,6 +148,7 @@ async fn connect_once(
                         } else if let Some(admission) = relay_admission_request(&relay_message) {
                             let state_for_operation = state.clone();
                             let responses = responses.clone();
+                            let operation_responses = operation_responses.clone();
                             let policy_applied = policy_applied_rx.clone();
                             let required_policy_generation = received_policy_generation;
                             tokio::spawn(async move {
@@ -179,19 +189,30 @@ async fn connect_once(
                                 let worker_execution_state = execution_state.clone();
                                 let timeout_request = RelayTimeoutRequest::from_message(&relay_message)
                                     .expect("admitted operation has timeout response metadata");
-                                let execution = tokio::task::spawn_blocking(move || {
-                                    let _permit = permit;
-                                    state_for_operation.handle_relay_message_cancellable(
+                                let execution = operation_executor::spawn_blocking(admission.class, move || {
+                                    let response = state_for_operation.handle_relay_message_cancellable(
                                         relay_message,
                                         &worker_cancellation,
                                         &worker_execution_state,
-                                    )
+                                    );
+                                    match response {
+                                        Some(response) => serde_json::to_string(&response).map(|body| {
+                                            Some(EncodedOperationResponse {
+                                                body,
+                                                _permit: permit,
+                                            })
+                                        }),
+                                        None => Ok(None),
+                                    }
                                 });
                                 match tokio::time::timeout(execution_timeout(deadline_unix_ms), execution).await {
-                                    Ok(Ok(Some(response))) => {
-                                        let _ = responses.send(response).await;
+                                    Ok(Ok(Ok(Some(response)))) => {
+                                        let _ = operation_responses.send(response).await;
                                     }
-                                    Ok(Ok(None)) => {}
+                                    Ok(Ok(Ok(None))) => {}
+                                    Ok(Ok(Err(error))) => {
+                                        tracing::warn!(%error, "relay operation response serialization failed");
+                                    }
                                     Ok(Err(error)) => tracing::warn!(%error, "relay operation task failed"),
                                     Err(_) => {
                                         let durable_mutation = execution_state.begin_timeout();
@@ -284,6 +305,17 @@ async fn connect_once(
                     return Err("relay response channel closed".into());
                 };
                 writer.send(Message::Text(serde_json::to_string(&response)?.into())).await?;
+            }
+            response = operation_response_rx.recv() => {
+                let Some(response) = response else {
+                    return Err("relay operation response channel closed".into());
+                };
+                tokio::time::timeout(
+                    execution_timeout(None),
+                    writer.send(Message::Text(response.body.into())),
+                )
+                .await
+                .map_err(|_| "relay operation response delivery timed out")??;
             }
             response = file_response_rx.recv() => {
                 let Some(response) = response else {

@@ -331,6 +331,8 @@ where
         return Ok(());
     }
     let mut shutdown_after_response = false;
+    let mut response_class = None;
+    let mut response_permit = None;
     let response = if encoded_request.len() as u64 > MAX_LOCAL_CONTROL_REQUEST_BYTES
         || encoded_request.last() != Some(&b'\n')
     {
@@ -343,6 +345,22 @@ where
         encoded_request.pop();
         match serde_json::from_slice::<ControlRequest>(&encoded_request) {
             Ok(request) => {
+                response_class = match &request.command {
+                    ControlCommand::CollectionOperation(params) => {
+                        Some(crate::admission::classify_operation(
+                            &params.operation,
+                            Some(&params.input),
+                        ))
+                    }
+                    ControlCommand::CollectionValidate(_) => {
+                        Some(crate::admission::WorkClass::Foreground)
+                    }
+                    _ => None,
+                };
+                if response_class.is_some() {
+                    response_permit =
+                        Some(crate::operation_executor::reserve_local_response().await);
+                }
                 shutdown_after_response = matches!(
                     &request.command,
                     ControlCommand::DaemonShutdown
@@ -358,14 +376,34 @@ where
             ),
         }
     };
-    let mut encoded = serde_json::to_vec(&response).map_err(io::Error::other)?;
+    let response_ok = response.ok;
+    let mut encoded = if let Some(class) = response_class {
+        crate::operation_executor::spawn_blocking(class, move || serde_json::to_vec(&response))
+            .await
+            .map_err(io::Error::other)?
+            .map_err(io::Error::other)?
+    } else {
+        serde_json::to_vec(&response).map_err(io::Error::other)?
+    };
     encoded.push(b'\n');
     let delivery = async {
         writer.write_all(&encoded).await?;
         writer.shutdown().await
-    }
-    .await;
-    if shutdown_after_response && response.ok {
+    };
+    let delivery = if response_permit.is_some() {
+        tokio::time::timeout(crate::admission::execution_timeout(None), delivery)
+            .await
+            .unwrap_or_else(|_| {
+                Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "local collection response delivery timed out",
+                ))
+            })
+    } else {
+        delivery.await
+    };
+    drop(response_permit);
+    if shutdown_after_response && response_ok {
         state.request_shutdown();
     }
     delivery
