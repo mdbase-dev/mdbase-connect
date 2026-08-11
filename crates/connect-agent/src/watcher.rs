@@ -27,8 +27,11 @@ pub struct CollectionWatchService {
 
 enum Command {
     Refresh(Vec<CollectionSummary>, mpsc::SyncSender<()>),
+    Deactivate(Uuid, mpsc::SyncSender<()>),
     Finalize(Uuid, mpsc::SyncSender<Result<(), ConnectError>>),
     Reconcile(Uuid, mpsc::SyncSender<()>),
+    #[cfg(test)]
+    IsActive(Uuid, mpsc::SyncSender<bool>),
 }
 
 impl CollectionWatchService {
@@ -63,6 +66,37 @@ impl CollectionWatchService {
         if receiver.recv().is_err() {
             tracing::warn!("collection runtime finalizer did not acknowledge readiness");
         }
+    }
+
+    /// Stop background finalization before a collection leaves the registry.
+    ///
+    /// The acknowledgement is a lifecycle barrier: once it arrives, the
+    /// finalizer will not issue another registry call for this collection
+    /// unless a later refresh explicitly activates it again.
+    pub fn deactivate(&self, collection_id: Uuid) {
+        let (ready, receiver) = mpsc::sync_channel(0);
+        if self
+            .commands
+            .send(Command::Deactivate(collection_id, ready))
+            .is_err()
+        {
+            tracing::warn!(%collection_id, "collection runtime finalizer is unavailable");
+            return;
+        }
+        if receiver.recv().is_err() {
+            tracing::warn!(%collection_id, "collection runtime finalizer did not acknowledge deactivation");
+        }
+    }
+
+    #[cfg(test)]
+    pub fn is_active(&self, collection_id: Uuid) -> bool {
+        let (ready, receiver) = mpsc::sync_channel(0);
+        self.commands
+            .send(Command::IsActive(collection_id, ready))
+            .expect("collection runtime finalizer is available");
+        receiver
+            .recv()
+            .expect("collection runtime finalizer reports active state")
     }
 
     /// Persist known mutation events already committed by the runtime.
@@ -159,6 +193,10 @@ fn handle_command(
             }
             let _ = ready.send(());
         }
+        Command::Deactivate(collection_id, ready) => {
+            active.remove(&collection_id);
+            let _ = ready.send(());
+        }
         Command::Finalize(collection_id, ready) => {
             let _ = ready.send(finalize(registry, collection_id, runtime_events));
         }
@@ -171,6 +209,10 @@ fn handle_command(
                 tracing::warn!(collection_id = %collection_id, code = error.code(), %error, "runtime reconciliation failed");
             }
             let _ = ready.send(());
+        }
+        #[cfg(test)]
+        Command::IsActive(collection_id, ready) => {
+            let _ = ready.send(active.contains(&collection_id));
         }
     }
 }

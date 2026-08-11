@@ -170,6 +170,32 @@ async fn aborting_an_operation_releases_the_mirror_guard() {
 }
 
 #[tokio::test]
+async fn inactive_background_workers_are_cancelled() {
+    let replica_id = Uuid::new_v4();
+    let mut workers = JoinSet::new();
+    let started = Arc::new(Notify::new());
+    let worker_started = started.clone();
+    let worker = workers.spawn(async move {
+        worker_started.notify_one();
+        std::future::pending::<()>().await;
+        #[allow(unreachable_code)]
+        (replica_id, Ok::<(), ConnectError>(()))
+    });
+    let mut active_workers = HashMap::from([(replica_id, worker)]);
+    started.notified().await;
+
+    runtime::cancel_inactive_workers(&mut active_workers, &HashSet::new());
+
+    assert!(active_workers.is_empty());
+    assert!(workers
+        .join_next()
+        .await
+        .unwrap()
+        .unwrap_err()
+        .is_cancelled());
+}
+
+#[tokio::test]
 async fn timed_out_sync_future_releases_the_mirror_guard() {
     let temporary = tempfile::tempdir().unwrap();
     let registry = CollectionRegistry::open(temporary.path()).unwrap();

@@ -111,8 +111,11 @@ impl AgentState {
                 result.and_then(|value| serde_json::to_value(value).map_err(ConnectError::from))
             }
             ControlCommand::CollectionRemove(params) => {
+                self.watcher.deactivate(params.collection_id);
                 let result = self.registry.remove(params.collection_id);
-                if result.is_ok() {
+                if result.is_err() {
+                    // Restore the previous active set if the registry rejected
+                    // removal after the finalizer lifecycle barrier.
                     self.refresh_watchers();
                 }
                 result.and_then(|value| serde_json::to_value(value).map_err(ConnectError::from))

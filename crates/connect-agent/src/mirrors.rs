@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex as StdMutex, RwLock};
 use std::time::Duration;
 use tempfile::NamedTempFile;
 use tokio::sync::Notify;
-use tokio::task::JoinSet;
+use tokio::task::{AbortHandle, JoinSet};
 use tokio::time::Instant;
 use uuid::Uuid;
 

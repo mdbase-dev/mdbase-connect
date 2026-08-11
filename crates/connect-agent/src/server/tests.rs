@@ -117,6 +117,34 @@ async fn status_reports_the_running_binary_version_for_upgrade_health_checks() {
 }
 
 #[tokio::test]
+async fn collection_remove_deactivates_runtime_finalization() {
+    let test_root = tempfile::tempdir().unwrap();
+    let registry = CollectionRegistry::open(test_root.path().join("state")).unwrap();
+    let collection = registry
+        .create(
+            test_root.path().join("collection"),
+            Some("Removal barrier"),
+            "UTC",
+        )
+        .unwrap();
+    let watcher = CollectionWatchService::start(registry.clone());
+    watcher.refresh(&registry.list().unwrap());
+    assert!(watcher.is_active(collection.id));
+    let state = Arc::new(AgentState::new(registry, watcher.clone(), None));
+
+    let response = state
+        .execute(ControlRequest::new(ControlCommand::CollectionRemove(
+            mdbase_connect_protocol::CollectionIdParams {
+                collection_id: collection.id,
+            },
+        )))
+        .await;
+
+    assert!(response.ok, "{:?}", response.error);
+    assert!(!watcher.is_active(collection.id));
+}
+
+#[tokio::test]
 async fn bounds_local_control_request_memory() {
     let test_root = std::env::temp_dir().join(format!(
         "mdbase-connect-request-limit-test-{}",
