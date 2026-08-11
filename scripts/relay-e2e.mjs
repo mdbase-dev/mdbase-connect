@@ -253,7 +253,8 @@ try {
   await database.query(
     `UPDATE grants
      SET encryption = $2::jsonb,
-         file_capability = $3::jsonb
+         file_capability = $3::jsonb,
+         operations = $4::jsonb
      WHERE id = $1`, [
     fixture.grantId,
     JSON.stringify(encryption),
@@ -262,7 +263,8 @@ try {
       protocol_version: 1,
       actions: ["list", "read", "add", "replace"],
       scope: { kind: "collection" }
-    })
+    }),
+    JSON.stringify(["read", "query", "create"])
   ]);
   await builtB.relay.pushPolicy(fixture.connectorId);
   const uploadTransferId = randomUUID();
@@ -361,6 +363,31 @@ try {
       ciphertext: `[${encryptedResult.body.envelope.ciphertext?.length} bytes]`
     }
   })}`);
+
+  const timedMutation = {
+    ...encryptedEnvelope,
+    request_id: randomUUID(),
+    operation: "create",
+    counter: "2",
+    deadline_unix_ms: Date.now() + 250,
+    ciphertext: "bXV0YXRpb24"
+  };
+  const unknownMutation = await operation(urlA, fixture, "create", timedMutation);
+  assert(unknownMutation.status === 409
+      && unknownMutation.body.error?.code === "operation_outcome_unknown"
+      && unknownMutation.body.error?.operation_outcome === "unknown"
+      && unknownMutation.body.error?.details?.request_id === timedMutation.request_id,
+  `A post-dispatch mutation deadline lost its unknown outcome across NATS: ${JSON.stringify(unknownMutation)}`);
+
+  const recoveredMutation = await operation(urlA, fixture, "create", {
+    ...timedMutation,
+    deadline_unix_ms: Date.now() + 5_000
+  });
+  assert(recoveredMutation.status === 200
+      && recoveredMutation.body.envelope?.request_id === timedMutation.request_id
+      && recoveredMutation.body.envelope?.counter === timedMutation.counter
+      && recoveredMutation.body.envelope?.ciphertext === timedMutation.ciphertext,
+  `The same durable mutation identity did not recover with a fresh deadline: ${JSON.stringify(recoveredMutation)}`);
   await database.query("UPDATE grants SET encryption = NULL WHERE id = $1", [fixture.grantId]);
   await builtB.relay.pushPolicy(fixture.connectorId);
 
@@ -586,6 +613,7 @@ async function connectFakeConnector({ WebSocket: Socket, serverUrl, token, owner
   });
   const policies = [];
   const messageTypes = [];
+  const encryptedRequestCounts = new Map();
   let closeDetails;
   let policyWaiter;
   let welcomeWaiter;
@@ -629,10 +657,16 @@ async function connectFakeConnector({ WebSocket: Socket, serverUrl, token, owner
       return;
     }
     if (message.type === "encrypted_operation_request") {
-      socket.send(JSON.stringify({
+      const respond = () => socket.send(JSON.stringify({
         ...message,
         type: "encrypted_operation_response"
       }));
+      const count = (encryptedRequestCounts.get(message.request_id) ?? 0) + 1;
+      encryptedRequestCounts.set(message.request_id, count);
+      if (message.operation === "create" && count === 1) {
+        return;
+      }
+      respond();
       return;
     }
     if (message.type !== "operation_request") return;
