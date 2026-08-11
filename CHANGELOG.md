@@ -11,7 +11,8 @@ their exact recovery identity across every SDK transport outcome.
   cancellable `not_sent` semantics.
 - The SDK retains pending mutation state when either an HTTP authority response
   or an encrypted connector receipt reports an unknown outcome, then recovers
-  with the exact same request ID and encrypted envelope.
+  with the same request ID, counter, ciphertext, operation, and payload while
+  refreshing only the unauthenticated scheduling deadline.
 - SDK-side deadlines after mutation dispatch also become unknown outcomes,
   while pre-dispatch cancellation remains definitively `not_sent`.
 - Aborted framed file downloads preserve typed `operation_cancelled` results
