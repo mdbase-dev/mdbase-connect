@@ -93,7 +93,15 @@ impl AgentState {
                         metrics::lease_takeover(mutation_identifier, recovery.state);
                     }
                     return self.execute_owned_mutation(
-                        context, operation, input, metadata, keys, lease, *recovery, revoked,
+                        context,
+                        operation,
+                        mutation_identifier,
+                        input,
+                        metadata,
+                        keys,
+                        lease,
+                        *recovery,
+                        revoked,
                     );
                 }
                 MutationClaim::Live { .. } => {

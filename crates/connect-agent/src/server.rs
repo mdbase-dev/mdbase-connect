@@ -390,7 +390,7 @@ where
         writer.write_all(&encoded).await?;
         writer.shutdown().await
     };
-    let delivery = if response_permit.is_some() {
+    let delivery = if response_class.is_some() {
         tokio::time::timeout(crate::admission::execution_timeout(None), delivery)
             .await
             .unwrap_or_else(|_| {

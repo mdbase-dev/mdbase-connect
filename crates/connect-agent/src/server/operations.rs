@@ -770,6 +770,7 @@ impl AgentState {
         &self,
         context: &mdbase_connect_protocol::GrantSummary,
         operation: &str,
+        mutation_identifier: &str,
         input: &serde_json::Value,
         metadata: RelayMetadata<'_>,
         keys: &RelayKeys,
@@ -813,8 +814,12 @@ impl AgentState {
             );
         }
 
-        let before = match local_mutation_evidence(&self.registry, context.collection_id, operation)
-        {
+        let before = match local_mutation_evidence(
+            &self.registry,
+            context.collection_id,
+            operation,
+            mutation_identifier,
+        ) {
             Ok(evidence) => evidence,
             Err(error) => {
                 let body = serde_json::json!({
@@ -916,19 +921,23 @@ impl AgentState {
             Err(_) => return pending_mutation_response(keys, metadata),
         };
         if succeeded {
-            let after =
-                match local_mutation_evidence(&self.registry, context.collection_id, operation) {
-                    Ok(evidence) => evidence,
-                    Err(_) => {
-                        return mark_owned_mutation_unknown(
-                            &self.registry,
-                            keys,
-                            metadata,
-                            &lease,
-                            "The mutation returned but post-apply evidence could not be persisted.",
-                        )
-                    }
-                };
+            let after = match local_mutation_evidence(
+                &self.registry,
+                context.collection_id,
+                operation,
+                mutation_identifier,
+            ) {
+                Ok(evidence) => evidence,
+                Err(_) => {
+                    return mark_owned_mutation_unknown(
+                        &self.registry,
+                        keys,
+                        metadata,
+                        &lease,
+                        "The mutation returned but post-apply evidence could not be persisted.",
+                    )
+                }
+            };
             if self
                 .registry
                 .mark_mutation_applied(&lease, Some(&after), Some(&result_metadata))

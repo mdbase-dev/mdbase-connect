@@ -19,7 +19,9 @@ use download::{download_staging_path, download_transfer_status, required_downloa
 mod routing;
 use routing::{transfer_direction, transfer_exists, upload_session};
 mod security;
-use security::{set_owner_only_directory, set_owner_only_file};
+use security::{
+    create_or_recover_private_staging_file, create_private_staging_file, set_owner_only_directory,
+};
 
 const STAGING_DIRECTORY: &str = ".mdbase/file-staging";
 const TRANSFER_LIFETIME_HOURS: i64 = 24;
@@ -444,7 +446,10 @@ impl CollectionRegistry {
         let staging_name = format!("{transfer_id}.part");
         let staging_root = ensure_staging_root(Path::new(&registered.path))?;
         let staging = staging_root.join(&staging_name);
-        create_private_staging_file(&staging)?;
+        // The staging file is durable before the transfer row is inserted. If
+        // the process stopped between those steps, exact replay must adopt the
+        // empty private file instead of failing forever on `create_new`.
+        let created_staging = create_or_recover_private_staging_file(&staging)?;
         let created_at = Utc::now();
         let expires_at = created_at + Duration::hours(TRANSFER_LIFETIME_HOURS);
         let (_, inferred_media_type) = classify_media(&request.path);
@@ -473,7 +478,16 @@ impl CollectionRegistry {
             ],
         );
         if let Err(error) = inserted {
-            let _ = remove_file_if_present(&staging);
+            // A concurrent exact open can win after both callers observe no
+            // row. Re-read before cleanup so the losing caller neither removes
+            // the winner's staging file nor turns an idempotent retry into an
+            // error.
+            if transfer_exists(&self.connection()?, transfer_id)? {
+                return self.create_upload_transfer(registered, owner_id, request);
+            }
+            if created_staging {
+                let _ = remove_file_if_present(&staging);
+            }
             return Err(error.into());
         }
         Ok(upload_session(
@@ -845,13 +859,6 @@ fn transfer_staging_path(root: &Path, transfer: &UploadTransfer) -> Result<PathB
         ));
     }
     Ok(ensure_staging_root(root)?.join(expected))
-}
-
-fn create_private_staging_file(path: &Path) -> Result<(), ConnectError> {
-    let file = OpenOptions::new().create_new(true).write(true).open(path)?;
-    set_owner_only_file(path)?;
-    file.sync_all()?;
-    sync_parent(path)
 }
 
 fn hash_exact_file(path: &Path, expected_size: u64) -> Result<String, ConnectError> {

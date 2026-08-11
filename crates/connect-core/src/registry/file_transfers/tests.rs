@@ -403,6 +403,37 @@ fn upload_open_is_idempotent_and_transfer_ownership_is_exact() {
 }
 
 #[test]
+fn upload_open_recovers_an_empty_orphan_staging_file() {
+    let (_state, root, registry, id) = registered();
+    let request = request("recovered.bin", b"recovered bytes");
+    let staging_root = ensure_staging_root(root.path()).unwrap();
+    let staging = staging_root.join(format!("{}.part", request.transfer_id));
+    fs::write(&staging, []).unwrap();
+
+    let session = registry.open_file_upload(id, owner(), &request).unwrap();
+
+    assert_eq!(session.transfer_id, request.transfer_id);
+    assert!(staging.is_file());
+    assert_eq!(fs::metadata(staging).unwrap().len(), 0);
+}
+
+#[test]
+fn upload_open_rejects_a_nonempty_orphan_staging_file() {
+    let (_state, root, registry, id) = registered();
+    let request = request("unsafe.bin", b"expected bytes");
+    let staging_root = ensure_staging_root(root.path()).unwrap();
+    let staging = staging_root.join(format!("{}.part", request.transfer_id));
+    fs::write(&staging, b"untrusted orphan bytes").unwrap();
+
+    let error = registry
+        .open_file_upload(id, owner(), &request)
+        .unwrap_err();
+
+    assert_eq!(error.code(), "staging_file_invalid");
+    assert_eq!(fs::read(staging).unwrap(), b"untrusted orphan bytes");
+}
+
+#[test]
 fn download_is_revision_pinned_resumable_and_snapshot_backed() {
     let (state, root, registry, id) = registered();
     let mut bytes = vec![0x52; DEFAULT_FILE_CHUNK_BYTES as usize];

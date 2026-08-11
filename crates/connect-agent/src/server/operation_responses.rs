@@ -101,10 +101,25 @@ pub(super) fn local_mutation_evidence(
     registry: &CollectionRegistry,
     collection_id: uuid::Uuid,
     operation: &str,
+    mutation_identifier: &str,
 ) -> Result<serde_json::Value, ConnectError> {
     if matches!(operation, "put_timer" | "cancel_timer" | "reconcile_timers") {
         return Ok(serde_json::json!({
             "kind": "timer_authority",
+            "collection_id": collection_id,
+        }));
+    }
+    // Opening an upload and aborting either transfer direction mutate only
+    // connector-owned transfer-session state. They are idempotent by transfer
+    // ID and do not need a full collection manifest before and after the
+    // journaled operation. On a multi-gigabyte collection that snapshot can
+    // take minutes and expand allocator arenas for a tiny cleanup request.
+    if matches!(
+        mutation_identifier,
+        "file_control:open_file_upload" | "file_control:abort_file_transfer"
+    ) {
+        return Ok(serde_json::json!({
+            "kind": "file_transfer_authority",
             "collection_id": collection_id,
         }));
     }
@@ -235,6 +250,36 @@ fn collection_setup_problem(code: &str, error: &ConnectError) -> ConnectProblem 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transfer_session_mutations_do_not_snapshot_the_collection() {
+        let state = tempfile::tempdir().unwrap();
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        let missing_collection = uuid::Uuid::new_v4();
+
+        for mutation_identifier in [
+            "file_control:open_file_upload",
+            "file_control:abort_file_transfer",
+        ] {
+            let evidence = local_mutation_evidence(
+                &registry,
+                missing_collection,
+                "file_control",
+                mutation_identifier,
+            )
+            .expect("transfer-only evidence must not open the collection");
+            assert_eq!(evidence["kind"], "file_transfer_authority");
+            assert_eq!(evidence["collection_id"], missing_collection.to_string());
+        }
+
+        assert!(local_mutation_evidence(
+            &registry,
+            missing_collection,
+            "file_control",
+            "file_control:delete_file",
+        )
+        .is_err());
+    }
 
     #[test]
     fn collection_diagnostics_cross_the_connector_boundary() {

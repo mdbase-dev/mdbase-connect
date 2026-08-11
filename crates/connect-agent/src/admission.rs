@@ -11,6 +11,7 @@ const DEFAULT_QUEUE_WAIT: std::time::Duration = std::time::Duration::from_secs(5
 const MAX_OPERATION_EXECUTION: Duration = Duration::from_secs(30);
 const MAX_RETAINED_KEYED_SEMAPHORES: usize = 128;
 pub(crate) const MAX_CONCURRENT_READS: usize = 2;
+const MAX_CONCURRENT_BACKGROUND_READS: usize = 1;
 
 /// Convert the client's optional absolute deadline into a local, monotonic
 /// window. The hint can only shorten the connector's own maximum.
@@ -75,7 +76,6 @@ impl Default for AdmissionLimits {
         // Collection reads can hold an operation-scoped body snapshot. Keep
         // the desktop memory bound independent of a high core count.
         let operations = 4;
-        let reserved_mutations = (operations / 4).max(1);
         Self {
             operations,
             // Match the fixed read executor exactly. An extra admitted read
@@ -83,7 +83,7 @@ impl Default for AdmissionLimits {
             // the executor, turning ordinary contention into a late timeout.
             reads: MAX_CONCURRENT_READS,
             // Retain one foreground lane when background polling is active.
-            background: MAX_CONCURRENT_READS - reserved_mutations,
+            background: MAX_CONCURRENT_BACKGROUND_READS,
             files: 4,
             // A grant can run two reads while retaining one independent
             // mutation lane. Background work gets only one of the read lanes
