@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.1.0-beta.64
+
+Beta.64 keeps large local and relayed collections inside one explicit resource
+boundary while preserving foreground and durable-mutation capacity under load.
+
+- Local control, encrypted loopback, and relay operations share bounded
+  admission and stable collection-read workers; foreground, background, file,
+  and mutation work retain independent global and per-grant limits.
+- Read capacity remains held through serialized response delivery, preventing
+  slow WebSocket, loopback, or local-socket consumers from multiplying large
+  retained bodies after execution has nominally completed.
+- Cooperative read cancellation observes deadlines between bounded engine,
+  sync, inventory, and file phases. Timeout and durable mutation entry meet at
+  one atomic boundary so `not_sent` remains provable and post-boundary work is
+  recovered by exact request replay.
+- Idempotent upload-open and transfer-abort housekeeping no longer scans the
+  complete collection for mutation evidence; collection-changing file
+  operations retain manifest evidence.
+- Upload-open replay safely recovers an empty regular staging file left by a
+  crash before transfer-row insertion and rejects unsafe or non-empty orphans.
+
 ## 0.1.0-beta.63
 
 Beta.63 makes execution deadlines truthful for durable mutations and preserves
