@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.1.0-beta.66
+
+Beta.66 hardens the coordinated runtime introduced in beta.65 against
+non-semantic filesystem churn, removed-collection races, and recoverable object
+storage rejection during multipart upload.
+
+- The provider classifies watcher events before reconciliation. Hidden files,
+  cache and migration paths, configured exclusions, disabled subfolders, and
+  non-record binaries no longer rebuild a large collection snapshot; metadata,
+  schemas, contracts, and record resources retain exact reconciliation.
+- Watcher snapshot loading is side-effect-free, leaving durable transaction
+  recovery with the coordinated runtime instead of racing settlement on an
+  observer thread.
+- Collection removal now crosses a synchronous watcher lifecycle barrier before
+  registry deletion, while failed refreshes restore active state. Mirror
+  residency owns at most one abortable worker per replica and cancels it when
+  the replica is no longer actionable.
+- Multipart object uploads retry transient or authorization failures with a
+  fresh presigned URL for the same idempotent part number. Invalid progress
+  reports privacy-safe state and counts instead of opaque payload data.
+
 ## 0.1.0-beta.65
 
 Beta.65 makes one coordinated mdbase runtime the local execution owner for
