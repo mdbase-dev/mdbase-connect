@@ -15,7 +15,7 @@ tags:
   - caching
   - observability
 created_at: 2026-08-11T18:24:43+10:00
-updated_at: 2026-08-12T03:15:00+10:00
+updated_at: 2026-08-12T07:40:00+10:00
 type: task
 ---
 
@@ -652,23 +652,110 @@ public API boundaries, generated problem/operation catalogs, release version
 and readiness checks, and the architecture gate. The beta65 PR cross-platform
 and release matrix is still running. Production remains untouched on beta55.
 
+## Staging evidence — beta66 and beta67
+
+The coordinated runtime implementation is now merged. The provider landed in
+`callumalpass/mdbase-rs#50` at merge `818866705dcc4b6dcfd3bbc1ba63f83fdaec406f`.
+Connect landed in `mdbase-dev/mdbase-connect#253` at merge
+`52ce558305d8280c3ec96555c0a64a17ffbfd46e`. Beta66 was published and promoted
+only to the staging Connect server and hosted provider. The staging server,
+provider, MCP, synthetic operation, OAuth write, manifest, R2 CORS, and 120-second
+soak checks passed with 66 checks and zero failures. Production remains on
+beta55.
+
+Live deployed testing found that the beta66 SDK's automatic first-page cursor
+probe exposed one compatibility gap with hosted providers that still reject the
+`pagination` field. The shared SDK fix landed in
+`mdbase-dev/mdbase-connect#256` at merge
+`425275f269a7b3a8d8c5041c089077cdb0465163` and was published as beta67. An
+automatic first-page cursor probe now retries exactly once without pagination
+when the provider returns `operation_invalid`; explicit cursor requests never
+downgrade. The npm publication and canonical Editor deployment workflows passed.
+The staging server and provider deliberately remain on beta66 so the deployed
+consumer test proves the compatibility boundary rather than hiding it with a
+coordinated backend upgrade.
+
+Controlled consumer artifacts were packed from that exact beta67 merge and
+passed a coordinated revision, declaration, and SHA-512 audit. TaskNotes commit
+`d510da8` is deployed at `https://staging.tasknotes-app.pages.dev/`; Pickle commit
+`02a1994` is deployed at `https://staging.pickle-9zb.pages.dev/`; Reader commit
+`044e5f2` is deployed at `https://mdbase-reader.pages.dev/`; canonical Editor was
+deployed by the beta67 release workflow. TaskNotes, Pickle, Reader, Workouts, and
+standalone Editor passed their applicable formatting, type, unit, contract,
+build, desktop/mobile browser, Android, notification, push, restart, and package
+boundary suites. Workouts has no `deploy:dev` script, Reader has no Git remote,
+and the standalone Editor repository is archived; those constraints are recorded
+without weakening the canonical Editor deployment.
+
+The beta67 desktop release completed successfully across Linux, Windows, macOS
+Apple Silicon, and macOS Intel. The TaskNotes, Pickle, and Workouts beta67 draft
+PRs also completed every configured build, smoke, and test check successfully;
+release and deploy jobs that are intentionally disabled for draft PRs were
+skipped.
+
+An independent Luna browser pass used `staging-test@mdbase.dev` and a temporary
+hosted collection. Pickle and Editor each issued one cursor request rejected by
+the beta66 provider and exactly one successful offset retry, with no loop or UI
+pagination error. TaskNotes completed real create, update, and delete operations;
+Reader completed OAuth setup and a valid hosted query. All four layouts passed at
+390 by 844 pixels. The temporary collection and its grants were permanently
+removed after the test.
+
+The desktop migration reused the same persistent staging profile across beta65,
+beta66, and beta67. Before beta67 startup, the stopped beta66 profile was copied
+and verified byte-for-byte: 982 files, 1,196,000,004 bytes, and 31 SQLite
+databases with successful `integrity_check`. Beta67 reopened both original
+collection identities, including `~/testvault/mdbase-reader`. Six full Reader
+queries returned 1,507 of 1,507 records with stable metadata and body digests;
+metadata took 832–860 ms and bodies 926–935 ms. Daemon RSS stopped growing and
+declined from about 283.5 MiB at 60–70 seconds idle to 282.0 MiB at 120 seconds.
+This remains consistent with a bounded allocator/runtime high-water mark, not an
+ongoing per-query leak.
+
+An independent Luna pass reproduced the 1,507-record beta66 metadata and body
+digests through both direct and daemon-routed paths. One-, ten-, and
+100-millisecond process deadlines stopped direct and daemon reads within 3, 14,
+and 104 milliseconds respectively, with no query child left behind. In an
+isolated beta67 profile, ten synthetic collections all registered and queried;
+runtime diagnostics reported the intended capacity of eight with eight idle
+residents. An external Markdown edit became visible on the next query, and a
+daemon restart preserved the exact sorted-ID digest for all ten registrations.
+The agent removed every synthetic registration and the isolated profile, leaving
+the shared registry at its original two collections. That isolated pass did not
+drive cursor lifecycle, so cursor behavior was verified separately rather than
+inferred from it.
+
+That cursor lifecycle was then exercised through the daemon operation surface
+on the migrated Reader collection. A generation-pinned first page opened
+successfully; explicit release returned `released: true`; reuse failed with
+`generation_expired`; and a fresh cursor left idle for 31 seconds also failed
+with `generation_expired`. No vault content was changed.
+
+The exact beta67 tag also passed the isolated multi-instance PostgreSQL/NATS relay
+suite: oversized framed responses, opaque file frames above NATS `max_payload`,
+200 concurrent cross-instance requests with retryable admission, fencing, broker
+outage and recovery, and post-dispatch durable mutation timeout followed by
+same-identity result recovery. This is strong protocol evidence but does not
+replace the remaining authenticated staging relay matrix.
+
+The dedicated hosted-file PostgreSQL/S3 suite and adversarial file lifecycle
+suite also passed on the exact beta67 tree, covering upload and download
+integrity, commit-versus-abort races, late-copy compensation, transfer expiry,
+bounded recovery, and cleanup.
+
 ## Handoff
 
-Do not deploy production. Finish PR 251 CI, merge the candidate only when every
-required gate is green, publish beta65, and deploy only the staging server,
-hosted provider, portal/desktop candidate, and controlled SDK consumers. Then
-run deployed direct, relay, and hosted acceptance with `staging-test@mdbase.dev`,
-including the `~/testvault/mdbase-reader` heavy collection, opaque binary file
-round trips, more collections than the residency limit, cursor early exit and
-expiry, deadline/cancellation contention, external edits, daemon restart,
-beta64-to-beta65 migration, durable request replay, and hosted mirror timeout
-recovery. Record RSS and aggregate runtime-residency diagnostics without
-capturing vault content. Use live Luna agents for independent staging passes as
-requested by the user. Promote nothing to production until that evidence has
-been reviewed.
+Do not deploy production. The task remains `in_progress` until the OS Login
+keyring on the staging workstation is unlocked and the same beta67 daemon can
+authenticate. Then complete the staging relay and hosted-mirror matrix with
+`staging-test@mdbase.dev`: 1, 8, and 128 MiB binary SHA-256 round trips; sustained
+large-file transfer and RSS observation; relay/hosted/mirror reconnect and
+timeout recovery; fair per-grant contention; reserved mutation capacity;
+foreground priority; read cancellation; and durable mutation deadline/replay
+semantics. Record exact outcomes and clean every synthetic collection and grant.
 
-Do not start with a second Connect scheduler or a dual watcher. Phase 4 introduces
-the per-collection executor only when it can cut each collection atomically to the
-provider feed and delete the legacy inference/watcher writer. Keep production on
-beta55 until the new prerelease passes direct, relay, hosted, migration, binary,
-large-vault, contention, cancellation, and deployed-consumer staging acceptance.
+After that authenticated matrix, update this evidence with the exact live
+results. Do not start a second Connect scheduler or restore a dual watcher. Keep
+production on beta55 until the direct, relay, hosted, migration, binary,
+large-vault, contention, cancellation, mirror, and deployed-consumer staging
+evidence has been reviewed.
