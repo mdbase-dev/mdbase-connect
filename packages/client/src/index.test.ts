@@ -442,6 +442,86 @@ describe("provider-neutral collection client", () => {
     ]);
   });
 
+  it("falls back to legacy offset pages when an authority rejects the automatic cursor probe", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const records = ["one.md", "two.md", "three.md"].map((path) => ({
+      path,
+      frontmatter: {},
+      types: []
+    }));
+    const client = new MdbaseCollectionClient({
+      async operation<Result>(_operation: string, input: unknown) {
+        const query = input as { offset: number; limit: number; pagination?: string };
+        calls.push(query);
+        if (query.pagination === "cursor") {
+          return {
+            valid: false,
+            diagnostics: [{
+              severity: "error",
+              code: "invalid_query",
+              message: "Additional properties are not allowed ('pagination' was unexpected)."
+            }],
+            result: {}
+          } as Result;
+        }
+        const results = records.slice(query.offset, query.offset + query.limit);
+        return {
+          valid: true,
+          diagnostics: [],
+          result: {
+            results,
+            meta: {
+              total_count: records.length,
+              has_more: query.offset + results.length < records.length
+            }
+          }
+        } as Result;
+      }
+    });
+    const loaded: string[] = [];
+
+    for await (const outcome of client.queryPages({}, {
+      firstPageSize: 1,
+      pageSize: 2
+    })) {
+      expect(outcome.ok).toBe(true);
+      if (outcome.ok) loaded.push(...outcome.value.results.map(({ path }) => path));
+    }
+
+    expect(loaded).toEqual(["one.md", "two.md", "three.md"]);
+    expect(calls).toEqual([
+      { limit: 1, offset: 0, pagination: "cursor" },
+      { limit: 1, offset: 0 },
+      { limit: 2, offset: 1 }
+    ]);
+  });
+
+  it("does not downgrade an explicit cursor request", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const client = new MdbaseCollectionClient({
+      async operation<Result>(_operation: string, input: unknown) {
+        calls.push(input as Record<string, unknown>);
+        return {
+          valid: false,
+          diagnostics: [{
+            severity: "error",
+            code: "invalid_query",
+            message: "Cursor pagination is unavailable."
+          }],
+          result: {}
+        } as Result;
+      }
+    });
+
+    const iterator = client.queryPages({ pagination: "cursor" });
+    await expect(iterator.next()).resolves.toMatchObject({
+      done: false,
+      value: { ok: false, problem: { code: "operation_invalid" } }
+    });
+    await expect(iterator.next()).resolves.toEqual({ done: true, value: undefined });
+    expect(calls).toEqual([{ limit: 200, offset: 0, pagination: "cursor" }]);
+  });
+
   it("uses generation cursors and releases an abandoned iterator", async () => {
     const calls: Array<Record<string, unknown>> = [];
     const client = new MdbaseCollectionClient({

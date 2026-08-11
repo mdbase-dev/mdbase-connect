@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-beta.67
+
+Beta.67 restores hosted-authority query compatibility while keeping
+generation-pinned cursor pagination as the preferred SDK path.
+
+- The SDK now treats its first automatic cursor request as a read-only
+  capability probe. If an authority rejects the optional pagination field, it
+  retries that first page with legacy offset pagination and keeps later pages
+  on the legacy path.
+- Explicit cursor requests remain strict: they are never silently downgraded,
+  so callers asking for generation-pinned semantics still receive the
+  authority's typed incompatibility response.
+
 ## 0.1.0-beta.66
 
 Beta.66 hardens the coordinated runtime introduced in beta.65 against

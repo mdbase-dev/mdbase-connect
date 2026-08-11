@@ -46,7 +46,16 @@ export async function* coordinatedQueryPages<Frontmatter extends JsonObject>(
     try {
       while (!options.signal?.aborted) {
         const pageCursor = cursor;
-        const queried = await query({
+        const pageRequestOptions = {
+          signal: options.signal,
+          timeoutMs: options.pageTimeoutMs,
+          coordination: { ...options.coordination, coalesce: false }
+        };
+        const automaticCursorProbe = pageNumber === 0
+          && requestedCursor === undefined
+          && requestedPagination === undefined
+          && requestedSnapshot === undefined;
+        let queried = await query({
           ...criteria,
           limit: pageNumber === 0 ? firstPageSize : pageSize,
           ...(cursorMode
@@ -58,14 +67,25 @@ export async function* coordinatedQueryPages<Frontmatter extends JsonObject>(
                   ? { pagination: "cursor" as const }
                   : {})
               }),
-          ...(!cursorMode && !snapshot && requestedPagination === undefined
+          ...(!cursorMode && !snapshot && automaticCursorProbe
             ? { pagination: "cursor" as const }
             : {})
-        }, {
-          signal: options.signal,
-          timeoutMs: options.pageTimeoutMs,
-          coordination: { ...options.coordination, coalesce: false }
-        });
+        }, pageRequestOptions);
+        // Cursor pagination is a read-only capability probe for authorities
+        // predating generation cursors. Retry the first page without that
+        // optional field only when the authority rejected the operation
+        // schema; explicit cursor requests remain strict.
+        if (
+          automaticCursorProbe
+          && !queried.ok
+          && queried.problem.code === "operation_invalid"
+        ) {
+          queried = await query({
+            ...criteria,
+            limit: firstPageSize,
+            offset
+          }, pageRequestOptions);
+        }
         if (!queried.ok) {
           yield queried;
           return;
