@@ -173,6 +173,17 @@ fn cors_error(status: StatusCode, code: &str, message: &str, origin: &str) -> Re
     )
 }
 
+fn cors_problem(
+    status: StatusCode,
+    problem: mdbase_connect_protocol::ConnectProblem,
+    origin: &str,
+) -> Response<Body> {
+    cors_response(
+        (status, Json(json!({ "error": problem }))).into_response(),
+        origin,
+    )
+}
+
 fn cors_busy(message: &str, origin: &str) -> Response<Body> {
     let mut response = cors_error(
         StatusCode::SERVICE_UNAVAILABLE,

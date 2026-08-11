@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.0-beta.63
+
+Beta.63 makes execution deadlines truthful for durable mutations and preserves
+their exact recovery identity across every SDK transport outcome.
+
+- A relayed or direct durable mutation that outlives its caller's execution
+  deadline now returns `operation_outcome_unknown` instead of the incorrect
+  `operation_cancelled` / `not_sent`; queued work and reads retain their
+  cancellable `not_sent` semantics.
+- The SDK retains pending mutation state when either an HTTP authority response
+  or an encrypted connector receipt reports an unknown outcome, then recovers
+  with the exact same request ID and encrypted envelope.
+- SDK-side deadlines after mutation dispatch also become unknown outcomes,
+  while pre-dispatch cancellation remains definitively `not_sent`.
+- Aborted framed file downloads preserve typed `operation_cancelled` results
+  even on runtimes that surface an aborted fetch as `TypeError`.
+
 ## 0.1.0-beta.62
 
 Beta.62 bounds collection-query memory and connector admission under load while

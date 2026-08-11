@@ -674,8 +674,14 @@ export class MdbaseFileClient {
             void finish();
           }
         } catch (error) {
+          const failure = options.signal?.aborted
+            ? connectError("operation_cancelled", "The file transfer was cancelled.", {
+                operationOutcome: "not_sent",
+                cause: options.signal.reason
+              })
+            : error;
           await finish();
-          controller.error(normalizeFileError(error));
+          controller.error(normalizeFileError(failure));
         }
       },
       cancel: finish

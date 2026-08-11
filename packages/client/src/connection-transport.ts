@@ -39,6 +39,8 @@ import { authorityProofHeaders } from "./authority-proof.js";
 import { PendingMutationStore } from "./pending-mutation-store.js";
 import {
   directFallbackStatus,
+  encryptedOperationError,
+  fetchOperationRequest,
   isMutation,
   localNetworkPermission,
   loopbackRequest,
@@ -351,6 +353,7 @@ export class ConnectionTransport {
           true
         );
       }
+      if (attempt.pendingMutation && error.outcomeUnknown) throw error;
       if (attempt.pendingMutation
           && (attempt.directDeliveryUncertain
             || (attempt.encryptedRequest && attempt.resumingMutation))) {
@@ -404,18 +407,12 @@ export class ConnectionTransport {
             true
           );
         }
+        if (!decrypted.ok) {
+          const error = encryptedOperationError(decrypted.problem);
+          if (attempt.pendingMutation && !error.outcomeUnknown) this.clearPendingMutation(attempt.requestId);
+          throw error;
+        }
         if (attempt.pendingMutation) this.clearPendingMutation(attempt.requestId);
-        if (!decrypted.ok) throw serverConnectError(
-          decrypted.problem.code === "unknown"
-            ? decrypted.problem.server_code
-            : decrypted.problem.code,
-          decrypted.problem.message,
-          {
-            details: decrypted.problem.details,
-            operationOutcome: decrypted.problem.operation_outcome ?? "rejected",
-            traceId: decrypted.problem.trace_id
-          }
-        );
         return decrypted.result;
       } catch (error) {
         if (error instanceof MdbaseConnectError) throw error;
@@ -451,7 +448,7 @@ export class ConnectionTransport {
       const error = new MdbaseConnectError(body.problem);
       const recovery = await retryBusy(error);
       if (recovery.retried) return recovery.result;
-      if (attempt.pendingMutation) this.clearPendingMutation(attempt.requestId);
+      if (attempt.pendingMutation && !error.outcomeUnknown) this.clearPendingMutation(attempt.requestId);
       throw error;
     }
     if (body.ok !== true || !("result" in body)) {
@@ -688,7 +685,10 @@ export class ConnectionTransport {
         directDeliveryUncertain = response.status >= 500;
         this.markDirectUnavailable();
       } catch (error) {
-        if (options.signal?.aborted) throw error;
+        if (options.signal?.aborted) {
+          if (pendingMutation) throw unknownMutationOutcome(requestId, error);
+          throw error;
+        }
         directDeliveryUncertain = true;
         if ((await localNetworkPermission()) === "denied") this.setDirectStatus("denied");
         else this.markDirectUnavailable();
@@ -726,7 +726,7 @@ export class ConnectionTransport {
           }
         );
       } catch (error) {
-        if (pendingMutation && (directDeliveryUncertain || resumingMutation)) throw unknownMutationOutcome(requestId, error);
+        if (pendingMutation) throw unknownMutationOutcome(requestId, error);
         throw error;
       }
       if (response.ok) this.setRoute("relay");
@@ -754,16 +754,14 @@ export class ConnectionTransport {
           token.authority.accessToken
         )
       : {};
-    const response = await fetch(operationUrl, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${token.authority?.accessToken ?? token.accessToken}`,
-          "content-type": "application/json",
-          ...proof
-        },
-        body: operationBody,
-        signal: options.signal
-      });
+    let response: Response;
+    try {
+      response = await fetchOperationRequest(operationUrl,
+        token.authority?.accessToken ?? token.accessToken, proof, operationBody, options.signal);
+    } catch (error) {
+      if (pendingMutation) throw unknownMutationOutcome(requestId, error);
+      throw error;
+    }
     if (response.ok) this.setRoute(token.authority ? "remote" : "relay");
     return {
       response,

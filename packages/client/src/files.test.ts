@@ -574,6 +574,33 @@ describe("MdbaseFileClient", () => {
     expect(aborted).toBe(true);
   });
 
+  it("preserves typed cancellation when an aborted framed fetch throws TypeError", async () => {
+    const content = bytes("cancel framed download");
+    const file = descriptor("cancel-framed.bin", content);
+    const controller = new AbortController();
+    const client = fileClient(async (method, path, input) => {
+      if (path === "downloads") {
+        return framedSession(input.transfer_id, content.length, "download", [], content.length);
+      }
+      if (method === "DELETE") return {};
+      throw new Error(`Unexpected control path ${path}`);
+    }, {
+      async uploadChunk() {
+        throw new Error("unexpected upload");
+      },
+      async downloadChunk() {
+        controller.abort("stop framed download");
+        throw new TypeError("fetch failed after abort");
+      }
+    });
+
+    const stream = await client.downloadStream(file, { signal: controller.signal });
+    await expect(stream.getReader().read()).rejects.toMatchObject({
+      code: "operation_cancelled",
+      problem: { operation_outcome: "not_sent" }
+    });
+  });
+
   it("does not keep verified download bytes behind best-effort session cleanup", async () => {
     const content = bytes("verified before cleanup");
     const file = descriptor("Assets/verified.bin", content);

@@ -175,10 +175,9 @@ async fn connect_once(
                                 );
                                 let cancellation = mdbase::OperationCancellation::new();
                                 let worker_cancellation = cancellation.clone();
-                                let timeout_response = relay_operation_rejection(
+                                let timeout_response = relay_operation_timeout(
                                     &relay_message,
-                                    "operation_cancelled",
-                                    "The connector operation exceeded its execution deadline.",
+                                    admission.class,
                                 );
                                 let execution = tokio::task::spawn_blocking(move || {
                                     let _permit = permit;
@@ -323,15 +322,50 @@ fn relay_operation_rejection(
     code: &str,
     message: &str,
 ) -> Option<RelayMessage> {
-    let problem = || {
+    relay_operation_problem(
+        request,
         ConnectProblem::new(code, message).with_operation_outcome(
             if code == "operation_cancelled" {
                 ConnectOperationOutcome::NotSent
             } else {
                 ConnectOperationOutcome::Rejected
             },
+        ),
+    )
+}
+
+fn relay_operation_timeout(request: &RelayMessage, class: WorkClass) -> Option<RelayMessage> {
+    let durable_mutation = class == WorkClass::Mutation
+        && matches!(request, RelayMessage::EncryptedOperationRequest { .. });
+    let problem = if durable_mutation {
+        ConnectProblem::new(
+            "operation_outcome_unknown",
+            "The durable mutation may have completed after its caller's deadline expired. Retry the exact same request to recover its result.",
         )
+        .with_details(serde_json::json!({ "request_id": relay_request_id(request)? }))
+        .with_operation_outcome(ConnectOperationOutcome::Unknown)
+    } else {
+        ConnectProblem::new(
+            "operation_cancelled",
+            "The connector operation exceeded its execution deadline.",
+        )
+        .with_operation_outcome(ConnectOperationOutcome::NotSent)
     };
+    relay_operation_problem(request, problem)
+}
+
+fn relay_request_id(request: &RelayMessage) -> Option<uuid::Uuid> {
+    match request {
+        RelayMessage::OperationRequest { request_id, .. } => Some(*request_id),
+        RelayMessage::EncryptedOperationRequest { envelope } => Some(envelope.request_id),
+        _ => None,
+    }
+}
+
+fn relay_operation_problem(
+    request: &RelayMessage,
+    problem: ConnectProblem,
+) -> Option<RelayMessage> {
     match request {
         RelayMessage::OperationRequest { request_id, .. } => {
             let protocol_version = match request {
@@ -345,14 +379,14 @@ fn relay_operation_rejection(
                 request_id: *request_id,
                 ok: false,
                 result: None,
-                problem: Some(problem()),
+                problem: Some(problem),
             })
         }
         RelayMessage::EncryptedOperationRequest { envelope } => {
             Some(RelayMessage::EncryptedOperationRejected {
                 protocol_version: envelope.protocol_version,
                 request_id: envelope.request_id,
-                problem: problem(),
+                problem,
             })
         }
         _ => None,
@@ -511,6 +545,63 @@ mod tests {
                 problem: Some(problem),
                 ..
             }) if returned == request_id && problem.code == "connector_busy"
+        ));
+    }
+
+    #[test]
+    fn execution_deadlines_never_report_admitted_mutations_as_not_sent() {
+        let request_id = uuid::Uuid::new_v4();
+        let encrypted = RelayMessage::EncryptedOperationRequest {
+            envelope: mdbase_connect_protocol::EncryptedRelayEnvelope {
+                protocol_version: mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
+                suite: "P256-HKDF-SHA256-AES256GCM".to_string(),
+                request_id,
+                grant_id: uuid::Uuid::new_v4(),
+                application_id: uuid::Uuid::new_v4(),
+                connector_id: uuid::Uuid::new_v4(),
+                collection_id: uuid::Uuid::new_v4(),
+                operation: "create".to_string(),
+                scope_epoch: 1,
+                key_id: "deadline-test".to_string(),
+                counter: "1".to_string(),
+                deadline_unix_ms: Some(1),
+                ciphertext: "ciphertext".to_string(),
+            },
+        };
+        assert!(matches!(
+            relay_operation_timeout(&encrypted, WorkClass::Mutation),
+            Some(RelayMessage::EncryptedOperationRejected {
+                request_id: returned,
+                problem,
+                ..
+            }) if returned == request_id
+                && problem.code == "operation_outcome_unknown"
+                && problem.operation_outcome == Some(ConnectOperationOutcome::Unknown)
+                && problem.details == Some(serde_json::json!({ "request_id": request_id }))
+        ));
+    }
+
+    #[test]
+    fn execution_deadlines_cancel_reads_as_not_sent() {
+        let request_id = uuid::Uuid::new_v4();
+        let request = RelayMessage::OperationRequest {
+            protocol_version: mdbase_connect_protocol::OPERATION_TRANSPORT_PROTOCOL_VERSION,
+            request_id,
+            grant_id: uuid::Uuid::new_v4(),
+            collection_id: uuid::Uuid::new_v4(),
+            application_id: uuid::Uuid::new_v4(),
+            operation: "query".to_string(),
+            input: serde_json::json!({}),
+        };
+        assert!(matches!(
+            relay_operation_timeout(&request, WorkClass::Foreground),
+            Some(RelayMessage::OperationResponse {
+                request_id: returned,
+                problem: Some(problem),
+                ..
+            }) if returned == request_id
+                && problem.code == "operation_cancelled"
+                && problem.operation_outcome == Some(ConnectOperationOutcome::NotSent)
         ));
     }
 }

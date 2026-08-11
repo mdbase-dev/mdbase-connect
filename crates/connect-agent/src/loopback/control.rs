@@ -1,8 +1,11 @@
 use super::*;
-use crate::admission::{classify_operation, execution_timeout, queue_deadline, AdmissionRequest};
+use crate::admission::{
+    classify_operation, execution_timeout, queue_deadline, AdmissionRequest, WorkClass,
+};
 use axum::routing::{get, post};
 use mdbase_connect_protocol::{
-    RelayMessage, LOOPBACK_PROTOCOL_VERSION, OPERATION_TRANSPORT_PROTOCOL_VERSION,
+    ConnectOperationOutcome, ConnectProblem, RelayMessage, LOOPBACK_PROTOCOL_VERSION,
+    OPERATION_TRANSPORT_PROTOCOL_VERSION,
 };
 
 pub(super) fn routes() -> Router<LoopbackState> {
@@ -159,6 +162,8 @@ async fn encrypted_control(
         class: classify_operation(&envelope.operation, None),
         weight_bytes: envelope.ciphertext.len(),
     };
+    let class = admission.class;
+    let request_id = envelope.request_id;
     let Ok(permit) = state
         .agent
         .admission()
@@ -207,6 +212,16 @@ async fn encrypted_control(
             StatusCode::INTERNAL_SERVER_ERROR,
             "connector_failed",
             "The local connector could not complete this operation.",
+            &origin,
+        ),
+        Err(_) if class == WorkClass::Mutation => cors_problem(
+            StatusCode::CONFLICT,
+            ConnectProblem::new(
+                "operation_outcome_unknown",
+                "The durable mutation may have completed after its caller's deadline expired. Retry the exact same request to recover its result.",
+            )
+            .with_details(serde_json::json!({ "request_id": request_id }))
+            .with_operation_outcome(ConnectOperationOutcome::Unknown),
             &origin,
         ),
         Err(_) => cors_error(

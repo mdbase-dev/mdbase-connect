@@ -87,7 +87,12 @@ export function apiError(body: any, fallbackCode: string, fallbackMessage: strin
   return serverConnectError(
     oauthErrorCode(body) ?? body?.error?.code ?? fallbackCode,
     body?.error_description ?? body?.error?.message ?? fallbackMessage,
-    { status, details: body?.error?.details }
+    {
+      status,
+      details: body?.error?.details,
+      operationOutcome: body?.error?.operation_outcome,
+      traceId: body?.error?.trace_id
+    }
   );
 }
 

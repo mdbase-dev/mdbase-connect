@@ -3018,6 +3018,107 @@ describe("direct loopback routing", () => {
     expect(outcome.ok ? undefined : outcome.problem.details?.request_id).toBe(pending?.requestId);
   });
 
+  it("retains a mutation when the authority reports an unknown deadline outcome", async () => {
+    const fixture = await encryptedConnection();
+    fixture.connect.disableDirectAccess();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const request = JSON.parse(String(init?.body)) as EncryptedRelayOperationRequest;
+      return new Response(JSON.stringify({
+        error: normalizeConnectProblem(
+          "operation_outcome_unknown",
+          "The durable mutation continued after the deadline.",
+          {
+            operation_outcome: "unknown",
+            details: { request_id: request.request_id }
+          }
+        )
+      }), {
+        status: 409,
+        headers: { "content-type": "application/json" }
+      });
+    });
+
+    const outcome = await fixture.connect.create({
+      path: "deadline-unknown.md",
+      frontmatter: {}
+    });
+    expect(outcome).toMatchObject({
+      ok: false,
+      problem: {
+        code: "operation_outcome_unknown",
+        operation_outcome: "unknown",
+        details: { request_id: expect.any(String) }
+      }
+    });
+    expect(fixture.connect.pendingMutations()).toMatchObject([{
+      requestId: outcome.ok ? undefined : outcome.problem.details?.request_id,
+      operation: "create",
+      status: "outcome_unknown"
+    }]);
+  });
+
+  it("retains and recovers an encrypted unknown mutation receipt", async () => {
+    const fixture = await encryptedConnection();
+    fixture.connect.disableDirectAccess();
+    const bodies: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const body = String(init?.body);
+      const request = JSON.parse(body) as EncryptedRelayOperationRequest;
+      bodies.push(body);
+      const plaintext = bodies.length === 1
+        ? {
+            ok: false,
+            problem: normalizeConnectProblem(
+              "operation_outcome_unknown",
+              "The durable mutation receipt is still being recovered.",
+              {
+                operation_outcome: "unknown",
+                details: { request_id: request.request_id }
+              }
+            )
+          }
+        : {
+            ok: true,
+            result: {
+              valid: true,
+              result: {
+                path: "encrypted-deadline.md",
+                revision: "sha256:record",
+                types: [],
+                frontmatter: {},
+                effective_frontmatter: {},
+                body: "",
+                file: { path: "encrypted-deadline.md" }
+              },
+              diagnostics: []
+            }
+          };
+      const envelope = await encryptedFixtureResponse(fixture, request, plaintext);
+      return new Response(JSON.stringify({ envelope }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    });
+
+    await expect(fixture.connect.create({
+      path: "encrypted-deadline.md",
+      frontmatter: {}
+    })).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "operation_outcome_unknown", operation_outcome: "unknown" }
+    });
+    const pending = fixture.connect.pendingMutations<{ path: string }>();
+    expect(pending).toHaveLength(1);
+
+    await expect(pending[0]!.recover()).resolves.toMatchObject({
+      ok: true,
+      value: { path: "encrypted-deadline.md" }
+    });
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toBe(bodies[0]);
+    expect(fixture.connect.pendingMutations()).toEqual([]);
+  });
+
   it("tracks multiple unknown writes and recovers an exact encrypted envelope", async () => {
     const fixture = await encryptedConnection();
     const requests: Array<{ url: string; body: string }> = [];
@@ -3148,6 +3249,36 @@ schema:
     ]);
     expect(new Set(requests.map(({ body }) => body))).toHaveLength(1);
     expect(fixture.connect.pendingMutation(pending!.requestId)).toMatchObject({ operation: "create" });
+  });
+
+  it("reports the SDK deadline as unknown after mutation dispatch", async () => {
+    const fixture = await encryptedConnection();
+    fixture.connect.disableDirectAccess();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_request, init) =>
+      await new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (!signal) return reject(new Error("missing request signal"));
+        const abort = () => reject(signal.reason);
+        if (signal.aborted) abort();
+        else signal.addEventListener("abort", abort, { once: true });
+      })
+    );
+
+    await expect(fixture.connect.create(
+      { path: "sdk-deadline.md", frontmatter: {} },
+      { timeoutMs: 5 }
+    )).resolves.toMatchObject({
+      ok: false,
+      problem: {
+        code: "operation_outcome_unknown",
+        operation_outcome: "unknown",
+        details: { request_id: expect.any(String) }
+      }
+    });
+    expect(fixture.connect.pendingMutations()).toMatchObject([{
+      operation: "create",
+      status: "outcome_unknown"
+    }]);
   });
 
   it("retains unknown recovery state and its grant key across authorization loss", async () => {
