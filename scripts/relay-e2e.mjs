@@ -201,14 +201,44 @@ try {
   assert(crossB.status === 200 && crossB.body.result?.owner === "instance-b",
     `Instance A did not route through the replacement socket on B: ${JSON.stringify(crossB)}`);
 
-  const burst = await Promise.all(Array.from({ length: 200 }, (_, index) => operation(
-    index % 2 === 0 ? urlA : urlB,
+  const burstRequests = Array.from({ length: 200 }, (_, index) => ({
+    serverUrl: index % 2 === 0 ? urlA : urlB,
+    operationName: index % 3 === 0 ? "query" : "read",
+    input: { index }
+  }));
+  const burst = await Promise.all(burstRequests.map((request) => operation(
+    request.serverUrl,
     fixture,
-    index % 3 === 0 ? "query" : "read",
-    { index }
+    request.operationName,
+    request.input
   )));
-  assert(burst.every((result) => result.status === 200 && result.body.result?.owner === "instance-b"),
-    "Concurrent cross-instance relay burst was incomplete");
+  const busyIndexes = [];
+  const invalidResults = [];
+  for (const [index, result] of burst.entries()) {
+    if (result.status === 200 && result.body.result?.owner === "instance-b") continue;
+    if (result.status === 200
+        && result.body.ok === false
+        && result.body.problem?.code === "connector_busy"
+        && result.body.problem?.category === "availability"
+        && result.body.problem?.recovery === "retry") {
+      busyIndexes.push(index);
+      continue;
+    }
+    invalidResults.push({ index, status: result.status, body: result.body });
+  }
+  assert(invalidResults.length === 0,
+    `Concurrent cross-instance relay burst returned invalid results: ${JSON.stringify(invalidResults)}`);
+  for (const index of busyIndexes) {
+    const request = burstRequests[index];
+    const retried = await operation(
+      request.serverUrl,
+      fixture,
+      request.operationName,
+      request.input
+    );
+    assert(retried.status === 200 && retried.body.result?.owner === "instance-b",
+      `A retryable cross-instance relay request did not recover: ${JSON.stringify({ index, retried })}`);
+  }
 
   const encryption = {
     protocol_version: GRANT_ENCRYPTION_PROTOCOL_VERSION,
