@@ -3,6 +3,7 @@ use std::time::Duration;
 
 const HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 const HTTP_READ_TIMEOUT: Duration = Duration::from_secs(2 * 60);
+const OBJECT_UPLOAD_MAX_ATTEMPTS: usize = 3;
 
 #[async_trait]
 pub trait SyncTransport: Send + Sync {
@@ -411,20 +412,6 @@ impl HttpSyncTransport {
             let part_number = u16::try_from(index + 1).map_err(|_| {
                 MirrorError::new("file_upload_failed", "File upload has too many parts.")
             })?;
-            let prepared = self
-                .file_request::<PreparedFilePart>(
-                    Method::POST,
-                    &format!("uploads/{}/parts", request.transfer_id),
-                    Some(&serde_json::to_value(PrepareFileUploadPartRequest {
-                        protocol_version: FILE_PROTOCOL_VERSION,
-                        message_type: PrepareFileUploadPartRequestKind::PrepareFileUploadPart,
-                        transfer_id: request.transfer_id,
-                        part_number,
-                        content_length: length,
-                    })?),
-                )
-                .await?;
-            validate_prepared_part(&prepared, request.transfer_id, index, offset, length)?;
             input
                 .seek(SeekFrom::Start(offset))
                 .map_err(|error| MirrorError::io("Could not seek staged upload", source, error))?;
@@ -440,44 +427,82 @@ impl HttpSyncTransport {
             input
                 .read_exact(&mut bytes)
                 .map_err(|error| MirrorError::io("Could not read staged upload", source, error))?;
-            let mut upload = self.client.put(&prepared.url).body(bytes);
-            for (name, value) in prepared.headers {
-                if matches!(
-                    name.to_ascii_lowercase().as_str(),
-                    "authorization" | "cookie" | "host" | "proxy-authorization" | "content-length"
-                ) {
-                    continue;
+            let mut completed_etag = None;
+            for attempt in 1..=OBJECT_UPLOAD_MAX_ATTEMPTS {
+                // Preparing the same part is idempotent. A fresh URL on every
+                // retry avoids reusing a stale or rejected object-store
+                // signature, while uploading the same multipart part number
+                // safely replaces any ambiguous prior attempt.
+                let prepared = self
+                    .file_request::<PreparedFilePart>(
+                        Method::POST,
+                        &format!("uploads/{}/parts", request.transfer_id),
+                        Some(&serde_json::to_value(PrepareFileUploadPartRequest {
+                            protocol_version: FILE_PROTOCOL_VERSION,
+                            message_type: PrepareFileUploadPartRequestKind::PrepareFileUploadPart,
+                            transfer_id: request.transfer_id,
+                            part_number,
+                            content_length: length,
+                        })?),
+                    )
+                    .await?;
+                validate_prepared_part(&prepared, request.transfer_id, index, offset, length)?;
+                let mut upload = self.client.put(&prepared.url).body(bytes.clone());
+                for (name, value) in prepared.headers {
+                    if matches!(
+                        name.to_ascii_lowercase().as_str(),
+                        "authorization"
+                            | "cookie"
+                            | "host"
+                            | "proxy-authorization"
+                            | "content-length"
+                    ) {
+                        continue;
+                    }
+                    upload = upload.header(&name, &value);
                 }
-                upload = upload.header(&name, &value);
-            }
-            let response = upload.send().await.map_err(|error| {
-                transport_error(error, "file_upload_failed", "Object upload failed")
-            })?;
-            if !response.status().is_success() {
-                return Err(MirrorError::new(
-                    "file_upload_failed",
-                    format!("Object storage returned HTTP {}.", response.status()),
-                ));
-            }
-            if multipart {
-                let etag = response
-                    .headers()
-                    .get(reqwest::header::ETAG)
-                    .and_then(|value| value.to_str().ok())
-                    .filter(|value| !value.is_empty())
-                    .ok_or_else(|| {
-                        MirrorError::new(
-                            "invalid_sync_response",
-                            "Object storage omitted a multipart ETag.",
-                        )
-                    })?;
-                uploaded.insert(
-                    index,
-                    UploadedFilePart {
-                        part_number,
-                        etag: etag.into(),
-                    },
+                let response = upload.send().await.map_err(|error| {
+                    transport_error(error, "file_upload_failed", "Object upload failed")
+                })?;
+                let status = response.status();
+                if status.is_success() {
+                    if multipart {
+                        completed_etag = Some(
+                            response
+                                .headers()
+                                .get(reqwest::header::ETAG)
+                                .and_then(|value| value.to_str().ok())
+                                .filter(|value| !value.is_empty())
+                                .ok_or_else(|| {
+                                    MirrorError::new(
+                                        "invalid_sync_response",
+                                        "Object storage omitted a multipart ETag.",
+                                    )
+                                })?
+                                .to_string(),
+                        );
+                    }
+                    break;
+                }
+                if attempt == OBJECT_UPLOAD_MAX_ATTEMPTS || !retryable_object_upload_status(status)
+                {
+                    return Err(MirrorError::new(
+                        "file_upload_failed",
+                        format!(
+                            "Object storage returned HTTP {status} for part {part_number} after {attempt} attempt(s)."
+                        ),
+                    ));
+                }
+                tracing::warn!(
+                    transfer_id = %request.transfer_id,
+                    part_number,
+                    attempt,
+                    status = %status,
+                    "object upload part will retry with a fresh signed URL"
                 );
+            }
+            if let Some(etag) = completed_etag {
+                uploaded.insert(index, UploadedFilePart { part_number, etag });
             }
         }
         let receipt = self
@@ -635,6 +660,10 @@ impl HttpSyncTransport {
     }
 }
 
+fn retryable_object_upload_status(status: reqwest::StatusCode) -> bool {
+    matches!(status.as_u16(), 403 | 408 | 425 | 429) || status.is_server_error()
+}
+
 fn validate_prepared_part(
     part: &PreparedFilePart,
     transfer_id: Uuid,
@@ -721,7 +750,14 @@ fn validate_upload_progress(
     {
         return Err(MirrorError::new(
             "invalid_sync_response",
-            "Authority returned invalid file upload progress.",
+            format!(
+                "Authority returned invalid file upload progress (state={:?}, received_parts={}, received_bytes={}, expected_parts={}, expected_bytes={}).",
+                status.state,
+                status.received.len(),
+                status.received_bytes,
+                part_count,
+                total_size
+            ),
         ));
     }
     let received = status.received.iter().copied().collect::<HashSet<_>>();
@@ -757,158 +793,4 @@ fn validate_upload_progress(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn upload_status(transfer_id: Uuid) -> FileTransferStatus {
-        FileTransferStatus {
-            protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
-            message_type: FileTransferStatusKind::FileTransferStatus,
-            transfer_id,
-            state: FileTransferState::Open,
-            received: vec![0, 2],
-            received_bytes: 6,
-            uploaded_parts: vec![
-                UploadedFilePart {
-                    part_number: 1,
-                    etag: "first".to_string(),
-                },
-                UploadedFilePart {
-                    part_number: 3,
-                    etag: "third".to_string(),
-                },
-            ],
-        }
-    }
-
-    #[test]
-    fn upload_progress_is_exact_bounded_and_resume_safe() {
-        let transfer_id = Uuid::new_v4();
-        let valid = upload_status(transfer_id);
-        let (received, uploaded) =
-            validate_upload_progress(valid.clone(), transfer_id, 10, 4, true).unwrap();
-        assert_eq!(received, HashSet::from([0, 2]));
-        assert_eq!(uploaded.keys().copied().collect::<Vec<_>>(), vec![0, 2]);
-
-        let invalid = [
-            FileTransferStatus {
-                received_bytes: 7,
-                ..valid.clone()
-            },
-            FileTransferStatus {
-                state: FileTransferState::Aborted,
-                ..valid.clone()
-            },
-            FileTransferStatus {
-                state: FileTransferState::Committed,
-                ..valid.clone()
-            },
-            FileTransferStatus {
-                uploaded_parts: vec![UploadedFilePart {
-                    part_number: 0,
-                    etag: "zero".to_string(),
-                }],
-                ..valid.clone()
-            },
-            FileTransferStatus {
-                uploaded_parts: vec![
-                    UploadedFilePart {
-                        part_number: 3,
-                        etag: "third".to_string(),
-                    },
-                    UploadedFilePart {
-                        part_number: 1,
-                        etag: "first".to_string(),
-                    },
-                ],
-                ..valid.clone()
-            },
-            FileTransferStatus {
-                uploaded_parts: vec![
-                    UploadedFilePart {
-                        part_number: 1,
-                        etag: "first".to_string(),
-                    },
-                    UploadedFilePart {
-                        part_number: 3,
-                        etag: "x".repeat(256),
-                    },
-                ],
-                ..valid.clone()
-            },
-        ];
-        for status in invalid {
-            assert_eq!(
-                validate_upload_progress(status, transfer_id, 10, 4, true)
-                    .unwrap_err()
-                    .code,
-                "invalid_sync_response"
-            );
-        }
-        assert_eq!(
-            validate_upload_progress(valid.clone(), transfer_id, 10, 0, true)
-                .unwrap_err()
-                .code,
-            "invalid_sync_response"
-        );
-        assert_eq!(
-            validate_upload_progress(valid, transfer_id, 10, 4, false)
-                .unwrap_err()
-                .code,
-            "invalid_sync_response"
-        );
-    }
-
-    #[test]
-    fn sync_transport_derives_the_file_endpoint_from_one_valid_authority() {
-        let authority_id = Uuid::new_v4();
-        let transport = HttpSyncTransport::new(
-            &format!("https://connect.example/v1/authorities/{authority_id}/sync"),
-            "token",
-        )
-        .unwrap();
-        assert_eq!(
-            transport.files_url,
-            format!("https://connect.example/v1/authorities/{authority_id}/files")
-        );
-        for invalid in [
-            format!("http://connect.example/v1/authorities/{authority_id}/sync"),
-            format!("https://other.example/v1/authorities/{authority_id}/files"),
-            format!("https://connect.example/v1/authorities/{authority_id}/sync?next=evil"),
-        ] {
-            assert_eq!(
-                HttpSyncTransport::new(&invalid, "token")
-                    .err()
-                    .unwrap()
-                    .code,
-                "invalid_sync_url"
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn stalled_authority_request_returns_a_typed_transport_timeout() {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let (_socket, _) = listener.accept().await.unwrap();
-            std::future::pending::<()>().await;
-        });
-        let authority_id = Uuid::new_v4();
-        let transport = HttpSyncTransport::new_with_timeouts(
-            &format!("http://{address}/v1/authorities/{authority_id}/sync"),
-            "token",
-            Duration::from_secs(1),
-            Duration::from_millis(50),
-        )
-        .unwrap();
-
-        let error = tokio::time::timeout(Duration::from_secs(2), transport.open_session())
-            .await
-            .expect("the transport must enforce its own shorter timeout")
-            .unwrap_err();
-        assert_eq!(error.code, "mirror_transport_timeout");
-        server.abort();
-        assert!(server.await.unwrap_err().is_cancelled());
-    }
-}
+mod tests;

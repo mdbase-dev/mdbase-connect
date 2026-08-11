@@ -2710,6 +2710,7 @@ name = "mdbase-connect-mirror"
 version = "0.1.0-beta.65"
 dependencies = [
  "async-trait",
+ "axum",
  "chrono",
  "fs2",
  "mdbase",
@@ -2723,6 +2724,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "tracing",
  "unicode-normalization",
  "url",
  "uuid",

@@ -19,10 +19,12 @@ serde_yaml.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 unicode-normalization.workspace = true
 url.workspace = true
 uuid.workspace = true
 walkdir = "2"
 
 [dev-dependencies]
+axum.workspace = true
 tokio.workspace = true
