@@ -1374,9 +1374,18 @@ select:focus-visible {
   padding: 14px 14px 10px 18px;
 }
 
-.list-header > div {
+.list-header-title {
+  width: 0;
   min-width: 0;
-  flex: 1;
+  flex: 1 1 0;
+  overflow: hidden;
+}
+
+.list-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
 }
 
 .list-header h1 {
@@ -1390,9 +1399,12 @@ select:focus-visible {
 }
 
 .list-header p {
+  overflow: hidden;
   margin: 2px 0 0;
   color: var(--faint);
   font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .list-header .list-retry {

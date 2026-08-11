@@ -1124,6 +1124,56 @@ test("resizes, collapses, and restores the desktop sidebars", async ({ page }) =
   expect(restored).toBeCloseTo(after, 0);
 });
 
+test("keeps note header actions reachable beside a long collection name", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 760 });
+  await page.goto("?demo=12");
+
+  for (const listWidth of [304, 240]) {
+    await page.evaluate((width) => {
+      localStorage.setItem("mdbase-editor:layout", JSON.stringify({
+        collectionWidth: 176,
+        listWidth: width,
+        inspectorWidth: 340,
+        collectionCollapsed: false,
+        listCollapsed: false
+      }));
+    }, listWidth);
+    await page.reload();
+
+    const heading = page.locator(".list-header h1");
+    await expect(heading).toHaveText("Writing");
+    await heading.evaluate((element) => {
+      element.textContent = "mdbase Reader literature fixture with a deliberately long collection name";
+    });
+
+    const hideNotes = page.getByRole("button", { name: "Hide notes sidebar" });
+    const newNote = page.getByRole("button", { name: "New note" });
+    await expect(hideNotes).toBeVisible();
+    await expect(newNote).toBeVisible();
+
+    const geometry = await page.locator(".list-header").evaluate((header) => {
+      const title = header.querySelector("h1");
+      const hide = header.querySelector<HTMLElement>('[aria-label="Hide notes sidebar"]');
+      const create = header.querySelector<HTMLElement>('[aria-label="New note"]');
+      const pane = header.closest(".note-list-pane");
+      if (!title || !hide || !create || !pane) throw new Error("Note header controls are missing.");
+      return {
+        title: title.getBoundingClientRect().toJSON(),
+        hide: hide.getBoundingClientRect().toJSON(),
+        create: create.getBoundingClientRect().toJSON(),
+        pane: pane.getBoundingClientRect().toJSON()
+      };
+    });
+    expect(geometry.title.right).toBeLessThanOrEqual(geometry.hide.left);
+    expect(geometry.hide.right).toBeLessThanOrEqual(geometry.create.left);
+    expect(geometry.create.right).toBeLessThanOrEqual(geometry.pane.right);
+
+    await newNote.click();
+    await expect(page.getByRole("button", { name: "Create note" })).toBeVisible();
+    await page.locator(".new-note-actions").getByRole("button", { name: "Cancel" }).click();
+  }
+});
+
 test("keeps the current note inspector open and resizable between note switches", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 760 });
   await page.goto("?demo=12");
