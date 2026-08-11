@@ -15,7 +15,7 @@ tags:
   - caching
   - observability
 created_at: 2026-08-11T18:24:43+10:00
-updated_at: 2026-08-11T23:48:00+10:00
+updated_at: 2026-08-12T03:15:00+10:00
 type: task
 ---
 
@@ -606,18 +606,66 @@ clippy, TypeScript typecheck/tests, and local daemon/relay E2E path. It still re
 a new prerelease and deployed hosted/binary/restart staging acceptance before merge
 to any production rollout.
 
-Next implementation step: land the provider contract, create a clean mdbase-rs
-worktree from that merge, and implement Phase 1 outcomes/feed primitives without
-changing the public Connect/NATS wire. Carry the baseline harness forward as a
-correctness and comparative-observation tool, not a fixed timing gate.
+## Implementation evidence — 2026-08-12
+
+The coordinated provider runtime is merged in `callumalpass/mdbase-rs#49` at
+`8c12700ca395f9ca1516ec9ff9cb19a062efed3e`. Its complete CI matrix is green on
+Linux, macOS, and Windows, including the portable black-box runtime scenarios,
+package publication, dependency policy, formatting/clippy/docs/features, and
+live PostgreSQL. Local verification also passed the full workspace/conformance
+suite and ten consecutive parallel 117-test runtime-library runs after making
+the crash/deadline controls transaction-scoped.
+
+The provider implementation now supplies:
+
+- generation-bound exact execution outcomes for canonical records and control
+  resources;
+- durable prepared/committing/committed/rejected/cancelled/manual states with
+  opaque host claims and crash recovery at every commit boundary;
+- a durable fenced pull/ack change feed for known and external changes;
+- sparse create/update/delete paths, indexed uniqueness and reverse links,
+  incremental generation-bound cache updates, and demand-loaded bodies;
+- generation-pinned opaque query cursors with explicit release/expiry; and
+- privacy-safe retained-runtime measurements.
+
+The Connect beta65 staging candidate is `mdbase-dev/mdbase-connect#251`. It pins
+the merged provider revision and cuts normal v0.3 local authority traffic over
+to one `FilesystemRuntime` and `CollectionExecutor` per resident collection.
+The executor retains separate bounded mutation, foreground, and background
+lanes. Connect consumes provider outcomes and feed events directly, persists a
+change receipt before feed acknowledgement, and no longer owns a second
+collection watcher or operation-result invalidation inference path. Runtime
+residency is bounded to eight and tested across eleven collections, including
+eviction, external Markdown edits, and identity-preserving reopen.
+
+The SDK candidate adds one request coordinator per selected connection,
+independent ordered mutation capacity, bounded foreground pressure, safe read
+coalescing, explicit latest-wins families, cursor pagination, early-release
+cleanup, and legacy snapshot/offset fallback. The architecture gate remains at
+1,000 lines with the new runtime, residency, mutation, and pagination concerns
+split into focused modules.
+
+Local candidate evidence is green: 136 core tests, 68 daemon tests, the complete
+Rust workspace, formatting and clippy with warnings denied, every JavaScript
+workspace suite (including 197 SDK and 270 editor tests), typechecking, packed
+public API boundaries, generated problem/operation catalogs, release version
+and readiness checks, and the architecture gate. The beta65 PR cross-platform
+and release matrix is still running. Production remains untouched on beta55.
 
 ## Handoff
 
-Begin Phase 1 in mdbase-rs from the merged provider contract. Implement the
-accepted identities, preparation/outcome states, normalized paged changes, and
-durable feed primitives behind current public behavior. Preserve the existing
-Connect path until fixtures and crash/cancellation tests prove the provider
-boundary; then pin the exact mdbase revision into a new Connect worktree.
+Do not deploy production. Finish PR 251 CI, merge the candidate only when every
+required gate is green, publish beta65, and deploy only the staging server,
+hosted provider, portal/desktop candidate, and controlled SDK consumers. Then
+run deployed direct, relay, and hosted acceptance with `staging-test@mdbase.dev`,
+including the `~/testvault/mdbase-reader` heavy collection, opaque binary file
+round trips, more collections than the residency limit, cursor early exit and
+expiry, deadline/cancellation contention, external edits, daemon restart,
+beta64-to-beta65 migration, durable request replay, and hosted mirror timeout
+recovery. Record RSS and aggregate runtime-residency diagnostics without
+capturing vault content. Use live Luna agents for independent staging passes as
+requested by the user. Promote nothing to production until that evidence has
+been reviewed.
 
 Do not start with a second Connect scheduler or a dual watcher. Phase 4 introduces
 the per-collection executor only when it can cut each collection atomically to the
