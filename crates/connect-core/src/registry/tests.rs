@@ -242,3 +242,27 @@ implements:
         provision,
     )
 }
+
+#[test]
+fn registry_sqlite_diagnostic_preserves_extended_result_code() {
+    let error = ConnectError::Registry(rusqlite::Error::SqliteFailure(
+        rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_IOERR_READ),
+        Some("read failed".to_string()),
+    ));
+
+    assert_eq!(
+        error.registry_sqlite_diagnostic(),
+        Some(RegistrySqliteDiagnostic {
+            primary_code: "SystemIoFailure".to_string(),
+            extended_code: rusqlite::ffi::SQLITE_IOERR_READ,
+        })
+    );
+}
+
+#[test]
+fn non_sqlite_registry_errors_have_no_sqlite_diagnostic() {
+    assert_eq!(
+        ConnectError::CollectionNotFound(Uuid::nil()).registry_sqlite_diagnostic(),
+        None
+    );
+}

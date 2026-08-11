@@ -166,7 +166,23 @@ impl RuntimeNotificationService {
         let collections = match self.local_registry.list() {
             Ok(collections) => collections,
             Err(error) => {
-                tracing::warn!(%error, "notification runtime could not list collections for recovery");
+                let sqlite = error.registry_sqlite_diagnostic();
+                tracing::warn!(
+                    error_code = error.code(),
+                    registry_database = "connector",
+                    registry_operation = "list_collections",
+                    sqlite_diagnostic_available = sqlite.is_some(),
+                    sqlite_primary_code = sqlite
+                        .as_ref()
+                        .map(|diagnostic| diagnostic.primary_code.as_str())
+                        .unwrap_or("unavailable"),
+                    sqlite_extended_code = sqlite
+                        .as_ref()
+                        .map(|diagnostic| diagnostic.extended_code)
+                        .unwrap_or(0),
+                    %error,
+                    "notification runtime could not list collections for recovery"
+                );
                 return;
             }
         };

@@ -32,6 +32,18 @@ pub struct ApplicationSetupResult {
     pub receipt: Value,
 }
 
+/// Privacy-safe SQLite identifiers for correlating local registry failures.
+///
+/// The primary name distinguishes broad classes such as `SystemIoFailure`,
+/// while the extended integer preserves SQLite's exact failure subtype (for
+/// example `SQLITE_IOERR_READ` versus `SQLITE_IOERR_FSYNC`). Neither field
+/// contains SQL, database contents, or local filesystem paths.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegistrySqliteDiagnostic {
+    pub primary_code: String,
+    pub extended_code: i32,
+}
+
 const CONNECT_EXTENSION: &str = "x-mdbase-connect";
 const CONNECT_COLLECTION_ID: &str = "collection_id";
 const MIRROR_MARKER_DIRECTORY: &str = ".mdbase";
@@ -260,6 +272,17 @@ impl ConnectError {
             }
             _ => None,
         }
+    }
+
+    pub fn registry_sqlite_diagnostic(&self) -> Option<RegistrySqliteDiagnostic> {
+        let Self::Registry(error) = self else {
+            return None;
+        };
+        let sqlite = error.sqlite_error()?;
+        Some(RegistrySqliteDiagnostic {
+            primary_code: format!("{:?}", sqlite.code),
+            extended_code: sqlite.extended_code,
+        })
     }
 
     pub(crate) fn invalid_collection(diagnostics: Vec<mdbase::v03::Diagnostic>) -> Self {

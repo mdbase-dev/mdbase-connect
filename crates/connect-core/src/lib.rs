@@ -20,6 +20,7 @@ pub use registry::{
     EncryptedRequestClaim, GrantReplayContext, MutationClaim, MutationClaimRequest,
     MutationJournalDiagnostics, MutationJournalState, MutationLease, MutationRecoveryData,
     RegistryBackupDiagnostic, RegistryBackupMetadata, RegistryDiagnostics,
+    RegistrySqliteDiagnostic,
 };
 pub use secrets::SystemSecretStore;
 pub mod profiling;
