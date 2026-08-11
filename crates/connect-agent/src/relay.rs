@@ -217,7 +217,12 @@ async fn connect_once(
                                     Err(_) => {
                                         let durable_mutation = execution_state.begin_timeout();
                                         cancellation.cancel();
-                                        tracing::warn!("relayed connector operation exceeded its execution deadline");
+                                        tracing::warn!(
+                                            request_id = %timeout_request.request_id,
+                                            class = ?admission.class,
+                                            durable_mutation,
+                                            "relayed connector operation exceeded its execution deadline"
+                                        );
                                         if let Some(response) = relay_operation_timeout(
                                             &timeout_request,
                                             durable_mutation,

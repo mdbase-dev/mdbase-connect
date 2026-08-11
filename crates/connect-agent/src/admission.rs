@@ -10,6 +10,7 @@ use uuid::Uuid;
 const DEFAULT_QUEUE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 const MAX_OPERATION_EXECUTION: Duration = Duration::from_secs(30);
 const MAX_RETAINED_KEYED_SEMAPHORES: usize = 128;
+pub(crate) const MAX_CONCURRENT_READS: usize = 2;
 
 /// Convert the client's optional absolute deadline into a local, monotonic
 /// window. The hint can only shorten the connector's own maximum.
@@ -77,8 +78,12 @@ impl Default for AdmissionLimits {
         let reserved_mutations = (operations / 4).max(1);
         Self {
             operations,
-            reads: operations - reserved_mutations,
-            background: 2.min(operations - reserved_mutations),
+            // Match the fixed read executor exactly. An extra admitted read
+            // would hold a deadline and capacity while queued invisibly on
+            // the executor, turning ordinary contention into a late timeout.
+            reads: MAX_CONCURRENT_READS,
+            // Retain one foreground lane when background polling is active.
+            background: MAX_CONCURRENT_READS - reserved_mutations,
             files: 4,
             // A grant can run two reads while retaining one independent
             // mutation lane. Background work gets only one of the read lanes
@@ -417,6 +422,13 @@ fn conservative_mutation_operation(operation: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_read_limits_match_executor_and_preserve_foreground_capacity() {
+        let limits = AdmissionLimits::default();
+        assert_eq!(limits.reads, MAX_CONCURRENT_READS);
+        assert!(limits.background < limits.reads);
+    }
 
     #[test]
     fn client_deadlines_only_shorten_the_connector_window() {

@@ -162,12 +162,12 @@ async fn local_collection_operations_share_admission_without_blocking_control() 
     let state = Arc::new(AgentState::new(registry, watcher, None));
 
     let mut held_reads = Vec::new();
-    for principal in 1..=3 {
+    for principal in 1..=crate::admission::MAX_CONCURRENT_READS {
         held_reads.push(
             state
                 .admission()
                 .admit(AdmissionRequest {
-                    grant_id: Uuid::from_u128(principal),
+                    grant_id: Uuid::from_u128(principal as u128),
                     collection_id: collection.id,
                     class: WorkClass::Foreground,
                     weight_bytes: 1,

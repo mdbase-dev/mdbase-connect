@@ -1,10 +1,8 @@
-use crate::admission::WorkClass;
+use crate::admission::{WorkClass, MAX_CONCURRENT_READS};
 use std::sync::OnceLock;
 use tokio::runtime::Runtime;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinHandle;
-
-const READ_WORKERS: usize = 2;
 
 /// Keep collection snapshots on a small, stable set of workers. Query bodies
 /// can establish a large allocator high-water mark, so allowing them onto the
@@ -14,7 +12,7 @@ fn read_runtime() -> &'static Runtime {
     RUNTIME.get_or_init(|| {
         tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
-            .max_blocking_threads(READ_WORKERS)
+            .max_blocking_threads(MAX_CONCURRENT_READS)
             .thread_name("mdbase-read-worker")
             .build()
             .expect("collection read runtime must start")
@@ -27,11 +25,15 @@ fn read_runtime() -> &'static Runtime {
 pub(crate) async fn reserve_local_response() -> OwnedSemaphorePermit {
     static SLOTS: OnceLock<std::sync::Arc<Semaphore>> = OnceLock::new();
     SLOTS
-        .get_or_init(|| std::sync::Arc::new(Semaphore::new(READ_WORKERS)))
+        .get_or_init(|| std::sync::Arc::new(Semaphore::new(MAX_CONCURRENT_READS)))
         .clone()
         .acquire_owned()
         .await
         .expect("local response capacity must remain open")
+}
+
+pub(crate) fn reserves_local_response(class: WorkClass) -> bool {
+    matches!(class, WorkClass::Foreground | WorkClass::Background)
 }
 
 pub(crate) fn spawn_blocking<T, F>(class: WorkClass, operation: F) -> JoinHandle<T>
@@ -81,8 +83,8 @@ mod tests {
             workers.insert(job.await.expect("read worker must finish"));
         }
 
-        assert!(peak.load(Ordering::Acquire) <= READ_WORKERS);
-        assert!(workers.len() <= READ_WORKERS);
+        assert!(peak.load(Ordering::Acquire) <= MAX_CONCURRENT_READS);
+        assert!(workers.len() <= MAX_CONCURRENT_READS);
         assert!(!workers.is_empty());
     }
 
@@ -101,5 +103,13 @@ mod tests {
             .expect("released response capacity must admit the waiter")
             .expect("response waiter must not fail");
         drop((second, third));
+    }
+
+    #[test]
+    fn local_response_reservations_never_block_mutation_capacity() {
+        assert!(reserves_local_response(WorkClass::Foreground));
+        assert!(reserves_local_response(WorkClass::Background));
+        assert!(!reserves_local_response(WorkClass::Mutation));
+        assert!(!reserves_local_response(WorkClass::File));
     }
 }

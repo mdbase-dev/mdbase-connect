@@ -357,7 +357,7 @@ where
                     }
                     _ => None,
                 };
-                if response_class.is_some() {
+                if response_class.is_some_and(crate::operation_executor::reserves_local_response) {
                     response_permit =
                         Some(crate::operation_executor::reserve_local_response().await);
                 }
