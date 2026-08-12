@@ -15,7 +15,7 @@ tags:
   - caching
   - observability
 created_at: 2026-08-11T18:24:43+10:00
-updated_at: 2026-08-12T10:04:07+10:00
+updated_at: 2026-08-12T12:16:00+10:00
 type: task
 ---
 
@@ -924,15 +924,64 @@ the beta68 deployed application lifecycle and the exact hosted-file and
 adversarial suites; this pass intentionally concentrated on the real relay
 binary path.
 
+## Production promotion — beta68
+
+The reviewed beta68 candidate was promoted to production on August 12. Before
+promotion, operations PR `mdbase-dev/mdbase-cloud-ops#142` fixed interrupted
+deployment reporting and landed at
+`15bd83c09e7f398a69119c42626aeee0130c6156`; both hermetic repository checks
+passed. Production pin PR `mdbase-dev/mdbase-cloud-ops#143` then changed only
+`render/release.env` and the three beta68 image pins in `render.yaml`, landing
+at `fb3cb35b8ea5d360bdd5bd18a30371ffd247fe64`.
+
+Production workflow run `31555494420` completed successfully in 361 seconds.
+Its retained artifact `production-deployment-state-31555494420` records release
+commit `86085d2335a8cd46fe21ba178815aeaea7479e90`, operations commit
+`fb3cb35b8ea5d360bdd5bd18a30371ffd247fe64`, and the exact beta55 rollback
+images for provider, Connect, and MCP. Release preflight, exact staging
+verification, platform preflight, rollback snapshot and migration safety,
+provider/Connect/MCP deployment, entitlement reconciliation, and production
+verification all passed. The unchanged relay image was correctly skipped.
+
+Production now reports Connect and MCP revision
+`86085d2335a8cd46fe21ba178815aeaea7479e90`. Hosted provider readiness reports
+`0.1.0-beta.68`, recovery `ok`, and zero consecutive notification failures.
+Independent production monitor run `31556193214` passed every service health
+and readiness boundary and all application-manifest checks. The release
+workflow's production verification also passed its OAuth device and semantic
+write probes.
+
+The controlled consumer commits were promoted immediately after backend health
+gates passed:
+
+- TaskNotes PR `callumalpass/tasknotes-app#116` merged at
+  `7d9345308e5eec07f86243438d4f6b5888c2a4c8`; production deployment and smoke
+  run `31555874437` passed.
+- Pickle PR `callumalpass/pickle-android#25` merged at
+  `86bdd048e430e12ef5ee9f79ba272c4a8120fb4f`; production run `31555878664`
+  passed.
+- Workouts PR `callumalpass/mdbase-workouts#24` merged at
+  `c2b1d73c6b4e938b17ac41ace26f64f449284d52`; production run `31555881489`
+  passed.
+- Canonical Editor production run `31555891150` passed from exact beta68 merge
+  `86085d2335a8cd46fe21ba178815aeaea7479e90`.
+- Reader was deployed from local beta68 commit `588d2e6e3f50`; its deployment
+  now has an explicit production target and serves build marker `588d2e6e3f50`
+  at `https://mdbase-reader.pages.dev/`. The same changes were consolidated
+  onto the local Reader `main` branch at `c02fbbf`.
+
+Every live application manifest declares its production homepage and validates
+against `https://connect.mdbase.dev`. The beta68 desktop public update rollout
+remains at zero; server and web-application promotion did not opt desktop users
+into an automatic update.
+
 ## Handoff
 
-Do not deploy production. Keep the desktop rollout at zero and production on
-beta55 while the complete beta68 staging evidence is reviewed. The direct,
-relay, hosted, migration, large-vault, binary, contention, cancellation,
-cursor, mirror, and deployed-consumer gates are now green. Before choosing a
-production rollout, decide how to handle the bounded-but-high retained Reader
-RSS, operator recovery after a locked credential store, compatibility
-retirement timing, and interrupted-deployment report classification.
+Beta68 production and its controlled web consumers are green. Keep the narrow
+beta55-era protocol bridge and its telemetry until the remaining old client has
+upgraded or aged out. The bounded-but-high retained Reader RSS and operator
+recovery after a locked credential store remain operational follow-ups, not
+evidence of an active leak or a reason to reintroduce duplicate runtimes.
 
 Do not start a second Connect scheduler, restore a dual watcher, move binary
 payloads off NATS as part of this program, or remove the narrow protocol bridge
