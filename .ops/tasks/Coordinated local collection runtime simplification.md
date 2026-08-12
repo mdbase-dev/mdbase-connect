@@ -15,7 +15,7 @@ tags:
   - caching
   - observability
 created_at: 2026-08-11T18:24:43+10:00
-updated_at: 2026-08-12T07:40:00+10:00
+updated_at: 2026-08-12T10:04:07+10:00
 type: task
 ---
 
@@ -743,19 +743,199 @@ suite also passed on the exact beta67 tree, covering upload and download
 integrity, commit-versus-abort races, late-copy compensation, transfer expiry,
 bounded recovery, and cleanup.
 
+## Staging evidence — beta68
+
+Beta68 is the coordinated staging candidate. The Connect implementation and
+SDK fixes landed in `mdbase-dev/mdbase-connect#259` at merge
+`86085d2335a8cd46fe21ba178815aeaea7479e90`; the annotated
+`v0.1.0-beta.68` tag points at that exact merge. Npm publication, server CI, and
+immutable signed image publication all passed. The candidate keeps the
+beta66 coordinated runtime and beta67 provider-paging negotiation, and adds
+single-flight desktop snapshot refreshes in both the renderer and main
+process. Only `credential_store_unavailable` becomes the typed offline
+snapshot with a bounded retry window; unrelated failures propagate and every
+settled request releases capacity. The same merge also fixes the canonical
+Editor staging OAuth callback contract and tests both accepted redirect forms.
+
+Published staging images are pinned by digest:
+
+- relay (unchanged):
+  `sha256:21b5cce2a4692748358e8b0ab85a91f0d27ddd8c863760968928fe9c0a778ea0`;
+- hosted provider:
+  `sha256:7f63d3ff16a1ad09e626a0daf1ded022a9aa29104eb1429c0a765bdecae58ece`;
+- Connect server:
+  `sha256:f46752c2db2aa0a70dd639fb5c31b5924418651f754505cc660de6d76a956968`;
+  and
+- MCP:
+  `sha256:73f1b45b65cfb2cfe509cd4a00a7780889fbf89e2e68e1ff360a1c0dceac2c06`.
+
+The Linux, Windows, macOS Apple Silicon, and macOS Intel desktop release jobs
+all passed, as did the release publication job. The public update manifest is
+`0.1.0-beta.68` with rollout percentage `0`, so production users are not
+offered the staged desktop candidate. Production itself remains exactly on the
+beta55 tag commit `673e9e1ddab2a2a50a7cdb1506fd2a15ac4b61ef`.
+
+Private operations PR `mdbase-dev/mdbase-cloud-ops#141` landed at
+`9089d2718cc3715f98bccb05873315948c94dc11`. Its candidate manifest pins the
+exact TaskNotes, Editor, Workouts, and Pickle commits. Deployment verified image
+signatures and attestations, captured rollback state, confirmed there was no
+database migration delta, skipped the unchanged relay, and promoted the hosted
+provider, Connect server, and MCP sequentially. Exact digest checks,
+health/readiness, entitlement reconciliation, synthetic operations, OAuth
+device and semantic writes, all four candidate manifests, and R2 CORS passed.
+The separate 15-minute post-deploy soak also passed on that exact ops commit.
+Staging reports Connect and MCP revision `86085d2335a8cd46fe21ba178815aeaea7479e90`;
+the hosted provider reports `0.1.0-beta.68` with notification recovery healthy
+and zero consecutive failures.
+
+The first deployment invocation was interrupted while the GitHub CLI stalled
+during preflight, before any Render service changed. Its report incorrectly
+labelled the interrupted exit-130 preflight as successful. The guarded rerun
+used the same assertions and completed normally. Fixing that report
+classification is an operations follow-up; it did not weaken or bypass a
+deployment check.
+
+The clean compatibility report shows only operation transport v3 in sampled
+hosted and relay traffic, but it still found one recent active pre-beta57
+connector plus legacy or unknown grant bindings and unbound hosted replicas.
+The observation window is incomplete because telemetry began on August 10.
+Compatibility removal is therefore explicitly not ready: keep the narrow
+beta55-era bridge and its telemetry until the remaining client has upgraded or
+aged out. This is a versioned boundary, not a second local runtime model.
+
+### Coordinated consumers
+
+All controlled SDK artifacts were packed from exact beta68 merge
+`86085d2335a8cd46fe21ba178815aeaea7479e90` and audited for declared revision,
+size, and SHA-512 consistency.
+
+- TaskNotes `b0667ce12cf19d6b1f089e8014153e4797eca7f3` passed 397 tests,
+  coverage/layer gates, 4,983 conformance cases, build, 20 browser tests, and
+  Android build/push/restart smoke. `pnpm deploy:dev` published
+  `https://staging.tasknotes-app.pages.dev/`.
+- Pickle `2a3271b53573025e078a1b1bca83462c462d5261` passed 21 tests,
+  format/lint/type/build, eight browser tests, and Android
+  build/push/back/restart smoke. `pnpm deploy:dev` published
+  `https://staging.pickle-9zb.pages.dev/`.
+- Workouts `9ffc67c33c70cc9f66222de8d79ea88c475514f6` passed typecheck,
+  24 tests, build, and ten mobile browser tests. The repository has no
+  `deploy:dev` command; its PR deploy job is intentionally skipped.
+- Reader `dbba0234856e8b13eeb63f4dd33122217d467e1c` passed its complete
+  format/lint/architecture/spec/type, workspace-test, and build suites.
+  `pnpm deploy:dev` published
+  `https://mdbase-reader.pages.dev/` with that revision. Reader has no Git
+  remote, so the exact local commit is the source record.
+- Canonical Editor deployment passed from the beta68 merge. Its staging
+  manifest contains both the plain staging callback and the query-bearing
+  callback for `connect-staging.mdbase.dev`.
+
+The TaskNotes, Pickle, and Workouts draft PR checks are green on those exact
+heads. The PRs remain draft and unmerged; no production consumer was changed.
+
+An independent Luna/Playwright pass used `staging-test@mdbase.dev` and a
+disposable hosted collection against the deployed beta68 services. Editor
+completed create/query/read/update/delete through the corrected OAuth callback.
+TaskNotes completed real create/read/list/update/delete. Pickle completed its
+available assess/change/describe/query paths; it exposes no request-creation UI.
+Reader uploaded, created, queried, downloaded, and deleted a temporary source.
+All four applications rendered and operated at 390 by 844 pixels. TaskNotes,
+Pickle, and Reader had no console errors; Editor emitted only the known
+nonfunctional Cloudflare Insights CSP block. Deleting the collection returned
+all four applications to their expected reconnect or authorization-lost state.
+The collection and grants were permanently removed.
+
+### Migration, large collection, cancellation, and memory
+
+The persistent desktop staging profile was migrated without replacement. Its
+pre-beta67 backup remains byte-identical at 982 files and 1,196,000,004 bytes;
+all 31 SQLite integrity checks passed. The same beta68 daemon preserved the
+Reader and relay-fixture collection identities and remained connected through
+both server cutovers, reconnecting in two to three seconds.
+
+The Reader vault changed externally during acceptance from 1,507 to 1,508
+records. At the final observation it contained 1,512 Markdown files, 2,851
+files overall, and 10,225,385,614 bytes. No acceptance test mutated it. Direct
+filesystem and daemon-routed queries agreed exactly at the current generation:
+metadata SHA-256
+`5ad5824892fbb93e1fe82f6c5b99beee89999679925766d1de0e82d924f0a58d`
+and body SHA-256
+`16a496851aca7b344911a9dd238bd48607b8b4b3dbfde75aa25a9b1063a4d136`.
+Direct metadata/body queries took 762/801 ms; daemon-routed queries took
+851/943 ms.
+
+Generation-pinned cursor opening, advance, deterministic same-page reuse,
+final-page advance, explicit release, and typed `generation_expired` after
+release all passed. Ten 50-millisecond body-query cancellations returned in
+52–54 milliseconds. Eight overlapping full-body reads and ten foreground
+metadata reads all returned the exact current digests. The first foreground
+read under maximum overlap took 5.427 seconds and the remaining nine took
+833–869 milliseconds, with no stderr failure.
+
+The shared daemon reached an allocator/runtime high-water mark near 873.6 MiB
+after the accumulated migration, heavy binary, and Reader workloads. Across a
+controlled three-minute post-load sample it stayed within 873,328–873,576 KiB
+RSS and 860,554–860,833 KiB PSS, with 17 threads, 94–95 file descriptors, and
+no child processes. This remains evidence of a bounded retained high-water
+mark, not monotonic per-request growth; it is intentionally an observation and
+not a release threshold.
+
+The workstation login keyring later became locked while the already-running
+daemon retained its relay credential in memory. Relay reconnect and ordinary
+queries continued, but new mirror secret access returned the typed
+`credential_store_unavailable` state. Restarting the exact beta68 desktop on
+the same profile completed within the bounded bootstrap deadline and entered
+offline local-control mode instead of hanging. An isolated, paired staging-test
+profile using the repository's explicit test-only secret backend was then used
+for the remaining relay acceptance. No credential was printed or copied into
+the persistent profile. Recovery after an operator unlock remains an
+operational ergonomics follow-up, not a reason to weaken system credential
+storage.
+
+### Deployed relay and binary acceptance
+
+The final independent Luna pass paired a disposable beta68 connector and local
+collection to `staging-test@mdbase.dev`, then authorized the deployed staging
+Editor. Direct access was disabled and the SDK reported `relay` for every
+operation, so this exercised the real staging Connect/NATS/daemon route rather
+than loopback. Deterministic non-Markdown objects round-tripped with exact
+SHA-256 values:
+
+| Size | SHA-256 | Upload | Download and hash |
+| --- | --- | ---: | ---: |
+| 1 MiB | `06b7bbfb7824aa03382051691630eb26de85102d1b08a81e907ec0744cd8a286` | 2.742 s | exact match |
+| 8 MiB | `0ff4d6c068be24637e84ea9f481c3c29f7afcdef1e06e1f40a68e5de85dcbb5b` | 4.762 s | exact match |
+| 128 MiB | `e6c6c52c24cfd829d5e3c78668fcd4fa00c4232f9edf162279308f936b06b148` | 51.025 s | 45.188 s, exact match |
+
+During the 128 MiB upload, 20 foreground relay queries all succeeded in
+245–520 milliseconds. Aborting a 128 MiB relay download returned the typed
+`operation_cancelled` result after 3.200 seconds, and an immediate relay query
+succeeded in 315 milliseconds. This complements the ten 50-millisecond local
+read cancellations and the exact post-dispatch durable mutation timeout/replay
+suite; no mutation was treated as `not_sent` after durable dispatch.
+
+The isolated daemon rose from 84,396 KiB RSS/58,657 KiB PSS to a transfer peak
+of 100,928/72,017 KiB. After cleanup it stayed at 100,324 KiB RSS and
+74,584–74,585 KiB PSS across the final three-minute window, with 9–10 threads,
+25 file descriptors, three sockets, and no child process. The grant was
+revoked, the collection was unregistered, all binary and collection files were
+removed, and final collection, grant, and pending-authorization counts were
+zero. Hosted collection and mirror behavior was already covered separately by
+the beta68 deployed application lifecycle and the exact hosted-file and
+adversarial suites; this pass intentionally concentrated on the real relay
+binary path.
+
 ## Handoff
 
-Do not deploy production. The task remains `in_progress` until the OS Login
-keyring on the staging workstation is unlocked and the same beta67 daemon can
-authenticate. Then complete the staging relay and hosted-mirror matrix with
-`staging-test@mdbase.dev`: 1, 8, and 128 MiB binary SHA-256 round trips; sustained
-large-file transfer and RSS observation; relay/hosted/mirror reconnect and
-timeout recovery; fair per-grant contention; reserved mutation capacity;
-foreground priority; read cancellation; and durable mutation deadline/replay
-semantics. Record exact outcomes and clean every synthetic collection and grant.
+Do not deploy production. Keep the desktop rollout at zero and production on
+beta55 while the complete beta68 staging evidence is reviewed. The direct,
+relay, hosted, migration, large-vault, binary, contention, cancellation,
+cursor, mirror, and deployed-consumer gates are now green. Before choosing a
+production rollout, decide how to handle the bounded-but-high retained Reader
+RSS, operator recovery after a locked credential store, compatibility
+retirement timing, and interrupted-deployment report classification.
 
-After that authenticated matrix, update this evidence with the exact live
-results. Do not start a second Connect scheduler or restore a dual watcher. Keep
-production on beta55 until the direct, relay, hosted, migration, binary,
-large-vault, contention, cancellation, mirror, and deployed-consumer staging
-evidence has been reviewed.
+Do not start a second Connect scheduler, restore a dual watcher, move binary
+payloads off NATS as part of this program, or remove the narrow protocol bridge
+while the compatibility report remains not-ready. Continue to treat exact
+provider outcomes, bounded per-collection execution, request coordination, and
+typed durable mutation settlement as the canonical design.
