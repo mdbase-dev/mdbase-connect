@@ -129,7 +129,10 @@ jobs:
         env:
           MDBASE_EDITOR_ORIGIN: https://editor-staging.mdbase.dev
           MDBASE_EDITOR_BASE_PATH: /
+          MDBASE_CONNECT_URL: https://connect-staging.mdbase.dev
           VITE_MDBASE_CONNECT_URL: https://connect-staging.mdbase.dev
+      - name: Verify staging editor manifest
+        run: node apps/editor/scripts/verify-deployment-manifest.mjs apps/editor/dist/.well-known/mdbase-app.json https://editor-staging.mdbase.dev/ https://connect-staging.mdbase.dev
       - name: Deploy staging editor
         run: npx --yes --package wrangler@4.114.0 wrangler pages deploy apps/editor/dist --project-name=mdbase-editor --branch=staging
         env:
@@ -143,7 +146,7 @@ jobs:
           CLOUDFLARE_PAGES_PROJECT: mdbase-editor
           CLOUDFLARE_PAGES_DOMAIN: editor-staging.mdbase.dev
       - name: Verify staging custom domain
-        run: node apps/editor/scripts/verify-deployment-manifest.mjs https://editor-staging.mdbase.dev/.well-known/mdbase-app.json https://editor-staging.mdbase.dev/
+        run: node apps/editor/scripts/verify-deployment-manifest.mjs https://editor-staging.mdbase.dev/.well-known/mdbase-app.json https://editor-staging.mdbase.dev/ https://connect-staging.mdbase.dev
         env:
           MDBASE_MANIFEST_VERIFY_ATTEMPTS: 12
           MDBASE_MANIFEST_VERIFY_DELAY_MS: 5000

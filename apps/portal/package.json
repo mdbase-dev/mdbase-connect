@@ -1,6 +1,6 @@
 {
   "name": "@mdbase/connect-portal",
-  "version": "0.1.0-beta.67",
+  "version": "0.1.0-beta.68",
   "private": true,
   "type": "module",
   "scripts": {

@@ -8,6 +8,19 @@ test("accepts collection-wide binary file access", () => {
   assert.doesNotThrow(() => assertEditorManifest(manifest(), homepage));
 });
 
+test("accepts the exact configured Connect callback", () => {
+  const value = manifest();
+  value.redirect_uris.push("https://editor.mdbase.dev/?server=https%3A%2F%2Fconnect-staging.mdbase.dev");
+  assert.doesNotThrow(() => assertEditorManifest(value, homepage, "https://connect-staging.mdbase.dev"));
+});
+
+test("rejects a deployment without the configured Connect callback", () => {
+  assert.throws(
+    () => assertEditorManifest(manifest(), homepage, "https://connect-staging.mdbase.dev"),
+    /redirect URIs must include/
+  );
+});
+
 for (const [name, mutate, expected] of [
   ["file capabilities", (value) => { value.requirements.capabilities.required = []; }, /files\.list capability/],
   ["file actions", (value) => { delete value.requirements.files; }, /file list action/],

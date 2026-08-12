@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0-beta.68
+
+Beta.68 keeps the desktop control plane responsive when the operating-system
+credential store is temporarily unavailable.
+
+- Desktop refreshes are single-flight, so timer and user-triggered refreshes
+  share one bounded request instead of multiplying concurrent control work.
+- A locked or unavailable credential store is represented as a typed offline
+  hosted snapshot. Repeated hosted polls are served locally for a 30-second
+  retry window, while unrelated failures remain visible.
+
 ## 0.1.0-beta.67
 
 Beta.67 restores hosted-authority query compatibility while keeping

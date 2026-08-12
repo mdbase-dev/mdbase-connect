@@ -15,6 +15,7 @@ import { Collections } from "./collections-view";
 import { presentConnection } from "./connection-state.mjs";
 import { RequestPermissionChoices } from "./authorization-components";
 import { ConnectionProgress, Overview } from "./overview-view";
+import { singleFlight } from "./single-flight.mjs";
 import {
   AccessControl,
   Empty,
@@ -94,7 +95,7 @@ function App() {
   const [mirrorTarget, setMirrorTarget] = useState<string | null>(null);
   const [navigationOpen, setNavigationOpen] = useState(false);
 
-  const refresh = useCallback(async (quiet = false) => {
+  const runRefresh = useCallback(async (quiet = false) => {
     try {
       const results = await Promise.allSettled([
         window.mdbaseConnect.status().then(setStatus),
@@ -116,6 +117,7 @@ function App() {
       if (!quiet) setError(message(refreshError));
     }
   }, []);
+  const refresh = useMemo(() => singleFlight(runRefresh), [runRefresh]);
 
   useEffect(() => {
     void refresh();
