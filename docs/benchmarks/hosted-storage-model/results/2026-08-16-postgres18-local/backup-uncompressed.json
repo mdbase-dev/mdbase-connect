@@ -1,0 +1,294 @@
+{
+  "schema_version": 1,
+  "run_id": "2026-08-16-postgres18-local",
+  "measurement": "final-state uncompressed PostgreSQL custom-format backup stream bytes",
+  "compression": "none",
+  "timing_note": "Supplemental read-only measurement after the frozen scenario completed; original raw backup samples used pg_dump custom-format default compression and remain preserved.",
+  "samples": [
+    {
+      "tier": "records-10000",
+      "variant": "A",
+      "database": "hs_2026_08_16_postgres18_local_records_10000_a",
+      "started_at": "2026-08-15T20:48:04.310Z",
+      "elapsed_ms": 1064.712991,
+      "bytes": 296035295,
+      "command": [
+        "docker",
+        "exec",
+        "mdbase-benchmark-pg",
+        "pg_dump",
+        "-U",
+        "postgres",
+        "-Fc",
+        "--compress=none",
+        "hs_2026_08_16_postgres18_local_records_10000_a"
+      ]
+    },
+    {
+      "tier": "records-10000",
+      "variant": "B-no-gin",
+      "database": "hs_2026_08_16_postgres18_local_records_10000_b_no_gin",
+      "started_at": "2026-08-15T20:48:05.376Z",
+      "elapsed_ms": 852.6978709999999,
+      "bytes": 307730093,
+      "command": [
+        "docker",
+        "exec",
+        "mdbase-benchmark-pg",
+        "pg_dump",
+        "-U",
+        "postgres",
+        "-Fc",
+        "--compress=none",
+        "hs_2026_08_16_postgres18_local_records_10000_b_no_gin"
+      ]
+    },
+    {
+      "tier": "records-10000",
+      "variant": "B-gin",
+      "database": "hs_2026_08_16_postgres18_local_records_10000_b_gin",
+      "started_at": "2026-08-15T20:48:06.229Z",
+      "elapsed_ms": 836.7076720000002,
+      "bytes": 307730337,
+      "command": [
+        "docker",
+        "exec",
+        "mdbase-benchmark-pg",
+        "pg_dump",
+        "-U",
+        "postgres",
+        "-Fc",
+        "--compress=none",
+        "hs_2026_08_16_postgres18_local_records_10000_b_gin"
+      ]
+    },
+    {
+      "tier": "records-10000",
+      "variant": "C-no-gin",
+      "database": "hs_2026_08_16_postgres18_local_records_10000_c_no_gin",
+      "started_at": "2026-08-15T20:48:07.065Z",
+      "elapsed_ms": 438.9387320000001,
+      "bytes": 173884311,
+      "command": [
+        "docker",
+        "exec",
+        "mdbase-benchmark-pg",
+        "pg_dump",
+        "-U",
+        "postgres",
+        "-Fc",
+        "--compress=none",
+        "hs_2026_08_16_postgres18_local_records_10000_c_no_gin"
+      ]
+    },
+    {
+      "tier": "records-10000",
+      "variant": "C-gin",
+      "database": "hs_2026_08_16_postgres18_local_records_10000_c_gin",
+      "started_at": "2026-08-15T20:48:07.504Z",
+      "elapsed_ms": 453.7571320000002,
+      "bytes": 173884444,
+      "command": [
+        "docker",
+        "exec",
+        "mdbase-benchmark-pg",
+        "pg_dump",
+        "-U",
+        "postgres",
+        "-Fc",
+        "--compress=none",
+        "hs_2026_08_16_postgres18_local_records_10000_c_gin"
+      ]
+    },
+    {
+      "tier": "records-100000",
+      "variant": "A",
+      "database": "hs_2026_08_16_postgres18_local_records_100000_a",
+      "started_at": "2026-08-15T20:48:07.958Z",
+      "elapsed_ms": 7646.785352000001,
+      "bytes": 2947763030,
+      "command": [
+        "docker",
+        "exec",
+        "mdbase-benchmark-pg",
+        "pg_dump",
+        "-U",
+        "postgres",
+        "-Fc",
+        "--compress=none",
+        "hs_2026_08_16_postgres18_local_records_100000_a"
+      ]
+    },
+    {
+      "tier": "records-100000",
+      "variant": "B-no-gin",
+      "database": "hs_2026_08_16_postgres18_local_records_100000_b_no_gin",
+      "started_at": "2026-08-15T20:48:15.605Z",
+      "elapsed_ms": 8216.662938000001,
+      "bytes": 3064888430,
+      "command": [
+        "docker",
+        "exec",
+        "mdbase-benchmark-pg",
+        "pg_dump",
+        "-U",
+        "postgres",
+        "-Fc",
+        "--compress=none",
+        "hs_2026_08_16_postgres18_local_records_100000_b_no_gin"
+      ]
+    },
+    {
+      "tier": "records-100000",
+      "variant": "B-gin",
+      "database": "hs_2026_08_16_postgres18_local_records_100000_b_gin",
+      "started_at": "2026-08-15T20:48:23.822Z",
+      "elapsed_ms": 8210.230368,
+      "bytes": 3064888492,
+      "command": [
+        "docker",
+        "exec",
+        "mdbase-benchmark-pg",
+        "pg_dump",
+        "-U",
+        "postgres",
+        "-Fc",
+        "--compress=none",
+        "hs_2026_08_16_postgres18_local_records_100000_b_gin"
+      ]
+    },
+    {
+      "tier": "records-100000",
+      "variant": "C-no-gin",
+      "database": "hs_2026_08_16_postgres18_local_records_100000_c_no_gin",
+      "started_at": "2026-08-15T20:48:32.032Z",
+      "elapsed_ms": 3378.033144000001,
+      "bytes": 1738042573,
+      "command": [
+        "docker",
+        "exec",
+        "mdbase-benchmark-pg",
+        "pg_dump",
+        "-U",
+        "postgres",
+        "-Fc",
+        "--compress=none",
+        "hs_2026_08_16_postgres18_local_records_100000_c_no_gin"
+      ]
+    },
+    {
+      "tier": "records-100000",
+      "variant": "C-gin",
+      "database": "hs_2026_08_16_postgres18_local_records_100000_c_gin",
+      "started_at": "2026-08-15T20:48:35.412Z",
+      "elapsed_ms": 3373.5315949999967,
+      "bytes": 1738042623,
+      "command": [
+        "docker",
+        "exec",
+        "mdbase-benchmark-pg",
+        "pg_dump",
+        "-U",
+        "postgres",
+        "-Fc",
+        "--compress=none",
+        "hs_2026_08_16_postgres18_local_records_100000_c_gin"
+      ]
+    },
+    {
+      "tier": "canonical-1gib",
+      "variant": "A",
+      "database": "hs_2026_08_16_postgres18_local_canonical_1gib_a",
+      "started_at": "2026-08-15T20:48:38.786Z",
+      "elapsed_ms": 13741.369703999997,
+      "bytes": 6794474729,
+      "command": [
+        "docker",
+        "exec",
+        "mdbase-benchmark-pg",
+        "pg_dump",
+        "-U",
+        "postgres",
+        "-Fc",
+        "--compress=none",
+        "hs_2026_08_16_postgres18_local_canonical_1gib_a"
+      ]
+    },
+    {
+      "tier": "canonical-1gib",
+      "variant": "B-no-gin",
+      "database": "hs_2026_08_16_postgres18_local_canonical_1gib_b_no_gin",
+      "started_at": "2026-08-15T20:48:52.528Z",
+      "elapsed_ms": 12591.233737000002,
+      "bytes": 7064230920,
+      "command": [
+        "docker",
+        "exec",
+        "mdbase-benchmark-pg",
+        "pg_dump",
+        "-U",
+        "postgres",
+        "-Fc",
+        "--compress=none",
+        "hs_2026_08_16_postgres18_local_canonical_1gib_b_no_gin"
+      ]
+    },
+    {
+      "tier": "canonical-1gib",
+      "variant": "B-gin",
+      "database": "hs_2026_08_16_postgres18_local_canonical_1gib_b_gin",
+      "started_at": "2026-08-15T20:49:05.119Z",
+      "elapsed_ms": 12832.091628000002,
+      "bytes": 7064231382,
+      "command": [
+        "docker",
+        "exec",
+        "mdbase-benchmark-pg",
+        "pg_dump",
+        "-U",
+        "postgres",
+        "-Fc",
+        "--compress=none",
+        "hs_2026_08_16_postgres18_local_canonical_1gib_b_gin"
+      ]
+    },
+    {
+      "tier": "canonical-1gib",
+      "variant": "C-no-gin",
+      "database": "hs_2026_08_16_postgres18_local_canonical_1gib_c_no_gin",
+      "started_at": "2026-08-15T20:49:17.951Z",
+      "elapsed_ms": 6998.525118999998,
+      "bytes": 4006222642,
+      "command": [
+        "docker",
+        "exec",
+        "mdbase-benchmark-pg",
+        "pg_dump",
+        "-U",
+        "postgres",
+        "-Fc",
+        "--compress=none",
+        "hs_2026_08_16_postgres18_local_canonical_1gib_c_no_gin"
+      ]
+    },
+    {
+      "tier": "canonical-1gib",
+      "variant": "C-gin",
+      "database": "hs_2026_08_16_postgres18_local_canonical_1gib_c_gin",
+      "started_at": "2026-08-15T20:49:24.950Z",
+      "elapsed_ms": 6403.609956,
+      "bytes": 4006222684,
+      "command": [
+        "docker",
+        "exec",
+        "mdbase-benchmark-pg",
+        "pg_dump",
+        "-U",
+        "postgres",
+        "-Fc",
+        "--compress=none",
+        "hs_2026_08_16_postgres18_local_canonical_1gib_c_gin"
+      ]
+    }
+  ]
+}

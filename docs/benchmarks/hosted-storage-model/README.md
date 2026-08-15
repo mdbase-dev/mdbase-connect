@@ -1,6 +1,6 @@
 # Hosted storage-model benchmark
 
-- Status: pending
+- Status: benchmark complete; awaiting user decision
 - Decision: none
 - Governing proposal: `docs/decisions/0011-server-trusted-queryable-hosted-execution.md`
 - Stop gate: user review before storage-model selection or implementation continues
@@ -59,25 +59,32 @@ worktree and are not evidence.
 
 ## Results
 
-Pending. Include raw machine-readable samples plus summarized storage, WAL, HOT,
-TOAST, vacuum, latency, throughput, rows, decryption, memory, CPU, IO, pool,
-snapshot, cancellation, rebuild, and recovery results.
+Complete in `results/2026-08-16-postgres18-local/`. `report.md` is the reviewed
+narrative; `summary.json` contains deterministic distributions and gates;
+`raw/samples.ndjson` retains all 3,981 schema-valid samples. The run covers storage,
+WAL, HOT, TOAST, vacuum, latency, throughput, rows, decryption, memory, CPU, IO,
+pool, snapshot, cancellation, rebuild, and recovery evidence.
 
 ## Semantic and security evidence
 
-Pending. Include differential results, candidate-completeness properties, stale
-projection behavior, authorization races, failure injection, and typed budget
-outcomes.
+Complete. Canonical differential results, candidate completeness, stale/absent and
+corrupt projection behavior, grant-backed authorization races, CAS/catalogue races,
+fault injection, durable recovery, and typed budgets are in the raw and summarized
+evidence. No semantic, authorization, or ambiguous-recovery mismatch was observed.
 
 ## Candidate assessment
 
-Pending. State which frozen workloads each candidate satisfies, which fail, why,
-and whether Candidate C materially improves a Candidate B failure enough to warrant
-considering its confidentiality-irreversible change.
+No candidate passes the frozen gates. Candidate B-no-GIN is the strongest research
+baseline but fails default ordering, metadata-latency, and largest-tier cancellation
+gates. GIN adds substantial rebuild/WAL/vacuum cost without a material gate win.
+Candidate C does not materially turn a B common-workload failure into a pass and is
+not recommendation-eligible.
 
 ## Recommendation
 
-Pending. A recommendation is evidence for user discussion, not an accepted decision.
+Do not select or deploy a storage model. If further benchmark/optimization work is
+authorized, continue from B-no-GIN and the frozen failures. This is evidence for
+user discussion, not an accepted decision.
 
 ## Decision log
 

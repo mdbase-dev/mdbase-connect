@@ -1,0 +1,16 @@
+{
+  "runId": "2026-08-16-postgres18-local",
+  "completedAt": "2026-08-15T20:40:57.256Z",
+  "tiers": [
+    "records-10000",
+    "records-100000",
+    "canonical-1gib"
+  ],
+  "variants": [
+    "a",
+    "b-no-gin",
+    "b-gin",
+    "c-no-gin",
+    "c-gin"
+  ]
+}
