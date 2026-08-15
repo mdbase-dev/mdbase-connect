@@ -2,12 +2,23 @@
 
 ## Unreleased
 
+## 0.1.0-beta.71
+
+Beta.71 begins the bounded hosted execution rollout and adds direct hosted CLI
+access without weakening the encrypted authority boundary.
+
 - The unified CLI can authorize a direct, per-collection hosted connection and
   execute portable data commands against the hosted authority without a local
   filesystem mirror. Hosted requests use short-lived provider capabilities,
   grant-bound P-256 proofs, automatic credential refresh, and the same explicit
   revocation model as other applications. Account login alone still cannot read
   collection contents.
+- Hosted point reads now fetch and decrypt exactly one record by stable identity
+  or keyed path token, compile canonical resource semantics through `mdbase-rs`,
+  and avoid the legacy collection-wide decrypted working set.
+- A published execution-budget manifest, privacy-safe memory and scan metrics,
+  deterministic large fixtures, and temporary working-set admission limits make
+  the remaining compatibility path explicit and bounded during migration.
 
 ## 0.1.0-beta.70
 

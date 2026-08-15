@@ -17,6 +17,7 @@ COPY Cargo.toml ./
 # published revision above so a dirty sibling cannot affect the image graph.
 COPY deploy/docker/Cargo.lock.hosted-provider ./Cargo.lock
 COPY crates crates
+COPY config config
 COPY templates templates
 RUN --mount=type=cache,id=hosted-provider-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=hosted-provider-cargo-git,target=/usr/local/cargo/git/db,sharing=locked \

@@ -65,6 +65,7 @@ jobs:
           if git diff --quiet "$parent" "$SOURCE_COMMIT" -- \
             Cargo.toml \
             apps/portal \
+            config \
             crates \
             deploy/docker/Cargo.lock.hosted-provider \
             deploy/docker/Dockerfile.hosted-provider \
