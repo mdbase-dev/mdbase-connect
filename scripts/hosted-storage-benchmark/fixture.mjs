@@ -233,7 +233,8 @@ export function fixtureRecord(index, seed = DEFAULT_SEED) {
       : []
   };
   const revision = `sha256:${createHash("sha256").update(document).digest("hex")}`;
-  return { index, recordId, shape, path, document, body, revision, projection, malformed, unknownFrontmatter };
+  const canonicalBody = malformed ? document : body;
+  return { index, recordId, shape, path, document, body, canonicalBody, revision, projection, malformed, unknownFrontmatter };
 }
 
 export function fixtureResources(version = 1) {
@@ -460,17 +461,17 @@ function matches(expression, record) {
     return value !== null && value !== undefined && value < expression.fieldLt[1];
   }
   if (expression.relationshipTargetEq) return record.projection.relationships.some(({ target }) => target === expression.relationshipTargetEq);
-  if (expression.bodyContains) return record.body.toLowerCase().includes(expression.bodyContains.toLowerCase());
+  if (expression.bodyContains) return record.canonicalBody.toLowerCase().includes(expression.bodyContains.toLowerCase());
   throw new Error(`unknown candidate expression: ${JSON.stringify(expression)}`);
 }
 
 function resultFact(workload, record) {
-  const response = Object.fromEntries(workload.responseFields.map((path) => [path, responseField(record, path)]));
+  const response = workload.responseFields.map((path) => [path, responseField(record, path)]);
   return {
     recordId: record.recordId,
     path: record.path,
     sort: (workload.order ?? []).map(({ field }) => responseField(record, field)),
-    responseDigest: createHash("sha256").update(JSON.stringify(response)).digest("hex"),
+    responseDigest: createHash("sha256").update(canonicalJson(response)).digest("hex"),
     clientResidual: workload.clientResidual ? matches(workload.clientResidual, record) : undefined,
     residualMatch: workload.canonicalResidual && typeof workload.canonicalResidual === "object"
       ? matches(workload.canonicalResidual, record)
@@ -522,7 +523,7 @@ function expectedResults(workloads, accumulators) {
         recordId: value.source,
         path: value.source,
         sort: [value.source],
-        responseDigest: createHash("sha256").update(JSON.stringify({
+        responseDigest: createHash("sha256").update(canonicalJson({
           source: value.source,
           kinds: [...value.kinds].sort(),
           records: value.responseDigests.sort()
@@ -672,7 +673,7 @@ function compareValues(left, right, nulls) {
 }
 
 function responseField(record, path) {
-  if (path === "body") return record.body;
+  if (path === "body") return record.canonicalBody;
   if (path === "revision" || path === "document_revision") return record.revision;
   if (path === "document") return record.document;
   if (path === "relationships") return record.projection.relationships;
@@ -686,6 +687,12 @@ function field(record, path) {
 
 function deepEqual(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function canonicalJson(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
 }
 
 function assertFixtureContract(contract) {

@@ -1,0 +1,19 @@
+[package]
+name = "connect-hosted-storage-benchmark"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "hosted-storage-benchmark"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+mdbase = { workspace = true, features = ["hosted-storage-benchmark"] }
+serde.workspace = true
+serde_json.workspace = true
+serde_jcs.workspace = true
+sha2.workspace = true
+thiserror.workspace = true

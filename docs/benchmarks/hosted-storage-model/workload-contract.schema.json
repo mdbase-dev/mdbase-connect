@@ -53,11 +53,12 @@
           "minItems": 1,
           "items": {
             "type": "object",
-            "required": ["id", "candidateIr", "includeBody", "page"],
+            "required": ["id", "candidateIr", "includeBody", "order", "page"],
             "properties": {
               "id": { "type": "string", "minLength": 1 },
               "candidateIr": { "$ref": "https://mdbase.dev/benchmarks/hosted-storage-model/candidate-ir.schema.json" },
               "includeBody": { "type": "boolean" },
+              "order": { "type": "array", "items": { "$ref": "https://mdbase.dev/benchmarks/hosted-storage-model/workload-contract.v1.schema.json#/$defs/order" } },
               "page": { "$ref": "https://mdbase.dev/benchmarks/hosted-storage-model/workload-contract.v1.schema.json#/$defs/page" }
             },
             "additionalProperties": false

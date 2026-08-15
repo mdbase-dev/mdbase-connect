@@ -8,6 +8,7 @@ members = [
   "crates/connect-hosted-provider",
   "crates/connect-runtime",
   "crates/connect-testbed-adapter",
+  "crates/connect-hosted-storage-benchmark",
 ]
 resolver = "2"
 

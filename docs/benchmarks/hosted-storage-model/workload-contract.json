@@ -151,8 +151,8 @@
       "candidateIr": { "typeIn": ["pickle_request", "pickle_response_approval", "pickle_response_ack"] },
       "consumerTransform": { "kind": "picklePendingByResponseMultiplicity" },
       "providerScans": [
-        { "id": "requests", "candidateIr": { "typeIn": ["pickle_request"] }, "includeBody": true, "page": { "firstLimit": 200, "subsequentLimit": 200, "repeatToCompletion": true } },
-        { "id": "responses", "candidateIr": { "typeIn": ["pickle_response_approval", "pickle_response_ack"] }, "includeBody": false, "page": { "firstLimit": 200, "subsequentLimit": 200, "repeatToCompletion": true } }
+        { "id": "requests", "candidateIr": { "typeIn": ["pickle_request"] }, "includeBody": true, "order": [{ "field": "effective_frontmatter.created_at", "direction": "desc" }], "page": { "firstLimit": 200, "subsequentLimit": 200, "repeatToCompletion": true } },
+        { "id": "responses", "candidateIr": { "typeIn": ["pickle_response_approval", "pickle_response_ack"] }, "includeBody": false, "order": [], "page": { "firstLimit": 200, "subsequentLimit": 200, "repeatToCompletion": true } }
       ],
       "executionPlan": ["query request implementation types with body", "query response types without body", "join canonical request wikilinks", "cancelled status wins; 0 responses pending, 1 answered, >1 conflict"],
       "selectivity": "all requests and responses selected; generated exact pending result target 50% of requests",
@@ -171,8 +171,8 @@
       "candidateIr": { "typeIn": ["pickle_request", "pickle_response_approval", "pickle_response_ack"] },
       "consumerTransform": { "kind": "pickleAllRequestsWithResponseMultiplicity" },
       "providerScans": [
-        { "id": "requests", "candidateIr": { "typeIn": ["pickle_request"] }, "includeBody": true, "page": { "firstLimit": 200, "subsequentLimit": 200, "repeatToCompletion": true } },
-        { "id": "responses", "candidateIr": { "typeIn": ["pickle_response_approval", "pickle_response_ack"] }, "includeBody": false, "page": { "firstLimit": 200, "subsequentLimit": 200, "repeatToCompletion": true } }
+        { "id": "requests", "candidateIr": { "typeIn": ["pickle_request"] }, "includeBody": true, "order": [{ "field": "effective_frontmatter.created_at", "direction": "desc" }], "page": { "firstLimit": 200, "subsequentLimit": 200, "repeatToCompletion": true } },
+        { "id": "responses", "candidateIr": { "typeIn": ["pickle_response_approval", "pickle_response_ack"] }, "includeBody": false, "order": [], "page": { "firstLimit": 200, "subsequentLimit": 200, "repeatToCompletion": true } }
       ],
       "executionPlan": ["query request implementation types with body", "query response types without body", "join and return hydrated requests only"],
       "selectivity": "all Pickle request/response rows are join input; output contains requests only",
