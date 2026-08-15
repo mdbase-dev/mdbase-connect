@@ -118,6 +118,35 @@ CREATE INDEX hosted_provider_record_projections_path_cursor_idx
     record_id
   );
 
+-- mdbase-rs emits the complete closed key set used by link resolution. SQL may
+-- look up these exact keys, but it does not invent basename, ID, or title rules.
+CREATE TABLE hosted_provider_record_resolution_keys (
+  collection_id uuid NOT NULL,
+  record_id uuid NOT NULL,
+  key_kind text NOT NULL CHECK (key_kind IN ('path', 'basename', 'id', 'title')),
+  lookup_key text COLLATE "C" NOT NULL,
+  record_revision text NOT NULL,
+  catalog_revision text NOT NULL,
+  projection_format_version integer NOT NULL
+    CHECK (projection_format_version > 0),
+  semantic_engine_version text NOT NULL,
+  generation_id uuid NOT NULL,
+  PRIMARY KEY (collection_id, record_id, key_kind, lookup_key),
+  FOREIGN KEY (collection_id, record_id)
+    REFERENCES hosted_provider_records (collection_id, record_id) ON DELETE CASCADE,
+  FOREIGN KEY (collection_id, generation_id)
+    REFERENCES hosted_provider_projection_generations (collection_id, generation_id)
+    DEFERRABLE INITIALLY DEFERRED
+);
+
+CREATE INDEX hosted_provider_record_resolution_keys_lookup_idx
+  ON hosted_provider_record_resolution_keys (
+    collection_id,
+    key_kind,
+    lookup_key COLLATE "C",
+    record_id
+  );
+
 CREATE TABLE hosted_provider_record_relationships (
   collection_id uuid NOT NULL,
   source_record_id uuid NOT NULL,

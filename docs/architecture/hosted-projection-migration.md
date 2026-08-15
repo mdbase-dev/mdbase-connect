@@ -56,6 +56,12 @@ to support atomic rename/swap planning. A projection digest detects accidental
 substitution or corruption; it is not a MAC and never replaces exact authorization
 or canonical classification.
 
+`hosted_provider_record_resolution_keys` stores the complete closed lookup-key set
+emitted by mdbase-rs for each current record: exact path plus normalized basename,
+configured ID, and title keys. Connect performs exact indexed lookup only; it does
+not reproduce link-resolution semantics. Keys carry the full projection currentness
+binding and are atomically replaced with their projection and outgoing edges.
+
 `hosted_provider_record_relationships` stores deterministic outgoing occurrences:
 
 - source record/revision and full semantic binding;
@@ -78,6 +84,8 @@ The baseline creates no projection GIN.
   keysets and completion proof.
 - Deterministic path cursor: `(collection_id, canonical_path COLLATE "C",
   record_id)`.
+- Link identity lookup: `(collection_id, key_kind, lookup_key COLLATE "C",
+  record_id)` over mdbase-rs-emitted path/basename/ID/title keys.
 - Outgoing edge lookup: the relationship primary key begins with collection and
   source record.
 - Backlinks: partial `(collection_id, target_record_id, relationship_kind,
