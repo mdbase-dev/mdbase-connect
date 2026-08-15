@@ -87,16 +87,16 @@
     "p99": 8401,
     "total": 46208841
   },
-  "expectedResultsSha256": "62755af7f484701a87928a7c9f56e99c2edd615c3cc671f162b53bda4fee4875",
+  "expectedResultsSha256": "0c12345f455ff77517ac4e225d85c7cf8bc79cf3b7c32d287c57a5f8b6602403",
   "fixture": "hosted-storage-model-v1",
   "fixtureContractSha256": "f0f8d29cdea983d722ccd84ff39f5e8f8f813ab844fa314d2fe2525b5f8f5aeb",
   "generator": "scripts/hosted-storage-benchmark/fixture.mjs",
-  "generatorSha256": "911372b0acf001ed5ed605275df45e6df4fb01b06b5601d73c021ce585227b22",
+  "generatorSha256": "08624ad405c0a37471085b862c65afe94ecce9abe25916e0fb1c9fd32f532c22",
   "oracle": {
     "dirty": false,
     "engine": "mdbase-rs-0.4.0-rc.4",
     "independentSeedVerified": true,
-    "revision": "e3cf57e9feb6e31f17cbf0ce21d70646ee908edb"
+    "revision": "7c5a1800f66cc80e43cf2d60f5524e5b409ea4f0"
   },
   "privacy": "Deterministic synthetic content only; never derived from production data.",
   "projectionEnvelopeBytes": {
@@ -174,7 +174,7 @@
   },
   "sourceDirty": false,
   "sourceDirtyPaths": [],
-  "sourceRevision": "4274a5bc3efc057dbdc1652b1f7ed2f9ac3d34d8",
+  "sourceRevision": "ebc6929e9a8398d49b4ae492fdea5a01be4bb79b",
   "synthetic": true,
   "termination": {
     "exactRecords": 10000

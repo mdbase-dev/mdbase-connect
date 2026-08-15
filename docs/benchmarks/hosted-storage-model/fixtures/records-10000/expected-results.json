@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "oracle": "mdbase-rs-0.4.0-rc.4@e3cf57e9feb6e31f17cbf0ce21d70646ee908edb",
+  "oracle": "mdbase-rs-0.4.0-rc.4@7c5a1800f66cc80e43cf2d60f5524e5b409ea4f0",
   "workloads": {
     "editor.body_hydration_page": {
       "acceptableRunOutcomes": [
@@ -382,7 +382,7 @@
               "lastRecordId": "6c447655-8211-558c-adfb-02a0fa1b1a3c",
               "orderedRecordIdsDigest": "sha256:007a868e4ce786861353c9b9c078e2812ece44ae833ba315fa2e6732590ecd91",
               "page": 0,
-              "responseFieldsDigest": "sha256:af784670b9c5c1c084fc1ca03f47725bafba5bf7a37da3e84a355f6d888592c6"
+              "responseFieldsDigest": "sha256:de42244f72b691219f57670b2b6fdf610b73a2ca5e48cae4a744548441f5b179"
             },
             {
               "count": 200,
@@ -390,7 +390,7 @@
               "lastRecordId": "d1915f17-c09c-52c6-8dbf-f93e7357c69b",
               "orderedRecordIdsDigest": "sha256:ded48cbc228910557b11d59a62722793179df36614b47a4395343ae0330bf66d",
               "page": 1,
-              "responseFieldsDigest": "sha256:e8d6aaed4c1a6f5e18988a29a09b47c9a7633ecd30e9c65c0bb11c236af5956a"
+              "responseFieldsDigest": "sha256:dbe1e53ba8e8db129765238cf8f4f41061eb312d0e3a4c789eb2a96dcfd3d2dd"
             },
             {
               "count": 95,
@@ -398,7 +398,7 @@
               "lastRecordId": "ffaf2ca7-4dce-53ff-ae29-ef822e23f6b0",
               "orderedRecordIdsDigest": "sha256:2cb8508b8948125e89ed5f5ab5fdde0db3ee2c0b3c6d0fc8dff278a133339d73",
               "page": 2,
-              "responseFieldsDigest": "sha256:975ca2144b1ed0ca325c1f7b11941fccd33120d4b01c339ddda927994d9d8ec4"
+              "responseFieldsDigest": "sha256:581501c12a0d5092e609909b4fefff8ba24ba8a16a6403331e810771ba6bc826"
             }
           ],
           "rows": 495
@@ -492,7 +492,7 @@
               "lastRecordId": "6c447655-8211-558c-adfb-02a0fa1b1a3c",
               "orderedRecordIdsDigest": "sha256:007a868e4ce786861353c9b9c078e2812ece44ae833ba315fa2e6732590ecd91",
               "page": 0,
-              "responseFieldsDigest": "sha256:af784670b9c5c1c084fc1ca03f47725bafba5bf7a37da3e84a355f6d888592c6"
+              "responseFieldsDigest": "sha256:de42244f72b691219f57670b2b6fdf610b73a2ca5e48cae4a744548441f5b179"
             },
             {
               "count": 200,
@@ -500,7 +500,7 @@
               "lastRecordId": "d1915f17-c09c-52c6-8dbf-f93e7357c69b",
               "orderedRecordIdsDigest": "sha256:ded48cbc228910557b11d59a62722793179df36614b47a4395343ae0330bf66d",
               "page": 1,
-              "responseFieldsDigest": "sha256:e8d6aaed4c1a6f5e18988a29a09b47c9a7633ecd30e9c65c0bb11c236af5956a"
+              "responseFieldsDigest": "sha256:dbe1e53ba8e8db129765238cf8f4f41061eb312d0e3a4c789eb2a96dcfd3d2dd"
             },
             {
               "count": 95,
@@ -508,7 +508,7 @@
               "lastRecordId": "ffaf2ca7-4dce-53ff-ae29-ef822e23f6b0",
               "orderedRecordIdsDigest": "sha256:2cb8508b8948125e89ed5f5ab5fdde0db3ee2c0b3c6d0fc8dff278a133339d73",
               "page": 2,
-              "responseFieldsDigest": "sha256:975ca2144b1ed0ca325c1f7b11941fccd33120d4b01c339ddda927994d9d8ec4"
+              "responseFieldsDigest": "sha256:581501c12a0d5092e609909b4fefff8ba24ba8a16a6403331e810771ba6bc826"
             }
           ],
           "rows": 495
