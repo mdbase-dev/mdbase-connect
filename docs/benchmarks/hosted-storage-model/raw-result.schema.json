@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mdbase.dev/benchmarks/hosted-storage-model/raw-result.v1.schema.json",
+  "title": "Hosted storage benchmark raw sample",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "run_id", "candidate", "variant", "tier", "fixture_digest",
+    "phase", "workload_id", "repetition", "sample_role", "cache_state",
+    "workload_contract_digest", "schema_digest", "budget_manifest_revision",
+    "budget_manifest_digest", "outcome", "budget_kind", "error_code", "started_at", "elapsed_ms"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "run_id": { "type": "string" },
+    "candidate": { "enum": ["A", "B", "C"] },
+    "variant": { "enum": ["encrypted-scan", "no-gin", "gin"] },
+    "tier": { "enum": ["records-10000", "records-100000", "canonical-1gib"] },
+    "fixture_digest": { "type": "string" },
+    "phase": { "enum": ["import", "backfill", "rebuild", "recovery", "query", "write", "cancellation", "contention", "vacuum", "storage"] },
+    "workload_id": { "type": "string" },
+    "repetition": { "type": "integer", "minimum": 0 },
+    "sample_role": { "enum": ["validation", "warmup", "measured"] },
+    "cache_state": { "enum": ["cold-key", "warm-key", "not-applicable"] },
+    "workload_contract_digest": { "type": "string" },
+    "fixture_contract_digest": { "type": ["string", "null"] },
+    "schema_digest": { "type": "string" },
+    "budget_manifest_revision": { "type": "string" },
+    "budget_manifest_digest": { "type": "string" },
+    "outcome": { "enum": ["success", "budget", "cancelled", "error"] },
+    "budget_kind": { "type": ["string", "null"], "enum": [null, "scan", "result", "ordering", "groups", "diagnostics", "cursor", "time"] },
+    "started_at": { "type": "string", "format": "date-time" },
+    "elapsed_ms": { "type": "number", "minimum": 0 },
+    "rows_selected": { "$ref": "#/$defs/nonnegativeNullable" },
+    "rows_scanned": { "$ref": "#/$defs/nonnegativeNullable" },
+    "sql_candidate_rows": { "$ref": "#/$defs/nonnegativeNullable" },
+    "canonical_rows_evaluated": { "$ref": "#/$defs/nonnegativeNullable" },
+    "documents_decrypted": { "$ref": "#/$defs/nonnegativeNullable" },
+    "ciphertext_bytes": { "$ref": "#/$defs/nonnegativeNullable" },
+    "plaintext_bytes": { "$ref": "#/$defs/nonnegativeNullable" },
+    "result_items": { "$ref": "#/$defs/nonnegativeNullable" },
+    "result_bytes": { "$ref": "#/$defs/nonnegativeNullable" },
+    "completeness_digest": { "type": ["string", "null"] },
+    "key_cache_hits": { "$ref": "#/$defs/nonnegativeNullable" },
+    "key_cache_misses": { "$ref": "#/$defs/nonnegativeNullable" },
+    "kms_unwraps": { "$ref": "#/$defs/nonnegativeNullable" },
+    "provider_cpu_ms": { "$ref": "#/$defs/nonnegativeNumberNullable" },
+    "provider_rss_bytes": { "$ref": "#/$defs/nonnegativeNullable" },
+    "provider_pss_bytes": { "$ref": "#/$defs/nonnegativeNullable" },
+    "accounted_operator_bytes_peak": { "$ref": "#/$defs/nonnegativeNullable" },
+    "cancellation_cleanup_ms": { "$ref": "#/$defs/nonnegativeNumberNullable" },
+    "postgres_cpu_ms": { "$ref": "#/$defs/nonnegativeNumberNullable" },
+    "postgres_blocks_read": { "$ref": "#/$defs/nonnegativeNullable" },
+    "postgres_blocks_hit": { "$ref": "#/$defs/nonnegativeNullable" },
+    "postgres_temp_bytes": { "$ref": "#/$defs/nonnegativeNullable" },
+    "pool_connections_peak": { "$ref": "#/$defs/nonnegativeNullable" },
+    "pool_connections_average": { "$ref": "#/$defs/nonnegativeNumberNullable" },
+    "pool_wait_ms": { "$ref": "#/$defs/nonnegativeNumberNullable" },
+    "snapshot_lifetime_ms": { "$ref": "#/$defs/nonnegativeNumberNullable" },
+    "table_bytes": { "$ref": "#/$defs/nonnegativeNullable" },
+    "projection_bytes": { "$ref": "#/$defs/nonnegativeNullable" },
+    "toast_bytes": { "$ref": "#/$defs/nonnegativeNullable" },
+    "index_bytes": { "$ref": "#/$defs/nonnegativeNullable" },
+    "wal_bytes": { "$ref": "#/$defs/nonnegativeNullable" },
+    "backup_estimate_bytes": { "$ref": "#/$defs/nonnegativeNullable" },
+    "hot_updates": { "$ref": "#/$defs/nonnegativeNullable" },
+    "non_hot_updates": { "$ref": "#/$defs/nonnegativeNullable" },
+    "dead_tuples": { "$ref": "#/$defs/nonnegativeNullable" },
+    "vacuum_elapsed_ms": { "$ref": "#/$defs/nonnegativeNumberNullable" },
+    "bloat_estimate_bytes": { "$ref": "#/$defs/nonnegativeNullable" },
+    "failure_stage": { "type": ["string", "null"] },
+    "checkpoint_record_id": { "type": ["string", "null"] },
+    "lease_state": { "type": ["string", "null"] },
+    "recovery_state": { "type": ["string", "null"] },
+    "authorization_classification": { "type": ["string", "null"] },
+    "error_code": { "type": ["string", "null"] },
+    "error_details": { "type": ["string", "null"] },
+    "transaction_released": { "type": ["boolean", "null"] },
+    "pool_permit_released": { "type": ["boolean", "null"] },
+    "plaintext_released": { "type": ["boolean", "null"] },
+    "page_boundaries": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "required": ["page", "count", "digest"],
+        "properties": {
+          "page": { "type": "integer", "minimum": 0 },
+          "count": { "type": "integer", "minimum": 0 },
+          "digest": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "relation_sizes": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "required": ["relation", "table_bytes", "toast_bytes", "index_bytes", "total_bytes"],
+        "properties": {
+          "relation": { "type": "string" },
+          "table_bytes": { "type": "integer", "minimum": 0 },
+          "toast_bytes": { "type": "integer", "minimum": 0 },
+          "index_bytes": { "type": "integer", "minimum": 0 },
+          "total_bytes": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "database_bytes_before": { "$ref": "#/$defs/nonnegativeNullable" },
+    "database_bytes_after": { "$ref": "#/$defs/nonnegativeNullable" },
+    "notes": { "type": ["string", "null"] }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "candidate": { "const": "A" } }, "required": ["candidate"] },
+      "then": { "properties": { "variant": { "const": "encrypted-scan" } } }
+    },
+    {
+      "if": { "properties": { "candidate": { "enum": ["B", "C"] } }, "required": ["candidate"] },
+      "then": { "properties": { "variant": { "enum": ["no-gin", "gin"] } } }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "budget" } }, "required": ["outcome"] },
+      "then": { "properties": { "budget_kind": { "type": "string" } } },
+      "else": { "properties": { "budget_kind": { "const": null } } }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "error" } }, "required": ["outcome"] },
+      "then": { "properties": { "error_code": { "type": "string", "minLength": 1 } } },
+      "else": { "properties": { "error_code": { "const": null } } }
+    }
+  ],
+  "$defs": {
+    "nonnegativeNullable": { "type": ["integer", "null"], "minimum": 0 },
+    "nonnegativeNumberNullable": { "type": ["number", "null"], "minimum": 0 }
+  }
+}

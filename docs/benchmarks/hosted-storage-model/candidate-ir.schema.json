@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mdbase.dev/benchmarks/hosted-storage-model/candidate-ir.schema.json",
+  "title": "Benchmark-only closed hosted candidate IR",
+  "$defs": {
+    "fieldPath": {
+      "type": "string",
+      "enum": [
+        "path",
+        "types",
+        "file.basename",
+        "persisted_frontmatter.status",
+        "persisted_frontmatter.priority",
+        "persisted_frontmatter.tags",
+        "persisted_frontmatter.contexts",
+        "persisted_frontmatter.projects",
+        "persisted_frontmatter.due",
+        "persisted_frontmatter.created_at",
+        "effective_frontmatter.status",
+        "effective_frontmatter.archived",
+        "effective_frontmatter.priority",
+        "effective_frontmatter.tags",
+        "effective_frontmatter.contexts",
+        "effective_frontmatter.projects",
+        "effective_frontmatter.due",
+        "effective_frontmatter.created_at",
+        "effective_frontmatter.reading.status",
+        "effective_frontmatter.title",
+        "file.mtime"
+      ]
+    },
+    "scalar": { "type": ["string", "number", "boolean", "null"] },
+    "expression": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": { "all": { "type": "array", "items": { "$ref": "#/$defs/expression" } } },
+          "required": ["all"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "any": { "type": "array", "items": { "$ref": "#/$defs/expression" } } },
+          "required": ["any"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "not": { "$ref": "#/$defs/expression" } },
+          "required": ["not"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "typeIn": { "type": "array", "items": { "type": "string" }, "minItems": 1, "uniqueItems": true } },
+          "required": ["typeIn"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "fieldEq": { "prefixItems": [{ "$ref": "#/$defs/fieldPath" }, { "$ref": "#/$defs/scalar" }], "items": false, "minItems": 2, "maxItems": 2 } },
+          "required": ["fieldEq"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "fieldIn": { "prefixItems": [{ "$ref": "#/$defs/fieldPath" }, { "type": "array", "items": { "$ref": "#/$defs/scalar" }, "minItems": 1 }], "items": false, "minItems": 2, "maxItems": 2 } },
+          "required": ["fieldIn"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "fieldContains": { "prefixItems": [{ "$ref": "#/$defs/fieldPath" }, { "$ref": "#/$defs/scalar" }], "items": false, "minItems": 2, "maxItems": 2 } },
+          "required": ["fieldContains"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "fieldContainsText": { "prefixItems": [{ "$ref": "#/$defs/fieldPath" }, { "type": "string", "minLength": 1 }], "items": false, "minItems": 2, "maxItems": 2 } },
+          "required": ["fieldContainsText"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "fieldLt": { "prefixItems": [{ "$ref": "#/$defs/fieldPath" }, { "$ref": "#/$defs/scalar" }], "items": false, "minItems": 2, "maxItems": 2 } },
+          "required": ["fieldLt"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "relationshipTargetEq": { "type": "string", "minLength": 1 } },
+          "required": ["relationshipTargetEq"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "bodyContains": { "type": "string", "minLength": 1 } },
+          "required": ["bodyContains"],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "$ref": "#/$defs/expression"
+}

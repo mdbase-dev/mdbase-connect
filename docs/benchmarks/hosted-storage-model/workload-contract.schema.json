@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mdbase.dev/benchmarks/hosted-storage-model/workload-contract.v1.schema.json",
+  "type": "object",
+  "required": ["schemaVersion", "id", "semanticOracle", "timezone", "projectionFormat", "malformedRecordPolicy", "expectedResultArtifact", "resultAssertion", "queryWorkloads", "pointAndMutationWorkloads"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string" },
+    "semanticOracle": { "type": "string" },
+    "timezone": { "const": "Australia/Melbourne" },
+    "projectionFormat": { "const": "hosted-benchmark-projection-v1" },
+    "malformedRecordPolicy": { "type": "string", "minLength": 1 },
+    "expectedResultArtifact": { "type": "string" },
+    "resultAssertion": { "type": "string" },
+    "queryWorkloads": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "https://mdbase.dev/benchmarks/hosted-storage-model/workload-contract.v1.schema.json#/$defs/queryWorkload" }
+    },
+    "pointAndMutationWorkloads": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "https://mdbase.dev/benchmarks/hosted-storage-model/workload-contract.v1.schema.json#/$defs/mutationWorkload" }
+    }
+  },
+  "$defs": {
+    "queryWorkload": {
+      "type": "object",
+      "required": ["id", "sources", "candidateIr", "selectivity", "responseFields", "order", "page", "acceptableRunOutcomes", "acceptableBudgetKinds", "acceptableErrorCodes"],
+      "properties": {
+        "id": { "type": "string" },
+        "sources": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "candidateIr": { "$ref": "https://mdbase.dev/benchmarks/hosted-storage-model/candidate-ir.schema.json" },
+        "canonicalResidual": { "$ref": "https://mdbase.dev/benchmarks/hosted-storage-model/candidate-ir.schema.json" },
+        "clientResidual": { "$ref": "https://mdbase.dev/benchmarks/hosted-storage-model/candidate-ir.schema.json" },
+        "consumerTransform": {
+          "type": "object",
+          "required": ["kind"],
+          "properties": { "kind": { "enum": ["readerContentMergeBySource", "picklePendingByResponseMultiplicity", "pickleAllRequestsWithResponseMultiplicity"] } },
+          "additionalProperties": false
+        },
+        "executionPlan": { "type": "array", "items": { "type": "string" } },
+        "wireAdapter": { "type": "string" },
+        "adapterNormalization": { "type": "string" },
+        "deterministicOracleTieBreaker": { "type": "string" },
+        "providerOverfetchRule": { "type": "string" },
+        "selectivity": { "type": "string" },
+        "responseFields": { "type": "array", "items": { "type": "string" } },
+        "derivedJoinInputs": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "providerScans": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["id", "candidateIr", "includeBody", "page"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "candidateIr": { "$ref": "https://mdbase.dev/benchmarks/hosted-storage-model/candidate-ir.schema.json" },
+              "includeBody": { "type": "boolean" },
+              "page": { "$ref": "https://mdbase.dev/benchmarks/hosted-storage-model/workload-contract.v1.schema.json#/$defs/page" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "hydrationFields": { "type": "array", "items": { "type": "string" } },
+        "order": { "type": "array", "items": { "$ref": "https://mdbase.dev/benchmarks/hosted-storage-model/workload-contract.v1.schema.json#/$defs/order" } },
+        "group": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["field"],
+            "properties": { "field": { "type": "string" } },
+            "additionalProperties": false
+          }
+        },
+        "summaries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["function", "field"],
+            "properties": { "function": { "const": "count" }, "field": { "type": ["string", "null"] } },
+            "additionalProperties": false
+          }
+        },
+        "page": { "$ref": "https://mdbase.dev/benchmarks/hosted-storage-model/workload-contract.v1.schema.json#/$defs/page" },
+        "hydrationConcurrency": { "type": "integer", "minimum": 1 },
+        "cancelAfterMs": { "type": "integer", "minimum": 0 },
+        "acceptableRunOutcomes": {
+          "type": "array",
+          "items": { "enum": ["success", "cancelled", "error"] },
+          "contains": { "const": "success" },
+          "uniqueItems": true
+        },
+        "acceptableBudgetKinds": {
+          "type": "array",
+          "items": { "enum": ["scan", "result", "ordering", "groups", "diagnostics", "cursor", "time"] },
+          "uniqueItems": true
+        },
+        "acceptableErrorCodes": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+      },
+      "additionalProperties": false
+    },
+    "order": {
+      "type": "object",
+      "required": ["field", "direction"],
+      "properties": {
+        "field": { "type": "string" },
+        "direction": { "enum": ["asc", "desc"] },
+        "nulls": { "enum": ["first", "last"] }
+      },
+      "additionalProperties": false
+    },
+    "page": {
+      "type": "object",
+      "properties": {
+        "limit": { "type": "integer", "minimum": 1 },
+        "firstLimit": { "type": "integer", "minimum": 1 },
+        "subsequentLimit": { "type": "integer", "minimum": 1 },
+        "maximumLimit": { "type": "integer", "minimum": 1 },
+        "offset": { "type": "integer", "minimum": 0 },
+        "repeatToCompletion": { "type": "boolean" }
+      },
+      "oneOf": [{ "required": ["limit"] }, { "required": ["firstLimit", "subsequentLimit"] }],
+      "additionalProperties": false
+    },
+    "mutationWorkload": {
+      "type": "object",
+      "required": ["id", "operation", "acceptableRunOutcomes", "acceptableBudgetKinds", "acceptableErrorCodes"],
+      "properties": {
+        "id": { "type": "string" },
+        "operation": { "type": "string" },
+        "required": { "type": "array", "items": { "type": "string" } },
+        "changes": { "type": "array", "items": { "type": "string" } },
+        "candidateExpectations": {
+          "type": "object",
+          "required": ["A", "B", "C"],
+          "properties": { "A": { "type": "string" }, "B": { "type": "string" }, "C": { "type": "string" } },
+          "additionalProperties": false
+        },
+        "expected": { "type": "string" },
+        "samples": { "type": "integer", "minimum": 1 },
+        "acceptableRunOutcomes": { "type": "array", "items": { "enum": ["success", "cancelled", "error"] }, "contains": { "const": "success" }, "uniqueItems": true },
+        "acceptableBudgetKinds": { "type": "array", "items": { "enum": ["scan", "result", "ordering", "groups", "diagnostics", "cursor", "time"] }, "uniqueItems": true },
+        "acceptableErrorCodes": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+      },
+      "additionalProperties": false
+    }
+  }
+}

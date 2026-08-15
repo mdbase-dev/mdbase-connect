@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mdbase.dev/benchmarks/hosted-storage-model/projection.v1.schema.json",
+  "title": "hosted-benchmark-projection-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "path",
+    "types",
+    "file",
+    "persisted_frontmatter",
+    "effective_frontmatter",
+    "relationships",
+    "diagnostics"
+  ],
+  "properties": {
+    "schema_version": { "const": "hosted-benchmark-projection-v1" },
+    "path": { "type": "string", "minLength": 1 },
+    "types": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "name", "basename", "extension", "size", "mtime"],
+      "properties": {
+        "path": { "type": "string" },
+        "name": { "type": "string" },
+        "basename": { "type": "string" },
+        "extension": { "type": "string" },
+        "size": { "type": "integer", "minimum": 0 },
+        "mtime": { "type": "string", "format": "date-time" }
+      }
+    },
+    "persisted_frontmatter": { "type": "object" },
+    "effective_frontmatter": { "type": "object" },
+    "relationships": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "target"],
+        "properties": {
+          "kind": { "type": "string" },
+          "target": { "type": "string" }
+        }
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "severity"],
+        "properties": {
+          "code": { "type": "string" },
+          "severity": { "enum": ["info", "warning", "error"] }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "id": "hosted-storage-model-v1",
+  "seed": "hosted-storage-model-v1",
+  "syntheticOnly": true,
+  "maximumProjectionEnvelopeBytes": 262144,
+  "tiers": [
+    { "id": "records-10000", "records": 10000 },
+    { "id": "records-100000", "records": 100000 },
+    {
+      "id": "canonical-1gib",
+      "minimumCanonicalDocumentBytes": 1073741824,
+      "termination": "first complete deterministic record at or above the byte target"
+    }
+  ],
+  "recordMixPer100": {
+    "tasknotes-task": 35,
+    "reader-source": 15,
+    "reader-annotation": 10,
+    "editor-note": 10,
+    "pickle-request": 10,
+    "pickle-response": 5,
+    "workout-exercise": 5,
+    "workout-plan": 3,
+    "workout-quick-log": 4,
+    "workout-session": 3
+  },
+  "distributions": {
+    "tasknotes": {
+      "status": { "open": 40, "done": 25, "in-progress": 15, "cancelled": 10, "waiting": 10 },
+      "archivedPercent": 10,
+      "duePercent": 25,
+      "scheduledPercent": 25,
+      "overduePercent": 10,
+      "recurringPercent": 10,
+      "projectsPercent": 15,
+      "tagsPercent": 25,
+      "contextsPercent": 15,
+      "dependenciesPercent": 5,
+      "customFieldsPercent": 10,
+      "attachmentsPercent": 5
+    },
+    "reader": {
+      "readingStatus": { "inbox": 25, "queued": 10, "reading": 20, "finished": 20, "archived": 15, "abandoned": 10 },
+      "format": { "pdf": 40, "epub": 20, "html": 20, "note": 20 },
+      "kind": { "article": 40, "book": 20, "web": 20, "note": 20 },
+      "annotationType": { "highlight": 60, "note": 30, "bookmark": 10 },
+      "tagsPerRecord": { "0": 25, "1": 40, "3": 25, "8": 10 },
+      "annotationsPer15Sources": [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 2, 3]
+    },
+    "pickle": {
+      "requestState": { "pending": 50, "answered": 40, "cancelled": 5, "conflict": 5 },
+      "kind": { "approval": 50, "choice": 15, "input": 10, "notice": 10, "message": 15 },
+      "priority": { "low": 15, "normal": 60, "high": 20, "urgent": 5 },
+      "responsesPer20Requests": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 2]
+    },
+    "bodyBytes": {
+      "ordinaryMinimum": 384,
+      "ordinaryMaximum": 8192,
+      "largeEvery": 997,
+      "largeBytes": 65536,
+      "veryLargeEvery": 10007,
+      "veryLargeBytes": 524288,
+      "commonNeedlePercent": 20,
+      "selectiveNeedleEvery": 9973
+    },
+    "malformedOpaqueEvery": 101,
+    "unknownFrontmatterEvery": 10,
+    "unknownFrontmatterExcludesMalformed": true,
+    "relationships": {
+      "taskDependencyTargets": "previous task modulo live task count",
+      "readerAnnotationTargets": "deterministic source modulo reader-source count",
+      "pickleResponseTargets": "deterministic request modulo pickle-request count",
+      "editorLinks": "previous editor note modulo editor-note count"
+    }
+  },
+  "resources": {
+    "catalogRevision": "sha256 of canonical ordered resource documents",
+    "fidelity": "synthetic benchmark resources preserve the actual Reader and Pickle required fields, path/fields-present matching, type constants, and link declarations used by the frozen workloads; they omit unrelated production descriptions and contracts",
+    "types": [
+      "task",
+      "reader-source",
+      "reader-annotation",
+      "note",
+      "pickle_request",
+      "pickle_response_approval",
+      "pickle_response_ack",
+      "exercise",
+      "workout-plan",
+      "quick-log",
+      "workout-session"
+    ],
+    "resourceChange": "add a defaulted benchmark_generation field and advance every type version from 1 to 2"
+  },
+  "manifestRequirements": [
+    "generator and source revisions",
+    "seed and tier termination",
+    "record and per-shape counts",
+    "canonical document byte total and size percentiles",
+    "resource byte total and catalog revision",
+    "frontmatter/body/relationship distribution counts",
+    "NDJSON SHA-256 digest",
+    "canonical expected-result file SHA-256 digest",
+    "statement that content is deterministic synthetic data"
+  ]
+}
