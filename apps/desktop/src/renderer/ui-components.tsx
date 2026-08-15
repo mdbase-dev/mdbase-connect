@@ -13,11 +13,8 @@ import React, { useEffect, useRef, useState } from "react";
 import type { ConnectionDotState } from "./connection-state.mjs";
 import { message, type Route } from "./view-model";
 
-const defaultConnectServerUrl =
-  import.meta.env.VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL ?? "https://connect.mdbase.dev";
-
 export function PairingPanel({ resumeAuthorization = false }: { resumeAuthorization?: boolean }) {
-  const [serverUrl, setServerUrl] = useState(defaultConnectServerUrl);
+  const [serverUrl, setServerUrl] = useState("https://connect.mdbase.dev");
   const [connectorName, setConnectorName] = useState("This computer");
   const [pairing, setPairing] = useState<{ pairingId: string; verificationUri: string } | null>(null);
   const [pairError, setPairError] = useState("");

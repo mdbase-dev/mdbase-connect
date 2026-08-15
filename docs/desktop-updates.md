@@ -6,9 +6,7 @@ mixes binaries downloaded from different releases.
 
 ## Trust and discovery
 
-The desktop checks up to 100 GitHub releases for its channel in bounded
-20-release pages. Each page has an independent response-size limit so growth in
-historical release assets cannot strand the updater:
+The desktop checks the GitHub Releases API for its channel:
 
 - prerelease application versions use the `beta` channel;
 - versions without a prerelease suffix use the `stable` channel.

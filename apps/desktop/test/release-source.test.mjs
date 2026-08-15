@@ -6,9 +6,7 @@ const require = createRequire(import.meta.url);
 const { findLatestRelease } = require("../dist/main/release-source.js");
 
 const indexUrl =
-  "https://api.github.com/repos/mdbase-dev/mdbase-connect/releases?per_page=20&page=1";
-const secondIndexUrl =
-  "https://api.github.com/repos/mdbase-dev/mdbase-connect/releases?per_page=20&page=2";
+  "https://api.github.com/repos/mdbase-dev/mdbase-connect/releases?per_page=100";
 
 function manifest(version = "0.1.0-beta.9") {
   const tag = `v${version}`;
@@ -119,24 +117,6 @@ test("the highest verified semantic version wins even when API order is hostile"
   assert.equal(result.manifest.version, "0.1.0-beta.10");
 });
 
-test("release discovery scans bounded pages before choosing the highest version", async () => {
-  const older = Array.from({ length: 20 }, (_, index) => release(`0.1.0-beta.${index + 1}`));
-  for (const candidate of older) candidate.assets = [];
-  const latest = release("0.1.0-beta.21");
-  const result = await findLatestRelease({
-    channel: "beta",
-    trustCacheDirectory: "/tmp/not-used",
-    fetchImpl: fetchMap({
-      [indexUrl]: older,
-      [secondIndexUrl]: [latest],
-      [latest.assets[0].browser_download_url]: manifest("0.1.0-beta.21"),
-      [latest.assets[1].browser_download_url]: {}
-    }),
-    async verifyBundle() {}
-  });
-  assert.equal(result.manifest.version, "0.1.0-beta.21");
-});
-
 test("a manifest is not parsed or trusted when signature verification fails", async () => {
   const candidate = release("0.1.0-beta.9");
   await assert.rejects(
@@ -198,23 +178,10 @@ test("signed metadata cannot claim a different GitHub release", async () => {
   );
 });
 
-test("release metadata above the legacy 2 MiB ceiling remains readable", async () => {
-  const candidate = release("0.1.0-beta.9");
-  candidate.padding = "x".repeat(3 * 1024 * 1024);
-  candidate.assets = [];
-  const result = await findLatestRelease({
-    channel: "beta",
-    trustCacheDirectory: "/tmp/not-used",
-    fetchImpl: fetchMap({ [indexUrl]: [candidate] }),
-    async verifyBundle() {}
-  });
-  assert.equal(result, null);
-});
-
 test("oversized release metadata is rejected before parsing", async () => {
   const response = new Response("[]", {
     status: 200,
-    headers: { "content-length": String(9 * 1024 * 1024) }
+    headers: { "content-length": String(3 * 1024 * 1024) }
   });
   Object.defineProperty(response, "url", { value: indexUrl });
   await assert.rejects(
