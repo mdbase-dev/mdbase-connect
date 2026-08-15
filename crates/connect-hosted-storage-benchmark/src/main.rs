@@ -2177,7 +2177,7 @@ async fn query_workload(
         } else {
             format!("CASE WHEN NOT COALESCE({current},false) THEN r.exact_markdown END")
         };
-        format!("SELECT r.record_id,r.record_revision,{exact} AS exact_markdown,COALESCE({current},false) AS projection_current,p.path,p.types,p.file_size,p.file_mtime,p.semantic_projection,p.projection_digest FROM {schema}.records r JOIN {schema}.collections c USING (collection_id) LEFT JOIN {schema}.record_projections p USING (collection_id,record_id) LEFT JOIN {schema}.projection_generations g ON g.collection_id=p.collection_id AND g.generation_id=p.generation_id WHERE r.collection_id=$1 AND ((COALESCE({current},false) AND ({predicate})) OR NOT COALESCE({current},false)) ORDER BY r.record_id")
+        format!("SELECT r.record_id,r.record_revision,{exact} AS exact_markdown,r.path AS exact_path,r.file_mtime AS exact_file_mtime,COALESCE({current},false) AS projection_current,p.path,p.types,p.file_size,p.file_mtime,p.semantic_projection,p.projection_digest FROM {schema}.records r JOIN {schema}.collections c USING (collection_id) LEFT JOIN {schema}.record_projections p USING (collection_id,record_id) LEFT JOIN {schema}.projection_generations g ON g.collection_id=p.collection_id AND g.generation_id=p.generation_id WHERE r.collection_id=$1 AND ((COALESCE({current},false) AND ({predicate})) OR NOT COALESCE({current},false)) ORDER BY r.record_id")
     };
     let started = Instant::now();
     let cancel_after = (workload.id == "sdk.cancel_broad_body_scan")
@@ -2301,9 +2301,9 @@ async fn query_workload(
                     let document: String = row.get("exact_markdown");
                     plaintext_bytes += document.len() as u64;
                     exact = Some(ExactEnvelope {
-                        path: row.get("path"),
+                        path: row.get("exact_path"),
                         file_mtime: row
-                            .get::<chrono::DateTime<chrono::Utc>, _>("file_mtime")
+                            .get::<chrono::DateTime<chrono::Utc>, _>("exact_file_mtime")
                             .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
                         document,
                     });
