@@ -108,7 +108,11 @@ Connector identity private material is stored in the operating system's secret
 store. Legacy filesystem identity material is migrated only after a verified
 secret-store round trip and then removed. Browser application keys are
 non-extractable and counter allocation is atomic across tabs and survives a
-browser restart.
+browser restart. The native CLI is a distinct portable application: its stable
+installation identity, per-collection refresh credentials, provider capability,
+and grant signing key also live in the operating-system secret store. Its local
+registry contains only grant identifiers, permissions, endpoints, public keys,
+and expiry metadata.
 
 ### Hosted confidentiality and integrity
 
@@ -144,6 +148,7 @@ explicitly labelled as unsigned beta previews otherwise.
 | --- | --- |
 | Application requests more data than approved | Grant planning intersection; exact authority-side recheck; contract-scoped filtering |
 | Stolen or replayed request | Short-lived scoped credentials; proof validation; durable monotonic counters and replay state |
+| Copied hosted CLI bearer or refresh token | Per-collection grant scope; opaque-origin binding; grant-key proof on operations and refresh; authority-side revocation |
 | Relay reads collection contents | End-to-end encrypted operation envelopes; no plaintext payload persistence |
 | Control plane leaks local location | Connector-generated opaque collection identity; schemas and logs exclude absolute paths |
 | Crash loses revocation | Atomic local disable plus durable cleanup outbox and recovery worker |

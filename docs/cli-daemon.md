@@ -69,7 +69,7 @@ Connect administration is namespaced:
 - `mdbase connect login|logout|whoami`
 - `mdbase connect daemon run|install|uninstall|start|stop|restart|status|logs`
 - `mdbase connect collection list|add|add-copy|create|remove|validate|transfer-authority`
-- `mdbase connect hosted list|create|rename|delete`
+- `mdbase connect hosted list|create|rename|delete|connections|authorize|disconnect`
 - `mdbase connect mirror list|add|plan|sync|resolve|promote|remove`
 - `mdbase connect access list|pause|resume|approve|deny|update|revoke`
 - `mdbase connect activity|doctor`
@@ -110,6 +110,7 @@ The daemon state directory contains:
 - the stable installed service runtime;
 - the local collection registry;
 - the hosted mirror registry and durable mirror journals;
+- non-secret metadata for direct hosted CLI connections;
 - the relay identity;
 - versioned configuration containing non-secret server origins;
 - logs and diagnostic metadata.
@@ -117,8 +118,9 @@ The daemon state directory contains:
 The directory and local control endpoint are owner-only. Relative overrides
 are resolved before a daemon or service manager receives them.
 
-Connector credentials and mirror renewal credentials live behind a
-`SecretStore` interface. Production uses the operating-system credential store.
+Connector credentials, mirror renewal credentials, and direct hosted CLI grant
+credentials live behind a `SecretStore` interface. Production uses the
+operating-system credential store.
 Tests use an isolated implementation. Cross-process integration tests may
 explicitly select an owner-only file backend with both
 `MDBASE_CONNECT_ENV=test` and

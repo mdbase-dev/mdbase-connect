@@ -121,7 +121,7 @@ impl AgentState {
                 result.and_then(|value| serde_json::to_value(value).map_err(ConnectError::from))
             }
             ControlCommand::CollectionValidate(params) => {
-                self.local_operation(
+                self.collection_operation(
                     params.collection_id,
                     "validate".to_string(),
                     serde_json::json!({}),
@@ -129,7 +129,7 @@ impl AgentState {
                 .await
             }
             ControlCommand::CollectionOperation(params) => {
-                self.local_operation(params.collection_id, params.operation, params.input)
+                self.collection_operation(params.collection_id, params.operation, params.input)
                     .await
             }
             ControlCommand::AccessSnapshot => self.access_snapshot().await,
@@ -170,6 +170,35 @@ impl AgentState {
             ControlCommand::HostedSnapshot => {
                 self.hosted_request(reqwest::Method::GET, "/v1/connectors/hosted-control", None)
                     .await
+            }
+            ControlCommand::HostedConnectionList => {
+                self.hosted_connection_manager().and_then(|connections| {
+                    serde_json::to_value(connections.list()).map_err(ConnectError::from)
+                })
+            }
+            ControlCommand::HostedConnectionAuthorizeBegin(params) => {
+                match self.hosted_connection_manager() {
+                    Ok(connections) => connections
+                        .begin_authorization(params)
+                        .await
+                        .and_then(|value| serde_json::to_value(value).map_err(ConnectError::from)),
+                    Err(error) => Err(error),
+                }
+            }
+            ControlCommand::HostedConnectionAuthorizePoll(params) => {
+                match self.hosted_connection_manager() {
+                    Ok(connections) => connections
+                        .poll_authorization(params.authorization_id)
+                        .await
+                        .and_then(|value| serde_json::to_value(value).map_err(ConnectError::from)),
+                    Err(error) => Err(error),
+                }
+            }
+            ControlCommand::HostedConnectionRemove(params) => {
+                match self.hosted_connection_manager() {
+                    Ok(connections) => connections.remove(params.collection_id).await,
+                    Err(error) => Err(error),
+                }
             }
             ControlCommand::HostedCollectionCreate(params) => {
                 match validated_hosted_name(&params.name) {
@@ -315,12 +344,47 @@ impl AgentState {
         }
     }
 
-    async fn local_operation(
+    async fn collection_operation(
         self: &Arc<Self>,
         collection_id: uuid::Uuid,
         operation: String,
         input: serde_json::Value,
     ) -> Result<serde_json::Value, ConnectError> {
+        match self.registry.get(collection_id) {
+            Ok(_) => {}
+            Err(ConnectError::CollectionNotFound(_)) => {
+                let Some(connections) = self.hosted_connection_manager_if_available() else {
+                    return Err(ConnectError::CollectionNotFound(collection_id));
+                };
+                if connections.contains(collection_id) {
+                    return connections
+                        .operation(collection_id, &operation, input)
+                        .await;
+                }
+                let hosted = self
+                    .hosted_request(reqwest::Method::GET, "/v1/connectors/hosted-control", None)
+                    .await?;
+                let exists = hosted
+                    .get("collections")
+                    .and_then(serde_json::Value::as_array)
+                    .is_some_and(|collections| {
+                        collections.iter().any(|collection| {
+                            collection.get("id").and_then(serde_json::Value::as_str)
+                                == Some(&collection_id.to_string())
+                        })
+                    });
+                if exists {
+                    return Err(ConnectError::CloudProblem {
+                        code: "collection_authorization_required".to_string(),
+                        message: format!(
+                            "Collection {collection_id} is hosted but is not authorized for the mdbase CLI. Run `mdbase connect hosted authorize {collection_id}` first."
+                        ),
+                    });
+                }
+                return Err(ConnectError::CollectionNotFound(collection_id));
+            }
+            Err(error) => return Err(error),
+        }
         let weight_bytes = serde_json::to_vec(&input)?
             .len()
             .saturating_add(operation.len())

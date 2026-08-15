@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- The unified CLI can authorize a direct, per-collection hosted connection and
+  execute portable data commands against the hosted authority without a local
+  filesystem mirror. Hosted requests use short-lived provider capabilities,
+  grant-bound P-256 proofs, automatic credential refresh, and the same explicit
+  revocation model as other applications. Account login alone still cannot read
+  collection contents.
+
 ## 0.1.0-beta.69
 
 Beta.69 makes retained writable mirrors durable across adoption and remote

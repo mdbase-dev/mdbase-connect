@@ -69,6 +69,7 @@ pub(super) enum OutputKind {
     Account,
     Mirrors,
     Mirror,
+    HostedConnections,
     Generic,
 }
 
@@ -225,6 +226,26 @@ pub(super) fn render_human(kind: OutputKind, value: &Value) -> String {
                 error.map(|error| format!("\n{error}")).unwrap_or_default()
             )
         }
+        OutputKind::HostedConnections => render_rows(
+            value.as_array().map(Vec::as_slice).unwrap_or(&[]),
+            &["COLLECTION", "OPERATIONS", "GRANT", "REFRESH EXPIRES"],
+            |item| {
+                vec![
+                    format!(
+                        "{} ({})",
+                        text(item, "collection_name"),
+                        text(item, "collection_id")
+                    ),
+                    item["operations"]
+                        .as_array()
+                        .map(|operations| operations.len().to_string())
+                        .unwrap_or_else(|| "0".to_string()),
+                    text(item, "grant_id"),
+                    text(item, "refresh_expires_at"),
+                ]
+            },
+            "No hosted collections are authorized for direct CLI access.",
+        ),
         OutputKind::Generic => {
             if value.is_null() || value == &serde_json::json!({}) {
                 "Done.".to_string()

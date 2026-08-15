@@ -76,6 +76,14 @@ pub enum ControlCommand {
     ActivityList(ActivityListParams),
     #[serde(rename = "hosted.snapshot")]
     HostedSnapshot,
+    #[serde(rename = "hosted.connections.list")]
+    HostedConnectionList,
+    #[serde(rename = "hosted.connections.authorize.begin")]
+    HostedConnectionAuthorizeBegin(HostedConnectionAuthorizeParams),
+    #[serde(rename = "hosted.connections.authorize.poll")]
+    HostedConnectionAuthorizePoll(HostedConnectionAuthorizationPollParams),
+    #[serde(rename = "hosted.connections.remove")]
+    HostedConnectionRemove(CollectionIdParams),
     #[serde(rename = "hosted.collections.create")]
     HostedCollectionCreate(HostedCollectionCreateParams),
     #[serde(rename = "hosted.collections.rename")]
@@ -135,6 +143,45 @@ pub struct CollectionMetadataParams {
 pub struct CollectionEnabledParams {
     pub collection_id: Uuid,
     pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostedConnectionAuthorizeParams {
+    pub collection_id: Uuid,
+    pub operations: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostedConnectionAuthorizationPollParams {
+    pub authorization_id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostedConnectionAuthorization {
+    pub authorization_id: Uuid,
+    pub collection_id: Uuid,
+    pub user_code: String,
+    pub verification_uri: String,
+    pub verification_uri_complete: String,
+    pub expires_at: String,
+    pub interval_seconds: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum HostedConnectionAuthorizationStatus {
+    Pending,
+    Connected { connection: HostedConnectionSummary },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostedConnectionSummary {
+    pub collection_id: Uuid,
+    pub collection_name: String,
+    pub grant_id: Uuid,
+    pub operations: Vec<String>,
+    pub access_expires_at: String,
+    pub refresh_expires_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

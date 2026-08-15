@@ -1,4 +1,5 @@
 use crate::cloud::CloudControlClient;
+use crate::hosted_connections::HostedConnectionManager;
 use crate::mirrors::MirrorManager;
 use crate::runtime_notifications::RuntimeTimerHandle;
 use crate::watcher::CollectionWatchService;
@@ -81,6 +82,7 @@ pub struct AgentState {
     relay_identity: RelayIdentity,
     runtime_timers: Option<RuntimeTimerHandle>,
     mirrors: std::sync::RwLock<Option<Arc<MirrorManager>>>,
+    hosted_connections: std::sync::RwLock<Option<Arc<HostedConnectionManager>>>,
     shutdown: tokio::sync::Notify,
     state_dir: std::sync::RwLock<Option<std::path::PathBuf>>,
     account_configuration_lock: std::sync::Mutex<()>,
@@ -132,6 +134,7 @@ impl AgentState {
             relay_identity,
             runtime_timers: None,
             mirrors: std::sync::RwLock::new(None),
+            hosted_connections: std::sync::RwLock::new(None),
             shutdown: tokio::sync::Notify::new(),
             state_dir: std::sync::RwLock::new(None),
             account_configuration_lock: std::sync::Mutex::new(()),
@@ -169,6 +172,36 @@ impl AgentState {
 
     pub fn set_mirror_manager(&self, mirrors: Arc<MirrorManager>) {
         *self.mirrors.write().expect("mirror manager lock poisoned") = Some(mirrors);
+    }
+
+    pub fn set_hosted_connection_manager(&self, connections: Arc<HostedConnectionManager>) {
+        *self
+            .hosted_connections
+            .write()
+            .expect("hosted connection manager lock poisoned") = Some(connections);
+    }
+
+    pub(super) fn hosted_connection_manager(
+        &self,
+    ) -> Result<Arc<HostedConnectionManager>, ConnectError> {
+        self.hosted_connections
+            .read()
+            .expect("hosted connection manager lock poisoned")
+            .clone()
+            .ok_or_else(|| {
+                self.credential_store_unavailable().unwrap_or_else(|| {
+                    ConnectError::Cloud("Connect this computer to an account first.".to_string())
+                })
+            })
+    }
+
+    pub(super) fn hosted_connection_manager_if_available(
+        &self,
+    ) -> Option<Arc<HostedConnectionManager>> {
+        self.hosted_connections
+            .read()
+            .expect("hosted connection manager lock poisoned")
+            .clone()
     }
 
     pub fn set_state_dir(&self, state_dir: std::path::PathBuf) {

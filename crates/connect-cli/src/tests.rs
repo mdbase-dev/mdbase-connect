@@ -162,3 +162,57 @@ fn mirror_sync_requires_the_reviewed_plan_fingerprint() {
     };
     assert_eq!(params.plan_fingerprint, "sha256:reviewed");
 }
+
+#[test]
+fn hosted_authorization_is_an_explicit_interactive_command() {
+    let collection_id = "01900000-0000-7000-8000-000000000000";
+    let args = Args::try_parse_from([
+        "mdbase",
+        "connect",
+        "hosted",
+        "authorize",
+        collection_id,
+        "--read-only",
+        "--no-open",
+    ])
+    .unwrap();
+    assert!(matches!(
+        args.command,
+        RootCommand::Connect {
+            command: ConnectCommand::Hosted(HostedCommand::Authorize {
+                read_only: true,
+                no_open: true,
+                ..
+            })
+        }
+    ));
+    assert!(Args::try_parse_from([
+        "mdbase",
+        "connect",
+        "hosted",
+        "authorize",
+        collection_id,
+        "--read-only",
+        "--operations",
+        "read,query",
+    ])
+    .is_err());
+}
+
+#[test]
+fn hosted_connections_have_a_quiet_human_table() {
+    let rendered = render_human(
+        OutputKind::HostedConnections,
+        &serde_json::json!([{
+            "collection_id": "01900000-0000-7000-8000-000000000000",
+            "collection_name": "F5",
+            "grant_id": "01911111-1111-7111-8111-111111111111",
+            "operations": ["read", "query"],
+            "refresh_expires_at": "2026-09-15T00:00:00Z"
+        }]),
+    );
+    assert!(rendered.starts_with("COLLECTION"));
+    assert!(rendered.contains("F5"));
+    assert!(rendered.contains("2"));
+    assert!(!rendered.contains('{'));
+}

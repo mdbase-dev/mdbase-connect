@@ -57,11 +57,27 @@ Data commands accept exactly one target:
 - `--root PATH` opens a collection directly, defaulting to the current
   directory;
 - `--collection UUID` sends the canonical operation through the user's local
-  Connect daemon.
+  Connect daemon. The daemon executes against a computer-owned authority when
+  one is registered, or directly against a hosted authority when this CLI has
+  an approved per-collection connection. A filesystem mirror is not required.
 
 Target selection is explicit. The CLI does not silently change authority
 because a path happens to be registered. Direct access remains available for
 offline operation and recovery.
+
+Account login grants collection administration but not record access. Before
+the first direct hosted operation, authorize the CLI as its own application:
+
+```text
+mdbase connect hosted authorize <collection-id>
+mdbase --collection <collection-id> query --types task
+```
+
+The first command uses device authorization and browser approval. `--read-only`
+requests only non-mutating operations; `--operations` requests an explicit
+comma-separated subset. Grant credentials and the proof key are kept in the
+operating-system credential store. `hosted connections` lists these grants and
+`hosted disconnect` revokes one without deleting the collection.
 
 Commands that are inherently filesystem-local, such as collection
 initialization or cache repair, reject `--collection` with a stable

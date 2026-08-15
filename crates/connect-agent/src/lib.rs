@@ -1,6 +1,7 @@
 pub(crate) mod admission;
 mod bootstrap;
 mod cloud;
+mod hosted_connections;
 mod loopback;
 mod mirrors;
 mod operation_executor;
@@ -153,6 +154,11 @@ pub async fn run(options: DaemonOptions) -> Result<(), Box<dyn std::error::Error
         credential_store_error.clone(),
     )?;
     state.set_mirror_manager(mirror_manager.clone());
+    if let Some(cloud) = cloud.as_ref() {
+        state.set_hosted_connection_manager(Arc::new(
+            hosted_connections::HostedConnectionManager::open(&state_dir, cloud)?,
+        ));
+    }
     let mirror_worker = mirror_manager.start();
     let relay = match (server_url, connector_token) {
         (Some(server_url), Some(connector_token)) => Some((server_url, connector_token)),

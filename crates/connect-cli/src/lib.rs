@@ -24,9 +24,11 @@ use mdbase_connect_protocol::{
     AuthorizationIdParams, CollectionAuthorityTransferParams, CollectionCreateParams,
     CollectionIdParams, CollectionOperationParams, CollectionPathParams, ControlCommand,
     ControlRequest, ControlResponse, FileMediaClass, GrantIdParams, GrantUpdateParams,
-    HostedCollectionCreateParams, HostedCollectionRenameParams, MirrorAddParams, MirrorApplyParams,
+    HostedCollectionCreateParams, HostedCollectionRenameParams, HostedConnectionAuthorization,
+    HostedConnectionAuthorizationPollParams, HostedConnectionAuthorizationStatus,
+    HostedConnectionAuthorizeParams, MirrorAddParams, MirrorApplyParams,
     MirrorConfigureSelectiveSyncParams, MirrorIdParams, MirrorResolution, MirrorResolveParams,
-    SyncReplicaMode, LOCAL_CONTROL_PROTOCOL_VERSION,
+    SyncReplicaMode, COLLECTION_OPERATIONS, LOCAL_CONTROL_PROTOCOL_VERSION,
 };
 use serde_json::Value;
 use std::io::IsTerminal;
@@ -277,6 +279,23 @@ enum AccessCommand {
 #[derive(Debug, Subcommand)]
 enum HostedCommand {
     List,
+    /// List hosted collections authorized for direct CLI data access.
+    Connections,
+    /// Authorize direct CLI access to a hosted collection without creating a mirror.
+    Authorize {
+        collection_id: Uuid,
+        #[arg(long, value_delimiter = ',')]
+        operations: Vec<String>,
+        /// Request only non-mutating data operations.
+        #[arg(long, conflicts_with = "operations")]
+        read_only: bool,
+        #[arg(long)]
+        no_open: bool,
+    },
+    /// Remove this computer's direct CLI connection without deleting the collection.
+    Disconnect {
+        collection_id: Uuid,
+    },
     Create {
         name: String,
         /// IANA timezone for headless operations (defaults to this device).
@@ -755,6 +774,85 @@ async fn execute_connect(
             )?;
             print_result(json, OutputKind::Generic, &completed)?;
             Ok(())
+        }
+        ConnectCommand::Hosted(HostedCommand::Authorize {
+            collection_id,
+            operations,
+            read_only,
+            no_open,
+        }) => {
+            let operations = if operations.is_empty() {
+                COLLECTION_OPERATIONS
+                    .iter()
+                    .filter(|operation| {
+                        !read_only
+                            || (**operation != "sync"
+                                && !mdbase_connect_protocol::MUTATING_OPERATION_IDENTIFIERS
+                                    .iter()
+                                    .any(|mutation| {
+                                        mutation.split(':').next() == Some(**operation)
+                                    }))
+                    })
+                    .map(|operation| (*operation).to_string())
+                    .collect()
+            } else {
+                operations
+            };
+            let begun = successful_result(
+                send(
+                    &endpoint,
+                    ControlRequest::new(ControlCommand::HostedConnectionAuthorizeBegin(
+                        HostedConnectionAuthorizeParams {
+                            collection_id,
+                            operations,
+                        },
+                    )),
+                )
+                .await?,
+            )?;
+            let authorization: HostedConnectionAuthorization = serde_json::from_value(begun)
+                .map_err(|error| {
+                    CliError::internal(format!(
+                        "The daemon returned invalid hosted authorization details: {error}"
+                    ))
+                })?;
+            eprintln!(
+                "Approve mdbase CLI access in your browser:\n{}\nCode: {}",
+                authorization.verification_uri, authorization.user_code
+            );
+            if !no_open {
+                service::open_url(&authorization.verification_uri_complete)
+                    .map_err(CliError::internal)?;
+            }
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(
+                    authorization.interval_seconds.max(1),
+                ))
+                .await;
+                let value = successful_result(
+                    send(
+                        &endpoint,
+                        ControlRequest::new(ControlCommand::HostedConnectionAuthorizePoll(
+                            HostedConnectionAuthorizationPollParams {
+                                authorization_id: authorization.authorization_id,
+                            },
+                        )),
+                    )
+                    .await?,
+                )?;
+                let status: HostedConnectionAuthorizationStatus = serde_json::from_value(value)
+                    .map_err(|error| {
+                        CliError::internal(format!(
+                            "The daemon returned an invalid hosted authorization state: {error}"
+                        ))
+                    })?;
+                if let HostedConnectionAuthorizationStatus::Connected { connection } = status {
+                    let value = serde_json::to_value(connection)
+                        .map_err(|error| CliError::internal(error.to_string()))?;
+                    print_result(json, OutputKind::Generic, &value)?;
+                    return Ok(());
+                }
+            }
         }
         ConnectCommand::Doctor => {
             let value = doctor(&state_dir, &endpoint, target).await;

@@ -114,6 +114,49 @@ impl SystemSecretStore {
         self.delete(&format!("mirror:{replica_id}"))
     }
 
+    pub fn hosted_connection_credentials(
+        &self,
+        collection_id: uuid::Uuid,
+    ) -> Result<Option<String>, ConnectError> {
+        self.get(&format!("hosted-connection:{collection_id}"))
+    }
+
+    pub fn set_hosted_connection_credentials(
+        &self,
+        collection_id: uuid::Uuid,
+        credentials_json: &str,
+    ) -> Result<(), ConnectError> {
+        if credentials_json.trim().is_empty() {
+            return Err(ConnectError::Settings(
+                "Hosted connection credentials are empty.".to_string(),
+            ));
+        }
+        self.set(
+            &format!("hosted-connection:{collection_id}"),
+            credentials_json,
+        )
+    }
+
+    pub fn clear_hosted_connection_credentials(
+        &self,
+        collection_id: uuid::Uuid,
+    ) -> Result<(), ConnectError> {
+        self.delete(&format!("hosted-connection:{collection_id}"))
+    }
+
+    pub fn cli_application_identity(&self) -> Result<Option<String>, ConnectError> {
+        self.get("cli-application-identity")
+    }
+
+    pub fn set_cli_application_identity(&self, identity_json: &str) -> Result<(), ConnectError> {
+        if identity_json.trim().is_empty() {
+            return Err(ConnectError::Settings(
+                "CLI application identity is empty.".to_string(),
+            ));
+        }
+        self.set("cli-application-identity", identity_json)
+    }
+
     pub fn load_or_create_relay_identity(
         &self,
         state_dir: &Path,

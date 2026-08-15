@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 axum.workspace = true
 async-trait.workspace = true
+base64.workspace = true
 chrono.workspace = true
 directories.workspace = true
 fs2 = "0.4"
@@ -19,6 +20,8 @@ mdbase-connect-core = { path = "../connect-core" }
 mdbase-connect-mirror = { path = "../connect-mirror" }
 mdbase-connect-protocol = { path = "../connect-protocol" }
 mdbase-connect-runtime = { path = "../connect-runtime" }
+p256.workspace = true
+rand_core.workspace = true
 reqwest.workspace = true
 # Select the same provider for standalone daemon tests and embedders; binaries
 # install it process-wide before starting their runtimes.
@@ -26,6 +29,7 @@ rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_yaml.workspace = true
+sha2.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
@@ -39,8 +43,5 @@ url.workspace = true
 libc = "0.2"
 
 [dev-dependencies]
-base64.workspace = true
-p256.workspace = true
-rand_core.workspace = true
 rusqlite.workspace = true
 tower = { version = "0.5", features = ["util"] }

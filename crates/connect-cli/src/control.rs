@@ -135,6 +135,17 @@ pub(super) fn control_command(
         ConnectCommand::Hosted(HostedCommand::List) => {
             (ControlCommand::HostedSnapshot, OutputKind::Generic)
         }
+        ConnectCommand::Hosted(HostedCommand::Connections) => (
+            ControlCommand::HostedConnectionList,
+            OutputKind::HostedConnections,
+        ),
+        ConnectCommand::Hosted(HostedCommand::Disconnect { collection_id }) => (
+            ControlCommand::HostedConnectionRemove(CollectionIdParams { collection_id }),
+            OutputKind::Generic,
+        ),
+        ConnectCommand::Hosted(HostedCommand::Authorize { .. }) => {
+            unreachable!("hosted authorization is an interactive CLI flow")
+        }
         ConnectCommand::Hosted(HostedCommand::Create { name, timezone }) => (
             ControlCommand::HostedCollectionCreate(HostedCollectionCreateParams {
                 name,

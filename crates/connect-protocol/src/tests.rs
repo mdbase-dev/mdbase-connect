@@ -381,8 +381,33 @@ fn control_request_has_stable_wire_shape() {
         serde_json::to_value(request).unwrap(),
         serde_json::json!({
             "id": "00000000-0000-0000-0000-000000000000",
-            "protocol_version": 3,
+            "protocol_version": 4,
             "method": "collections.list"
+        })
+    );
+}
+
+#[test]
+fn hosted_cli_authorization_has_an_explicit_control_shape() {
+    let collection_id = Uuid::parse_str("01900000-0000-7000-8000-000000000000").unwrap();
+    let request = ControlRequest {
+        id: Uuid::nil(),
+        protocol_version: LOCAL_CONTROL_PROTOCOL_VERSION,
+        command: ControlCommand::HostedConnectionAuthorizeBegin(HostedConnectionAuthorizeParams {
+            collection_id,
+            operations: vec!["read".to_string(), "query".to_string()],
+        }),
+    };
+    assert_eq!(
+        serde_json::to_value(request).unwrap(),
+        serde_json::json!({
+            "id": "00000000-0000-0000-0000-000000000000",
+            "protocol_version": 4,
+            "method": "hosted.connections.authorize.begin",
+            "params": {
+                "collection_id": collection_id,
+                "operations": ["read", "query"]
+            }
         })
     );
 }
@@ -450,7 +475,7 @@ fn copied_collection_registration_has_an_explicit_wire_command() {
         serde_json::to_value(request).unwrap(),
         serde_json::json!({
             "id": "00000000-0000-0000-0000-000000000000",
-            "protocol_version": 3,
+            "protocol_version": 4,
             "method": "collections.add-copy",
             "params": { "path": "/collections/notes-copy" }
         })
@@ -475,7 +500,7 @@ fn mirror_file_preferences_have_an_explicit_control_command() {
         serde_json::to_value(request).unwrap(),
         serde_json::json!({
             "id": "00000000-0000-0000-0000-000000000000",
-            "protocol_version": 3,
+            "protocol_version": 4,
             "method": "mirrors.configure-selective-sync",
             "params": {
                 "replica_id": replica_id,
@@ -506,7 +531,7 @@ fn mirror_conflicts_and_resolution_are_entity_aware_on_the_wire() {
         serde_json::to_value(request).unwrap(),
         serde_json::json!({
             "id": "00000000-0000-0000-0000-000000000000",
-            "protocol_version": 3,
+            "protocol_version": 4,
             "method": "mirrors.resolve",
             "params": {
                 "replica_id": replica_id,

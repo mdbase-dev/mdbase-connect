@@ -30,6 +30,8 @@ application-specific database.
 - Use your collections from MCP clients such as Claude and ChatGPT.
 - Mirror a hosted collection to a local folder for Markdown-based tools and
   backups.
+- Use the native `mdbase` CLI directly with an explicitly authorized hosted
+  collection without creating a filesystem mirror.
 
 ## How it works
 
@@ -52,6 +54,18 @@ using file-based tools alongside connected applications.
 
 Applications use the same approval model for local and hosted collections, so
 moving where a collection lives does not give an application broader access.
+
+The CLI follows that boundary too. Account login can list and administer hosted
+collections, while record operations require a separate collection grant:
+
+```bash
+mdbase connect hosted authorize <collection-id> --read-only
+mdbase --collection <collection-id> query --types task
+```
+
+Omit `--read-only` to request the full canonical operation set, or pass an exact
+comma-separated set with `--operations`. The approval opens in the browser and
+can be revoked with `mdbase connect hosted disconnect <collection-id>`.
 
 ## Getting started during the beta
 
@@ -157,6 +171,8 @@ authorization, mirroring, and daemon administration live under
 mdbase --root /path/to/notes query --types task
 mdbase connect collection list
 mdbase connect hosted list
+mdbase connect hosted authorize <collection-id> --read-only
+mdbase --collection <collection-id> query --types task
 mdbase connect mirror add <collection-id> /path/to/mirror
 mdbase connect mirror plan <replica-id> --json
 mdbase connect mirror sync <replica-id> --plan sha256:<fingerprint>
