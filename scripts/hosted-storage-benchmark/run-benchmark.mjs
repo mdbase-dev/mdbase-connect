@@ -24,6 +24,7 @@ const fixtureContractPath = join(benchmarkRoot, "fixture-contract.json");
 const budgetPath = join(root, "config/hosted-execution-budgets.json");
 const rawSchemaPath = join(benchmarkRoot, "raw-result.schema.json");
 const schemas = join(benchmarkRoot, "schemas");
+const rebuildGenerationId = "018f0000-0000-7000-8000-000000000003";
 const optionalFields = [
   "rows_selected", "rows_scanned", "sql_candidate_rows", "canonical_rows_evaluated", "documents_decrypted", "ciphertext_bytes", "plaintext_bytes", "result_items", "result_bytes", "completeness_digest", "key_cache_hits", "key_cache_misses", "kms_unwraps", "provider_cpu_ms", "provider_rss_bytes", "provider_pss_bytes", "accounted_operator_bytes_peak", "cancellation_cleanup_ms", "postgres_cpu_ms", "postgres_blocks_read", "postgres_blocks_hit", "postgres_temp_bytes", "pool_connections_peak", "pool_connections_average", "pool_wait_ms", "snapshot_lifetime_ms", "table_bytes", "projection_bytes", "toast_bytes", "index_bytes", "wal_bytes", "backup_estimate_bytes", "hot_updates", "non_hot_updates", "dead_tuples", "vacuum_elapsed_ms", "bloat_estimate_bytes", "failure_stage", "checkpoint_record_id", "lease_state", "recovery_state", "authorization_classification", "transaction_released", "pool_permit_released", "plaintext_released", "page_boundaries", "relation_sizes", "database_bytes_before", "database_bytes_after", "notes",
 ];
@@ -234,8 +235,8 @@ function recordEmbeddedBackfill(context, imported) {
   writeSample(sample, "embedded-backfill");
 }
 
-function recordQuery(context, database, workload, repetition, sampleRole, cacheState, diagnostic, checkpointKey) {
-  const result = recordHarness(context, database, workload.id === "sdk.cancel_broad_body_scan" ? "cancellation" : "query", diagnostic ? `${workload.id}.large_fixture_v1` : workload.id, repetition, sampleRole, cacheState, [
+function recordQuery(context, database, workload, repetition, sampleRole, cacheState, diagnostic, checkpointKey, sampleWorkloadId = null) {
+  const result = recordHarness(context, database, workload.id === "sdk.cancel_broad_body_scan" ? "cancellation" : "query", sampleWorkloadId ?? (diagnostic ? `${workload.id}.large_fixture_v1` : workload.id), repetition, sampleRole, cacheState, [
     "query", "--database-url", databaseUrl(database), "--candidate", context.variant.cli,
     "--fixture-dir", context.fixtureDir, "--workload-contract", workloadPath,
     "--workload-id", workload.id, "--budget-manifest", budgetPath,
@@ -390,16 +391,80 @@ async function recordRebuild(context, database) {
     run("docker", ["exec", container, "createdb", "-U", "postgres", "-T", database, cancelDb]);
     const cancelArgs = ["rebuild", "--database-url", databaseUrl(cancelDb), "--candidate", context.variant.cli, "--fixture-dir", context.fixtureDir, "--batch-delay-ms", "10"];
     appendFileSync(commandLog, `${new Date().toISOString()} ${root} $ ${binary} ${cancelArgs.map(shellQuote).join(" ")} # terminate after durable checkpoint\n`);
+    const cancelStartedAt = new Date().toISOString();
+    const cancelStarted = performance.now();
+    const stateBeforeCancel = rebuildState(cancelDb, context.variant.schema);
     const cancelled = spawn(binary, cancelArgs, { cwd: root, env: { ...process.env, LC_ALL: "C", TZ: "UTC" } });
+    const cancelExitPromise = new Promise((resolveExit) => {
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        resolveExit(value);
+      };
+      cancelled.once("exit", (code, signal) => finish({ code, signal }));
+      cancelled.once("error", (error) => finish({ code: null, signal: null, error: error.message }));
+    });
     await new Promise((resolveWait) => setTimeout(resolveWait, 80));
-    cancelled.kill("SIGTERM");
-    const cancelExit = await new Promise((resolveExit) => cancelled.on("exit", (code, signal) => resolveExit({ code, signal })));
-    const cancelState = JSON.parse(psql(cancelDb, `SELECT json_build_object('status',status,'checkpoint',checkpoint_record_id,'lease_owner',lease_owner) FROM ${context.variant.schema}.projection_generations WHERE generation_id='018f0000-0000-7000-8000-000000000003'`));
-    const cancelSample = sampleBase(context, "recovery", "rebuild.process_cancel", 0, "validation", "warm-key", new Date().toISOString());
-    Object.assign(cancelSample, { outcome: "cancelled", elapsed_ms: 80, failure_stage: "after-durable-checkpoint", checkpoint_record_id: cancelState.checkpoint, lease_state: cancelState.status, recovery_state: "building-resumable", transaction_released: true, notes: `exit=${JSON.stringify(cancelExit)}; owner=${cancelState.lease_owner}` });
+    const signalRequestedAt = new Date().toISOString();
+    const killRequested = cancelled.kill("SIGTERM");
+    const cancelExit = await cancelExitPromise;
+    const cancelElapsedMs = performance.now() - cancelStarted;
+    const cancelEndedAt = new Date().toISOString();
+    const stateAfterCancel = rebuildState(cancelDb, context.variant.schema);
+    const cancelCleanup = await waitForDatabaseCleanup(cancelDb);
+    const checkpointChanged = stateBeforeCancel?.checkpoint !== stateAfterCancel?.checkpoint;
+    const cancellationOutcome = cancelExit.signal === "SIGTERM" ? "cancelled" : cancelExit.code === 0 ? "success" : "error";
+    const failureStage = stateAfterCancel?.checkpoint ? "after-durable-checkpoint" : "before-durable-checkpoint";
+    const resumableState = stateAfterCancel?.status === "building" && Boolean(stateAfterCancel?.checkpoint);
+    psql(cancelDb, `UPDATE ${context.variant.schema}.projection_generations SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE generation_id='${rebuildGenerationId}'`);
+    const resumed = recordHarness(context, cancelDb, "recovery", "rebuild.resume_after_cancel", 0, "validation", "warm-key", ["rebuild", "--database-url", databaseUrl(cancelDb), "--candidate", context.variant.cli, "--fixture-dir", context.fixtureDir], `${key}-cancel-resume`, false);
+    const stateAfterResume = rebuildState(cancelDb, context.variant.schema);
+    const resumeCleanup = await waitForDatabaseCleanup(cancelDb);
+    const resumeCompleted = resumed?.sample.outcome === "success"
+      && stateAfterResume?.status === "complete"
+      && resumeCleanup.released;
+    const cancelSample = sampleBase(context, "recovery", "rebuild.process_cancel", 0, "validation", "warm-key", cancelStartedAt);
+    Object.assign(cancelSample, {
+      outcome: cancellationOutcome,
+      elapsed_ms: cancelElapsedMs,
+      failure_stage: failureStage,
+      checkpoint_record_id: stateAfterCancel?.checkpoint ?? null,
+      lease_state: stateAfterCancel?.status ?? null,
+      recovery_state: resumeCompleted ? "resumed-complete" : resumableState ? "building-resumable" : stateAfterCancel?.status === "complete" ? "complete-before-cancel" : "unknown",
+      cancellation_cleanup_ms: cancelCleanup.elapsedMs,
+      transaction_released: cancelCleanup.released,
+      notes: JSON.stringify({
+        process: {
+          pid: cancelled.pid,
+          signal_requested: "SIGTERM",
+          signal_requested_at: signalRequestedAt,
+          kill_requested: killRequested,
+          exited: true,
+          exit_code: cancelExit.code,
+          exit_signal: cancelExit.signal,
+          error: cancelExit.error ?? null,
+          started_at: cancelStartedAt,
+          ended_at: cancelEndedAt,
+          elapsed_ms: cancelElapsedMs,
+        },
+        checkpoint: {
+          before: stateBeforeCancel?.checkpoint ?? null,
+          after: stateAfterCancel?.checkpoint ?? null,
+          changed: checkpointChanged,
+        },
+        state_before: stateBeforeCancel,
+        state_after_cancel: stateAfterCancel,
+        cleanup_after_cancel: cancelCleanup,
+        resume: {
+          sample_outcome: resumed?.sample.outcome ?? null,
+          state: stateAfterResume,
+          cleanup: resumeCleanup,
+          completed: resumeCompleted,
+        },
+      }),
+    });
     writeSample(cancelSample, `${key}-cancelled`);
-    psql(cancelDb, `UPDATE ${context.variant.schema}.projection_generations SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE generation_id='018f0000-0000-7000-8000-000000000003'`);
-    recordHarness(context, cancelDb, "recovery", "rebuild.resume_after_cancel", 0, "validation", "warm-key", ["rebuild", "--database-url", databaseUrl(cancelDb), "--candidate", context.variant.cli, "--fixture-dir", context.fixtureDir], `${key}-cancel-resume`, false);
     dropDatabase(cancelDb);
     const supersedeDb = safeDbName(`${database}_rebuild_supersede`);
     run("docker", ["exec", container, "createdb", "-U", "postgres", "-T", database, supersedeDb]);
@@ -415,7 +480,7 @@ async function recordRebuild(context, database) {
   recordHarness(context, database, "rebuild", "write.resource_rebuild", 0, "measured", context.variant.candidate === "C" ? "not-applicable" : "warm-key", ["rebuild", "--database-url", databaseUrl(database), "--candidate", context.variant.cli, "--fixture-dir", context.fixtureDir], `${key}-complete`, false);
   if (context.tier === "records-10000") {
     for (const workload of workloadContract.queryWorkloads) {
-      recordQuery(context, database, workload, 0, "validation", "warm-key", false, `${key}-post-v2-${workload.id}`);
+      recordQuery(context, database, workload, 0, "validation", "warm-key", false, `${key}-post-v2-${workload.id}`, `rebuild.post_v2.${workload.id}`);
     }
   }
   markCheckpoint(context, key);
@@ -570,6 +635,21 @@ function psql(database, sql, tuplesOnly = true) {
   return run("docker", commandArgs).stdout.trim();
 }
 
+function rebuildState(database, schema) {
+  const value = psql(database, `SELECT json_build_object('status',status,'checkpoint',checkpoint_record_id,'lease_owner',lease_owner,'lease_expires_at',lease_expires_at,'attempt_count',attempt_count,'last_error_code',last_error_code,'last_error_at',last_error_at) FROM ${schema}.projection_generations WHERE generation_id='${rebuildGenerationId}'`);
+  return value ? JSON.parse(value) : null;
+}
+
+async function waitForDatabaseCleanup(database, timeoutMs = 5_000) {
+  const started = performance.now();
+  let sessions = Number(psql(database, "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid <> pg_backend_pid()"));
+  while (sessions > 0 && performance.now() - started < timeoutMs) {
+    await new Promise((resolveWait) => setTimeout(resolveWait, 25));
+    sessions = Number(psql(database, "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid <> pg_backend_pid()"));
+  }
+  return { sessions, released: sessions === 0, elapsedMs: performance.now() - started };
+}
+
 function postgresStats(database) {
   if (!database) return { blks_read: 0, blks_hit: 0, temp_bytes: 0 };
   const value = psql(database, "SELECT json_build_object('blks_read',blks_read,'blks_hit',blks_hit,'temp_bytes',temp_bytes,'database_bytes',pg_database_size(current_database())) FROM pg_stat_database WHERE datname=current_database()");
@@ -644,6 +724,7 @@ function sum(rows, field) {
 function normalizeErrorCode(stderr) {
   if (stderr.includes("projection digest verification failed")) return "authorization_classification_failed";
   if (stderr.includes("injected rebuild failure")) return "injected_process_exit";
+  if (stderr.includes("injected_rebuild_failure")) return "injected_process_exit";
   if (stderr.includes("completion proof")) return "completion_proof_failed";
   if (stderr.includes("lease is held")) return "lease_held";
   if (stderr.includes("rebuild_generation_superseded")) return "generation_superseded";

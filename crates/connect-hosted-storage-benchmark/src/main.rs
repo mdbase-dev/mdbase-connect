@@ -19,6 +19,7 @@ use mdbase::runtime::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use sqlx::postgres::PgPoolOptions;
 use sqlx::{AssertSqlSafe, PgPool, Postgres, QueryBuilder, Row};
 use thiserror::Error;
 use uuid::Uuid;
@@ -265,6 +266,8 @@ struct Workload {
     acceptable_error_codes: Vec<String>,
     #[serde(default)]
     provider_scans: Vec<ProviderScan>,
+    #[serde(default)]
+    cancel_after_ms: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1501,6 +1504,7 @@ fn path_token(path: &str) -> Vec<u8> {
     mac.finalize().into_bytes().to_vec()
 }
 
+#[derive(Serialize)]
 struct RebuildRow {
     id: Uuid,
     revision: String,
@@ -1534,7 +1538,7 @@ async fn exercise_candidate(
                     load_exact_point(&pool, candidate).await?;
                 println!(
                     "{}",
-                    json!({"candidate":format!("{candidate:?}"),"operation":"point.exact_read","repetition":repetition,"outcome":"success","elapsed_ms":started.elapsed().as_secs_f64()*1000.0,"record_id":id,"record_revision":revision,"rows_selected":1,"rows_scanned":1,"documents_decrypted":usize::from(candidate.encrypted()),"ciphertext_bytes":exact_bytes,"plaintext_bytes":plaintext_bytes})
+                    json!({"candidate":format!("{candidate:?}"),"operation":"point.exact_read","repetition":repetition,"outcome":"success","elapsed_ms":started.elapsed().as_secs_f64()*1000.0,"record_id":id,"record_revision":revision,"rows_selected":1,"rows_scanned":1,"documents_decrypted":usize::from(candidate.encrypted()),"ciphertext_bytes":exact_bytes,"plaintext_bytes":plaintext_bytes,"notes":{"exact_envelope_parsed":true,"revision_verified":true}})
                 );
             }
         }
@@ -1646,6 +1650,24 @@ async fn exercise_candidate(
             let allowed_type = classification.types.first().cloned().ok_or_else(|| {
                 Error::Invalid("authorization fixture has no canonical type".to_string())
             })?;
+            let current_projection_authorized = if candidate.projected() {
+                let projection_row = sqlx::query(AssertSqlSafe(format!("SELECT p.record_revision,p.catalog_revision,p.generation_id,p.path,p.types,p.file_size,p.file_mtime,p.semantic_projection,p.projection_digest,(p.record_revision=r.record_revision AND p.catalog_revision=c.active_catalog_revision AND p.generation_id=c.active_generation_id AND g.status IN ('building','complete')) AS current FROM {schema}.records r JOIN {schema}.collections c USING (collection_id) JOIN {schema}.record_projections p USING (collection_id,record_id) JOIN {schema}.projection_generations g ON g.collection_id=p.collection_id AND g.generation_id=p.generation_id WHERE r.collection_id=$1 AND r.record_id=$2"))).bind(COLLECTION_ID).bind(id).fetch_one(&mut *tx).await?;
+                let semantic: sqlx::types::Json<Value> = projection_row.get("semantic_projection");
+                let projected = projection_from_row(&projection_row, &semantic.0)?;
+                let digest = authority_projection_digest(
+                    id,
+                    &revision,
+                    &active.revision,
+                    active.generation_id.unwrap(),
+                    &projected,
+                    &semantic.0,
+                )?;
+                projection_row.get::<bool, _>("current")
+                    && projection_row.get::<String, _>("projection_digest") == digest
+                    && projected.types.contains(&allowed_type)
+            } else {
+                true
+            };
             let pinned_scope_epoch = 7_u64;
             let current_scope_epoch = 7_u64;
             let scoped_read_allowed = pinned_scope_epoch == current_scope_epoch
@@ -1656,13 +1678,41 @@ async fn exercise_candidate(
                 0
             };
             let revoked_scope_epoch = 8_u64;
-            let revoked_read_denied = pinned_scope_epoch != revoked_scope_epoch;
+            let identity_revalidated_for_revoke: i64 = sqlx::query_scalar(AssertSqlSafe(format!(
+                "SELECT count(*) FROM {schema}.records WHERE collection_id=$1 AND record_id=$2"
+            )))
+            .bind(COLLECTION_ID)
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
+            let revoked_read_denied =
+                identity_revalidated_for_revoke == 1 && pinned_scope_epoch != revoked_scope_epoch;
             let revoked_mutation_rows = if revoked_read_denied { 0 } else { 1 };
-            let stale_fallback_checked = if candidate.projected() {
-                sqlx::query(AssertSqlSafe(format!("UPDATE {schema}.record_projections SET catalog_revision='sha256:stale',projection_digest='corrupt' WHERE collection_id=$1 AND record_id=$2"))).bind(COLLECTION_ID).bind(id).execute(&mut *tx).await?;
-                active.catalog.benchmark_project_record(&canonical)?.types == classification.types
+            let (
+                stale_fallback_checked,
+                stale_narrowing_checked,
+                stale_widening_checked,
+                absent_fallback_checked,
+            ) = if candidate.projected() {
+                sqlx::query(AssertSqlSafe(format!("UPDATE {schema}.record_projections SET catalog_revision='sha256:stale',types=ARRAY[]::text[],projection_digest='corrupt' WHERE collection_id=$1 AND record_id=$2"))).bind(COLLECTION_ID).bind(id).execute(&mut *tx).await?;
+                let fallback = active.catalog.benchmark_project_record(&canonical)?;
+                let narrowing = fallback.types.contains(&allowed_type);
+                sqlx::query(AssertSqlSafe(format!("UPDATE {schema}.record_projections SET types=ARRAY['benchmark-admin']::text[] WHERE collection_id=$1 AND record_id=$2"))).bind(COLLECTION_ID).bind(id).execute(&mut *tx).await?;
+                let widening = !fallback
+                    .types
+                    .iter()
+                    .any(|value| value == "benchmark-admin");
+                sqlx::query(AssertSqlSafe(format!("DELETE FROM {schema}.record_projections WHERE collection_id=$1 AND record_id=$2"))).bind(COLLECTION_ID).bind(id).execute(&mut *tx).await?;
+                let absent = active.catalog.benchmark_project_record(&canonical)?.types
+                    == classification.types;
+                (
+                    fallback.types == classification.types,
+                    narrowing,
+                    widening,
+                    absent,
+                )
             } else {
-                true
+                (true, true, true, true)
             };
             let corrupt_exact_fails_closed = if candidate.encrypted() {
                 decrypt_exact(id, &revision, &[0_u8; 16]).is_err()
@@ -1683,7 +1733,11 @@ async fn exercise_candidate(
                 || scoped_mutation_rows != 1
                 || !revoked_read_denied
                 || revoked_mutation_rows != 0
+                || !current_projection_authorized
                 || !stale_fallback_checked
+                || !stale_narrowing_checked
+                || !stale_widening_checked
+                || !absent_fallback_checked
                 || !corrupt_exact_fails_closed
             {
                 return Err(Error::Invalid(
@@ -1692,7 +1746,7 @@ async fn exercise_candidate(
             }
             println!(
                 "{}",
-                json!({"candidate":format!("{candidate:?}"),"operation":"authorization.stale_projection","outcome":"success","authorization_classification":"current-projection-or-canonical-fallback-fail-closed","identity_first_lookup":true,"scoped_read_allowed":scoped_read_allowed,"scoped_mutation_rows":scoped_mutation_rows,"revoked_read_denied":revoked_read_denied,"revoked_mutation_rows":revoked_mutation_rows,"stale_projection_canonical_fallback":stale_fallback_checked,"corrupt_exact_fail_closed":corrupt_exact_fails_closed,"transaction_released":true,"notes":{"identity_first_lookup":true,"scoped_read_allowed":scoped_read_allowed,"scoped_mutation_rows":scoped_mutation_rows,"revoked_read_denied":revoked_read_denied,"revoked_mutation_rows":revoked_mutation_rows,"stale_projection_canonical_fallback":stale_fallback_checked,"corrupt_exact_fail_closed":corrupt_exact_fails_closed}})
+                json!({"candidate":format!("{candidate:?}"),"operation":"authorization.stale_projection","outcome":"success","authorization_classification":"current-projection-or-canonical-fallback-fail-closed","identity_first_lookup":true,"scoped_read_allowed":scoped_read_allowed,"scoped_mutation_rows":scoped_mutation_rows,"revoked_read_denied":revoked_read_denied,"revoked_mutation_rows":revoked_mutation_rows,"stale_projection_canonical_fallback":stale_fallback_checked,"corrupt_exact_fail_closed":corrupt_exact_fails_closed,"transaction_released":true,"notes":{"current_projection_authorized":current_projection_authorized,"identity_first_lookup":true,"scoped_read_allowed":scoped_read_allowed,"scoped_mutation_rows":scoped_mutation_rows,"revoked_read_denied":revoked_read_denied,"revoked_mutation_rows":revoked_mutation_rows,"stale_projection_canonical_fallback":stale_fallback_checked,"stale_narrowing_checked":stale_narrowing_checked,"stale_widening_checked":stale_widening_checked,"absent_projection_canonical_fallback":absent_fallback_checked,"corrupt_exact_fail_closed":corrupt_exact_fails_closed}})
             );
         }
         ExerciseOperation::CasLoss => {
@@ -1703,22 +1757,62 @@ async fn exercise_candidate(
             .bind(COLLECTION_ID)
             .fetch_one(&pool)
             .await?;
-            let id: Uuid = sqlx::query_scalar(AssertSqlSafe(format!("SELECT record_id FROM {schema}.records WHERE collection_id=$1 ORDER BY record_id LIMIT 1"))).bind(COLLECTION_ID).fetch_one(&pool).await?;
-            let rows = sqlx::query(AssertSqlSafe(format!("UPDATE {schema}.records SET updated_at=updated_at WHERE collection_id=$1 AND record_id=$2 AND record_revision='sha256:stale-prepared-revision'"))).bind(COLLECTION_ID).bind(id).execute(&pool).await?.rows_affected();
+            let prepared = sqlx::query(AssertSqlSafe(format!("SELECT record_id,record_revision FROM {schema}.records WHERE collection_id=$1 ORDER BY record_id LIMIT 1"))).bind(COLLECTION_ID).fetch_one(&pool).await?;
+            let id: Uuid = prepared.get("record_id");
+            let old_revision: String = prepared.get("record_revision");
+            let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(3));
+            let run_racer = |winner: &'static str,
+                             racer_pool: PgPool,
+                             racer_barrier: std::sync::Arc<tokio::sync::Barrier>,
+                             expected: String| {
+                let sql = format!("UPDATE {schema}.records SET record_revision=$3 WHERE collection_id=$1 AND record_id=$2 AND record_revision=$4");
+                tokio::spawn(async move {
+                    racer_barrier.wait().await;
+                    sqlx::query(AssertSqlSafe(sql))
+                        .bind(COLLECTION_ID)
+                        .bind(id)
+                        .bind(winner)
+                        .bind(expected)
+                        .execute(&racer_pool)
+                        .await
+                        .map(|result| result.rows_affected())
+                })
+            };
+            let prepared_write = run_racer(
+                "sha256:prepared-race-winner",
+                pool.clone(),
+                barrier.clone(),
+                old_revision.clone(),
+            );
+            let concurrent_write = run_racer(
+                "sha256:concurrent-race-winner",
+                pool.clone(),
+                barrier.clone(),
+                old_revision.clone(),
+            );
+            barrier.wait().await;
+            let prepared_rows = prepared_write
+                .await
+                .map_err(|error| Error::Invalid(format!("CAS task failed: {error}")))??;
+            let concurrent_rows = concurrent_write
+                .await
+                .map_err(|error| Error::Invalid(format!("CAS task failed: {error}")))??;
+            let rows = prepared_rows + concurrent_rows;
+            sqlx::query(AssertSqlSafe(format!("UPDATE {schema}.records SET record_revision=$3 WHERE collection_id=$1 AND record_id=$2 AND record_revision IN ('sha256:prepared-race-winner','sha256:concurrent-race-winner')"))).bind(COLLECTION_ID).bind(id).bind(&old_revision).execute(&pool).await?;
             let after_head: i64 = sqlx::query_scalar(AssertSqlSafe(format!(
                 "SELECT head FROM {schema}.collections WHERE collection_id=$1"
             )))
             .bind(COLLECTION_ID)
             .fetch_one(&pool)
             .await?;
-            if rows != 0 || before_head != after_head {
+            if rows != 1 || before_head != after_head {
                 return Err(Error::Invalid(
                     "record_cas_loss_was_not_fail_closed".to_string(),
                 ));
             }
             println!(
                 "{}",
-                json!({"candidate":format!("{candidate:?}"),"operation":"write.cas_loss","outcome":"success","failure_stage":"record-cas","recovery_state":"rejected-without-settlement","rows_selected":rows,"final_head":after_head,"transaction_released":true,"notes":{"rows_affected":rows,"head_unchanged":true}})
+                json!({"candidate":format!("{candidate:?}"),"operation":"write.cas_loss","outcome":"success","failure_stage":"record-cas","recovery_state":"one-winner-one-rejected-restored","rows_selected":rows,"final_head":after_head,"transaction_released":true,"notes":{"prepared_rows":prepared_rows,"concurrent_rows":concurrent_rows,"single_winner":true,"head_unchanged":true}})
             );
         }
         ExerciseOperation::Supersession => {
@@ -1727,13 +1821,23 @@ async fn exercise_candidate(
             let prepared_revision: String = prepared.get("active_catalog_revision");
             let before_head: i64 = prepared.get("head");
             let superseded_revision = "sha256:benchmark-superseded";
-            sqlx::query(AssertSqlSafe(format!(
+            let concurrent_pool = pool.clone();
+            let transition_sql = format!(
                 "UPDATE {schema}.collections SET active_catalog_revision=$2 WHERE collection_id=$1"
-            )))
-            .bind(COLLECTION_ID)
-            .bind(superseded_revision)
-            .execute(&pool)
-            .await?;
+            );
+            let concurrent_transition = tokio::spawn(async move {
+                sqlx::query(AssertSqlSafe(transition_sql))
+                    .bind(COLLECTION_ID)
+                    .bind(superseded_revision)
+                    .execute(&concurrent_pool)
+                    .await
+            });
+            let transition_rows = concurrent_transition
+                .await
+                .map_err(|error| {
+                    Error::Invalid(format!("catalog transition task failed: {error}"))
+                })??
+                .rows_affected();
             let mut validation = pool.begin().await?;
             let current: String = sqlx::query_scalar(AssertSqlSafe(format!("SELECT active_catalog_revision FROM {schema}.collections WHERE collection_id=$1 FOR UPDATE"))).bind(COLLECTION_ID).fetch_one(&mut *validation).await?;
             let rejected = current != prepared_revision;
@@ -1745,14 +1849,14 @@ async fn exercise_candidate(
             .bind(COLLECTION_ID)
             .fetch_one(&pool)
             .await?;
-            if !rejected || restored != 1 || before_head != after_head {
+            if transition_rows != 1 || !rejected || restored != 1 || before_head != after_head {
                 return Err(Error::Invalid(
                     "catalog_supersession_was_not_fail_closed".to_string(),
                 ));
             }
             println!(
                 "{}",
-                json!({"candidate":format!("{candidate:?}"),"operation":"write.catalog_supersession","outcome":"success","failure_stage":"catalog-superseded-before-settlement","recovery_state":"rejected-and-restored","final_head":after_head,"transaction_released":true,"notes":{"prepared_revision":prepared_revision,"observed_revision":current,"head_unchanged":true}})
+                json!({"candidate":format!("{candidate:?}"),"operation":"write.catalog_supersession","outcome":"success","failure_stage":"catalog-superseded-before-settlement","recovery_state":"concurrent-transition-rejected-and-restored","final_head":after_head,"transaction_released":true,"notes":{"transition_rows":transition_rows,"prepared_revision":prepared_revision,"observed_revision":current,"head_unchanged":true}})
             );
         }
     }
@@ -1775,6 +1879,14 @@ async fn load_exact_point(
         let revision: String = row.get("record_revision");
         let ciphertext: Vec<u8> = row.get("exact_ciphertext");
         let plaintext = decrypt_exact(id, &revision, &ciphertext)?;
+        let envelope: ExactEnvelope = serde_json::from_slice(&plaintext)?;
+        let expected_revision =
+            format!("sha256:{:x}", Sha256::digest(envelope.document.as_bytes()));
+        if expected_revision != revision || envelope.path.is_empty() {
+            return Err(Error::Invalid(
+                "point_read_exact_validation_failed".to_string(),
+            ));
+        }
         Ok((id, revision, ciphertext.len(), plaintext.len()))
     } else {
         let row = sqlx::query(AssertSqlSafe(format!(
@@ -1784,12 +1896,14 @@ async fn load_exact_point(
         .fetch_one(pool)
         .await?;
         let document: String = row.get("exact_markdown");
-        Ok((
-            row.get("record_id"),
-            row.get("record_revision"),
-            0,
-            document.len(),
-        ))
+        let revision: String = row.get("record_revision");
+        let expected_revision = format!("sha256:{:x}", Sha256::digest(document.as_bytes()));
+        if expected_revision != revision {
+            return Err(Error::Invalid(
+                "point_read_exact_validation_failed".to_string(),
+            ));
+        }
+        Ok((row.get("record_id"), revision, 0, document.len()))
     }
 }
 
@@ -1998,6 +2112,40 @@ async fn rebuild_projections(
     fail_after_batches: Option<usize>,
     batch_delay_ms: u64,
 ) -> Result<(), Error> {
+    let result = rebuild_projections_inner(
+        database_url,
+        candidate,
+        fixture_dir,
+        fail_after_batches,
+        batch_delay_ms,
+    )
+    .await;
+    if let Err(error) = &result {
+        if candidate.projected() {
+            if let Ok(pool) = PgPool::connect(database_url).await {
+                let code = match error {
+                    Error::Invalid(value) => {
+                        value.split_whitespace().next().unwrap_or("rebuild_failed")
+                    }
+                    _ => "rebuild_failed",
+                };
+                let schema = candidate.schema();
+                let _ = sqlx::query(AssertSqlSafe(format!("UPDATE {schema}.projection_generations SET last_error_code=$3,last_error_at=clock_timestamp() WHERE collection_id=$1 AND generation_id=$2")))
+                    .bind(COLLECTION_ID).bind(REBUILD_GENERATION_ID).bind(code).execute(&pool).await;
+                pool.close().await;
+            }
+        }
+    }
+    result
+}
+
+async fn rebuild_projections_inner(
+    database_url: &str,
+    candidate: Candidate,
+    fixture_dir: &Path,
+    fail_after_batches: Option<usize>,
+    batch_delay_ms: u64,
+) -> Result<(), Error> {
     let pool = PgPool::connect(database_url).await?;
     let resource_bytes = std::fs::read(fixture_dir.join("resources-v2.ndjson"))?;
     let catalog = compile_fixture_catalog(&fixture_dir.join("resources-v2.ndjson"))?;
@@ -2105,99 +2253,122 @@ async fn rebuild_projections(
     .fetch_one(&pool)
     .await?;
     let mut terminal_checkpoint = checkpoint;
-    let mut rows = Vec::with_capacity(128);
     let mut rebuilt = 0_u64;
     let mut batches = 0_usize;
     let source_sql = if candidate.encrypted() {
         format!(
-            "SELECT record_id,record_revision,exact_ciphertext FROM {schema}.records WHERE collection_id=$1 AND ($2::uuid IS NULL OR record_id>$2) ORDER BY record_id"
+            "SELECT record_id,record_revision,exact_ciphertext FROM {schema}.records WHERE collection_id=$1 AND ($2::uuid IS NULL OR record_id>$2) ORDER BY record_id LIMIT 128"
         )
     } else {
         format!(
-            "SELECT r.record_id,r.record_revision,r.exact_markdown,r.path,r.file_mtime FROM {schema}.records r WHERE r.collection_id=$1 AND ($2::uuid IS NULL OR r.record_id>$2) ORDER BY r.record_id"
+            "SELECT r.record_id,r.record_revision,r.exact_markdown,r.path,r.file_mtime FROM {schema}.records r WHERE r.collection_id=$1 AND ($2::uuid IS NULL OR r.record_id>$2) ORDER BY r.record_id LIMIT 128"
         )
     };
-    let mut read_tx = pool.begin().await?;
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
-        .execute(&mut *read_tx)
-        .await?;
-    let mut source = sqlx::query(AssertSqlSafe(source_sql))
-        .bind(COLLECTION_ID)
-        .bind(checkpoint)
-        .fetch(&mut *read_tx);
-    while let Some(record) = source.try_next().await? {
-        let id: Uuid = record.get("record_id");
-        let revision: String = record.get("record_revision");
-        let envelope = if candidate.encrypted() {
-            let ciphertext: Vec<u8> = record.get("exact_ciphertext");
-            serde_json::from_slice::<ExactEnvelope>(&decrypt_exact(id, &revision, &ciphertext)?)?
-        } else {
-            let document: String = record.get("exact_markdown");
-            ExactEnvelope {
-                path: record.get("path"),
-                file_mtime: record
-                    .get::<chrono::DateTime<chrono::Utc>, _>("file_mtime")
-                    .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-                document,
+    'source_pages: loop {
+        let page_started = Instant::now();
+        let mut read_tx = pool.begin().await?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            .execute(&mut *read_tx)
+            .await?;
+        let source = sqlx::query(AssertSqlSafe(source_sql.clone()))
+            .bind(COLLECTION_ID)
+            .bind(terminal_checkpoint)
+            .fetch_all(&mut *read_tx)
+            .await?;
+        read_tx.commit().await?;
+        if source.is_empty() {
+            break;
+        }
+        let mut projected = Vec::with_capacity(source.len());
+        for record in source {
+            let id: Uuid = record.get("record_id");
+            let revision: String = record.get("record_revision");
+            let envelope = if candidate.encrypted() {
+                let ciphertext: Vec<u8> = record.get("exact_ciphertext");
+                serde_json::from_slice::<ExactEnvelope>(&decrypt_exact(
+                    id,
+                    &revision,
+                    &ciphertext,
+                )?)?
+            } else {
+                let document: String = record.get("exact_markdown");
+                ExactEnvelope {
+                    path: record.get("path"),
+                    file_mtime: record
+                        .get::<chrono::DateTime<chrono::Utc>, _>("file_mtime")
+                        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+                    document,
+                }
+            };
+            let canonical = CanonicalRecordInput {
+                stable_id: Some(id.to_string()),
+                path: envelope.path,
+                file_size: envelope.document.len() as u64,
+                file_mtime: Some(envelope.file_mtime),
+                document: envelope.document,
+            };
+            let projection = catalog.benchmark_project_record(&canonical)?;
+            let semantic = semantic_projection(&projection);
+            let projection_digest = authority_projection_digest(
+                id,
+                &revision,
+                &catalog_revision,
+                REBUILD_GENERATION_ID,
+                &projection,
+                &semantic,
+            )?;
+            projected.push(RebuildRow {
+                id,
+                revision,
+                path: projection.path,
+                types: projection.types,
+                file_size: projection.file.size as i64,
+                file_mtime: chrono::DateTime::parse_from_rfc3339(&projection.file.mtime)
+                    .map_err(|error| Error::Invalid(format!("invalid fixture mtime: {error}")))?
+                    .with_timezone(&chrono::Utc),
+                semantic,
+                projection_digest,
+            });
+        }
+        let mut start = 0;
+        while start < projected.len() {
+            if page_started.elapsed() > Duration::from_millis(30_000) {
+                return Err(Error::Invalid(
+                    "rebuild_batch_deadline_exceeded".to_string(),
+                ));
             }
-        };
-        let canonical = CanonicalRecordInput {
-            stable_id: Some(id.to_string()),
-            path: envelope.path,
-            file_size: envelope.document.len() as u64,
-            file_mtime: Some(envelope.file_mtime),
-            document: envelope.document,
-        };
-        let projection = catalog.benchmark_project_record(&canonical)?;
-        let semantic = semantic_projection(&projection);
-        let projection_digest = authority_projection_digest(
-            id,
-            &revision,
-            &catalog_revision,
-            REBUILD_GENERATION_ID,
-            &projection,
-            &semantic,
-        )?;
-        rows.push(RebuildRow {
-            id,
-            revision,
-            path: projection.path,
-            types: projection.types,
-            file_size: projection.file.size as i64,
-            file_mtime: chrono::DateTime::parse_from_rfc3339(&projection.file.mtime)
-                .map_err(|error| Error::Invalid(format!("invalid fixture mtime: {error}")))?
-                .with_timezone(&chrono::Utc),
-            semantic,
-            projection_digest,
-        });
-        if rows.len() == 128 {
-            rebuilt += write_rebuild_batch(&pool, schema, &catalog_revision, &rows).await?;
-            terminal_checkpoint = rows.last().map(|row| row.id);
-            rows.clear();
+            let mut end = start;
+            let mut bytes = 0_usize;
+            while end < projected.len() && end - start < 128 {
+                let row_bytes = serde_json::to_vec(&projected[end])?.len();
+                if end > start && bytes + row_bytes > 4_194_304 {
+                    break;
+                }
+                bytes += row_bytes;
+                end += 1;
+            }
+            if bytes > 4_194_304 {
+                return Err(Error::Invalid(
+                    "rebuild_record_exceeds_batch_bytes".to_string(),
+                ));
+            }
+            let batch = &projected[start..end];
+            let updated = write_rebuild_batch(&pool, schema, &catalog_revision, batch).await?;
+            if updated != batch.len() as u64 {
+                continue 'source_pages;
+            }
+            rebuilt += updated;
+            terminal_checkpoint = batch.last().map(|row| row.id);
             batches += 1;
             if batch_delay_ms > 0 {
                 tokio::time::sleep(Duration::from_millis(batch_delay_ms)).await;
             }
             if fail_after_batches == Some(batches) {
                 return Err(Error::Invalid(format!(
-                    "injected rebuild failure after {batches} committed batches"
+                    "injected_rebuild_failure after {batches} committed batches"
                 )));
             }
-        }
-    }
-    drop(source);
-    read_tx.commit().await?;
-    if !rows.is_empty() {
-        rebuilt += write_rebuild_batch(&pool, schema, &catalog_revision, &rows).await?;
-        terminal_checkpoint = rows.last().map(|row| row.id);
-        batches += 1;
-        if batch_delay_ms > 0 {
-            tokio::time::sleep(Duration::from_millis(batch_delay_ms)).await;
-        }
-        if fail_after_batches == Some(batches) {
-            return Err(Error::Invalid(format!(
-                "injected rebuild failure after {batches} committed batches"
-            )));
+            start = end;
         }
     }
 
@@ -2319,6 +2490,10 @@ async fn write_rebuild_batch(
     upsert.push_bind(COLLECTION_ID);
     upsert.push(" AND r.record_id=v.record_id AND r.record_revision=v.record_revision ON CONFLICT (collection_id,record_id) DO UPDATE SET record_revision=excluded.record_revision,catalog_revision=excluded.catalog_revision,projection_format_version=excluded.projection_format_version,generation_id=excluded.generation_id,path=excluded.path,types=excluded.types,file_size=excluded.file_size,file_mtime=excluded.file_mtime,semantic_projection=excluded.semantic_projection,projection_digest=excluded.projection_digest,updated_at=clock_timestamp()");
     let updated = upsert.build().execute(&mut *tx).await?.rows_affected();
+    if updated != rows.len() as u64 {
+        tx.rollback().await?;
+        return Ok(updated);
+    }
     let checkpoint = rows.last().expect("non-empty rebuild batch").id;
     let checkpointed = sqlx::query(AssertSqlSafe(format!(
         "UPDATE {schema}.projection_generations SET checkpoint_record_id=$3,lease_expires_at=clock_timestamp()+interval '30 seconds' WHERE collection_id=$1 AND generation_id=$2 AND status='building' AND lease_owner=$4"
@@ -2423,6 +2598,7 @@ struct ScanLimits {
     records: usize,
     bytes: u64,
     accounted_bytes: u64,
+    top_k_entries: usize,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2655,6 +2831,12 @@ async fn execute_scan(
                 result.terminal_budget = Some("result");
                 break;
             }
+            if !workload.order.is_empty()
+                && result.facts.len() > limits.top_k_entries + workload.page.offset
+            {
+                result.terminal_budget = Some("ordering");
+                break;
+            }
         }
         if result.ciphertext_bytes > limits.bytes || result.plaintext_bytes > limits.bytes {
             result.terminal_budget = Some("scan");
@@ -2753,7 +2935,10 @@ async fn query_workload(
     budget_path: &Path,
     large_fixture_entitlement: bool,
 ) -> Result<(), Error> {
-    let pool = PgPool::connect(database_url).await?;
+    let pool = PgPoolOptions::new()
+        .max_connections(4)
+        .connect(database_url)
+        .await?;
     let contract: WorkloadContract = serde_json::from_reader(File::open(workload_path)?)?;
     let workload = contract
         .query_workloads
@@ -2788,21 +2973,42 @@ async fn query_workload(
         records,
         bytes,
         accounted_bytes: budget.defaults.accounted_execution_bytes_per_operation,
+        top_k_entries: budget.defaults.top_k_entries,
     };
     let cancellation_probe = workload.id == "sdk.cancel_broad_body_scan";
     let deadline = if cancellation_probe {
-        Duration::from_millis(50)
+        Duration::from_millis(workload.cancel_after_ms.unwrap_or(50))
     } else {
         Duration::from_millis(operation_ms.min(snapshot_ms))
+    };
+    let mut preparation = pool.begin().await?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+        .execute(&mut *preparation)
+        .await?;
+    let prepared = load_active_catalog(&mut preparation, candidate).await?;
+    preparation.commit().await?;
+    let v1 = compile_fixture_catalog(&fixture_dir.join("resources.ndjson"))?;
+    let expected = if prepared.revision == v1.resource_revision() {
+        let artifact: Value =
+            serde_json::from_reader(File::open(fixture_dir.join("expected-results.json"))?)?;
+        artifact["workloads"][workload_id].clone()
+    } else {
+        canonical_expected_for_workload(fixture_dir, workload, &prepared.catalog)?
     };
     let started = Instant::now();
     let pool_wait_started = Instant::now();
     let mut transaction = pool.begin().await?;
     let pool_wait_ms = pool_wait_started.elapsed().as_secs_f64() * 1000.0;
+    let pool_connections_peak = usize::try_from(pool.size())
+        .unwrap_or(usize::MAX)
+        .saturating_sub(pool.num_idle());
     sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
         .execute(&mut *transaction)
         .await?;
     let active = load_active_catalog(&mut transaction, candidate).await?;
+    if active.revision != prepared.revision || active.generation_id != prepared.generation_id {
+        return Err(Error::Invalid("catalog_superseded".to_string()));
+    }
     let mut provider = HashMap::<String, Vec<Fact>>::new();
     let mut candidate_by_id = HashMap::<String, Fact>::new();
     let mut sql_rows = 0_usize;
@@ -2810,6 +3016,7 @@ async fn query_workload(
     let mut ciphertext_bytes = 0_u64;
     let mut plaintext_bytes = 0_u64;
     let mut accounted_peak = 0_u64;
+    let mut retained_provider_bytes = 0_u64;
     let mut terminal_budget = None;
     let mut cancelled = false;
     if workload.provider_scans.is_empty() {
@@ -2860,6 +3067,7 @@ async fn query_workload(
             ciphertext_bytes += result.ciphertext_bytes;
             plaintext_bytes += result.plaintext_bytes;
             accounted_peak = accounted_peak.max(result.accounted_bytes_peak);
+            retained_provider_bytes += result.retained_fact_bytes;
             terminal_budget = terminal_budget.or(result.terminal_budget);
             let key = format!("{}:{}", workload.id, scan.id);
             for fact in &result.facts {
@@ -2870,6 +3078,17 @@ async fn query_workload(
                 break;
             }
         }
+    }
+    let retained_candidate_bytes = candidate_by_id
+        .values()
+        .map(serde_json::to_vec)
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .map(|bytes| bytes.len() as u64)
+        .sum::<u64>();
+    accounted_peak = accounted_peak.max(retained_provider_bytes + retained_candidate_bytes);
+    if accounted_peak > limits.accounted_bytes {
+        terminal_budget = Some("result");
     }
     let snapshot_lifetime_ms = started.elapsed().as_secs_f64() * 1000.0;
     let rows_selected = candidate_by_id.len();
@@ -2890,7 +3109,7 @@ async fn query_workload(
                 "sql_candidate_rows":sql_rows,"canonical_rows_evaluated":sql_rows,"documents_decrypted":documents_decrypted,
                 "ciphertext_bytes":ciphertext_bytes,"plaintext_bytes":plaintext_bytes,"accounted_operator_bytes_peak":accounted_peak,
                 "cancellation_cleanup_ms":if cancelled {Some(cleanup_ms)} else {None},"snapshot_lifetime_ms":snapshot_lifetime_ms,
-                "provider_rss_bytes":rss,"provider_pss_bytes":pss,"pool_connections_peak":1,"pool_connections_average":1.0,
+                "provider_rss_bytes":rss,"provider_pss_bytes":pss,"pool_connections_peak":pool_connections_peak,"pool_connections_average":pool_connections_peak as f64,
                 "pool_wait_ms":pool_wait_ms,"transaction_released":true,"pool_permit_released":true,"plaintext_released":true
             })
         );
@@ -2939,14 +3158,6 @@ async fn query_workload(
         );
         return Ok(());
     }
-    let v1 = compile_fixture_catalog(&fixture_dir.join("resources.ndjson"))?;
-    let expected = if active.revision == v1.resource_revision() {
-        let artifact: Value =
-            serde_json::from_reader(File::open(fixture_dir.join("expected-results.json"))?)?;
-        artifact["workloads"][workload_id].clone()
-    } else {
-        canonical_expected_for_workload(fixture_dir, workload, &active.catalog)?
-    };
     if actual != expected {
         return Err(Error::SeedMismatch(first_json_difference(
             "$", &expected, &actual,
@@ -2980,12 +3191,12 @@ async fn query_workload(
             "ciphertext_bytes":ciphertext_bytes,"plaintext_bytes":plaintext_bytes,"result_items":result_items,"result_bytes":result_bytes,
             "completeness_digest":actual["orderedRecordIdsDigest"].clone(),"page_boundaries":page_boundaries,
             "accounted_operator_bytes_peak":accounted_peak.max(group_bytes),"snapshot_lifetime_ms":snapshot_lifetime_ms,
-            "provider_rss_bytes":rss,"provider_pss_bytes":pss,"pool_connections_peak":1,"pool_connections_average":1.0,"pool_wait_ms":pool_wait_ms,
+            "provider_rss_bytes":rss,"provider_pss_bytes":pss,"pool_connections_peak":pool_connections_peak,"pool_connections_average":pool_connections_peak as f64,"pool_wait_ms":pool_wait_ms,
             "transaction_released":true,"pool_permit_released":true,"plaintext_released":true,
             "key_cache_misses":if candidate.encrypted() && documents_decrypted>0 {1} else {0},
             "key_cache_hits":if candidate.encrypted() {documents_decrypted.saturating_sub(1)} else {0},
             "kms_unwraps":if candidate.encrypted() && documents_decrypted>0 {1} else {0},
-            "notes":{"key_activity":"deterministic benchmark key-cache model","catalog_revision":active.revision,"generation_id":active.generation_id}
+            "notes":{"key_activity":"deterministic benchmark key-cache model; not an observed external KMS","catalog_revision":active.revision,"generation_id":active.generation_id,"pool_configured_max":4,"pool_peak_observed":pool_connections_peak}
         })
     );
     Ok(())
