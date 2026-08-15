@@ -12,7 +12,10 @@ const [{ stdout: revision }, { stdout: status }] = await Promise.all([
   execFileAsync("git", ["rev-parse", "HEAD"], { cwd: root }),
   execFileAsync("git", ["status", "--porcelain", "--untracked-files=all"], { cwd: root })
 ]);
-const dirtyPaths = status.trim().split("\n").filter(Boolean).map((line) => line.slice(3));
+const dirtyPaths = status.split("\n")
+  .filter(Boolean)
+  .map((line) => line.slice(3))
+  .filter((path) => !path.startsWith("docs/benchmarks/hosted-storage-model/fixtures/"));
 const tiers = process.argv.slice(2);
 if (tiers.length === 0) throw new Error("provide at least one fixture tier");
 
