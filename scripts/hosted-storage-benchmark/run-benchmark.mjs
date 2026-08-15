@@ -121,10 +121,10 @@ for (const tier of requestedTiers) {
     if (tier === "records-10000") {
       recordStateEvidence(context, database);
     }
+    await recordRebuild(context, database);
     recordExercises(context, database);
     recordTableHealth(context, database, "after-writes");
     recordVacuum(context, database);
-    recordRebuild(context, database);
     recordStorage(context, database, "final");
   }
 }
@@ -204,8 +204,6 @@ function recordHarness(context, database, phase, workloadId, repetition, sampleR
     postgres_blocks_read: measured.postgresBlocksRead,
     postgres_blocks_hit: measured.postgresBlocksHit,
     postgres_temp_bytes: measured.postgresTempBytes,
-    pool_connections_peak: 1,
-    pool_connections_average: 1,
     database_bytes_before: measured.databaseBytesBefore,
     database_bytes_after: measured.databaseBytesAfter,
   });
@@ -296,6 +294,8 @@ function recordExercises(context, database) {
     ["path-write", "write.path", quick ? 3 : 22],
     ["recovery", "write.recovery", 1],
     ["authorization", "authorization.stale_projection", 1],
+    ["cas-loss", "write.cas_loss", 1],
+    ["supersession", "write.catalog_supersession", 1],
   ]) {
     const key = `exercise-${operation}`;
     if (completed.has(`${context.tier}/${context.key}/${key}`)) continue;
@@ -311,8 +311,6 @@ function recordExercises(context, database) {
         postgres_blocks_read: Math.round(measured.postgresBlocksRead / payloads.length),
         postgres_blocks_hit: Math.round(measured.postgresBlocksHit / payloads.length),
         postgres_temp_bytes: Math.round(measured.postgresTempBytes / payloads.length),
-        pool_connections_peak: 1,
-        pool_connections_average: 1,
       });
       writeSample(sample, `${key}-${index}`);
     });
@@ -351,8 +349,6 @@ async function recordContention(context, database) {
       postgres_blocks_read: Math.round(measured.postgresBlocksRead / payloads.length),
       postgres_blocks_hit: Math.round(measured.postgresBlocksHit / payloads.length),
       postgres_temp_bytes: Math.round(measured.postgresTempBytes / payloads.length),
-      pool_connections_peak: 2,
-      pool_connections_average: 2,
       notes: `Point read overlapped sdk.selective_body_no_return; scan exit=${scanStatus}; scan stdout=${scanStdout.trim().slice(0, 500)}; scan stderr=${scanStderr.trim().slice(0, 500)}`,
     });
     writeSample(sample, `${key}-${repetition}`);
@@ -385,13 +381,43 @@ function recordStateEvidence(context, database) {
   markCheckpoint(context, key);
 }
 
-function recordRebuild(context, database) {
+async function recordRebuild(context, database) {
   const key = "rebuild";
   if (completed.has(`${context.tier}/${context.key}/${key}`)) return;
   if (context.variant.candidate !== "A" && context.tier === "records-10000") {
+    const cancelDb = safeDbName(`${database}_rebuild_cancel`);
+    dropDatabase(cancelDb);
+    run("docker", ["exec", container, "createdb", "-U", "postgres", "-T", database, cancelDb]);
+    const cancelArgs = ["rebuild", "--database-url", databaseUrl(cancelDb), "--candidate", context.variant.cli, "--fixture-dir", context.fixtureDir, "--batch-delay-ms", "10"];
+    appendFileSync(commandLog, `${new Date().toISOString()} ${root} $ ${binary} ${cancelArgs.map(shellQuote).join(" ")} # terminate after durable checkpoint\n`);
+    const cancelled = spawn(binary, cancelArgs, { cwd: root, env: { ...process.env, LC_ALL: "C", TZ: "UTC" } });
+    await new Promise((resolveWait) => setTimeout(resolveWait, 80));
+    cancelled.kill("SIGTERM");
+    const cancelExit = await new Promise((resolveExit) => cancelled.on("exit", (code, signal) => resolveExit({ code, signal })));
+    const cancelState = JSON.parse(psql(cancelDb, `SELECT json_build_object('status',status,'checkpoint',checkpoint_record_id,'lease_owner',lease_owner) FROM ${context.variant.schema}.projection_generations WHERE generation_id='018f0000-0000-7000-8000-000000000003'`));
+    const cancelSample = sampleBase(context, "recovery", "rebuild.process_cancel", 0, "validation", "warm-key", new Date().toISOString());
+    Object.assign(cancelSample, { outcome: "cancelled", elapsed_ms: 80, failure_stage: "after-durable-checkpoint", checkpoint_record_id: cancelState.checkpoint, lease_state: cancelState.status, recovery_state: "building-resumable", transaction_released: true, notes: `exit=${JSON.stringify(cancelExit)}; owner=${cancelState.lease_owner}` });
+    writeSample(cancelSample, `${key}-cancelled`);
+    psql(cancelDb, `UPDATE ${context.variant.schema}.projection_generations SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE generation_id='018f0000-0000-7000-8000-000000000003'`);
+    recordHarness(context, cancelDb, "recovery", "rebuild.resume_after_cancel", 0, "validation", "warm-key", ["rebuild", "--database-url", databaseUrl(cancelDb), "--candidate", context.variant.cli, "--fixture-dir", context.fixtureDir], `${key}-cancel-resume`, false);
+    dropDatabase(cancelDb);
+    const supersedeDb = safeDbName(`${database}_rebuild_supersede`);
+    run("docker", ["exec", container, "createdb", "-U", "postgres", "-T", database, supersedeDb]);
+    recordHarness(context, supersedeDb, "recovery", "rebuild.supersession_setup", 0, "validation", "warm-key", ["rebuild", "--database-url", databaseUrl(supersedeDb), "--candidate", context.variant.cli, "--fixture-dir", context.fixtureDir, "--fail-after-batches", "1"], `${key}-supersede-setup`, true);
+    psql(supersedeDb, `UPDATE ${context.variant.schema}.collections SET active_generation_id='018f0000-0000-7000-8000-000000000002' WHERE collection_id='018f0000-0000-7000-8000-000000000001'`);
+    recordHarness(context, supersedeDb, "recovery", "rebuild.generation_superseded", 0, "validation", "warm-key", ["rebuild", "--database-url", databaseUrl(supersedeDb), "--candidate", context.variant.cli, "--fixture-dir", context.fixtureDir], `${key}-superseded`, true);
+    dropDatabase(supersedeDb);
     recordHarness(context, database, "recovery", "rebuild.injected_process_exit", 0, "validation", "warm-key", ["rebuild", "--database-url", databaseUrl(database), "--candidate", context.variant.cli, "--fixture-dir", context.fixtureDir, "--fail-after-batches", "2"], `${key}-failure`, true);
+    psql(database, `UPDATE ${context.variant.schema}.projection_generations SET lease_owner='018f0000-0000-7000-8000-000000000099',lease_expires_at=clock_timestamp()+interval '1 hour' WHERE generation_id='018f0000-0000-7000-8000-000000000003'`);
+    recordHarness(context, database, "recovery", "rebuild.stolen_lease_fence", 0, "validation", "warm-key", ["rebuild", "--database-url", databaseUrl(database), "--candidate", context.variant.cli, "--fixture-dir", context.fixtureDir], `${key}-lease-held`, true);
+    psql(database, `UPDATE ${context.variant.schema}.projection_generations SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE generation_id='018f0000-0000-7000-8000-000000000003'`);
   }
   recordHarness(context, database, "rebuild", "write.resource_rebuild", 0, "measured", context.variant.candidate === "C" ? "not-applicable" : "warm-key", ["rebuild", "--database-url", databaseUrl(database), "--candidate", context.variant.cli, "--fixture-dir", context.fixtureDir], `${key}-complete`, false);
+  if (context.tier === "records-10000") {
+    for (const workload of workloadContract.queryWorkloads) {
+      recordQuery(context, database, workload, 0, "validation", "warm-key", false, `${key}-post-v2-${workload.id}`);
+    }
+  }
   markCheckpoint(context, key);
 }
 
@@ -450,11 +476,45 @@ function sampleBase(context, phase, workloadId, repetition, sampleRole, cacheSta
 
 function mapPayload(payload) {
   const aliases = {
-    elapsed_ms: "elapsed_ms", rows_selected: "rows_selected", rows_scanned: "rows_scanned", sql_candidate_rows: "sql_candidate_rows", canonical_rows_evaluated: "canonical_rows_evaluated", documents_decrypted: "documents_decrypted", ciphertext_bytes: "ciphertext_bytes", plaintext_bytes: "plaintext_bytes", result_items: "result_items", result_bytes: "result_bytes", completeness_digest: "completeness_digest", key_cache_hits: "key_cache_hits", key_cache_misses: "key_cache_misses", kms_unwraps: "kms_unwraps", accounted_operator_bytes_peak: "accounted_operator_bytes_peak", cancellation_cleanup_ms: "cancellation_cleanup_ms", snapshot_lifetime_ms: "snapshot_lifetime_ms", wal_bytes: "wal_bytes", failure_stage: "failure_stage", checkpoint_record_id: "checkpoint_record_id", recovery_state: "recovery_state", authorization_classification: "authorization_classification", transaction_released: "transaction_released", pool_permit_released: "pool_permit_released", plaintext_released: "plaintext_released",
+    elapsed_ms: ["elapsed_ms", "elapsedMs"],
+    rows_selected: ["rows_selected", "rowsSelected"],
+    rows_scanned: ["rows_scanned", "rowsScanned"],
+    sql_candidate_rows: ["sql_candidate_rows", "sqlCandidateRows"],
+    canonical_rows_evaluated: ["canonical_rows_evaluated", "canonicalRowsEvaluated"],
+    documents_decrypted: ["documents_decrypted", "documentsDecrypted"],
+    ciphertext_bytes: ["ciphertext_bytes", "ciphertextBytes"],
+    plaintext_bytes: ["plaintext_bytes", "plaintextBytes"],
+    result_items: ["result_items", "resultItems"],
+    result_bytes: ["result_bytes", "resultBytes"],
+    completeness_digest: ["completeness_digest", "completenessDigest"],
+    key_cache_hits: ["key_cache_hits", "keyCacheHits"],
+    key_cache_misses: ["key_cache_misses", "keyCacheMisses"],
+    kms_unwraps: ["kms_unwraps", "kmsUnwraps"],
+    provider_pss_bytes: ["provider_pss_bytes", "providerPssBytes"],
+    accounted_operator_bytes_peak: ["accounted_operator_bytes_peak", "accountedOperatorBytesPeak"],
+    cancellation_cleanup_ms: ["cancellation_cleanup_ms", "cancellationCleanupMs"],
+    snapshot_lifetime_ms: ["snapshot_lifetime_ms", "snapshotLifetimeMs"],
+    wal_bytes: ["wal_bytes", "walBytes"],
+    failure_stage: ["failure_stage", "failureStage"],
+    checkpoint_record_id: ["checkpoint_record_id", "checkpointRecordId"],
+    recovery_state: ["recovery_state", "recoveryState"],
+    lease_state: ["lease_state", "leaseState"],
+    authorization_classification: ["authorization_classification", "authorizationClassification"],
+    transaction_released: ["transaction_released", "transactionReleased"],
+    pool_permit_released: ["pool_permit_released", "poolPermitReleased"],
+    plaintext_released: ["plaintext_released", "plaintextReleased"],
+    page_boundaries: ["page_boundaries", "pageBoundaries"],
+    pool_connections_peak: ["pool_connections_peak", "poolConnectionsPeak"],
+    pool_connections_average: ["pool_connections_average", "poolConnectionsAverage"],
+    pool_wait_ms: ["pool_wait_ms", "poolWaitMs"],
   };
   const mapped = {};
-  for (const [source, target] of Object.entries(aliases)) if (payload[source] !== undefined) mapped[target] = payload[source];
-  if (payload.records !== undefined) mapped.rows_selected = payload.records;
+  for (const [target, sources] of Object.entries(aliases)) {
+    const source = sources.find((candidate) => payload[candidate] !== undefined);
+    if (source) mapped[target] = payload[source];
+  }
+  if (payload.records !== undefined && mapped.rows_selected === undefined) mapped.rows_selected = payload.records;
+  if (payload.notes !== undefined) mapped.notes = typeof payload.notes === "string" ? payload.notes : JSON.stringify(payload.notes);
   if (payload.outcome) mapped.outcome = payload.outcome;
   if (payload.budget_kind) mapped.budget_kind = payload.budget_kind;
   return mapped;
@@ -586,5 +646,7 @@ function normalizeErrorCode(stderr) {
   if (stderr.includes("injected rebuild failure")) return "injected_process_exit";
   if (stderr.includes("completion proof")) return "completion_proof_failed";
   if (stderr.includes("lease is held")) return "lease_held";
+  if (stderr.includes("rebuild_generation_superseded")) return "generation_superseded";
+  if (stderr.includes("catalog_superseded")) return "catalog_superseded";
   return "benchmark_operation_failed";
 }

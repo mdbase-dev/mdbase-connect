@@ -86,7 +86,8 @@
         "properties": {
           "page": { "type": "integer", "minimum": 0 },
           "count": { "type": "integer", "minimum": 0 },
-          "digest": { "type": "string" }
+          "digest": { "type": "string" },
+          "scan_id": { "type": "string" }
         },
         "additionalProperties": false
       }
