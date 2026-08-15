@@ -179,5 +179,6 @@
   "termination": {
     "exactRecords": 100000
   },
-  "workloadContractSha256": "6417a1386af30b5fd11576118fe55708c8b64d356d81c6acd75183743e90c7f4"
+  "workloadContractSha256": "6417a1386af30b5fd11576118fe55708c8b64d356d81c6acd75183743e90c7f4",
+  "expectedResultsV2Sha256": "95bbfb29b9361e2a543b203431b8a1d0d14f272701ec8283ebb505d89ffbda5a"
 }

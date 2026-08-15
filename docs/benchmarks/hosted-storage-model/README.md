@@ -24,6 +24,9 @@ Frozen in `consumer-inventory.md`, `workload-contract.json`,
 `fixture-contract.json`, `selectivity-summary.md`, and the three tracked fixture
 expected-result artifacts. Each expected artifact was independently seeded, then
 recomputed and accepted only after exact mdbase-rs equivalence.
+Tracked `expected-results-v2.json` artifacts freeze the same canonical workloads
+under the rebuild catalogue so post-rebuild validation does not run an oracle inside
+the measured provider process; their digests are recorded in each fixture manifest.
 The corpus was derived from current TaskNotes, Reader, Editor, Pickle, MCP, Workout,
 and generic SDK call sites. It distinguishes provider predicates from current
 client-side filtering and distinguishes canonical results from acceptable typed

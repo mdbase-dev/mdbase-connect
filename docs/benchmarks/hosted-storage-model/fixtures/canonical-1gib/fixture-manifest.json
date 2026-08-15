@@ -180,5 +180,6 @@
     "minimumCanonicalBytes": 1073741824,
     "overshootBytes": 1293
   },
-  "workloadContractSha256": "6417a1386af30b5fd11576118fe55708c8b64d356d81c6acd75183743e90c7f4"
+  "workloadContractSha256": "6417a1386af30b5fd11576118fe55708c8b64d356d81c6acd75183743e90c7f4",
+  "expectedResultsV2Sha256": "9dc56c6fd24458dd777d1207653c45b919c09a6f341cce8424a0513e89477373"
 }

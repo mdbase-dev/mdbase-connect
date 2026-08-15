@@ -70,7 +70,7 @@ for (const tier of requestedTiers) {
   for (const key of requestedVariants) {
     const variant = variants[key];
     const database = safeDbName(`hs_${runId}_${tier}_${key}`);
-    const validationDb = safeDbName(`${database}_validation`);
+    const validationDb = childDbName(database, "validation");
     const context = { tier, fixtureDir, fixtureManifest, key, variant, database };
     if (!completed.has(`${tier}/${key}/validation-import`)) {
       recreateDatabase(validationDb);
@@ -361,7 +361,7 @@ function recordStateEvidence(context, database) {
   if (context.variant.candidate === "A") return;
   const key = "state-evidence";
   if (completed.has(`${context.tier}/${context.key}/${key}`)) return;
-  const stateDb = safeDbName(`${database}_state`);
+  const stateDb = childDbName(database, "state");
   dropDatabase(stateDb);
   run("docker", ["exec", container, "createdb", "-U", "postgres", "-T", database, stateDb]);
   const url = databaseUrl(stateDb);
@@ -374,7 +374,7 @@ function recordStateEvidence(context, database) {
   recordHarness(context, stateDb, "query", "state.missing_projection_union", 0, "validation", "cold-key", ["query", "--database-url", url, "--candidate", context.variant.cli, "--fixture-dir", context.fixtureDir, "--workload-contract", workloadPath, "--workload-id", "editor.metadata_index", "--budget-manifest", budgetPath], `${key}-missing`, false);
   dropDatabase(stateDb);
 
-  const corruptDb = safeDbName(`${database}_corrupt`);
+  const corruptDb = childDbName(database, "corrupt");
   run("docker", ["exec", container, "createdb", "-U", "postgres", "-T", database, corruptDb]);
   psql(corruptDb, `UPDATE ${schema}.record_projections SET projection_digest='sha256:corrupt' WHERE record_id=(SELECT record_id FROM ${schema}.records ORDER BY record_id LIMIT 1)`);
   recordHarness(context, corruptDb, "recovery", "state.corrupt_projection_digest", 0, "validation", "cold-key", ["query", "--database-url", databaseUrl(corruptDb), "--candidate", context.variant.cli, "--fixture-dir", context.fixtureDir, "--workload-contract", workloadPath, "--workload-id", "editor.metadata_index", "--budget-manifest", budgetPath], `${key}-corrupt`, true);
@@ -386,7 +386,7 @@ async function recordRebuild(context, database) {
   const key = "rebuild";
   if (completed.has(`${context.tier}/${context.key}/${key}`)) return;
   if (context.variant.candidate !== "A" && context.tier === "records-10000") {
-    const cancelDb = safeDbName(`${database}_rebuild_cancel`);
+    const cancelDb = childDbName(database, "rebuild_cancel");
     dropDatabase(cancelDb);
     run("docker", ["exec", container, "createdb", "-U", "postgres", "-T", database, cancelDb]);
     const cancelArgs = ["rebuild", "--database-url", databaseUrl(cancelDb), "--candidate", context.variant.cli, "--fixture-dir", context.fixtureDir, "--batch-delay-ms", "10"];
@@ -466,13 +466,18 @@ async function recordRebuild(context, database) {
     });
     writeSample(cancelSample, `${key}-cancelled`);
     dropDatabase(cancelDb);
-    const supersedeDb = safeDbName(`${database}_rebuild_supersede`);
+    const supersedeDb = childDbName(database, "rebuild_supersede");
     run("docker", ["exec", container, "createdb", "-U", "postgres", "-T", database, supersedeDb]);
     recordHarness(context, supersedeDb, "recovery", "rebuild.supersession_setup", 0, "validation", "warm-key", ["rebuild", "--database-url", databaseUrl(supersedeDb), "--candidate", context.variant.cli, "--fixture-dir", context.fixtureDir, "--fail-after-batches", "1"], `${key}-supersede-setup`, true);
     psql(supersedeDb, `UPDATE ${context.variant.schema}.collections SET active_generation_id='018f0000-0000-7000-8000-000000000002' WHERE collection_id='018f0000-0000-7000-8000-000000000001'`);
     recordHarness(context, supersedeDb, "recovery", "rebuild.generation_superseded", 0, "validation", "warm-key", ["rebuild", "--database-url", databaseUrl(supersedeDb), "--candidate", context.variant.cli, "--fixture-dir", context.fixtureDir], `${key}-superseded`, true);
     dropDatabase(supersedeDb);
     recordHarness(context, database, "recovery", "rebuild.injected_process_exit", 0, "validation", "warm-key", ["rebuild", "--database-url", databaseUrl(database), "--candidate", context.variant.cli, "--fixture-dir", context.fixtureDir, "--fail-after-batches", "2"], `${key}-failure`, true);
+    const durableFailureState = rebuildState(database, context.variant.schema);
+    if (!durableFailureState?.last_error_code || !durableFailureState?.last_error_at) throw new Error("rebuild failure did not persist bounded durable error state");
+    const durableFailureSample = sampleBase(context, "recovery", "rebuild.durable_error_state", 0, "validation", "warm-key", new Date().toISOString());
+    Object.assign(durableFailureSample, { outcome: "success", elapsed_ms: 0, checkpoint_record_id: durableFailureState.checkpoint, lease_state: durableFailureState.status, recovery_state: "durable-error-recorded", notes: JSON.stringify(durableFailureState) });
+    writeSample(durableFailureSample, `${key}-durable-error`);
     psql(database, `UPDATE ${context.variant.schema}.projection_generations SET lease_owner='018f0000-0000-7000-8000-000000000099',lease_expires_at=clock_timestamp()+interval '1 hour' WHERE generation_id='018f0000-0000-7000-8000-000000000003'`);
     recordHarness(context, database, "recovery", "rebuild.stolen_lease_fence", 0, "validation", "warm-key", ["rebuild", "--database-url", databaseUrl(database), "--candidate", context.variant.cli, "--fixture-dir", context.fixtureDir], `${key}-lease-held`, true);
     psql(database, `UPDATE ${context.variant.schema}.projection_generations SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE generation_id='018f0000-0000-7000-8000-000000000003'`);
@@ -711,6 +716,11 @@ function sha256(path) {
 
 function safeDbName(value) {
   return value.toLowerCase().replace(/[^a-z0-9_]+/g, "_").slice(0, 55);
+}
+
+function childDbName(database, suffix) {
+  const normalizedSuffix = suffix.toLowerCase().replace(/[^a-z0-9_]+/g, "_");
+  return `${database.slice(0, 54 - normalizedSuffix.length)}_${normalizedSuffix}`;
 }
 
 function shellQuote(value) {

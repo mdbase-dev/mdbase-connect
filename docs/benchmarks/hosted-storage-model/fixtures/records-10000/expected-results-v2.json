@@ -1,0 +1,1152 @@
+{
+  "schemaVersion": 2,
+  "oracle": "mdbase-rs-0.4.0-rc.4@7c5a1800f66cc80e43cf2d60f5524e5b409ea4f0-resources-v2",
+  "workloads": {
+    "editor.body_hydration_page": {
+      "acceptableRunOutcomes": [
+        "success"
+      ],
+      "candidateRows": 10000,
+      "canonicalOutcome": "success",
+      "canonicalResidualMatches": 10000,
+      "clientResidualMatches": 10000,
+      "consumerResultCount": 10000,
+      "firstRecordId": "ad29a30a-1775-504d-a82e-304abb3a62f1",
+      "lastRecordId": "5012c986-d814-5019-8926-3545adff12e1",
+      "orderedRecordIdsDigest": "sha256:95cd9688137e696e05746b0d6eb39dab9cd64d932bdd56d33a1d3f173949039b",
+      "pageCount": 1,
+      "pages": [
+        {
+          "count": 1000,
+          "firstRecordId": "ad29a30a-1775-504d-a82e-304abb3a62f1",
+          "lastRecordId": "5012c986-d814-5019-8926-3545adff12e1",
+          "orderedRecordIdsDigest": "sha256:95cd9688137e696e05746b0d6eb39dab9cd64d932bdd56d33a1d3f173949039b",
+          "page": 0,
+          "responseFieldsDigest": "sha256:b0346b9f0aa19bc71cf94684bc215e087d8ce2e19d44d039f8ef5fdcc4c3eedc"
+        }
+      ],
+      "providerScans": [
+        {
+          "id": "candidate",
+          "includeBody": true,
+          "orderedRecordIdsDigest": "sha256:95cd9688137e696e05746b0d6eb39dab9cd64d932bdd56d33a1d3f173949039b",
+          "pages": [
+            {
+              "count": 1000,
+              "firstRecordId": "ad29a30a-1775-504d-a82e-304abb3a62f1",
+              "lastRecordId": "5012c986-d814-5019-8926-3545adff12e1",
+              "orderedRecordIdsDigest": "sha256:95cd9688137e696e05746b0d6eb39dab9cd64d932bdd56d33a1d3f173949039b",
+              "page": 0,
+              "responseFieldsDigest": "sha256:b0346b9f0aa19bc71cf94684bc215e087d8ce2e19d44d039f8ef5fdcc4c3eedc"
+            }
+          ],
+          "rows": 10000
+        }
+      ],
+      "responseFieldsDigest": "sha256:b0346b9f0aa19bc71cf94684bc215e087d8ce2e19d44d039f8ef5fdcc4c3eedc",
+      "returned": 1000,
+      "totalMatches": 10000
+    },
+    "editor.metadata_index": {
+      "acceptableRunOutcomes": [
+        "success",
+        "budget:result"
+      ],
+      "candidateRows": 10000,
+      "canonicalOutcome": "success",
+      "canonicalResidualMatches": 10000,
+      "clientResidualMatches": 10000,
+      "consumerResultCount": 10000,
+      "firstRecordId": "ad29a30a-1775-504d-a82e-304abb3a62f1",
+      "lastRecordId": "77b3d051-3ef2-5f49-808d-230f93936ca3",
+      "orderedRecordIdsDigest": "sha256:1335efb5594e777bd5037f4d20bc4a697838656fff93e26c19f70f0e01950bfa",
+      "pageCount": 11,
+      "pages": [
+        {
+          "count": 200,
+          "firstRecordId": "ad29a30a-1775-504d-a82e-304abb3a62f1",
+          "lastRecordId": "883dcf20-149a-5f87-9d36-d90706e3b9ad",
+          "orderedRecordIdsDigest": "sha256:04cc1c2f306dade9180bed97e2829312a9a57e61e045157c8b36f8ac87540c73",
+          "page": 0,
+          "responseFieldsDigest": "sha256:bf1671b54f68a8559e7b063f54d674283097ca4b7c539d8069319cebb27d993b"
+        },
+        {
+          "count": 1000,
+          "firstRecordId": "61dc5d7e-3529-551c-9165-a5f38fc150e8",
+          "lastRecordId": "dab05b9f-aa30-57d7-a19b-fc76cc4a2166",
+          "orderedRecordIdsDigest": "sha256:2b70b5bb102978a2ba44194ada89cd3bb69ae148d9ae360b8d5e1125932dd3ed",
+          "page": 1,
+          "responseFieldsDigest": "sha256:ecebbdbb9b4bf5a6058193e59329313db2066bf2fa1ac994c74382defb770e7b"
+        },
+        {
+          "count": 1000,
+          "firstRecordId": "b74acaee-49d0-53ab-9b4d-56634348a18d",
+          "lastRecordId": "9fc4479a-b870-546b-91d0-189133b9bf8f",
+          "orderedRecordIdsDigest": "sha256:bbef74dfd779b8b4a8afffcb68e57c264aeb81192a3dcd855a8cc635a791ccaa",
+          "page": 2,
+          "responseFieldsDigest": "sha256:a1cb0d10e65be55b9fd032b83145e4679fa9793e26eb1cdcf795273045e62b02"
+        },
+        {
+          "count": 1000,
+          "firstRecordId": "9485ece8-69a7-59c8-b163-3b21c729cdcd",
+          "lastRecordId": "94844e57-1776-57c2-9331-5dee61ce7330",
+          "orderedRecordIdsDigest": "sha256:7494666bcc53bf307bab99355aa45f169b79c004ab9ec6733a99e87531cefcd7",
+          "page": 3,
+          "responseFieldsDigest": "sha256:d8d56b2e98ecb31f94542dfbfc9663123de296098d354766ebd5fe5afce975a2"
+        },
+        {
+          "count": 1000,
+          "firstRecordId": "ef5c39db-23dc-5f8a-9885-908a435611b0",
+          "lastRecordId": "d048e2a9-0f26-5f5d-a02e-bd55493c3f52",
+          "orderedRecordIdsDigest": "sha256:3051658e6e8c0aea9e41c17896c51a5d235d11f05bcee37feefc7d94034a7dd2",
+          "page": 4,
+          "responseFieldsDigest": "sha256:5e98e29164abc7378d496d95d4081c9cea5d7d1b19f0a1599a845b16f1d57852"
+        },
+        {
+          "count": 1000,
+          "firstRecordId": "e7be7cf3-9572-594e-a8ff-1e291999ee15",
+          "lastRecordId": "f3313d0a-6a44-5384-8462-7b0e18e05527",
+          "orderedRecordIdsDigest": "sha256:338fea40ca672b64890243cadf7fcc0f46ac24fcef2186a82b3530e9521c5d1e",
+          "page": 5,
+          "responseFieldsDigest": "sha256:224843daedf519b06441269585ef6b5b8c512049343178d97820432dbd4e10a1"
+        },
+        {
+          "count": 1000,
+          "firstRecordId": "8022aa04-c8ba-5385-9302-df2f98ae0642",
+          "lastRecordId": "e5f09f23-429a-5c05-bbf0-1a368165a019",
+          "orderedRecordIdsDigest": "sha256:74d5e184a68990605257b8a078690d88d5786d4e18ba0d8864b421a2a70600fc",
+          "page": 6,
+          "responseFieldsDigest": "sha256:d0c4869f9478201140c1284a0bf78014b905d8244c99f85779a8e2062c45f311"
+        },
+        {
+          "count": 1000,
+          "firstRecordId": "71283a37-1c8d-5e8e-87bd-1d0d78b9df6b",
+          "lastRecordId": "c92ef8e6-bf39-58a6-8848-00102d316aca",
+          "orderedRecordIdsDigest": "sha256:37226a5fee8884856045beed2f655907bb8db1fd4bf1eefc532d9e4eb631f800",
+          "page": 7,
+          "responseFieldsDigest": "sha256:4544e29ce0e700d47902c4cd2c61e4549bbb8c618fbfff09c835aff08e6f10d7"
+        },
+        {
+          "count": 1000,
+          "firstRecordId": "66686ed5-bbb1-528a-abaa-4d078eb20ff8",
+          "lastRecordId": "189efc3f-e8ef-5b48-a4ec-f3e79b8d0e90",
+          "orderedRecordIdsDigest": "sha256:24520179b88c127feaad57f9d3091d063974544daa6bf1b36c2b8665f3334020",
+          "page": 8,
+          "responseFieldsDigest": "sha256:d8c9635669a59fcbc536687bb9bda7d28542c47f7d2dd8a5e9bb924fa730b76a"
+        },
+        {
+          "count": 1000,
+          "firstRecordId": "13a78e8b-1445-5066-acfe-07745316fb31",
+          "lastRecordId": "b9afa202-3c60-5f03-ae18-1855245de56a",
+          "orderedRecordIdsDigest": "sha256:c4e45a28d78aede064d6d9da8ae28a3dfcb6962c9bf464401d56dc94b12fa8f9",
+          "page": 9,
+          "responseFieldsDigest": "sha256:764f012ac3eb11016e61cf6da8013e3d1455460917546ac9aa90d7eb6a61b62e"
+        },
+        {
+          "count": 800,
+          "firstRecordId": "91db6415-da86-5a60-a65c-cd0a46cb8a40",
+          "lastRecordId": "77b3d051-3ef2-5f49-808d-230f93936ca3",
+          "orderedRecordIdsDigest": "sha256:2197af782093c0e251961c4ec40aeedd8f5af9dc9234ee16324325669f8e5707",
+          "page": 10,
+          "responseFieldsDigest": "sha256:fac45d73ea31d350eb56ec35542a00d89eb97270f9a821345f7a1038bd37946b"
+        }
+      ],
+      "providerScans": [
+        {
+          "id": "candidate",
+          "includeBody": false,
+          "orderedRecordIdsDigest": "sha256:1335efb5594e777bd5037f4d20bc4a697838656fff93e26c19f70f0e01950bfa",
+          "pages": [
+            {
+              "count": 200,
+              "firstRecordId": "ad29a30a-1775-504d-a82e-304abb3a62f1",
+              "lastRecordId": "883dcf20-149a-5f87-9d36-d90706e3b9ad",
+              "orderedRecordIdsDigest": "sha256:04cc1c2f306dade9180bed97e2829312a9a57e61e045157c8b36f8ac87540c73",
+              "page": 0,
+              "responseFieldsDigest": "sha256:bf1671b54f68a8559e7b063f54d674283097ca4b7c539d8069319cebb27d993b"
+            },
+            {
+              "count": 1000,
+              "firstRecordId": "61dc5d7e-3529-551c-9165-a5f38fc150e8",
+              "lastRecordId": "dab05b9f-aa30-57d7-a19b-fc76cc4a2166",
+              "orderedRecordIdsDigest": "sha256:2b70b5bb102978a2ba44194ada89cd3bb69ae148d9ae360b8d5e1125932dd3ed",
+              "page": 1,
+              "responseFieldsDigest": "sha256:ecebbdbb9b4bf5a6058193e59329313db2066bf2fa1ac994c74382defb770e7b"
+            },
+            {
+              "count": 1000,
+              "firstRecordId": "b74acaee-49d0-53ab-9b4d-56634348a18d",
+              "lastRecordId": "9fc4479a-b870-546b-91d0-189133b9bf8f",
+              "orderedRecordIdsDigest": "sha256:bbef74dfd779b8b4a8afffcb68e57c264aeb81192a3dcd855a8cc635a791ccaa",
+              "page": 2,
+              "responseFieldsDigest": "sha256:a1cb0d10e65be55b9fd032b83145e4679fa9793e26eb1cdcf795273045e62b02"
+            },
+            {
+              "count": 1000,
+              "firstRecordId": "9485ece8-69a7-59c8-b163-3b21c729cdcd",
+              "lastRecordId": "94844e57-1776-57c2-9331-5dee61ce7330",
+              "orderedRecordIdsDigest": "sha256:7494666bcc53bf307bab99355aa45f169b79c004ab9ec6733a99e87531cefcd7",
+              "page": 3,
+              "responseFieldsDigest": "sha256:d8d56b2e98ecb31f94542dfbfc9663123de296098d354766ebd5fe5afce975a2"
+            },
+            {
+              "count": 1000,
+              "firstRecordId": "ef5c39db-23dc-5f8a-9885-908a435611b0",
+              "lastRecordId": "d048e2a9-0f26-5f5d-a02e-bd55493c3f52",
+              "orderedRecordIdsDigest": "sha256:3051658e6e8c0aea9e41c17896c51a5d235d11f05bcee37feefc7d94034a7dd2",
+              "page": 4,
+              "responseFieldsDigest": "sha256:5e98e29164abc7378d496d95d4081c9cea5d7d1b19f0a1599a845b16f1d57852"
+            },
+            {
+              "count": 1000,
+              "firstRecordId": "e7be7cf3-9572-594e-a8ff-1e291999ee15",
+              "lastRecordId": "f3313d0a-6a44-5384-8462-7b0e18e05527",
+              "orderedRecordIdsDigest": "sha256:338fea40ca672b64890243cadf7fcc0f46ac24fcef2186a82b3530e9521c5d1e",
+              "page": 5,
+              "responseFieldsDigest": "sha256:224843daedf519b06441269585ef6b5b8c512049343178d97820432dbd4e10a1"
+            },
+            {
+              "count": 1000,
+              "firstRecordId": "8022aa04-c8ba-5385-9302-df2f98ae0642",
+              "lastRecordId": "e5f09f23-429a-5c05-bbf0-1a368165a019",
+              "orderedRecordIdsDigest": "sha256:74d5e184a68990605257b8a078690d88d5786d4e18ba0d8864b421a2a70600fc",
+              "page": 6,
+              "responseFieldsDigest": "sha256:d0c4869f9478201140c1284a0bf78014b905d8244c99f85779a8e2062c45f311"
+            },
+            {
+              "count": 1000,
+              "firstRecordId": "71283a37-1c8d-5e8e-87bd-1d0d78b9df6b",
+              "lastRecordId": "c92ef8e6-bf39-58a6-8848-00102d316aca",
+              "orderedRecordIdsDigest": "sha256:37226a5fee8884856045beed2f655907bb8db1fd4bf1eefc532d9e4eb631f800",
+              "page": 7,
+              "responseFieldsDigest": "sha256:4544e29ce0e700d47902c4cd2c61e4549bbb8c618fbfff09c835aff08e6f10d7"
+            },
+            {
+              "count": 1000,
+              "firstRecordId": "66686ed5-bbb1-528a-abaa-4d078eb20ff8",
+              "lastRecordId": "189efc3f-e8ef-5b48-a4ec-f3e79b8d0e90",
+              "orderedRecordIdsDigest": "sha256:24520179b88c127feaad57f9d3091d063974544daa6bf1b36c2b8665f3334020",
+              "page": 8,
+              "responseFieldsDigest": "sha256:d8c9635669a59fcbc536687bb9bda7d28542c47f7d2dd8a5e9bb924fa730b76a"
+            },
+            {
+              "count": 1000,
+              "firstRecordId": "13a78e8b-1445-5066-acfe-07745316fb31",
+              "lastRecordId": "b9afa202-3c60-5f03-ae18-1855245de56a",
+              "orderedRecordIdsDigest": "sha256:c4e45a28d78aede064d6d9da8ae28a3dfcb6962c9bf464401d56dc94b12fa8f9",
+              "page": 9,
+              "responseFieldsDigest": "sha256:764f012ac3eb11016e61cf6da8013e3d1455460917546ac9aa90d7eb6a61b62e"
+            },
+            {
+              "count": 800,
+              "firstRecordId": "91db6415-da86-5a60-a65c-cd0a46cb8a40",
+              "lastRecordId": "77b3d051-3ef2-5f49-808d-230f93936ca3",
+              "orderedRecordIdsDigest": "sha256:2197af782093c0e251961c4ec40aeedd8f5af9dc9234ee16324325669f8e5707",
+              "page": 10,
+              "responseFieldsDigest": "sha256:fac45d73ea31d350eb56ec35542a00d89eb97270f9a821345f7a1038bd37946b"
+            }
+          ],
+          "rows": 10000
+        }
+      ],
+      "responseFieldsDigest": "sha256:dff10f0daf23dd6e878c1611ab3e31460bf94124189074b2e1a8278fede40e43",
+      "returned": 10000,
+      "totalMatches": 10000
+    },
+    "mcp.selective_note": {
+      "acceptableRunOutcomes": [
+        "success"
+      ],
+      "candidateRows": 330,
+      "canonicalOutcome": "success",
+      "canonicalResidualMatches": 330,
+      "clientResidualMatches": 330,
+      "consumerResultCount": 330,
+      "firstRecordId": "d80e4f20-43c2-5ad5-b5ab-548bdcb44586",
+      "lastRecordId": "ada1c17a-5e71-5ad9-a9c7-c717f486ffc1",
+      "orderedRecordIdsDigest": "sha256:f663c150821bcbd0f016b0e35d386d2ce88e1d18b7df2601bdf3526f7934bb9c",
+      "pageCount": 1,
+      "pages": [
+        {
+          "count": 10,
+          "firstRecordId": "d80e4f20-43c2-5ad5-b5ab-548bdcb44586",
+          "lastRecordId": "ada1c17a-5e71-5ad9-a9c7-c717f486ffc1",
+          "orderedRecordIdsDigest": "sha256:f663c150821bcbd0f016b0e35d386d2ce88e1d18b7df2601bdf3526f7934bb9c",
+          "page": 0,
+          "responseFieldsDigest": "sha256:070dcc51f03299ac178f0a36739e2a1a9dde16b149c0559e4d82f110f124caa4"
+        }
+      ],
+      "providerScans": [
+        {
+          "id": "candidate",
+          "includeBody": false,
+          "orderedRecordIdsDigest": "sha256:f663c150821bcbd0f016b0e35d386d2ce88e1d18b7df2601bdf3526f7934bb9c",
+          "pages": [
+            {
+              "count": 10,
+              "firstRecordId": "d80e4f20-43c2-5ad5-b5ab-548bdcb44586",
+              "lastRecordId": "ada1c17a-5e71-5ad9-a9c7-c717f486ffc1",
+              "orderedRecordIdsDigest": "sha256:f663c150821bcbd0f016b0e35d386d2ce88e1d18b7df2601bdf3526f7934bb9c",
+              "page": 0,
+              "responseFieldsDigest": "sha256:070dcc51f03299ac178f0a36739e2a1a9dde16b149c0559e4d82f110f124caa4"
+            }
+          ],
+          "rows": 330
+        }
+      ],
+      "responseFieldsDigest": "sha256:070dcc51f03299ac178f0a36739e2a1a9dde16b149c0559e4d82f110f124caa4",
+      "returned": 10,
+      "totalMatches": 330
+    },
+    "pickle.all_requests_page": {
+      "acceptableRunOutcomes": [
+        "success",
+        "budget:result"
+      ],
+      "candidateRows": 1485,
+      "canonicalOutcome": "success",
+      "canonicalResidualMatches": 1485,
+      "clientResidualMatches": 1485,
+      "consumerResultCount": 990,
+      "firstRecordId": "f324bb87-233e-50f9-8fce-a682b5ee4b16",
+      "lastRecordId": "33144c99-560f-585d-bf74-9caa30a34f1d",
+      "orderedRecordIdsDigest": "sha256:71f161d88b3ac87a57e57c1bb2d8034d77e38d2320ab7e9103ec1c902845fd90",
+      "pageCount": 1,
+      "pages": [
+        {
+          "count": 990,
+          "firstRecordId": "f324bb87-233e-50f9-8fce-a682b5ee4b16",
+          "lastRecordId": "33144c99-560f-585d-bf74-9caa30a34f1d",
+          "orderedRecordIdsDigest": "sha256:71f161d88b3ac87a57e57c1bb2d8034d77e38d2320ab7e9103ec1c902845fd90",
+          "page": 0,
+          "responseFieldsDigest": "sha256:cdd7803536d922612301336edbc3109671cc065146c9487011f16dbdaf756a00"
+        }
+      ],
+      "providerScans": [
+        {
+          "id": "requests",
+          "includeBody": true,
+          "orderedRecordIdsDigest": "sha256:71f161d88b3ac87a57e57c1bb2d8034d77e38d2320ab7e9103ec1c902845fd90",
+          "pages": [
+            {
+              "count": 200,
+              "firstRecordId": "f324bb87-233e-50f9-8fce-a682b5ee4b16",
+              "lastRecordId": "651a626c-6126-5742-b231-8e9cfd39b4a8",
+              "orderedRecordIdsDigest": "sha256:5784a312e12ad812f5b41e1a082fa22c058f2911427f543887856488e1b9be7f",
+              "page": 0,
+              "responseFieldsDigest": "sha256:06c81e9fc08ffeb2e095ceead2ad25085b4f73a055e9050a04c5b3cabc271f78"
+            },
+            {
+              "count": 200,
+              "firstRecordId": "82b396df-0dda-5fea-8cc9-1408d94196d0",
+              "lastRecordId": "6e25bc01-8048-5b08-9e5a-c44cecebc384",
+              "orderedRecordIdsDigest": "sha256:652788082a1927acd85def7c2858595ade75f6c71f574fd07676fecb8544a50e",
+              "page": 1,
+              "responseFieldsDigest": "sha256:78bea0a9da6a504bbc8c18e43aaf040eb846e0d38b881a893fc54f9f1207ec50"
+            },
+            {
+              "count": 200,
+              "firstRecordId": "79111e93-9cc3-50a3-b310-6c5e1ad0638e",
+              "lastRecordId": "49c6dcf7-c71b-56c1-8c0c-1b265400e673",
+              "orderedRecordIdsDigest": "sha256:c9e9fd7334fe95644442dacef5512c516e84ae88aea8b91d9aa8aa85844a7a29",
+              "page": 2,
+              "responseFieldsDigest": "sha256:27551d1dc939b8f682b06bf19d70043a204a2fa4ed784a63f36576fa6071dfc1"
+            },
+            {
+              "count": 200,
+              "firstRecordId": "34a0e491-d6b9-58bb-828f-3820d33f861b",
+              "lastRecordId": "c7bcead8-a6de-5765-9c69-757d3cefc77f",
+              "orderedRecordIdsDigest": "sha256:b51c8649da1b6e1e91fd38335c53e7962bc88f2209a4e7c85d406d6cc0b97139",
+              "page": 3,
+              "responseFieldsDigest": "sha256:d971af922d7d827d1309e213c4fae7ef8eb95838435ac57451174150fe541e47"
+            },
+            {
+              "count": 190,
+              "firstRecordId": "c1b18e16-534a-5b4e-ada0-00c5bef59f39",
+              "lastRecordId": "33144c99-560f-585d-bf74-9caa30a34f1d",
+              "orderedRecordIdsDigest": "sha256:0671ce1e12477bf4a08f388ae8471617068990e07c582360d322e6d067c0b103",
+              "page": 4,
+              "responseFieldsDigest": "sha256:935178fb687dd312108a00539ee383d14c892cea9de6ae581254f056eea21642"
+            }
+          ],
+          "rows": 990
+        },
+        {
+          "id": "responses",
+          "includeBody": false,
+          "orderedRecordIdsDigest": "sha256:7681b86bef1609e953809c0521b85b4651d29f5e9656eba18beab8c4a305efe4",
+          "pages": [
+            {
+              "count": 200,
+              "firstRecordId": "00ab7afe-3089-5e17-87ac-b221fec7ed89",
+              "lastRecordId": "6c447655-8211-558c-adfb-02a0fa1b1a3c",
+              "orderedRecordIdsDigest": "sha256:007a868e4ce786861353c9b9c078e2812ece44ae833ba315fa2e6732590ecd91",
+              "page": 0,
+              "responseFieldsDigest": "sha256:42f618c1c69d40d2d4971a0f19f1ac807880281ba369b211fd314ac7ada91178"
+            },
+            {
+              "count": 200,
+              "firstRecordId": "6c4d83f5-4d77-5444-a54e-f1245053b1d9",
+              "lastRecordId": "d1915f17-c09c-52c6-8dbf-f93e7357c69b",
+              "orderedRecordIdsDigest": "sha256:ded48cbc228910557b11d59a62722793179df36614b47a4395343ae0330bf66d",
+              "page": 1,
+              "responseFieldsDigest": "sha256:2258d88735b3286e274ad7577929143d39ff7dd387feb79b66211d32a14494cb"
+            },
+            {
+              "count": 95,
+              "firstRecordId": "d1b3ff03-f3a1-5c71-b0ed-007e484e748d",
+              "lastRecordId": "ffaf2ca7-4dce-53ff-ae29-ef822e23f6b0",
+              "orderedRecordIdsDigest": "sha256:2cb8508b8948125e89ed5f5ab5fdde0db3ee2c0b3c6d0fc8dff278a133339d73",
+              "page": 2,
+              "responseFieldsDigest": "sha256:2c4577c4b6d78060307f18469010cba3b8355f4d1ac2555805ea9968b0a96f4e"
+            }
+          ],
+          "rows": 495
+        }
+      ],
+      "responseFieldsDigest": "sha256:cdd7803536d922612301336edbc3109671cc065146c9487011f16dbdaf756a00",
+      "returned": 990,
+      "totalMatches": 990
+    },
+    "pickle.pending_inbox": {
+      "acceptableRunOutcomes": [
+        "success",
+        "budget:result"
+      ],
+      "candidateRows": 1485,
+      "canonicalOutcome": "success",
+      "canonicalResidualMatches": 1485,
+      "clientResidualMatches": 1485,
+      "consumerResultCount": 940,
+      "firstRecordId": "f324bb87-233e-50f9-8fce-a682b5ee4b16",
+      "lastRecordId": "f4a64e86-db40-5c10-a800-0c1a6cb31ad0",
+      "orderedRecordIdsDigest": "sha256:3de14213d5c6c56ef9d25b8dce425feb628729eba384d50ea83e774fd50b1cc1",
+      "pageCount": 1,
+      "pages": [
+        {
+          "count": 100,
+          "firstRecordId": "f324bb87-233e-50f9-8fce-a682b5ee4b16",
+          "lastRecordId": "f4a64e86-db40-5c10-a800-0c1a6cb31ad0",
+          "orderedRecordIdsDigest": "sha256:3de14213d5c6c56ef9d25b8dce425feb628729eba384d50ea83e774fd50b1cc1",
+          "page": 0,
+          "responseFieldsDigest": "sha256:efe4445cc857e6619abfcbf93f34ea63035bcfbaffc141b4601efe29976f7f50"
+        }
+      ],
+      "providerScans": [
+        {
+          "id": "requests",
+          "includeBody": true,
+          "orderedRecordIdsDigest": "sha256:71f161d88b3ac87a57e57c1bb2d8034d77e38d2320ab7e9103ec1c902845fd90",
+          "pages": [
+            {
+              "count": 200,
+              "firstRecordId": "f324bb87-233e-50f9-8fce-a682b5ee4b16",
+              "lastRecordId": "651a626c-6126-5742-b231-8e9cfd39b4a8",
+              "orderedRecordIdsDigest": "sha256:5784a312e12ad812f5b41e1a082fa22c058f2911427f543887856488e1b9be7f",
+              "page": 0,
+              "responseFieldsDigest": "sha256:06c81e9fc08ffeb2e095ceead2ad25085b4f73a055e9050a04c5b3cabc271f78"
+            },
+            {
+              "count": 200,
+              "firstRecordId": "82b396df-0dda-5fea-8cc9-1408d94196d0",
+              "lastRecordId": "6e25bc01-8048-5b08-9e5a-c44cecebc384",
+              "orderedRecordIdsDigest": "sha256:652788082a1927acd85def7c2858595ade75f6c71f574fd07676fecb8544a50e",
+              "page": 1,
+              "responseFieldsDigest": "sha256:78bea0a9da6a504bbc8c18e43aaf040eb846e0d38b881a893fc54f9f1207ec50"
+            },
+            {
+              "count": 200,
+              "firstRecordId": "79111e93-9cc3-50a3-b310-6c5e1ad0638e",
+              "lastRecordId": "49c6dcf7-c71b-56c1-8c0c-1b265400e673",
+              "orderedRecordIdsDigest": "sha256:c9e9fd7334fe95644442dacef5512c516e84ae88aea8b91d9aa8aa85844a7a29",
+              "page": 2,
+              "responseFieldsDigest": "sha256:27551d1dc939b8f682b06bf19d70043a204a2fa4ed784a63f36576fa6071dfc1"
+            },
+            {
+              "count": 200,
+              "firstRecordId": "34a0e491-d6b9-58bb-828f-3820d33f861b",
+              "lastRecordId": "c7bcead8-a6de-5765-9c69-757d3cefc77f",
+              "orderedRecordIdsDigest": "sha256:b51c8649da1b6e1e91fd38335c53e7962bc88f2209a4e7c85d406d6cc0b97139",
+              "page": 3,
+              "responseFieldsDigest": "sha256:d971af922d7d827d1309e213c4fae7ef8eb95838435ac57451174150fe541e47"
+            },
+            {
+              "count": 190,
+              "firstRecordId": "c1b18e16-534a-5b4e-ada0-00c5bef59f39",
+              "lastRecordId": "33144c99-560f-585d-bf74-9caa30a34f1d",
+              "orderedRecordIdsDigest": "sha256:0671ce1e12477bf4a08f388ae8471617068990e07c582360d322e6d067c0b103",
+              "page": 4,
+              "responseFieldsDigest": "sha256:935178fb687dd312108a00539ee383d14c892cea9de6ae581254f056eea21642"
+            }
+          ],
+          "rows": 990
+        },
+        {
+          "id": "responses",
+          "includeBody": false,
+          "orderedRecordIdsDigest": "sha256:7681b86bef1609e953809c0521b85b4651d29f5e9656eba18beab8c4a305efe4",
+          "pages": [
+            {
+              "count": 200,
+              "firstRecordId": "00ab7afe-3089-5e17-87ac-b221fec7ed89",
+              "lastRecordId": "6c447655-8211-558c-adfb-02a0fa1b1a3c",
+              "orderedRecordIdsDigest": "sha256:007a868e4ce786861353c9b9c078e2812ece44ae833ba315fa2e6732590ecd91",
+              "page": 0,
+              "responseFieldsDigest": "sha256:42f618c1c69d40d2d4971a0f19f1ac807880281ba369b211fd314ac7ada91178"
+            },
+            {
+              "count": 200,
+              "firstRecordId": "6c4d83f5-4d77-5444-a54e-f1245053b1d9",
+              "lastRecordId": "d1915f17-c09c-52c6-8dbf-f93e7357c69b",
+              "orderedRecordIdsDigest": "sha256:ded48cbc228910557b11d59a62722793179df36614b47a4395343ae0330bf66d",
+              "page": 1,
+              "responseFieldsDigest": "sha256:2258d88735b3286e274ad7577929143d39ff7dd387feb79b66211d32a14494cb"
+            },
+            {
+              "count": 95,
+              "firstRecordId": "d1b3ff03-f3a1-5c71-b0ed-007e484e748d",
+              "lastRecordId": "ffaf2ca7-4dce-53ff-ae29-ef822e23f6b0",
+              "orderedRecordIdsDigest": "sha256:2cb8508b8948125e89ed5f5ab5fdde0db3ee2c0b3c6d0fc8dff278a133339d73",
+              "page": 2,
+              "responseFieldsDigest": "sha256:2c4577c4b6d78060307f18469010cba3b8355f4d1ac2555805ea9968b0a96f4e"
+            }
+          ],
+          "rows": 495
+        }
+      ],
+      "responseFieldsDigest": "sha256:efe4445cc857e6619abfcbf93f34ea63035bcfbaffc141b4601efe29976f7f50",
+      "returned": 100,
+      "totalMatches": 940
+    },
+    "reader.annotation_for_source": {
+      "acceptableRunOutcomes": [
+        "success"
+      ],
+      "candidateRows": 990,
+      "canonicalOutcome": "success",
+      "canonicalResidualMatches": 990,
+      "clientResidualMatches": 1,
+      "consumerResultCount": 1,
+      "firstRecordId": "f25ac48f-9735-52eb-ad0c-c47c76d1426a",
+      "lastRecordId": "f25ac48f-9735-52eb-ad0c-c47c76d1426a",
+      "orderedRecordIdsDigest": "sha256:8eb599d1a21d02ee83e3af71c6f0c2a961c835a0f9987db69083ee6cb4623138",
+      "pageCount": 1,
+      "pages": [
+        {
+          "count": 1,
+          "firstRecordId": "f25ac48f-9735-52eb-ad0c-c47c76d1426a",
+          "lastRecordId": "f25ac48f-9735-52eb-ad0c-c47c76d1426a",
+          "orderedRecordIdsDigest": "sha256:8eb599d1a21d02ee83e3af71c6f0c2a961c835a0f9987db69083ee6cb4623138",
+          "page": 0,
+          "responseFieldsDigest": "sha256:193a3a8be85840150aa3dde266956d14cd9ae25dc7b3b2b63139e476a587333d"
+        }
+      ],
+      "providerScans": [
+        {
+          "id": "candidate",
+          "includeBody": false,
+          "orderedRecordIdsDigest": "sha256:2c74273cd8178b36ba0c1a2fb37e3b782e3a35d9f79779bf334f8590d572416e",
+          "pages": [
+            {
+              "count": 990,
+              "firstRecordId": "00469a05-2968-598e-83d0-d78ade6a3452",
+              "lastRecordId": "ffb84c09-71b1-5590-aabb-0ba009a94430",
+              "orderedRecordIdsDigest": "sha256:2c74273cd8178b36ba0c1a2fb37e3b782e3a35d9f79779bf334f8590d572416e",
+              "page": 0,
+              "responseFieldsDigest": "sha256:fbb137354b6998c788217fe7e26cc73a85be44cef7743fe844211fc0438ae2e2"
+            }
+          ],
+          "rows": 990
+        }
+      ],
+      "responseFieldsDigest": "sha256:193a3a8be85840150aa3dde266956d14cd9ae25dc7b3b2b63139e476a587333d",
+      "returned": 1,
+      "totalMatches": 1
+    },
+    "reader.body_search_common": {
+      "acceptableRunOutcomes": [
+        "success",
+        "budget:scan",
+        "budget:time",
+        "budget:result"
+      ],
+      "candidateRows": 2000,
+      "canonicalOutcome": "success",
+      "canonicalResidualMatches": 495,
+      "clientResidualMatches": 495,
+      "consumerResultCount": 495,
+      "firstRecordId": "src_0000000",
+      "lastRecordId": "src_0001498",
+      "orderedRecordIdsDigest": "sha256:8000c6560234e36f1a816a170afbb50b1fedef4e11bd6164677b21efb7b1d70a",
+      "pageCount": 1,
+      "pages": [
+        {
+          "count": 495,
+          "firstRecordId": "src_0000000",
+          "lastRecordId": "src_0001498",
+          "orderedRecordIdsDigest": "sha256:8000c6560234e36f1a816a170afbb50b1fedef4e11bd6164677b21efb7b1d70a",
+          "page": 0,
+          "responseFieldsDigest": "sha256:cc03a3ef660ecf26f68e9628ded8ede04a7d46a06f05a214b1d6f2a6c3f954b9"
+        }
+      ],
+      "providerScans": [
+        {
+          "id": "candidate",
+          "includeBody": false,
+          "orderedRecordIdsDigest": "sha256:46b16e255f14393472f9d5c43c4faee32eeba083565dd48462fb9891389e54d7",
+          "pages": [
+            {
+              "count": 500,
+              "firstRecordId": "004fb8ee-4287-5676-8ca8-7386fe29b7ce",
+              "lastRecordId": "3fc31e51-9b93-5cb5-98c3-ccd926096553",
+              "orderedRecordIdsDigest": "sha256:046d7b5e9fafc7ee5fbbfa92fd6079ca0bc7f87a4785acb1994550195fb6351d",
+              "page": 0,
+              "responseFieldsDigest": "sha256:4c2cb36681696dd7ef95fe1236fb4a5b9329358425b51a907892490adc757bfd"
+            },
+            {
+              "count": 1000,
+              "firstRecordId": "3fd39e9a-f1ea-5de9-8bd2-ecbb3c593020",
+              "lastRecordId": "c04c1798-b94c-56d3-a166-f22f0812201a",
+              "orderedRecordIdsDigest": "sha256:66026a60c37605703565638ca7c107d2fd669b5d656b02fc044c35c31142b069",
+              "page": 1,
+              "responseFieldsDigest": "sha256:23ec6f0ae8a86e6b21e6a00a328d7f07f952cf7712ee91fea6fe7e14e15c8e73"
+            },
+            {
+              "count": 500,
+              "firstRecordId": "c05a5910-0029-5126-bb99-c65bc03815de",
+              "lastRecordId": "ffb8cf02-3954-547b-87c1-37eea726ef40",
+              "orderedRecordIdsDigest": "sha256:0816976182e764ab13352c8d3e5c13f49da7cd7a9d070e38097772d39706adfe",
+              "page": 2,
+              "responseFieldsDigest": "sha256:1cb4cd6a8d3978e4b0efdedcda0a68b0977879193e13207b639c2950bc8eba62"
+            }
+          ],
+          "rows": 2000
+        }
+      ],
+      "responseFieldsDigest": "sha256:cc03a3ef660ecf26f68e9628ded8ede04a7d46a06f05a214b1d6f2a6c3f954b9",
+      "returned": 495,
+      "totalMatches": 495
+    },
+    "reader.source_library_page": {
+      "acceptableRunOutcomes": [
+        "success",
+        "budget:result"
+      ],
+      "candidateRows": 1485,
+      "canonicalOutcome": "success",
+      "canonicalResidualMatches": 1485,
+      "clientResidualMatches": 296,
+      "consumerResultCount": 296,
+      "firstRecordId": "03624c14-1b10-5908-a48c-7edcc5a6f9d2",
+      "lastRecordId": "ff9bdb74-c18f-58ff-ab0f-e66e13e8c91b",
+      "orderedRecordIdsDigest": "sha256:2d816ea5e4ebc758617a5c82bdb7855585737bd0006c11c89ed7744de2c72a2c",
+      "pageCount": 1,
+      "pages": [
+        {
+          "count": 296,
+          "firstRecordId": "03624c14-1b10-5908-a48c-7edcc5a6f9d2",
+          "lastRecordId": "ff9bdb74-c18f-58ff-ab0f-e66e13e8c91b",
+          "orderedRecordIdsDigest": "sha256:2d816ea5e4ebc758617a5c82bdb7855585737bd0006c11c89ed7744de2c72a2c",
+          "page": 0,
+          "responseFieldsDigest": "sha256:df3f0124b2a4f4b830c22ffb0473654b3800a6cc637a715cfb6d1450c55888fe"
+        }
+      ],
+      "providerScans": [
+        {
+          "id": "candidate",
+          "includeBody": false,
+          "orderedRecordIdsDigest": "sha256:758b635cf6aa5405917e1f539ef172b02a2b040c615915a21654693152e382e6",
+          "pages": [
+            {
+              "count": 500,
+              "firstRecordId": "0019e011-c189-5f28-b618-8a0020bfffef",
+              "lastRecordId": "554d810e-a4ee-5952-9fbb-f4e3fd2dc351",
+              "orderedRecordIdsDigest": "sha256:b95d19f1f4c8cfe1eb37f98d0ec200a0d6a7193a350b00a3b3e03d74404b4d9f",
+              "page": 0,
+              "responseFieldsDigest": "sha256:ec61951f3eb681c09f2d38af91715d17a2afdd10f19ae180ecfd70027ea6347f"
+            },
+            {
+              "count": 985,
+              "firstRecordId": "55892356-fa2f-5838-bcac-2db494db44b0",
+              "lastRecordId": "ffeb8923-7926-53fc-8c6c-e09eac1bb7df",
+              "orderedRecordIdsDigest": "sha256:ed77360222e1d82b52a59acfdc6e818034a8fa4610f0cabc67430e1a1a0451c4",
+              "page": 1,
+              "responseFieldsDigest": "sha256:27ba94516ad43e31e84459de1c5f30dfb825134fc3d3790ca4b3c94c0b5ea365"
+            }
+          ],
+          "rows": 1485
+        }
+      ],
+      "responseFieldsDigest": "sha256:df3f0124b2a4f4b830c22ffb0473654b3800a6cc637a715cfb6d1450c55888fe",
+      "returned": 296,
+      "totalMatches": 296
+    },
+    "sdk.cancel_broad_body_scan": {
+      "acceptableRunOutcomes": [
+        "success",
+        "cancelled"
+      ],
+      "candidateRows": 0,
+      "canonicalOutcome": "success",
+      "canonicalResidualMatches": 0,
+      "clientResidualMatches": 0,
+      "consumerResultCount": 0,
+      "firstRecordId": null,
+      "lastRecordId": null,
+      "orderedRecordIdsDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "pageCount": 0,
+      "pages": [],
+      "providerScans": [
+        {
+          "id": "candidate",
+          "includeBody": false,
+          "orderedRecordIdsDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "pages": [],
+          "rows": 0
+        }
+      ],
+      "responseFieldsDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "returned": 0,
+      "totalMatches": 0
+    },
+    "sdk.concurrent_point_read_during_scan": {
+      "acceptableRunOutcomes": [
+        "success",
+        "budget:scan",
+        "budget:time"
+      ],
+      "candidateRows": 0,
+      "canonicalOutcome": "success",
+      "canonicalResidualMatches": 0,
+      "clientResidualMatches": 0,
+      "consumerResultCount": 0,
+      "firstRecordId": null,
+      "lastRecordId": null,
+      "orderedRecordIdsDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "pageCount": 0,
+      "pages": [],
+      "providerScans": [
+        {
+          "id": "candidate",
+          "includeBody": false,
+          "orderedRecordIdsDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "pages": [],
+          "rows": 0
+        }
+      ],
+      "responseFieldsDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "returned": 0,
+      "totalMatches": 0
+    },
+    "sdk.selective_body_no_return": {
+      "acceptableRunOutcomes": [
+        "success",
+        "budget:scan",
+        "budget:time"
+      ],
+      "candidateRows": 2,
+      "canonicalOutcome": "success",
+      "canonicalResidualMatches": 2,
+      "clientResidualMatches": 2,
+      "consumerResultCount": 2,
+      "firstRecordId": "f2f3498e-654c-5e18-8868-08cfb050a6b7",
+      "lastRecordId": "77b3d051-3ef2-5f49-808d-230f93936ca3",
+      "orderedRecordIdsDigest": "sha256:4133285abba824291efee7c4fc020e83331a4755ec3dc3116fb952ccc6e7143c",
+      "pageCount": 1,
+      "pages": [
+        {
+          "count": 2,
+          "firstRecordId": "f2f3498e-654c-5e18-8868-08cfb050a6b7",
+          "lastRecordId": "77b3d051-3ef2-5f49-808d-230f93936ca3",
+          "orderedRecordIdsDigest": "sha256:4133285abba824291efee7c4fc020e83331a4755ec3dc3116fb952ccc6e7143c",
+          "page": 0,
+          "responseFieldsDigest": "sha256:aa98b903fa798654fc9e23d680e53d03662228cf7cbd2012fbe1dac3bcccf538"
+        }
+      ],
+      "providerScans": [
+        {
+          "id": "candidate",
+          "includeBody": false,
+          "orderedRecordIdsDigest": "sha256:4133285abba824291efee7c4fc020e83331a4755ec3dc3116fb952ccc6e7143c",
+          "pages": [
+            {
+              "count": 2,
+              "firstRecordId": "f2f3498e-654c-5e18-8868-08cfb050a6b7",
+              "lastRecordId": "77b3d051-3ef2-5f49-808d-230f93936ca3",
+              "orderedRecordIdsDigest": "sha256:4133285abba824291efee7c4fc020e83331a4755ec3dc3116fb952ccc6e7143c",
+              "page": 0,
+              "responseFieldsDigest": "sha256:aa98b903fa798654fc9e23d680e53d03662228cf7cbd2012fbe1dac3bcccf538"
+            }
+          ],
+          "rows": 2
+        }
+      ],
+      "responseFieldsDigest": "sha256:aa98b903fa798654fc9e23d680e53d03662228cf7cbd2012fbe1dac3bcccf538",
+      "returned": 2,
+      "totalMatches": 2
+    },
+    "sdk.selective_metadata": {
+      "acceptableRunOutcomes": [
+        "success"
+      ],
+      "candidateRows": 330,
+      "canonicalOutcome": "success",
+      "canonicalResidualMatches": 330,
+      "clientResidualMatches": 330,
+      "consumerResultCount": 330,
+      "firstRecordId": "31e77601-be8f-550e-a3d7-ee122a182c85",
+      "lastRecordId": "15c63d63-3237-5512-b0ed-5adeddd2d07d",
+      "orderedRecordIdsDigest": "sha256:9ae06f6b7288a07fea30c77902630068d6213853aa59b7533616c17f74e218cf",
+      "pageCount": 1,
+      "pages": [
+        {
+          "count": 200,
+          "firstRecordId": "31e77601-be8f-550e-a3d7-ee122a182c85",
+          "lastRecordId": "15c63d63-3237-5512-b0ed-5adeddd2d07d",
+          "orderedRecordIdsDigest": "sha256:9ae06f6b7288a07fea30c77902630068d6213853aa59b7533616c17f74e218cf",
+          "page": 0,
+          "responseFieldsDigest": "sha256:f75d9fdbcaac2ffdbbfaaacf0d0a249a0fe691dda94124f49257f972e29d14f5"
+        }
+      ],
+      "providerScans": [
+        {
+          "id": "candidate",
+          "includeBody": false,
+          "orderedRecordIdsDigest": "sha256:9ae06f6b7288a07fea30c77902630068d6213853aa59b7533616c17f74e218cf",
+          "pages": [
+            {
+              "count": 200,
+              "firstRecordId": "31e77601-be8f-550e-a3d7-ee122a182c85",
+              "lastRecordId": "15c63d63-3237-5512-b0ed-5adeddd2d07d",
+              "orderedRecordIdsDigest": "sha256:9ae06f6b7288a07fea30c77902630068d6213853aa59b7533616c17f74e218cf",
+              "page": 0,
+              "responseFieldsDigest": "sha256:f75d9fdbcaac2ffdbbfaaacf0d0a249a0fe691dda94124f49257f972e29d14f5"
+            }
+          ],
+          "rows": 330
+        }
+      ],
+      "responseFieldsDigest": "sha256:f75d9fdbcaac2ffdbbfaaacf0d0a249a0fe691dda94124f49257f972e29d14f5",
+      "returned": 200,
+      "totalMatches": 330
+    },
+    "tasknotes.broad_active_page": {
+      "acceptableRunOutcomes": [
+        "success",
+        "budget:result",
+        "budget:scan"
+      ],
+      "candidateRows": 1909,
+      "canonicalOutcome": "success",
+      "canonicalResidualMatches": 1909,
+      "clientResidualMatches": 1909,
+      "consumerResultCount": 1909,
+      "firstRecordId": "df5ca44c-df9d-5d23-8b52-43854ce617df",
+      "lastRecordId": "304212c7-81eb-5e4b-a44a-10fd9d58f843",
+      "orderedRecordIdsDigest": "sha256:ddb62915e22a26fb7bb98365de0e174724ae0750e3a7aaf71f8477d864bfc805",
+      "pageCount": 2,
+      "pages": [
+        {
+          "count": 1000,
+          "firstRecordId": "df5ca44c-df9d-5d23-8b52-43854ce617df",
+          "lastRecordId": "8dd955cf-6ffc-5e45-8c91-b98e392879a8",
+          "orderedRecordIdsDigest": "sha256:7f1fd35ee9ed3585af3aaf39a1b69129ec4396c3af63dcee43db2a8450b2f315",
+          "page": 0,
+          "responseFieldsDigest": "sha256:19c78102e17383342d37eaded2fd8fd65fa8e50b7bb4cb82ffffc223ea129694"
+        },
+        {
+          "count": 909,
+          "firstRecordId": "83741157-3e5c-518f-b038-cc1fec600aa0",
+          "lastRecordId": "304212c7-81eb-5e4b-a44a-10fd9d58f843",
+          "orderedRecordIdsDigest": "sha256:b722c5f86164aa708da28ea0c36eb4f00fb381e62d24911b9b4a157d3bdb523e",
+          "page": 1,
+          "responseFieldsDigest": "sha256:3e1b062df25a91424aba0a7b7b3b81317156a34930d139003e5fa2f19524ee33"
+        }
+      ],
+      "providerScans": [
+        {
+          "id": "candidate",
+          "includeBody": true,
+          "orderedRecordIdsDigest": "sha256:ddb62915e22a26fb7bb98365de0e174724ae0750e3a7aaf71f8477d864bfc805",
+          "pages": [
+            {
+              "count": 1000,
+              "firstRecordId": "df5ca44c-df9d-5d23-8b52-43854ce617df",
+              "lastRecordId": "8dd955cf-6ffc-5e45-8c91-b98e392879a8",
+              "orderedRecordIdsDigest": "sha256:7f1fd35ee9ed3585af3aaf39a1b69129ec4396c3af63dcee43db2a8450b2f315",
+              "page": 0,
+              "responseFieldsDigest": "sha256:19c78102e17383342d37eaded2fd8fd65fa8e50b7bb4cb82ffffc223ea129694"
+            },
+            {
+              "count": 909,
+              "firstRecordId": "83741157-3e5c-518f-b038-cc1fec600aa0",
+              "lastRecordId": "304212c7-81eb-5e4b-a44a-10fd9d58f843",
+              "orderedRecordIdsDigest": "sha256:b722c5f86164aa708da28ea0c36eb4f00fb381e62d24911b9b4a157d3bdb523e",
+              "page": 1,
+              "responseFieldsDigest": "sha256:3e1b062df25a91424aba0a7b7b3b81317156a34930d139003e5fa2f19524ee33"
+            }
+          ],
+          "rows": 1909
+        }
+      ],
+      "responseFieldsDigest": "sha256:a3722170423bb859b1458de67f3a3cfa797a70d35d6c9feec5b554e2069c5bf2",
+      "returned": 1909,
+      "totalMatches": 1909
+    },
+    "tasknotes.group_status_count": {
+      "acceptableRunOutcomes": [
+        "success"
+      ],
+      "candidateRows": 3500,
+      "canonicalOutcome": "success",
+      "canonicalResidualMatches": 3500,
+      "clientResidualMatches": 3500,
+      "completenessDigest": "sha256:77bbcec7ac6c6db5bb279d99c2a44315b3000f27097a082274d2dd7d516e441e",
+      "consumerResultCount": 3500,
+      "groups": [
+        {
+          "count": 345,
+          "key": [
+            "cancelled"
+          ]
+        },
+        {
+          "count": 866,
+          "key": [
+            "done"
+          ]
+        },
+        {
+          "count": 521,
+          "key": [
+            "in-progress"
+          ]
+        },
+        {
+          "count": 1385,
+          "key": [
+            "open"
+          ]
+        },
+        {
+          "count": 348,
+          "key": [
+            "waiting"
+          ]
+        },
+        {
+          "count": 35,
+          "key": [
+            null
+          ]
+        }
+      ],
+      "providerScans": [
+        {
+          "id": "candidate",
+          "includeBody": false,
+          "orderedRecordIdsDigest": "sha256:f87bb6a84b1d00f04d41092c9baf97f2b690ea767f18f740f88e803fc6ee507c",
+          "pages": [
+            {
+              "count": 2000,
+              "firstRecordId": "00072a92-9685-5fff-af71-ef4088a4e082",
+              "lastRecordId": "90eae5e6-e9e5-5f89-ba72-891f15a84eb0",
+              "orderedRecordIdsDigest": "sha256:f87bb6a84b1d00f04d41092c9baf97f2b690ea767f18f740f88e803fc6ee507c",
+              "page": 0,
+              "responseFieldsDigest": "sha256:ab639cf56969701d691e91d6f6e984630c68065e7a1adb00946249a5ca41c027"
+            }
+          ],
+          "rows": 3500
+        }
+      ],
+      "totalMatches": 3500
+    },
+    "tasknotes.path_title_completion": {
+      "acceptableRunOutcomes": [
+        "success"
+      ],
+      "candidateRows": 10,
+      "canonicalOutcome": "success",
+      "canonicalResidualMatches": 10,
+      "clientResidualMatches": 10,
+      "consumerResultCount": 10,
+      "firstRecordId": "c5713a60-4a10-5cd4-805a-0097762e1a22",
+      "lastRecordId": "ae54b384-1da1-55bc-80cf-cd0788de58ca",
+      "orderedRecordIdsDigest": "sha256:601893e1db2326e213f101089052c4cbabcda70316b0670d1f360440cd6d6c88",
+      "pageCount": 1,
+      "pages": [
+        {
+          "count": 10,
+          "firstRecordId": "c5713a60-4a10-5cd4-805a-0097762e1a22",
+          "lastRecordId": "ae54b384-1da1-55bc-80cf-cd0788de58ca",
+          "orderedRecordIdsDigest": "sha256:601893e1db2326e213f101089052c4cbabcda70316b0670d1f360440cd6d6c88",
+          "page": 0,
+          "responseFieldsDigest": "sha256:3832af11ea42ab342bf4e6503d17c5ae9e7971613b59fdabdb10f9fc3d4dd649"
+        }
+      ],
+      "providerScans": [
+        {
+          "id": "candidate",
+          "includeBody": false,
+          "orderedRecordIdsDigest": "sha256:601893e1db2326e213f101089052c4cbabcda70316b0670d1f360440cd6d6c88",
+          "pages": [
+            {
+              "count": 10,
+              "firstRecordId": "c5713a60-4a10-5cd4-805a-0097762e1a22",
+              "lastRecordId": "ae54b384-1da1-55bc-80cf-cd0788de58ca",
+              "orderedRecordIdsDigest": "sha256:601893e1db2326e213f101089052c4cbabcda70316b0670d1f360440cd6d6c88",
+              "page": 0,
+              "responseFieldsDigest": "sha256:3832af11ea42ab342bf4e6503d17c5ae9e7971613b59fdabdb10f9fc3d4dd649"
+            }
+          ],
+          "rows": 10
+        }
+      ],
+      "responseFieldsDigest": "sha256:3832af11ea42ab342bf4e6503d17c5ae9e7971613b59fdabdb10f9fc3d4dd649",
+      "returned": 10,
+      "totalMatches": 10
+    },
+    "tasknotes.selective_open_project": {
+      "acceptableRunOutcomes": [
+        "success"
+      ],
+      "candidateRows": 23,
+      "canonicalOutcome": "success",
+      "canonicalResidualMatches": 23,
+      "clientResidualMatches": 23,
+      "consumerResultCount": 23,
+      "firstRecordId": "35b91382-88e6-56ef-8ff5-93af6bab44fc",
+      "lastRecordId": "9d15a9f3-7f5c-5041-92f0-ee61b6075293",
+      "orderedRecordIdsDigest": "sha256:6f522304bda52088e6475ad354b27d08b628fd3a9238b7a1d3409dff0c9f4451",
+      "pageCount": 1,
+      "pages": [
+        {
+          "count": 23,
+          "firstRecordId": "35b91382-88e6-56ef-8ff5-93af6bab44fc",
+          "lastRecordId": "9d15a9f3-7f5c-5041-92f0-ee61b6075293",
+          "orderedRecordIdsDigest": "sha256:6f522304bda52088e6475ad354b27d08b628fd3a9238b7a1d3409dff0c9f4451",
+          "page": 0,
+          "responseFieldsDigest": "sha256:94ebe583fa7d3161292eda3de0f43645f524d299630a325b6ede53d7384eeca5"
+        }
+      ],
+      "providerScans": [
+        {
+          "id": "candidate",
+          "includeBody": false,
+          "orderedRecordIdsDigest": "sha256:6f522304bda52088e6475ad354b27d08b628fd3a9238b7a1d3409dff0c9f4451",
+          "pages": [
+            {
+              "count": 23,
+              "firstRecordId": "35b91382-88e6-56ef-8ff5-93af6bab44fc",
+              "lastRecordId": "9d15a9f3-7f5c-5041-92f0-ee61b6075293",
+              "orderedRecordIdsDigest": "sha256:6f522304bda52088e6475ad354b27d08b628fd3a9238b7a1d3409dff0c9f4451",
+              "page": 0,
+              "responseFieldsDigest": "sha256:94ebe583fa7d3161292eda3de0f43645f524d299630a325b6ede53d7384eeca5"
+            }
+          ],
+          "rows": 23
+        }
+      ],
+      "responseFieldsDigest": "sha256:94ebe583fa7d3161292eda3de0f43645f524d299630a325b6ede53d7384eeca5",
+      "returned": 23,
+      "totalMatches": 23
+    },
+    "tasknotes.tag_due_range": {
+      "acceptableRunOutcomes": [
+        "success"
+      ],
+      "candidateRows": 345,
+      "canonicalOutcome": "success",
+      "canonicalResidualMatches": 345,
+      "clientResidualMatches": 345,
+      "consumerResultCount": 345,
+      "firstRecordId": "8af34617-4def-5be4-bcaa-4ec9a32a89da",
+      "lastRecordId": "b3d29f65-230d-5f40-80dd-9a542454a3b4",
+      "orderedRecordIdsDigest": "sha256:46fe03ac9025638f25da8fefa4549bc5c20b3fd9d86a4827303eb70d3721772a",
+      "pageCount": 1,
+      "pages": [
+        {
+          "count": 200,
+          "firstRecordId": "8af34617-4def-5be4-bcaa-4ec9a32a89da",
+          "lastRecordId": "b3d29f65-230d-5f40-80dd-9a542454a3b4",
+          "orderedRecordIdsDigest": "sha256:46fe03ac9025638f25da8fefa4549bc5c20b3fd9d86a4827303eb70d3721772a",
+          "page": 0,
+          "responseFieldsDigest": "sha256:fe01c4c13a12275ff98c5c1352a5cf75b6634618cd3bf3596bce63b07313ab6d"
+        }
+      ],
+      "providerScans": [
+        {
+          "id": "candidate",
+          "includeBody": false,
+          "orderedRecordIdsDigest": "sha256:46fe03ac9025638f25da8fefa4549bc5c20b3fd9d86a4827303eb70d3721772a",
+          "pages": [
+            {
+              "count": 200,
+              "firstRecordId": "8af34617-4def-5be4-bcaa-4ec9a32a89da",
+              "lastRecordId": "b3d29f65-230d-5f40-80dd-9a542454a3b4",
+              "orderedRecordIdsDigest": "sha256:46fe03ac9025638f25da8fefa4549bc5c20b3fd9d86a4827303eb70d3721772a",
+              "page": 0,
+              "responseFieldsDigest": "sha256:fe01c4c13a12275ff98c5c1352a5cf75b6634618cd3bf3596bce63b07313ab6d"
+            }
+          ],
+          "rows": 345
+        }
+      ],
+      "responseFieldsDigest": "sha256:fe01c4c13a12275ff98c5c1352a5cf75b6634618cd3bf3596bce63b07313ab6d",
+      "returned": 200,
+      "totalMatches": 345
+    }
+  },
+  "mutations": {
+    "authorization.stale_projection": {
+      "assertion": "current projection or exact canonical fallback; otherwise fail closed",
+      "targetIndex": 5
+    },
+    "point.exact_read": {
+      "assertion": "exact document and canonical read envelope",
+      "targetIndex": 1
+    },
+    "write.body_only": {
+      "append": "\nBenchmark body-only update.\n",
+      "bindingAndFileFactsChanged": true,
+      "semanticPayloadChanged": false,
+      "targetIndex": 2
+    },
+    "write.frontmatter": {
+      "patch": {
+        "projects": [
+          "project-7"
+        ],
+        "status": "done",
+        "tags": [
+          "hosted",
+          "benchmark-updated"
+        ]
+      },
+      "semanticPayloadChanged": true,
+      "targetIndex": 3
+    },
+    "write.path": {
+      "destination": "notes/renamed-benchmark-note.md",
+      "semanticPayloadChanged": true,
+      "targetIndex": 60
+    },
+    "write.recovery": {
+      "failureStages": [
+        "before_exact_write",
+        "after_exact_write",
+        "after_projection_write",
+        "before_checkpoint",
+        "after_checkpoint"
+      ],
+      "targetIndex": 4
+    },
+    "write.resource_rebuild": {
+      "defaultPatch": {
+        "benchmark_generation": 2
+      },
+      "fromCatalogVersion": 1,
+      "toCatalogVersion": 2
+    }
+  }
+}
