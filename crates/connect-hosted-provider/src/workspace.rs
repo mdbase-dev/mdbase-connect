@@ -8,7 +8,6 @@ use mdbase_connect_protocol::{
     ApplyCollectionSetupInput, ApplyTypePackInput, AssessCollectionSetupInput, AssessTypePackInput,
     SyncMutation, SyncMutationOperation, SyncRecord,
 };
-use mdbase_connect_runtime::contract_scope::{ContractScope, ContractSelector};
 use serde_json::Value;
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -387,30 +386,6 @@ impl WorkingSet {
                 "The hosted provider does not support that read operation.",
             )),
         }
-    }
-
-    pub fn project_contract_result(
-        &self,
-        scope: &ContractScope,
-        envelope: OperationResult,
-        selector: Option<&ContractSelector>,
-    ) -> ApiResult<Value> {
-        let collection = Collection::open(self.directory.path()).map_err(|error| {
-            ApiError::internal(format!(
-                "The hosted contract projection registry is invalid: {error}"
-            ))
-        })?;
-        scope
-            .project_result(
-                &collection,
-                serde_json::to_value(envelope).map_err(|error| {
-                    ApiError::internal(format!(
-                        "Hosted operation could not serialize before projection: {error}"
-                    ))
-                })?,
-                selector,
-            )
-            .map_err(|error| ApiError::forbidden("scope_denied", error.to_string()))
     }
 
     pub fn view_source_operation(

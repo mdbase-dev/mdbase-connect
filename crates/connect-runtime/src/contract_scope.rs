@@ -1,4 +1,4 @@
-use mdbase::{field_reference, Collection};
+use mdbase::field_reference;
 use mdbase_connect_protocol::{
     CollectionContractDescriptor, CollectionContractImplementationDescriptor,
 };
@@ -261,7 +261,6 @@ impl ContractScope {
 
     pub fn project_result(
         &self,
-        collection: &Collection,
         mut result: Value,
         selector: Option<&ContractSelector>,
     ) -> Result<Value, ContractScopeError> {
@@ -273,25 +272,23 @@ impl ContractScope {
             .and_then(Value::as_array_mut)
         {
             for row in rows {
-                self.project_record(collection, row, selector)?;
+                self.project_record(row, selector)?;
             }
             return Ok(result);
         }
         let Some(record) = result.get_mut("result") else {
             return Ok(result);
         };
-        self.project_record(collection, record, selector)?;
+        self.project_record(record, selector)?;
         Ok(result)
     }
 
     pub fn authorize_record_result(
         &self,
-        collection: &Collection,
         result: &Value,
         selector: Option<&ContractSelector>,
     ) -> Result<(), ContractScopeError> {
-        self.project_result(collection, result.clone(), selector)
-            .map(|_| ())
+        self.project_result(result.clone(), selector).map(|_| ())
     }
 
     fn selector_types(
@@ -373,7 +370,6 @@ impl ContractScope {
 
     fn project_record(
         &self,
-        collection: &Collection,
         record: &mut Value,
         selector: Option<&ContractSelector>,
     ) -> Result<(), ContractScopeError> {
@@ -391,12 +387,26 @@ impl ContractScope {
             .or_else(|| record.get("frontmatter"))
             .cloned()
             .unwrap_or_else(|| json!({}));
-        let projected = collection.project_contract_type(
-            &selected.implementation.type_name,
-            &selected.id,
-            &selected.version,
-            &effective,
-        );
+        let projected = mdbase::data_contracts::project_resolved_record_contract(
+            mdbase::data_contracts::ResolvedRecordProjection {
+                type_name: &selected.implementation.type_name,
+                contract: &selected.id,
+                version: &selected.version,
+                contract_digest: &selected.digest,
+                implementation_digest: &selected.implementation.digest,
+                fields: &selected.implementation.fields,
+                record_schema: &self
+                    .contracts
+                    .iter()
+                    .find(|contract| {
+                        contract.id == selected.id && contract.version == selected.version
+                    })
+                    .expect("selected contract belongs to this scope")
+                    .schema,
+                effective_frontmatter: &effective,
+            },
+        )
+        .map_err(|error| ContractScopeError(error.message))?;
         if !projected.valid {
             return Err(error(
                 projected

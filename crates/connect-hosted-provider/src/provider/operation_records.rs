@@ -296,9 +296,9 @@ impl HostedProvider {
                         )
                     })?;
                     let mut document = self
-                        .execute_read_operation(
+                        .execute_direct_point_read_by_id(
                             context.collection_id,
-                            "read",
+                            record.record_id,
                             &json!({
                                 "path": record.path.clone(),
                                 "include_document": include_document,
@@ -306,8 +306,21 @@ impl HostedProvider {
                         )
                         .await?;
                     if !document.valid {
+                        let diagnostic_code = document
+                            .diagnostics
+                            .first()
+                            .map(|diagnostic| diagnostic.code.as_str())
+                            .unwrap_or("unknown");
+                        tracing::warn!(
+                            target: "mdbase_connect::metrics",
+                            metric = "hosted_mutation_result_read_failed",
+                            diagnostic_code,
+                            "privacy-safe hosted provider diagnostic"
+                        );
                         return Err(ApiError::internal(
-                            "The hosted mutation succeeded but its record document could not be read.",
+                            format!(
+                                "The hosted mutation succeeded but its record document could not be read ({diagnostic_code})."
+                            ),
                         ));
                     }
                     if context.operation == "rename" {

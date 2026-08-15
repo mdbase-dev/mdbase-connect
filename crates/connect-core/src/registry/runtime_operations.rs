@@ -323,16 +323,12 @@ impl CollectionRegistry {
         let Some((resolved_scope, selector)) = plan.projection else {
             return Ok(result);
         };
-        provider.with_collection_read(|collection| {
-            if plan.ensure_result_scope
-                && result.get("valid").and_then(Value::as_bool) != Some(false)
-            {
-                ensure_result_in_scope(&result, &resolved_scope.allowed_types)?;
-            }
-            resolved_scope
-                .project_result(collection, result, selector.as_ref())
-                .map_err(contract_scope_error)
-        })
+        if plan.ensure_result_scope && result.get("valid").and_then(Value::as_bool) != Some(false) {
+            ensure_result_in_scope(&result, &resolved_scope.allowed_types)?;
+        }
+        resolved_scope
+            .project_result(result, selector.as_ref())
+            .map_err(contract_scope_error)
     }
 
     pub fn scoped_operation_with_host_claim(
@@ -565,7 +561,7 @@ impl CollectionRegistry {
                 )?;
                 ensure_result_in_scope(&current, allowed_types)?;
                 resolved_scope
-                    .authorize_record_result(collection, &current, selector.as_ref())
+                    .authorize_record_result(&current, selector.as_ref())
                     .map_err(contract_scope_error)?;
                 if let Some(object) = input.as_object_mut() {
                     object.insert("check_backlinks".to_string(), Value::Bool(false));
@@ -593,7 +589,7 @@ impl CollectionRegistry {
                 )?;
                 ensure_result_in_scope(&current, allowed_types)?;
                 resolved_scope
-                    .authorize_record_result(collection, &current, selector.as_ref())
+                    .authorize_record_result(&current, selector.as_ref())
                     .map_err(contract_scope_error)?;
                 let current_types = result_types(&current);
                 let frontmatter = current

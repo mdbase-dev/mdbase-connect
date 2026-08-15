@@ -542,7 +542,7 @@ impl CollectionRegistry {
                     cancellation,
                 )?;
                 resolved_scope
-                    .project_result(collection, result, selector.as_ref())
+                    .project_result(result, selector.as_ref())
                     .map_err(contract_scope_error)
             }
             "list_views"
@@ -567,7 +567,7 @@ impl CollectionRegistry {
                 )?;
                 ensure_result_in_scope(&result, allowed_types)?;
                 resolved_scope
-                    .project_result(collection, result, selector.as_ref())
+                    .project_result(result, selector.as_ref())
                     .map_err(contract_scope_error)
             }
             "create" => {
@@ -600,7 +600,7 @@ impl CollectionRegistry {
                     ensure_result_in_scope(&result, allowed_types)?;
                 }
                 resolved_scope
-                    .project_result(collection, result, Some(&selector))
+                    .project_result(result, Some(&selector))
                     .map_err(contract_scope_error)
             }
             "update" => {
@@ -647,7 +647,7 @@ impl CollectionRegistry {
                     cancellation,
                 )?;
                 resolved_scope
-                    .project_result(collection, result, Some(&selector))
+                    .project_result(result, Some(&selector))
                     .map_err(contract_scope_error)
             }
             "delete" => {
@@ -664,7 +664,7 @@ impl CollectionRegistry {
                 )?;
                 ensure_result_in_scope(&current, allowed_types)?;
                 resolved_scope
-                    .authorize_record_result(collection, &current, selector.as_ref())
+                    .authorize_record_result(&current, selector.as_ref())
                     .map_err(contract_scope_error)?;
                 let mut scoped_input = scoped_input;
                 if let Some(object) = scoped_input.as_object_mut() {
@@ -699,7 +699,7 @@ impl CollectionRegistry {
                 )?;
                 ensure_result_in_scope(&current, allowed_types)?;
                 resolved_scope
-                    .authorize_record_result(collection, &current, selector.as_ref())
+                    .authorize_record_result(&current, selector.as_ref())
                     .map_err(contract_scope_error)?;
                 let current_types = result_types(&current);
                 let frontmatter = current
@@ -721,7 +721,7 @@ impl CollectionRegistry {
                     cancellation,
                 )?;
                 resolved_scope
-                    .project_result(collection, result, selector.as_ref())
+                    .project_result(result, selector.as_ref())
                     .map_err(contract_scope_error)
             }
             "validate" => Err(ConnectError::AccessDenied(

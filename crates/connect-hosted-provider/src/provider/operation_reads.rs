@@ -209,6 +209,9 @@ impl HostedProvider {
         operation: &str,
         input: &Value,
     ) -> ApiResult<OperationResult> {
+        if operation == "read" {
+            return self.execute_direct_point_read(collection_id, input).await;
+        }
         let snapshot_started = Instant::now();
         let mut transaction = self.pool.begin().await?;
         let collection = sqlx::query(
@@ -271,4 +274,255 @@ impl HostedProvider {
         );
         Ok(result)
     }
+
+    async fn execute_direct_point_read(
+        &self,
+        collection_id: Uuid,
+        input: &Value,
+    ) -> ApiResult<OperationResult> {
+        self.execute_direct_point_read_for_identity(collection_id, input, None)
+            .await
+    }
+
+    pub(super) async fn execute_direct_point_read_by_id(
+        &self,
+        collection_id: Uuid,
+        record_id: Uuid,
+        input: &Value,
+    ) -> ApiResult<OperationResult> {
+        self.execute_direct_point_read_for_identity(collection_id, input, Some(record_id))
+            .await
+    }
+
+    async fn execute_direct_point_read_for_identity(
+        &self,
+        collection_id: Uuid,
+        input: &Value,
+        stable_id: Option<Uuid>,
+    ) -> ApiResult<OperationResult> {
+        let started = Instant::now();
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .execute(&mut *transaction)
+            .await?;
+        let collection = sqlx::query(
+            r#"SELECT head, resource_revision, wrapped_data_key, resources_ciphertext
+               FROM hosted_provider_collections
+               WHERE id = $1 AND state = 'active'"#,
+        )
+        .bind(collection_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                "hosted_collection_not_found",
+                "Hosted collection not found.",
+            )
+        })?;
+        let data_key = self
+            .collection_key(collection_id, collection.get("wrapped_data_key"))
+            .await?;
+        let resources: SyncCollectionResources = self.crypto.decrypt_json(
+            &data_key,
+            collection.get("resources_ciphertext"),
+            &resources_aad(collection_id),
+        )?;
+        let stored_resource_revision: String = collection.get("resource_revision");
+        if resources.revision != stored_resource_revision {
+            return Err(ApiError::internal(
+                "The encrypted resource catalog revision does not match collection metadata.",
+            ));
+        }
+        let resource_documents =
+            load_resource_documents(&mut transaction, &self.crypto, &data_key, collection_id)
+                .await?;
+        let catalog = compile_point_catalog(resources, resource_documents)?;
+        let path = input.get("path").and_then(Value::as_str);
+        let identity = stable_id.map(DirectRecordIdentity::StableId).or_else(|| {
+            path.map(|path| DirectRecordIdentity::PathToken(path_token(&data_key, path)))
+        });
+        let lookup_kind = if stable_id.is_some() {
+            "stable_id"
+        } else {
+            "path_token"
+        };
+        let (result, records_fetched, ciphertext_bytes) = if let Some(identity) = identity {
+            match load_direct_record(
+                &mut transaction,
+                &self.crypto,
+                &data_key,
+                collection_id,
+                identity,
+            )
+            .await?
+            {
+                Some((record, ciphertext_bytes)) => {
+                    if path.is_some_and(|path| record.path != path) {
+                        return Err(ApiError::internal(
+                            "The hosted encrypted record path does not match the requested identity.",
+                        ));
+                    }
+                    let canonical = mdbase::runtime::CanonicalRecordInput {
+                        stable_id: Some(record.record_id.to_string()),
+                        path: record.path.clone(),
+                        document: record.document.clone(),
+                        file_size: record.document.len() as u64,
+                        file_mtime: None,
+                    };
+                    (
+                        catalog.read_record(input, &canonical),
+                        1_u64,
+                        ciphertext_bytes,
+                    )
+                }
+                None => (catalog.read_record_not_found(input), 0, 0),
+            }
+        } else {
+            (catalog.read_record_not_found(input), 0, 0)
+        };
+        transaction.commit().await?;
+        let memory = crate::HostedProcessMemory::capture();
+        tracing::info!(
+            target: "mdbase_connect::metrics",
+            metric = "hosted_direct_point_read",
+            lookup_kind,
+            records_fetched,
+            records_decrypted = records_fetched,
+            ciphertext_bytes,
+            snapshot_ms = started.elapsed().as_millis() as u64,
+            database_pool_size = self.pool.size(),
+            database_pool_idle = self.pool.num_idle(),
+            rss_bytes = memory.rss_bytes.unwrap_or(0),
+            pss_bytes = memory.pss_bytes.unwrap_or(0),
+            cgroup_current_bytes = memory.cgroup_current_bytes.unwrap_or(0),
+            cgroup_peak_bytes = memory.cgroup_peak_bytes.unwrap_or(0),
+            "privacy-safe hosted provider metric"
+        );
+        Ok(result)
+    }
+}
+
+enum DirectRecordIdentity {
+    StableId(Uuid),
+    PathToken(Vec<u8>),
+}
+
+async fn load_direct_record(
+    transaction: &mut Transaction<'_, Postgres>,
+    crypto: &ProviderCrypto,
+    data_key: &[u8; 32],
+    collection_id: Uuid,
+    identity: DirectRecordIdentity,
+) -> ApiResult<Option<(PersistedRecord, u64)>> {
+    let row = match identity {
+        DirectRecordIdentity::StableId(record_id) => {
+            sqlx::query(
+                r#"SELECT record_id, sequence, payload_ciphertext
+                   FROM hosted_provider_records
+                   WHERE collection_id = $1 AND record_id = $2"#,
+            )
+            .bind(collection_id)
+            .bind(record_id)
+            .fetch_optional(&mut **transaction)
+            .await?
+        }
+        DirectRecordIdentity::PathToken(token) => {
+            sqlx::query(
+                r#"SELECT record_id, sequence, payload_ciphertext
+                   FROM hosted_provider_records
+                   WHERE collection_id = $1 AND path_token = $2"#,
+            )
+            .bind(collection_id)
+            .bind(token)
+            .fetch_optional(&mut **transaction)
+            .await?
+        }
+    };
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let record_id: Uuid = row.get("record_id");
+    let sequence = number(row.get::<i64, _>("sequence"), "record sequence")?;
+    let ciphertext: Vec<u8> = row.get("payload_ciphertext");
+    let ciphertext_bytes = ciphertext.len() as u64;
+    let record: PersistedRecord = crypto.decrypt_json(
+        data_key,
+        &ciphertext,
+        &current_record_aad(collection_id, record_id, sequence),
+    )?;
+    if record.record_id != record_id {
+        return Err(ApiError::internal(
+            "The hosted encrypted record identity does not match its metadata.",
+        ));
+    }
+    Ok(Some((record, ciphertext_bytes)))
+}
+
+fn compile_point_catalog(
+    resources: SyncCollectionResources,
+    resource_documents: Vec<(String, String)>,
+) -> ApiResult<mdbase::runtime::CompiledCatalog> {
+    let configuration_document = resource_documents
+        .iter()
+        .find(|(path, _)| path == "mdbase.yaml")
+        .map(|(_, document)| document.clone())
+        .ok_or_else(|| ApiError::internal("The hosted resource catalog has no mdbase.yaml."))?;
+    let types = resources
+        .types
+        .into_iter()
+        .map(|type_resource| {
+            let path = type_resource.path.ok_or_else(|| {
+                ApiError::internal("A hosted type catalog entry has no source path.")
+            })?;
+            let definition = type_resource.definition.ok_or_else(|| {
+                ApiError::internal(format!(
+                    "Hosted type catalog entry '{}' has no exact definition.",
+                    type_resource.name
+                ))
+            })?;
+            Ok(mdbase::runtime::ResolvedTypeResource {
+                path,
+                revision: type_resource.revision.unwrap_or_default(),
+                definition,
+                schema: type_resource.schema,
+            })
+        })
+        .collect::<ApiResult<Vec<_>>>()?;
+    let contracts = resources
+        .contracts
+        .into_iter()
+        .filter(|contract| contract.contract_type == "record")
+        .map(|contract| mdbase::runtime::ResolvedRecordContract {
+            id: contract.id,
+            version: contract.version,
+            digest: contract.digest,
+            record_schema: contract.schema,
+            binding_schema: contract.binding_schema,
+            implementations: contract
+                .implementations
+                .into_iter()
+                .map(
+                    |implementation| mdbase::runtime::ResolvedRecordContractImplementation {
+                        type_name: implementation.type_name,
+                        type_version: implementation.type_version,
+                        digest: implementation.digest,
+                        fields: implementation.fields,
+                        binding: implementation.binding,
+                        source_path: implementation.type_path,
+                    },
+                )
+                .collect(),
+        })
+        .collect();
+    mdbase::runtime::CompiledCatalog::compile(mdbase::runtime::CatalogInput {
+        resource_revision: resources.revision,
+        configuration_document,
+        types,
+        contracts,
+    })
+    .map_err(|error| {
+        ApiError::internal(format!(
+            "The hosted resource catalog could not compile: {error}"
+        ))
+    })
 }

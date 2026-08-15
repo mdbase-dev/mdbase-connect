@@ -175,7 +175,7 @@ impl HostedProvider {
                     ensure_operation_result_visible(&result, &replica.allowed_types)?;
                 }
                 if let Some(scope) = &contract_scope {
-                    self.project_contract_operation(collection_id, scope, result, selector.as_ref())
+                    self.project_contract_operation(scope, result, selector.as_ref())
                         .await
                 } else {
                     serde_json::to_value(result).map_err(|error| {
@@ -229,13 +229,8 @@ impl HostedProvider {
                         let current = self
                             .execute_read_operation(collection_id, "read", &json!({"path": path}))
                             .await?;
-                        self.project_contract_operation(
-                            collection_id,
-                            scope,
-                            current,
-                            selected.as_ref(),
-                        )
-                        .await?;
+                        self.project_contract_operation(scope, current, selected.as_ref())
+                            .await?;
                     }
                     (scoped_input, selected)
                 } else {
@@ -278,13 +273,8 @@ impl HostedProvider {
                                 "Hosted operation result could not be projected: {error}"
                             ))
                         })?;
-                    self.project_contract_operation(
-                        collection_id,
-                        scope,
-                        envelope,
-                        selector.as_ref(),
-                    )
-                    .await
+                    self.project_contract_operation(scope, envelope, selector.as_ref())
+                        .await
                 } else {
                     Ok(result)
                 }
@@ -395,19 +385,20 @@ impl HostedProvider {
 
     pub(super) async fn project_contract_operation(
         &self,
-        collection_id: Uuid,
         scope: &ContractScope,
         result: OperationResult,
         selector: Option<&ContractSelector>,
     ) -> ApiResult<Value> {
-        let working_set = self.working_set(collection_id).await?;
-        let cached = working_set.lock().await;
-        let cached = cached.as_ref().ok_or_else(|| {
-            ApiError::internal("Hosted working set was unavailable during contract projection.")
-        })?;
-        cached
-            .workspace
-            .project_contract_result(scope, result, selector)
+        scope
+            .project_result(
+                serde_json::to_value(result).map_err(|error| {
+                    ApiError::internal(format!(
+                        "Hosted operation could not serialize before projection: {error}"
+                    ))
+                })?,
+                selector,
+            )
+            .map_err(|error| ApiError::forbidden("scope_denied", error.to_string()))
     }
 
     pub async fn provision_type_packs(

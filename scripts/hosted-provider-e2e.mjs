@@ -2730,7 +2730,9 @@ schema:
       cold_read_ms: coldRead.elapsedMs,
       cold_read_rss_delta_bytes: coldRead.rssDeltaBytes,
       cold_read_scanned_records: coldRead.scannedRecords,
+      cold_read_records_fetched: coldRead.recordsFetched,
       cold_read_ciphertext_bytes: coldRead.ciphertextBytes,
+      cold_read_used_legacy_working_set: coldRead.usedLegacyWorkingSet,
       cold_query_ms: coldQuery.elapsedMs,
       cold_query_rss_delta_bytes: coldQuery.rssDeltaBytes,
       cold_query_scanned_records: coldQuery.scannedRecords,
@@ -2753,6 +2755,12 @@ schema:
     assert.ok(result.change_page_p95_ms < 150, `change page p95 budget exceeded: ${result.change_page_p95_ms}`);
     assert.ok(result.warm_read_p95_ms < 100, `warm read p95 budget exceeded: ${result.warm_read_p95_ms}`);
     assert.ok(result.warm_query_p95_ms < 300, `warm query p95 budget exceeded: ${result.warm_query_p95_ms}`);
+    assert.equal(result.cold_read_records_fetched, 1, "cold point read must fetch exactly one row");
+    assert.equal(
+      result.cold_read_used_legacy_working_set,
+      false,
+      "cold point read must not materialize the legacy WorkingSet"
+    );
   }
 
   const durableHead = pagedSession.head;
@@ -4350,7 +4358,9 @@ async function measureColdOperation({ databaseUrl, collectionId, token, operatio
           ? undefined
           : after.rssBytes - before.rssBytes,
       scannedRecords: maximumLogMetric(logs, "scanned_records"),
-      ciphertextBytes: maximumLogMetric(logs, "ciphertext_bytes")
+      recordsFetched: maximumLogMetric(logs, "records_fetched"),
+      ciphertextBytes: maximumLogMetric(logs, "ciphertext_bytes"),
+      usedLegacyWorkingSet: logs.includes("hosted_working_set_load")
     };
   } finally {
     await stopProvider(coldProvider);
