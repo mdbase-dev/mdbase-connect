@@ -1,0 +1,183 @@
+{
+  "distributions": {
+    "commonBodyNeedle": 20000,
+    "malformedOpaque": 991,
+    "pickle": {
+      "responseRecordType": {
+        "pickle_response_ack": 990,
+        "pickle_response_approval": 3960
+      },
+      "responseType": {
+        "pickle_response_ack": 495,
+        "pickle_response_approval": 9405
+      },
+      "responsesPerRequest": {
+        "0": 9900
+      },
+      "state": {
+        "cancelled": 495,
+        "pending": 9405
+      }
+    },
+    "reader": {
+      "annotationType": {
+        "bookmark": 990,
+        "highlight": 5940,
+        "note": 2970
+      },
+      "annotationsPerSource": {
+        "0": 14850
+      },
+      "format": {
+        "application/epub+zip": 2969,
+        "application/pdf": 5941,
+        "note": 2973,
+        "text/html": 2967
+      },
+      "kind": {
+        "article": 5941,
+        "book": 2969,
+        "note": 2973,
+        "web": 2967
+      },
+      "status": {
+        "abandoned": 1487,
+        "archived": 2227,
+        "finished": 2969,
+        "inbox": 3713,
+        "queued": 1485,
+        "reading": 2969
+      },
+      "tagsPerRecord": {
+        "0": 3713,
+        "1": 5937,
+        "3": 3713,
+        "8": 1487
+      }
+    },
+    "relationships": 26483,
+    "selectiveBodyNeedle": 11,
+    "task": {
+      "archived": 3468,
+      "attachments": 1734,
+      "contexts": 5201,
+      "customProperties": 3468,
+      "dependencies": 1734,
+      "due": 8661,
+      "overdue": 3468,
+      "projects": 5201,
+      "recurrence": 3468,
+      "scheduled": 8666,
+      "status": {
+        "cancelled": 3462,
+        "done": 8659,
+        "in-progress": 5202,
+        "open": 13862,
+        "waiting": 3465
+      },
+      "tags": 8661
+    },
+    "unknownFrontmatter": 9900
+  },
+  "documentBytes": {
+    "maximum": 524741,
+    "minimum": 433,
+    "p50": 4547,
+    "p95": 8078,
+    "p99": 8405,
+    "total": 465653392
+  },
+  "expectedResultsSha256": "980a77dadff6cf413791e11f101b7811e6e003360cc33ed58a0533d2bdf2a5ce",
+  "fixture": "hosted-storage-model-v1",
+  "fixtureContractSha256": "f0f8d29cdea983d722ccd84ff39f5e8f8f813ab844fa314d2fe2525b5f8f5aeb",
+  "generator": "scripts/hosted-storage-benchmark/fixture.mjs",
+  "generatorSha256": "911372b0acf001ed5ed605275df45e6df4fb01b06b5601d73c021ce585227b22",
+  "oracle": {
+    "dirty": false,
+    "engine": "mdbase-rs-0.4.0-rc.4",
+    "independentSeedVerified": true,
+    "revision": "e3cf57e9feb6e31f17cbf0ce21d70646ee908edb"
+  },
+  "privacy": "Deterministic synthetic content only; never derived from production data.",
+  "projectionEnvelopeBytes": {
+    "maximum": 1437,
+    "maximumAllowed": 262144,
+    "minimum": 397,
+    "p50": 941,
+    "p95": 1347,
+    "p99": 1371
+  },
+  "records": 100000,
+  "recordsSha256": "9b1356df7d3eaf6fbe10f7809d8f2103f5b380fad846dd5b3b2b18cd19fd0b52",
+  "resources": {
+    "bytes": 5702,
+    "catalogRevision": "sha256:13d551f5d6fe7416779b7e64fe70d662e0a6c1da0332ae2c3be715960bd240d3",
+    "count": 12,
+    "rebuildBytes": 5702,
+    "rebuildCatalogRevision": "sha256:f7388190fdd91b58db2fac2154093aad4f00e2755c91f3dcaddf6b70b72cd859"
+  },
+  "schemaVersion": 1,
+  "seed": "hosted-storage-model-v1",
+  "shapeBytes": {
+    "editor-note": {
+      "bytes": 45984075,
+      "records": 10000
+    },
+    "pickle-request": {
+      "bytes": 46067894,
+      "records": 10000
+    },
+    "pickle-response": {
+      "bytes": 23012159,
+      "records": 5000
+    },
+    "reader-annotation": {
+      "bytes": 46014647,
+      "records": 10000
+    },
+    "reader-source": {
+      "bytes": 73099610,
+      "records": 15000
+    },
+    "tasknotes-task": {
+      "bytes": 164252934,
+      "records": 35000
+    },
+    "workout-exercise": {
+      "bytes": 22421552,
+      "records": 5000
+    },
+    "workout-plan": {
+      "bytes": 13189769,
+      "records": 3000
+    },
+    "workout-quick-log": {
+      "bytes": 18170235,
+      "records": 4000
+    },
+    "workout-session": {
+      "bytes": 13440517,
+      "records": 3000
+    }
+  },
+  "shapes": {
+    "editor-note": 10000,
+    "pickle-request": 10000,
+    "pickle-response": 5000,
+    "reader-annotation": 10000,
+    "reader-source": 15000,
+    "tasknotes-task": 35000,
+    "workout-exercise": 5000,
+    "workout-plan": 3000,
+    "workout-quick-log": 4000,
+    "workout-session": 3000
+  },
+  "sourceDirty": false,
+  "sourceDirtyPaths": [],
+  "sourceRevision": "4274a5bc3efc057dbdc1652b1f7ed2f9ac3d34d8",
+  "synthetic": true,
+  "termination": {
+    "exactRecords": 100000
+  },
+  "workloadContractSha256": "6417a1386af30b5fd11576118fe55708c8b64d356d81c6acd75183743e90c7f4"
+}

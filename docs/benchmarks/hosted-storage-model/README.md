@@ -20,10 +20,10 @@ than copied by hand.
 
 ## Frozen workload corpus
 
-Defined in `consumer-inventory.md`, `workload-contract.json`, and
-`fixture-contract.json`. `selectivity-summary.md` and the three tracked fixture
-expected-result artifacts are generated only after the mdbase-rs oracle verifies
-the independent generator seed; until then this section is not frozen.
+Frozen in `consumer-inventory.md`, `workload-contract.json`,
+`fixture-contract.json`, `selectivity-summary.md`, and the three tracked fixture
+expected-result artifacts. Each expected artifact was independently seeded, then
+recomputed and accepted only after exact mdbase-rs equivalence.
 The corpus was derived from current TaskNotes, Reader, Editor, Pickle, MCP, Workout,
 and generic SDK call sites. It distinguishes provider predicates from current
 client-side filtering and distinguishes canonical results from acceptable typed
@@ -48,11 +48,11 @@ files pass PostgreSQL 18 syntax validation in isolated disposable databases.
 
 ## Fixture manifests
 
-Pending canonical regeneration for 10,000 records, 100,000 records, and the first
-complete record at or above 1 GiB of canonical Markdown. Large NDJSON payloads are
-reproducible and intentionally ignored; their SHA-256 digests and exact terminating
-record/byte counts will be tracked after oracle verification. Superseded generated
-fixtures were preserved outside the worktree and are not evidence.
+Tracked manifests cover 10,000 records / 46,208,841 bytes, 100,000 records /
+465,653,392 bytes, and 230,128 records / 1,073,743,117 canonical Markdown bytes.
+Large NDJSON payloads are reproducible and intentionally ignored; their SHA-256
+digests are tracked. Superseded generated fixtures were preserved outside the
+worktree and are not evidence.
 
 ## Results
 
