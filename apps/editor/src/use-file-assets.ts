@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { FileAssetStore, type FileAssetSnapshot } from "./file-asset-store";
-import { fileReferences, isInlinePreviewable, type FileReference } from "./file-references";
+import { isInlinePreviewable } from "./file-reference-resolution";
+import type { FileReference } from "./file-references";
 import type { CollectionFile, CollectionGateway } from "./model";
 
 export interface ResolvedFileReference extends Omit<FileReference, "file"> {
@@ -31,11 +32,29 @@ export function useEmbeddedFileAssets(
   visibleKeys?: ReadonlySet<string>
 ): ResolvedFileReference[] {
   useSyncExternalStore(store.subscribe, store.getVersion, store.getVersion);
-  const references = useMemo(
-    () => fileReferences(source, files, sourcePath)
-      .filter((reference): reference is FileReference & { file: CollectionFile } => Boolean(reference.file)),
-    [files, source, sourcePath]
-  );
+  const [parsed, setParsed] = useState<{
+    source: string;
+    files: readonly CollectionFile[];
+    sourcePath?: string;
+    references: Array<FileReference & { file: CollectionFile }>;
+  }>(() => ({ source: "", files: [], references: [] }));
+  const references = parsed.source === source && parsed.files === files && parsed.sourcePath === sourcePath
+    ? parsed.references
+    : [];
+  useEffect(() => {
+    let active = true;
+    void import("./file-references").then(({ fileReferences }) => {
+      if (!active) return;
+      setParsed({
+        source,
+        files,
+        sourcePath,
+        references: fileReferences(source, files, sourcePath)
+          .filter((reference): reference is FileReference & { file: CollectionFile } => Boolean(reference.file))
+      });
+    });
+    return () => { active = false; };
+  }, [files, source, sourcePath]);
   const acquired = references.filter(({ file }) => (
     isInlinePreviewable(file) && (!visibleKeys || visibleKeys.has(`${file.fileId}:${file.revision}`))
   ));

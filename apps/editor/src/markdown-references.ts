@@ -31,6 +31,7 @@ export function markdownReferences(source: string, tree: MarkdownTree = markdown
       // [target] range. Recover the outer bracket pair while retaining the syntax
       // tree's exclusion of code spans and fenced code.
       const wrappedWikiLink = kind === "link"
+        && !cursor.node.getChild("URL")
         && cursor.from > 0
         && source[cursor.from - 1] === "["
         && source[cursor.to] === "]";

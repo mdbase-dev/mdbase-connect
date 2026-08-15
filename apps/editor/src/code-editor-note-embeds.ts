@@ -1,5 +1,5 @@
 import type { Extension, Range } from "@codemirror/state";
-import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
+import { Decoration, EditorView, ViewPlugin, WidgetType, type ViewUpdate } from "@codemirror/view";
 import type { ResolvedNoteEmbed } from "./note-embeds";
 
 class NoteEmbedWidget extends WidgetType {
@@ -49,9 +49,11 @@ class NoteEmbedWidget extends WidgetType {
       status.setAttribute("role", "status");
       status.textContent = reference.status === "loading"
         ? "Opening transcluded note…"
-        : reference.status === "cycle"
-          ? "Circular transclusion stopped here."
-          : reference.status === "missing_fragment"
+          : reference.status === "cycle"
+            ? "Circular transclusion stopped here."
+            : reference.status === "ambiguous"
+              ? reference.error ?? "More than one note matches this transclusion."
+            : reference.status === "missing_fragment"
             ? "That heading or block does not exist in this note."
             : reference.status === "missing"
               ? "This transcluded note could not be resolved."
@@ -86,7 +88,6 @@ export function noteEmbedPresentation(
       return Decoration.set(ranges, true);
     }),
     ViewPlugin.fromClass(class {
-      decorations: DecorationSet = Decoration.none;
       private reported = "";
 
       constructor(view: EditorView) { this.report(view); }

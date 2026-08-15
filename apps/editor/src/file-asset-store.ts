@@ -1,4 +1,4 @@
-import { fileAssetKey } from "./file-references";
+import { fileAssetKey } from "./file-reference-resolution";
 import type { CollectionFile, CollectionGateway } from "./model";
 
 export type FileAssetSnapshot =

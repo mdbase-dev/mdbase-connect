@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { resolveFileReference } from "./file-references";
-import { resolveLinkSuggestion, type LinkSuggestion } from "./links";
-import { markdownReferences, type MarkdownReference } from "./markdown-references";
+import { useEffect, useRef, useState } from "react";
+import { resolveFileReference } from "./file-reference-resolution";
+import { resolveLinkSuggestionMatches, type LinkSuggestion } from "./links";
+import type { MarkdownReference } from "./markdown-references";
+import { markdownFragment } from "./markdown-fragments";
 import type { CollectionFile, CollectionGateway, NoteDocument, NoteSummary } from "./model";
 import { noteTitle } from "./note";
 
 export type ResolvedNoteEmbed = MarkdownReference & {
   key: string;
-  status: "ready" | "loading" | "missing" | "missing_fragment" | "cycle" | "error";
+  status: "ready" | "loading" | "missing" | "ambiguous" | "missing_fragment" | "cycle" | "error";
   path?: string;
   title: string;
   body?: string;
@@ -36,15 +37,36 @@ export function useEmbeddedNoteReferences(
     setErrors(new Map());
   }, [gateway]);
 
-  const references = useMemo(() => markdownReferences(source).filter((reference) => (
-    reference.kind === "embed" && reference.block
-  )), [source]);
+  const [parsed, setParsed] = useState<{ source: string; references: MarkdownReference[] }>(() => ({ source: "", references: [] }));
+  const references = parsed.source === source ? parsed.references : [];
+  useEffect(() => {
+    let active = true;
+    void import("./markdown-references").then(({ markdownReferences }) => {
+      if (active) setParsed({
+        source,
+        references: markdownReferences(source).filter((reference) => (
+          reference.kind === "embed" && reference.block
+        ))
+      });
+    });
+    return () => { active = false; };
+  }, [source]);
 
   const resolved = references.flatMap((reference): ResolvedNoteEmbed[] => {
     const key = `${reference.from}:${reference.to}`;
-    const suggestion = reference.target
-      ? resolveLinkSuggestion(reference.target, suggestions, sourcePath, reference.format)
-      : suggestions.find((candidate) => candidate.path === sourcePath);
+    const matches = reference.target
+      ? resolveLinkSuggestionMatches(reference.target, suggestions, sourcePath, reference.format)
+      : suggestions.filter((candidate) => candidate.path === sourcePath);
+    if (matches.length > 1) {
+      return [{
+        ...reference,
+        key,
+        status: "ambiguous",
+        title: reference.label ?? reference.target,
+        error: `${matches.length} notes match this reference.`
+      }];
+    }
+    const suggestion = matches[0];
     if (!suggestion) {
       if (reference.target && resolveFileReference(reference.target, reference.format, files, sourcePath)) return [];
       return [{ ...reference, key, status: "missing", title: (reference.label ?? reference.target) || "Missing note" }];
@@ -113,45 +135,4 @@ export function useEmbeddedNoteReferences(
   }, [gateway, requestKey]);
 
   return resolved;
-}
-
-export function markdownFragment(body: string, anchor?: string): string | undefined {
-  if (!anchor) return body;
-  const decoded = decodeAnchor(anchor);
-  if (decoded.startsWith("^")) {
-    const blockId = decoded.slice(1).toLocaleLowerCase();
-    const line = body.split(/\r?\n/).find((candidate) => {
-      const match = candidate.match(/\s+\^([\p{L}\p{N}_-]+)\s*$/u);
-      return match?.[1].toLocaleLowerCase() === blockId;
-    });
-    return line?.replace(/\s+\^[\p{L}\p{N}_-]+\s*$/u, "");
-  }
-
-  const lines = body.split(/\r?\n/);
-  const requested = headingIdentity(decoded);
-  for (let index = 0; index < lines.length; index += 1) {
-    const heading = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(lines[index]);
-    if (!heading || headingIdentity(heading[2]) !== requested) continue;
-    const level = heading[1].length;
-    let end = index + 1;
-    while (end < lines.length) {
-      const next = /^(#{1,6})\s+/.exec(lines[end]);
-      if (next && next[1].length <= level) break;
-      end += 1;
-    }
-    return lines.slice(index, end).join("\n").trimEnd();
-  }
-  return undefined;
-}
-
-function decodeAnchor(value: string): string {
-  try { return decodeURIComponent(value).trim(); } catch { return value.trim(); }
-}
-
-function headingIdentity(value: string): string {
-  return value.normalize("NFC")
-    .toLocaleLowerCase()
-    .replace(/[*_~`]/g, "")
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .trim();
 }

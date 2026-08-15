@@ -1,7 +1,7 @@
 import type { Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type ViewUpdate } from "@codemirror/view";
 import type { FileAssetSnapshot } from "./file-asset-store";
-import { fileAssetKey, isInlinePreviewable, isTextPreviewable } from "./file-references";
+import { fileAssetKey, isInlinePreviewable, isTextPreviewable } from "./file-reference-resolution";
 import type { ResolvedFileReference } from "./use-file-assets";
 
 class FileEmbedWidget extends WidgetType {

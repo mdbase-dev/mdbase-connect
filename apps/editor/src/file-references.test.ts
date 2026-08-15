@@ -32,6 +32,12 @@ describe("file references", () => {
     expect(resolveFileReference("paper.pdf", "wikilink", files, "Notes/today.md")).toBeUndefined();
     expect(resolveFileReference("https://example.com/cat.png", "markdown", files, "Notes/today.md")).toBeUndefined();
   });
+
+  it("prefers source-relative Markdown files over legacy collection-root paths", () => {
+    const duplicateFiles = [file("diagram.svg", "5", "image"), ...files];
+    expect(resolveFileReference("diagram.svg", "markdown", duplicateFiles, "Notes/today.md")?.path).toBe("Notes/diagram.svg");
+    expect(resolveFileReference("/diagram.svg", "markdown", duplicateFiles, "Notes/today.md")?.path).toBe("diagram.svg");
+  });
 });
 
 function file(path: string, id: string, mediaClass: CollectionFile["mediaClass"]): CollectionFile {

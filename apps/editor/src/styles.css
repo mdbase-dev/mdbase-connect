@@ -129,6 +129,7 @@
 .code-editor-writer .cm-note-embed-content input[type="checkbox"] { margin: 0 7px 0 0; accent-color: var(--accent); }
 .code-editor-writer .cm-note-embed-status { min-height: 82px; display: grid; place-items: center; margin: 0; padding: 18px; color: var(--faint); font-size: 11px; text-align: center; }
 .code-editor-writer .cm-note-embed.missing,
+.code-editor-writer .cm-note-embed.ambiguous,
 .code-editor-writer .cm-note-embed.missing_fragment,
 .code-editor-writer .cm-note-embed.error { border-left-color: var(--warning); }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { markdownFragment } from "./note-embeds";
+import { markdownFragment } from "./markdown-fragments";
 
 describe("Markdown transclusion fragments", () => {
   const body = [

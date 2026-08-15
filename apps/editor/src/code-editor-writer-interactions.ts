@@ -1,7 +1,7 @@
 import type { Extension } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
-import { resolveFileReference } from "./file-references";
+import { resolveFileReference } from "./file-reference-resolution";
 import { resolveLinkSuggestion, type LinkSuggestion } from "./links";
 import { markdownReferenceAt } from "./markdown-references";
 import type { CollectionFile } from "./model";

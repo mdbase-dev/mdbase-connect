@@ -5,6 +5,8 @@ import {
   backlinksFor,
   linkMatches,
   linkSuggestions,
+  resolveLinkSuggestion,
+  resolveLinkSuggestionMatches,
   unresolvedNoteTarget,
   wikilinkFor
 } from "./links";
@@ -84,6 +86,19 @@ describe("collection links", () => {
     expect(linkMatches(suggestions, "adlv")).toMatchObject([{
       suggestion: { path: "People/ada-lovelace.md" }
     }]);
+  });
+
+  it("exposes ambiguous simple names and rejects collection traversal", () => {
+    const suggestions = linkSuggestions([
+      note("Notes/project.md", "Project"),
+      note("Archive/project.md", "Project")
+    ], [], types);
+
+    expect(resolveLinkSuggestionMatches("project", suggestions, "Notes/source.md").map((item) => item.path)).toEqual([
+      "Notes/project.md",
+      "Archive/project.md"
+    ]);
+    expect(resolveLinkSuggestion("../../Archive/project", suggestions, "Notes/source.md", "markdown")).toBeUndefined();
   });
 
   it("turns unresolved Markdown and wiki targets into nearby notes", () => {

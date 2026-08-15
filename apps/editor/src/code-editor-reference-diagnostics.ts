@@ -2,10 +2,10 @@ import { syntaxTree } from "@codemirror/language";
 import { linter, type Diagnostic } from "@codemirror/lint";
 import type { Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
-import { resolveFileReference } from "./file-references";
-import { resolveLinkSuggestion, type LinkSuggestion } from "./links";
+import { resolveFileReference } from "./file-reference-resolution";
+import { resolveLinkSuggestionMatches, type LinkSuggestion } from "./links";
 import { markdownReferences } from "./markdown-references";
-import { markdownFragment } from "./note-embeds";
+import { markdownFragment } from "./markdown-fragments";
 import type { CollectionFile, NoteSummary } from "./model";
 
 export function referenceDiagnostics(
@@ -38,7 +38,11 @@ export function diagnosticsForReferences(
         ? [diagnostic(reference.from, reference.to, `This note has no “${reference.anchor}” section or block.`)]
         : [];
     }
-    const note = resolveLinkSuggestion(reference.target, suggestions, sourcePath, reference.format);
+    const noteMatches = resolveLinkSuggestionMatches(reference.target, suggestions, sourcePath, reference.format);
+    if (noteMatches.length > 1) {
+      return [diagnostic(reference.from, reference.to, `${noteMatches.length} notes match “${reference.target}”. Use a path to disambiguate it.`)];
+    }
+    const note = noteMatches[0];
     const file = resolveFileReference(reference.target, reference.format, files, sourcePath);
     if (!note && !file) {
       return [diagnostic(reference.from, reference.to, `No note or file matches “${reference.target}”.`)];
