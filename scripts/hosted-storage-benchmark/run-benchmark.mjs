@@ -523,7 +523,18 @@ function postgresCpuUsec() {
 }
 
 function captureEnvironment() {
-  const git = (cwd) => ({ revision: run("git", ["rev-parse", "HEAD"], { cwd }).stdout.trim(), dirty: Boolean(run("git", ["status", "--porcelain"], { cwd }).stdout.trim()) });
+  const git = (cwd) => {
+    const status = run("git", ["status", "--porcelain", "--untracked-files=all"], { cwd }).stdout
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => line.slice(3))
+      .filter((path) => !path.startsWith("docs/benchmarks/hosted-storage-model/results/"));
+    return {
+      revision: run("git", ["rev-parse", "HEAD"], { cwd }).stdout.trim(),
+      dirty: status.length > 0,
+      dirtyPaths: status,
+    };
+  };
   return {
     runId,
     capturedAt: new Date().toISOString(),

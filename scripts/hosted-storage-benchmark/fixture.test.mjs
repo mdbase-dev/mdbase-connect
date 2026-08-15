@@ -20,11 +20,47 @@ test("fixture mix, documents, and semantic seeds are deterministic", () => {
   assert.equal(fixtureRecord(50).projection.persisted_frontmatter.source, "[[src_0000008]]");
   assert.equal(fixtureRecord(50).projection.persisted_frontmatter.annotation_type, "highlight");
   assert.equal(fixtureRecord(183).projection.persisted_frontmatter.type, "pickle_response_ack");
+  assert.equal(fixtureRecord(179).projection.persisted_frontmatter.response_type,
+    "pickle_response_ack");
   assert.equal(fixtureRecord(183).projection.persisted_frontmatter.request,
     `[[${fixtureRecord(179).path.replace(/\.md$/, "")}]]`);
   const readerType = fixtureResources(1).find(({ path }) => path === "_types/reader-source.md");
   assert.match(readerType.document, /fields_present/);
   assert.match(readerType.document, /"kind"/);
+});
+
+test("frozen Reader and Pickle cycles preserve declared distributions", () => {
+  const byShape = (shape, count) => {
+    const output = [];
+    for (let index = 0; output.length < count; index += 1) {
+      const record = fixtureRecord(index);
+      if (record.shape === shape && !record.malformed) output.push(record);
+    }
+    return output;
+  };
+  const sources = byShape("reader-source", 100);
+  const sourceKinds = Object.groupBy(
+    sources,
+    ({ projection }) => projection.persisted_frontmatter.kind
+  );
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(sourceKinds).map(([key, values]) => [key, values.length])),
+    { article: 40, book: 20, web: 20, note: 20 }
+  );
+  const annotations = byShape("reader-annotation", 100);
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(Object.groupBy(
+      annotations,
+      ({ projection }) => projection.persisted_frontmatter.annotation_type
+    )).map(([key, values]) => [key, values.length])),
+    { highlight: 60, note: 30, bookmark: 10 }
+  );
+  const requests = byShape("pickle-request", 20);
+  assert.equal(requests.filter(({ projection }) => projection.persisted_frontmatter.status === "cancelled").length, 1);
+  assert.equal(requests.filter(({ projection }) => projection.persisted_frontmatter.response_type === "pickle_response_ack").length, 1);
+  const responses = byShape("pickle-response", 10);
+  assert.equal(responses.filter(({ projection }) => projection.types.includes("pickle_response_ack")).length, 2);
+  assert.equal(new Set(responses.map(({ projection }) => projection.persisted_frontmatter.request)).size, 9);
 });
 
 test("generator freezes exact selectivity and result digests", async () => {
