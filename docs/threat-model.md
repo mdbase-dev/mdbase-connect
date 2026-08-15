@@ -120,8 +120,29 @@ Hosted Markdown and resource state use per-collection data keys wrapped by the
 provider key hierarchy. The provider validates capability proofs, epochs,
 request freshness, replay state, quotas, and the exact grant before a
 transaction commits. Database compromise without the provider master key is
-within the encryption-at-rest claim; compromise of the live provider or its
-active master key is not.
+within the exact-document encryption-at-rest claim; compromise of the live
+provider or its active master key is not.
+
+The selected hosted architecture deliberately persists a provider-readable
+semantic projection derived by mdbase-rs. Database, replica, snapshot, and backup
+readers can learn canonical paths, file facts, types, persisted/effective
+frontmatter, diagnostics, relationship edges, structural body facts, and value
+frequency. They must not receive exact Markdown or body prose from the projection.
+Logs and telemetry may record bounded counts and timing, never projection payloads.
+
+Projection rows are non-authoritative and revision-, catalog-, engine-, format-,
+and generation-bound. A current projection may narrow candidate selection and
+authorization classification. A stale, absent, ambiguous, corrupt, or unverifiable
+projection forces bounded canonical mdbase-rs classification and fails closed if
+that cannot complete. Queries union current projection matches with stale/absent
+records so optimization cannot create false negatives.
+
+Outgoing relationship edges are readable derived state. mdbase-rs owns link,
+embed, tag, anchor, alias, relative-target, and ambiguity semantics; the provider
+persists their bounded graph and derives backlinks from indexed inverse lookup. A
+write atomically binds ciphertext, revision, projection, and relationship state.
+This target is not yet enabled for production traffic, so current production
+security promises do not change until the final rollout approval.
 
 ### Revocation and recovery
 
@@ -154,7 +175,9 @@ explicitly labelled as unsigned beta previews otherwise.
 | Crash loses revocation | Atomic local disable plus durable cleanup outbox and recovery worker |
 | Two authorities write one collection | Explicit authority lifecycle, epoch fencing, folder role marker, and mirror lease |
 | Copied folder aliases an authority | Duplicate identity detection and explicit register-copy flow |
-| Provider database is copied | Per-collection envelope encryption; master key held separately |
+| Provider database is copied | Exact Markdown/body prose remain envelope-encrypted; readable projection and relationship leakage is explicitly inventoried and access-controlled |
+| Stale or corrupt projection widens a scoped grant | Version-bound currentness; canonical mdbase-rs fallback; fail-closed authorization; transaction-time grant/catalog/revision revalidation |
+| Projection candidate plan misses an authorized semantic match | Closed versioned IR; no-false-negative conformance; stale/absent union; canonical residual evaluation |
 | Malicious dependency or artifact | Frozen lockfiles, automated dependency review, audit gate, pinned Actions, provenance, signatures, checksums |
 | UI hides or confuses a security decision | Concrete permission review, semantic browser checks, keyboard navigation, and reduced-motion coverage |
 | Authorized application targets scripts or control files | Canonical record namespace, extension allowlist, resource-kind binding, shadow validation, symlink and regular-file checks |

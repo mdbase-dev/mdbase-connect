@@ -111,6 +111,10 @@ derived capabilities without taking the service offline.
 
 ## Components
 
+The selected hosted storage and bounded-query boundary is documented in
+[Hosted queryable execution](./architecture/hosted-queryable-execution.md). It is
+under implementation and is not yet production-enabled.
+
 - `mdbase-rs` owns collection loading, validation, querying, mutation,
   revisions, and normalized filesystem events.
 - `connect-agent` owns collection registration, local policy enforcement, the

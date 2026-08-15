@@ -1,7 +1,8 @@
 # Encryption architecture
 
 Status: encrypted relay, signed application identity, connector continuity,
-standard hosted encryption, and managed hosted key wrapping implemented
+standard hosted encryption, and managed hosted key wrapping implemented;
+provider-readable hosted semantic projections selected but not production-enabled
 
 ## Purpose
 
@@ -297,15 +298,36 @@ uniqueness without storing the record path itself. Resource paths such as
 `mdbase.yaml` and type-definition paths are visible.
 
 Frontmatter values, bodies, retained document versions, change images, and
-mutation receipts are encrypted at rest. The provider decrypts scoped candidate
-records and evaluates queries through `mdbase-rs`; it does not maintain
-plaintext frontmatter JSONB or search indexes. Any future index needs its own
-documented leakage analysis.
+mutation receipts are encrypted at rest in the currently deployed schema. The
+provider decrypts scoped candidate records and evaluates queries through
+`mdbase-rs`; the deployed schema does not yet maintain the selected semantic
+projection.
+
+[ADR 0011](./decisions/0011-server-trusted-queryable-hosted-execution.md) selects a
+new standard hosted boundary that is not yet production-enabled. Exact Markdown,
+body prose, retained exact versions, and exact change/receipt payloads remain
+application-encrypted. A full mdbase-rs-derived semantic projection becomes
+provider-readable derived state. It exposes canonical paths, file facts, matched
+types, persisted and effective frontmatter, diagnostics, relationships, structural
+body facts such as links/embeds/tags, and equality or frequency of those values to
+database, replica, snapshot, and backup readers.
+
+The projection is not an encryption or authorization authority. Current version
+bindings permit it to accelerate candidate selection and authorization
+classification; stale, absent, ambiguous, or unverifiable projections require
+bounded canonical decryption and fail-closed mdbase-rs classification. Body prose
+and exact Markdown are decrypted only for authorized exact/body output, body
+predicates, mutation, rebuild, stale fallback, or fail-closed authorization.
+
+No general projection GIN or automatic per-field index is part of the selected
+model. Every additional physical index needs a leakage analysis and measured query,
+write, WAL, HOT, rebuild, vacuum, and bloat justification.
 
 The encryption design and the hosted storage interface in
 [Hosted collections and sync](./sync.md) are implemented together. Revisions,
 version retention, transaction boundaries, snapshots, and exports all cross
-this boundary.
+this boundary. Existing beta/production collections and production security claims
+remain unchanged until the explicit production rollout gate is approved.
 
 ## Private hosted collections
 

@@ -1,9 +1,9 @@
 # Hosted storage-model benchmark
 
-- Status: benchmark complete; awaiting user decision
-- Decision: none
-- Governing proposal: `docs/decisions/0011-server-trusted-queryable-hosted-execution.md`
-- Stop gate: user review before storage-model selection or implementation continues
+- Status: benchmark complete; Candidate B selected; production implementation active
+- Decision: Candidate B-no-GIN baseline, accepted 2026-08-16
+- Governing decision: `docs/decisions/0011-server-trusted-queryable-hosted-execution.md`
+- Production gate: explicit user approval before existing-data migration or traffic enablement
 
 This directory is the tracked, durable evidence record for the hosted storage-model
 decision. The local `.ops/` registry coordinates execution but is intentionally not
@@ -80,12 +80,23 @@ gates. GIN adds substantial rebuild/WAL/vacuum cost without a material gate win.
 Candidate C does not materially turn a B common-workload failure into a pass and is
 not recommendation-eligible.
 
-## Recommendation
+## Selected follow-up
 
-Do not select or deploy a storage model. If further benchmark/optimization work is
-authorized, continue from B-no-GIN and the frozen failures. This is evidence for
-user discussion, not an accepted decision.
+Candidate B is selected as the production architecture, beginning from B-no-GIN.
+The selection preserves encrypted exact Markdown and body prose while accepting
+provider-readable semantic projections. Production work must correct the prototype
+projector by extracting and persisting structurally significant body relationships
+through mdbase-rs, and must replace repeat-to-completion top-K behavior with true
+bounded deterministic pages.
+
+The report remains an immutable record of the original comparison. Its failed
+ordering, latency, and cancellation gates are implementation targets, not permission
+to change frozen expected results or silently widen budgets.
 
 ## Decision log
 
-No decision has been made. Stop and request user review after completing this record.
+- 2026-08-16: Candidate B selected. Candidate B-no-GIN is the physical baseline;
+  narrow indexes require new plan and write-pressure evidence. Candidate C remains
+  rejected because it did not materially resolve B's common-workload failures.
+- Existing beta/production data migration and production traffic remain gated on a
+  final explicit user approval after staging and rollout review.

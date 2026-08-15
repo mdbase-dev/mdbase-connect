@@ -1,6 +1,6 @@
 # ADR 0011: Hosted query storage model and bounded execution
 
-- Status: proposed
+- Status: accepted; implementation in progress
 - Date proposed: 2026-08-15
 - Review revision: 2026-08-16
 - Connect checkpoint: `444ed9f86f6265d1960c5e17a5976d3559aef359`
@@ -10,20 +10,22 @@
   point reads, bounded execution, horizontal providers, and `WorkingSet` deletion
 - Tracked benchmark record: `docs/benchmarks/hosted-storage-model/README.md`
 - Local execution task: `.ops/tasks/Queryable hosted collection execution.md`
-- Decision authority: user review after the comparative benchmark
+- Decision accepted: 2026-08-16, Candidate B selected by the user
+- Production gate: explicit user approval before migrating existing beta/production
+  data or enabling the model for production traffic
 
 ## Status and scope
 
-This ADR records an unresolved storage-model decision. It does not authorize a
-provider-readable schema, a migration, a public security-claim change, or any
-production write. The authorized work is limited to preserving the existing
-checkpoint, freezing representative workloads and confidentiality requirements,
-specifying the projection/authorization state machine, building disposable
-prototypes, and benchmarking the alternatives below.
+This ADR selects Candidate B: encrypted exact Markdown as the sole canonical
+authority plus a full provider-readable, derived semantic projection. The
+projection is rebuildable and non-authoritative. Body prose and exact Markdown are
+not stored provider-readably.
 
-The implementation agent must stop after publishing reproducible benchmark
-evidence. Selection of a storage model and continuation into production-quality
-schema or query implementation require a separate user decision.
+Production implementation, additive migrations, isolated staging, consumer
+validation, reviewed PRs, and production-rollout preparation are authorized. No
+existing beta/production collection data may be migrated and the new model may not
+serve production traffic until a final explicit user approval. This status does
+not claim that the selected model is already deployed.
 
 ## Context
 
@@ -35,16 +37,15 @@ encrypted row can be selected, decrypted, and evaluated without loading unrelate
 records: a 10,003-record cold read completed in 41.52 ms and warm p95 was 31.39 ms.
 
 Removing `WorkingSet` and removing exact-document encryption are independent
-decisions. Bounded record-oriented execution is required under every storage model.
-The open question is how much provider-readable derived or canonical state should
-be persisted to make common hosted application queries useful without surrendering
-more database/backup confidentiality than the workload requires.
+decisions. The comparative benchmark showed that bounded encrypted scans alone do
+not satisfy scalable common queries, while making exact Markdown provider-readable
+does not materially cure the shared query-plan failures. The chosen boundary is a
+readable semantic projection over an encrypted exact authority.
 
-The previously drafted form of this ADR incorrectly compared encrypted full scans
-only with fully provider-readable records. It omitted the strongest hybrid: retain
-encrypted exact Markdown, persist a provider-readable mdbase-rs-derived projection,
-select candidates in SQL, and decrypt only records whose exact content or residual
-semantics require it. That hybrid is now a first-class candidate.
+The benchmark prototype established storage and confidentiality tradeoffs, but its
+executor is not the production query design. In particular, repeat-to-completion
+pagination must be implemented as bounded deterministic pages, not as one unbounded
+top-K operation.
 
 ## Accepted invariants
 
@@ -68,8 +69,8 @@ These decisions do not depend on which storage candidate wins:
 10. Existing journals, fencing, idempotency, receipts, changes, quotas, grants,
     recovery, and outbox ownership remain in mdbase-connect.
 11. Local and relay-only collection security boundaries do not change.
-12. No permanent pair of hosted product modes is selected by this benchmark. It
-    compares implementation candidates for one eventual standard hosted model.
+12. Candidate B is the single standard hosted target. Candidate A and C remain
+    benchmark evidence, not product modes.
 
 ## Storage candidates
 
@@ -85,7 +86,7 @@ This is the confidentiality baseline and the ADR 0010 direction. It protects exa
 documents, bodies, and frontmatter from database/backup disclosure without provider
 keys, but common metadata queries may scan and decrypt many records.
 
-### Candidate B: encrypted canonical records with readable projections
+### Candidate B: encrypted canonical records with readable projections (selected)
 
 - Exact Markdown remains application-layer encrypted.
 - mdbase-rs produces a provider-readable, revision-bound semantic projection.
@@ -94,13 +95,25 @@ keys, but common metadata queries may scan and decrypt many records.
 - Records are decrypted only when the response requests exact/body content, the
   residual evaluator requires facts absent from the projection, or authorization
   cannot safely use a current projection.
-- Broad body predicates fall back to bounded ciphertext scans.
+- Body predicates that cannot use structural projection facts fall back to bounded
+  canonical decryption and residual evaluation with typed budgets.
 
-This candidate preserves database/backup confidentiality for bodies and exact
-non-projected Markdown while exposing every value deliberately included in the
-projection. It is not database-private as a whole. Its privacy inventory must state
-whether paths, raw/effective frontmatter, types, relationships, diagnostics, or
-other derived values are visible.
+This model preserves database/backup confidentiality for exact Markdown and body
+prose while exposing paths, file facts, persisted/effective frontmatter, types,
+diagnostics, relationships, structural body facts, and equality/frequency of those
+values. It is not database-private as a whole.
+
+Production projection generation corrects an important prototype omission.
+mdbase-rs extracts structurally significant body facts including wikilinks,
+Markdown links, embeds, semantically exposed body tags, normalized outgoing
+targets, and the syntax/resolution information needed for rename, delete,
+reference, and backlink behavior. Connect persists outgoing edges in a bounded
+relational graph; backlinks are the indexed inverse of those edges.
+
+A body write computes its structural/link digest before encryption. When the
+structural set is unchanged, the transaction does not rewrite relationship edges.
+When it changes, the encrypted document, revision, current projection binding, and
+relationship state commit atomically.
 
 ### Candidate C: provider-readable canonical records with projections
 
@@ -114,19 +127,15 @@ some storage access, but it irreversibly changes the current database/backup
 confidentiality promise once written to replicas, snapshots, backups, logs, or
 forensic copies.
 
-### Index variants
+### Production index policy
 
-Candidate A is the no-readable-projection baseline. Candidates B and C are each
-measured with:
-
-- no general projection GIN index; and
-- one `jsonb_path_ops` containment GIN index where the frozen query compiler can
-  safely use it.
-
-All variants use only the existing identity/path/access indexes needed for their
-current representation unless the benchmark manifest explicitly names another
-physical index. Do not add per-field B-tree, full-text body, range/order, automatic
-schema-property, blind, or order-revealing indexes during this comparison.
+Candidate B-no-GIN is the baseline. Identity, canonical path, deterministic cursor,
+current-binding, generation, and source/target relationship indexes are mandatory.
+Additional narrow indexes require `EXPLAIN (ANALYZE, BUFFERS)` and measured common
+workload benefit including write latency, WAL, HOT rate, rebuild time, vacuum, and
+bloat. Do not add a general projection GIN, automatic per-field indexes, full-text
+body indexes, blind indexes, or order-revealing indexes without contrary evidence
+and a follow-up architectural review.
 
 ## Frozen workload and confidentiality contract
 
@@ -158,10 +167,9 @@ a database/backup reader learns about paths, bodies, raw/effective frontmatter,
 types, relationships, equality/frequency, query source, result pages, structural
 resources, retained versions, changes, receipts, and files.
 
-## Projection and rebuild protocol to be specified
+## Projection and rebuild protocol
 
-The benchmark may prototype projections only after documenting a concrete state
-machine. The minimum model includes:
+The production state machine retains the benchmark's versioned model:
 
 ```text
 Collection semantic state:
@@ -203,13 +211,13 @@ records receive bounded canonical evaluation. Completion is marked only by a
 transactional proof that no live record remains stale for the target catalog and
 format. Rebuild failure changes optimization state only.
 
-The benchmark report must supply exact tables/columns, transitions, SQL/CAS rules,
-completion proof, crash recovery, and race tests before this ADR can be accepted.
+Production migrations and implementation must preserve these bindings, transitions,
+SQL/CAS rules, completion proof, crash recovery, and adversarial race tests.
 
-## Authorization rules to be specified and tested
+## Authorization rules
 
-Candidate completeness does not establish authorization correctness. The design
-must replace any authorization decision that trusts unversioned persisted `types`.
+Candidate completeness does not establish authorization correctness. Production
+authorization must not trust unversioned persisted `types`.
 
 The required safety rules are:
 
@@ -228,9 +236,9 @@ The required safety rules are:
 7. Resource changes, projection rebuilds, record edits, and concurrent mutations
    receive adversarial race and restart tests.
 
-The benchmark phase must document how existing grant contract digests and type
-scope interact with the pinned catalog and demonstrate the transition away from the
-current pre-mutation persisted-type authorization path.
+Existing grant contract digests and type scope bind to the pinned catalog. The
+current pre-mutation authorization path based on unversioned persisted types must be
+removed before hosted parity is declared.
 
 ## Physical update and index rules
 
@@ -244,7 +252,7 @@ where the candidate permits. Measure HOT rate as an upside, not an invariant. Re
 heap tuples, TOAST bytes, WAL, dead tuples, vacuum behavior, index writes, and bloat
 even when HOT succeeds.
 
-## Benchmark protocol and decision gates
+## Benchmark evidence and implementation gates
 
 Use deterministic synthetic fixtures only, never production content. Exercise at
 least 10,000 records, 100,000 records, and approximately 1 GiB canonical Markdown
@@ -270,16 +278,19 @@ budget outcome. Existing defaults such as the 100,000-record/30-second scan ceil
 remain visible; the benchmark must not silently increase them to make a candidate
 pass.
 
-No latency threshold alone authorizes a confidentiality change. The final report
-must identify whether Candidate B satisfies the frozen common workload while
-preserving encrypted exact documents. Candidate C may be recommended only if B
-fails explicit workload gates, C materially resolves those failures, and the
-confidentiality-irreversible trade is separately approved.
+The comparative run is preserved under
+`docs/benchmarks/hosted-storage-model/results/2026-08-16-postgres18-local/`.
+No candidate passed its prototype executor gates. That result motivates production
+page-at-a-time planning and reliable cancellation; it is not evidence that the
+selected storage boundary is unsound. The frozen workloads, semantic results,
+budgets, and physical costs remain regression evidence and may not be relaxed merely
+to produce a passing result.
 
 ## Migration, consent, and irreversibility
 
-All benchmark schemas use disposable local/staging databases. No existing beta or
-production collection is migrated during this ADR's proposed phase.
+Implementation and validation use disposable local or isolated staging databases.
+No existing beta or production collection is migrated before the final rollout
+approval.
 
 Any future migration may be additive and operationally reversible, but writing
 provider-readable values is confidentiality-irreversible until every replica,
@@ -307,27 +318,28 @@ not a permanent dependency on a named agent model. The current implementation ma
 prefer Luna sub-agents when available, but any suitably independent executor may
 perform the mission. The implementer cannot be the only acceptance tester.
 
-## Stop gate
+## Production rollout gate
 
-The authorized work ends when the reproducible benchmark report, frozen workload,
-confidentiality inventory, state-machine specification, authorization design, and
-candidate recommendation are committed on review branches and presented to the
-user. At that point:
+Implementation may proceed through reviewed merges and isolated staging. Stop and
+present the final architecture, PRs, staging missions, benchmark gates, schema and
+migration plan, rollback/recovery plan, capacity effects, security changes, and
+remaining typed budget behaviors before any of the following:
 
-- do not mark this ADR accepted;
-- do not select or merge a storage schema;
-- do not continue into exact-sync adaptation or general query implementation;
-- do not deploy a candidate to shared staging or production; and
-- mark the local task blocked/awaiting decision.
+- migrating existing beta or production collection data;
+- enabling the selected storage model for production traffic;
+- removing recoverable production state; or
+- changing customer-facing production security promises.
 
-Continuation requires explicit user approval after discussion of the results.
+## Consequences
 
-## Consequences while proposed
+The projection becomes a deliberately database-readable index of semantic facts,
+not an encryption boundary or record authority. Database, replica, snapshot, and
+backup readers can learn all projected values and their frequency. Exact Markdown
+and body prose remain application-encrypted, although the live provider can decrypt
+them for authorized exact/body operations, mutation, fallback, and rebuild.
 
-ADR 0010 Phase 1 and its staged point-read candidate remain valid. Later encrypted
-execution work remains paused, but encrypted storage remains the current deployed
-authority and current public security documentation remains accurate.
-
-The bounded semantic/query boundary can be prototyped because every candidate needs
-it. No result from the benchmark prejudges whether exact documents remain encrypted.
-The review may select Candidate A, B, C, or require another design.
+Hosted common operations must cease materializing collection-wide `WorkingSet`.
+PostgreSQL executes only a closed, versioned plan compiled from mdbase-rs semantics;
+unsupported or over-budget operations return typed outcomes instead of falling
+back silently. Legacy compatibility is deleted only after differential parity,
+fault/race testing, isolated staging missions, and normal reviewed merge gates pass.
