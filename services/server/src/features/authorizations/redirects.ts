@@ -17,7 +17,27 @@ export function applicationOriginForRedirect(redirectUri: string, homepage: stri
 }
 
 export function normalizedApplicationOrigin(value: string): string {
-  return value === "null" ? "null" : new URL(value).origin;
+  if (value === "null") return "null";
+  const url = new URL(value);
+  if (["chrome-extension:", "moz-extension:"].includes(url.protocol)) {
+    if (
+      !url.hostname
+      || url.username
+      || url.password
+      || (url.pathname !== "" && url.pathname !== "/")
+      || url.search
+      || url.hash
+    ) {
+      throw new TypeError("The browser extension origin is invalid.");
+    }
+    return `${url.protocol}//${url.host}`;
+  }
+  return url.origin;
+}
+
+export function applicationOriginForDeviceRequest(origin: string | undefined): string {
+  if (!origin || origin === "null") return "null";
+  return normalizedApplicationOrigin(origin);
 }
 
 export async function createAuthorizationRedirect(
