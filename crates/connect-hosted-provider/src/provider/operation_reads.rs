@@ -458,7 +458,7 @@ async fn load_direct_record(
     Ok(Some((record, ciphertext_bytes)))
 }
 
-fn compile_point_catalog(
+pub(super) fn compile_point_catalog(
     resources: SyncCollectionResources,
     resource_documents: Vec<(String, String)>,
 ) -> ApiResult<mdbase::runtime::CompiledCatalog> {

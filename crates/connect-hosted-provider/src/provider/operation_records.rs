@@ -1,4 +1,5 @@
 use super::mutation_journal::HostedMutationLease;
+use super::projections::canonical_record_scope_types;
 use super::*;
 
 enum RecordOperationPreparation<'a> {
@@ -69,7 +70,8 @@ impl HostedProvider {
                     })?
                     .to_string();
                 let current = sqlx::query(
-                    r#"SELECT record_id, revision, types FROM hosted_provider_records
+                    r#"SELECT record_id, revision, sequence, payload_ciphertext
+                       FROM hosted_provider_records
                        WHERE collection_id = $1 AND path_token = $2"#,
                 )
                 .bind(collection_id)
@@ -79,7 +81,17 @@ impl HostedProvider {
                 .ok_or_else(|| {
                     ApiError::not_found("record_not_found", "The hosted record does not exist.")
                 })?;
-                let types: Vec<String> = current.get("types");
+                let types = canonical_record_scope_types(
+                    &mut transaction,
+                    self,
+                    &data_key,
+                    collection_id,
+                    current.get("record_id"),
+                    number(current.get::<i64, _>("sequence"), "record sequence")?,
+                    current.get("revision"),
+                    current.get("payload_ciphertext"),
+                )
+                .await?;
                 if !replica.allowed_types.is_empty()
                     && !types
                         .iter()

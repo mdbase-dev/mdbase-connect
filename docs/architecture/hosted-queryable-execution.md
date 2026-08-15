@@ -57,6 +57,9 @@ Current projected matches are unioned with every live stale or absent projection
 Stale/absent records are decrypted and canonically evaluated within explicit
 budgets. Corrupt, ambiguous, or unverifiable state never narrows authorization; it
 falls back to canonical classification and fails closed when that cannot complete.
+Record mutation scope checks no longer trust the unversioned `types` cache on the
+exact-record row: they canonically classify current ciphertext against the current
+resource catalog until an equivalently bound complete projection is proven.
 
 Resource changes advance the active catalog and open a rebuilding generation.
 Ordinary writes immediately target that catalog. Rebuild workers read exact record
@@ -87,7 +90,9 @@ safe candidate predicate, canonical residual requirements, deterministic orderin
 grouping/aggregation operators, response fields, and resource limits. Connect
 translates only that allow-listed IR into parameterized SQL.
 
-Queries operate one page at a time under a pinned semantic and database snapshot.
+Queries operate one page at a time under a pinned semantic generation and logical
+collection-head snapshot. Temporal projection/key/edge rows make that snapshot
+durable without retaining a PostgreSQL transaction between requests.
 Deterministic keyset cursors bind collection, grant/scope epoch, catalog and
 generation revisions, plan version/digest, ordering keys, snapshot/checkpoint, and
 expiry. They are authenticated and rejected when their binding is stale or invalid.
