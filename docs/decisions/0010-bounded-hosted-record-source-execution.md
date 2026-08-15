@@ -8,6 +8,10 @@
 - Extends: ADR 0009, cross-repository collection runtime execution contract
 - Companion contract: `mdbase-rs/docs/architecture/hosted-record-source-execution.md`
 - Budget manifest: `config/hosted-execution-budgets.json`
+- Under reconsideration by: proposed ADR 0011. Phase 1 remains accepted and later
+  encrypted-query phases are paused while ADR 0011 compares encrypted, hybrid, and
+  provider-readable storage. ADR 0011 does not supersede this decision unless and
+  until its benchmark gate is reviewed and explicitly accepted.
 
 ## Context
 
