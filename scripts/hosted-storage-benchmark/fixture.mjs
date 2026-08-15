@@ -26,7 +26,8 @@ export async function generateBenchmarkFixture({
   workloadContractPath,
   fixtureContractPath,
   sourceRevision = "unknown",
-  sourceDirty = true
+  sourceDirty = true,
+  sourceDirtyPaths = []
 }) {
   if (!output) throw new Error("output is required");
   if ((records === undefined) === (minimumCanonicalBytes === undefined)) {
@@ -180,6 +181,7 @@ export async function generateBenchmarkFixture({
       .digest("hex"),
     sourceRevision,
     sourceDirty,
+    sourceDirtyPaths,
     privacy: "Deterministic synthetic content only; never derived from production data."
   };
   await writeFile(

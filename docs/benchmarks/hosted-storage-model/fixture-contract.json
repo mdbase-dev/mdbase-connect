@@ -93,7 +93,7 @@
     "resourceChange": "add a defaulted benchmark_generation field and advance every type version from 1 to 2"
   },
   "manifestRequirements": [
-    "generator and source revisions",
+    "generator and source revisions plus source dirty paths, excluding generated fixture outputs",
     "seed and tier termination",
     "record and per-shape counts",
     "canonical document byte total and size percentiles",

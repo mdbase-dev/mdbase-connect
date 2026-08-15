@@ -12,6 +12,9 @@ const [{ stdout: revision }, { stdout: status }] = await Promise.all([
   execFileAsync("git", ["rev-parse", "HEAD"], { cwd: resolve(import.meta.dirname, "../..") }),
   execFileAsync("git", ["status", "--porcelain", "--untracked-files=all"], { cwd: resolve(import.meta.dirname, "../..") })
 ]);
+const dirtyPaths = status.trim().split("\n").filter(Boolean).filter((line) =>
+  !line.slice(3).startsWith("docs/benchmarks/hosted-storage-model/fixtures/")
+);
 const manifest = await generateBenchmarkFixture({
   ...options,
   workloadContractPath: resolve(
@@ -23,7 +26,8 @@ const manifest = await generateBenchmarkFixture({
     "../../docs/benchmarks/hosted-storage-model/fixture-contract.json"
   ),
   sourceRevision: revision.trim(),
-  sourceDirty: status.trim().length > 0
+  sourceDirty: dirtyPaths.length > 0,
+  sourceDirtyPaths: dirtyPaths.map((line) => line.slice(3))
 });
 process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
 
