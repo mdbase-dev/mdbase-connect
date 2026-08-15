@@ -476,8 +476,22 @@ fn migrate_authority_store_with_hook(
     let now = current_time_ms();
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     transaction.execute_batch(
-        "INSERT INTO grants SELECT * FROM legacy.grants;
-         INSERT INTO grant_crypto_state SELECT * FROM legacy.grant_crypto_state;
+        "INSERT INTO grants (
+             id, application_id, collection_id, operations, scope, application_name,
+             application_distribution, application_homepage, application_project_url,
+             application_origin, application_icon, collection_name, notification_criteria,
+             encryption, file_capability, application_authorization, created_at, updated_at
+         )
+         SELECT id, application_id, collection_id, operations, scope, application_name,
+                application_distribution, application_homepage, application_project_url,
+                application_origin, application_icon, collection_name, notification_criteria,
+                encryption, file_capability, application_authorization, created_at, updated_at
+         FROM legacy.grants;
+         INSERT INTO grant_crypto_state (
+             grant_id, key_id, last_request_counter, reorder_floor
+         )
+         SELECT grant_id, key_id, last_request_counter, reorder_floor
+         FROM legacy.grant_crypto_state;
          INSERT INTO grant_crypto_requests (
              grant_id, key_id, request_id, request_counter, request_fingerprint,
              replay_class, process_epoch, received_at_ms
@@ -492,9 +506,43 @@ fn migrate_authority_store_with_hook(
                 '',
                 COALESCE(CAST(unixepoch(request.received_at) * 1000 AS INTEGER), 0)
          FROM legacy.grant_crypto_requests request;
-         INSERT INTO mutation_journal SELECT * FROM legacy.mutation_journal;
-         INSERT INTO mutation_journal_tombstones SELECT * FROM legacy.mutation_journal_tombstones;
-         INSERT INTO revoked_grant_replay_material SELECT * FROM legacy.revoked_grant_replay_material;
+         INSERT INTO mutation_journal (
+             application_installation_id, grant_id, request_id, operation_kind,
+             input_schema_version, input_digest, state, process_epoch, lease_owner,
+             lease_expires_at_ms, fencing_generation, prepared_data, before_evidence,
+             after_evidence, result_metadata, final_receipt, receipt_digest,
+             grant_snapshot_digest, accepted_at_ms, updated_at_ms, completed_at_ms,
+             acknowledged_at_ms, compacted_at_ms
+         )
+         SELECT application_installation_id, grant_id, request_id, operation_kind,
+                input_schema_version, input_digest, state, process_epoch, lease_owner,
+                lease_expires_at_ms, fencing_generation, prepared_data, before_evidence,
+                after_evidence, result_metadata, final_receipt, receipt_digest,
+                grant_snapshot_digest, accepted_at_ms, updated_at_ms, completed_at_ms,
+                acknowledged_at_ms, compacted_at_ms
+         FROM legacy.mutation_journal;
+         INSERT INTO mutation_journal_tombstones (
+             application_installation_id, grant_id, request_id, operation_kind,
+             input_schema_version, input_digest, terminal_state, receipt_digest,
+             accepted_at_ms, completed_at_ms, tombstoned_at_ms, expires_at_ms
+         )
+         SELECT application_installation_id, grant_id, request_id, operation_kind,
+                input_schema_version, input_digest, terminal_state, receipt_digest,
+                accepted_at_ms, completed_at_ms, tombstoned_at_ms, expires_at_ms
+         FROM legacy.mutation_journal_tombstones;
+         INSERT INTO revoked_grant_replay_material (
+             grant_id, key_id, application_id, collection_id, operations, scope,
+             application_name, application_distribution, application_homepage,
+             application_project_url, application_origin, application_icon,
+             collection_name, notification_criteria, created_at, encryption,
+             file_capability, application_authorization, revoked_at_ms
+         )
+         SELECT grant_id, key_id, application_id, collection_id, operations, scope,
+                application_name, application_distribution, application_homepage,
+                application_project_url, application_origin, application_icon,
+                collection_name, notification_criteria, created_at, encryption,
+                file_capability, application_authorization, revoked_at_ms
+         FROM legacy.revoked_grant_replay_material;
          INSERT INTO authority_settings (key, value, updated_at_ms)
          SELECT key, value, CAST(unixepoch(updated_at) * 1000 AS INTEGER)
          FROM legacy.settings WHERE key = 'access_paused';
@@ -776,6 +824,100 @@ mod tests {
         assert_eq!(
             queues.pop(&mut control_burst).unwrap().priority,
             AuthorityWritePriority::Control
+        );
+    }
+
+    #[test]
+    fn beta49_grant_column_order_migrates_by_name_without_data_loss() {
+        let state = TempDir::new().unwrap();
+        let legacy = state.path().join("connector.sqlite");
+        super::super::migrations::migrate_registry(&legacy).unwrap();
+        let connection = Connection::open(&legacy).unwrap();
+        connection
+            .execute_batch(
+                "DROP TABLE grants;
+                 CREATE TABLE grants (
+                     id TEXT PRIMARY KEY,
+                     application_id TEXT NOT NULL,
+                     collection_id TEXT NOT NULL,
+                     operations TEXT NOT NULL,
+                     scope TEXT NOT NULL DEFAULT '{\"contracts\":[],\"access\":\"full_collection\"}',
+                     application_name TEXT NOT NULL DEFAULT 'Application',
+                     application_distribution TEXT NOT NULL DEFAULT 'web',
+                     application_homepage TEXT NOT NULL DEFAULT '',
+                     application_project_url TEXT,
+                     application_origin TEXT NOT NULL DEFAULT '',
+                     application_icon TEXT,
+                     collection_name TEXT NOT NULL DEFAULT 'Collection',
+                     notification_criteria TEXT NOT NULL DEFAULT '[]',
+                     encryption TEXT,
+                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                     file_capability TEXT,
+                     application_authorization TEXT
+                 );
+                 INSERT INTO grants (
+                     id, application_id, collection_id, operations, scope,
+                     application_name, application_distribution, application_homepage,
+                     application_project_url, application_origin, application_icon,
+                     collection_name, notification_criteria, encryption, created_at,
+                     updated_at, file_capability, application_authorization
+                 ) VALUES (
+                     '01922222-2222-7222-8222-222222222222',
+                     'dev.mdbase.beta49-fixture',
+                     '01911111-1111-7111-8111-111111111111',
+                     '[\"read\",\"update\"]',
+                     '{\"contracts\":[\"workout\"],\"access\":\"full_collection\"}',
+                     'Beta 49 fixture', 'web', 'https://fixture.example',
+                     'https://fixture.example/project', 'https://fixture.example',
+                     'https://fixture.example/icon.png', 'Fixture collection',
+                     '[{\"event\":\"record.updated\"}]',
+                     '{\"algorithm\":\"x25519\"}',
+                     '2026-01-02 03:04:05', '2026-02-03 04:05:06', NULL,
+                     '{\"binding\":{\"protocol_version\":4}}'
+                 );",
+            )
+            .unwrap();
+        let grant_columns =
+            "id, application_id, collection_id, operations, scope, application_name,
+             application_distribution, application_homepage, application_project_url,
+             application_origin, application_icon, collection_name, notification_criteria,
+             encryption, file_capability, application_authorization, created_at, updated_at";
+        let legacy_grant = connection
+            .query_row(&format!("SELECT {grant_columns} FROM grants"), [], |row| {
+                (0..18)
+                    .map(|index| row.get::<_, Option<String>>(index))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .unwrap();
+        drop(connection);
+
+        let authority = state.path().join("authority.sqlite");
+        let receipts = state.path().join("authority-receipts");
+        migrate_authority_store(state.path(), &legacy, &authority, &receipts).unwrap();
+        migrate_authority_store(state.path(), &legacy, &authority, &receipts).unwrap();
+        verify_authority_store(&authority).unwrap();
+
+        let migrated = Connection::open(&authority).unwrap();
+        let migrated_grant = migrated
+            .query_row(&format!("SELECT {grant_columns} FROM grants"), [], |row| {
+                (0..18)
+                    .map(|index| row.get::<_, Option<String>>(index))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .unwrap();
+        assert_eq!(migrated_grant, legacy_grant);
+        assert_eq!(
+            migrated.pragma_query_value(None, "integrity_check", |row| row.get::<_, String>(0)),
+            Ok("ok".to_string())
+        );
+        assert_eq!(
+            Connection::open(&legacy)
+                .unwrap()
+                .query_row("SELECT COUNT(*) FROM grants", [], |row| row
+                    .get::<_, u32>(0))
+                .unwrap(),
+            1
         );
     }
 
