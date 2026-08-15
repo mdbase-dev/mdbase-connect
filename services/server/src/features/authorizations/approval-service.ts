@@ -90,6 +90,7 @@ export async function approvePortalAuthorization(
       application_authorization: ApplicationAuthorizationProof | null;
       flow: "authorization_code" | "device_code";
       redirect_uri: string | null;
+      device_origin: string | null;
       collection_id: string | null;
       grant_id: string | null;
       activation_started_at: string | Date | null;
@@ -103,7 +104,7 @@ export async function approvePortalAuthorization(
               ar.requested_operations, a.requirements, a.provisions, a.notifications,
               ar.operation_transport_protocol, ar.application_agreement_public_key,
               ar.application_signing_public_key, ar.application_authorization,
-              ar.flow, ar.redirect_uri,
+              ar.flow, ar.redirect_uri, ar.device_origin,
               ar.collection_id, ar.grant_id, ar.activation_started_at
        FROM authorization_requests ar
        JOIN applications a ON a.id = ar.application_id
@@ -246,7 +247,7 @@ export async function approvePortalAuthorization(
     const applicationInstallationId =
       pending.application_authorization.binding.application_installation_id;
     const applicationOrigin = pending.flow === "device_code"
-      ? "null"
+      ? pending.device_origin ?? "null"
       : applicationOriginForRedirect(
           pending.redirect_uri!,
           pending.application_homepage
@@ -579,6 +580,7 @@ export async function approveHostedAuthorization(
       application_homepage: string;
       distribution: "web" | "portable";
       redirect_uri: string | null;
+      device_origin: string | null;
       requested_operations: string[];
       requirements: ApplicationRequirements;
       provisions: ApplicationProvisions;
@@ -595,7 +597,7 @@ export async function approveHostedAuthorization(
               a.manifest_digest AS application_manifest_digest,
               a.name AS application_name,
               a.distribution, a.homepage AS application_homepage,
-              ar.redirect_uri, ar.requested_operations,
+              ar.redirect_uri, ar.device_origin, ar.requested_operations,
               a.requirements, a.provisions, a.notifications,
               ar.operation_transport_protocol, ar.application_agreement_public_key,
               ar.application_signing_public_key, ar.application_authorization, ar.flow,
@@ -726,13 +728,13 @@ export async function approveHostedAuthorization(
     );
     const operations = plan.operations;
     const applicationOrigin = pending.flow === "device_code"
-      ? "null"
+      ? pending.device_origin ?? "null"
       : applicationOriginForRedirect(
           pending.redirect_uri!,
           pending.application_homepage
         );
     const allowedOrigin = pending.flow === "device_code"
-      ? "null"
+      ? pending.device_origin ?? "null"
       : ["http:", "https:"].includes(new URL(pending.redirect_uri!).protocol)
         ? new URL(pending.redirect_uri!).origin
         : undefined;

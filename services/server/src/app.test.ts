@@ -1404,11 +1404,12 @@ describe("mdbase connect server", () => {
       grantAgreementPublicKey: applicationAgreementPublicKey,
       grantSigningPublicKey: applicationSigningPublicKey
     });
+    const extensionOrigin = "chrome-extension://nllgjelcggnmffkfncfgpfhdkellkhdo";
     const device = await app.inject({
       method: "POST",
       url: "/oauth/device_authorization",
       headers: {
-        origin: "null",
+        origin: extensionOrigin,
         "content-type": "application/x-www-form-urlencoded"
       },
       payload: new URLSearchParams({
@@ -1454,7 +1455,7 @@ describe("mdbase connect server", () => {
         purpose: "application",
         fullCollection: true,
         allowedOperations: ["describe", "query", "create", "update"],
-        allowedOrigin: "null",
+        allowedOrigin: extensionOrigin,
         proofPublicKey: applicationSigningPublicKey,
         applicationDeclarationId: manifest.id,
         applicationDeclarationDigest: `sha256:${applicationManifestDigest}`
@@ -1468,7 +1469,7 @@ describe("mdbase connect server", () => {
     expect(token.statusCode, JSON.stringify(token.json())).toBe(200);
     expect(token.json()).toMatchObject({
       collection_id: collectionId,
-      application_origin: "null",
+      application_origin: extensionOrigin,
       operations: ["describe", "query", "create", "update", "sync"],
       encryption: null,
       authority: {
@@ -1497,7 +1498,7 @@ describe("mdbase connect server", () => {
       url: "/oauth/token",
       payload: refreshBody,
       headers: {
-        origin: "null",
+        origin: extensionOrigin,
         "content-type": "application/x-www-form-urlencoded"
       }
     });
@@ -1533,7 +1534,7 @@ describe("mdbase connect server", () => {
     expect(refreshed.statusCode, JSON.stringify(refreshed.json())).toBe(200);
     expect(refreshed.json()).toMatchObject({
       collection_id: collectionId,
-      application_origin: "null",
+      application_origin: extensionOrigin,
       encryption: null,
       authority: {
         operations_url: `https://sync.example/v1/authorities/${collectionId}/operations`,
@@ -1552,7 +1553,7 @@ describe("mdbase connect server", () => {
       [token.json().grant_id]
     );
     expect(grant.rows[0]).toEqual({
-      application_origin: "null",
+      application_origin: extensionOrigin,
       encryption: null,
       proof_public_key: applicationSigningPublicKey
     });

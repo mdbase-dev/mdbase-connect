@@ -64,6 +64,7 @@ import {
 import { registerGrantRevocationRoute } from "./grant-revocation-route.js";
 import { registerAuthorizationPollingRoutes } from "./polling-routes.js";
 import {
+  applicationOriginForDeviceRequest,
   createAuthorizationRedirect,
   deniedAuthorizationRedirect
 } from "./redirects.js";
@@ -102,6 +103,7 @@ export function registerAuthorizationRoutes(
   app.post("/oauth/device_authorization", {
     config: { rateLimit: { max: 30, timeWindow: "1 minute" } }
   }, async (request, reply) => {
+    const deviceOrigin = applicationOriginForDeviceRequest(request.headers.origin);
     const input = z.object({
       client_id: z.uuid(),
       operations: z.string().default("read,query"),
@@ -168,11 +170,12 @@ export function registerAuthorizationRoutes(
           requested_operations, collection_id, operation_transport_protocol,
           application_agreement_public_key, application_signing_public_key,
           application_authorization, application_installation_id,
+          device_origin,
           device_code_hash, user_code, user_code_hash,
           poll_interval_seconds, expires_at)
        VALUES ($1, NULL, $2, 'device_code', NULL, NULL, $3, $4::jsonb, $5, $6,
-               $7, $8, $9::jsonb, $10, $11, $12, $13, $14,
-               $15::timestamptz)
+               $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $15,
+               $16::timestamptz)
        ON CONFLICT (id) DO NOTHING
        RETURNING id`,
       [
@@ -186,6 +189,7 @@ export function registerAuthorizationRoutes(
         proof.binding.grant_signing_public_key,
         JSON.stringify(proof),
         proof.binding.application_installation_id,
+        deviceOrigin,
         tokenHash(deviceCode),
         userCode,
         tokenHash(canonicalUserCode(userCode)),
