@@ -192,6 +192,58 @@ export async function generateBenchmarkFixture({
   return manifest;
 }
 
+export async function refreshExpectedResults({
+  fixtureDirectory,
+  workloadContractPath,
+  sourceRevision,
+  sourceDirty = false,
+  sourceDirtyPaths = []
+}) {
+  const workloadContractText = await readFile(workloadContractPath, "utf8");
+  const workloadContract = JSON.parse(workloadContractText);
+  const manifestPath = join(fixtureDirectory, "fixture-manifest.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  const accumulators = new Map();
+  for (const workload of workloadContract.queryWorkloads) {
+    accumulators.set(workload.id, []);
+    for (const scan of workload.providerScans ?? []) {
+      accumulators.set(`${workload.id}:${scan.id}`, []);
+    }
+  }
+  for (let index = 0; index < manifest.records; index += 1) {
+    const record = fixtureRecord(index, manifest.seed);
+    for (const workload of workloadContract.queryWorkloads) {
+      if (matches(workload.candidateIr, record)) {
+        accumulators.get(workload.id).push(resultFact(workload, record));
+      }
+      for (const scan of workload.providerScans ?? []) {
+        if (matches(scan.candidateIr, record)) {
+          accumulators.get(`${workload.id}:${scan.id}`).push(resultFact(workload, record));
+        }
+      }
+    }
+  }
+  const expectedText = `${JSON.stringify(
+    expectedResults(workloadContract.queryWorkloads, accumulators),
+    null,
+    2
+  )}\n`;
+  await writeFile(join(fixtureDirectory, "expected-results.json"), expectedText);
+  manifest.expectedResultsSha256 = createHash("sha256").update(expectedText).digest("hex");
+  manifest.workloadContractSha256 = createHash("sha256")
+    .update(workloadContractText)
+    .digest("hex");
+  manifest.generatorSha256 = createHash("sha256")
+    .update(await readFile(import.meta.filename))
+    .digest("hex");
+  manifest.sourceRevision = sourceRevision;
+  manifest.sourceDirty = sourceDirty;
+  manifest.sourceDirtyPaths = sourceDirtyPaths;
+  delete manifest.oracle;
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  return manifest;
+}
+
 export function fixtureRecord(index, seed = DEFAULT_SEED) {
   if (!Number.isSafeInteger(index) || index < 0) throw new Error("invalid fixture index");
   const { shape, ordinal } = shapeAt(index);
@@ -475,11 +527,13 @@ function matches(expression, record) {
 
 function resultFact(workload, record) {
   const response = workload.responseFields.map((path) => [path, responseField(record, path)]);
+  const responseWithoutBody = response.filter(([path]) => path !== "body" && path !== "document");
   return {
     recordId: record.recordId,
     path: record.path,
     sort: (workload.order ?? []).map(({ field }) => responseField(record, field)),
     responseDigest: createHash("sha256").update(canonicalJson(response)).digest("hex"),
+    responseDigestWithoutBody: createHash("sha256").update(canonicalJson(responseWithoutBody)).digest("hex"),
     clientResidual: workload.clientResidual ? matches(workload.clientResidual, record) : undefined,
     residualMatch: workload.canonicalResidual && typeof workload.canonicalResidual === "object"
       ? matches(workload.canonicalResidual, record)
@@ -502,11 +556,14 @@ function expectedResults(workloads, accumulators) {
           ? accumulators.get(`${workload.id}:${scan.id}`)
           : candidateFacts)];
         facts.sort((left, right) => compareFacts(left, right, scan.order ?? workload.order ?? []));
-        const selected = selectPageDomain(facts, scan.page);
+        const includeBody = scan.includeBody ?? workload.responseFields.includes("body");
+        const selected = selectPageDomain(facts, scan.page).map((fact) => includeBody
+          ? fact
+          : { ...fact, responseDigest: fact.responseDigestWithoutBody });
         return {
           id: scan.id,
           rows: facts.length,
-          includeBody: scan.includeBody ?? workload.responseFields.includes("body"),
+          includeBody,
           pages: pageFactsFor(selected, scan.page),
           orderedRecordIdsDigest: digestValues(selected.map(({ recordId }) => recordId))
         };

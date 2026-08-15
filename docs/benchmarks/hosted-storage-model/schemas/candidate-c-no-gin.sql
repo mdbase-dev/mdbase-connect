@@ -44,6 +44,7 @@ CREATE TABLE candidate_c_no_gin.records (
   record_revision text NOT NULL,
   content_bytes bigint NOT NULL CHECK (content_bytes >= 0),
   exact_markdown text NOT NULL,
+  file_mtime timestamptz NOT NULL,
   sequence bigint NOT NULL CHECK (sequence > 0),
   updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   PRIMARY KEY (collection_id, record_id),
