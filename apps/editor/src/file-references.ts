@@ -1,4 +1,4 @@
-import { markdownLanguage } from "@codemirror/lang-markdown";
+import { markdownReferences, type MarkdownReferenceFormat } from "./markdown-references";
 import type { CollectionFile } from "./model";
 
 export interface FileReference {
@@ -6,46 +6,26 @@ export interface FileReference {
   to: number;
   target: string;
   label?: string;
-  format: "wikilink" | "markdown";
+  anchor?: string;
+  format: MarkdownReferenceFormat;
   block: boolean;
   file?: CollectionFile;
 }
 
 /**
- * Parses embeds with the editor's Markdown grammar, then resolves only against
- * authority-provided file descriptors. Code spans and fenced code are ignored
- * by construction because they do not produce Image syntax nodes.
+ * Resolves parsed embeds only against authority-provided file descriptors.
  */
 export function fileReferences(
   source: string,
   files: readonly CollectionFile[],
   sourcePath?: string
 ): FileReference[] {
-  const references: FileReference[] = [];
-  const cursor = markdownLanguage.parser.parse(source).cursor();
-  const visit = () => {
-    if (cursor.name === "Image") {
-      const raw = source.slice(cursor.from, cursor.to);
-      const parsed = raw.startsWith("![[")
-        ? parseWikiReference(raw)
-        : parseMarkdownReference(source, cursor.from, cursor.to);
-      if (parsed) {
-        references.push({
-          from: cursor.from,
-          to: cursor.to,
-          ...parsed,
-          block: isBlockReference(source, cursor.from, cursor.to),
-          file: resolveFileReference(parsed.target, parsed.format, files, sourcePath)
-        });
-      }
-    }
-    if (cursor.firstChild()) {
-      do visit(); while (cursor.nextSibling());
-      cursor.parent();
-    }
-  };
-  visit();
-  return references;
+  return markdownReferences(source)
+    .filter((reference) => reference.kind === "embed")
+    .map(({ kind: _kind, ...reference }) => ({
+      ...reference,
+      file: resolveFileReference(reference.target, reference.format, files, sourcePath)
+    }));
 }
 
 export function resolveFileReference(
@@ -89,41 +69,13 @@ export function isInlinePreviewable(file: CollectionFile): boolean {
   return file.mediaClass === "image"
     || file.mediaClass === "pdf"
     || file.mediaClass === "audio"
-    || file.mediaClass === "video";
+    || file.mediaClass === "video"
+    || isTextPreviewable(file);
 }
 
-function parseWikiReference(raw: string): Pick<FileReference, "target" | "label" | "format"> | undefined {
-  if (!raw.endsWith("]]")) return undefined;
-  const [rawTarget, rawLabel] = raw.slice(3, -2).split("|", 2);
-  const target = rawTarget.split("#", 1)[0]?.trim();
-  if (!target) return undefined;
-  const label = rawLabel?.trim();
-  return { target, ...(label ? { label } : {}), format: "wikilink" };
-}
-
-function parseMarkdownReference(
-  source: string,
-  from: number,
-  to: number
-): Pick<FileReference, "target" | "label" | "format"> | undefined {
-  const node = markdownLanguage.parser.parse(source.slice(from, to)).topNode;
-  let image = node.getChild("Paragraph")?.getChild("Image") ?? node.getChild("Image");
-  if (!image) return undefined;
-  const url = image.getChild("URL");
-  if (!url) return undefined;
-  const raw = source.slice(from, to);
-  const target = source.slice(from + url.from, from + url.to).replace(/^<|>$/g, "").trim();
-  if (!target) return undefined;
-  const close = raw.indexOf("](");
-  const label = close >= 2 ? raw.slice(2, close).replaceAll("\\]", "]").trim() : "";
-  return { target, ...(label ? { label } : {}), format: "markdown" };
-}
-
-function isBlockReference(source: string, from: number, to: number): boolean {
-  const lineStart = source.lastIndexOf("\n", Math.max(0, from - 1)) + 1;
-  const lineEndIndex = source.indexOf("\n", to);
-  const lineEnd = lineEndIndex < 0 ? source.length : lineEndIndex;
-  return source.slice(lineStart, from).trim() === "" && source.slice(to, lineEnd).trim() === "";
+export function isTextPreviewable(file: CollectionFile): boolean {
+  return Boolean(file.mediaType?.startsWith("text/"))
+    || /\.(?:txt|md|mdx|csv|tsv|json|ya?ml|toml|ini|log|xml|html?|css|[cm]?[jt]sx?|py|rs|go|java|kt|swift|sh|zsh|fish|sql)$/iu.test(file.path);
 }
 
 function decodeTarget(value: string): string {

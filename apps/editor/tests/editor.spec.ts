@@ -310,6 +310,21 @@ test("focuses embedded PDFs in place and opens PDF wikilinks in the file workspa
   })).toBe(true);
 });
 
+test("transcludes Markdown notes and opens the source note", async ({ page }) => {
+  await page.goto("?demo=12");
+  const body = page.getByRole("textbox", { name: "Note body" });
+  await body.locator(".cm-line").first().click();
+  await page.keyboard.press("Control+End");
+  await page.keyboard.insertText("\n\n![[Journal/garden-notes-2]]");
+  await body.locator(".cm-line").first().click();
+
+  const transclusion = page.getByRole("region", { name: "Transclusion of Garden notes 2" });
+  await expect(transclusion).toBeVisible();
+  await expect(transclusion).toContainText("A generated note used to test a large collection.");
+  await transclusion.getByRole("button", { name: "Open Garden notes 2" }).click();
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
+});
+
 test("uses one fixed-choice control across settings, note creation, and type editing", async ({ page }) => {
   await page.goto("?demo=12");
 

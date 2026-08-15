@@ -111,6 +111,64 @@ export function wikilinkFor(suggestion: LinkSuggestion, label = suggestion.title
     : `${target}|${label}`;
 }
 
+export function resolveLinkSuggestion(
+  target: string,
+  suggestions: LinkSuggestion[],
+  sourcePath?: string,
+  format: "wikilink" | "markdown" = "wikilink"
+): LinkSuggestion | undefined {
+  let decoded = target.trim().replaceAll("\\", "/");
+  try { decoded = decodeURIComponent(decoded); } catch { /* Literal percent signs remain usable. */ }
+  if (!decoded || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(decoded)) return undefined;
+
+  const sourceFolder = sourcePath ? folder(sourcePath) : "";
+  const rootRelative = decoded.startsWith("/");
+  const explicitlyRelative = decoded.startsWith("./") || decoded.startsWith("../");
+  const normalized = normalizePath(rootRelative
+    ? decoded.slice(1)
+    : format === "markdown" || explicitlyRelative
+      ? joinPath(sourceFolder, decoded)
+      : decoded);
+  const normalizedWithoutExtension = normalized.replace(/\.md$/i, "").toLocaleLowerCase();
+  const exact = suggestions.find((suggestion) => (
+    suggestion.path.replace(/\.md$/i, "").toLocaleLowerCase() === normalizedWithoutExtension
+  ));
+  if (exact) return exact;
+
+  // Markdown destinations are relative to the source document, but older Editor
+  // content also used collection-root paths without a leading slash. Prefer the
+  // standards-based relative match above and retain the root form as a fallback.
+  if (format === "markdown" && !rootRelative && !explicitlyRelative) {
+    const legacyRoot = normalizePath(decoded).replace(/\.md$/i, "").toLocaleLowerCase();
+    const legacyRootMatch = suggestions.find((suggestion) => (
+      suggestion.path.replace(/\.md$/i, "").toLocaleLowerCase() === legacyRoot
+    ));
+    if (legacyRootMatch) return legacyRootMatch;
+  }
+
+  if (decoded.includes("/") && format === "wikilink" && !rootRelative && !explicitlyRelative) {
+    const relative = normalizePath(joinPath(sourceFolder, decoded)).replace(/\.md$/i, "").toLocaleLowerCase();
+    const relativeMatch = suggestions.find((suggestion) => suggestion.path.replace(/\.md$/i, "").toLocaleLowerCase() === relative);
+    if (relativeMatch) return relativeMatch;
+  }
+
+  const name = decoded.replace(/^\.\//, "").replace(/\.md$/i, "").toLocaleLowerCase();
+  if (name.includes("/")) return undefined;
+  const candidates = suggestions.filter((suggestion) => {
+    const filename = suggestion.path.split("/").at(-1)?.replace(/\.md$/i, "").toLocaleLowerCase();
+    return filename === name
+      || suggestion.title.toLocaleLowerCase() === name
+      || suggestion.aliases?.some((alias) => alias.toLocaleLowerCase() === name);
+  });
+  return candidates.sort((left, right) => {
+    const leftFolder = folder(left.path);
+    const rightFolder = folder(right.path);
+    return Number(rightFolder === sourceFolder) - Number(leftFolder === sourceFolder)
+      || left.path.length - right.path.length
+      || left.path.localeCompare(right.path);
+  })[0];
+}
+
 export function unresolvedNoteTarget(
   target: string,
   label: string | undefined,

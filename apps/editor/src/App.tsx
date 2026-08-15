@@ -93,6 +93,7 @@ import { useCollectionWatch } from "./use-collection-watch";
 import { useFileInventory } from "./use-file-inventory";
 import { useFileAssetStore } from "./use-file-assets";
 import { useFileWorkspace } from "./use-file-workspace";
+import { useEmbeddedNoteReferences } from "./note-embeds";
 import {
   BacklinksPanel,
   EmptyEditor,
@@ -113,6 +114,10 @@ const NewNoteComposer = lazy(() => import("./NewNoteComposer").then((module) => 
 const FileViewer = lazy(() => import("./FileViewer").then((module) => ({ default: module.FileViewer })));
 const FileWorkspace = lazy(() => import("./FileViewer").then((module) => ({ default: module.FileWorkspace })));
 const emptyTypeDescriptors: CollectionTypeDescriptor[] = [];
+
+function sameStringSet(current: ReadonlySet<string>, next: readonly string[]): boolean {
+  return current.size === next.length && next.every((value) => current.has(value));
+}
 
 interface Confirmation {
   title: string;
@@ -224,6 +229,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [noteSort, setNoteSort] = useState<NoteSort>(loadNoteSort);
   const [resizingPane, setResizingPane] = useState<"collection" | "list" | "inspector">();
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
+  const [visibleFileEmbedKeys, setVisibleFileEmbedKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const [visibleNoteEmbedKeys, setVisibleNoteEmbedKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [, setSessionTick] = useState(0);
   const documentGeneration = useRef(0);
   const navigationGeneration = useRef(0);
@@ -240,7 +247,23 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const mobileLayout = viewportWidth <= 760;
   const typeDescriptors = description?.types ?? emptyTypeDescriptors;
   const notePreviewController = useNotePreview(gateway, allNotes, typeDescriptors);
-  const fileWorkspace = useFileWorkspace(fileAssetStore, fileInventory.files, draft?.body ?? "", document?.path);
+  const updateVisibleFileEmbeds = useCallback((keys: string[]) => {
+    setVisibleFileEmbedKeys((current) => sameStringSet(current, keys) ? current : new Set(keys));
+  }, []);
+  const updateVisibleNoteEmbeds = useCallback((keys: string[]) => {
+    setVisibleNoteEmbedKeys((current) => sameStringSet(current, keys) ? current : new Set(keys));
+  }, []);
+  useEffect(() => {
+    setVisibleFileEmbedKeys(new Set());
+    setVisibleNoteEmbedKeys(new Set());
+  }, [document?.path]);
+  const fileWorkspace = useFileWorkspace(
+    fileAssetStore,
+    fileInventory.files,
+    draft?.body ?? "",
+    document?.path,
+    visibleFileEmbedKeys
+  );
   const { selectedFile: selectedCollectionFile, setSelectedFile: setSelectedCollectionFile, selectedAsset: selectedFileAsset,
     pendingFilePath, setPendingFilePath, openAsset: openFileAsset, setOpenAsset: setOpenFileAsset, embeddedFiles } = fileWorkspace;
   const attachments = useAttachmentUpload({ gateway, inventory: fileController,
@@ -815,6 +838,15 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     visibleNotes, fileInventory.files, noteFilter, deferredSearch, noteSort, typeDescriptors);
   const linkTypeNames = useMemo(() => description?.types.map((type) => type.name) ?? [], [description]);
   const linkOptions = useMemo(() => linkSuggestions(allNotes, linkTypeNames, typeDescriptors), [allNotes, linkTypeNames, typeDescriptors]);
+  const embeddedNotes = useEmbeddedNoteReferences(
+    gateway,
+    draft?.body ?? "",
+    allNotes,
+    linkOptions,
+    fileInventory.files,
+    document?.path,
+    visibleNoteEmbedKeys
+  );
   const backlinkNotes = useMemo(() => document ? backlinksFor(document.path, allNotes, typeDescriptors) : [], [allNotes, document, typeDescriptors]);
 
   const runNoteOperation = useCallback(async <Result,>(
@@ -1996,9 +2028,13 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
                 onPreviewLink={notePreviewController.request}
                 onDismissLinkPreview={notePreviewController.dismiss}
                 embeddedFiles={embeddedFiles}
+                embeddedNotes={embeddedNotes}
                 onOpenFile={setOpenFileAsset}
                 files={fileInventory.files}
+                notes={allNotes}
                 onOpenFileLink={navigateToFile}
+                onVisibleFileEmbeds={updateVisibleFileEmbeds}
+                onVisibleNoteEmbeds={updateVisibleNoteEmbeds}
                 insertion={attachments.insertion}
               />
             </Suspense>

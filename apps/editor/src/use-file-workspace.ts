@@ -7,13 +7,14 @@ export function useFileWorkspace(
   store: FileAssetStore,
   files: readonly CollectionFile[],
   source: string,
-  sourcePath?: string
+  sourcePath?: string,
+  visibleEmbedKeys?: ReadonlySet<string>
 ) {
   const [selectedFile, setSelectedFile] = useState<CollectionFile>();
   const [pendingFilePath, setPendingFilePath] = useState<string>();
   const [openAsset, setOpenAsset] = useState<Extract<FileAssetSnapshot, { status: "ready" }>>();
   const selectedAsset = useFileAsset(store, selectedFile);
-  const embeddedFiles = useEmbeddedFileAssets(store, source, files, sourcePath);
+  const embeddedFiles = useEmbeddedFileAssets(store, source, files, sourcePath, visibleEmbedKeys);
 
   useEffect(() => setOpenAsset(undefined), [sourcePath]);
   useEffect(() => openAsset ? store.acquire(openAsset.file) : undefined, [openAsset, store]);

@@ -11,6 +11,7 @@ import {
   yamlFrontmatterDiagnostics
 } from "./CodeEditor";
 import type { LinkSuggestion } from "./links";
+import type { CollectionFile, NoteSummary } from "./model";
 
 describe("mdbase mention scope", () => {
   const types = ["note", "person", "reading-item"];
@@ -154,9 +155,40 @@ describe("object link completion", () => {
     expect(complete("hello@example.com")).toBeNull();
   });
 
-  function complete(doc: string) {
+  it("completes note and file transclusions", () => {
+    const files: CollectionFile[] = [{
+      fileId: "00000000-0000-4000-8000-000000000001",
+      path: "Documents/paper.pdf",
+      revision: "pdf-1",
+      contentDigest: `sha256:${"1".repeat(64)}`,
+      size: 10,
+      mediaClass: "pdf",
+      modifiedAt: "2026-08-15T00:00:00Z"
+    }];
+    expect(complete("Embed ![[pap", files)?.options).toMatchObject([
+      { label: "paper.pdf", detail: "Transclude file · Documents/paper.pdf", apply: "Documents/paper.pdf]]" }
+    ]);
+  });
+
+  it("completes heading and block anchors after a note target", () => {
+    const notes = [{
+      path: "People/ada.md",
+      frontmatter: {},
+      effectiveFrontmatter: { title: "Ada Lovelace" },
+      types: ["person"],
+      file: {},
+      body: "# Ada Lovelace\n\n## Work\n\nAnalytical engine. ^engine"
+    }] as NoteSummary[];
+    expect(complete("![[People/ada#", [], notes)?.options).toMatchObject([
+      { label: "Ada Lovelace", detail: "Section in note", apply: "Ada Lovelace]]" },
+      { label: "Work", detail: "Section in note", apply: "Work]]" },
+      { label: "^engine", detail: "Block · Analytical engine.", apply: "^engine]]" }
+    ]);
+  });
+
+  function complete(doc: string, files: CollectionFile[] = [], notes: NoteSummary[] = []) {
     const state = EditorState.create({ doc });
-    return linkCompletion(new CompletionContext(state, doc.length, false), suggestions, types);
+    return linkCompletion(new CompletionContext(state, doc.length, false), suggestions, types, undefined, [], files, notes);
   }
 });
 

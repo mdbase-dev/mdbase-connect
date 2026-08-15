@@ -17,7 +17,9 @@ const OIDC_ISSUER = "https://token.actions.githubusercontent.com";
 // in separately versioned assets.
 const MANIFEST_NAME = "mdbase-connect-channel-v1.json";
 const MANIFEST_BUNDLE_NAME = `${MANIFEST_NAME}.sigstore.json`;
-const MAX_RELEASE_INDEX_BYTES = 2 * 1024 * 1024;
+const RELEASE_INDEX_PAGE_SIZE = 20;
+const MAX_RELEASE_INDEX_PAGES = 5;
+const MAX_RELEASE_INDEX_BYTES = 8 * 1024 * 1024;
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const MAX_BUNDLE_BYTES = 4 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -60,18 +62,23 @@ export interface ReleaseSourceOptions {
 
 export async function findLatestRelease(options: ReleaseSourceOptions): Promise<ReleaseCandidate | null> {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const indexUrl = `${GITHUB_API}/repos/${REPOSITORY}/releases?per_page=100`;
-  const response = await request(fetchImpl, indexUrl);
-  const releases = parseReleaseIndex(
-    JSON.parse((await readLimited(response, MAX_RELEASE_INDEX_BYTES)).toString("utf8"))
-  );
+  const releases: GitHubRelease[] = [];
+  for (let page = 1; page <= MAX_RELEASE_INDEX_PAGES; page += 1) {
+    const indexUrl = `${GITHUB_API}/repos/${REPOSITORY}/releases?per_page=${RELEASE_INDEX_PAGE_SIZE}&page=${page}`;
+    const response = await request(fetchImpl, indexUrl);
+    const pageReleases = parseReleaseIndex(
+      JSON.parse((await readLimited(response, MAX_RELEASE_INDEX_BYTES)).toString("utf8"))
+    );
+    releases.push(...pageReleases);
+    if (pageReleases.length < RELEASE_INDEX_PAGE_SIZE) break;
+  }
   const matching = releases.filter(
     (release) =>
       !release.draft &&
       (options.channel === "beta" ? release.prerelease : !release.prerelease) &&
       /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(release.tag_name)
   );
-  let best: ReleaseCandidate | null = null;
+  matching.sort((left, right) => compareVersions(right.tag_name.slice(1), left.tag_name.slice(1)));
   const rejected: Error[] = [];
   for (const release of matching) {
     const manifestAsset = release.assets.find((asset) => asset.name === MANIFEST_NAME);
@@ -104,9 +111,7 @@ export async function findLatestRelease(options: ReleaseSourceOptions): Promise<
       if (manifest.channel !== options.channel || channelForVersion(manifest.version) !== options.channel) {
         throw new Error("Signed update manifest is published on the wrong channel.");
       }
-      if (!best || compareVersions(manifest.version, best.manifest.version) > 0) {
-        best = { manifest, manifestBytes, release: { tag: release.tag_name, url: release.html_url } };
-      }
+      return { manifest, manifestBytes, release: { tag: release.tag_name, url: release.html_url } };
     } catch (error) {
       rejected.push(
         new Error(
@@ -118,13 +123,13 @@ export async function findLatestRelease(options: ReleaseSourceOptions): Promise<
       );
     }
   }
-  if (!best && rejected.length > 0) {
+  if (rejected.length > 0) {
     throw new AggregateError(
       rejected,
       `No release had valid signed update metadata. ${rejected[0].message}`
     );
   }
-  return best;
+  return null;
 }
 
 export async function verifyArtifactBundle(input: {

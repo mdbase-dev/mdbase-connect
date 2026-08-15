@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { CodeEditor } from "./CodeEditor";
 import type { ResolvedFileReference } from "./use-file-assets";
+import type { ResolvedNoteEmbed } from "./note-embeds";
 
 vi.mock("./inline-pdf-viewer", () => ({
   mountInlinePdfViewer: vi.fn(() => ({ unmount: vi.fn() }))
@@ -23,6 +24,37 @@ describe("rendered Markdown links", () => {
 
     expect(open).toHaveBeenCalledWith("https://mdbase.dev/docs/", "_blank", "noopener,noreferrer");
     expect(screen.getByRole("link", { name: "the documentation" })).toBeInTheDocument();
+  });
+
+  it("does not render wikilink examples inside code", async () => {
+    render(<CodeEditor
+      value={"`[[People/ada]]`\n\n```md\n[[People/grace]]\n```"}
+      label="Note body"
+      language="markdown"
+      variant="writer"
+    />);
+
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+});
+
+describe("note transclusions", () => {
+  it("renders a resolved note fragment and opens its source note", async () => {
+    const open = vi.fn();
+    render(<CodeEditor
+      value={"Intro.\n\n![[Notes/plan#Decisions]]"}
+      label="Note body"
+      language="markdown"
+      variant="writer"
+      embeddedNotes={[noteReference]}
+      onOpenLink={open}
+    />);
+
+    const transclusion = await screen.findByRole("region", { name: "Transclusion of Project plan" });
+    expect(transclusion).toHaveTextContent("Decisions");
+    expect(transclusion).toHaveTextContent("Use the shared parser.");
+    fireEvent.click(screen.getByRole("button", { name: "Open Project plan" }));
+    expect(open).toHaveBeenCalledWith("Notes/plan.md");
   });
 });
 
@@ -90,4 +122,20 @@ const pdfReference: ResolvedFileReference = {
       modifiedAt: "2026-08-09T00:00:00Z"
     }
   }
+};
+
+const noteReference: ResolvedNoteEmbed = {
+  from: 8,
+  to: 33,
+  target: "Notes/plan",
+  anchor: "Decisions",
+  format: "wikilink",
+  kind: "embed",
+  block: true,
+  key: "8:33",
+  status: "ready",
+  path: "Notes/plan.md",
+  title: "Project plan",
+  body: "## Decisions\n\nUse the shared parser.",
+  revision: "plan-1"
 };

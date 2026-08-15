@@ -1,10 +1,12 @@
 import type { Extension, Range } from "@codemirror/state";
-import { Decoration, EditorView, WidgetType } from "@codemirror/view";
+import { Decoration, EditorView, ViewPlugin, WidgetType, type ViewUpdate } from "@codemirror/view";
 import type { FileAssetSnapshot } from "./file-asset-store";
+import { fileAssetKey, isInlinePreviewable, isTextPreviewable } from "./file-references";
 import type { ResolvedFileReference } from "./use-file-assets";
 
 class FileEmbedWidget extends WidgetType {
   private unmountInlinePdf?: () => void;
+  private textRequest?: AbortController;
 
   constructor(
     readonly reference: ResolvedFileReference,
@@ -28,7 +30,12 @@ class FileEmbedWidget extends WidgetType {
     preview.className = `cm-file-embed cm-file-embed-${asset.file.mediaClass} ${asset.status}`;
     preview.setAttribute("aria-label", asset.status === "ready" ? `Preview ${filename}` : `Preview ${filename}, ${asset.status.replace("_", " ")}`);
 
-    if (asset.status === "ready") {
+    if (!isInlinePreviewable(asset.file)) {
+      const unavailable = document.createElement("div");
+      unavailable.className = "cm-file-embed-status";
+      unavailable.textContent = `No inline preview is available for ${filename}.`;
+      preview.append(unavailable);
+    } else if (asset.status === "ready") {
       if (asset.file.mediaClass === "image") {
         const image = document.createElement("img");
         image.src = asset.url;
@@ -47,12 +54,30 @@ class FileEmbedWidget extends WidgetType {
         cover.append(mark, prompt);
         cover.addEventListener("click", () => this.activatePdf(preview, cover, asset.url, filename));
         preview.append(cover);
-      } else {
+      } else if (asset.file.mediaClass === "audio" || asset.file.mediaClass === "video") {
         const media = document.createElement(asset.file.mediaClass === "audio" ? "audio" : "video");
         media.src = asset.url;
         media.controls = true;
         media.preload = "metadata";
         preview.append(media);
+      } else if (isTextPreviewable(asset.file)) {
+        const pre = document.createElement("pre");
+        const code = document.createElement("code");
+        code.textContent = "Opening text preview…";
+        pre.append(code);
+        preview.append(pre);
+        const request = new AbortController();
+        this.textRequest = request;
+        void fetch(asset.url, { signal: request.signal })
+          .then((response) => response.text())
+          .then((text) => {
+            if (!request.signal.aborted && code.isConnected) code.textContent = text;
+          })
+          .catch((error: unknown) => {
+            if (!request.signal.aborted && code.isConnected) {
+              code.textContent = error instanceof Error ? error.message : "The text preview could not be opened.";
+            }
+          });
       }
     } else {
       const status = document.createElement("div");
@@ -91,6 +116,7 @@ class FileEmbedWidget extends WidgetType {
   }
 
   destroy() {
+    this.textRequest?.abort("Text embed released");
     this.unmountInlinePdf?.();
   }
 
@@ -115,19 +141,41 @@ class FileEmbedWidget extends WidgetType {
 
 export function fileEmbedPresentation(
   references: () => ResolvedFileReference[],
-  onOpen: () => ((asset: Extract<FileAssetSnapshot, { status: "ready" }>) => void) | undefined
+  onOpen: () => ((asset: Extract<FileAssetSnapshot, { status: "ready" }>) => void) | undefined,
+  onVisible: () => ((keys: string[]) => void) | undefined = () => undefined
 ): Extension {
-  return EditorView.decorations.compute(["doc", "selection"], (state) => {
-    const activeLines = new Set(state.selection.ranges.map((range) => state.doc.lineAt(range.head).from));
-    const ranges = references().flatMap((reference): Range<Decoration>[] => {
-      if (!reference.block || reference.to > state.doc.length) return [];
-      const line = state.doc.lineAt(reference.from);
-      if (activeLines.has(line.from)) return [];
-      return [Decoration.replace({
-        block: true,
-        widget: new FileEmbedWidget(reference, onOpen())
-      }).range(line.from, line.to)];
-    });
-    return Decoration.set(ranges, true);
-  });
+  return [
+    EditorView.decorations.compute(["doc", "selection"], (state) => {
+      const activeLines = new Set(state.selection.ranges.map((range) => state.doc.lineAt(range.head).from));
+      const ranges = references().flatMap((reference): Range<Decoration>[] => {
+        if (!reference.block || reference.to > state.doc.length) return [];
+        const line = state.doc.lineAt(reference.from);
+        if (activeLines.has(line.from)) return [];
+        return [Decoration.replace({
+          block: true,
+          widget: new FileEmbedWidget(reference, onOpen())
+        }).range(line.from, line.to)];
+      });
+      return Decoration.set(ranges, true);
+    }),
+    ViewPlugin.fromClass(class {
+      private reported = "";
+
+      constructor(view: EditorView) { this.report(view); }
+
+      update(update: ViewUpdate) {
+        if (update.docChanged || update.viewportChanged) this.report(update.view);
+      }
+
+      private report(view: EditorView) {
+        const keys = references()
+          .filter((reference) => view.visibleRanges.some((range) => reference.from <= range.to && reference.to >= range.from))
+          .map((reference) => fileAssetKey(reference.file));
+        const fingerprint = keys.join("\n");
+        if (fingerprint === this.reported) return;
+        this.reported = fingerprint;
+        queueMicrotask(() => onVisible()?.(keys));
+      }
+    })
+  ];
 }
