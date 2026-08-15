@@ -186,6 +186,8 @@ pub(super) async fn load_records(
     data_key: &[u8; 32],
     collection_id: Uuid,
 ) -> ApiResult<BTreeMap<Uuid, PersistedRecord>> {
+    admit_legacy_working_set(transaction, collection_id).await?;
+    let started = Instant::now();
     let rows = sqlx::query(
         r#"SELECT record_id, sequence, payload_ciphertext
            FROM hosted_provider_records WHERE collection_id = $1 ORDER BY record_id"#,
@@ -193,23 +195,83 @@ pub(super) async fn load_records(
     .bind(collection_id)
     .fetch_all(&mut **transaction)
     .await?;
-    rows.into_iter()
-        .map(|row| {
-            let record_id = row.get("record_id");
-            let sequence = number(row.get::<i64, _>("sequence"), "record sequence")?;
-            let persisted: PersistedRecord = crypto.decrypt_json(
-                data_key,
-                row.get("payload_ciphertext"),
-                &current_record_aad(collection_id, record_id, sequence),
-            )?;
-            if persisted.record_id != record_id {
-                return Err(ApiError::internal(
-                    "The hosted encrypted record identity does not match its metadata.",
-                ));
-            }
-            Ok((record_id, persisted))
-        })
-        .collect()
+    let scanned_records = rows.len() as u64;
+    let mut ciphertext_bytes = 0_u64;
+    let mut records = BTreeMap::new();
+    for row in rows {
+        let record_id = row.get("record_id");
+        let sequence = number(row.get::<i64, _>("sequence"), "record sequence")?;
+        let ciphertext: Vec<u8> = row.get("payload_ciphertext");
+        ciphertext_bytes = ciphertext_bytes.saturating_add(ciphertext.len() as u64);
+        let persisted: PersistedRecord = crypto.decrypt_json(
+            data_key,
+            &ciphertext,
+            &current_record_aad(collection_id, record_id, sequence),
+        )?;
+        if persisted.record_id != record_id {
+            return Err(ApiError::internal(
+                "The hosted encrypted record identity does not match its metadata.",
+            ));
+        }
+        records.insert(record_id, persisted);
+    }
+    tracing::info!(
+        target: "mdbase_connect::metrics",
+        metric = "hosted_working_set_load",
+        scanned_records,
+        ciphertext_bytes,
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "privacy-safe hosted provider metric"
+    );
+    Ok(records)
+}
+
+async fn admit_legacy_working_set(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+) -> ApiResult<()> {
+    let containment = &crate::HostedExecutionBudgetManifest::published().temporary_containment;
+    let collection_bytes: i64 =
+        sqlx::query_scalar("SELECT content_bytes FROM hosted_provider_collections WHERE id = $1")
+            .bind(collection_id)
+            .fetch_one(&mut **transaction)
+            .await?;
+    let collection_bytes = number(collection_bytes, "collection content size")?;
+    // The legacy payload retains the exact document, parsed body/frontmatter, and
+    // path maps. Reserve three canonical-content bytes for each retained plaintext
+    // byte and divide the process budget across every admitted collection slot.
+    let canonical_content_limit = legacy_canonical_content_limit(containment);
+    if collection_bytes > canonical_content_limit {
+        tracing::warn!(
+            target: "mdbase_connect::metrics",
+            metric = "hosted_working_set_admission_rejected",
+            budget_kind = "scan",
+            collection_bytes,
+            canonical_content_limit,
+            "privacy-safe hosted provider metric"
+        );
+        return Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "hosted_working_set_capacity",
+            "The collection exceeds the temporary compatibility runtime budget.",
+        )
+        .with_details(json!({ "budget_kind": "scan" })));
+    }
+    Ok(())
+}
+
+fn legacy_canonical_content_limit(containment: &crate::TemporaryExecutionContainment) -> u64 {
+    let duplication_factor = 3_u64;
+    let slots = containment.working_set_collections_per_process.max(1);
+    let per_collection = containment
+        .working_set_plaintext_bytes_per_collection
+        .checked_div(duplication_factor)
+        .unwrap_or(0);
+    let per_process = containment
+        .working_set_plaintext_bytes_per_process
+        .checked_div(slots.saturating_mul(duplication_factor))
+        .unwrap_or(0);
+    per_collection.min(per_process)
 }
 
 pub(super) async fn persist_live_record(

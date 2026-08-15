@@ -256,10 +256,7 @@ impl HostedProvider {
             .execute(&mut *transaction)
             .await?;
         transaction.commit().await?;
-        self.working_sets
-            .lock()
-            .await
-            .remove(&transfer.collection_id);
+        self.remove_working_set(transfer.collection_id).await;
         Ok(ProviderAuthorityTransfer {
             state: ProviderAuthorityTransferState::Completed,
             ..transfer

@@ -400,7 +400,7 @@ impl HostedProvider {
         result: OperationResult,
         selector: Option<&ContractSelector>,
     ) -> ApiResult<Value> {
-        let working_set = self.working_set(collection_id).await;
+        let working_set = self.working_set(collection_id).await?;
         let cached = working_set.lock().await;
         let cached = cached.as_ref().ok_or_else(|| {
             ApiError::internal("Hosted working set was unavailable during contract projection.")

@@ -42,7 +42,7 @@ impl HostedProvider {
         let data_key = self
             .collection_key(collection_id, collection.get("wrapped_data_key"))
             .await?;
-        let working_set = self.working_set(collection_id).await;
+        let working_set = self.working_set(collection_id).await?;
         let mut cached = working_set.lock().await;
         if cached
             .as_ref()
@@ -61,13 +61,7 @@ impl HostedProvider {
                     document: record.document.clone(),
                 }),
             )?;
-            *cached = Some(CachedCollection {
-                head: Some(head),
-                workspace,
-                records,
-                query_cache: HashMap::new(),
-                query_order: VecDeque::new(),
-            });
+            *cached = Some(CachedCollection::new(Some(head), workspace, records));
         }
         let cached = cached
             .as_mut()
@@ -165,8 +159,6 @@ impl HostedProvider {
         }
         transaction.commit().await?;
         cached.head = Some(head);
-        cached.query_cache.clear();
-        cached.query_order.clear();
         Ok(result)
     }
 }

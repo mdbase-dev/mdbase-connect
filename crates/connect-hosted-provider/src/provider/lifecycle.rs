@@ -27,7 +27,9 @@ impl HostedProvider {
                                     healthy: true,
                                 })),
                                 limits,
-                                working_sets: Arc::new(Mutex::new(HashMap::new())),
+                                working_sets: Arc::new(Mutex::new(
+                                    WorkingSetRegistryState::default(),
+                                )),
                                 notifications,
                                 notification_recovery_guard: Arc::new(Mutex::new(())),
                                 notification_recovery: Arc::new(RwLock::new(

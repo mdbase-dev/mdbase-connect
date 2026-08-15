@@ -2611,6 +2611,7 @@ schema:
   const bulkCount = Number(process.env.MDBASE_CONNECT_PROVIDER_E2E_BULK_COUNT ?? 205);
   assert.ok(Number.isInteger(bulkCount) && bulkCount >= 205 && bulkCount <= 20_000);
   const stressRun = bulkCount >= 10_000;
+  const memoryBeforeBulk = stressRun ? await processMemory(provider.pid) : undefined;
   let finalBulkRecordId;
   const bulkStartSession = await writerTransport.openSession();
   const recordsBeforeBulk = (
@@ -2681,6 +2682,20 @@ schema:
     });
     const readLatencies = [];
     const queryLatencies = [];
+    const coldRead = await measureColdOperation({
+      databaseUrl,
+      collectionId,
+      token: benchmarkToken,
+      operation: "read",
+      body: { path: "tasks/bulk-204.md" }
+    });
+    const coldQuery = await measureColdOperation({
+      databaseUrl,
+      collectionId,
+      token: benchmarkToken,
+      operation: "query",
+      body: { types: ["task"], limit: 20 }
+    });
     for (let index = 0; index < 25; index += 1) {
       let started = performance.now();
       const read = await rawRequest(
@@ -2699,13 +2714,38 @@ schema:
       queryLatencies.push(performance.now() - started);
       assert.equal(query.status, 200);
     }
+    const memoryAfterQueries = await processMemory(provider.pid);
+    const providerMeasurements = provider.logs();
     const result = {
       records: pagedRecords.length,
       mutation_p95_ms: percentile(mutationLatencies, 0.95),
       snapshot_ms: snapshotMs,
       change_page_p95_ms: percentile(changeLatencies, 0.95),
       warm_read_p95_ms: percentile(readLatencies, 0.95),
-      warm_query_p95_ms: percentile(queryLatencies, 0.95)
+      warm_query_p95_ms: percentile(queryLatencies, 0.95),
+      rss_before_bytes: memoryBeforeBulk?.rssBytes,
+      pss_before_bytes: memoryBeforeBulk?.pssBytes,
+      rss_after_queries_bytes: memoryAfterQueries.rssBytes,
+      pss_after_queries_bytes: memoryAfterQueries.pssBytes,
+      cold_read_ms: coldRead.elapsedMs,
+      cold_read_rss_delta_bytes: coldRead.rssDeltaBytes,
+      cold_read_scanned_records: coldRead.scannedRecords,
+      cold_read_ciphertext_bytes: coldRead.ciphertextBytes,
+      cold_query_ms: coldQuery.elapsedMs,
+      cold_query_rss_delta_bytes: coldQuery.rssDeltaBytes,
+      cold_query_scanned_records: coldQuery.scannedRecords,
+      cold_query_ciphertext_bytes: coldQuery.ciphertextBytes,
+      measured_working_set_plaintext_bytes: maximumLogMetric(
+        providerMeasurements,
+        "plaintext_bytes"
+      ),
+      measured_scanned_records: maximumLogMetric(providerMeasurements, "scanned_records"),
+      measured_ciphertext_bytes: maximumLogMetric(providerMeasurements, "ciphertext_bytes"),
+      measured_cgroup_current_bytes: maximumLogMetric(
+        providerMeasurements,
+        "cgroup_current_bytes"
+      ),
+      measured_cgroup_peak_bytes: maximumLogMetric(providerMeasurements, "cgroup_peak_bytes")
     };
     process.stdout.write(`[provider-e2e] performance ${JSON.stringify(result)}\n`);
     assert.ok(result.mutation_p95_ms < 200, `mutation p95 budget exceeded: ${result.mutation_p95_ms}`);
@@ -4240,7 +4280,7 @@ async function startProvider(
       MDBASE_CONNECT_ALLOW_INSECURE_R2: "true",
       HOST: "127.0.0.1",
       PORT: String(port),
-      RUST_LOG: "warn",
+      RUST_LOG: process.env.MDBASE_CONNECT_PROVIDER_E2E_RUST_LOG ?? "warn",
       ...extraEnvironment
     },
     stdio: ["ignore", "pipe", "pipe"]
@@ -4276,6 +4316,62 @@ async function stopProvider(child) {
     if (child.exitCode !== null || child.signalCode !== null) resolveExit();
     else child.once("exit", resolveExit);
   });
+}
+
+async function processMemory(pid) {
+  if (process.platform !== "linux") {
+    return { rssBytes: undefined, pssBytes: undefined };
+  }
+  const contents = await readFile(`/proc/${pid}/smaps_rollup`, "utf8");
+  return {
+    rssBytes: procMemoryBytes(contents, "Rss:"),
+    pssBytes: procMemoryBytes(contents, "Pss:")
+  };
+}
+
+async function measureColdOperation({ databaseUrl, collectionId, token, operation, body }) {
+  const coldProvider = await startProvider(databaseUrl);
+  try {
+    const before = await processMemory(coldProvider.pid);
+    const started = performance.now();
+    const response = await rawRequest(
+      coldProvider.url,
+      `/v1/authorities/${collectionId}/operations/${operation}`,
+      { method: "POST", token, body }
+    );
+    const elapsedMs = performance.now() - started;
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    const after = await processMemory(coldProvider.pid);
+    const logs = coldProvider.logs();
+    return {
+      elapsedMs,
+      rssDeltaBytes:
+        before.rssBytes === undefined || after.rssBytes === undefined
+          ? undefined
+          : after.rssBytes - before.rssBytes,
+      scannedRecords: maximumLogMetric(logs, "scanned_records"),
+      ciphertextBytes: maximumLogMetric(logs, "ciphertext_bytes")
+    };
+  } finally {
+    await stopProvider(coldProvider);
+  }
+}
+
+function procMemoryBytes(contents, key) {
+  const line = contents.split("\n").find((candidate) => candidate.startsWith(key));
+  if (!line) return undefined;
+  const kibibytes = Number(line.trim().split(/\s+/)[1]);
+  return Number.isFinite(kibibytes) ? kibibytes * 1024 : undefined;
+}
+
+function maximumLogMetric(contents, key) {
+  const pattern = new RegExp(`${key}=(\\d+)`, "g");
+  let maximum;
+  for (const match of contents.matchAll(pattern)) {
+    const value = Number(match[1]);
+    if (Number.isSafeInteger(value)) maximum = Math.max(maximum ?? 0, value);
+  }
+  return maximum;
 }
 
 async function postgresQuery(sql) {

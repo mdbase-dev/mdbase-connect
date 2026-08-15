@@ -2,6 +2,8 @@ mod backup_admin;
 mod blob_store;
 mod crypto;
 mod error;
+mod execution_budget;
+mod execution_measurement;
 mod http;
 mod key_admin;
 mod key_wrapping;
@@ -18,6 +20,11 @@ pub use blob_store::{
 };
 pub use crypto::ProviderCrypto;
 pub use error::{ApiError, ApiResult};
+pub use execution_budget::{
+    HostedExecutionAcceptance, HostedExecutionBudgetManifest, HostedExecutionBudgets,
+    HostedExecutionEntitlement, TemporaryExecutionContainment,
+};
+pub use execution_measurement::HostedProcessMemory;
 pub use http::{app, AppState};
 pub use key_admin::{HostedKeyAdmin, KeyRewrapOptions, KeyRewrapReport, KeyWrapInventory};
 pub use key_wrapping::{

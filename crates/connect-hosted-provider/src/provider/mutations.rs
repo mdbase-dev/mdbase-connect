@@ -251,7 +251,7 @@ impl HostedProvider {
             collection.get::<i64, _>("max_document_bytes"),
             "document byte quota",
         )?;
-        let working_set = self.working_set(collection_id).await;
+        let working_set = self.working_set(collection_id).await?;
         let mut cached = working_set.lock().await;
         if cached
             .as_ref()
@@ -270,13 +270,7 @@ impl HostedProvider {
                     document: record.document.clone(),
                 }),
             )?;
-            *cached = Some(CachedCollection {
-                head: Some(head),
-                workspace,
-                records,
-                query_cache: HashMap::new(),
-                query_order: VecDeque::new(),
-            });
+            *cached = Some(CachedCollection::new(Some(head), workspace, records));
         }
         let cached = cached
             .as_mut()
@@ -361,8 +355,6 @@ impl HostedProvider {
         }
 
         cached.head = None;
-        cached.query_cache.clear();
-        cached.query_order.clear();
         let execution = if let Some((operation, input)) = execution.semantic {
             cached
                 .workspace
@@ -586,9 +578,9 @@ impl HostedProvider {
                         "The hosted write set disagrees with its exact document.",
                     ));
                 }
-                cached.records.insert(record_id, record);
+                cached.replace_record(record_id, Some(record));
             } else {
-                cached.records.remove(&record_id);
+                cached.replace_record(record_id, None);
             }
         }
         sqlx::query(

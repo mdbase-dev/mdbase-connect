@@ -209,6 +209,7 @@ impl HostedProvider {
         operation: &str,
         input: &Value,
     ) -> ApiResult<OperationResult> {
+        let snapshot_started = Instant::now();
         let mut transaction = self.pool.begin().await?;
         let collection = sqlx::query(
             r#"SELECT head, wrapped_data_key FROM hosted_provider_collections
@@ -227,7 +228,7 @@ impl HostedProvider {
         let data_key = self
             .collection_key(collection_id, collection.get("wrapped_data_key"))
             .await?;
-        let working_set = self.working_set(collection_id).await;
+        let working_set = self.working_set(collection_id).await?;
         let mut cached = working_set.lock().await;
         if cached
             .as_ref()
@@ -246,40 +247,28 @@ impl HostedProvider {
                     document: record.document.clone(),
                 }),
             )?;
-            *cached = Some(CachedCollection {
-                head: Some(head),
-                workspace,
-                records,
-                query_cache: HashMap::new(),
-                query_order: VecDeque::new(),
-            });
+            *cached = Some(CachedCollection::new(Some(head), workspace, records));
         }
         let cached = cached
             .as_mut()
             .expect("hosted working set was initialized above");
-        let result = if operation == "query" {
-            let cache_key: [u8; 32] =
-                Sha256::digest(serde_json::to_vec(input).map_err(|error| {
-                    ApiError::internal(format!("Hosted query input could not serialize: {error}"))
-                })?)
-                .into();
-            if let Some(result) = cached.query_cache.get(&cache_key) {
-                result.clone()
-            } else {
-                let result = cached.workspace.read_operation(operation, input)?;
-                if cached.query_order.len() >= 128 {
-                    if let Some(expired) = cached.query_order.pop_front() {
-                        cached.query_cache.remove(&expired);
-                    }
-                }
-                cached.query_order.push_back(cache_key);
-                cached.query_cache.insert(cache_key, result.clone());
-                result
-            }
-        } else {
-            cached.workspace.read_operation(operation, input)?
-        };
+        let result = cached.workspace.read_operation(operation, input)?;
         transaction.commit().await?;
+        let memory = crate::HostedProcessMemory::capture();
+        tracing::info!(
+            target: "mdbase_connect::metrics",
+            metric = "hosted_legacy_read",
+            operation,
+            snapshot_ms = snapshot_started.elapsed().as_millis() as u64,
+            database_pool_size = self.pool.size(),
+            database_pool_idle = self.pool.num_idle(),
+            working_set_plaintext_bytes = cached.plaintext_bytes,
+            rss_bytes = memory.rss_bytes.unwrap_or(0),
+            pss_bytes = memory.pss_bytes.unwrap_or(0),
+            cgroup_current_bytes = memory.cgroup_current_bytes.unwrap_or(0),
+            cgroup_peak_bytes = memory.cgroup_peak_bytes.unwrap_or(0),
+            "privacy-safe hosted provider metric"
+        );
         Ok(result)
     }
 }

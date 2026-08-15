@@ -800,7 +800,7 @@ impl HostedProvider {
         let mut result = provider_authority_import(&saved)?;
         result.contracts = manifest.resources.contracts.clone();
         transaction.commit().await?;
-        self.working_sets.lock().await.remove(&collection_id);
+        self.remove_working_set(collection_id).await;
         Ok(result)
     }
 
@@ -914,7 +914,7 @@ impl HostedProvider {
         }
         transaction.commit().await?;
         self.abort_authority_import_multipart(abandoned_files).await;
-        self.working_sets.lock().await.remove(&result.collection_id);
+        self.remove_working_set(result.collection_id).await;
         Ok(result)
     }
 
@@ -936,9 +936,8 @@ impl HostedProvider {
         transaction.commit().await?;
         self.abort_authority_import_multipart(abandoned_files).await;
         if recovered > 0 {
-            let mut working_sets = self.working_sets.lock().await;
             for collection_id in collection_ids {
-                working_sets.remove(&collection_id);
+                self.remove_working_set(collection_id).await;
             }
         }
         Ok(recovered)

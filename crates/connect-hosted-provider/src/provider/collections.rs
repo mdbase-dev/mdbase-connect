@@ -298,7 +298,7 @@ impl HostedProvider {
             .execute(&mut *transaction)
             .await?;
         transaction.commit().await?;
-        self.working_sets.lock().await.remove(&collection_id);
+        self.remove_working_set(collection_id).await;
         if let Err(error) = self.delete_pending_blobs(1_000).await {
             tracing::warn!(collection_id = %collection_id, %error, "deferred collection blob deletion failed");
         }
