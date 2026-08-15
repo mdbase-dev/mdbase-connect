@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-beta.70
+
+Beta.70 lets browser extensions complete the device-code authorization flow
+without weakening the exact-origin capability boundary.
+
+- Device authorization records the initiating Chrome or Firefox extension
+  origin and binds local and hosted grants to that exact origin. Native clients
+  retain the existing opaque `null`-origin behavior.
+- Existing extension grants can be reauthorized once to receive the corrected
+  origin-bound capability.
+- Dependency resolutions move Nano ID to 3.3.18 and replace the vulnerable
+  `extract-zip` release with Electron's maintained API-compatible fork.
+
 ## 0.1.0-beta.69
 
 Beta.69 makes retained writable mirrors durable across adoption and remote
