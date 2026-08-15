@@ -45,6 +45,11 @@ enum Command {
         #[arg(long)]
         record_index: usize,
     },
+    /// Stream every mdbase-rs projection as NDJSON for differential diagnosis.
+    ProjectAll {
+        #[arg(long)]
+        fixture_dir: PathBuf,
+    },
 }
 
 #[derive(Debug, Error)]
@@ -204,7 +209,27 @@ fn run() -> Result<(), Error> {
             fixture_dir,
             record_index,
         } => project_record(&fixture_dir, record_index),
+        Command::ProjectAll { fixture_dir } => project_all(&fixture_dir),
     }
+}
+
+fn project_all(fixture_dir: &Path) -> Result<(), Error> {
+    let catalog = compile_fixture_catalog(&fixture_dir.join("resources.ndjson"))?;
+    let stdout = std::io::stdout();
+    let mut output = stdout.lock();
+    for line in BufReader::new(File::open(fixture_dir.join("records.ndjson"))?).lines() {
+        let record: RecordLine = serde_json::from_str(&line?)?;
+        let canonical = CanonicalRecordInput {
+            stable_id: Some(record.record_id),
+            path: record.path,
+            file_size: record.document.len() as u64,
+            file_mtime: Some(record.file_mtime),
+            document: record.document,
+        };
+        serde_json::to_writer(&mut output, &catalog.benchmark_project_record(&canonical)?)?;
+        output.write_all(b"\n")?;
+    }
+    Ok(())
 }
 
 fn project_record(fixture_dir: &Path, record_index: usize) -> Result<(), Error> {

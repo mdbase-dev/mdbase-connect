@@ -205,7 +205,7 @@ export function fixtureRecord(index, seed = DEFAULT_SEED) {
     : `---\n${Object.entries(frontmatter)
       .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
       .join("\n")}\n---\n${body}`;
-  const types = [shapeType(shape, ordinal)];
+  const types = malformed ? opaqueTypes(shape, ordinal) : [shapeType(shape, ordinal)];
   const persisted = malformed ? {} : frontmatter;
   const effective = malformed
     ? {}
@@ -318,6 +318,12 @@ function shapeType(shape, ordinal = 0) {
     "workout-quick-log": "quick-log",
     "workout-session": "workout-session"
   })[shape];
+}
+
+function opaqueTypes(shape, ordinal) {
+  return ["reader-source", "reader-annotation", "pickle-request", "pickle-response"].includes(shape)
+    ? []
+    : [shapeType(shape, ordinal)];
 }
 
 function recordFrontmatter(shape, ordinal, index, seed) {

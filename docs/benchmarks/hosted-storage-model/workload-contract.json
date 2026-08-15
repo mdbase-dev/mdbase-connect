@@ -4,7 +4,7 @@
   "semanticOracle": "mdbase-rs canonical evaluation at the benchmark revision",
   "timezone": "Australia/Melbourne",
   "projectionFormat": "hosted-benchmark-projection-v1",
-  "malformedRecordPolicy": "Preserve exact Markdown as opaque, retain path-inferred types, expose empty persisted/effective frontmatter plus a bounded parse diagnostic, include the record in type-only candidates, and require exact fail-closed classification for authorization.",
+  "malformedRecordPolicy": "Preserve exact Markdown as opaque, retain only types whose path match does not also require missing frontmatter facts, expose empty persisted/effective frontmatter plus a bounded parse diagnostic, include the record in matching type-only candidates, and require exact fail-closed classification for authorization.",
   "expectedResultArtifact": "fixtures/<tier>/expected-results.json",
   "resultAssertion": "exact ordered stable record IDs, page boundaries, response-field digest, total/matched/returned counts, group keys/counts/summaries, diagnostics, and typed outcome",
   "queryWorkloads": [
