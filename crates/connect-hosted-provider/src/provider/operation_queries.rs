@@ -2611,8 +2611,16 @@ async fn count_projected_candidates(
     candidate_types: &[String],
 ) -> ApiResult<u64> {
     let count: i64 = sqlx::query_scalar(
-        r#"SELECT count(*)
+        r#"WITH live AS (
+             SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted
+             FROM hosted_provider_record_versions
+             WHERE collection_id = $1 AND sequence <= $3
+             ORDER BY record_id, sequence DESC
+           )
+           SELECT count(*)
            FROM hosted_provider_record_projections p
+           JOIN live l ON l.record_id = p.record_id AND NOT l.deleted
+             AND l.sequence = p.record_sequence AND l.revision = p.record_revision
            WHERE p.collection_id = $1 AND p.generation_id = $2
              AND p.valid_from_sequence <= $3
              AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > $3)
@@ -2643,8 +2651,16 @@ async fn load_projected_page(
     page_size: u64,
 ) -> ApiResult<Vec<ProjectedQueryRow>> {
     let sql = if descending {
-        r#"SELECT p.record_id, p.canonical_path, p.semantic_projection
+        r#"WITH live AS (
+             SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted
+             FROM hosted_provider_record_versions
+             WHERE collection_id = $1 AND sequence <= $3
+             ORDER BY record_id, sequence DESC
+           )
+           SELECT p.record_id, p.canonical_path, p.semantic_projection
            FROM hosted_provider_record_projections p
+           JOIN live l ON l.record_id = p.record_id AND NOT l.deleted
+             AND l.sequence = p.record_sequence AND l.revision = p.record_revision
            WHERE p.collection_id = $1 AND p.generation_id = $2
              AND p.valid_from_sequence <= $3
              AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > $3)
@@ -2657,8 +2673,16 @@ async fn load_projected_page(
            ORDER BY p.canonical_path COLLATE "C" DESC, p.record_id ASC
            OFFSET $10 LIMIT $11"#
     } else {
-        r#"SELECT p.record_id, p.canonical_path, p.semantic_projection
+        r#"WITH live AS (
+             SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted
+             FROM hosted_provider_record_versions
+             WHERE collection_id = $1 AND sequence <= $3
+             ORDER BY record_id, sequence DESC
+           )
+           SELECT p.record_id, p.canonical_path, p.semantic_projection
            FROM hosted_provider_record_projections p
+           JOIN live l ON l.record_id = p.record_id AND NOT l.deleted
+             AND l.sequence = p.record_sequence AND l.revision = p.record_revision
            WHERE p.collection_id = $1 AND p.generation_id = $2
              AND p.valid_from_sequence <= $3
              AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > $3)

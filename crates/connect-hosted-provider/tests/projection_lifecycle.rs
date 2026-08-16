@@ -1732,6 +1732,7 @@ async fn candidate_b_base_candidate_prunes_over_scan_budget() {
                 allowed_operations: vec![
                     "create_view_source".to_string(),
                     "execute_view".to_string(),
+                    "query".to_string(),
                 ],
                 operation_transport_protocol: Some(3),
                 operation_transport_recovery_protocols: Vec::new(),
@@ -1782,6 +1783,24 @@ views:
     assert_eq!(result["valid"], true);
     assert_eq!(result["result"]["meta"]["total_count"], 1);
     assert_eq!(result["result"]["results"][0]["path"], "tasks/selected.md");
+
+    let all_live = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "limit": 1,
+                "order_by": [{"field": "file.path", "direction": "asc"}]
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(all_live["valid"], true);
+    assert_eq!(all_live["result"]["meta"]["total_count"], 10_002);
 }
 
 async fn complete_generation(fixture: &FileLifecycleFixture) -> Uuid {
