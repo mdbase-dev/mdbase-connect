@@ -11,6 +11,7 @@ await build({
     "src/main/editor-url.ts",
     "src/main/electron-update-backend.ts",
     "src/main/hosted-snapshot.ts",
+    "src/main/process-output.ts",
     "src/main/release-source.ts",
     "src/main/update-coordinator.ts",
     "src/main/update-download.ts",

@@ -21,10 +21,13 @@ import { routeForDeepLink, shouldRegisterDeepLinks } from "./deep-link";
 import { buildEditorUrl } from "./editor-url";
 import { ElectronUpdateBackend } from "./electron-update-backend";
 import { createHostedSnapshotLoader, type HostedControlSnapshot } from "./hosted-snapshot";
+import { guardDesktopProcessOutput } from "./process-output";
 import { selectiveSyncPolicy } from "./selective-sync-input";
 import { createTrayImage } from "./tray-image";
 import { UpdateCoordinator } from "./update-coordinator";
 import { UpdateStateStore } from "./update-state";
+
+guardDesktopProcessOutput();
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
