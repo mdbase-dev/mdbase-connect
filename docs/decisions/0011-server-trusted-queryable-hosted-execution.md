@@ -110,6 +110,14 @@ targets, and the syntax/resolution information needed for rename, delete,
 reference, and backlink behavior. Connect persists outgoing edges in a bounded
 relational graph; backlinks are the indexed inverse of those edges.
 
+That graph does not persist body label prose or complete Markdown spellings.
+Readable occurrences retain only the target, kind, anchor, relative-form and
+resolution facts needed for selection; bounded mutation planning decrypts and
+reparses the affected exact authorities for source rewrites. Computed fields that
+transitively read `file.body` are non-projectable and force canonical exact
+fallback. Projection format 5 makes both confidentiality rules part of currentness,
+so earlier projection rows must be rebuilt rather than relabelled.
+
 A body write computes its structural/link digest before encryption. When the
 structural set is unchanged, the transaction does not rewrite relationship edges.
 When it changes, the encrypted document, revision, current projection binding, and

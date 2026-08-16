@@ -108,6 +108,17 @@ rebuilt and cannot be relabelled as format 4. The JSON schema identifier remains
 because this tightens the binding of an existing nullable field rather than adding
 a new projection member.
 
+Projection format 5 establishes the body-prose confidentiality boundary. Body
+relationship occurrences retain targets, kinds, anchors, relative-form and
+resolution facts but redact labels, destination titles, malformed source tails and
+complete Markdown source spelling. Effective computed fields that transitively
+read `file.body` are omitted and mark the projection incomplete, forcing bounded
+exact fallback. Earlier rows may contain either form of body prose and therefore
+must be treated as stale, rebuilt from encrypted authority, and pruned under the
+normal retained-generation/backup policy; they cannot be relabelled as format 5.
+The semantic JSON schema identifier advances to v4 and the record-structure schema
+to v3.
+
 `hosted_provider_record_resolution_keys` stores the complete closed lookup-key set
 emitted by mdbase-rs for each record version: exact path plus normalized basename,
 configured ID, and title keys. Connect performs exact indexed lookup only; it does
@@ -117,7 +128,7 @@ binding and the same inclusive/exclusive validity interval as their projection.
 `hosted_provider_record_relationships` stores deterministic outgoing occurrences:
 
 - source record/revision and full semantic binding;
-- kind, source field, raw and normalized target, alias, anchor, and relative flag;
+- kind, source field, safe target, normalized target, anchor, and relative flag;
 - explicit `resolved | missing | ambiguous | external | unsafe` resolution; and
 - resolved target identity/path where available.
 

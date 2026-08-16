@@ -157,9 +157,13 @@ aggregate row, exact-document, or plaintext-byte count. Exact counts remain
 operator-only telemetry.
 
 Outgoing relationship edges are readable derived state. mdbase-rs owns link,
-embed, tag, anchor, alias, relative-target, and ambiguity semantics; the provider
-persists their bounded graph and derives backlinks from indexed inverse lookup. A
-write atomically binds ciphertext, revision, projection, and relationship state.
+embed, tag, anchor, label, relative-target, and ambiguity semantics; the provider
+persists only the bounded target/kind/anchor/relative/resolution graph and derives
+backlinks from indexed inverse lookup. Body labels, Markdown destination titles,
+malformed source tails, and complete source spellings are redacted; frontmatter
+occurrences remain readable because frontmatter itself is projected. Body-dependent
+computed values are non-projectable and force exact fallback. A write atomically
+binds ciphertext, revision, projection, and relationship state.
 This target is not yet enabled for production traffic, so current production
 security promises do not change until the final rollout approval.
 

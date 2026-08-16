@@ -5217,12 +5217,12 @@ async fn candidate_b_base_candidate_prunes_fixture(database_url: &str, decoy_cou
                      )
                    ), true),
                  '{structure}', jsonb_build_object(
-                   'schema_version', 'mdbase-record-structure-v2',
+                   'schema_version', 'mdbase-record-structure-v3',
                    'path', canonical_path,
                    'structural_digest', 'sha256:' || encode(sha256(convert_to(
                      '{"body_embeds":[],"body_links":[],"body_tags":[],"occurrences":[],"path":"'
                        || canonical_path ||
-                     '","schema_version":"mdbase-record-structure-v2","structural_digest":""}',
+                     '","schema_version":"mdbase-record-structure-v3","structural_digest":""}',
                      'UTF8')), 'hex'),
                    'occurrences', '[]'::jsonb,
                    'body_tags', '[]'::jsonb,
@@ -5602,6 +5602,78 @@ async fn candidate_b_base_candidate_prunes_fixture(database_url: &str, decoy_cou
         .await
         .unwrap_err();
     assert_eq!(deleted_context.code, "hosted_base_context_unavailable");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_persisted_body_relationships_exclude_label_prose() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let record_id = Uuid::now_v7();
+    put(
+        &fixture,
+        replica.get("id"),
+        u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap(),
+        record_id,
+        None,
+        "notes/private.md",
+        "---\ntitle: Safe frontmatter\n---\n[[targets/one|wikilink-label-secret]] [markdown-label-secret](targets/two.md \"destination-title-secret\")\n",
+    )
+    .await;
+    complete_generation(&fixture).await;
+
+    let row = sqlx::query(
+        r#"SELECT projection_format_version, semantic_projection::text AS projection
+           FROM hosted_provider_record_projections
+           WHERE collection_id = $1 AND record_id = $2
+             AND valid_to_sequence IS NULL"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(record_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(row.get::<i32, _>("projection_format_version"), 5);
+    let projection = row.get::<String, _>("projection");
+    for secret in [
+        "wikilink-label-secret",
+        "markdown-label-secret",
+        "destination-title-secret",
+    ] {
+        assert!(!projection.contains(secret), "projection leaked {secret}");
+    }
+
+    let relationships = sqlx::query(
+        r#"SELECT raw_target, normalized_target, alias
+           FROM hosted_provider_record_relationships
+           WHERE collection_id = $1 AND source_record_id = $2
+             AND valid_to_sequence IS NULL
+           ORDER BY raw_target COLLATE "C""#,
+    )
+    .bind(fixture.collection_id)
+    .bind(record_id)
+    .fetch_all(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(relationships.len(), 2);
+    assert!(relationships
+        .iter()
+        .all(|row| row.get::<Option<String>, _>("alias").is_none()));
+    assert_eq!(
+        relationships
+            .iter()
+            .map(|row| row.get::<String, _>("normalized_target"))
+            .collect::<Vec<_>>(),
+        ["targets/one", "targets/two.md"]
+    );
 }
 
 async fn register_query_application(

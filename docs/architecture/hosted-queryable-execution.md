@@ -24,7 +24,7 @@ structurally significant body-derived facts. It never contains exact Markdown or
 body prose. Exact records are decrypted only for exact/body output, body predicates,
 mutation, rebuild, stale fallback, or fail-closed authorization classification.
 Hosted file modification time is the authoritative record-version commit time. The
-same transaction stamps the encrypted version, current record, and version-4
+same transaction stamps the encrypted version, current record, and version-5
 projection input; exact reads and snapshot fallback recover that revision-scoped
 time rather than synthesizing or omitting it.
 
@@ -35,7 +35,8 @@ mdbase-rs owns:
 - canonical single-record parsing, classification, defaults, computed values,
   validation, diagnostics, and projection generation;
 - extraction and resolution of wikilinks, Markdown links, embeds, exposed body
-  tags, aliases, anchors, relative targets, and ambiguous targets;
+  tags, anchors, relative targets, and ambiguous targets; exact parsing retains
+  label/source syntax for mutation, while readable body projections redact it;
 - the versioned closed candidate/query IR and safe ordering, pagination, grouping,
   aggregation, residual, and mutation plans; and
 - differential conformance with filesystem execution.
@@ -106,6 +107,14 @@ behavior. Connect persists outgoing edges keyed by collection, source identity,
 target identity or unresolved target, semantic kind, and stable occurrence key.
 Backlinks are the bounded inverse query over target identity; they are not copied
 into every target projection.
+
+Body occurrences contain target identity, link/embed kind, anchor, relative-form
+and resolution facts, but not visible labels, destination titles, malformed source
+tails, or complete Markdown source spelling. Exact mutation planning decrypts and
+reparses only the bounded affected authorities. Computed fields that transitively
+read `file.body` are omitted from readable effective frontmatter and make that
+projection incomplete, forcing bounded exact fallback. Projection format 5 fences
+all earlier rows because older formats may contain either class of body prose.
 
 Before encrypting a body write, mdbase-rs computes the new structure and digest. If
 the digest is unchanged, the transaction keeps existing edge rows. If it changes,

@@ -312,6 +312,12 @@ types, persisted and effective frontmatter, diagnostics, relationships, structur
 body facts such as links/embeds/tags, and equality or frequency of those values to
 database, replica, snapshot, and backup readers.
 
+Readable body relationship facts exclude visible link labels, destination titles,
+malformed source tails, and complete Markdown spellings. Computed fields that
+transitively read `file.body` are also excluded and make the projection unusable
+without bounded exact fallback. Format-5 projections enforce this boundary; older
+formats must be rebuilt from encrypted authority and never relabelled.
+
 The projection is not an encryption or authorization authority. Current version
 bindings permit it to accelerate candidate selection and authorization
 classification; stale, absent, ambiguous, or unverifiable projections require
