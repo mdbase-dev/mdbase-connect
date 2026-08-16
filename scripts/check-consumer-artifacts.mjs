@@ -10,8 +10,8 @@ const projectsRoot = resolve(
   process.env.MDBASE_CONSUMER_PROJECTS_ROOT ?? resolve(repositoryRoot, "..")
 );
 const consumers = [
-  ["mdbase Editor", "mdbase-editor"],
   ["TaskNotes", "tasknotes-app"],
+  ["mdbase Reader", "mdbase-reader"],
   ["mdbase Workouts", "workout_tracker"],
   ["Pickle", "pickle-android"]
 ];
