@@ -6,6 +6,9 @@ impl HostedProvider {
         sqlx::query("DELETE FROM hosted_provider_snapshot_leases WHERE expires_at <= now()")
             .execute(&mut *transaction)
             .await?;
+        sqlx::query("DELETE FROM hosted_provider_query_cursors WHERE hard_expires_at <= now()")
+            .execute(&mut *transaction)
+            .await?;
         let row = sqlx::query(
             "SELECT head, retained_after FROM hosted_provider_collections WHERE id = $1 FOR UPDATE",
         )
@@ -56,8 +59,15 @@ impl HostedProvider {
         .await?;
         let through_i64 = to_i64(through, "compaction cursor")?;
         let oldest_live_snapshot: Option<i64> = sqlx::query_scalar(
-            r#"SELECT min(cursor) FROM hosted_provider_snapshot_leases
-               WHERE collection_id = $1 AND expires_at > now()"#,
+            r#"SELECT min(snapshot_head) FROM (
+                 SELECT cursor AS snapshot_head
+                 FROM hosted_provider_snapshot_leases
+                 WHERE collection_id = $1 AND expires_at > now()
+                 UNION ALL
+                 SELECT snapshot_head
+                 FROM hosted_provider_query_cursors
+                 WHERE collection_id = $1 AND hard_expires_at > now()
+               ) live_snapshots"#,
         )
         .bind(collection_id)
         .fetch_one(&mut *transaction)

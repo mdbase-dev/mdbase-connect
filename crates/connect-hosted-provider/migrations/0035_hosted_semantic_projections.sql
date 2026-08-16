@@ -79,6 +79,7 @@ CREATE TABLE hosted_provider_record_projections (
   collection_id uuid NOT NULL
     REFERENCES hosted_provider_collections(id) ON DELETE CASCADE,
   record_id uuid NOT NULL,
+  record_sequence bigint NOT NULL CHECK (record_sequence > 0),
   valid_from_sequence bigint NOT NULL CHECK (valid_from_sequence >= 0),
   valid_to_sequence bigint CHECK (
     valid_to_sequence IS NULL OR valid_to_sequence > valid_from_sequence
@@ -102,7 +103,7 @@ CREATE TABLE hosted_provider_record_projections (
   projection_bytes integer NOT NULL
     CHECK (projection_bytes >= 0 AND projection_bytes <= 262144),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (collection_id, record_id, valid_from_sequence),
+  PRIMARY KEY (collection_id, generation_id, record_id, valid_from_sequence),
   FOREIGN KEY (collection_id, generation_id)
     REFERENCES hosted_provider_projection_generations (collection_id, generation_id)
     DEFERRABLE INITIALLY DEFERRED,
@@ -110,11 +111,15 @@ CREATE TABLE hosted_provider_record_projections (
 );
 
 CREATE UNIQUE INDEX hosted_provider_record_projections_current_record_idx
-  ON hosted_provider_record_projections (collection_id, record_id)
+  ON hosted_provider_record_projections (collection_id, generation_id, record_id)
   WHERE valid_to_sequence IS NULL;
 
 CREATE UNIQUE INDEX hosted_provider_record_projections_current_path_idx
-  ON hosted_provider_record_projections (collection_id, canonical_path COLLATE "C")
+  ON hosted_provider_record_projections (
+    collection_id,
+    generation_id,
+    canonical_path COLLATE "C"
+  )
   WHERE valid_to_sequence IS NULL;
 
 -- Completion proof, stale/absent unioning, and UUID-keyset rebuild all begin with
@@ -130,6 +135,7 @@ CREATE INDEX hosted_provider_record_projections_generation_idx
 CREATE INDEX hosted_provider_record_projections_path_cursor_idx
   ON hosted_provider_record_projections (
     collection_id,
+    generation_id,
     canonical_path COLLATE "C",
     valid_from_sequence,
     valid_to_sequence,
@@ -145,6 +151,7 @@ CREATE TABLE hosted_provider_record_resolution_keys (
   key_kind text NOT NULL CHECK (key_kind IN ('path', 'basename', 'id', 'title')),
   lookup_key text COLLATE "C" NOT NULL,
   record_revision text NOT NULL,
+  record_sequence bigint NOT NULL CHECK (record_sequence > 0),
   catalog_revision text NOT NULL,
   projection_format_version integer NOT NULL
     CHECK (projection_format_version > 0),
@@ -156,6 +163,7 @@ CREATE TABLE hosted_provider_record_resolution_keys (
   ),
   PRIMARY KEY (
     collection_id,
+    generation_id,
     record_id,
     key_kind,
     lookup_key,
@@ -169,6 +177,7 @@ CREATE TABLE hosted_provider_record_resolution_keys (
 CREATE INDEX hosted_provider_record_resolution_keys_lookup_idx
   ON hosted_provider_record_resolution_keys (
     collection_id,
+    generation_id,
     key_kind,
     lookup_key COLLATE "C",
     valid_from_sequence,
@@ -179,6 +188,7 @@ CREATE INDEX hosted_provider_record_resolution_keys_lookup_idx
 CREATE UNIQUE INDEX hosted_provider_record_resolution_keys_current_idx
   ON hosted_provider_record_resolution_keys (
     collection_id,
+    generation_id,
     record_id,
     key_kind,
     lookup_key COLLATE "C"
@@ -195,6 +205,7 @@ CREATE TABLE hosted_provider_record_relationships (
     valid_to_sequence IS NULL OR valid_to_sequence > valid_from_sequence
   ),
   source_record_revision text NOT NULL,
+  source_record_sequence bigint NOT NULL CHECK (source_record_sequence > 0),
   catalog_revision text NOT NULL,
   projection_format_version integer NOT NULL
     CHECK (projection_format_version > 0),
@@ -228,6 +239,7 @@ CREATE TABLE hosted_provider_record_relationships (
   created_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (
     collection_id,
+    generation_id,
     source_record_id,
     occurrence_key,
     valid_from_sequence
@@ -246,6 +258,7 @@ CREATE TABLE hosted_provider_record_relationships (
 CREATE INDEX hosted_provider_record_relationships_target_idx
   ON hosted_provider_record_relationships (
     collection_id,
+    generation_id,
     target_record_id,
     relationship_kind,
     valid_from_sequence,
@@ -257,6 +270,7 @@ CREATE INDEX hosted_provider_record_relationships_target_idx
 CREATE INDEX hosted_provider_record_relationships_unresolved_idx
   ON hosted_provider_record_relationships (
     collection_id,
+    generation_id,
     normalized_target COLLATE "C",
     valid_from_sequence,
     valid_to_sequence,
@@ -268,6 +282,7 @@ CREATE INDEX hosted_provider_record_relationships_unresolved_idx
 CREATE UNIQUE INDEX hosted_provider_record_relationships_current_idx
   ON hosted_provider_record_relationships (
     collection_id,
+    generation_id,
     source_record_id,
     occurrence_key
   )

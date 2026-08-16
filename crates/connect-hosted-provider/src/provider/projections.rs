@@ -3,6 +3,10 @@ use super::*;
 
 const PROJECTION_LEASE_SECONDS: i64 = 30;
 const MAX_PROJECTION_BATCH: u64 = 200;
+const MAX_PROJECTION_BATCH_CIPHERTEXT_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_RESOLUTION_BATCH_PROJECTION_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_RELATIONSHIP_REVALIDATION_RECORDS: usize = 200;
+const MAX_RELATIONSHIP_REVALIDATION_BYTES: u64 = 32 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct HostedProjectionGeneration {
@@ -27,10 +31,20 @@ pub struct HostedProjectionBatch {
     pub phase_advanced: bool,
 }
 
+#[derive(Debug, Clone)]
+pub(super) struct ActiveProjectionChange {
+    pub record_id: Uuid,
+    pub record_sequence: u64,
+    pub sequence: u64,
+    pub was_present: bool,
+    pub force_relationship_resolution: bool,
+    pub record: Option<PersistedRecord>,
+}
+
 impl HostedProvider {
     /// Open an inactive-by-default Candidate B generation for one collection.
-    /// Exact ciphertext remains authoritative and ordinary reads keep their
-    /// compatibility path until this generation is complete.
+    /// The prior complete generation remains active while this immutable
+    /// source-head snapshot is rebuilt and resolved.
     pub async fn start_projection_generation(
         &self,
         collection_id: Uuid,
@@ -87,22 +101,6 @@ impl HostedProvider {
         .bind(PROJECTION_LEASE_SECONDS)
         .execute(&mut *transaction)
         .await?;
-        sqlx::query(
-            r#"UPDATE hosted_provider_collections
-               SET active_catalog_revision = $2,
-                   active_projection_format_version = $3,
-                   active_semantic_engine_version = $4,
-                   active_projection_generation_id = $5,
-                   updated_at = now()
-               WHERE id = $1"#,
-        )
-        .bind(collection_id)
-        .bind(&catalog_revision)
-        .bind(i64::from(format_version))
-        .bind(engine_version)
-        .bind(generation_id)
-        .execute(&mut *transaction)
-        .await?;
         transaction.commit().await?;
         Ok(HostedProjectionGeneration {
             collection_id,
@@ -153,7 +151,7 @@ impl HostedProvider {
         .ok_or_else(projection_lease_unavailable)?;
         let catalog_revision: String = generation.get("target_catalog_revision");
         let format_version = number(
-            generation.get::<i64, _>("projection_format_version"),
+            i64::from(generation.get::<i32, _>("projection_format_version")),
             "projection format version",
         )?;
         let engine_version: String = generation.get("semantic_engine_version");
@@ -176,11 +174,9 @@ impl HostedProvider {
         let collection = sqlx::query(
             r#"SELECT resource_revision, wrapped_data_key, resources_ciphertext
                FROM hosted_provider_collections
-               WHERE id = $1 AND active_projection_generation_id = $2
-                 AND active_catalog_revision = $3"#,
+               WHERE id = $1 AND state = 'active' AND resource_revision = $2"#,
         )
         .bind(collection_id)
-        .bind(generation_id)
         .bind(&catalog_revision)
         .fetch_optional(&mut *transaction)
         .await?
@@ -205,15 +201,33 @@ impl HostedProvider {
         }
 
         let rows = sqlx::query(
-            r#"SELECT record_id, sequence, revision, payload_ciphertext
-               FROM hosted_provider_records
-               WHERE collection_id = $1 AND ($2::uuid IS NULL OR record_id > $2)
+            r#"WITH snapshot AS (
+                 SELECT DISTINCT ON (record_id)
+                   record_id, sequence, revision, payload_ciphertext, deleted
+                 FROM hosted_provider_record_versions
+                 WHERE collection_id = $1 AND sequence <= $4
+                 ORDER BY record_id, sequence DESC
+               ), eligible AS (
+                 SELECT record_id, sequence, revision, payload_ciphertext,
+                        sum(octet_length(payload_ciphertext)) OVER (ORDER BY record_id) AS batch_bytes
+                 FROM snapshot
+                 WHERE deleted = false
+                   AND ($2::uuid IS NULL OR record_id > $2)
+               )
+               SELECT record_id, sequence, revision, payload_ciphertext
+               FROM eligible
+               WHERE batch_bytes <= $5
                ORDER BY record_id
                LIMIT $3"#,
         )
         .bind(collection_id)
         .bind(checkpoint)
         .bind(to_i64(limit, "projection batch limit")?)
+        .bind(to_i64(source_head, "source head")?)
+        .bind(to_i64(
+            MAX_PROJECTION_BATCH_CIPHERTEXT_BYTES,
+            "projection batch byte limit",
+        )?)
         .fetch_all(&mut *transaction)
         .await?;
         let mut projected = 0_u64;
@@ -229,7 +243,7 @@ impl HostedProvider {
             let record: PersistedRecord = self.crypto.decrypt_json(
                 &data_key,
                 &ciphertext,
-                &current_record_aad(collection_id, record_id, sequence),
+                &record_version_aad(collection_id, record_id, sequence),
             )?;
             if record.record_id != record_id || record.revision != revision {
                 return Err(ApiError::internal(
@@ -281,19 +295,33 @@ impl HostedProvider {
         let mut phase_advanced = false;
         if rows.is_empty() {
             let stale_exists: bool = sqlx::query_scalar(
-                r#"SELECT EXISTS (
-                     SELECT 1 FROM hosted_provider_records r
+                r#"WITH snapshot AS (
+                     SELECT DISTINCT ON (record_id)
+                       record_id, revision, sequence, deleted
+                     FROM hosted_provider_record_versions
+                     WHERE collection_id = $1 AND sequence <= $3
+                     ORDER BY record_id, sequence DESC
+                   ), live AS (
+                     SELECT record_id, revision, sequence FROM snapshot WHERE deleted = false
+                   )
+                   SELECT EXISTS (
+                     SELECT 1 FROM live r
                      LEFT JOIN hosted_provider_record_projections p
-                       ON p.collection_id = r.collection_id
-                      AND p.record_id = r.record_id
+                       ON p.collection_id = $1 AND p.record_id = r.record_id
                       AND p.valid_to_sequence IS NULL
                       AND p.generation_id = $2
-                     WHERE r.collection_id = $1
-                       AND (p.record_id IS NULL OR p.record_revision <> r.revision)
+                     WHERE p.record_id IS NULL OR p.record_revision <> r.revision
+                        OR p.record_sequence <> r.sequence
+                     UNION ALL
+                     SELECT 1 FROM hosted_provider_record_projections p
+                     LEFT JOIN live r ON r.record_id = p.record_id
+                     WHERE p.collection_id = $1 AND p.generation_id = $2
+                       AND p.valid_to_sequence IS NULL AND r.record_id IS NULL
                    )"#,
             )
             .bind(collection_id)
             .bind(generation_id)
+            .bind(to_i64(source_head, "source head")?)
             .fetch_one(&mut *transaction)
             .await?;
             if stale_exists {
@@ -312,6 +340,7 @@ impl HostedProvider {
                WHERE collection_id = $1 AND generation_id = $2
                  AND status = 'building' AND phase = 'projection'
                  AND lease_owner = $3 AND lease_fencing_generation = $4
+                 AND lease_expires_at > now()
                  AND target_catalog_revision = $5"#,
         )
         .bind(collection_id)
@@ -399,7 +428,7 @@ impl HostedProvider {
         .ok_or_else(projection_lease_unavailable)?;
         let catalog_revision: String = generation.get("target_catalog_revision");
         let format_version = number(
-            generation.get::<i64, _>("projection_format_version"),
+            i64::from(generation.get::<i32, _>("projection_format_version")),
             "projection format version",
         )?;
         let engine_version: String = generation.get("semantic_engine_version");
@@ -422,11 +451,9 @@ impl HostedProvider {
         let collection = sqlx::query(
             r#"SELECT resource_revision, wrapped_data_key, resources_ciphertext
                FROM hosted_provider_collections
-               WHERE id = $1 AND active_projection_generation_id = $2
-                 AND active_catalog_revision = $3"#,
+               WHERE id = $1 AND state = 'active' AND resource_revision = $2"#,
         )
         .bind(collection_id)
-        .bind(generation_id)
         .bind(&catalog_revision)
         .fetch_optional(&mut *transaction)
         .await?
@@ -450,11 +477,17 @@ impl HostedProvider {
             return Err(projection_binding_changed());
         }
         let rows = sqlx::query(
-            r#"SELECT record_id, valid_from_sequence, record_revision, semantic_projection
-               FROM hosted_provider_record_projections
-               WHERE collection_id = $1 AND generation_id = $2
-                 AND valid_to_sequence IS NULL AND resolution_complete = false
-                 AND ($3::uuid IS NULL OR record_id > $3)
+            r#"WITH eligible AS (
+                 SELECT record_id, valid_from_sequence, record_revision, semantic_projection,
+                        sum(projection_bytes) OVER (ORDER BY record_id) AS batch_bytes
+                 FROM hosted_provider_record_projections
+                 WHERE collection_id = $1 AND generation_id = $2
+                   AND valid_to_sequence IS NULL AND resolution_complete = false
+                   AND ($3::uuid IS NULL OR record_id > $3)
+               )
+               SELECT record_id, valid_from_sequence, record_revision, semantic_projection
+               FROM eligible
+               WHERE batch_bytes <= $5
                ORDER BY record_id
                LIMIT $4"#,
         )
@@ -462,6 +495,10 @@ impl HostedProvider {
         .bind(generation_id)
         .bind(checkpoint)
         .bind(to_i64(limit, "resolution batch limit")?)
+        .bind(to_i64(
+            MAX_RESOLUTION_BATCH_PROJECTION_BYTES,
+            "resolution batch byte limit",
+        )?)
         .fetch_all(&mut *transaction)
         .await?;
 
@@ -523,20 +560,34 @@ impl HostedProvider {
         let mut completed = false;
         if rows.is_empty() {
             let unsettled: bool = sqlx::query_scalar(
-                r#"SELECT EXISTS (
-                     SELECT 1 FROM hosted_provider_records r
+                r#"WITH snapshot AS (
+                     SELECT DISTINCT ON (record_id)
+                       record_id, revision, sequence, deleted
+                     FROM hosted_provider_record_versions
+                     WHERE collection_id = $1 AND sequence <= $3
+                     ORDER BY record_id, sequence DESC
+                   ), live AS (
+                     SELECT record_id, revision, sequence FROM snapshot WHERE deleted = false
+                   )
+                   SELECT EXISTS (
+                     SELECT 1 FROM live r
                      LEFT JOIN hosted_provider_record_projections p
-                       ON p.collection_id = r.collection_id
-                      AND p.record_id = r.record_id
+                       ON p.collection_id = $1 AND p.record_id = r.record_id
                       AND p.valid_to_sequence IS NULL
                       AND p.generation_id = $2
-                     WHERE r.collection_id = $1
-                       AND (p.record_id IS NULL OR p.record_revision <> r.revision
-                            OR p.resolution_complete = false)
+                     WHERE p.record_id IS NULL OR p.record_revision <> r.revision
+                        OR p.record_sequence <> r.sequence
+                        OR p.resolution_complete = false
+                     UNION ALL
+                     SELECT 1 FROM hosted_provider_record_projections p
+                     LEFT JOIN live r ON r.record_id = p.record_id
+                     WHERE p.collection_id = $1 AND p.generation_id = $2
+                       AND p.valid_to_sequence IS NULL AND r.record_id IS NULL
                    )"#,
             )
             .bind(collection_id)
             .bind(generation_id)
+            .bind(to_i64(source_head, "source head")?)
             .fetch_one(&mut *transaction)
             .await?;
             if unsettled {
@@ -549,7 +600,8 @@ impl HostedProvider {
                            updated_at = now(), last_error_code = 'concurrent_change'
                        WHERE collection_id = $1 AND generation_id = $2
                          AND status = 'building' AND phase = 'resolution'
-                         AND lease_owner = $3 AND lease_fencing_generation = $4"#,
+                         AND lease_owner = $3 AND lease_fencing_generation = $4
+                         AND lease_expires_at > now()"#,
                 )
                 .bind(collection_id)
                 .bind(generation_id)
@@ -582,6 +634,49 @@ impl HostedProvider {
             }
             completed = true;
         }
+        if completed {
+            let activated = sqlx::query(
+                r#"UPDATE hosted_provider_collections
+                   SET active_catalog_revision = $3,
+                       active_projection_format_version = $4,
+                       active_semantic_engine_version = $5,
+                       active_projection_generation_id = $2,
+                       updated_at = now()
+                   WHERE id = $1 AND state = 'active' AND head = $6
+                     AND resource_revision = $3"#,
+            )
+            .bind(collection_id)
+            .bind(generation_id)
+            .bind(&catalog_revision)
+            .bind(to_i64(format_version, "projection format version")?)
+            .bind(&engine_version)
+            .bind(to_i64(source_head, "source head")?)
+            .execute(&mut *transaction)
+            .await?;
+            if activated.rows_affected() != 1 {
+                let abandoned = sqlx::query(
+                    r#"UPDATE hosted_provider_projection_generations
+                       SET status = 'abandoned', abandoned_at = now(), updated_at = now(),
+                           lease_owner = NULL, lease_expires_at = NULL,
+                           last_error_code = 'source_head_changed'
+                       WHERE collection_id = $1 AND generation_id = $2
+                         AND status = 'building' AND phase = 'resolution'
+                         AND lease_owner = $3 AND lease_fencing_generation = $4
+                         AND lease_expires_at > now()"#,
+                )
+                .bind(collection_id)
+                .bind(generation_id)
+                .bind(self.process_epoch)
+                .bind(to_i64(fence, "projection lease fence")?)
+                .execute(&mut *transaction)
+                .await?;
+                if abandoned.rows_affected() != 1 {
+                    return Err(projection_lease_unavailable());
+                }
+                transaction.commit().await?;
+                return Err(projection_source_changed());
+            }
+        }
         let updated = sqlx::query(
             r#"UPDATE hosted_provider_projection_generations
                SET checkpoint_record_id = $6,
@@ -595,6 +690,7 @@ impl HostedProvider {
                WHERE collection_id = $1 AND generation_id = $2
                  AND status = 'building' AND phase = 'resolution'
                  AND lease_owner = $3 AND lease_fencing_generation = $4
+                 AND lease_expires_at > now()
                  AND target_catalog_revision = $5"#,
         )
         .bind(collection_id)
@@ -643,6 +739,606 @@ impl HostedProvider {
             phase_advanced: completed,
         })
     }
+}
+
+impl HostedProvider {
+    /// Maintain the active complete generation in the same transaction as an
+    /// ordinary exact write. Rebuild generations are immutable snapshots and
+    /// are never modified here.
+    pub(super) async fn maintain_active_projection_changes(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        collection_id: Uuid,
+        data_key: &[u8; 32],
+        changes: &[ActiveProjectionChange],
+    ) -> ApiResult<()> {
+        if changes.is_empty() {
+            return Ok(());
+        }
+        let binding = sqlx::query(
+            r#"SELECT c.active_projection_generation_id AS generation_id,
+                      c.active_catalog_revision AS catalog_revision,
+                      c.active_projection_format_version AS format_version,
+                      c.active_semantic_engine_version AS engine_version,
+                      c.resources_ciphertext,
+                      g.status AS generation_status,
+                      g.target_catalog_revision,
+                      g.projection_format_version AS generation_format_version,
+                      g.semantic_engine_version AS generation_engine_version
+               FROM hosted_provider_collections c
+               LEFT JOIN hosted_provider_projection_generations g
+                 ON g.collection_id = c.id
+                AND g.generation_id = c.active_projection_generation_id
+               WHERE c.id = $1 AND c.state = 'active'"#,
+        )
+        .bind(collection_id)
+        .fetch_optional(&mut **transaction)
+        .await?;
+        let Some(binding) = binding else {
+            return Err(ApiError::not_found(
+                "hosted_collection_not_found",
+                "Hosted collection not found.",
+            ));
+        };
+        let Some(generation_id) = binding.get::<Option<Uuid>, _>("generation_id") else {
+            return Ok(());
+        };
+        let catalog_revision = binding
+            .get::<Option<String>, _>("catalog_revision")
+            .ok_or_else(projection_binding_changed)?;
+        let format_version = number(
+            binding
+                .get::<Option<i32>, _>("format_version")
+                .map(i64::from)
+                .ok_or_else(projection_binding_changed)?,
+            "projection format version",
+        )?;
+        let engine_version = binding
+            .get::<Option<String>, _>("engine_version")
+            .ok_or_else(projection_binding_changed)?;
+        if binding
+            .get::<Option<String>, _>("generation_status")
+            .as_deref()
+            != Some("complete")
+            || binding
+                .get::<Option<String>, _>("target_catalog_revision")
+                .as_deref()
+                != Some(catalog_revision.as_str())
+            || binding.get::<Option<i32>, _>("generation_format_version")
+                != Some(i32::try_from(format_version).map_err(|_| {
+                    ApiError::internal("Projection format version is outside integer range.")
+                })?)
+            || binding
+                .get::<Option<String>, _>("generation_engine_version")
+                .as_deref()
+                != Some(engine_version.as_str())
+        {
+            return Err(projection_binding_changed());
+        }
+        if format_version != u64::from(mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION)
+            || engine_version != mdbase::VERSION
+        {
+            return Err(ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "projection_engine_mismatch",
+                "The active projection requires a different semantic engine.",
+            ));
+        }
+        let resources: SyncCollectionResources = self.crypto.decrypt_json(
+            data_key,
+            binding.get("resources_ciphertext"),
+            &resources_aad(collection_id),
+        )?;
+        let resource_documents =
+            load_resource_documents(transaction, &self.crypto, data_key, collection_id).await?;
+        let catalog = compile_point_catalog(resources, resource_documents)?;
+        if catalog.resource_revision() != catalog_revision {
+            return Err(projection_binding_changed());
+        }
+
+        let mut active_changes = changes.to_vec();
+        let changed_ids = changes
+            .iter()
+            .map(|change| change.record_id)
+            .collect::<Vec<_>>();
+        let old_key_rows = sqlx::query(
+            r#"SELECT record_id, lookup_key
+               FROM hosted_provider_record_resolution_keys
+               WHERE collection_id = $1 AND generation_id = $2
+                 AND valid_to_sequence IS NULL AND record_id = ANY($3::uuid[])"#,
+        )
+        .bind(collection_id)
+        .bind(generation_id)
+        .bind(&changed_ids)
+        .fetch_all(&mut **transaction)
+        .await?;
+        let mut old_keys = HashMap::<Uuid, BTreeSet<String>>::new();
+        for row in old_key_rows {
+            old_keys
+                .entry(row.get("record_id"))
+                .or_default()
+                .insert(row.get("lookup_key"));
+        }
+        let mut identity_changed = BTreeSet::new();
+        let mut affected_values = BTreeSet::new();
+        for change in &active_changes {
+            let new_keys = if let Some(record) = change.record.as_ref() {
+                catalog
+                    .project_record(&mdbase::runtime::CanonicalRecordInput {
+                        stable_id: Some(change.record_id.to_string()),
+                        path: record.path.clone(),
+                        document: record.document.clone(),
+                        file_size: 0,
+                        file_mtime: None,
+                    })
+                    .map_err(projection_semantic_error)?
+                    .facts
+                    .resolution_keys
+                    .into_iter()
+                    .map(|key| key.value)
+                    .collect::<BTreeSet<_>>()
+            } else {
+                BTreeSet::new()
+            };
+            let previous = old_keys.get(&change.record_id).cloned().unwrap_or_default();
+            if !change.was_present || change.record.is_none() || previous != new_keys {
+                identity_changed.insert(change.record_id);
+                affected_values.extend(previous);
+                affected_values.extend(new_keys);
+            }
+        }
+        for change in &mut active_changes {
+            change.force_relationship_resolution = identity_changed.contains(&change.record_id)
+                || (!identity_changed.is_empty() && changes.len() > 1);
+        }
+        if !identity_changed.is_empty() {
+            let identity_ids = identity_changed.iter().copied().collect::<Vec<_>>();
+            let lookup_values = affected_values.into_iter().collect::<Vec<_>>();
+            let source_rows = sqlx::query(
+                r#"SELECT DISTINCT source_record_id
+                   FROM hosted_provider_record_relationships
+                   WHERE collection_id = $1 AND generation_id = $2
+                     AND valid_to_sequence IS NULL
+                     AND (target_record_id = ANY($3::uuid[])
+                          OR normalized_target = ANY($4::text[]))
+                     AND NOT (source_record_id = ANY($5::uuid[]))
+                   ORDER BY source_record_id
+                   LIMIT $6"#,
+            )
+            .bind(collection_id)
+            .bind(generation_id)
+            .bind(&identity_ids)
+            .bind(&lookup_values)
+            .bind(&changed_ids)
+            .bind((MAX_RELATIONSHIP_REVALIDATION_RECORDS + 1) as i64)
+            .fetch_all(&mut **transaction)
+            .await?;
+            if source_rows.len() > MAX_RELATIONSHIP_REVALIDATION_RECORDS {
+                return Err(projection_budget("relationship_revalidation_records"));
+            }
+            let source_ids = source_rows
+                .into_iter()
+                .map(|row| row.get::<Uuid, _>("source_record_id"))
+                .collect::<Vec<_>>();
+            if !source_ids.is_empty() {
+                let source_records = sqlx::query(
+                    r#"SELECT r.record_id, r.sequence, r.revision, r.content_bytes,
+                              r.payload_ciphertext
+                       FROM hosted_provider_records r
+                       JOIN hosted_provider_record_projections p
+                         ON p.collection_id = r.collection_id
+                        AND p.generation_id = $2 AND p.record_id = r.record_id
+                        AND p.valid_to_sequence IS NULL
+                       WHERE r.collection_id = $1 AND r.record_id = ANY($3::uuid[])
+                       ORDER BY r.record_id"#,
+                )
+                .bind(collection_id)
+                .bind(generation_id)
+                .bind(&source_ids)
+                .fetch_all(&mut **transaction)
+                .await?;
+                if source_records.len() != source_ids.len() {
+                    return Err(projection_binding_changed());
+                }
+                let final_sequence = changes
+                    .iter()
+                    .map(|change| change.sequence)
+                    .max()
+                    .ok_or_else(|| ApiError::internal("Projection write set is empty."))?;
+                let mut plaintext_bytes = 0_u64;
+                for row in source_records {
+                    let record_id: Uuid = row.get("record_id");
+                    let record_sequence = number(row.get::<i64, _>("sequence"), "record sequence")?;
+                    plaintext_bytes = plaintext_bytes.saturating_add(number(
+                        row.get::<i64, _>("content_bytes"),
+                        "record content bytes",
+                    )?);
+                    if plaintext_bytes > MAX_RELATIONSHIP_REVALIDATION_BYTES {
+                        return Err(projection_budget("relationship_revalidation_bytes"));
+                    }
+                    let record: PersistedRecord = self.crypto.decrypt_json(
+                        data_key,
+                        row.get("payload_ciphertext"),
+                        &current_record_aad(collection_id, record_id, record_sequence),
+                    )?;
+                    if record.revision != row.get::<String, _>("revision") {
+                        return Err(ApiError::internal(
+                            "The exact relationship source revision is inconsistent.",
+                        ));
+                    }
+                    active_changes.push(ActiveProjectionChange {
+                        record_id,
+                        record_sequence,
+                        sequence: final_sequence,
+                        was_present: true,
+                        force_relationship_resolution: true,
+                        record: Some(record),
+                    });
+                }
+            }
+        }
+
+        let mut needs_resolution = Vec::new();
+        for change in &active_changes {
+            let Some(record) = change.record.as_ref() else {
+                let projected: bool = sqlx::query_scalar(
+                    r#"SELECT EXISTS (
+                         SELECT 1 FROM hosted_provider_record_projections
+                         WHERE collection_id = $1 AND generation_id = $2 AND record_id = $3
+                           AND valid_to_sequence IS NULL
+                       )"#,
+                )
+                .bind(collection_id)
+                .bind(generation_id)
+                .bind(change.record_id)
+                .fetch_one(&mut **transaction)
+                .await?;
+                if !change.was_present || !projected {
+                    return Err(projection_binding_changed());
+                }
+                close_or_replace_projection_versions(
+                    transaction,
+                    collection_id,
+                    generation_id,
+                    change.record_id,
+                    change.sequence,
+                    true,
+                )
+                .await?;
+                continue;
+            };
+            let prepared = catalog
+                .project_record(&mdbase::runtime::CanonicalRecordInput {
+                    stable_id: Some(change.record_id.to_string()),
+                    path: record.path.clone(),
+                    document: record.document.clone(),
+                    file_size: 0,
+                    file_mtime: None,
+                })
+                .map_err(projection_semantic_error)?;
+            let structural_digest = decode_sha256(&prepared.structure.structural_digest)?;
+            let previous = sqlx::query(
+                r#"SELECT structural_digest, semantic_projection, resolution_complete
+                   FROM hosted_provider_record_projections
+                   WHERE collection_id = $1 AND generation_id = $2 AND record_id = $3
+                     AND valid_to_sequence IS NULL"#,
+            )
+            .bind(collection_id)
+            .bind(generation_id)
+            .bind(change.record_id)
+            .fetch_optional(&mut **transaction)
+            .await?;
+            if change.was_present && previous.is_none() {
+                return Err(projection_binding_changed());
+            }
+            let unchanged = !change.force_relationship_resolution
+                && previous.as_ref().is_some_and(|row| {
+                    row.get::<bool, _>("resolution_complete")
+                        && row.get::<Vec<u8>, _>("structural_digest") == structural_digest
+                });
+            if unchanged {
+                let previous: mdbase::runtime::SemanticProjection = serde_json::from_value(
+                    previous
+                        .expect("unchanged projection has a row")
+                        .get("semantic_projection"),
+                )
+                .map_err(|error| {
+                    ApiError::internal(format!(
+                        "Current semantic projection could not decode: {error}"
+                    ))
+                })?;
+                let final_projection = catalog
+                    .finalize_projection(prepared, previous.structure)
+                    .map_err(projection_semantic_error)?;
+                let bytes = final_projection.canonical_json().map_err(|error| {
+                    ApiError::internal(format!(
+                        "Final semantic projection could not serialize: {error}"
+                    ))
+                })?;
+                insert_active_projection_version(
+                    transaction,
+                    collection_id,
+                    generation_id,
+                    &catalog_revision,
+                    change,
+                    &final_projection.facts,
+                    &final_projection.structure.structural_digest,
+                    true,
+                    &bytes,
+                    false,
+                )
+                .await?;
+            } else {
+                let bytes = serde_jcs::to_vec(&prepared).map_err(|error| {
+                    ApiError::internal(format!(
+                        "Prepared semantic projection could not serialize: {error}"
+                    ))
+                })?;
+                insert_active_projection_version(
+                    transaction,
+                    collection_id,
+                    generation_id,
+                    &catalog_revision,
+                    change,
+                    &prepared.facts,
+                    &prepared.structure.structural_digest,
+                    false,
+                    &bytes,
+                    true,
+                )
+                .await?;
+                needs_resolution.push((
+                    change.record_id,
+                    change.record_sequence,
+                    change.sequence,
+                    record.revision.clone(),
+                ));
+            }
+        }
+
+        for (record_id, record_sequence, sequence, revision) in needs_resolution {
+            let value: Value = sqlx::query_scalar(
+                r#"SELECT semantic_projection
+                   FROM hosted_provider_record_projections
+                   WHERE collection_id = $1 AND generation_id = $2 AND record_id = $3
+                     AND valid_from_sequence = $4 AND valid_to_sequence IS NULL
+                     AND resolution_complete = false"#,
+            )
+            .bind(collection_id)
+            .bind(generation_id)
+            .bind(record_id)
+            .bind(to_i64(sequence, "record sequence")?)
+            .fetch_one(&mut **transaction)
+            .await?;
+            let prepared: mdbase::runtime::PreparedSemanticProjection =
+                serde_json::from_value(value).map_err(|error| {
+                    ApiError::internal(format!(
+                        "Prepared semantic projection could not decode: {error}"
+                    ))
+                })?;
+            let plan = catalog
+                .plan_record_resolution(&prepared.structure)
+                .map_err(projection_semantic_error)?;
+            let candidates =
+                load_resolution_candidates(transaction, collection_id, generation_id, &plan)
+                    .await?;
+            let resolved = catalog
+                .resolve_record_structure(&prepared.structure, &plan, &candidates)
+                .map_err(projection_semantic_error)?;
+            let final_projection = catalog
+                .finalize_projection(prepared, resolved)
+                .map_err(projection_semantic_error)?;
+            let bytes = final_projection.canonical_json().map_err(|error| {
+                ApiError::internal(format!(
+                    "Final semantic projection could not serialize: {error}"
+                ))
+            })?;
+            persist_active_resolved_projection(
+                transaction,
+                collection_id,
+                generation_id,
+                &catalog_revision,
+                record_id,
+                record_sequence,
+                sequence,
+                &revision,
+                &final_projection,
+                &bytes,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn insert_active_projection_version(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    generation_id: Uuid,
+    catalog_revision: &str,
+    change: &ActiveProjectionChange,
+    facts: &mdbase::runtime::SemanticProjectionFacts,
+    structural_digest: &str,
+    resolution_complete: bool,
+    canonical_bytes: &[u8],
+    close_relationships: bool,
+) -> ApiResult<()> {
+    if canonical_bytes.len() > 262_144 {
+        return Err(projection_budget("projection_bytes"));
+    }
+    let record = change
+        .record
+        .as_ref()
+        .ok_or_else(|| ApiError::internal("A live projection change omitted its exact record."))?;
+    let active_matches: bool = sqlx::query_scalar(
+        r#"SELECT EXISTS (
+             SELECT 1
+             FROM hosted_provider_collections c
+             JOIN hosted_provider_projection_generations g
+               ON g.collection_id = c.id
+              AND g.generation_id = c.active_projection_generation_id
+             JOIN hosted_provider_records r
+               ON r.collection_id = c.id AND r.record_id = $3
+             WHERE c.id = $1 AND c.active_projection_generation_id = $2
+               AND c.active_catalog_revision = $4
+               AND g.status = 'complete'
+               AND r.sequence = $5 AND r.revision = $6
+           )"#,
+    )
+    .bind(collection_id)
+    .bind(generation_id)
+    .bind(change.record_id)
+    .bind(catalog_revision)
+    .bind(to_i64(change.record_sequence, "record sequence")?)
+    .bind(&record.revision)
+    .fetch_one(&mut **transaction)
+    .await?;
+    if !active_matches {
+        return Err(ApiError::conflict(
+            "projection_cas_lost",
+            "The exact record or active projection binding changed during the write.",
+        ));
+    }
+    close_or_replace_projection_versions(
+        transaction,
+        collection_id,
+        generation_id,
+        change.record_id,
+        change.sequence,
+        close_relationships,
+    )
+    .await?;
+    let projection_value: Value = serde_json::from_slice(canonical_bytes).map_err(|error| {
+        ApiError::internal(format!(
+            "Semantic projection JSON could not decode: {error}"
+        ))
+    })?;
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_record_projections
+             (collection_id, record_id, record_sequence, valid_from_sequence, record_revision,
+              catalog_revision, projection_format_version, semantic_engine_version,
+              generation_id, canonical_path, matched_types, file_size_bytes,
+              file_modified_at, semantic_complete, resolution_complete,
+              semantic_projection, projection_digest, structural_digest, projection_bytes)
+           VALUES ($1, $2, $3, $18, $4, $5, $6, $7, $8, $9, $10, $11, NULL,
+                   $12, $13, $14, $15, $16, $17)"#,
+    )
+    .bind(collection_id)
+    .bind(change.record_id)
+    .bind(to_i64(change.record_sequence, "record sequence")?)
+    .bind(&record.revision)
+    .bind(catalog_revision)
+    .bind(i64::from(facts.format_version))
+    .bind(&facts.semantic_engine_version)
+    .bind(generation_id)
+    .bind(&facts.path)
+    .bind(&facts.types)
+    .bind(to_i64(facts.file.size, "projected file size")?)
+    .bind(resolution_complete && facts.semantic_complete)
+    .bind(resolution_complete)
+    .bind(projection_value)
+    .bind(Sha256::digest(canonical_bytes).to_vec())
+    .bind(decode_sha256(structural_digest)?)
+    .bind(to_i64(canonical_bytes.len() as u64, "projection size")?)
+    .bind(to_i64(change.sequence, "projection sequence")?)
+    .execute(&mut **transaction)
+    .await?;
+    for key in &facts.resolution_keys {
+        sqlx::query(
+            r#"INSERT INTO hosted_provider_record_resolution_keys
+                 (collection_id, record_id, key_kind, lookup_key, record_revision, record_sequence,
+                  catalog_revision, projection_format_version, semantic_engine_version,
+                  generation_id, valid_from_sequence)
+               VALUES ($1, $2, $3, $4, $5, $11, $6, $7, $8, $9, $10)"#,
+        )
+        .bind(collection_id)
+        .bind(change.record_id)
+        .bind(resolution_key_kind(key.kind))
+        .bind(&key.value)
+        .bind(&record.revision)
+        .bind(catalog_revision)
+        .bind(i64::from(facts.format_version))
+        .bind(&facts.semantic_engine_version)
+        .bind(generation_id)
+        .bind(to_i64(change.sequence, "projection sequence")?)
+        .bind(to_i64(change.record_sequence, "record sequence")?)
+        .execute(&mut **transaction)
+        .await?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn persist_active_resolved_projection(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    generation_id: Uuid,
+    catalog_revision: &str,
+    record_id: Uuid,
+    record_sequence: u64,
+    sequence: u64,
+    record_revision: &str,
+    projection: &mdbase::runtime::SemanticProjection,
+    canonical_bytes: &[u8],
+) -> ApiResult<()> {
+    if canonical_bytes.len() > 262_144 {
+        return Err(projection_budget("projection_bytes"));
+    }
+    let projection_value: Value = serde_json::from_slice(canonical_bytes).map_err(|error| {
+        ApiError::internal(format!(
+            "Final semantic projection JSON could not decode: {error}"
+        ))
+    })?;
+    let updated = sqlx::query(
+        r#"UPDATE hosted_provider_record_projections p
+           SET semantic_complete = $8, resolution_complete = true,
+               semantic_projection = $9, projection_digest = $10,
+               projection_bytes = $11, updated_at = now()
+           FROM hosted_provider_collections c,
+                hosted_provider_projection_generations g,
+                hosted_provider_records r
+           WHERE p.collection_id = $1 AND p.generation_id = $2
+             AND p.record_id = $3 AND p.valid_from_sequence = $4
+             AND p.valid_to_sequence IS NULL AND p.record_revision = $5
+             AND c.id = p.collection_id AND c.active_projection_generation_id = p.generation_id
+             AND c.active_catalog_revision = $6
+             AND g.collection_id = p.collection_id AND g.generation_id = p.generation_id
+             AND g.status = 'complete' AND g.semantic_engine_version = $7
+             AND r.collection_id = p.collection_id AND r.record_id = p.record_id
+             AND r.sequence = p.record_sequence AND r.revision = p.record_revision"#,
+    )
+    .bind(collection_id)
+    .bind(generation_id)
+    .bind(record_id)
+    .bind(to_i64(sequence, "record sequence")?)
+    .bind(record_revision)
+    .bind(catalog_revision)
+    .bind(&projection.facts.semantic_engine_version)
+    .bind(projection.facts.semantic_complete)
+    .bind(projection_value)
+    .bind(Sha256::digest(canonical_bytes).to_vec())
+    .bind(to_i64(canonical_bytes.len() as u64, "projection size")?)
+    .execute(&mut **transaction)
+    .await?;
+    if updated.rows_affected() != 1 {
+        return Err(ApiError::conflict(
+            "projection_cas_lost",
+            "The exact record or active projection binding changed during relationship resolution.",
+        ));
+    }
+    insert_relationships(
+        transaction,
+        collection_id,
+        generation_id,
+        catalog_revision,
+        record_id,
+        sequence,
+        record_sequence,
+        record_revision,
+        projection,
+    )
+    .await
 }
 
 async fn load_resolution_candidates(
@@ -738,19 +1434,20 @@ async fn persist_prepared_projection(
 ) -> ApiResult<()> {
     let cas_matches: bool = sqlx::query_scalar(
         r#"SELECT EXISTS (
-             SELECT 1 FROM hosted_provider_records r
+             SELECT 1 FROM hosted_provider_record_versions r
              JOIN hosted_provider_projection_generations g
                ON g.collection_id = r.collection_id AND g.generation_id = $3
              JOIN hosted_provider_collections c
                ON c.id = r.collection_id
              WHERE r.collection_id = $1 AND r.record_id = $2
                AND r.sequence = $4 AND r.revision = $5
+               AND r.deleted = false
                AND g.status = 'building' AND g.phase = 'projection'
                AND g.lease_fencing_generation = $6
                AND g.lease_expires_at > now()
                AND g.target_catalog_revision = $7
-               AND c.active_projection_generation_id = g.generation_id
-               AND c.active_catalog_revision = g.target_catalog_revision
+               AND c.state = 'active'
+               AND c.resource_revision = g.target_catalog_revision
            )"#,
     )
     .bind(collection_id)
@@ -768,7 +1465,15 @@ async fn persist_prepared_projection(
             "The exact record or projection generation changed during projection.",
         ));
     }
-    close_or_replace_projection_versions(transaction, collection_id, record_id, sequence).await?;
+    close_or_replace_projection_versions(
+        transaction,
+        collection_id,
+        generation_id,
+        record_id,
+        sequence,
+        true,
+    )
+    .await?;
     let projection_value: Value = serde_json::from_slice(canonical_bytes).map_err(|error| {
         ApiError::internal(format!(
             "Semantic projection JSON could not decode: {error}"
@@ -778,12 +1483,12 @@ async fn persist_prepared_projection(
     let structural_digest = decode_sha256(&prepared.structure.structural_digest)?;
     sqlx::query(
         r#"INSERT INTO hosted_provider_record_projections
-             (collection_id, record_id, valid_from_sequence, record_revision,
+             (collection_id, record_id, record_sequence, valid_from_sequence, record_revision,
               catalog_revision, projection_format_version, semantic_engine_version,
               generation_id, canonical_path, matched_types, file_size_bytes,
               file_modified_at, semantic_complete, resolution_complete,
               semantic_projection, projection_digest, structural_digest, projection_bytes)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL,
+           VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL,
                    false, false, $12, $13, $14, $15)"#,
     )
     .bind(collection_id)
@@ -806,10 +1511,10 @@ async fn persist_prepared_projection(
     for key in &prepared.facts.resolution_keys {
         sqlx::query(
             r#"INSERT INTO hosted_provider_record_resolution_keys
-                 (collection_id, record_id, key_kind, lookup_key, record_revision,
+                 (collection_id, record_id, key_kind, lookup_key, record_revision, record_sequence,
                   catalog_revision, projection_format_version, semantic_engine_version,
                   generation_id, valid_from_sequence)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
+               VALUES ($1, $2, $3, $4, $5, $10, $6, $7, $8, $9, $10)"#,
         )
         .bind(collection_id)
         .bind(record_id)
@@ -854,7 +1559,7 @@ async fn persist_resolved_projection(
                projection_bytes = $11, updated_at = now()
            FROM hosted_provider_projection_generations g,
                 hosted_provider_collections c,
-                hosted_provider_records r
+                hosted_provider_record_versions r
            WHERE p.collection_id = $1 AND p.record_id = $2
              AND p.generation_id = $3 AND p.valid_from_sequence = $4
              AND p.valid_to_sequence IS NULL AND p.record_revision = $5
@@ -864,10 +1569,11 @@ async fn persist_resolved_projection(
              AND g.lease_expires_at > now()
              AND g.target_catalog_revision = $12
              AND c.id = p.collection_id
-             AND c.active_projection_generation_id = p.generation_id
-             AND c.active_catalog_revision = g.target_catalog_revision
+             AND c.state = 'active'
+             AND c.resource_revision = g.target_catalog_revision
              AND r.collection_id = p.collection_id AND r.record_id = p.record_id
-             AND r.sequence = p.valid_from_sequence AND r.revision = p.record_revision"#,
+             AND r.sequence = p.record_sequence AND r.revision = p.record_revision
+             AND r.deleted = false"#,
     )
     .bind(collection_id)
     .bind(record_id)
@@ -890,6 +1596,32 @@ async fn persist_resolved_projection(
         ));
     }
 
+    insert_relationships(
+        transaction,
+        collection_id,
+        generation_id,
+        catalog_revision,
+        record_id,
+        valid_from,
+        valid_from,
+        record_revision,
+        projection,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn insert_relationships(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    generation_id: Uuid,
+    catalog_revision: &str,
+    record_id: Uuid,
+    valid_from: u64,
+    source_record_sequence: u64,
+    record_revision: &str,
+    projection: &mdbase::runtime::SemanticProjection,
+) -> ApiResult<()> {
     for occurrence in &projection.structure.occurrences {
         let Some(resolution_state) = relationship_resolution_state(occurrence.resolution) else {
             continue;
@@ -910,11 +1642,12 @@ async fn persist_resolved_projection(
         sqlx::query(
             r#"INSERT INTO hosted_provider_record_relationships
                  (collection_id, source_record_id, occurrence_key, valid_from_sequence,
-                  source_record_revision, catalog_revision, projection_format_version,
+                  source_record_revision, source_record_sequence, catalog_revision,
+                  projection_format_version,
                   semantic_engine_version, generation_id, relationship_kind, source_field,
                   raw_target, normalized_target, alias, anchor, is_relative,
                   resolution_state, target_record_id, target_path)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+               VALUES ($1, $2, $3, $4, $5, $20, $6, $7, $8, $9, $10, $11, $12,
                        $13, $14, $15, $16, $17, $18, $19)"#,
         )
         .bind(collection_id)
@@ -942,6 +1675,7 @@ async fn persist_resolved_projection(
         .bind(resolution_state)
         .bind(target_record_id)
         .bind(&occurrence.target_path)
+        .bind(to_i64(source_record_sequence, "source record sequence")?)
         .execute(&mut **transaction)
         .await?;
     }
@@ -951,68 +1685,84 @@ async fn persist_resolved_projection(
 async fn close_or_replace_projection_versions(
     transaction: &mut Transaction<'_, Postgres>,
     collection_id: Uuid,
+    generation_id: Uuid,
     record_id: Uuid,
     sequence: u64,
+    close_relationships: bool,
 ) -> ApiResult<()> {
     let sequence = to_i64(sequence, "record sequence")?;
-    sqlx::query(
-        r#"DELETE FROM hosted_provider_record_relationships
-           WHERE collection_id = $1 AND source_record_id = $2
-             AND valid_to_sequence IS NULL AND valid_from_sequence >= $3"#,
-    )
-    .bind(collection_id)
-    .bind(record_id)
-    .bind(sequence)
-    .execute(&mut **transaction)
-    .await?;
-    sqlx::query(
-        r#"UPDATE hosted_provider_record_relationships SET valid_to_sequence = $3
-           WHERE collection_id = $1 AND source_record_id = $2
-             AND valid_to_sequence IS NULL AND valid_from_sequence < $3"#,
-    )
-    .bind(collection_id)
-    .bind(record_id)
-    .bind(sequence)
-    .execute(&mut **transaction)
-    .await?;
+    if close_relationships {
+        sqlx::query(
+            r#"DELETE FROM hosted_provider_record_relationships
+               WHERE collection_id = $1 AND source_record_id = $2
+                 AND generation_id = $4
+                 AND valid_to_sequence IS NULL AND valid_from_sequence >= $3"#,
+        )
+        .bind(collection_id)
+        .bind(record_id)
+        .bind(sequence)
+        .bind(generation_id)
+        .execute(&mut **transaction)
+        .await?;
+        sqlx::query(
+            r#"UPDATE hosted_provider_record_relationships SET valid_to_sequence = $3
+               WHERE collection_id = $1 AND source_record_id = $2
+                 AND generation_id = $4
+                 AND valid_to_sequence IS NULL AND valid_from_sequence < $3"#,
+        )
+        .bind(collection_id)
+        .bind(record_id)
+        .bind(sequence)
+        .bind(generation_id)
+        .execute(&mut **transaction)
+        .await?;
+    }
     sqlx::query(
         r#"DELETE FROM hosted_provider_record_resolution_keys
            WHERE collection_id = $1 AND record_id = $2
+             AND generation_id = $4
              AND valid_to_sequence IS NULL AND valid_from_sequence >= $3"#,
     )
     .bind(collection_id)
     .bind(record_id)
     .bind(sequence)
+    .bind(generation_id)
     .execute(&mut **transaction)
     .await?;
     sqlx::query(
         r#"UPDATE hosted_provider_record_resolution_keys SET valid_to_sequence = $3
            WHERE collection_id = $1 AND record_id = $2
+             AND generation_id = $4
              AND valid_to_sequence IS NULL AND valid_from_sequence < $3"#,
     )
     .bind(collection_id)
     .bind(record_id)
     .bind(sequence)
+    .bind(generation_id)
     .execute(&mut **transaction)
     .await?;
     sqlx::query(
         r#"DELETE FROM hosted_provider_record_projections
            WHERE collection_id = $1 AND record_id = $2
+             AND generation_id = $4
              AND valid_to_sequence IS NULL AND valid_from_sequence >= $3"#,
     )
     .bind(collection_id)
     .bind(record_id)
     .bind(sequence)
+    .bind(generation_id)
     .execute(&mut **transaction)
     .await?;
     sqlx::query(
         r#"UPDATE hosted_provider_record_projections SET valid_to_sequence = $3
            WHERE collection_id = $1 AND record_id = $2
+             AND generation_id = $4
              AND valid_to_sequence IS NULL AND valid_from_sequence < $3"#,
     )
     .bind(collection_id)
     .bind(record_id)
     .bind(sequence)
+    .bind(generation_id)
     .execute(&mut **transaction)
     .await?;
     Ok(())
@@ -1095,11 +1845,18 @@ fn projection_binding_changed() -> ApiError {
     )
 }
 
+fn projection_source_changed() -> ApiError {
+    ApiError::conflict(
+        "projection_source_head_changed",
+        "The collection changed during rebuild; start a new projection generation.",
+    )
+}
+
 fn projection_budget(kind: &str) -> ApiError {
     ApiError::new(
         StatusCode::UNPROCESSABLE_ENTITY,
-        "hosted_query_budget_exceeded",
-        "The semantic projection exceeds a hosted execution budget.",
+        "hosted_execution_budget_exceeded",
+        "The hosted projection or relationship operation exceeds an execution budget.",
     )
     .with_details(json!({"budget_kind": kind}))
 }
@@ -1111,6 +1868,38 @@ fn projection_semantic_error(error: mdbase::runtime::CatalogError) -> ApiError {
         "The structural projection could not be resolved canonically.",
     )
     .with_details(json!({"semantic_code": error.code}))
+}
+
+pub(super) async fn invalidate_projection_catalog_binding(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+) -> ApiResult<()> {
+    sqlx::query(
+        r#"UPDATE hosted_provider_projection_generations
+           SET status = 'abandoned', abandoned_at = now(), updated_at = now(),
+               lease_owner = NULL, lease_expires_at = NULL,
+               last_error_code = 'catalog_changed'
+           WHERE collection_id = $1 AND status = 'building'"#,
+    )
+    .bind(collection_id)
+    .execute(&mut **transaction)
+    .await?;
+    sqlx::query("DELETE FROM hosted_provider_query_cursors WHERE collection_id = $1")
+        .bind(collection_id)
+        .execute(&mut **transaction)
+        .await?;
+    sqlx::query(
+        r#"UPDATE hosted_provider_collections
+           SET active_catalog_revision = NULL,
+               active_projection_format_version = NULL,
+               active_semantic_engine_version = NULL,
+               active_projection_generation_id = NULL
+           WHERE id = $1"#,
+    )
+    .bind(collection_id)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
 }
 
 /// Canonically classify one exact point record for an authorization decision.

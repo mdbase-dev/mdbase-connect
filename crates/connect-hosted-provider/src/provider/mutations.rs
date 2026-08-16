@@ -1,4 +1,5 @@
 use super::mutation_journal::{HostedMutationClaim, HostedMutationLease};
+use super::projections::ActiveProjectionChange;
 use super::*;
 
 struct MutationExecution<'a> {
@@ -477,6 +478,7 @@ impl HostedProvider {
             false
         };
         let mut primary = None;
+        let mut projection_changes = Vec::with_capacity(execution.changed.len());
         for (record_id, after, document) in execution.changed {
             head = head.checked_add(1).ok_or_else(|| {
                 ApiError::internal("The hosted collection sequence is exhausted.")
@@ -507,6 +509,14 @@ impl HostedProvider {
                     .await?;
                 revision
             };
+            projection_changes.push(ActiveProjectionChange {
+                record_id,
+                record_sequence: head,
+                sequence: head,
+                was_present: before.is_some(),
+                force_relationship_resolution: false,
+                record: after.clone(),
+            });
             let before_ciphertext = before
                 .as_ref()
                 .map(|record| {
@@ -583,6 +593,13 @@ impl HostedProvider {
                 cached.replace_record(record_id, None);
             }
         }
+        self.maintain_active_projection_changes(
+            &mut transaction,
+            collection_id,
+            &data_key,
+            &projection_changes,
+        )
+        .await?;
         sqlx::query(
             r#"UPDATE hosted_provider_collections
                SET head = $2, record_count = $3, content_bytes = $4, updated_at = now()

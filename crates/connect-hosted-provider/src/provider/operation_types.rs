@@ -1,4 +1,5 @@
 use super::mutation_journal::HostedMutationLease;
+use super::projections::invalidate_projection_catalog_binding;
 use super::*;
 
 #[derive(Clone, Copy)]
@@ -290,6 +291,7 @@ impl HostedProvider {
             .await?;
         }
 
+        invalidate_projection_catalog_binding(&mut transaction, collection_id).await?;
         sqlx::query(
             r#"UPDATE hosted_provider_collections
                SET head = $2, resource_revision = $3, resources_ciphertext = $4, updated_at = now()
@@ -609,6 +611,7 @@ impl HostedProvider {
             .await?;
         }
 
+        invalidate_projection_catalog_binding(&mut transaction, collection_id).await?;
         sqlx::query(
             r#"UPDATE hosted_provider_collections
                SET head = $2, resource_revision = $3, resources_ciphertext = $4, updated_at = now()
