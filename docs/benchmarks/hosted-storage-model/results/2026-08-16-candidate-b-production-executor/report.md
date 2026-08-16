@@ -131,3 +131,49 @@ These distributions supersede the earlier single observations for query latency.
 They do not supersede the earlier plan, write-pressure, storage, WAL, rebuild, or
 cross-candidate evidence. Shared-staging contention, process memory, cancellation,
 and point-read coexistence remain separate rollout gates.
+
+## Final sustained local rollout gates
+
+The final 100-repetition production-executor run at Connect `0a8c683a` with
+mdbase-rs `a5d10ab` supersedes the seven-sample latency table above. The subsequent
+Connect `0dc1f730` change only moved bounded maintenance functions into a dedicated
+source slice to satisfy the architecture file-size check; it did not change query
+SQL or execution. Every sustained p95 passed the published 300 ms gate:
+
+| Workload | p50 | p95 | p99 | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Path page 1 | 27 ms | 35 ms | 38 ms | 38 ms |
+| Path page 2 | 28 ms | 34 ms | 38 ms | 91 ms |
+| Path page 10 | 28 ms | 35 ms | 46 ms | 84 ms |
+| Mtime page 1 | 27 ms | 36 ms | 88 ms | 445 ms |
+| Mtime page 2 | 27 ms | 34 ms | 49 ms | 249 ms |
+| Count grouping | 156 ms | 170 ms | 543 ms | 635 ms |
+
+These are one-operation-per-page measurements with a 200-row page. They are not a
+repeat-to-completion top-K timing. The page plans select 201 identities through the
+path or mtime cursor indexes, prove the live record revisions, and transfer only the
+bounded page. Representative `EXPLAIN (ANALYZE, BUFFERS)` observations completed in
+1.688 ms for path and 1.842 ms for mtime without an explicit sort. Count grouping
+scans the authorized 100k snapshot by design; its representative parallel plan
+completed in 71.359 ms with no temporary blocks and 10,432 KiB peak hash memory.
+The sustained application-level group p95 was 170 ms. Above 100k records, the
+production manifest rejects this collection-wide operator with typed
+`hosted_scan_budget_exceeded`; the debug-only entitlement run is retained solely as
+correctness, cancellation, and resource-release evidence.
+
+The final cancellation mission independently observed the PostgreSQL backend,
+transaction, query-pool checkout, scan permit, accounted execution bytes, and
+plaintext scope. Cancellation released every observation within five seconds, and
+both an exact point read and a group query succeeded on the reused pool afterward.
+
+Clean 100k physical evidence recorded 306,665,151 database bytes, 333,114,536 WAL
+bytes, 266,747,904 projection relation bytes, and 29,057,024 record-version relation
+bytes. The frozen B-no-GIN storage benchmark remains the authority for the true
+approximately-1-GiB content tier: 230,128 records and 1,073,743,117 exact Markdown
+bytes produced a 4,290,655,935-byte database and 6.82 GB WAL during import. These
+storage figures are not inferred from the lean synthetic production-executor rows.
+
+The complete final gate record, physical sizes, plan observations, typed large-tier
+outcome, cleanup observations, and evidence limitations are machine-readable in
+[`raw/final-rollout-gates.json`](./raw/final-rollout-gates.json). The evidence does
+not justify a general projection GIN or any automatic field index.
