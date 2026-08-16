@@ -1,6 +1,6 @@
 # Hosted semantic projection migration
 
-Status: additive schema drafted; isolated validation only; no existing-data migration authorized
+Status: additive schema implemented and locally validated; no existing-data migration authorized
 
 Migration: `crates/connect-hosted-provider/migrations/0035_hosted_semantic_projections.sql`
 Activation gate: `crates/connect-hosted-provider/migrations/0036_hosted_execution_model.sql`
@@ -9,6 +9,9 @@ Obsidian Base cursor state: `crates/connect-hosted-provider/migrations/0038_host
 Bounded execution proofs: `crates/connect-hosted-provider/migrations/0045_hosted_query_execution_proofs.sql`
 Temporal digest correction: `crates/connect-hosted-provider/migrations/0046_hosted_projection_temporal_digest.sql`
 Rollback admission fence: `crates/connect-hosted-provider/migrations/0047_hosted_runtime_rollback_fence.sql`
+Verified integrity epoch: `crates/connect-hosted-provider/migrations/0052_projection_integrity_verification.sql`
+Snapshot path cursor index: `crates/connect-hosted-provider/migrations/0053_snapshot_path_cursor_index.sql`
+Single-write digest binding: `crates/connect-hosted-provider/migrations/0054_projection_digest_single_write.sql`
 
 ## Compatibility strategy
 
@@ -77,8 +80,15 @@ A rename/swap transaction closes every affected open path before inserting new
 versions. A projection digest detects accidental substitution or corruption; it is
 not a MAC and never replaces exact authorization or canonical classification.
 Migration 0044 adds a nullable observed digest and a row trigger without rewriting
-existing projection rows. New persistence first writes the row, then sets the
-expected digest to the trigger-maintained observation in the same transaction.
+existing projection rows. Migration 0054 later removes the second application
+`UPDATE`: a Candidate B writer inserts an all-zero 32-byte expected digest as a
+trusted-application marker, and the `BEFORE` trigger replaces that marker with the
+database-canonical observed digest in the same tuple version. This marker is not a
+credential or a MAC; an actor already able to issue arbitrary trusted-database SQL
+can forge it. Unmarked SQL changes continue to advance only the observed side and
+therefore fail closed. Older dual-capable binaries retain their insert-then-refresh
+behavior across 0054, so schema-first code rollback remains possible before
+activation.
 Every SQL currentness predicate compares those two 32-byte values before candidate
 filtering or authorization. Any older row or changed path, type set, file fact,
 semantic payload, structural digest, completeness flag, or binding therefore enters
@@ -94,6 +104,22 @@ exists. Candidate B is not production-active before this migration: operators mu
 remove only disposable staging generations, apply 0046, and rebuild them from the
 encrypted exact authority. The migration never relabels or bulk-rewrites a weaker
 row.
+
+Migration 0052 records `integrity_verified_epoch` separately from the trigger-
+advanced generation integrity epoch. A completed rebuild proves the entire
+generation before binding both epochs. An ordinary exact/projection/relationship
+write advances both only inside its atomic transaction and only when the previous
+generation proof was current. Direct or otherwise unverified projection changes
+advance `integrity_epoch` alone. The next query then performs the complete
+stale/absent/digest scan and either marks that exact epoch verified with a
+compare-and-set update or falls back/fails closed. A concurrent change cannot be
+blessed because the verification update names the observed epoch.
+
+Migration 0053 adds the mandatory snapshot path cursor btree over collection,
+generation, canonical `C`-collated path, record identity, and temporal bounds. It
+supports the default deterministic `(path, record_id)` keyset while retaining
+closed rows required by an older pinned snapshot. It is an access-model index, not
+a general semantic projection index.
 
 Projection format 3 corrects the closed link-resolution contract so the mandatory
 Markdown `.md` path alternative is always present in addition to configured extra

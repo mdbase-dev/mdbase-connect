@@ -150,6 +150,12 @@ generation, path, types, file facts, completeness, semantic JSON, structure, and
 byte accounting. Candidate SQL compares only the stored digests; it does not detoast
 and rehash every projection at read time. This is a corruption/substitution guard
 inside the trusted database model, not a MAC against a malicious database operator.
+Candidate B writers use an all-zero expected digest solely as a trigger marker for
+same-tuple binding; the trigger replaces it before storage. This removes a redundant
+projection update and its dead tuple, but deliberately adds no protection against a
+database actor who can submit arbitrary writes. Direct unmarked changes invalidate
+the row, advance the generation integrity epoch, and require a complete verified
+scan before SQL-only proofs can be reused.
 For scoped queries, that safety union can contain records later excluded by
 canonical classification. Client-visible budget errors therefore disclose only
 that the configured threshold was crossed (`observed = limit + 1`), never the raw

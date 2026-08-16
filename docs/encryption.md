@@ -325,6 +325,12 @@ bounded canonical decryption and fail-closed mdbase-rs classification. Body pros
 and exact Markdown are decrypted only for authorized exact/body output, body
 predicates, mutation, rebuild, stale fallback, or fail-closed authorization.
 
+Projection row digests are corruption/currentness envelopes within the
+server-trusted database boundary, not cryptographic authentication against the
+database operator. The writer's all-zero digest input is a trigger marker that is
+replaced by the canonical row digest before storage. It avoids a second tuple
+update; it does not narrow the stated provider-readable projection threat model.
+
 Snapshot-pinned query cursors contain readable closed plan metadata and keyset
 boundaries. When canonical query or saved-view evaluation needs one exact `this`
 record, that bounded context is retained only as collection-envelope ciphertext
