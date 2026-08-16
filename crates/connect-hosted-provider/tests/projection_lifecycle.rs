@@ -77,7 +77,12 @@ async fn candidate_b_migration_0040_upgrades_a_live_legacy_base_cursor() {
     .await
     .unwrap();
 
-    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+    let mut pre_ciphertext_proof = sqlx::migrate!("./migrations");
+    pre_ciphertext_proof
+        .migrations
+        .to_mut()
+        .retain(|migration| migration.version < 50);
+    pre_ciphertext_proof.run(&pool).await.unwrap();
     let migrated = sqlx::query(
         r#"SELECT c.base_invocation_id, c.base_plan, c.base_context,
                   c.base_operation_clock, i.base_plan AS invocation_plan,
@@ -109,6 +114,17 @@ async fn candidate_b_migration_0040_upgrades_a_live_legacy_base_cursor() {
         migrated.get::<serde_json::Value, _>("invocation_context")["path"],
         "context.md"
     );
+    sqlx::query("DELETE FROM hosted_provider_query_cursors WHERE cursor_id = $1")
+        .bind(cursor_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM hosted_provider_base_query_invocations WHERE invocation_id = $1")
+        .bind(cursor_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
