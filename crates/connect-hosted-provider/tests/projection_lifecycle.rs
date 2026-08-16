@@ -585,6 +585,75 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
         1
     );
 
+    let mut validation_lock = fixture.pool.begin().await.unwrap();
+    sqlx::query("LOCK TABLE hosted_provider_record_projections IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *validation_lock)
+        .await
+        .unwrap();
+    let validation_provider = fixture.provider.clone();
+    let validation_token = application_token.clone();
+    let validation_collection = fixture.collection_id;
+    let blocked_validation = tokio::spawn(async move {
+        validation_provider
+            .operation(
+                validation_collection,
+                &validation_token,
+                "validate",
+                Uuid::new_v4(),
+                json!({"path": "notes/source.md"}),
+                None,
+            )
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let activity = fixture.provider.hosted_query_activity();
+            let blocked_sessions: i64 = sqlx::query_scalar(
+                r#"SELECT count(*) FROM pg_stat_activity
+                   WHERE datname = current_database() AND wait_event_type = 'Lock'
+                     AND query LIKE '%LEFT JOIN hosted_provider_record_projections p%'"#,
+            )
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+            if activity.active_queries == 1
+                && activity.plaintext_scopes == 1
+                && blocked_sessions == 1
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("validation reaches its cancellable PostgreSQL wait");
+    blocked_validation.abort();
+    assert!(blocked_validation.await.unwrap_err().is_cancelled());
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let activity = fixture.provider.hosted_query_activity();
+            let blocked_sessions: i64 = sqlx::query_scalar(
+                r#"SELECT count(*) FROM pg_stat_activity
+                   WHERE datname = current_database()
+                     AND (wait_event_type = 'Lock' OR state = 'idle in transaction')
+                     AND query LIKE '%LEFT JOIN hosted_provider_record_projections p%'"#,
+            )
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+            if activity.active_queries == 0
+                && activity.plaintext_scopes == 0
+                && blocked_sessions == 0
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("validation cancellation releases transaction, session, and plaintext state");
+    validation_lock.rollback().await.unwrap();
+
     sqlx::query(
         r#"UPDATE hosted_provider_record_projections
            SET semantic_complete = false
