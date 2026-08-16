@@ -793,6 +793,12 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
         1
     );
 
+    Box::pin(assert_projected_group_cancellation(
+        &fixture,
+        &application_token,
+    ))
+    .await;
+
     let mut validation_lock = fixture.pool.begin().await.unwrap();
     sqlx::query("LOCK TABLE hosted_provider_record_projections IN ACCESS EXCLUSIVE MODE")
         .execute(&mut *validation_lock)
@@ -1727,6 +1733,109 @@ async fn candidate_b_projection_bytes_are_preflighted_before_json_transfer() {
         .unwrap_err();
     assert_eq!(error.code, "hosted_byte_budget_exceeded");
     assert_eq!(error.details.as_ref().unwrap()["budget"], "candidate_bytes");
+}
+
+async fn assert_projected_group_cancellation(fixture: &FileLifecycleFixture, token: &str) {
+    let mut projected_group_lock = fixture.pool.begin().await.unwrap();
+    sqlx::query("LOCK TABLE hosted_provider_record_projections IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *projected_group_lock)
+        .await
+        .unwrap();
+    let provider = fixture.provider.clone();
+    let blocked_token = token.to_string();
+    let collection_id = fixture.collection_id;
+    let blocked = tokio::spawn(async move {
+        provider
+            .operation(
+                collection_id,
+                &blocked_token,
+                "query",
+                Uuid::new_v4(),
+                json!({
+                    "where": "record.title == 'Source'",
+                    "limit": 10,
+                    "group_by": [{"field": "record.title"}],
+                    "summaries": [
+                        {"field": "record.title", "function": "count", "name": "records"}
+                    ],
+                    "order_by": [{"field": "file.path"}],
+                }),
+                None,
+            )
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let activity = fixture.provider.hosted_query_activity();
+            let blocked_sessions: i64 = sqlx::query_scalar(
+                r#"SELECT count(*) FROM pg_stat_activity
+                   WHERE datname = current_database() AND wait_event_type = 'Lock'
+                     AND application_name LIKE 'mdbase-hosted-query/%'"#,
+            )
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+            if activity.active_queries == 1
+                && activity.plaintext_scopes == 1
+                && activity.active_scan_permits == 1
+                && blocked_sessions == 1
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the projected grouping query reaches its cancellable PostgreSQL wait");
+    blocked.abort();
+    assert!(blocked.await.unwrap_err().is_cancelled());
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let activity = fixture.provider.hosted_query_activity();
+            let retained_sessions: i64 = sqlx::query_scalar(
+                r#"SELECT count(*) FROM pg_stat_activity
+                   WHERE datname = current_database()
+                     AND application_name LIKE 'mdbase-hosted-query/%'
+                     AND (wait_event_type = 'Lock' OR state = 'idle in transaction')"#,
+            )
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+            if activity.active_queries == 0
+                && activity.plaintext_scopes == 0
+                && activity.active_scan_permits == 0
+                && retained_sessions == 0
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("projected grouping cancellation releases transaction, session, permit, and plaintext");
+    projected_group_lock.rollback().await.unwrap();
+
+    let grouped_after_cancel = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "where": "record.title == 'Source'",
+                "limit": 10,
+                "group_by": [{"field": "record.title"}],
+                "summaries": [
+                    {"field": "record.title", "function": "count", "name": "records"}
+                ],
+                "order_by": [{"field": "file.path"}],
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(grouped_after_cancel["result"]["meta"]["total_count"], 1);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
