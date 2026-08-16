@@ -842,7 +842,7 @@ impl HostedProvider {
             .map(|change| change.record_id)
             .collect::<Vec<_>>();
         let old_key_rows = sqlx::query(
-            r#"SELECT record_id, lookup_key
+            r#"SELECT record_id, key_kind, lookup_key
                FROM hosted_provider_record_resolution_keys
                WHERE collection_id = $1 AND generation_id = $2
                  AND valid_to_sequence IS NULL AND record_id = ANY($3::uuid[])"#,
@@ -852,12 +852,12 @@ impl HostedProvider {
         .bind(&changed_ids)
         .fetch_all(&mut **transaction)
         .await?;
-        let mut old_keys = HashMap::<Uuid, BTreeSet<String>>::new();
+        let mut old_keys = HashMap::<Uuid, BTreeSet<(String, String)>>::new();
         for row in old_key_rows {
             old_keys
                 .entry(row.get("record_id"))
                 .or_default()
-                .insert(row.get("lookup_key"));
+                .insert((row.get("key_kind"), row.get("lookup_key")));
         }
         let mut identity_changed = BTreeSet::new();
         let mut affected_values = BTreeSet::new();
@@ -875,7 +875,7 @@ impl HostedProvider {
                     .facts
                     .resolution_keys
                     .into_iter()
-                    .map(|key| key.value)
+                    .map(|key| (resolution_key_kind(key.kind).to_string(), key.value))
                     .collect::<BTreeSet<_>>()
             } else {
                 BTreeSet::new()
@@ -883,8 +883,8 @@ impl HostedProvider {
             let previous = old_keys.get(&change.record_id).cloned().unwrap_or_default();
             if !change.was_present || change.record.is_none() || previous != new_keys {
                 identity_changed.insert(change.record_id);
-                affected_values.extend(previous);
-                affected_values.extend(new_keys);
+                affected_values.extend(previous.into_iter().map(|(_, value)| value));
+                affected_values.extend(new_keys.into_iter().map(|(_, value)| value));
             }
         }
         for change in &mut active_changes {

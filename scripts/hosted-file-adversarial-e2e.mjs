@@ -26,6 +26,10 @@ try {
     "test", "-p", "mdbase-connect-hosted-provider",
     "--test", "file_lifecycle_adversarial", "--", "--ignored", "--nocapture"
   ], { MDBASE_ADVERSARIAL_DATABASE_URL: databaseUrl });
+  await run("cargo", [
+    "test", "-p", "mdbase-connect-hosted-provider",
+    "--test", "projection_lifecycle", "--", "--ignored", "--nocapture"
+  ], { MDBASE_PROJECTION_DATABASE_URL: databaseUrl });
 } finally {
   await execute("docker", ["stop", container], { cwd: root }).catch(() => {});
 }
