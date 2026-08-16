@@ -66,6 +66,32 @@ struct QueryPageBoundary {
     record_id: Uuid,
 }
 
+struct BaseEvaluationCancellationGuard {
+    cancellation: mdbase::OperationCancellation,
+    armed: bool,
+}
+
+impl BaseEvaluationCancellationGuard {
+    fn new(cancellation: mdbase::OperationCancellation) -> Self {
+        Self {
+            cancellation,
+            armed: true,
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for BaseEvaluationCancellationGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            self.cancellation.cancel();
+        }
+    }
+}
+
 impl HostedProvider {
     pub(super) async fn execute_hosted_query(
         &self,
@@ -1542,8 +1568,7 @@ async fn execute_bounded_base_page(
             operator_steps.saturating_add(1),
         ));
     }
-    let mut diagnostics = Vec::new();
-    let mut matching = Vec::<BoundedBaseMatch>::new();
+    let mut evaluation_inputs = Vec::with_capacity(rows.len());
     for row in &rows {
         let related = adjacency
             .get(&row.record_id)
@@ -1551,32 +1576,64 @@ async fn execute_bounded_base_page(
             .flatten()
             .filter_map(|record_id| projections.get(record_id).cloned())
             .collect::<Vec<_>>();
-        let evaluated = plan
-            .evaluate_record(&mdbase::runtime::HostedBaseRecordContext {
+        evaluation_inputs.push((
+            row.record_id,
+            mdbase::runtime::HostedBaseRecordContext {
                 projection: row.projection.clone(),
                 related,
                 relationship_neighborhood_complete: true,
                 query_context: state.base_context.clone(),
                 operation_clock: operation_clock.clone(),
                 max_expression_steps: expression_steps_per_record,
+            },
+        ));
+    }
+    let evaluation_plan = plan.clone();
+    let cancellation = mdbase::OperationCancellation::new();
+    let worker_cancellation = cancellation
+        .with_deadline(started + Duration::from_millis(state.plan.budgets.max_wall_time_ms));
+    let mut cancellation_guard = BaseEvaluationCancellationGuard::new(cancellation);
+    let evaluated = tokio::task::spawn_blocking(move || {
+        evaluation_inputs
+            .into_iter()
+            .map(|(record_id, input)| {
+                evaluation_plan
+                    .evaluate_record_with_cancellation(&input, &worker_cancellation)
+                    .map(|evaluation| (record_id, evaluation))
             })
-            .map_err(|error| {
-                if error.code == "hosted_base_operator_budget_exceeded" {
-                    query_budget_error(
-                        "hosted_operator_budget_exceeded",
-                        "The Obsidian Base exceeded its expression-step budget.",
-                        "expression_steps_per_record",
-                        expression_steps_per_record,
-                        expression_steps_per_record.saturating_add(1),
-                    )
-                } else {
-                    projection_inconsistent(error)
-                }
-            })?;
+            .collect::<Result<Vec<_>, _>>()
+    })
+    .await
+    .map_err(|error| {
+        ApiError::internal(format!(
+            "Obsidian Base evaluation worker did not complete: {error}"
+        ))
+    })?
+    .map_err(|error| match error.code.as_str() {
+        "hosted_base_operator_budget_exceeded" => query_budget_error(
+            "hosted_operator_budget_exceeded",
+            "The Obsidian Base exceeded its expression-step budget.",
+            "expression_steps_per_record",
+            expression_steps_per_record,
+            expression_steps_per_record.saturating_add(1),
+        ),
+        "operation_cancelled" => query_budget_error(
+            "hosted_time_budget_exceeded",
+            "The Obsidian Base exceeded its cooperative evaluation deadline.",
+            "wall_time_ms",
+            state.plan.budgets.max_wall_time_ms,
+            started.elapsed().as_millis() as u64,
+        ),
+        _ => projection_inconsistent(error),
+    })?;
+    cancellation_guard.disarm();
+    let mut diagnostics = Vec::new();
+    let mut matching = Vec::<BoundedBaseMatch>::new();
+    for (record_id, evaluated) in evaluated {
         match evaluated {
             mdbase::runtime::HostedBaseEvaluation::Included { row: result } => {
                 matching.push(BoundedBaseMatch {
-                    record_id: row.record_id,
+                    record_id,
                     row: *result,
                 });
             }

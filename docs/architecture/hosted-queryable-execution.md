@@ -124,6 +124,11 @@ projection bytes, retained rows, and resident copies all consume explicit budget
 The readable cursor plan exposes Base formulas and referenced property names, but
 not the exact `.base` formatting, exact record Markdown, or body prose.
 
+Canonical Base expression work runs on a blocking worker with a cooperative
+mdbase-rs token checked at every AST node. Request drop cancels that worker token;
+PostgreSQL backend cancellation, transaction/session drop, pool return, and
+operation/plaintext counters remain independently guarded and observable.
+
 SQL applies safe ordering and limiting before transfer. Unsupported ordering uses
 an explicitly bounded top-K operator; grouping and summaries retain only bounded
 state. Scan rows, transferred bytes, decrypted documents, plaintext bytes, result
