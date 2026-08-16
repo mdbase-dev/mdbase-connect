@@ -1,9 +1,9 @@
 {
-  "captured_at": "2026-08-17T05:18:00+10:00",
+  "captured_at": "2026-08-17T07:16:14+10:00",
   "candidate": "B-no-GIN",
-  "connect_revision_under_measurement": "0a8c683a",
-  "connect_current_review_revision": "0dc1f730",
-  "mdbase_rs_revision": "a5d10abe24f15f1179424ff0e6bc7f5f6feaa834",
+  "connect_revision_under_measurement": "d89007a07023e7deeb6eabf71a35ca51127c4be5",
+  "connect_current_review_revision": "d89007a07023e7deeb6eabf71a35ca51127c4be5",
+  "mdbase_rs_revision": "d453de9bcc42fead28e332a11ae79e32d0b718f5",
   "postgresql": "18.4",
   "fixture_contract": {
     "page_size": 200,
@@ -15,16 +15,16 @@
     "published_p95_gate_ms": 300
   },
   "latency_ms": {
-    "path_page_1": {"min": 20, "p50": 27, "p95": 35, "p99": 38, "max": 38, "mean": 27},
-    "path_page_2": {"min": 20, "p50": 28, "p95": 34, "p99": 38, "max": 91, "mean": 28},
-    "path_page_10": {"min": 19, "p50": 28, "p95": 35, "p99": 46, "max": 84, "mean": 28},
-    "mtime_page_1": {"min": 17, "p50": 27, "p95": 36, "p99": 88, "max": 445, "mean": 31},
-    "mtime_page_2": {"min": 18, "p50": 27, "p95": 34, "p99": 49, "max": 249, "mean": 29},
-    "group_count": {"min": 140, "p50": 156, "p95": 170, "p99": 543, "max": 635, "mean": 165}
+    "path_page_1": {"min": 18, "p50": 27, "p95": 36, "p99": 44, "max": 255, "mean": 29},
+    "path_page_2": {"min": 18, "p50": 27, "p95": 34, "p99": 41, "max": 47, "mean": 26},
+    "path_page_10": {"min": 19, "p50": 28, "p95": 35, "p99": 266, "max": 534, "mean": 35},
+    "mtime_page_1": {"min": 17, "p50": 26, "p95": 34, "p99": 44, "max": 47, "mean": 26},
+    "mtime_page_2": {"min": 17, "p50": 28, "p95": 32, "p99": 38, "max": 52, "mean": 26},
+    "group_count": {"min": 203, "p50": 215, "p95": 242, "p99": 299, "max": 352, "mean": 218}
   },
   "100k_clean_physical_evidence_bytes": {
-    "database": 306665151,
-    "wal": 333114536,
+    "database": 308483775,
+    "wal": 353833475,
     "projection_heap": 163848192,
     "projection_indexes": 102825984,
     "projection_total": 266747904,
@@ -51,13 +51,14 @@
       "explicit_sort": false
     },
     "group_count": {
-      "execution_ms": 71.359,
+      "execution_ms": 78.944,
       "input_rows": 100000,
       "shape": "parallel hash join -> bounded group aggregation -> quicksort",
       "temporary_blocks": 0,
-      "hash_peak_kib": 10432,
-      "shared_hit_blocks": 509,
-      "shared_read_blocks": 21333
+      "hash_peak_kib": 10976,
+      "sort_peak_kib": 3073,
+      "group_key_preflight_execution_ms": 77.972,
+      "group_key_preflight_temp_blocks": 0
     }
   },
   "large_tier": {
@@ -100,11 +101,12 @@
     "collection_wide_working_set_materialized": false,
     "large_unentitled_scan_is_typed": true,
     "cancellation_releases_transaction_session_permit_plaintext_and_pool": true,
+    "large_group_keys_rejected_before_database_aggregation": true,
     "general_projection_gin_justified": false
   },
   "limitations": [
-    "The sustained executor measurements are isolated local PostgreSQL evidence; consumer staging missions are reported separately.",
-    "The 100k clean storage/WAL run and the sustained latency run used separate disposable databases.",
+    "Exact-head raw sustained samples and the grouping preflight plan are in raw/exact-head-sustained-latency.json; the measurements are isolated local PostgreSQL evidence and consumer staging remains separate.",
+    "The current physical/WAL values were observed after fixture import and the sustained run on one fresh disposable server; WAL is not an import-only delta.",
     "The 230k entitled run is a debug-only correctness and cleanup mission, not a production latency result.",
     "The approximately-1-GiB authority tier comes from the frozen B-no-GIN storage benchmark, whose prototype query executor is not the production page executor."
   ]

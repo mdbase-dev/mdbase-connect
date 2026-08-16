@@ -1,0 +1,89 @@
+{
+  "captured_at": "2026-08-17T07:16:14+10:00",
+  "candidate": "B-no-GIN",
+  "connect_revision": "d89007a07023e7deeb6eabf71a35ca51127c4be5",
+  "grouping_implementation_revision": "b83caf74",
+  "mdbase_rs_revision": "d453de9bcc42fead28e332a11ae79e32d0b718f5",
+  "postgresql": "PostgreSQL 18.4 (Debian 18.4-1.pgdg13+1) x86_64",
+  "command": "MDBASE_PERF_REPETITIONS=100 cargo test --release -p mdbase-connect-hosted-provider --test projection_lifecycle candidate_b_exact_projected_filter_and_group_100k -- --ignored --nocapture",
+  "fixture": {
+    "live_records": 100000,
+    "page_size": 200,
+    "repetitions": 100,
+    "pagination": "one operation per deterministic single-use keyset page",
+    "general_projection_gin": false,
+    "published_p95_gate_ms": 300
+  },
+  "latency_ms": {
+    "path_page_1": {
+      "min": 18, "p50": 27, "p95": 36, "p99": 44, "max": 255, "mean": 29,
+      "raw": [27, 19, 33, 34, 21, 31, 25, 22, 29, 255, 29, 24, 24, 24, 28, 29, 37, 38, 27, 44, 34, 28, 26, 30, 30, 20, 23, 25, 24, 29, 30, 26, 32, 25, 28, 31, 26, 28, 28, 30, 26, 29, 37, 25, 28, 30, 30, 36, 22, 34, 28, 32, 19, 25, 24, 26, 21, 23, 31, 24, 29, 23, 22, 23, 30, 29, 28, 30, 21, 35, 28, 30, 30, 26, 31, 24, 32, 24, 23, 22, 25, 24, 24, 22, 23, 20, 18, 18, 20, 34, 28, 27, 21, 26, 32, 29, 25, 21, 32, 23]
+    },
+    "path_page_2": {
+      "min": 18, "p50": 27, "p95": 34, "p99": 41, "max": 47, "mean": 26,
+      "raw": [25, 21, 26, 30, 29, 23, 26, 28, 23, 30, 21, 25, 25, 29, 35, 30, 30, 29, 26, 28, 31, 25, 25, 20, 31, 28, 21, 27, 24, 23, 28, 27, 34, 25, 20, 21, 33, 30, 22, 34, 26, 22, 22, 30, 30, 28, 25, 30, 31, 29, 26, 41, 20, 26, 26, 30, 27, 47, 29, 27, 33, 28, 25, 18, 35, 23, 24, 34, 28, 31, 26, 27, 31, 25, 27, 26, 21, 33, 20, 30, 30, 30, 19, 22, 22, 21, 20, 21, 21, 24, 28, 21, 32, 19, 26, 20, 27, 30, 27, 28]
+    },
+    "path_page_10": {
+      "min": 19, "p50": 28, "p95": 35, "p99": 266, "max": 534, "mean": 35,
+      "raw": [26, 29, 27, 29, 27, 26, 28, 22, 28, 26, 30, 27, 29, 31, 32, 29, 33, 29, 36, 37, 20, 24, 29, 28, 29, 30, 26, 29, 27, 29, 31, 24, 30, 27, 28, 26, 534, 21, 22, 30, 27, 20, 28, 35, 25, 30, 28, 29, 30, 19, 91, 21, 26, 29, 23, 30, 21, 30, 30, 28, 27, 30, 266, 30, 29, 30, 29, 34, 29, 20, 31, 30, 33, 27, 30, 24, 31, 33, 24, 29, 33, 25, 22, 28, 21, 22, 19, 20, 21, 28, 27, 30, 28, 27, 32, 25, 24, 31, 28, 27]
+    },
+    "mtime_page_1": {
+      "min": 17, "p50": 26, "p95": 34, "p99": 44, "max": 47, "mean": 26,
+      "raw": [33, 25, 23, 28, 21, 34, 28, 32, 23, 28, 22, 26, 30, 22, 36, 25, 31, 27, 25, 30, 20, 25, 22, 34, 25, 27, 29, 23, 26, 22, 27, 37, 29, 33, 28, 33, 29, 28, 23, 22, 30, 28, 32, 29, 19, 22, 29, 36, 31, 23, 33, 20, 25, 27, 30, 24, 27, 21, 22, 26, 23, 22, 47, 22, 25, 22, 26, 29, 23, 31, 24, 33, 21, 23, 24, 22, 21, 44, 24, 27, 24, 23, 21, 26, 20, 21, 17, 19, 29, 27, 29, 29, 30, 24, 24, 34, 26, 30, 31, 22]
+    },
+    "mtime_page_2": {
+      "min": 17, "p50": 28, "p95": 32, "p99": 38, "max": 52, "mean": 26,
+      "raw": [21, 20, 26, 21, 29, 30, 23, 29, 29, 22, 30, 23, 28, 32, 29, 32, 34, 22, 27, 33, 19, 24, 30, 30, 29, 21, 29, 29, 38, 25, 28, 27, 23, 29, 27, 32, 23, 24, 20, 29, 29, 33, 31, 27, 27, 28, 28, 30, 24, 25, 32, 24, 21, 29, 23, 31, 21, 21, 29, 23, 20, 29, 52, 30, 23, 31, 29, 28, 30, 28, 28, 30, 26, 31, 30, 31, 30, 28, 29, 29, 25, 22, 21, 21, 20, 21, 17, 27, 22, 28, 29, 26, 21, 25, 27, 25, 21, 22, 28, 25]
+    },
+    "group_count": {
+      "min": 203, "p50": 215, "p95": 242, "p99": 299, "max": 352, "mean": 218,
+      "raw": [213, 226, 205, 210, 209, 209, 270, 299, 224, 227, 231, 229, 224, 229, 223, 221, 219, 212, 209, 205, 206, 208, 223, 226, 214, 210, 212, 221, 221, 215, 221, 215, 221, 217, 208, 215, 217, 210, 222, 212, 214, 210, 210, 220, 352, 214, 216, 208, 219, 226, 221, 209, 215, 217, 212, 217, 215, 215, 220, 214, 220, 221, 211, 207, 225, 217, 213, 209, 206, 207, 210, 215, 220, 242, 211, 246, 209, 213, 249, 221, 207, 226, 209, 212, 206, 216, 221, 208, 212, 203, 213, 210, 214, 217, 207, 213, 210, 218, 211, 208]
+    }
+  },
+  "post_run_physical_bytes": {
+    "database": 308483775,
+    "wal_since_fresh_server_start": 353833475,
+    "projection_heap": 163848192,
+    "projection_indexes": 102825984,
+    "projection_total": 266747904,
+    "version_heap": 13221888,
+    "version_indexes": 15794176,
+    "version_total": 29057024,
+    "temporary": 142694927,
+    "retained_query_cursors": 0
+  },
+  "representative_group_plans": {
+    "key_width_preflight": {
+      "execution_ms": 77.972,
+      "rows_scanned": 100000,
+      "temporary_blocks": 0,
+      "parallel_hash_memory_kib": 10976
+    },
+    "count_group": {
+      "execution_ms": 78.944,
+      "rows_scanned": 100000,
+      "groups": 2,
+      "sort_memory_kib": 3073,
+      "temporary_blocks": 0,
+      "parallel_hash_memory_kib": 10976
+    }
+  },
+  "adversarial_group_key_gate": {
+    "test": "candidate_b_grouping_preflights_large_keys_before_database_aggregation",
+    "records": 128,
+    "approximate_key_bytes_each": 67000,
+    "outcome": "hosted_aggregation_state_budget_exceeded",
+    "postgres_temp_bytes_delta": 0
+  },
+  "gates": {
+    "all_100k_page_p95_under_300ms": true,
+    "100k_group_p95_under_300ms": true,
+    "large_group_keys_rejected_before_database_aggregation": true,
+    "retained_cursor_count_zero": true
+  },
+  "limitations": [
+    "This is isolated local PostgreSQL evidence; isolated shared-staging contention remains a separate mission.",
+    "WAL is measured from fresh server start through fixture import and the sustained run, not as an import-only delta.",
+    "The representative plans use the same current-generation live-version predicates and status grouping shape; request/receipt overhead is represented by the application-level samples."
+  ]
+}
