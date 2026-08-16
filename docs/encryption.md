@@ -319,6 +319,12 @@ bounded canonical decryption and fail-closed mdbase-rs classification. Body pros
 and exact Markdown are decrypted only for authorized exact/body output, body
 predicates, mutation, rebuild, stale fallback, or fail-closed authorization.
 
+Snapshot-pinned query cursors contain readable closed plan metadata and keyset
+boundaries. When canonical query or saved-view evaluation needs one exact `this`
+record, that bounded context is retained only as collection-envelope ciphertext
+with cursor-specific associated data; body prose is never copied into readable
+cursor columns.
+
 No general projection GIN or automatic per-field index is part of the selected
 model. Every additional physical index needs a leakage analysis and measured query,
 write, WAL, HOT, rebuild, vacuum, and bloat justification.

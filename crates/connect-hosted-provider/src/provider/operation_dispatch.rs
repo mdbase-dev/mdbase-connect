@@ -168,10 +168,13 @@ impl HostedProvider {
                         None,
                     ),
                 };
-                let result = if operation == "query"
-                    && self.candidate_b_execution_enabled(collection_id).await?
-                {
+                let candidate_b = matches!(operation, "query" | "execute_view")
+                    && self.candidate_b_execution_enabled(collection_id).await?;
+                let result = if candidate_b && operation == "query" {
                     self.execute_hosted_query(collection_id, replica, &scoped_input)
+                        .await?
+                } else if candidate_b && operation == "execute_view" {
+                    self.execute_hosted_canonical_view(collection_id, replica, &scoped_input)
                         .await?
                 } else {
                     self.execute_read_operation(collection_id, operation, &scoped_input)

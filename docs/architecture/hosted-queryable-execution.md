@@ -108,6 +108,11 @@ durable without retaining a PostgreSQL transaction between requests.
 Deterministic keyset cursors bind collection, grant/scope epoch, catalog and
 generation revisions, plan version/digest, ordering keys, snapshot/checkpoint, and
 expiry. They are authenticated and rejected when their binding is stale or invalid.
+Saved canonical views compile through mdbase-rs into the same closed plan and retain
+their view/context metadata across pages. Cursor rows bind the operation kind and
+public invocation digest; an exact `this` context is stored only as bounded
+collection-encrypted cursor state. View-only resource edits do not alter an already
+pinned page sequence.
 
 SQL applies safe ordering and limiting before transfer. Unsupported ordering uses
 an explicitly bounded top-K operator; grouping and summaries retain only bounded

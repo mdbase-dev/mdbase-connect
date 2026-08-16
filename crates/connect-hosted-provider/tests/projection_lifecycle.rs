@@ -249,6 +249,7 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
                     "validate".to_string(),
                     "read_type".to_string(),
                     "list_views".to_string(),
+                    "execute_view".to_string(),
                     "read_view_source".to_string(),
                 ],
                 operation_transport_protocol: Some(3),
@@ -754,6 +755,7 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
                     "create_type".to_string(),
                     "read_type".to_string(),
                     "create_view_source".to_string(),
+                    "update_view_source".to_string(),
                     "read_view_source".to_string(),
                     "list_views".to_string(),
                 ],
@@ -921,7 +923,7 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
         "notes/app-reference.md"
     );
 
-    let stable_view_document = "---\ntype: view\nid: stable.views\nversion: 1\nname: Stable\nquery: {}\nviews:\n  - id: all\n    name: All\n---\n";
+    let stable_view_document = "---\ntype: view\nid: stable.views\nversion: 1\nname: Stable\nquery:\n  where: this.id == 'stable.views'\nviews:\n  - id: all\n    name: All\n---\n";
     let stable_view = fixture
         .provider
         .operation(
@@ -935,6 +937,93 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
         .await
         .unwrap();
     assert_eq!(stable_view["valid"], true);
+    let first_view_page = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "execute_view",
+            Uuid::new_v4(),
+            json!({"path": "views/stable.md", "view": "all", "limit": 1}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(first_view_page["valid"], true);
+    assert_eq!(first_view_page["result"]["meta"]["view"]["id"], "all");
+    assert_eq!(
+        first_view_page["result"]["results"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let cursor = first_view_page["result"]["meta"]["cursor"]
+        .as_str()
+        .expect("saved view has a second page");
+    let cursor_context: Vec<u8> = sqlx::query_scalar(
+        "SELECT exact_context_ciphertext FROM hosted_provider_query_cursors
+         WHERE collection_id = $1 AND request_kind = 'canonical_view'
+         ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert!(!cursor_context.is_empty());
+    assert!(!cursor_context
+        .windows(b"stable.views".len())
+        .any(|window| window == b"stable.views"));
+    let wrong_surface = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({"cursor": cursor, "limit": 2}),
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(wrong_surface.code, "query_cursor_mismatch");
+    let changed_view_document = "---\ntype: view\nid: changed.views\nversion: 1\nname: Changed\nquery:\n  where: this.id == 'stable.views'\nviews:\n  - id: all\n    name: All\n---\n";
+    let changed_view = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &writer_token,
+            "update_view_source",
+            Uuid::new_v4(),
+            json!({
+                "path": "views/stable.md",
+                "if_revision": stable_view["result"]["revision"],
+                "document": changed_view_document,
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(changed_view["valid"], true);
+    let second_view_page = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "execute_view",
+            Uuid::new_v4(),
+            json!({
+                "path": "views/stable.md",
+                "view": "all",
+                "cursor": cursor,
+                "limit": 2,
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(second_view_page["valid"], true);
+    assert_eq!(second_view_page["result"]["meta"]["view"]["id"], "all");
     let active_after_view: Option<Uuid> = sqlx::query_scalar(
         "SELECT active_projection_generation_id FROM hosted_provider_collections WHERE id = $1",
     )

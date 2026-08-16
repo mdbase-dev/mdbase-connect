@@ -4,6 +4,7 @@ Status: additive schema drafted; isolated validation only; no existing-data migr
 
 Migration: `crates/connect-hosted-provider/migrations/0035_hosted_semantic_projections.sql`
 Activation gate: `crates/connect-hosted-provider/migrations/0036_hosted_execution_model.sql`
+Cursor invocation binding: `crates/connect-hosted-provider/migrations/0037_hosted_query_invocations.sql`
 
 ## Compatibility strategy
 
@@ -92,9 +93,14 @@ semantic engine, not SQL, decides resolution and rewrite behavior.
 `hosted_provider_query_cursors` stores a closed mdbase-rs plan, canonical query
 digest, replica/scope epoch, semantic generation, logical snapshot head, keyset
 boundary, emitted/remaining limits, and idle/hard expiries. Cursors never retain
-ciphertext, plaintext, a database connection, or an exported PostgreSQL snapshot.
+plaintext, a database connection, or an exported PostgreSQL snapshot. The cursor
+also binds its public request kind and digest so direct-query and saved-view tokens
+cannot cross surfaces. A query's single exact `this` context may be retained only
+as collection-envelope ciphertext under a cursor-specific identity and the normal
+exact-byte budget; it is decrypted for one page and dropped with that request.
 Each page consumes its presented cursor row transactionally and emits a fresh
-single-use cursor when more results remain. Release and expiry delete the row.
+single-use cursor when more results remain. Per-replica live cursor counts, release,
+and idle/hard expiry bound retained state.
 
 ## Index inventory
 

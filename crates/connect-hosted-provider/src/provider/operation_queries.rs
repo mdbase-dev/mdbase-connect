@@ -1,8 +1,24 @@
-use super::operation_reads::compile_point_catalog;
+use super::operation_reads::{compile_point_catalog, load_direct_record, DirectRecordIdentity};
 use super::*;
 
 const QUERY_CURSOR_IDLE_SECONDS: i64 = 60;
 const QUERY_CURSOR_HARD_SECONDS: i64 = 300;
+const MAX_LIVE_QUERY_CURSORS_PER_REPLICA: i64 = 64;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HostedQueryRequestKind {
+    Query,
+    CanonicalView,
+}
+
+impl HostedQueryRequestKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Query => "query",
+            Self::CanonicalView => "canonical_view",
+        }
+    }
+}
 
 struct HostedQueryState {
     snapshot_head: u64,
@@ -17,6 +33,10 @@ struct HostedQueryState {
     emitted_rows: u64,
     hard_expires_at: DateTime<Utc>,
     consumed_cursor_id: Option<Uuid>,
+    request_kind: HostedQueryRequestKind,
+    request_digest: String,
+    result_meta: serde_json::Map<String, Value>,
+    exact_context: Option<mdbase::runtime::CanonicalRecordInput>,
 }
 
 struct ProjectedQueryRow {
@@ -48,6 +68,37 @@ impl HostedProvider {
         replica: &Replica,
         input: &Value,
     ) -> ApiResult<OperationResult> {
+        self.execute_hosted_query_request(
+            collection_id,
+            replica,
+            input,
+            HostedQueryRequestKind::Query,
+        )
+        .await
+    }
+
+    pub(super) async fn execute_hosted_canonical_view(
+        &self,
+        collection_id: Uuid,
+        replica: &Replica,
+        input: &Value,
+    ) -> ApiResult<OperationResult> {
+        self.execute_hosted_query_request(
+            collection_id,
+            replica,
+            input,
+            HostedQueryRequestKind::CanonicalView,
+        )
+        .await
+    }
+
+    async fn execute_hosted_query_request(
+        &self,
+        collection_id: Uuid,
+        replica: &Replica,
+        input: &Value,
+        request_kind: HostedQueryRequestKind,
+    ) -> ApiResult<OperationResult> {
         if let Some(release) = input.get("release_cursor") {
             let cursor = release.as_str().ok_or_else(|| {
                 ApiError::bad_request(
@@ -59,12 +110,13 @@ impl HostedProvider {
             sqlx::query(
                 r#"DELETE FROM hosted_provider_query_cursors
                    WHERE cursor_id = $1 AND collection_id = $2 AND replica_id = $3
-                     AND scope_epoch = $4"#,
+                     AND scope_epoch = $4 AND request_kind = $5"#,
             )
             .bind(cursor_id)
             .bind(collection_id)
             .bind(replica.id)
             .bind(to_i64(replica.scope_epoch, "scope epoch")?)
+            .bind(request_kind.as_str())
             .execute(&self.pool)
             .await?;
             return Ok(empty_query_result());
@@ -144,7 +196,7 @@ impl HostedProvider {
         let resource_documents =
             load_resource_documents(&mut transaction, &self.crypto, &data_key, collection_id)
                 .await?;
-        let catalog = compile_point_catalog(resources, resource_documents)?;
+        let catalog = compile_point_catalog(resources, resource_documents.clone())?;
         let requested_page_size = query_page_size(input)?;
         let mut state = if let Some(cursor) = input.get("cursor") {
             let cursor = cursor.as_str().ok_or_else(|| {
@@ -153,17 +205,62 @@ impl HostedProvider {
                     "The hosted query cursor must be an opaque string.",
                 )
             })?;
+            let request_digest = match request_kind {
+                HostedQueryRequestKind::Query => {
+                    catalog
+                        .compile_hosted_query(input)
+                        .map_err(|error| ApiError::bad_request(error.code, error.message))?
+                        .canonical_query_digest
+                }
+                HostedQueryRequestKind::CanonicalView => canonical_view_request_digest(input)?,
+            };
             self.load_query_cursor(
                 &mut transaction,
                 collection_id,
                 replica,
                 decode_query_cursor(cursor)?,
-                input,
-                &catalog,
+                request_kind,
+                &request_digest,
+                &data_key,
             )
             .await?
         } else {
-            self.start_query_state(&collection, input, &catalog).await?
+            match request_kind {
+                HostedQueryRequestKind::Query => {
+                    self.start_query_state(
+                        &mut transaction,
+                        collection_id,
+                        &collection,
+                        replica,
+                        input,
+                        &catalog,
+                        &data_key,
+                    )
+                    .await?
+                }
+                HostedQueryRequestKind::CanonicalView => {
+                    match self
+                        .start_canonical_view_state(
+                            &mut transaction,
+                            collection_id,
+                            &collection,
+                            replica,
+                            input,
+                            &catalog,
+                            &resource_documents,
+                            &data_key,
+                        )
+                        .await?
+                    {
+                        Ok(state) => state,
+                        Err(result) => {
+                            transaction.commit().await?;
+                            database_cancellation.disarm();
+                            return Ok(result);
+                        }
+                    }
+                }
+            }
         };
         if requested_page_size > state.plan.budgets.max_page_size {
             return Ok(mdbase::runtime::invalid_operation_result(
@@ -230,6 +327,12 @@ impl HostedProvider {
             .saturating_add(state.emitted_rows)
             .saturating_add(page_count);
         let has_more = consumed < page.total_count;
+        if let Some(consumed_cursor_id) = state.consumed_cursor_id.take() {
+            sqlx::query("DELETE FROM hosted_provider_query_cursors WHERE cursor_id = $1")
+                .bind(consumed_cursor_id)
+                .execute(&mut *transaction)
+                .await?;
+        }
         let next_cursor = if has_more {
             let boundary = page.last_boundary.as_ref().ok_or_else(|| {
                 ApiError::internal("A hosted query reported more rows without a keyset boundary.")
@@ -245,18 +348,14 @@ impl HostedProvider {
                 &boundary.path,
                 boundary.record_id,
                 state.emitted_rows.saturating_add(page_count),
+                &self.crypto,
+                &data_key,
             )
             .await?;
             Some(encode_query_cursor(cursor_id))
         } else {
             None
         };
-        if let Some(consumed_cursor_id) = state.consumed_cursor_id.take() {
-            sqlx::query("DELETE FROM hosted_provider_query_cursors WHERE cursor_id = $1")
-                .bind(consumed_cursor_id)
-                .execute(&mut *transaction)
-                .await?;
-        }
         transaction.commit().await?;
         database_cancellation.disarm();
 
@@ -286,6 +385,11 @@ impl HostedProvider {
         if let Some(groups) = page.groups {
             meta["groups"] = Value::Array(groups);
         }
+        if let Some(meta) = meta.as_object_mut() {
+            for (key, value) in state.result_meta {
+                meta.insert(key, value);
+            }
+        }
         Ok(OperationResult {
             valid: true,
             result: json!({
@@ -297,11 +401,16 @@ impl HostedProvider {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn start_query_state(
         &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        collection_id: Uuid,
         collection: &PgRow,
+        replica: &Replica,
         input: &Value,
         catalog: &mdbase::runtime::CompiledCatalog,
+        data_key: &[u8; 32],
     ) -> ApiResult<HostedQueryState> {
         let Some(generation_id) =
             collection.get::<Option<Uuid>, _>("active_projection_generation_id")
@@ -345,6 +454,17 @@ impl HostedProvider {
                 return Err(ApiError::bad_request(error.code, error.message));
             }
         };
+        let exact_context = if plan.requirements.query_context {
+            load_query_context_record(transaction, &self.crypto, data_key, collection_id, input)
+                .await?
+        } else {
+            None
+        };
+        if let Some(context) = exact_context.as_ref() {
+            enforce_context_scope(catalog, context, &replica.allowed_types)?;
+        }
+        enforce_exact_context_budget(&plan, exact_context.as_ref())?;
+        let request_digest = plan.canonical_query_digest.clone();
         Ok(HostedQueryState {
             snapshot_head: number(collection.get::<i64, _>("head"), "collection head")?,
             generation_id,
@@ -358,7 +478,117 @@ impl HostedProvider {
             emitted_rows: 0,
             hard_expires_at: Utc::now() + chrono::Duration::seconds(QUERY_CURSOR_HARD_SECONDS),
             consumed_cursor_id: None,
+            request_kind: HostedQueryRequestKind::Query,
+            request_digest,
+            result_meta: serde_json::Map::new(),
+            exact_context,
         })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn start_canonical_view_state(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        collection_id: Uuid,
+        collection: &PgRow,
+        replica: &Replica,
+        input: &Value,
+        catalog: &mdbase::runtime::CompiledCatalog,
+        resource_documents: &[(String, String)],
+        data_key: &[u8; 32],
+    ) -> ApiResult<Result<HostedQueryState, OperationResult>> {
+        let requested_path = input.get("path").and_then(Value::as_str).ok_or_else(|| {
+            ApiError::bad_request("invalid_request", "Saved-view path is required.")
+        })?;
+        let Some((_, view_document)) = resource_documents
+            .iter()
+            .find(|(path, _)| path == requested_path)
+        else {
+            return Ok(Err(mdbase::runtime::invalid_operation_result(
+                "view_not_found",
+                format!("View record '{requested_path}' was not found."),
+            )));
+        };
+        let view_record = mdbase::runtime::CanonicalRecordInput {
+            stable_id: None,
+            path: requested_path.to_string(),
+            document: view_document.clone(),
+            file_size: view_document.len() as u64,
+            file_mtime: None,
+        };
+        let explicit_context_path = input
+            .get("context")
+            .and_then(Value::as_object)
+            .and_then(|context| context.get("path"))
+            .and_then(Value::as_str);
+        let explicit_context = match explicit_context_path {
+            Some(path) if path != requested_path => {
+                load_exact_context_by_path(transaction, &self.crypto, data_key, collection_id, path)
+                    .await?
+            }
+            _ => None,
+        };
+        let planning = catalog
+            .plan_hosted_canonical_view(
+                input,
+                &view_record,
+                explicit_context.as_ref(),
+                &replica.allowed_types,
+            )
+            .map_err(|error| {
+                ApiError::bad_request(
+                    error.code,
+                    format!("Canonical saved-view planning failed: {}", error.message),
+                )
+            })?;
+        let plan = match planning {
+            mdbase::runtime::HostedCanonicalViewPlanning::Planned { plan } => *plan,
+            mdbase::runtime::HostedCanonicalViewPlanning::Invalid { result } => {
+                return Ok(Err(result));
+            }
+        };
+        let exact_context = if plan.query.requirements.query_context {
+            match plan.context_path.as_deref() {
+                None => None,
+                Some(path) if path == view_record.path => Some(view_record),
+                Some(_) => explicit_context,
+            }
+        } else {
+            None
+        };
+        enforce_exact_context_budget(&plan.query, exact_context.as_ref())?;
+        let (generation_id, catalog_revision, projection_format_version, semantic_engine_version) =
+            active_query_binding(collection, catalog)?;
+        let mut result_meta = serde_json::Map::new();
+        result_meta.insert(
+            "view".to_string(),
+            json!({"path": plan.view_path, "id": plan.view_id}),
+        );
+        result_meta.insert(
+            "context".to_string(),
+            plan.context_path
+                .as_ref()
+                .map(|path| json!({"path": path}))
+                .unwrap_or(Value::Null),
+        );
+        Ok(Ok(HostedQueryState {
+            snapshot_head: number(collection.get::<i64, _>("head"), "collection head")?,
+            generation_id,
+            catalog_revision,
+            projection_format_version,
+            semantic_engine_version,
+            plan: plan.query,
+            last_order_values: Vec::new(),
+            last_path: None,
+            last_record_id: None,
+            emitted_rows: 0,
+            hard_expires_at: Utc::now() + chrono::Duration::seconds(QUERY_CURSOR_HARD_SECONDS),
+            consumed_cursor_id: None,
+            request_kind: HostedQueryRequestKind::CanonicalView,
+            request_digest: canonical_view_request_digest(input)?,
+            result_meta,
+            exact_context,
+        }))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -368,14 +598,16 @@ impl HostedProvider {
         collection_id: Uuid,
         replica: &Replica,
         cursor_id: Uuid,
-        input: &Value,
-        catalog: &mdbase::runtime::CompiledCatalog,
+        request_kind: HostedQueryRequestKind,
+        request_digest: &str,
+        data_key: &[u8; 32],
     ) -> ApiResult<HostedQueryState> {
         let row = sqlx::query(
             r#"SELECT snapshot_head, generation_id, catalog_revision,
                       projection_format_version, semantic_engine_version,
-                      query_plan, query_digest, last_order_values, last_record_id,
-                      emitted_rows, hard_expires_at
+                      query_plan, query_digest, request_kind, request_digest,
+                      result_meta, exact_context_ciphertext, last_order_values,
+                      last_record_id, emitted_rows, hard_expires_at
                FROM hosted_provider_query_cursors
                WHERE cursor_id = $1 AND collection_id = $2 AND replica_id = $3
                  AND scope_epoch = $4 AND expires_at > now() AND hard_expires_at > now()
@@ -397,10 +629,23 @@ impl HostedProvider {
             .map_err(|error| {
                 ApiError::internal(format!("Stored hosted query plan is invalid: {error}"))
             })?;
-        let requested = catalog
-            .compile_hosted_query(input)
-            .map_err(|error| ApiError::bad_request(error.code, error.message))?;
-        if requested.canonical_query_digest != plan.canonical_query_digest
+        plan.validate_integrity().map_err(|error| {
+            ApiError::internal(format!(
+                "Stored hosted query plan failed integrity validation: {}",
+                error.code
+            ))
+        })?;
+        let stored_kind = match row.get::<String, _>("request_kind").as_str() {
+            "query" => HostedQueryRequestKind::Query,
+            "canonical_view" => HostedQueryRequestKind::CanonicalView,
+            _ => {
+                return Err(ApiError::internal(
+                    "Stored hosted query request kind is invalid.",
+                ))
+            }
+        };
+        if stored_kind != request_kind
+            || decode_sha256_digest(request_digest)? != row.get::<Vec<u8>, _>("request_digest")
             || decode_sha256_digest(&plan.canonical_query_digest)?
                 != row.get::<Vec<u8>, _>("query_digest")
         {
@@ -423,6 +668,22 @@ impl HostedProvider {
             .pop()
             .and_then(|value| value.as_str().map(String::from))
             .ok_or_else(|| ApiError::internal("Stored hosted query path key is invalid."))?;
+        let exact_context = row
+            .get::<Option<Vec<u8>>, _>("exact_context_ciphertext")
+            .map(|ciphertext| {
+                self.crypto.decrypt_json(
+                    data_key,
+                    &ciphertext,
+                    &query_cursor_context_aad(collection_id, cursor_id),
+                )
+            })
+            .transpose()?;
+        enforce_exact_context_budget(&plan, exact_context.as_ref())?;
+        let result_meta = row
+            .get::<Value, _>("result_meta")
+            .as_object()
+            .cloned()
+            .ok_or_else(|| ApiError::internal("Stored hosted query result metadata is invalid."))?;
         Ok(HostedQueryState {
             snapshot_head: number(row.get("snapshot_head"), "query snapshot head")?,
             generation_id: row.get("generation_id"),
@@ -439,8 +700,185 @@ impl HostedProvider {
             emitted_rows: number(row.get("emitted_rows"), "emitted query rows")?,
             hard_expires_at: row.get("hard_expires_at"),
             consumed_cursor_id: Some(cursor_id),
+            request_kind: stored_kind,
+            request_digest: request_digest.to_string(),
+            result_meta,
+            exact_context,
         })
     }
+}
+
+fn active_query_binding(
+    collection: &PgRow,
+    catalog: &mdbase::runtime::CompiledCatalog,
+) -> ApiResult<(Uuid, String, u32, String)> {
+    let generation_id = collection
+        .get::<Option<Uuid>, _>("active_projection_generation_id")
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "hosted_projection_unavailable",
+                "This collection has no active semantic projection generation.",
+            )
+        })?;
+    let catalog_revision = collection
+        .get::<Option<String>, _>("active_catalog_revision")
+        .ok_or_else(|| ApiError::internal("The active projection catalog binding is absent."))?;
+    let projection_format_version = number(
+        collection
+            .get::<Option<i32>, _>("active_projection_format_version")
+            .map(i64::from)
+            .ok_or_else(|| ApiError::internal("The active projection format binding is absent."))?,
+        "projection format version",
+    )? as u32;
+    let semantic_engine_version = collection
+        .get::<Option<String>, _>("active_semantic_engine_version")
+        .ok_or_else(|| ApiError::internal("The active semantic engine binding is absent."))?;
+    if catalog_revision != catalog.resource_revision()
+        || projection_format_version != mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION
+        || semantic_engine_version != mdbase::VERSION
+    {
+        return Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "hosted_projection_stale",
+            "The active semantic projection is not bound to the current engine and catalog.",
+        ));
+    }
+    Ok((
+        generation_id,
+        catalog_revision,
+        projection_format_version,
+        semantic_engine_version,
+    ))
+}
+
+async fn load_query_context_record(
+    transaction: &mut Transaction<'_, Postgres>,
+    crypto: &ProviderCrypto,
+    data_key: &[u8; 32],
+    collection_id: Uuid,
+    input: &Value,
+) -> ApiResult<Option<mdbase::runtime::CanonicalRecordInput>> {
+    let Some(path) = input.pointer("/context/this/path").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    load_exact_context_by_path(transaction, crypto, data_key, collection_id, path)
+        .await?
+        .map(Some)
+        .ok_or_else(|| {
+            ApiError::bad_request(
+                "context_not_found",
+                format!("Query context record '{path}' was not found."),
+            )
+        })
+}
+
+async fn load_exact_context_by_path(
+    transaction: &mut Transaction<'_, Postgres>,
+    crypto: &ProviderCrypto,
+    data_key: &[u8; 32],
+    collection_id: Uuid,
+    path: &str,
+) -> ApiResult<Option<mdbase::runtime::CanonicalRecordInput>> {
+    let record = load_direct_record(
+        transaction,
+        crypto,
+        data_key,
+        collection_id,
+        DirectRecordIdentity::PathToken(path_token(data_key, path)),
+    )
+    .await?;
+    let Some((record, _)) = record else {
+        return Ok(None);
+    };
+    if record.path != path {
+        return Err(ApiError::internal(
+            "The encrypted query context path does not match its lookup identity.",
+        ));
+    }
+    Ok(Some(mdbase::runtime::CanonicalRecordInput {
+        stable_id: Some(record.record_id.to_string()),
+        path: record.path,
+        file_size: record.document.len() as u64,
+        document: record.document,
+        file_mtime: None,
+    }))
+}
+
+fn enforce_context_scope(
+    catalog: &mdbase::runtime::CompiledCatalog,
+    context: &mdbase::runtime::CanonicalRecordInput,
+    allowed_types: &[String],
+) -> ApiResult<()> {
+    if allowed_types.is_empty() {
+        return Ok(());
+    }
+    let classified = catalog.classify_record(context).map_err(|error| {
+        ApiError::forbidden(
+            "scope_classification_unavailable",
+            format!("Query context classification failed: {}.", error.code),
+        )
+    })?;
+    if classified.types.iter().any(|actual| {
+        allowed_types
+            .iter()
+            .any(|allowed| allowed.eq_ignore_ascii_case(actual))
+    }) {
+        Ok(())
+    } else {
+        Err(ApiError::forbidden(
+            "scope_denied",
+            "The query context record is outside this application's record scope.",
+        ))
+    }
+}
+
+fn enforce_exact_context_budget(
+    plan: &mdbase::runtime::HostedQueryPlan,
+    context: Option<&mdbase::runtime::CanonicalRecordInput>,
+) -> ApiResult<()> {
+    let Some(context) = context else {
+        return Ok(());
+    };
+    if plan.budgets.max_exact_documents == 0 {
+        return Err(query_budget_error(
+            "hosted_exact_document_budget_exceeded",
+            "The hosted query has no exact-context document budget.",
+            "exact_documents",
+            0,
+            1,
+        ));
+    }
+    let bytes = context.document.len() as u64;
+    if bytes > plan.budgets.max_exact_bytes {
+        return Err(query_budget_error(
+            "hosted_exact_byte_budget_exceeded",
+            "The hosted query context exceeds its exact-plaintext byte budget.",
+            "exact_bytes",
+            plan.budgets.max_exact_bytes,
+            bytes,
+        ));
+    }
+    Ok(())
+}
+
+fn canonical_view_request_digest(input: &Value) -> ApiResult<String> {
+    let mut request = input.as_object().cloned().ok_or_else(|| {
+        ApiError::bad_request("invalid_request", "Saved-view input must be an object.")
+    })?;
+    for control in ["cursor", "release_cursor", "limit", "offset"] {
+        request.remove(control);
+    }
+    let canonical = serde_jcs::to_vec(&json!({
+        "schema": "mdbase.connect.hosted-canonical-view-request.v1",
+        "request": request,
+    }))
+    .map_err(|error| {
+        ApiError::internal(format!(
+            "Saved-view request could not canonicalize: {error}"
+        ))
+    })?;
+    Ok(format!("sha256:{:x}", Sha256::digest(canonical)))
 }
 
 async fn validate_generation_binding(
@@ -565,18 +1003,29 @@ async fn execute_projected_page(
     } else {
         HashMap::new()
     };
-    if exact_records.len() as u64 > state.plan.budgets.max_exact_documents {
+    let context_documents = u64::from(state.exact_context.is_some());
+    if (exact_records.len() as u64).saturating_add(context_documents)
+        > state.plan.budgets.max_exact_documents
+    {
         return Err(query_budget_error(
             "hosted_exact_document_budget_exceeded",
             "The hosted query page exceeded its exact-document budget.",
             "exact_documents",
             state.plan.budgets.max_exact_documents,
-            exact_records.len() as u64,
+            (exact_records.len() as u64).saturating_add(context_documents),
         ));
     }
-    let exact_bytes = exact_records.values().fold(0_u64, |total, record| {
-        total.saturating_add(record.document.len() as u64)
-    });
+    let exact_bytes = exact_records
+        .values()
+        .fold(0_u64, |total, record| {
+            total.saturating_add(record.document.len() as u64)
+        })
+        .saturating_add(
+            state
+                .exact_context
+                .as_ref()
+                .map_or(0, |context| context.document.len() as u64),
+        );
     if exact_bytes > state.plan.budgets.max_exact_bytes {
         return Err(query_budget_error(
             "hosted_exact_byte_budget_exceeded",
@@ -593,7 +1042,11 @@ async fn execute_projected_page(
             let record = exact_records.get(&row.record_id).ok_or_else(|| {
                 ApiError::internal("A selected hosted query row has no exact snapshot record.")
             })?;
-            catalog.evaluate_hosted_residual(&state.plan, record)
+            catalog.evaluate_hosted_residual_with_context(
+                &state.plan,
+                record,
+                state.exact_context.as_ref(),
+            )
         } else {
             catalog.evaluate_hosted_projection_residual(&state.plan, &row.projection)
         }
@@ -641,7 +1094,7 @@ async fn execute_projected_page(
             record_id: row.record_id,
         }),
         candidate_rows: rows.len() as u64,
-        exact_documents: exact_records.len() as u64,
+        exact_documents: (exact_records.len() as u64).saturating_add(context_documents),
     })
 }
 
@@ -775,13 +1228,16 @@ async fn execute_bounded_residual_page(
     }
     exact_ids.sort();
     exact_ids.dedup();
-    if exact_ids.len() as u64 > state.plan.budgets.max_exact_documents {
+    let context_documents = u64::from(state.exact_context.is_some());
+    if (exact_ids.len() as u64).saturating_add(context_documents)
+        > state.plan.budgets.max_exact_documents
+    {
         return Err(query_budget_error(
             "hosted_exact_document_budget_exceeded",
             "The hosted query exceeded its exact-document budget.",
             "exact_documents",
             state.plan.budgets.max_exact_documents,
-            exact_ids.len() as u64,
+            (exact_ids.len() as u64).saturating_add(context_documents),
         ));
     }
     let exact_records = load_exact_query_records(
@@ -793,9 +1249,17 @@ async fn execute_bounded_residual_page(
         &exact_ids,
     )
     .await?;
-    let exact_bytes = exact_records.values().fold(0_u64, |total, record| {
-        total.saturating_add(record.document.len() as u64)
-    });
+    let exact_bytes = exact_records
+        .values()
+        .fold(0_u64, |total, record| {
+            total.saturating_add(record.document.len() as u64)
+        })
+        .saturating_add(
+            state
+                .exact_context
+                .as_ref()
+                .map_or(0, |context| context.document.len() as u64),
+        );
     if exact_bytes > state.plan.budgets.max_exact_bytes {
         return Err(query_budget_error(
             "hosted_exact_byte_budget_exceeded",
@@ -817,7 +1281,11 @@ async fn execute_bounded_residual_page(
                     ApiError::internal("A bounded hosted candidate has no exact snapshot record.")
                 })?;
                 catalog
-                    .evaluate_hosted_residual(&state.plan, record)
+                    .evaluate_hosted_residual_with_context(
+                        &state.plan,
+                        record,
+                        state.exact_context.as_ref(),
+                    )
                     .map_err(projection_inconsistent)?
             };
         diagnostics.extend(evaluation.diagnostics);
@@ -974,7 +1442,7 @@ async fn execute_bounded_residual_page(
         total_count,
         last_boundary,
         candidate_rows: candidate_count,
-        exact_documents: exact_records.len() as u64,
+        exact_documents: (exact_records.len() as u64).saturating_add(context_documents),
     })
 }
 
@@ -1171,21 +1639,54 @@ async fn insert_query_cursor(
     last_path: &str,
     last_record_id: Uuid,
     emitted_rows: u64,
+    crypto: &ProviderCrypto,
+    data_key: &[u8; 32],
 ) -> ApiResult<()> {
     let plan = serde_json::to_value(&state.plan).map_err(|error| {
         ApiError::internal(format!("Hosted query plan could not serialize: {error}"))
     })?;
     let mut keyset = last_order_values.to_vec();
     keyset.push(Value::String(last_path.to_string()));
+    sqlx::query("SELECT id FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE")
+        .bind(replica.id)
+        .execute(&mut **transaction)
+        .await?;
+    let live_cursors: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_query_cursors WHERE replica_id = $1 AND hard_expires_at > now()",
+    )
+    .bind(replica.id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    if live_cursors >= MAX_LIVE_QUERY_CURSORS_PER_REPLICA {
+        return Err(query_budget_error(
+            "hosted_cursor_budget_exceeded",
+            "The application replica has too many live hosted query cursors.",
+            "live_cursors",
+            MAX_LIVE_QUERY_CURSORS_PER_REPLICA as u64,
+            live_cursors as u64,
+        ));
+    }
+    let exact_context_ciphertext = state
+        .exact_context
+        .as_ref()
+        .map(|context| {
+            crypto.encrypt_json(
+                data_key,
+                context,
+                &query_cursor_context_aad(collection_id, cursor_id),
+            )
+        })
+        .transpose()?;
     sqlx::query(
         r#"INSERT INTO hosted_provider_query_cursors
              (cursor_id, collection_id, replica_id, scope_epoch, snapshot_head,
               generation_id, catalog_revision, projection_format_version,
               semantic_engine_version, query_plan_version, query_digest, query_plan,
+              request_kind, request_digest, result_meta, exact_context_ciphertext,
               last_order_values, last_record_id, emitted_rows, expires_at, hard_expires_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                   $13, $14, $15,
-                   LEAST(now() + make_interval(secs => $16), $17), $17)"#,
+                   $13, $14, $15, $16, $17, $18, $19,
+                   LEAST(now() + make_interval(secs => $20), $21), $21)"#,
     )
     .bind(cursor_id)
     .bind(collection_id)
@@ -1199,6 +1700,10 @@ async fn insert_query_cursor(
     .bind(i64::from(state.plan.version))
     .bind(decode_sha256_digest(&state.plan.canonical_query_digest)?)
     .bind(plan)
+    .bind(state.request_kind.as_str())
+    .bind(decode_sha256_digest(&state.request_digest)?)
+    .bind(sqlx::types::Json(&state.result_meta))
+    .bind(exact_context_ciphertext)
     .bind(sqlx::types::Json(keyset))
     .bind(last_record_id)
     .bind(to_i64(emitted_rows, "emitted query rows")?)

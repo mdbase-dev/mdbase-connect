@@ -34,6 +34,10 @@ pub(super) fn receipt_aad(replica_id: Uuid, mutation_id: Uuid) -> Vec<u8> {
     aad(("mutation_receipt", replica_id, mutation_id))
 }
 
+pub(super) fn query_cursor_context_aad(collection_id: Uuid, cursor_id: Uuid) -> Vec<u8> {
+    aad(("query_cursor_context", collection_id, cursor_id))
+}
+
 pub(super) fn current_file_aad(collection_id: Uuid, file_id: Uuid, sequence: u64) -> Vec<u8> {
     aad(("current_file", collection_id, file_id, sequence))
 }
