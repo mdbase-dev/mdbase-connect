@@ -99,18 +99,19 @@ async fn store_query_page_receipt(
     result: &OperationResult,
     expires_at: DateTime<Utc>,
 ) -> ApiResult<()> {
+    let budgets = &HostedExecutionBudgetManifest::published().defaults;
     let ciphertext = crypto.encrypt_json(
         data_key,
         result,
         &query_page_receipt_aad(collection_id, replica.id, request_id),
     )?;
     let ciphertext_bytes = ciphertext.len() as u64;
-    if ciphertext_bytes > MAX_QUERY_PAGE_RECEIPT_CIPHERTEXT_BYTES {
+    if ciphertext_bytes > budgets.query_receipt_ciphertext_bytes {
         return Err(query_budget_error(
             "hosted_query_receipt_byte_budget_exceeded",
             "The encrypted hosted query response exceeds the durable retry-receipt budget.",
             "query_receipt_ciphertext_bytes",
-            MAX_QUERY_PAGE_RECEIPT_CIPHERTEXT_BYTES,
+            budgets.query_receipt_ciphertext_bytes,
             ciphertext_bytes,
         ));
     }
@@ -124,6 +125,44 @@ async fn store_query_page_receipt(
     )
     .execute(&mut **transaction)
     .await?;
+    // Expiry cleanup is global but bounded by both rows and retained bytes.
+    // Counter triggers decrement each affected scope in the same transaction;
+    // any remaining expired footprint therefore fails quota admission closed
+    // until a later page or maintenance tick advances the bounded sweep.
+    sqlx::query(
+        r#"WITH candidates AS MATERIALIZED (
+             SELECT replica_id, request_id, collection_id, expires_at,
+                    response_ciphertext_bytes AS receipt_bytes
+             FROM hosted_provider_query_page_receipts
+             WHERE expires_at <= now()
+             ORDER BY expires_at, collection_id, replica_id, request_id
+             LIMIT $1
+           ), expired AS MATERIALIZED (
+             SELECT replica_id, request_id
+             FROM (
+               SELECT *, sum(receipt_bytes) OVER (
+                 ORDER BY expires_at, collection_id, replica_id, request_id
+                 ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+               ) AS cumulative_bytes
+               FROM candidates
+             ) bounded
+             WHERE cumulative_bytes <= $2
+           )
+           DELETE FROM hosted_provider_query_page_receipts receipt
+           USING expired
+           WHERE receipt.replica_id = expired.replica_id
+             AND receipt.request_id = expired.request_id"#,
+    )
+    .bind(to_i64(
+        budgets.query_receipt_cleanup_rows,
+        "query receipt cleanup row budget",
+    )?)
+    .bind(to_i64(
+        budgets.query_receipt_cleanup_bytes,
+        "query receipt cleanup byte budget",
+    )?)
+    .execute(&mut **transaction)
+    .await?;
     sqlx::query("SELECT id FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE")
         .bind(replica.id)
         .execute(&mut **transaction)
@@ -135,12 +174,12 @@ async fn store_query_page_receipt(
     .bind(replica.id)
     .execute(&mut **transaction)
     .await?;
-    if ciphertext_bytes > MAX_QUERY_PAGE_RECEIPT_BYTES_PER_REPLICA {
+    if ciphertext_bytes > budgets.query_receipt_bytes_per_replica {
         return Err(query_budget_error(
             "hosted_query_receipt_byte_budget_exceeded",
             "The encrypted hosted query response exceeds the replica replay-window budget.",
             "replica_query_receipt_bytes",
-            MAX_QUERY_PAGE_RECEIPT_BYTES_PER_REPLICA,
+            budgets.query_receipt_bytes_per_replica,
             ciphertext_bytes,
         ));
     }
@@ -150,7 +189,7 @@ async fn store_query_page_receipt(
                     row_number() OVER (
                       ORDER BY created_at DESC, request_id DESC
                     ) AS newest_position,
-                    sum(octet_length(response_ciphertext)::bigint) OVER (
+                    sum(response_ciphertext_bytes) OVER (
                       ORDER BY created_at DESC, request_id DESC
                       ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
                     ) AS newest_bytes
@@ -167,26 +206,27 @@ async fn store_query_page_receipt(
              )"#,
     )
     .bind(replica.id)
-    .bind(MAX_QUERY_PAGE_RECEIPTS_PER_REPLICA)
+    .bind(to_i64(
+        budgets.query_receipts_per_replica,
+        "query receipts per replica",
+    )?)
     .bind(to_i64(ciphertext_bytes, "query receipt ciphertext bytes")?)
     .bind(to_i64(
-        MAX_QUERY_PAGE_RECEIPT_BYTES_PER_REPLICA,
+        budgets.query_receipt_bytes_per_replica,
         "replica query receipt byte quota",
     )?)
     .execute(&mut **transaction)
     .await?;
 
-    let collection_bytes: i64 = sqlx::query_scalar(
-        r#"SELECT COALESCE(sum(octet_length(response_ciphertext)::bigint), 0)::bigint
-           FROM hosted_provider_query_page_receipts
-           WHERE collection_id = $1 AND expires_at > now()"#,
+    let collection_bytes = query_receipt_usage_bytes(
+        transaction,
+        "collection",
+        collection_id,
     )
-    .bind(collection_id)
-    .fetch_one(&mut **transaction)
     .await?;
     ensure_query_receipt_byte_quota(
         "collection_query_receipt_bytes",
-        MAX_QUERY_PAGE_RECEIPT_BYTES_PER_COLLECTION,
+        budgets.query_receipt_bytes_per_collection,
         collection_bytes,
         ciphertext_bytes,
     )?;
@@ -197,33 +237,24 @@ async fn store_query_page_receipt(
     .fetch_one(&mut **transaction)
     .await?;
     if let Some(account_id) = account_id {
-        let account_bytes: i64 = sqlx::query_scalar(
-            r#"SELECT COALESCE(sum(octet_length(receipt.response_ciphertext)::bigint), 0)::bigint
-               FROM hosted_provider_query_page_receipts receipt
-               JOIN hosted_provider_collections collection
-                 ON collection.id = receipt.collection_id
-               WHERE collection.account_id = $1 AND receipt.expires_at > now()"#,
-        )
-        .bind(account_id)
-        .fetch_one(&mut **transaction)
-        .await?;
+        let account_bytes =
+            query_receipt_usage_bytes(transaction, "account", account_id).await?;
         ensure_query_receipt_byte_quota(
             "account_query_receipt_bytes",
-            MAX_QUERY_PAGE_RECEIPT_BYTES_PER_ACCOUNT,
+            budgets.query_receipt_bytes_per_account,
             account_bytes,
             ciphertext_bytes,
         )?;
     }
-    let global_bytes: i64 = sqlx::query_scalar(
-        r#"SELECT COALESCE(sum(octet_length(response_ciphertext)::bigint), 0)::bigint
-           FROM hosted_provider_query_page_receipts
-           WHERE expires_at > now()"#,
+    let global_bytes = query_receipt_usage_bytes(
+        transaction,
+        "global",
+        Uuid::nil(),
     )
-    .fetch_one(&mut **transaction)
     .await?;
     ensure_query_receipt_byte_quota(
         "global_query_receipt_bytes",
-        MAX_QUERY_PAGE_RECEIPT_BYTES_GLOBAL,
+        budgets.query_receipt_bytes_global,
         global_bytes,
         ciphertext_bytes,
     )?;
@@ -244,6 +275,24 @@ async fn store_query_page_receipt(
     .execute(&mut **transaction)
     .await?;
     Ok(())
+}
+
+async fn query_receipt_usage_bytes(
+    transaction: &mut Transaction<'_, Postgres>,
+    scope_kind: &str,
+    scope_id: Uuid,
+) -> ApiResult<i64> {
+    Ok(sqlx::query_scalar(
+        r#"SELECT COALESCE((
+             SELECT ciphertext_bytes
+             FROM hosted_provider_query_receipt_usage
+             WHERE scope_kind = $1 AND scope_id = $2
+           ), 0)::bigint"#,
+    )
+    .bind(scope_kind)
+    .bind(scope_id)
+    .fetch_one(&mut **transaction)
+    .await?)
 }
 
 fn ensure_query_receipt_byte_quota(

@@ -1,9 +1,6 @@
 use super::projections::prune_unpinned_projection_generations_in;
 use super::*;
 
-const MAX_EXPIRED_QUERY_PAGE_RECEIPTS_PER_MAINTENANCE: i64 = 1_000;
-const MAX_EXPIRED_QUERY_PAGE_RECEIPT_BYTES_PER_MAINTENANCE: i64 = 256 * 1024 * 1024;
-
 impl HostedProvider {
     pub async fn compact_through(&self, collection_id: Uuid, through: u64) -> ApiResult<()> {
         let mut transaction = self.pool.begin().await?;
@@ -227,8 +224,7 @@ impl HostedProvider {
     /// snapshot-reset path on their next pull.
     pub async fn compact_stale_history(&self, retain_changes: u64) -> ApiResult<usize> {
         self.compact_operation_mutations().await?;
-        self.compact_expired_query_page_receipts(MAX_EXPIRED_QUERY_PAGE_RECEIPTS_PER_MAINTENANCE)
-            .await?;
+        self.compact_expired_query_page_receipts(i64::MAX).await?;
         let rows = sqlx::query(
             r#"SELECT id, head
                FROM hosted_provider_collections
@@ -254,11 +250,18 @@ impl HostedProvider {
     /// trigger ordinary compaction, so retry receipts cannot become a durable
     /// encrypted-response archive.
     pub async fn compact_expired_query_page_receipts(&self, limit: i64) -> ApiResult<usize> {
-        let limit = limit.clamp(1, MAX_EXPIRED_QUERY_PAGE_RECEIPTS_PER_MAINTENANCE);
+        let budgets = &crate::HostedExecutionBudgetManifest::published().defaults;
+        let limit = limit.clamp(
+            1,
+            to_i64(
+                budgets.query_receipt_cleanup_rows,
+                "query receipt cleanup row budget",
+            )?,
+        );
         let deleted = sqlx::query(
             r#"WITH candidates AS MATERIALIZED (
                  SELECT replica_id, request_id, collection_id, expires_at,
-                        octet_length(response_ciphertext)::bigint AS receipt_bytes
+                        response_ciphertext_bytes AS receipt_bytes
                  FROM hosted_provider_query_page_receipts
                  WHERE expires_at <= now()
                  ORDER BY expires_at, collection_id, replica_id, request_id
@@ -280,7 +283,10 @@ impl HostedProvider {
                  AND receipt.request_id = expired.request_id"#,
         )
         .bind(limit)
-        .bind(MAX_EXPIRED_QUERY_PAGE_RECEIPT_BYTES_PER_MAINTENANCE)
+        .bind(to_i64(
+            budgets.query_receipt_cleanup_bytes,
+            "query receipt cleanup byte budget",
+        )?)
         .execute(&self.pool)
         .await?
         .rows_affected();

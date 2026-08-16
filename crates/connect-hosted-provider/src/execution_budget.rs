@@ -67,6 +67,14 @@ pub struct HostedExecutionBudgets {
     pub cancellation_cleanup_ms: u64,
     pub cursor_cleanup_interval_ms: u64,
     pub cursor_deletion_bound_ms: u64,
+    pub query_receipt_ciphertext_bytes: u64,
+    pub query_receipts_per_replica: u64,
+    pub query_receipt_bytes_per_replica: u64,
+    pub query_receipt_bytes_per_collection: u64,
+    pub query_receipt_bytes_per_account: u64,
+    pub query_receipt_bytes_global: u64,
+    pub query_receipt_cleanup_rows: u64,
+    pub query_receipt_cleanup_bytes: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -165,6 +173,17 @@ impl HostedExecutionBudgetManifest {
         {
             return Err("default durable cursor byte quotas are not monotonic".to_string());
         }
+        if self.defaults.query_receipt_ciphertext_bytes
+            > self.defaults.query_receipt_bytes_per_replica
+            || self.defaults.query_receipt_bytes_per_replica
+                > self.defaults.query_receipt_bytes_per_collection
+            || self.defaults.query_receipt_bytes_per_collection
+                > self.defaults.query_receipt_bytes_per_account
+            || self.defaults.query_receipt_bytes_per_account
+                > self.defaults.query_receipt_bytes_global
+        {
+            return Err("default durable query-receipt byte quotas are not monotonic".to_string());
+        }
         if self.temporary_containment.query_result_cache_enabled {
             return Err("the temporary hosted query-result cache must remain disabled".to_string());
         }
@@ -242,7 +261,7 @@ mod tests {
     #[test]
     fn published_manifest_is_valid_and_sized_for_the_large_fixture() {
         let manifest = HostedExecutionBudgetManifest::published();
-        assert_eq!(manifest.revision, "hosted-execution-v1");
+        assert_eq!(manifest.revision, "hosted-execution-v2");
         assert_eq!(manifest.defaults.scanned_records, 100_000);
         assert_eq!(manifest.hard_maxima.scanned_records, 1_000_000);
         assert_eq!(

@@ -6,16 +6,6 @@ use std::cmp::Ordering;
 const QUERY_CURSOR_IDLE_SECONDS: i64 = 60;
 const QUERY_CURSOR_HARD_SECONDS: i64 = 300;
 const MAX_LIVE_QUERY_CURSORS_PER_REPLICA: i64 = 64;
-// A receipt is encrypted exact-output recovery state, not an unbounded result
-// archive. Its five-minute lifetime and per-replica count bound cap retained
-// rows, while this byte ceiling leaves headroom above the 64 MiB exact-output
-// budget for the result envelope, diagnostics, and AEAD overhead.
-const MAX_QUERY_PAGE_RECEIPTS_PER_REPLICA: i64 = 64;
-const MAX_QUERY_PAGE_RECEIPT_CIPHERTEXT_BYTES: u64 = 72 * 1024 * 1024;
-const MAX_QUERY_PAGE_RECEIPT_BYTES_PER_REPLICA: u64 = 128 * 1024 * 1024;
-const MAX_QUERY_PAGE_RECEIPT_BYTES_PER_COLLECTION: u64 = 512 * 1024 * 1024;
-const MAX_QUERY_PAGE_RECEIPT_BYTES_PER_ACCOUNT: u64 = 2 * 1024 * 1024 * 1024;
-const MAX_QUERY_PAGE_RECEIPT_BYTES_GLOBAL: u64 = 64 * 1024 * 1024 * 1024;
 const MAX_HOSTED_BASE_RELATIONSHIP_PAIRS: u64 = 65_536;
 const HOSTED_QUERY_EXECUTION_PROOF_VERSION: u32 = 1;
 

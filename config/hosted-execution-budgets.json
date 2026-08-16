@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "revision": "hosted-execution-v1",
-  "publishedAt": "2026-08-15T20:52:29+10:00",
+  "revision": "hosted-execution-v2",
+  "publishedAt": "2026-08-17T00:00:00+10:00",
   "capacityBasis": {
     "providerMemoryMiB": 512,
     "databasePoolConnections": 20,
@@ -43,7 +43,15 @@
     "temporaryPageBufferBytesPerProcess": 2097152,
     "cancellationCleanupMs": 5000,
     "cursorCleanupIntervalMs": 60000,
-    "cursorDeletionBoundMs": 300000
+    "cursorDeletionBoundMs": 300000,
+    "queryReceiptCiphertextBytes": 75497472,
+    "queryReceiptsPerReplica": 64,
+    "queryReceiptBytesPerReplica": 134217728,
+    "queryReceiptBytesPerCollection": 536870912,
+    "queryReceiptBytesPerAccount": 2147483648,
+    "queryReceiptBytesGlobal": 68719476736,
+    "queryReceiptCleanupRows": 1000,
+    "queryReceiptCleanupBytes": 268435456
   },
   "hardMaxima": {
     "pageItems": 500,
@@ -81,7 +89,15 @@
     "temporaryPageBufferBytesPerProcess": 4194304,
     "cancellationCleanupMs": 5000,
     "cursorCleanupIntervalMs": 60000,
-    "cursorDeletionBoundMs": 300000
+    "cursorDeletionBoundMs": 300000,
+    "queryReceiptCiphertextBytes": 75497472,
+    "queryReceiptsPerReplica": 64,
+    "queryReceiptBytesPerReplica": 134217728,
+    "queryReceiptBytesPerCollection": 536870912,
+    "queryReceiptBytesPerAccount": 2147483648,
+    "queryReceiptBytesGlobal": 68719476736,
+    "queryReceiptCleanupRows": 1000,
+    "queryReceiptCleanupBytes": 268435456
   },
   "entitlements": {
     "large_fixture_v1": {

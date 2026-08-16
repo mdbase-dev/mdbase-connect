@@ -1328,6 +1328,16 @@ async fn candidate_b_query_receipt_maintenance_is_global_and_bounded() {
     .await
     .unwrap();
     assert_eq!(remaining_live, 1);
+    let (usage_count, usage_bytes): (i64, i64) = sqlx::query_as(
+        r#"SELECT receipt_count, ciphertext_bytes
+           FROM hosted_provider_query_receipt_usage
+           WHERE scope_kind = 'collection' AND scope_id = $1"#,
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!((usage_count, usage_bytes), (1, 1));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1386,10 +1396,11 @@ async fn candidate_b_query_receipts_evict_the_oldest_per_replica_window_entry() 
     sqlx::query(
         r#"INSERT INTO hosted_provider_query_page_receipts
              (replica_id, request_id, collection_id, scope_epoch, request_kind,
-              input_digest, response_ciphertext, expires_at)
+              input_digest, response_ciphertext, expires_at, created_at)
            SELECT $1, md5('live-query-budget-' || g::text)::uuid, $2, 1,
                   'query', decode(repeat('33', 32), 'hex'), decode('00', 'hex'),
-                  now() + interval '5 minutes'
+                  now() + interval '5 minutes',
+                  now() - make_interval(secs => 65 - g)
            FROM generate_series(1, 64) AS g"#,
     )
     .bind(replica_id)
@@ -1421,6 +1432,21 @@ async fn candidate_b_query_receipts_evict_the_oldest_per_replica_window_entry() 
     .unwrap();
     assert_eq!(receipt_count, 64);
     assert!(!oldest_exists);
+    let (usage_count, usage_bytes, direct_bytes): (i64, i64, i64) = sqlx::query_as(
+        r#"SELECT usage.receipt_count, usage.ciphertext_bytes,
+                  sum(receipt.response_ciphertext_bytes)::bigint
+           FROM hosted_provider_query_receipt_usage usage
+           JOIN hosted_provider_query_page_receipts receipt
+             ON receipt.replica_id = usage.scope_id
+           WHERE usage.scope_kind = 'replica' AND usage.scope_id = $1
+           GROUP BY usage.receipt_count, usage.ciphertext_bytes"#,
+    )
+    .bind(replica_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(usage_count, 64);
+    assert_eq!(usage_bytes, direct_bytes);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
