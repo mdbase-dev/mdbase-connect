@@ -332,6 +332,7 @@ impl HostedProvider {
         )
         .await?
         .map_or((None, 0), |(record, bytes)| (Some(record), bytes));
+        let semantic_requested = execution.semantic.is_some();
 
         if mutation.operation == SyncMutationOperation::Put
             && mutation.base_revision.is_none()
@@ -361,7 +362,7 @@ impl HostedProvider {
                 )
                 .await;
             };
-            if !visible(current, &replica.allowed_types) {
+            if !semantic_requested && !visible(current, &replica.allowed_types) {
                 return store_rejection(
                     transaction,
                     &self.crypto,
@@ -887,6 +888,19 @@ async fn execute_direct_semantic(
             })?;
             before_records.insert(source_record_id, record);
         }
+    }
+
+    for record in before_records.values_mut() {
+        let classified = classify_exact_sync_record(
+            Some(&catalog),
+            record.record_id,
+            &record.path,
+            &record.document,
+        )?;
+        record.frontmatter = classified.frontmatter;
+        record.body = classified.body;
+        record.types = classified.types;
+        record.revision = classified.revision;
     }
 
     if matches!(operation, "create" | "rename") {
