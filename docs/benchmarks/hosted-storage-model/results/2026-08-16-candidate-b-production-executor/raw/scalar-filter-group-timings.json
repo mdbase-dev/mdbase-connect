@@ -1,0 +1,45 @@
+{
+  "captured_at": "2026-08-16T21:43:52+10:00",
+  "connect_revision": "2fd66c08ee0e8b55750dffe9949f51c26bb82420",
+  "mdbase_rs_revision": "5f2e1101ae0da6340d5315cd76ad36f424ee360f",
+  "postgresql": {
+    "version": "18.4",
+    "container": "mdbase-benchmark-pg",
+    "database": "disposable local benchmark database",
+    "note": "Each mission created an isolated collection. The database retained unrelated prior benchmark collections, so these are conservative shared-relation local timings rather than a pristine-database microbenchmark."
+  },
+  "build_profile": "Rust test/dev (unoptimized with debuginfo)",
+  "command_template": "MDBASE_PROJECTION_DATABASE_URL=<disposable-postgres-url> cargo test -p mdbase-connect-hosted-provider --test projection_lifecycle <test-name> -- --ignored --nocapture",
+  "missions": [
+    {
+      "test": "candidate_b_exact_projected_filter_and_group_100k",
+      "decoy_rows": 100001,
+      "exact_filter_page_ms": 1162,
+      "group_count_ms": 1175,
+      "setup_inclusive_test_ms": 19270,
+      "result": "pass"
+    },
+    {
+      "test": "candidate_b_exact_projected_filter_and_group_230k",
+      "decoy_rows": 230128,
+      "exact_filter_page_ms": 2079,
+      "group_count_ms": 2375,
+      "setup_inclusive_test_ms": 48310,
+      "result": "pass"
+    }
+  ],
+  "semantic_assertions": [
+    "schema-proven string and boolean predicates execute exactly in SQL",
+    "group counts use the canonical mdbase-rs reducer result shape",
+    "malformed projected scalar values trigger canonical fail-closed evaluation",
+    "exact body output decrypts only the selected page",
+    "candidate-matching orphan projections are excluded",
+    "typed wall-time budget remains 15000 ms per operation"
+  ],
+  "index_policy": "B-no-GIN; mandatory identity/path/cursor indexes only; no general JSONB GIN or automatic field indexes",
+  "limitations": [
+    "Single observations are correctness and scale evidence, not latency distributions.",
+    "The fixture duplicates projection rows directly to isolate executor scaling; it is not an import, write-pressure, or ciphertext-throughput measurement.",
+    "The selected predicate matches two rows, so the mission does not establish a high-cardinality result-transfer entitlement."
+  ]
+}

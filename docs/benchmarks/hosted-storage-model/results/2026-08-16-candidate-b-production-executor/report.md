@@ -1,4 +1,4 @@
-# Candidate B production executor: 100k candidate evidence
+# Candidate B production executor: bounded high-cardinality evidence
 
 Date: 2026-08-16  
 Status: implementation evidence; not a production rollout authorization
@@ -76,4 +76,27 @@ a replacement for the prototype's encrypted-payload, write, and storage evidence
   shared-staging distributions and contention remain required.
 - Narrow-index decision: deferred. The plan demonstrates collection-scale JSON tag
   CPU/I/O, but a write-costed shared-staging workload is required before adding a
-  physical tag index. A general projection GIN remains unjustified.
+physical tag index. A general projection GIN remains unjustified.
+
+## Exact scalar filtering and grouping
+
+The later query-plan v10 production path proves schema-backed scalar types in
+mdbase-rs and pushes exact string/boolean candidate predicates, scalar ordering,
+counting, and count grouping into PostgreSQL. It does not use the prototype's
+repeat-to-completion top-K operator. Page bodies are decrypted only after the
+bounded page of identities has been selected.
+
+Two ignored PostgreSQL missions were run after removing redundant reconstruction
+of the live-version set from each validation/count/page pass:
+
+| Mission | Exact filtered page | Count grouping | Setup-inclusive test |
+| --- | ---: | ---: | ---: |
+| 100,001 decoys | 1,162 ms | 1,175 ms | 19.27 s |
+| 230,128 decoys | 2,079 ms | 2,375 ms | 48.31 s |
+
+Both missions passed canonical output, orphan exclusion, malformed-projection
+fail-closed fallback, and the 15-second operation time budget in an unoptimized
+Rust test build. The selected result cardinality was two. These single local
+observations prove bounded production execution at the target sizes; they are not
+percentile latency evidence. The machine-readable record is
+[`raw/scalar-filter-group-timings.json`](./raw/scalar-filter-group-timings.json).

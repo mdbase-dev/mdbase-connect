@@ -1,0 +1,12 @@
+{
+  "runId": "2026-08-16-candidate-b-final-local",
+  "completedAt": "2026-08-16T10:47:31.975Z",
+  "tiers": [
+    "records-10000",
+    "records-100000",
+    "canonical-1gib"
+  ],
+  "variants": [
+    "b-no-gin"
+  ]
+}

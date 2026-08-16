@@ -1,0 +1,62 @@
+{
+  "runId": "2026-08-16-candidate-b-final-local",
+  "capturedAt": "2026-08-16T09:50:52.509Z",
+  "host": {
+    "uname": "Linux minipc 7.1.3-arch1-2 #1 SMP PREEMPT_DYNAMIC Thu, 09 Jul 2026 19:55:55 +0000 x86_64 GNU/Linux",
+    "cpu": "AMD Ryzen 9 7940HS w/ Radeon 780M Graphics",
+    "cpuCount": 16,
+    "memoryBytes": 98916249600,
+    "filesystem": "Filesystem     Type 1K-blocks      Used Available Use% Mounted on\n/dev/nvme1n1p3 ext4 949834476 784348388 117163480  88% /"
+  },
+  "tools": {
+    "docker": "Docker version 29.7.2, build a7dcaa6fdb",
+    "postgres": "18.4 (Debian 18.4-1.pgdg13+1)",
+    "rust": "rustc 1.94.0 (4a4ef493e 2026-03-02)",
+    "node": "v22.22.0",
+    "openssl": "OpenSSL 3.6.3 9 Jun 2026 (Library: OpenSSL 3.6.3 9 Jun 2026)"
+  },
+  "postgres": {
+    "image": "postgres:18",
+    "settings": {
+      "autovacuum": "on",
+      "maintenance_work_mem": "65536",
+      "max_connections": "100",
+      "shared_buffers": "16384",
+      "wal_level": "replica",
+      "work_mem": "4096"
+    },
+    "container": "{\"Binds\":null,\"ContainerIDFile\":\"\",\"LogConfig\":{\"Type\":\"json-file\",\"Config\":{}},\"NetworkMode\":\"bridge\",\"PortBindings\":{\"5432/tcp\":[{\"HostIp\":\"\",\"HostPort\":\"55440\"}]},\"RestartPolicy\":{\"Name\":\"no\",\"MaximumRetryCount\":0},\"AutoRemove\":true,\"VolumeDriver\":\"\",\"VolumesFrom\":null,\"ConsoleSize\":[0,0],\"CapAdd\":null,\"CapDrop\":null,\"CgroupnsMode\":\"private\",\"Dns\":null,\"DnsOptions\":[],\"DnsSearch\":[],\"ExtraHosts\":null,\"GroupAdd\":null,\"IpcMode\":\"private\",\"Cgroup\":\"\",\"Links\":null,\"OomScoreAdj\":0,\"PidMode\":\"\",\"Privileged\":false,\"PublishAllPorts\":false,\"ReadonlyRootfs\":false,\"SecurityOpt\":null,\"UTSMode\":\"\",\"UsernsMode\":\"\",\"ShmSize\":67108864,\"Runtime\":\"runc\",\"Isolation\":\"\",\"CpuShares\":0,\"Memory\":0,\"NanoCpus\":0,\"CgroupParent\":\"\",\"BlkioWeight\":0,\"BlkioWeightDevice\":[],\"BlkioDeviceReadBps\":[],\"BlkioDeviceWriteBps\":[],\"BlkioDeviceReadIOps\":[],\"BlkioDeviceWriteIOps\":[],\"CpuPeriod\":0,\"CpuQuota\":0,\"CpuRealtimePeriod\":0,\"CpuRealtimeRuntime\":0,\"CpusetCpus\":\"\",\"CpusetMems\":\"\",\"Devices\":[],\"DeviceCgroupRules\":null,\"DeviceRequests\":null,\"MemoryReservation\":0,\"MemorySwap\":0,\"MemorySwappiness\":null,\"OomKillDisable\":null,\"PidsLimit\":null,\"Ulimits\":[],\"CpuCount\":0,\"CpuPercent\":0,\"IOMaximumIOps\":0,\"IOMaximumBandwidth\":0,\"MaskedPaths\":[\"/proc/acpi\",\"/proc/asound\",\"/proc/interrupts\",\"/proc/kcore\",\"/proc/keys\",\"/proc/latency_stats\",\"/proc/sched_debug\",\"/proc/scsi\",\"/proc/timer_list\",\"/proc/timer_stats\",\"/sys/devices/virtual/powercap\",\"/sys/firmware\"],\"ReadonlyPaths\":[\"/proc/bus\",\"/proc/fs\",\"/proc/irq\",\"/proc/sys\",\"/proc/sysrq-trigger\"]}"
+  },
+  "revisions": {
+    "connect": {
+      "revision": "a586b0b09b1a2f2d56a25ebd927e22fc74de08fa",
+      "dirty": false,
+      "dirtyPaths": []
+    },
+    "mdbaseRs": {
+      "revision": "d14cc1ed3bacc9baa414cc7188f8053d468b2d22",
+      "dirty": false,
+      "dirtyPaths": []
+    }
+  },
+  "contracts": {
+    "workload": "sha256:6417a1386af30b5fd11576118fe55708c8b64d356d81c6acd75183743e90c7f4",
+    "fixture": "sha256:f0f8d29cdea983d722ccd84ff39f5e8f8f813ab844fa314d2fe2525b5f8f5aeb",
+    "budgets": "sha256:9723f0241000320776f5be8695c480b34689d239e5b507a92ab18010f2a190cc",
+    "rawSchema": "sha256:7528907524580f2c841208bded60e575e897c5e435bcde48da9789234ced019d"
+  },
+  "command": [
+    "/home/calluma/.local/share/fnm/node-versions/v22.22.0/installation/bin/node",
+    "/home/calluma/projects/candidate-b-hosted/mdbase-connect/scripts/hosted-storage-benchmark/run-benchmark.mjs",
+    "--run-id",
+    "2026-08-16-candidate-b-final-local",
+    "--output",
+    "docs/benchmarks/hosted-storage-model/results/2026-08-16-candidate-b-final-local",
+    "--tiers",
+    "records-10000,records-100000,canonical-1gib",
+    "--variants",
+    "b-no-gin"
+  ],
+  "syntheticFixturesOnly": true,
+  "sharedServicesContacted": false
+}
