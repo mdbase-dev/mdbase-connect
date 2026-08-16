@@ -1717,6 +1717,9 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
       and:
         - 'file.backlinks.filter((value.asFile().properties["status"].isEmpty() == false) && (value.asFile().properties["status"] != "done") && (list(value.asFile().properties["projects"]).map(file(value.replace(/^\[[^\]]+\]\((.*)\)$/, "$1").replace("[[", "").replace("]]", "").split("|")[0].split("#")[0].replace(/%20/g, " ")).asLink()).contains(file.asLink()))).length > 0'
     order: [file.name, file.folder]
+    groupBy:
+      property: file.folder
+      direction: ASC
 "##;
     let created = fixture
         .provider
@@ -1916,6 +1919,10 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
     assert_eq!(absent_binding_fallback["valid"], true);
     assert_eq!(absent_binding_fallback["result"]["meta"]["has_more"], true);
     assert_eq!(
+        absent_binding_fallback["result"]["meta"]["groups"][0]["count"],
+        2
+    );
+    assert_eq!(
         absent_binding_fallback["result"]["results"][0]["path"],
         "projects/mobile.md"
     );
@@ -1941,6 +1948,10 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
         .await
         .unwrap();
     assert_eq!(absent_binding_page_two["valid"], true);
+    assert_eq!(
+        absent_binding_page_two["result"]["meta"]["groups"][0]["count"],
+        2
+    );
     assert_eq!(
         absent_binding_page_two["result"]["results"][0]["path"],
         "projects/web.md"

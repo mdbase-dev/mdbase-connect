@@ -1702,6 +1702,85 @@ struct BoundedBaseMatch {
     row: mdbase::runtime::HostedBaseRow,
 }
 
+struct BoundedBaseTopK<'a> {
+    plan: &'a mdbase::runtime::HostedBasePlan,
+    capacity: usize,
+    heap: Vec<BoundedBaseMatch>,
+}
+
+impl<'a> BoundedBaseTopK<'a> {
+    fn new(plan: &'a mdbase::runtime::HostedBasePlan, capacity: usize) -> Self {
+        Self {
+            plan,
+            capacity,
+            heap: Vec::with_capacity(capacity),
+        }
+    }
+
+    fn compare(&self, left: &BoundedBaseMatch, right: &BoundedBaseMatch) -> Ordering {
+        self.plan
+            .compare_rows(&left.row, &right.row)
+            .then_with(|| left.record_id.cmp(&right.record_id))
+    }
+
+    fn push(&mut self, item: BoundedBaseMatch) {
+        if self.capacity == 0 {
+            return;
+        }
+        if self.heap.len() < self.capacity {
+            self.heap.push(item);
+            self.sift_up(self.heap.len() - 1);
+            return;
+        }
+        if self.compare(&item, &self.heap[0]).is_lt() {
+            self.heap[0] = item;
+            self.sift_down(0);
+        }
+    }
+
+    fn sift_up(&mut self, mut index: usize) {
+        while index > 0 {
+            let parent = (index - 1) / 2;
+            if !self.compare(&self.heap[index], &self.heap[parent]).is_gt() {
+                break;
+            }
+            self.heap.swap(index, parent);
+            index = parent;
+        }
+    }
+
+    fn sift_down(&mut self, mut index: usize) {
+        loop {
+            let left = index.saturating_mul(2).saturating_add(1);
+            if left >= self.heap.len() {
+                break;
+            }
+            let right = left + 1;
+            let child = if right < self.heap.len()
+                && self.compare(&self.heap[right], &self.heap[left]).is_gt()
+            {
+                right
+            } else {
+                left
+            };
+            if !self.compare(&self.heap[child], &self.heap[index]).is_gt() {
+                break;
+            }
+            self.heap.swap(index, child);
+            index = child;
+        }
+    }
+
+    fn into_sorted(mut self) -> Vec<BoundedBaseMatch> {
+        let plan = self.plan;
+        self.heap.sort_by(|left, right| {
+            plan.compare_rows(&left.row, &right.row)
+                .then_with(|| left.record_id.cmp(&right.record_id))
+        });
+        self.heap
+    }
+}
+
 struct BaseExecutionSnapshot {
     rows: Vec<ProjectedQueryRow>,
     projections: HashMap<Uuid, mdbase::runtime::SemanticProjection>,
@@ -1787,7 +1866,19 @@ async fn execute_bounded_base_page(
             rows.len() as u64,
         ));
     }
-    let operator_steps = (rows.len() as u64).saturating_add(relationship_rows);
+    let offset = if state.last_path.is_none() {
+        plan.offset
+    } else {
+        0
+    };
+    let top_k_capacity = offset.saturating_add(page_size);
+    // Reserve one comparison and one grouping-state operation in addition to
+    // the heap depth. This is conservative for unsorted/ungrouped views.
+    let reduction_steps_per_match =
+        u64::from(top_k_capacity.max(1).ilog2().saturating_add(1)).saturating_add(2);
+    let operator_steps = (rows.len() as u64)
+        .saturating_add(relationship_rows)
+        .saturating_add((rows.len() as u64).saturating_mul(reduction_steps_per_match));
     if operator_steps > state.plan.budgets.max_operator_steps {
         return Err(query_budget_error(
             "hosted_operator_budget_exceeded",
@@ -1828,40 +1919,73 @@ async fn execute_bounded_base_page(
             operator_steps.saturating_add(1),
         ));
     }
-    let mut evaluation_inputs = Vec::with_capacity(rows.len());
-    for row in &rows {
-        let related = adjacency
-            .get(&row.record_id)
-            .into_iter()
-            .flatten()
-            .filter_map(|record_id| projections.get(record_id).cloned())
-            .collect::<Vec<_>>();
-        evaluation_inputs.push((
-            row.record_id,
-            mdbase::runtime::HostedBaseRecordContext {
-                projection: row.projection.clone(),
-                related,
-                relationship_neighborhood_complete: true,
-                query_context: query_context.clone(),
-                operation_clock: operation_clock.clone(),
-                max_expression_steps: expression_steps_per_record,
-            },
-        ));
-    }
+    let candidate_rows = rows.len() as u64;
     let evaluation_plan = plan.clone();
+    let last_order_values = state.last_order_values.clone();
+    let last_path = state.last_path.clone();
+    let last_record_id = state.last_record_id;
+    let operation_clock = operation_clock.clone();
+    let top_k_capacity = usize::try_from(top_k_capacity).unwrap_or(usize::MAX);
+    let max_groups = state.plan.budgets.max_groups;
     let cancellation = mdbase::OperationCancellation::new();
     let worker_cancellation = cancellation
         .with_deadline(started + Duration::from_millis(state.plan.budgets.max_wall_time_ms));
     let mut cancellation_guard = BaseEvaluationCancellationGuard::new(cancellation);
     let evaluated = tokio::task::spawn_blocking(move || {
-        evaluation_inputs
-            .into_iter()
-            .map(|(record_id, input)| {
-                evaluation_plan
-                    .evaluate_record_with_cancellation(&input, &worker_cancellation)
-                    .map(|evaluation| (record_id, evaluation))
-            })
-            .collect::<Result<Vec<_>, _>>()
+        let mut top_k = BoundedBaseTopK::new(&evaluation_plan, top_k_capacity);
+        let mut grouping = evaluation_plan.start_grouping(max_groups);
+        let mut diagnostics = Vec::new();
+        let mut total_count = 0_u64;
+        for row in rows {
+            let related = adjacency
+                .get(&row.record_id)
+                .into_iter()
+                .flatten()
+                .filter_map(|record_id| projections.get(record_id).cloned())
+                .collect::<Vec<_>>();
+            let input = mdbase::runtime::HostedBaseRecordContext {
+                projection: row.projection,
+                related,
+                relationship_neighborhood_complete: true,
+                query_context: query_context.clone(),
+                operation_clock: operation_clock.clone(),
+                max_expression_steps: expression_steps_per_record,
+            };
+            match evaluation_plan.evaluate_record_with_cancellation(&input, &worker_cancellation)? {
+                mdbase::runtime::HostedBaseEvaluation::Included { row: result } => {
+                    let item = BoundedBaseMatch {
+                        record_id: row.record_id,
+                        row: *result,
+                    };
+                    total_count = total_count.saturating_add(1);
+                    grouping.push(&item.row)?;
+                    let after_keyset = if let Some(last_path) = last_path.as_deref() {
+                        let ordering = evaluation_plan.compare_row_to_boundary(
+                            &item.row,
+                            &last_order_values,
+                            last_path,
+                        )?;
+                        ordering.is_gt()
+                            || (ordering.is_eq()
+                                && last_record_id.is_some_and(|last| item.record_id > last))
+                    } else {
+                        true
+                    };
+                    if after_keyset {
+                        top_k.push(item);
+                    }
+                }
+                mdbase::runtime::HostedBaseEvaluation::Excluded {
+                    diagnostics: excluded,
+                } => diagnostics.extend(excluded),
+            }
+        }
+        Ok::<_, mdbase::runtime::CatalogError>((
+            top_k.into_sorted(),
+            diagnostics,
+            grouping.finish(),
+            total_count,
+        ))
     })
     .await
     .map_err(|error| {
@@ -1884,39 +2008,27 @@ async fn execute_bounded_base_page(
             state.plan.budgets.max_wall_time_ms,
             started.elapsed().as_millis() as u64,
         ),
+        "hosted_base_group_budget_exceeded" => query_budget_error(
+            "hosted_group_budget_exceeded",
+            "The Obsidian Base exceeded its group budget.",
+            "groups",
+            state.plan.budgets.max_groups,
+            state.plan.budgets.max_groups.saturating_add(1),
+        ),
         _ => projection_inconsistent(error),
     })?;
     cancellation_guard.disarm();
-    let mut diagnostics = Vec::new();
-    let mut matching = Vec::<BoundedBaseMatch>::new();
-    for (record_id, evaluated) in evaluated {
-        match evaluated {
-            mdbase::runtime::HostedBaseEvaluation::Included { row: result } => {
-                matching.push(BoundedBaseMatch {
-                    record_id,
-                    row: *result,
-                });
-            }
-            mdbase::runtime::HostedBaseEvaluation::Excluded {
-                diagnostics: excluded,
-            } => diagnostics.extend(excluded),
-        }
-    }
-    matching.sort_by(|left, right| {
-        plan.compare_rows(&left.row, &right.row)
-            .then_with(|| left.record_id.cmp(&right.record_id))
-    });
-    let total_count = matching.len() as u64;
+    let (matching, diagnostics, groups, total_count) = evaluated;
     let matching_bytes = matching.iter().fold(0_u64, |total, item| {
         total.saturating_add(serde_json::to_vec(&item.row).map_or(0, |bytes| bytes.len() as u64))
     });
-    // Candidate projections are owned once by the SQL row set and once by the
-    // identity map; one candidate's relationship context is cloned during
-    // evaluation. Group construction similarly owns a temporary row copy.
+    // Candidate projections are owned by the SQL row set and identity map;
+    // only one relationship context and one page-sized top-K heap are retained
+    // while evaluating.
     let pre_reduction_resident_bytes = projection_bytes
         .saturating_mul(3)
         .saturating_add(exact_bytes)
-        .saturating_add(matching_bytes.saturating_mul(2));
+        .saturating_add(matching_bytes);
     if pre_reduction_resident_bytes > state.plan.budgets.max_memory_bytes {
         return Err(query_budget_error(
             "hosted_memory_budget_exceeded",
@@ -1926,44 +2038,8 @@ async fn execute_bounded_base_page(
             pre_reduction_resident_bytes,
         ));
     }
-    let group_rows = matching
-        .iter()
-        .map(|item| item.row.clone())
-        .collect::<Vec<_>>();
-    let groups = plan.groups(&group_rows);
-    if groups
-        .as_ref()
-        .is_some_and(|groups| groups.len() as u64 > state.plan.budgets.max_groups)
-    {
-        return Err(query_budget_error(
-            "hosted_group_budget_exceeded",
-            "The Obsidian Base exceeded its group budget.",
-            "groups",
-            state.plan.budgets.max_groups,
-            groups.as_ref().map_or(0, |groups| groups.len() as u64),
-        ));
-    }
-    let after_keyset = matching.into_iter().filter(|item| {
-        let Some(last_path) = state.last_path.as_deref() else {
-            return true;
-        };
-        match plan.compare_row_to_boundary(&item.row, &state.last_order_values, last_path) {
-            Ok(ordering) => {
-                ordering.is_gt()
-                    || (ordering.is_eq()
-                        && state
-                            .last_record_id
-                            .is_some_and(|last| item.record_id > last))
-            }
-            Err(_) => false,
-        }
-    });
-    let offset = if state.last_path.is_none() {
-        plan.offset
-    } else {
-        0
-    };
-    let page = after_keyset
+    let page = matching
+        .into_iter()
         .skip(usize::try_from(offset).unwrap_or(usize::MAX))
         .take(usize::try_from(page_size).unwrap_or(usize::MAX))
         .collect::<Vec<_>>();
@@ -2015,7 +2091,7 @@ async fn execute_bounded_base_page(
         groups,
         total_count,
         last_boundary,
-        candidate_rows: rows.len() as u64,
+        candidate_rows,
         exact_documents,
     })
 }
