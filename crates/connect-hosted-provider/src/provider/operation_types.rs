@@ -110,11 +110,13 @@ impl HostedProvider {
         collection_id: Uuid,
         input: &ApplyTypePackInput,
         mutation_lease: Option<&HostedMutationLease>,
+        commit_replica: Option<&Replica>,
     ) -> ApiResult<Value> {
         self.write_definition_mutation(
             collection_id,
             DefinitionMutation::TypePack(input),
             mutation_lease,
+            commit_replica.map(|replica| (replica, "apply_type_pack")),
         )
         .await
     }
@@ -124,11 +126,13 @@ impl HostedProvider {
         collection_id: Uuid,
         input: &ApplyCollectionSetupInput,
         mutation_lease: Option<&HostedMutationLease>,
+        commit_replica: Option<&Replica>,
     ) -> ApiResult<Value> {
         self.write_definition_mutation(
             collection_id,
             DefinitionMutation::CollectionSetup(input),
             mutation_lease,
+            commit_replica.map(|replica| (replica, "apply_collection_setup")),
         )
         .await
     }
@@ -138,8 +142,18 @@ impl HostedProvider {
         collection_id: Uuid,
         input: DefinitionMutation<'_>,
         mutation_lease: Option<&HostedMutationLease>,
+        commit_authorization: Option<(&Replica, &str)>,
     ) -> ApiResult<Value> {
         let mut transaction = self.pool.begin().await?;
+        if let Some((replica, operation)) = commit_authorization {
+            reauthorize_full_collection_mutation_in(
+                &mut transaction,
+                collection_id,
+                replica,
+                operation,
+            )
+            .await?;
+        }
         let collection = sqlx::query(
             r#"SELECT head, wrapped_data_key, resources_ciphertext, max_document_bytes
                FROM hosted_provider_collections

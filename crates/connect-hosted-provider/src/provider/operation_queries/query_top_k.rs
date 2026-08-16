@@ -267,7 +267,11 @@ async fn execute_bounded_base_page(
             "The Obsidian Base exceeded its candidate-row budget.",
             "candidate_rows",
             state.plan.budgets.max_candidate_rows,
-            rows.len() as u64,
+            scoped_budget_observed(
+                &plan.allowed_types,
+                state.plan.budgets.max_candidate_rows,
+                rows.len() as u64,
+            ),
         ));
     }
     let offset = if state.last_path.is_none() {
@@ -289,7 +293,11 @@ async fn execute_bounded_base_page(
             "The Obsidian Base exceeded its total operator-step budget.",
             "operator_steps",
             state.plan.budgets.max_operator_steps,
-            operator_steps,
+            scoped_budget_observed(
+                &plan.allowed_types,
+                state.plan.budgets.max_operator_steps,
+                operator_steps,
+            ),
         ));
     }
     if projection_bytes > state.plan.budgets.max_candidate_bytes {
@@ -298,7 +306,11 @@ async fn execute_bounded_base_page(
             "The Obsidian Base exceeded its transferred projection-byte budget.",
             "candidate_bytes",
             state.plan.budgets.max_candidate_bytes,
-            projection_bytes,
+            scoped_budget_observed(
+                &plan.allowed_types,
+                state.plan.budgets.max_candidate_bytes,
+                projection_bytes,
+            ),
         ));
     }
     let operation_clock = state.base_operation_clock.as_ref().ok_or_else(|| {
@@ -320,7 +332,11 @@ async fn execute_bounded_base_page(
             "The Obsidian Base has no remaining expression-step budget.",
             "operator_steps",
             state.plan.budgets.max_operator_steps,
-            operator_steps.saturating_add(1),
+            scoped_budget_observed(
+                &plan.allowed_types,
+                state.plan.budgets.max_operator_steps,
+                operator_steps.saturating_add(1),
+            ),
         ));
     }
     let candidate_rows = rows.len() as u64;
@@ -439,7 +455,11 @@ async fn execute_bounded_base_page(
             "The Obsidian Base exceeded its bounded resident-memory budget.",
             "memory_bytes",
             state.plan.budgets.max_memory_bytes,
-            pre_reduction_resident_bytes,
+            scoped_budget_observed(
+                &plan.allowed_types,
+                state.plan.budgets.max_memory_bytes,
+                pre_reduction_resident_bytes,
+            ),
         ));
     }
     let page = matching
@@ -499,4 +519,3 @@ async fn execute_bounded_base_page(
         exact_documents,
     })
 }
-

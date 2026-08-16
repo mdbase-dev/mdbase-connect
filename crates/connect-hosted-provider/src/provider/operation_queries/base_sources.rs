@@ -402,7 +402,11 @@ async fn load_base_exact_fallback_snapshot(
             "The stale Obsidian Base fallback exceeded its exact-document budget.",
             "exact_documents",
             state.plan.budgets.max_exact_documents,
-            live_ids.len() as u64,
+            scoped_budget_observed(
+                &plan.allowed_types,
+                state.plan.budgets.max_exact_documents,
+                live_ids.len() as u64,
+            ),
         ));
     }
     let exact_records = load_exact_query_records(
@@ -429,7 +433,11 @@ async fn load_base_exact_fallback_snapshot(
             "The stale Obsidian Base fallback exceeded its exact-plaintext byte budget.",
             "exact_bytes",
             state.plan.budgets.max_exact_bytes,
-            exact_bytes,
+            scoped_budget_observed(
+                &plan.allowed_types,
+                state.plan.budgets.max_exact_bytes,
+                exact_bytes,
+            ),
         ));
     }
 
@@ -514,7 +522,11 @@ async fn load_base_exact_fallback_snapshot(
                         "The stale Obsidian Base fallback exceeded its relationship-edge budget.",
                         "relationship_edges",
                         state.plan.budgets.max_operator_steps,
+                    scoped_budget_observed(
+                        &plan.allowed_types,
+                        state.plan.budgets.max_operator_steps,
                         relationship_rows,
+                    ),
                     ));
                 }
                 adjacency.entry(*source).or_default().insert(target);
@@ -549,4 +561,3 @@ async fn load_base_exact_fallback_snapshot(
         query_context,
     })
 }
-

@@ -32,6 +32,7 @@ struct HostedQueryState {
     projection_format_version: u32,
     semantic_engine_version: String,
     plan: mdbase::runtime::HostedQueryPlan,
+    allowed_types: Vec<String>,
     last_order_values: Vec<Value>,
     last_path: Option<String>,
     last_record_id: Option<Uuid>,

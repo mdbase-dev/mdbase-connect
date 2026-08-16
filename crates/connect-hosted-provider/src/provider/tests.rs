@@ -487,6 +487,16 @@ fn application_capabilities_bind_operations_mode_and_origin() {
         ],
     }];
     validate_replica_capability(&contract_capability).unwrap();
+    let mut contract_changes = contract_capability.clone();
+    contract_changes
+        .allowed_operations
+        .push("changes".to_string());
+    assert_eq!(
+        validate_replica_capability(&contract_changes)
+            .unwrap_err()
+            .code,
+        "invalid_application_scope"
+    );
     let contract_replica = Replica {
         id: contract_capability.replica_id,
         purpose: contract_capability.purpose,

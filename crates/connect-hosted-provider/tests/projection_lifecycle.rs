@@ -1957,19 +1957,21 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
         "projects/web.md"
     );
 
+    let exact_page_one_request_id = Uuid::new_v4();
+    let exact_page_one_input = json!({
+        "where": "file.folder == 'projects'",
+        "include_body": true,
+        "limit": 1,
+        "order_by": [{"field": "file.path", "direction": "asc"}]
+    });
     let exact_query_page_one = fixture
         .provider
         .operation(
             fixture.collection_id,
             &token,
             "query",
-            Uuid::new_v4(),
-            json!({
-                "where": "file.folder == 'projects'",
-                "include_body": true,
-                "limit": 1,
-                "order_by": [{"field": "file.path", "direction": "asc"}]
-            }),
+            exact_page_one_request_id,
+            exact_page_one_input.clone(),
             None,
         )
         .await
@@ -1978,6 +1980,37 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
     assert_eq!(exact_query_page_one["result"]["meta"]["total_count"], 2);
     assert_eq!(exact_query_page_one["result"]["meta"]["has_more"], true);
     assert!(exact_query_page_one["result"]["results"][0]["body"].is_string());
+    let replayed_page_one = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "query",
+            exact_page_one_request_id,
+            exact_page_one_input,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(replayed_page_one, exact_query_page_one);
+    let conflicting_page_one = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "query",
+            exact_page_one_request_id,
+            json!({
+                "where": "file.folder == 'projects'",
+                "include_body": true,
+                "limit": 2,
+                "order_by": [{"field": "file.path", "direction": "asc"}]
+            }),
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(conflicting_page_one.code, "query_request_id_conflict");
     let exact_query_cursor = exact_query_page_one["result"]["meta"]["cursor"]
         .as_str()
         .unwrap();
@@ -1990,20 +2023,22 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
     .await
     .unwrap();
     assert!(exact_query_generation.is_none());
+    let exact_page_two_request_id = Uuid::new_v4();
+    let exact_page_two_input = json!({
+        "where": "file.folder == 'projects'",
+        "include_body": true,
+        "limit": 1,
+        "order_by": [{"field": "file.path", "direction": "asc"}],
+        "cursor": exact_query_cursor
+    });
     let exact_query_page_two = fixture
         .provider
         .operation(
             fixture.collection_id,
             &token,
             "query",
-            Uuid::new_v4(),
-            json!({
-                "where": "file.folder == 'projects'",
-                "include_body": true,
-                "limit": 1,
-                "order_by": [{"field": "file.path", "direction": "asc"}],
-                "cursor": exact_query_cursor
-            }),
+            exact_page_two_request_id,
+            exact_page_two_input.clone(),
             None,
         )
         .await
@@ -2011,6 +2046,19 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
     assert_eq!(exact_query_page_two["valid"], true);
     assert_eq!(exact_query_page_two["result"]["meta"]["has_more"], false);
     assert!(exact_query_page_two["result"]["meta"]["cursor"].is_null());
+    let replayed_page_two = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "query",
+            exact_page_two_request_id,
+            exact_page_two_input,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(replayed_page_two, exact_query_page_two);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2027,6 +2075,159 @@ async fn candidate_b_base_candidate_prunes_100k_live_rows() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
     candidate_b_base_candidate_prunes_fixture(&database_url, 100_001).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_rebuild_batch_bounds_a_100k_version_ledger() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let head: i64 =
+        sqlx::query_scalar("SELECT head FROM hosted_provider_collections WHERE id = $1")
+            .bind(fixture.collection_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    let ledger_sequence = head + 1;
+    let inserted = sqlx::query(
+        r#"INSERT INTO hosted_provider_record_versions
+             (collection_id, record_id, sequence, revision, types,
+              payload_ciphertext, deleted)
+           SELECT $1, md5('rebuild-ledger-' || g::text)::uuid, $2,
+                  'deleted:' || g::text, '{}'::text[], NULL, true
+           FROM generate_series(1, 100001::bigint) AS g"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(ledger_sequence)
+    .execute(&fixture.pool)
+    .await
+    .unwrap()
+    .rows_affected();
+    assert_eq!(inserted, 100_001);
+    sqlx::query("UPDATE hosted_provider_collections SET head = $2 WHERE id = $1")
+        .bind(fixture.collection_id)
+        .bind(ledger_sequence)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+
+    let generation = fixture
+        .provider
+        .start_projection_generation(fixture.collection_id)
+        .await
+        .unwrap();
+    let started = std::time::Instant::now();
+    let batch = fixture
+        .provider
+        .project_generation_batch(fixture.collection_id, generation.generation_id, 200)
+        .await
+        .unwrap();
+    assert!(started.elapsed() < Duration::from_secs(15));
+    assert!(batch.records_projected <= 200);
+    assert_eq!(batch.generation.phase, "projection");
+    let checkpoint: Option<Uuid> = sqlx::query_scalar(
+        r#"SELECT checkpoint_record_id
+           FROM hosted_provider_projection_generations
+           WHERE collection_id = $1 AND generation_id = $2"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation.generation_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert!(checkpoint.is_some());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_relationship_revalidation_preflights_plaintext_bytes() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let replica_id: Uuid = replica.get("id");
+    let scope_epoch = u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap();
+    let target_id = Uuid::now_v7();
+    let source_id = Uuid::now_v7();
+    let target = put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        target_id,
+        None,
+        "notes/target.md",
+        "---\ntitle: Target\n---\nTarget prose\n",
+    )
+    .await;
+    put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        source_id,
+        None,
+        "notes/source.md",
+        "---\ntitle: Source\n---\nSee [[target]].\n",
+    )
+    .await;
+    complete_generation(&fixture).await;
+
+    // Corrupting the large value as well as its metadata makes the ordering
+    // observable: a correct metadata preflight returns the typed byte budget
+    // without fetching or attempting to decrypt the TOAST payload.
+    sqlx::query(
+        r#"UPDATE hosted_provider_records
+           SET content_bytes = $3, payload_ciphertext = '\x00'
+           WHERE collection_id = $1 AND record_id = $2"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(source_id)
+    .bind(33_i64 * 1024 * 1024)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let error = fixture
+        .provider
+        .mutate(
+            fixture.collection_id,
+            &fixture.token,
+            SyncMutation {
+                mutation_id: Uuid::new_v4(),
+                replica_id,
+                scope_epoch,
+                operation: SyncMutationOperation::Move,
+                record_id: target_id,
+                base_revision: Some(target.revision),
+                path: Some("notes/renamed.md".to_string()),
+                document: None,
+                created_at: chrono::Utc::now().to_rfc3339(),
+                causal_predecessor: None,
+            },
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, "hosted_execution_budget_exceeded");
+    assert_eq!(
+        error.details.as_ref().unwrap()["budget_kind"],
+        "relationship_revalidation_bytes"
+    );
+    let target_path: String = sqlx::query_scalar(
+        r#"SELECT canonical_path FROM hosted_provider_record_projections
+           WHERE collection_id = $1 AND record_id = $2 AND valid_to_sequence IS NULL"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(target_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(target_path, "notes/target.md");
 }
 
 async fn candidate_b_base_candidate_prunes_fixture(database_url: &str, decoy_count: i64) {

@@ -64,6 +64,42 @@ pub(super) async fn authenticate_in(
     replica_from_row(row)
 }
 
+/// Recheck a previously authenticated full-collection writer while holding a
+/// database lock for the duration of its commit transaction. This closes the
+/// authorize/commit race for resource and catalogue mutations: revocation,
+/// expiry, mode changes, operation narrowing, or a scope-epoch change all fail
+/// closed before collection state is locked or modified.
+pub(super) async fn reauthorize_full_collection_mutation_in(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    expected: &Replica,
+    operation: &str,
+) -> ApiResult<()> {
+    let authorized: bool = sqlx::query_scalar(
+        r#"SELECT EXISTS (
+             SELECT 1 FROM hosted_provider_replicas
+             WHERE collection_id = $1 AND id = $2 AND purpose = 'application'
+               AND revoked_at IS NULL AND token_expires_at > now()
+               AND mode = 'read_write' AND full_collection = true
+               AND scope_epoch = $3 AND $4 = ANY(allowed_operations)
+             FOR SHARE
+           )"#,
+    )
+    .bind(collection_id)
+    .bind(expected.id)
+    .bind(to_i64(expected.scope_epoch, "scope epoch")?)
+    .bind(operation)
+    .fetch_one(&mut **transaction)
+    .await?;
+    if !authorized {
+        return Err(ApiError::forbidden(
+            "scope_changed",
+            "The application authorization changed before the mutation could commit.",
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn replica_from_row(row: Option<sqlx::postgres::PgRow>) -> ApiResult<Replica> {
     let row = row.ok_or_else(|| {
         ApiError::unauthorized(

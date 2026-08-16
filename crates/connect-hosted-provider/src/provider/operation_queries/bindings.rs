@@ -16,6 +16,113 @@ where
     Ok(())
 }
 
+fn query_page_input_digest(
+    request_kind: HostedQueryRequestKind,
+    input: &Value,
+) -> ApiResult<Vec<u8>> {
+    let canonical = serde_jcs::to_vec(&json!({
+        "schema": "mdbase.connect.hosted-query-page-request.v1",
+        "request_kind": request_kind.as_str(),
+        "input": input,
+    }))
+    .map_err(|error| {
+        ApiError::internal(format!(
+            "Hosted query-page request could not canonicalize: {error}"
+        ))
+    })?;
+    Ok(Sha256::digest(canonical).to_vec())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn replay_query_page_receipt(
+    transaction: &mut Transaction<'_, Postgres>,
+    crypto: &ProviderCrypto,
+    data_key: &[u8; 32],
+    collection_id: Uuid,
+    replica: &Replica,
+    request_id: Uuid,
+    request_kind: HostedQueryRequestKind,
+    input_digest: &[u8],
+) -> ApiResult<Option<OperationResult>> {
+    sqlx::query(
+        r#"DELETE FROM hosted_provider_query_page_receipts
+           WHERE replica_id = $1 AND request_id = $2 AND expires_at <= now()"#,
+    )
+    .bind(replica.id)
+    .bind(request_id)
+    .execute(&mut **transaction)
+    .await?;
+    let row = sqlx::query(
+        r#"SELECT collection_id, scope_epoch, request_kind, input_digest,
+                  response_ciphertext
+           FROM hosted_provider_query_page_receipts
+           WHERE replica_id = $1 AND request_id = $2
+           FOR UPDATE"#,
+    )
+    .bind(replica.id)
+    .bind(request_id)
+    .fetch_optional(&mut **transaction)
+    .await?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let stored_digest: Vec<u8> = row.get("input_digest");
+    let matches = row.get::<Uuid, _>("collection_id") == collection_id
+        && number(row.get::<i64, _>("scope_epoch"), "scope epoch")? == replica.scope_epoch
+        && row.get::<String, _>("request_kind") == request_kind.as_str()
+        && stored_digest.len() == input_digest.len()
+        && bool::from(stored_digest.ct_eq(input_digest));
+    if !matches {
+        return Err(ApiError::conflict(
+            "query_request_id_conflict",
+            "The hosted query request ID was already used for different input or authority.",
+        ));
+    }
+    let result = crypto.decrypt_json(
+        data_key,
+        row.get("response_ciphertext"),
+        &query_page_receipt_aad(collection_id, replica.id, request_id),
+    )?;
+    Ok(Some(result))
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn store_query_page_receipt(
+    transaction: &mut Transaction<'_, Postgres>,
+    crypto: &ProviderCrypto,
+    data_key: &[u8; 32],
+    collection_id: Uuid,
+    replica: &Replica,
+    request_id: Uuid,
+    request_kind: HostedQueryRequestKind,
+    input_digest: &[u8],
+    result: &OperationResult,
+    expires_at: DateTime<Utc>,
+) -> ApiResult<()> {
+    let ciphertext = crypto.encrypt_json(
+        data_key,
+        result,
+        &query_page_receipt_aad(collection_id, replica.id, request_id),
+    )?;
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_query_page_receipts
+             (replica_id, request_id, collection_id, scope_epoch, request_kind,
+              input_digest, response_ciphertext, expires_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
+    )
+    .bind(replica.id)
+    .bind(request_id)
+    .bind(collection_id)
+    .bind(to_i64(replica.scope_epoch, "scope epoch")?)
+    .bind(request_kind.as_str())
+    .bind(input_digest)
+    .bind(ciphertext)
+    .bind(expires_at)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
+}
+
 fn active_query_binding(
     collection: &PgRow,
     catalog: &mdbase::runtime::CompiledCatalog,
@@ -548,4 +655,3 @@ async fn execute_projected_page(
         exact_documents: (exact_records.len() as u64).saturating_add(context_documents),
     })
 }
-

@@ -332,25 +332,39 @@ impl HostedProvider {
         }
 
         let rows = sqlx::query(
-            r#"WITH snapshot AS (
-                 SELECT DISTINCT ON (record_id)
-                   record_id, sequence, revision, payload_ciphertext, deleted, created_at
+            r#"WITH candidate_ids AS MATERIALIZED (
+                 SELECT record_id
                  FROM hosted_provider_record_versions
                  WHERE collection_id = $1 AND sequence <= $4
-                 ORDER BY record_id, sequence DESC
-               ), eligible AS (
-                 SELECT record_id, sequence, revision, payload_ciphertext, created_at,
-                        sum(octet_length(payload_ciphertext)) OVER (ORDER BY record_id) AS batch_bytes
-                 FROM snapshot
-                 WHERE deleted = false
                    AND ($2::uuid IS NULL OR record_id > $2)
+                 GROUP BY record_id
+                 ORDER BY record_id
+                 LIMIT $3
+               ), snapshot AS MATERIALIZED (
+                 SELECT candidate_ids.record_id, version.sequence, version.revision,
+                        CASE WHEN version.deleted THEN NULL ELSE version.payload_ciphertext END
+                          AS payload_ciphertext,
+                        version.deleted, version.created_at
+                 FROM candidate_ids
+                 CROSS JOIN LATERAL (
+                   SELECT sequence, revision, payload_ciphertext, deleted, created_at
+                   FROM hosted_provider_record_versions
+                   WHERE collection_id = $1
+                     AND record_id = candidate_ids.record_id
+                     AND sequence <= $4
+                   ORDER BY sequence DESC
+                   LIMIT 1
+                 ) version
+               ), eligible AS (
+                 SELECT record_id, sequence, revision, payload_ciphertext, deleted, created_at,
+                        sum(CASE WHEN deleted THEN 0 ELSE octet_length(payload_ciphertext) END)
+                          OVER (ORDER BY record_id) AS batch_bytes
+                 FROM snapshot
                )
-               SELECT record_id, sequence, revision, payload_ciphertext
-                      , created_at
+               SELECT record_id, sequence, revision, payload_ciphertext, deleted, created_at
                FROM eligible
                WHERE batch_bytes <= $5
-               ORDER BY record_id
-               LIMIT $3"#,
+               ORDER BY record_id"#,
         )
         .bind(collection_id)
         .bind(checkpoint)
@@ -368,6 +382,10 @@ impl HostedProvider {
         let mut last_record_id = checkpoint;
         for row in &rows {
             let record_id: Uuid = row.get("record_id");
+            last_record_id = Some(record_id);
+            if row.get::<bool, _>("deleted") {
+                continue;
+            }
             let sequence = number(row.get::<i64, _>("sequence"), "record sequence")?;
             let revision: String = row.get("revision");
             let file_modified_at: DateTime<Utc> = row.get("created_at");
@@ -423,7 +441,6 @@ impl HostedProvider {
             .await?;
             projected = projected.saturating_add(1);
             projection_bytes = projection_bytes.saturating_add(bytes_len);
-            last_record_id = Some(record_id);
         }
 
         let mut phase_advanced = false;
@@ -632,19 +649,24 @@ impl HostedProvider {
             return Err(projection_binding_changed());
         }
         let rows = sqlx::query(
-            r#"WITH eligible AS (
+            r#"WITH candidates AS MATERIALIZED (
                  SELECT record_id, valid_from_sequence, record_revision, semantic_projection,
-                        sum(projection_bytes) OVER (ORDER BY record_id) AS batch_bytes
+                        projection_bytes
                  FROM hosted_provider_record_projections
                  WHERE collection_id = $1 AND generation_id = $2
                    AND valid_to_sequence IS NULL AND resolution_complete = false
                    AND ($3::uuid IS NULL OR record_id > $3)
+                 ORDER BY record_id
+                 LIMIT $4
+               ), eligible AS (
+                 SELECT record_id, valid_from_sequence, record_revision, semantic_projection,
+                        sum(projection_bytes) OVER (ORDER BY record_id) AS batch_bytes
+                 FROM candidates
                )
                SELECT record_id, valid_from_sequence, record_revision, semantic_projection
                FROM eligible
                WHERE batch_bytes <= $5
-               ORDER BY record_id
-               LIMIT $4"#,
+               ORDER BY record_id"#,
         )
         .bind(collection_id)
         .bind(generation_id)

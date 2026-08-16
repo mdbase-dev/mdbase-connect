@@ -3,11 +3,13 @@ impl HostedProvider {
         &self,
         collection_id: Uuid,
         replica: &Replica,
+        request_id: Uuid,
         input: &Value,
     ) -> ApiResult<OperationResult> {
         self.execute_hosted_query_request(
             collection_id,
             replica,
+            request_id,
             input,
             HostedQueryRequestKind::Query,
         )
@@ -18,6 +20,7 @@ impl HostedProvider {
         &self,
         collection_id: Uuid,
         replica: &Replica,
+        request_id: Uuid,
         input: &Value,
     ) -> ApiResult<OperationResult> {
         let request_kind = if input
@@ -29,7 +32,7 @@ impl HostedProvider {
         } else {
             HostedQueryRequestKind::CanonicalView
         };
-        self.execute_hosted_query_request(collection_id, replica, input, request_kind)
+        self.execute_hosted_query_request(collection_id, replica, request_id, input, request_kind)
             .await
     }
 
@@ -37,6 +40,7 @@ impl HostedProvider {
         &self,
         collection_id: Uuid,
         replica: &Replica,
+        request_id: Uuid,
         input: &Value,
         request_kind: HostedQueryRequestKind,
     ) -> ApiResult<OperationResult> {
@@ -46,7 +50,13 @@ impl HostedProvider {
             .min(budgets.snapshot_lifetime_ms);
         match tokio::time::timeout(
             Duration::from_millis(deadline_ms),
-            self.execute_hosted_query_request_inner(collection_id, replica, input, request_kind),
+            Box::pin(self.execute_hosted_query_request_inner(
+                collection_id,
+                replica,
+                request_id,
+                input,
+                request_kind,
+            )),
         )
         .await
         {
@@ -81,6 +91,7 @@ impl HostedProvider {
         &self,
         collection_id: Uuid,
         replica: &Replica,
+        request_id: Uuid,
         input: &Value,
         request_kind: HostedQueryRequestKind,
     ) -> ApiResult<OperationResult> {
@@ -107,6 +118,7 @@ impl HostedProvider {
             cleanup_base_query_invocations(&self.pool, collection_id).await?;
             return Ok(empty_query_result());
         }
+        let page_input_digest = query_page_input_digest(request_kind, input)?;
 
         let started = Instant::now();
         let mut activity = HostedQueryActivityGuard::begin(self.query_activity.clone());
@@ -171,11 +183,19 @@ impl HostedProvider {
         sqlx::query("SET LOCAL idle_in_transaction_session_timeout = 10000")
             .execute(&mut *transaction)
             .await?;
+        let session_fence = format!("mdbase-hosted-query/{}", Uuid::new_v4());
+        sqlx::query("SELECT set_config('application_name', $1, true)")
+            .bind(&session_fence)
+            .execute(&mut *transaction)
+            .await?;
         let backend_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
             .fetch_one(&mut *transaction)
             .await?;
-        let mut database_cancellation =
-            PostgresQueryCancellationGuard::new(self.query_cancellation_pool.clone(), backend_pid);
+        let mut database_cancellation = PostgresQueryCancellationGuard::new(
+            self.query_cancellation_pool.clone(),
+            backend_pid,
+            session_fence,
+        );
 
         let collection = sqlx::query(
             r#"SELECT head, resource_revision, wrapped_data_key, resources_ciphertext,
@@ -196,6 +216,29 @@ impl HostedProvider {
         let data_key = self
             .collection_key(collection_id, collection.get("wrapped_data_key"))
             .await?;
+        sqlx::query(
+            "SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text, 0))",
+        )
+        .bind(replica.id)
+        .bind(request_id)
+        .execute(&mut *transaction)
+        .await?;
+        if let Some(result) = replay_query_page_receipt(
+            &mut transaction,
+            &self.crypto,
+            &data_key,
+            collection_id,
+            replica,
+            request_id,
+            request_kind,
+            &page_input_digest,
+        )
+        .await?
+        {
+            transaction.commit().await?;
+            database_cancellation.disarm();
+            return Ok(result);
+        }
         activity.acquire_plaintext();
         let resources: SyncCollectionResources = self.crypto.decrypt_json(
             &data_key,
@@ -428,25 +471,6 @@ impl HostedProvider {
             None
         };
         cleanup_base_query_invocations(&mut *transaction, collection_id).await?;
-        transaction.commit().await?;
-        database_cancellation.disarm();
-
-        let memory = crate::HostedProcessMemory::capture();
-        tracing::info!(
-            target: "mdbase_connect::metrics",
-            metric = "hosted_projection_query_page",
-            snapshot_head = state.snapshot_head,
-            candidate_rows = page.candidate_rows,
-            results = page.results.len() as u64,
-            exact_documents = page.exact_documents,
-            elapsed_ms = started.elapsed().as_millis() as u64,
-            database_pool_size = self.pool.size(),
-            database_pool_idle = self.pool.num_idle(),
-            rss_bytes = memory.rss_bytes.unwrap_or(0),
-            pss_bytes = memory.pss_bytes.unwrap_or(0),
-            cgroup_current_bytes = memory.cgroup_current_bytes.unwrap_or(0),
-            "privacy-safe hosted provider metric"
-        );
         let serialized_diagnostics =
             serde_json::to_value(&page.diagnostics).unwrap_or_else(|_| json!([]));
         let mut meta = json!({
@@ -462,7 +486,7 @@ impl HostedProvider {
                 meta.insert(key, value);
             }
         }
-        Ok(OperationResult {
+        let result = OperationResult {
             valid: true,
             result: json!({
                 "results": page.results,
@@ -470,7 +494,40 @@ impl HostedProvider {
                 "diagnostics": serialized_diagnostics,
             }),
             diagnostics: page.diagnostics,
-        })
+        };
+        store_query_page_receipt(
+            &mut transaction,
+            &self.crypto,
+            &data_key,
+            collection_id,
+            replica,
+            request_id,
+            request_kind,
+            &page_input_digest,
+            &result,
+            state.hard_expires_at,
+        )
+        .await?;
+        transaction.commit().await?;
+        database_cancellation.disarm();
+
+        let memory = crate::HostedProcessMemory::capture();
+        tracing::info!(
+            target: "mdbase_connect::metrics",
+            metric = "hosted_projection_query_page",
+            snapshot_head = state.snapshot_head,
+            candidate_rows = page.candidate_rows,
+            results = result.result["results"].as_array().map_or(0, |rows| rows.len()) as u64,
+            exact_documents = page.exact_documents,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            database_pool_size = self.pool.size(),
+            database_pool_idle = self.pool.num_idle(),
+            rss_bytes = memory.rss_bytes.unwrap_or(0),
+            pss_bytes = memory.pss_bytes.unwrap_or(0),
+            cgroup_current_bytes = memory.cgroup_current_bytes.unwrap_or(0),
+            "privacy-safe hosted provider metric"
+        );
+        Ok(result)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -484,10 +541,6 @@ impl HostedProvider {
         catalog: &mdbase::runtime::CompiledCatalog,
         data_key: &[u8; 32],
     ) -> ApiResult<HostedQueryState> {
-        // A missing or stale derived generation cannot make the exact
-        // authority unavailable. Pin the record-version head and execute the
-        // ordinary query through the same bounded exact fallback used for
-        // per-record stale projections.
         let (generation_id, catalog_revision, projection_format_version, semantic_engine_version) =
             base_query_binding(collection, catalog);
         let plan = match catalog.compile_hosted_query(input) {
@@ -514,6 +567,7 @@ impl HostedProvider {
             projection_format_version,
             semantic_engine_version,
             plan,
+            allowed_types: replica.allowed_types.clone(),
             last_order_values: Vec::new(),
             last_path: None,
             last_record_id: None,
@@ -624,6 +678,7 @@ impl HostedProvider {
             projection_format_version,
             semantic_engine_version,
             plan: plan.query,
+            allowed_types: replica.allowed_types.clone(),
             last_order_values: Vec::new(),
             last_path: None,
             last_record_id: None,
@@ -747,6 +802,7 @@ impl HostedProvider {
             projection_format_version,
             semantic_engine_version,
             plan,
+            allowed_types: replica.allowed_types.clone(),
             last_order_values: Vec::new(),
             last_path: None,
             last_record_id: None,
@@ -921,6 +977,7 @@ impl HostedProvider {
             )? as u32,
             semantic_engine_version: row.get("semantic_engine_version"),
             plan,
+            allowed_types: replica.allowed_types.clone(),
             last_order_values: order_values,
             last_path: Some(last_path),
             last_record_id: row.get("last_record_id"),
@@ -938,4 +995,3 @@ impl HostedProvider {
         })
     }
 }
-

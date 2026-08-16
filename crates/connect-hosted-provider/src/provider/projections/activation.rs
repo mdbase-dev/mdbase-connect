@@ -178,8 +178,38 @@ impl HostedProvider {
                 .map(|row| row.get::<Uuid, _>("source_record_id"))
                 .collect::<Vec<_>>();
             if !source_ids.is_empty() {
+                // Keep large TOAST values out of the provider process until the
+                // complete revalidation set has passed its plaintext budget.
+                let source_metadata = sqlx::query(
+                    r#"SELECT r.record_id, r.content_bytes
+                       FROM hosted_provider_records r
+                       JOIN hosted_provider_record_projections p
+                         ON p.collection_id = r.collection_id
+                        AND p.generation_id = $2 AND p.record_id = r.record_id
+                        AND p.valid_to_sequence IS NULL
+                       WHERE r.collection_id = $1 AND r.record_id = ANY($3::uuid[])
+                       ORDER BY r.record_id"#,
+                )
+                .bind(collection_id)
+                .bind(generation_id)
+                .bind(&source_ids)
+                .fetch_all(&mut **transaction)
+                .await?;
+                if source_metadata.len() != source_ids.len() {
+                    return Err(projection_binding_changed());
+                }
+                let mut plaintext_bytes = 0_u64;
+                for row in source_metadata {
+                    plaintext_bytes = plaintext_bytes.saturating_add(number(
+                        row.get::<i64, _>("content_bytes"),
+                        "record content bytes",
+                    )?);
+                    if plaintext_bytes > MAX_RELATIONSHIP_REVALIDATION_BYTES {
+                        return Err(projection_budget("relationship_revalidation_bytes"));
+                    }
+                }
                 let source_records = sqlx::query(
-                    r#"SELECT r.record_id, r.sequence, r.revision, r.content_bytes,
+                    r#"SELECT r.record_id, r.sequence, r.revision,
                               r.payload_ciphertext, r.updated_at
                        FROM hosted_provider_records r
                        JOIN hosted_provider_record_projections p
@@ -202,17 +232,9 @@ impl HostedProvider {
                     .map(|change| change.sequence)
                     .max()
                     .ok_or_else(|| ApiError::internal("Projection write set is empty."))?;
-                let mut plaintext_bytes = 0_u64;
                 for row in source_records {
                     let record_id: Uuid = row.get("record_id");
                     let record_sequence = number(row.get::<i64, _>("sequence"), "record sequence")?;
-                    plaintext_bytes = plaintext_bytes.saturating_add(number(
-                        row.get::<i64, _>("content_bytes"),
-                        "record content bytes",
-                    )?);
-                    if plaintext_bytes > MAX_RELATIONSHIP_REVALIDATION_BYTES {
-                        return Err(projection_budget("relationship_revalidation_bytes"));
-                    }
                     let record: PersistedRecord = self.crypto.decrypt_json(
                         data_key,
                         row.get("payload_ciphertext"),

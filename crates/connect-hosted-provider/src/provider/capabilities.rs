@@ -395,7 +395,8 @@ pub(super) fn validate_collection_scope(
 pub(super) fn is_full_collection_operation(operation: &str) -> bool {
     matches!(
         operation,
-        "validate"
+        "changes"
+            | "validate"
             | "read_type"
             | "create_type"
             | "update_type"

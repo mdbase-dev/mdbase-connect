@@ -56,11 +56,19 @@ impl HostedProvider {
         sqlx::query("SET LOCAL idle_in_transaction_session_timeout = 10000")
             .execute(&mut *transaction)
             .await?;
+        let session_fence = format!("mdbase-hosted-validation/{}", Uuid::new_v4());
+        sqlx::query("SELECT set_config('application_name', $1, true)")
+            .bind(&session_fence)
+            .execute(&mut *transaction)
+            .await?;
         let backend_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
             .fetch_one(&mut *transaction)
             .await?;
-        let mut database_cancellation =
-            PostgresQueryCancellationGuard::new(self.query_cancellation_pool.clone(), backend_pid);
+        let mut database_cancellation = PostgresQueryCancellationGuard::new(
+            self.query_cancellation_pool.clone(),
+            backend_pid,
+            session_fence,
+        );
         let collection = sqlx::query(
             r#"SELECT record_count, resource_revision, wrapped_data_key, resources_ciphertext,
                       active_catalog_revision, active_projection_format_version,

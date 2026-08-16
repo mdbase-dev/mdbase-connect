@@ -10,8 +10,18 @@ impl HostedProvider {
         operation: &str,
         input: Value,
         mutation_lease: Option<&HostedMutationLease>,
+        commit_replica: Option<&Replica>,
     ) -> ApiResult<Value> {
         let mut transaction = self.pool.begin().await?;
+        if let Some(replica) = commit_replica {
+            reauthorize_full_collection_mutation_in(
+                &mut transaction,
+                collection_id,
+                replica,
+                operation,
+            )
+            .await?;
+        }
         let collection = sqlx::query(
             r#"SELECT head, wrapped_data_key, resources_ciphertext, max_document_bytes
                FROM hosted_provider_collections

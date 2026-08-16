@@ -233,14 +233,16 @@ struct HostedScanPermitGuard {
 struct PostgresQueryCancellationGuard {
     pool: PgPool,
     backend_pid: i32,
+    session_fence: String,
     armed: bool,
 }
 
 impl PostgresQueryCancellationGuard {
-    fn new(pool: PgPool, backend_pid: i32) -> Self {
+    fn new(pool: PgPool, backend_pid: i32, session_fence: String) -> Self {
         Self {
             pool,
             backend_pid,
+            session_fence,
             armed: true,
         }
     }
@@ -257,12 +259,20 @@ impl Drop for PostgresQueryCancellationGuard {
         }
         let pool = self.pool.clone();
         let backend_pid = self.backend_pid;
+        let session_fence = self.session_fence.clone();
         tokio::spawn(async move {
             let cancelled = tokio::time::timeout(
                 Duration::from_secs(2),
-                sqlx::query_scalar::<_, bool>("SELECT pg_cancel_backend($1)")
-                    .bind(backend_pid)
-                    .fetch_one(&pool),
+                sqlx::query_scalar::<_, bool>(
+                    r#"SELECT COALESCE((
+                         SELECT pg_cancel_backend(pid)
+                         FROM pg_stat_activity
+                         WHERE pid = $1 AND application_name = $2
+                       ), false)"#,
+                )
+                .bind(backend_pid)
+                .bind(session_fence)
+                .fetch_one(&pool),
             )
             .await;
             if !matches!(cancelled, Ok(Ok(true))) {

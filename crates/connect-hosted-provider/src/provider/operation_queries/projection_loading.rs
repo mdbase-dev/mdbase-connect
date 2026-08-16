@@ -133,7 +133,11 @@ async fn load_base_candidate_projections(
             "The Obsidian Base exceeded its candidate-row budget.",
             "candidate_rows",
             state.plan.budgets.max_candidate_rows,
-            rows.len() as u64,
+            scoped_budget_observed(
+                &state.allowed_types,
+                state.plan.budgets.max_candidate_rows,
+                rows.len() as u64,
+            ),
         ));
     }
     let metadata = rows
@@ -156,7 +160,11 @@ async fn load_base_candidate_projections(
             "The Obsidian Base exceeded its transferred projection-byte budget.",
             "candidate_bytes",
             state.plan.budgets.max_candidate_bytes,
-            projection_bytes,
+            scoped_budget_observed(
+                &state.allowed_types,
+                state.plan.budgets.max_candidate_bytes,
+                projection_bytes,
+            ),
         ));
     }
     let record_ids = metadata.iter().map(|row| row.record_id).collect::<Vec<_>>();
@@ -345,7 +353,11 @@ async fn execute_bounded_residual_page(
             "The hosted query exceeded its candidate-row budget.",
             "candidate_rows",
             state.plan.budgets.max_candidate_rows,
-            rows.len() as u64,
+            scoped_budget_observed(
+                &state.allowed_types,
+                state.plan.budgets.max_operator_steps,
+                rows.len() as u64,
+            ),
         ));
     }
     let projection_bytes = rows.iter().try_fold(0_u64, |total, row| {
@@ -417,7 +429,11 @@ async fn execute_bounded_residual_page(
             "The hosted query exceeded its exact-document budget.",
             "exact_documents",
             state.plan.budgets.max_exact_documents,
-            (exact_ids.len() as u64).saturating_add(context_documents),
+            scoped_budget_observed(
+                &state.allowed_types,
+                state.plan.budgets.max_exact_documents,
+                (exact_ids.len() as u64).saturating_add(context_documents),
+            ),
         ));
     }
     let exact_records = load_exact_query_records(
@@ -446,7 +462,11 @@ async fn execute_bounded_residual_page(
             "The hosted query exceeded its exact-plaintext byte budget.",
             "exact_bytes",
             state.plan.budgets.max_exact_bytes,
-            exact_bytes,
+            scoped_budget_observed(
+                &state.allowed_types,
+                state.plan.budgets.max_exact_bytes,
+                exact_bytes,
+            ),
         ));
     }
 
@@ -533,7 +553,11 @@ async fn execute_bounded_residual_page(
             "The hosted query exceeded its bounded operator-step budget.",
             "operator_steps",
             state.plan.budgets.max_operator_steps,
-            operator_steps,
+            scoped_budget_observed(
+                &state.allowed_types,
+                state.plan.budgets.max_operator_steps,
+                operator_steps,
+            ),
         ));
     }
     let matching_bytes = matching.iter().fold(0_u64, |total, item| {
@@ -558,7 +582,11 @@ async fn execute_bounded_residual_page(
             "The hosted query exceeded its bounded resident-memory budget.",
             "memory_bytes",
             state.plan.budgets.max_memory_bytes,
-            pre_reduction_resident_bytes,
+            scoped_budget_observed(
+                &state.allowed_types,
+                state.plan.budgets.max_memory_bytes,
+                pre_reduction_resident_bytes,
+            ),
         ));
     }
     let reduction = reduction.finish().map_err(projection_inconsistent)?;
@@ -573,7 +601,11 @@ async fn execute_bounded_residual_page(
             "The hosted query exceeded its bounded resident-memory budget.",
             "memory_bytes",
             state.plan.budgets.max_memory_bytes,
-            resident_bytes,
+            scoped_budget_observed(
+                &state.allowed_types,
+                state.plan.budgets.max_memory_bytes,
+                resident_bytes,
+            ),
         ));
     }
     let page = matching
@@ -606,4 +638,3 @@ async fn execute_bounded_residual_page(
         exact_documents: (exact_records.len() as u64).saturating_add(context_documents),
     })
 }
-
