@@ -308,6 +308,10 @@ impl HostedProvider {
         .bind(request_id)
         .execute(&mut *transaction)
         .await?;
+        // A replay receipt can contain exact/body output. Count its decrypt and
+        // bounded decompression in the same plaintext lifetime used by ordinary
+        // execution, even when no catalogue or record decrypt follows.
+        activity.acquire_plaintext();
         if let Some(result) = replay_query_page_receipt(
             &mut transaction,
             &self.crypto,
@@ -324,7 +328,6 @@ impl HostedProvider {
             database_cancellation.disarm();
             return Ok(result);
         }
-        activity.acquire_plaintext();
         let resources: SyncCollectionResources = self.crypto.decrypt_json(
             &data_key,
             collection.get("resources_ciphertext"),

@@ -2,17 +2,16 @@ pub(super) async fn prune_unpinned_projection_generations_in(
     transaction: &mut Transaction<'_, Postgres>,
     collection_id: Uuid,
 ) -> ApiResult<()> {
-    sqlx::query("DELETE FROM hosted_provider_query_cursors WHERE hard_expires_at <= now()")
-        .execute(&mut **transaction)
-        .await?;
-    sqlx::query(
-        r#"DELETE FROM hosted_provider_base_query_invocations i
-           WHERE i.hard_expires_at <= now() OR NOT EXISTS (
-             SELECT 1 FROM hosted_provider_query_cursors c
-             WHERE c.base_invocation_id = i.invocation_id
-           )"#,
+    super::operation_queries::cleanup_expired_query_cursors(
+        &mut **transaction,
+        Some(collection_id),
     )
-    .execute(&mut **transaction)
+    .await?;
+    super::operation_queries::cleanup_base_query_invocations(
+        &mut **transaction,
+        collection_id,
+        None,
+    )
     .await?;
     let removable = sqlx::query_scalar::<_, Uuid>(
         r#"SELECT generation_id
@@ -72,4 +71,3 @@ pub(super) async fn prune_unpinned_projection_generations_in(
     .await?;
     Ok(())
 }
-

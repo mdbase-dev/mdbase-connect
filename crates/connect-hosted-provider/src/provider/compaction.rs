@@ -7,18 +7,6 @@ impl HostedProvider {
         sqlx::query("DELETE FROM hosted_provider_snapshot_leases WHERE expires_at <= now()")
             .execute(&mut *transaction)
             .await?;
-        sqlx::query("DELETE FROM hosted_provider_query_cursors WHERE hard_expires_at <= now()")
-            .execute(&mut *transaction)
-            .await?;
-        sqlx::query(
-            r#"DELETE FROM hosted_provider_base_query_invocations i
-               WHERE i.hard_expires_at <= now() OR NOT EXISTS (
-                 SELECT 1 FROM hosted_provider_query_cursors c
-                 WHERE c.base_invocation_id = i.invocation_id
-               )"#,
-        )
-        .execute(&mut *transaction)
-        .await?;
         let row = sqlx::query(
             "SELECT head, retained_after FROM hosted_provider_collections WHERE id = $1 FOR UPDATE",
         )

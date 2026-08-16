@@ -331,25 +331,7 @@ async fn admit_query_cursor(
         .bind(replica.id)
         .execute(&mut **transaction)
         .await?;
-    sqlx::query(
-        r#"WITH expired AS (
-             SELECT cursor_id
-             FROM hosted_provider_query_cursors
-             WHERE expires_at <= now() OR hard_expires_at <= now()
-             ORDER BY LEAST(expires_at, hard_expires_at), cursor_id
-             LIMIT $1
-             FOR UPDATE SKIP LOCKED
-           )
-           DELETE FROM hosted_provider_query_cursors cursor
-           USING expired
-           WHERE cursor.cursor_id = expired.cursor_id"#,
-    )
-    .bind(to_i64(
-        budgets.cursor_cleanup_rows,
-        "query cursor cleanup row budget",
-    )?)
-    .execute(&mut **transaction)
-    .await?;
+    cleanup_expired_query_cursors(&mut **transaction, None).await?;
     cleanup_base_query_invocations(
         &mut **transaction,
         collection_id,

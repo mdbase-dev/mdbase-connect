@@ -221,8 +221,10 @@ receipt ceiling, compress beneficial payloads as `zstd-json-v1`, and then encryp
 Replay authenticates and decrypts before bounded decompression. This preserves exact
 idempotent replay while preventing encrypted, non-TOAST-compressible page bodies
 from dominating WAL and grouping latency. A rollback after Candidate B traffic must
-first drain or wait out these five-minute ephemeral receipts; before collection
-activation, production cannot contain the new encoding.
+first explicitly drain them or wait out the configured one-hour cursor hard expiry
+plus one bounded maintenance sweep; the 15-minute idle expiry alone is not a safe
+rollback boundary. Before collection activation, production cannot contain the new
+encoding.
 Background expiry removes no more than 1,000 rows and 256 MiB per maintenance pass.
 A retry outside the recent window must restart from a new snapshot if its consumed
 cursor is no longer present; recent responses replay the same operation result.
@@ -305,7 +307,7 @@ row. Rotating single-use cursor rows retain only the keyset and an invocation
 foreign key, so later pages do not rewrite the same large JSON state. The migration
 backfills live inline Base cursors and keeps the inline form valid for old writers
 during rollback. A binary rolled back before 0040 cannot consume already-migrated
-invocation-backed cursors; those cursors have a five-minute hard lifetime and may
+invocation-backed cursors; those cursors have a configured one-hour hard lifetime and may
 be explicitly released or allowed to expire before rollback. A rollback to any
 provider binary predating 0040 **must** run the fail-closed executable preflight
 before changing the binary:
@@ -317,7 +319,7 @@ psql "$DATABASE_URL" --single-transaction \
 
 The command exits non-zero while any live invocation-backed Base cursor remains.
 Clients should send the ordinary `release_cursor` query control, or operators must
-wait for the five-minute hard lifetime and maintenance cleanup; deleting live rows
+wait for the one-hour hard lifetime and bounded maintenance cleanup; deleting live rows
 with ad-hoc SQL is not an accepted rollback step. Cleanup removes an invocation
 after its last cursor is consumed/released and removes expired orphans during
 compaction and projection pruning.

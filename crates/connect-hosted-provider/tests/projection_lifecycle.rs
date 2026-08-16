@@ -1217,6 +1217,149 @@ async fn candidate_b_cursor_admission_bounds_expiry_cleanup_and_uses_manifest_tt
         (3550.0..=3605.0).contains(&hard_seconds),
         "hard TTL: {hard_seconds}"
     );
+
+    seed_expired_query_cursors(
+        &fixture,
+        template_cursor_id,
+        "compaction-expired-query-cursor-",
+        1005,
+    )
+    .await;
+    seed_expired_base_invocations(
+        &fixture,
+        application_replica_id,
+        "compaction-expired-base-invocation-",
+        1005,
+    )
+    .await;
+    fixture
+        .provider
+        .compact_through(fixture.collection_id, 0)
+        .await
+        .unwrap();
+    assert_eq!(expired_query_cursor_count(&fixture).await, 10);
+    assert_eq!(expired_base_invocation_count(&fixture).await, 5);
+
+    seed_expired_query_cursors(
+        &fixture,
+        template_cursor_id,
+        "pruning-expired-query-cursor-",
+        1005,
+    )
+    .await;
+    seed_expired_base_invocations(
+        &fixture,
+        application_replica_id,
+        "pruning-expired-base-invocation-",
+        1005,
+    )
+    .await;
+    fixture
+        .provider
+        .start_projection_generation(fixture.collection_id)
+        .await
+        .unwrap();
+    assert_eq!(expired_query_cursor_count(&fixture).await, 15);
+    assert_eq!(expired_base_invocation_count(&fixture).await, 10);
+}
+
+async fn seed_expired_query_cursors(
+    fixture: &FileLifecycleFixture,
+    template_cursor_id: Uuid,
+    identity_prefix: &str,
+    count: i64,
+) {
+    let inserted = sqlx::query(
+        r#"INSERT INTO hosted_provider_query_cursors
+             (cursor_id, collection_id, replica_id, scope_epoch, snapshot_head,
+              generation_id, catalog_revision, projection_format_version,
+              semantic_engine_version, query_plan_version, query_digest, query_plan,
+              last_order_values, last_record_id, emitted_rows, remaining_rows,
+              expires_at, hard_expires_at, created_at, last_used_at, request_kind,
+              request_digest, result_meta, exact_context_ciphertext, base_plan,
+              base_context, base_operation_clock, base_invocation_id,
+              execution_proof_version, execution_proof_ciphertext,
+              execution_proof_bytes, snapshot_record_count, scan_budget_records,
+              projection_integrity_epoch, cursor_bytes, scan_budget_ciphertext_bytes)
+           SELECT md5($2 || series::text)::uuid,
+                  cursor.collection_id, cursor.replica_id, cursor.scope_epoch,
+                  cursor.snapshot_head, cursor.generation_id, cursor.catalog_revision,
+                  cursor.projection_format_version, cursor.semantic_engine_version,
+                  cursor.query_plan_version, cursor.query_digest, cursor.query_plan,
+                  cursor.last_order_values, cursor.last_record_id, cursor.emitted_rows,
+                  cursor.remaining_rows, now() - interval '2 hours',
+                  now() - interval '1 hour', now() - interval '3 hours',
+                  now() - interval '2 hours', cursor.request_kind,
+                  cursor.request_digest, cursor.result_meta,
+                  cursor.exact_context_ciphertext, cursor.base_plan,
+                  cursor.base_context, cursor.base_operation_clock,
+                  cursor.base_invocation_id, cursor.execution_proof_version,
+                  cursor.execution_proof_ciphertext, cursor.execution_proof_bytes,
+                  cursor.snapshot_record_count, cursor.scan_budget_records,
+                  cursor.projection_integrity_epoch, cursor.cursor_bytes,
+                  cursor.scan_budget_ciphertext_bytes
+           FROM hosted_provider_query_cursors cursor
+           CROSS JOIN generate_series(1, $3::bigint) AS series
+           WHERE cursor.cursor_id = $1"#,
+    )
+    .bind(template_cursor_id)
+    .bind(identity_prefix)
+    .bind(count)
+    .execute(&fixture.pool)
+    .await
+    .unwrap()
+    .rows_affected();
+    assert_eq!(inserted, u64::try_from(count).unwrap());
+}
+
+async fn seed_expired_base_invocations(
+    fixture: &FileLifecycleFixture,
+    replica_id: Uuid,
+    identity_prefix: &str,
+    count: i64,
+) {
+    let inserted = sqlx::query(
+        r#"INSERT INTO hosted_provider_base_query_invocations
+             (invocation_id, collection_id, replica_id, scope_epoch, base_plan,
+              base_context, base_operation_clock, hard_expires_at, created_at)
+           SELECT md5($3 || series::text)::uuid, $1, replica.id,
+                  replica.scope_epoch, '{}'::jsonb, NULL, '2026-08-17T00:00:00Z',
+                  now() - interval '1 hour', now() - interval '2 hours'
+           FROM hosted_provider_replicas replica
+           CROSS JOIN generate_series(1, $4::bigint) AS series
+           WHERE replica.collection_id = $1 AND replica.id = $2"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(replica_id)
+    .bind(identity_prefix)
+    .bind(count)
+    .execute(&fixture.pool)
+    .await
+    .unwrap()
+    .rows_affected();
+    assert_eq!(inserted, u64::try_from(count).unwrap());
+}
+
+async fn expired_query_cursor_count(fixture: &FileLifecycleFixture) -> i64 {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_query_cursors \
+         WHERE collection_id = $1 AND (expires_at <= now() OR hard_expires_at <= now())",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap()
+}
+
+async fn expired_base_invocation_count(fixture: &FileLifecycleFixture) -> i64 {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_base_query_invocations \
+         WHERE collection_id = $1 AND hard_expires_at <= now()",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
