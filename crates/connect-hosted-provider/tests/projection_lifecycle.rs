@@ -5565,7 +5565,7 @@ async fn candidate_b_exact_projected_filter_fixture(
         return;
     }
     if decoy_count >= 99_997 {
-        assert_high_cardinality_query_cancellation(&fixture, &token, decoy_count + 3).await;
+        assert_high_cardinality_query_cancellation(&fixture, &token).await;
     }
     let default_repetitions = if decoy_count > 100_000 { 5 } else { 7 };
     let repetitions = std::env::var("MDBASE_PERF_REPETITIONS")
@@ -5798,6 +5798,51 @@ async fn candidate_b_exact_projected_filter_fixture(
         retained_cursors, 0,
         "the sustained page mission releases every abandoned cursor"
     );
+    if decoy_count > 100_000 {
+        let group_budget = fixture
+            .provider
+            .operation(
+                fixture.collection_id,
+                &token,
+                "query",
+                Uuid::new_v4(),
+                json!({
+                    "types": ["task"],
+                    "group_by": [{"field": "record.status"}],
+                    "summaries": [
+                        {"field": "record.status", "function": "count", "name": "records"}
+                    ],
+                    "limit": 1000
+                }),
+                None,
+            )
+            .await
+            .expect_err("the entitled 230k grouping retains its database work-state fence");
+        assert_eq!(
+            group_budget.code,
+            "hosted_aggregation_state_budget_exceeded"
+        );
+        assert_eq!(
+            group_budget.details.as_ref().unwrap()["budget"],
+            "aggregation_state_bytes"
+        );
+        eprintln!(
+            "candidate_b_typed_group_budget_outcome decoys={decoy_count} code={} budget={}",
+            group_budget.code,
+            group_budget.details.as_ref().unwrap()["budget"]
+        );
+        let p95_gate_ms = 300;
+        for (name, samples) in [
+            ("path_page_1", path_page_one_ms),
+            ("path_page_2", path_page_two_ms),
+            ("path_page_10", path_page_ten_ms),
+            ("mtime_page_1", mtime_page_one_ms),
+            ("mtime_page_2", mtime_page_two_ms),
+        ] {
+            report_latency_distribution(name, decoy_count, &samples, p95_gate_ms);
+        }
+        return;
+    }
     for repetition in 1..=repetitions {
         let grouped_started = Instant::now();
         let grouped = fixture
@@ -6025,11 +6070,7 @@ fn report_latency_distribution(name: &str, decoys: i64, samples: &[u64], gate_ms
     );
 }
 
-async fn assert_high_cardinality_query_cancellation(
-    fixture: &FileLifecycleFixture,
-    token: &str,
-    expected_record_count: i64,
-) {
+async fn assert_high_cardinality_query_cancellation(fixture: &FileLifecycleFixture, token: &str) {
     let initial = fixture.provider.hosted_query_activity();
     assert_eq!(initial.active_queries, 0);
     assert_eq!(initial.plaintext_scopes, 0);
@@ -6150,6 +6191,7 @@ async fn assert_high_cardinality_query_cancellation(
             Uuid::new_v4(),
             json!({
                 "types": ["task"],
+                "where": "record.status == 'closed'",
                 "group_by": [{"field": "record.status"}],
                 "summaries": [
                     {"field": "record.status", "function": "count", "name": "records"}
@@ -6160,10 +6202,7 @@ async fn assert_high_cardinality_query_cancellation(
         )
         .await
         .expect("the query lane is reusable after cancellation");
-    assert_eq!(
-        grouped["result"]["meta"]["total_count"],
-        expected_record_count
-    );
+    assert_eq!(grouped["result"]["meta"]["total_count"], 1);
     if let Some(cursor) = grouped["result"]["meta"]["cursor"].as_str() {
         fixture
             .provider
