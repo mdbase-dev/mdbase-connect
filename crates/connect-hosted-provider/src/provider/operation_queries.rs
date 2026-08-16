@@ -1038,7 +1038,7 @@ async fn load_base_context_projection(
              AND (valid_to_sequence IS NULL OR valid_to_sequence > $4)
              AND catalog_revision = $5 AND projection_format_version = $6
              AND semantic_engine_version = $7
-             AND resolution_complete
+             AND semantic_complete AND resolution_complete
            ORDER BY valid_from_sequence DESC
            LIMIT 1"#,
     )
@@ -1288,7 +1288,7 @@ async fn base_projection_fallback_exists(
                p.record_id IS NULL OR p.record_sequence <> l.sequence
                OR p.record_revision <> l.revision OR p.catalog_revision <> $4
                OR p.projection_format_version <> $5 OR p.semantic_engine_version <> $6
-               OR ($7 AND NOT p.resolution_complete)
+               OR NOT p.semantic_complete OR ($7 AND NOT p.resolution_complete)
              )
            )"#,
     )
@@ -2037,7 +2037,7 @@ async fn load_base_candidate_projections(
              AND (valid_to_sequence IS NULL OR valid_to_sequence > $3)
              AND catalog_revision = $4 AND projection_format_version = $5
              AND semantic_engine_version = $6
-             AND resolution_complete
+             AND semantic_complete AND resolution_complete
              AND (cardinality($7::text[]) = 0 OR matched_types && $7::text[])
            ORDER BY record_id
            LIMIT $8"#,
@@ -2091,7 +2091,7 @@ async fn load_base_related_projections(
              AND (valid_to_sequence IS NULL OR valid_to_sequence > $4)
              AND catalog_revision = $5 AND projection_format_version = $6
              AND semantic_engine_version = $7
-             AND resolution_complete
+             AND semantic_complete AND resolution_complete
            ORDER BY record_id"#,
     )
     .bind(collection_id)

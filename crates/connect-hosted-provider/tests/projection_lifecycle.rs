@@ -1413,7 +1413,7 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
 
     sqlx::query(
         r#"UPDATE hosted_provider_record_projections
-           SET semantic_complete = false, resolution_complete = false
+           SET semantic_complete = false
            WHERE collection_id = $1 AND valid_to_sequence IS NULL"#,
     )
     .bind(fixture.collection_id)
