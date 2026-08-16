@@ -129,6 +129,12 @@ mdbase-rs token checked at every AST node. Request drop cancels that worker toke
 PostgreSQL backend cancellation, transaction/session drop, pool return, and
 operation/plaintext counters remain independently guarded and observable.
 
+Connect translates only the Base plan's closed candidate predicate. It currently
+lowers proven frontmatter equality/inequality and canonical combined frontmatter/
+body tag membership; every selected row still runs through mdbase-rs. Complex
+TaskNotes relationship expressions remain bounded residual work. Unsupported
+predicates never become ad-hoc SQL and never narrow candidates.
+
 SQL applies safe ordering and limiting before transfer. Unsupported ordering uses
 an explicitly bounded top-K operator; grouping and summaries retain only bounded
 state. Scan rows, transferred bytes, decrypted documents, plaintext bytes, result

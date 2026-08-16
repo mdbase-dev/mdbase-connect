@@ -2084,32 +2084,35 @@ async fn load_base_candidate_projections(
     state: &HostedQueryState,
     plan: &mdbase::runtime::HostedBasePlan,
 ) -> ApiResult<Vec<ProjectedQueryRow>> {
-    let rows = sqlx::query(
-        r#"SELECT record_id, canonical_path, semantic_projection
-           FROM hosted_provider_record_projections
-           WHERE collection_id = $1 AND generation_id = $2
-             AND valid_from_sequence <= $3
-             AND (valid_to_sequence IS NULL OR valid_to_sequence > $3)
-             AND catalog_revision = $4 AND projection_format_version = $5
-             AND semantic_engine_version = $6
-             AND semantic_complete AND resolution_complete
-             AND (cardinality($7::text[]) = 0 OR matched_types && $7::text[])
-           ORDER BY record_id
-           LIMIT $8"#,
-    )
-    .bind(collection_id)
-    .bind(state.generation_id)
-    .bind(to_i64(state.snapshot_head, "query snapshot head")?)
-    .bind(&state.catalog_revision)
-    .bind(i64::from(state.projection_format_version))
-    .bind(&state.semantic_engine_version)
-    .bind(&plan.allowed_types)
-    .bind(to_i64(
+    let mut query = QueryBuilder::<Postgres>::new(
+        "SELECT record_id, canonical_path, semantic_projection \
+         FROM hosted_provider_record_projections WHERE collection_id = ",
+    );
+    query
+        .push_bind(collection_id)
+        .push(" AND generation_id = ")
+        .push_bind(state.generation_id)
+        .push(" AND valid_from_sequence <= ")
+        .push_bind(to_i64(state.snapshot_head, "query snapshot head")?)
+        .push(" AND (valid_to_sequence IS NULL OR valid_to_sequence > ")
+        .push_bind(to_i64(state.snapshot_head, "query snapshot head")?)
+        .push(") AND catalog_revision = ")
+        .push_bind(&state.catalog_revision)
+        .push(" AND projection_format_version = ")
+        .push_bind(i64::from(state.projection_format_version))
+        .push(" AND semantic_engine_version = ")
+        .push_bind(&state.semantic_engine_version)
+        .push(" AND semantic_complete AND resolution_complete AND (cardinality(")
+        .push_bind(&plan.allowed_types)
+        .push("::text[]) = 0 OR matched_types && ")
+        .push_bind(&plan.allowed_types)
+        .push("::text[]) AND (");
+    push_candidate_predicate(&mut query, &plan.candidate);
+    query.push(") ORDER BY record_id LIMIT ").push_bind(to_i64(
         state.plan.budgets.max_candidate_rows.saturating_add(1),
         "candidate row budget",
-    )?)
-    .fetch_all(&mut **transaction)
-    .await?;
+    )?);
+    let rows = query.build().fetch_all(&mut **transaction).await?;
     rows.into_iter()
         .map(|row| {
             Ok(ProjectedQueryRow {
@@ -3047,9 +3050,22 @@ fn push_candidate_field(
             query.push("semantic_projection #> ").push_bind(full);
         }
         CandidateField::BodyTags => {
-            query
-                .push("semantic_projection #> ")
-                .push_bind(vec!["structure".to_string(), "body_tags".to_string()]);
+            query.push(
+                r#"(CASE jsonb_typeof(semantic_projection #> '{effective_frontmatter,tags}')
+                     WHEN 'array' THEN (
+                       SELECT COALESCE(jsonb_agg(to_jsonb(ltrim(value, '#'))), '[]'::jsonb)
+                       FROM jsonb_array_elements_text(
+                         semantic_projection #> '{effective_frontmatter,tags}'
+                       ) AS tag(value)
+                     )
+                     WHEN 'string' THEN jsonb_build_array(to_jsonb(ltrim(
+                       semantic_projection #>> '{effective_frontmatter,tags}', '#'
+                     )))
+                     ELSE '[]'::jsonb
+                   END || COALESCE(
+                     semantic_projection #> '{structure,body_tags}', '[]'::jsonb
+                   ))"#,
+            );
         }
         CandidateField::File(name) => {
             let projected_name = if name == "ext" { "extension" } else { name };
