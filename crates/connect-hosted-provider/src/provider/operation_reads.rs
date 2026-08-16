@@ -1,5 +1,8 @@
 use super::*;
 
+const MAX_HOSTED_RESOURCE_RECORDS: usize = 2_000;
+const MAX_HOSTED_RESOURCE_RECORD_BYTES: u64 = 32 * 1024 * 1024;
+
 impl HostedProvider {
     pub(super) async fn describe_operation(
         &self,
@@ -310,7 +313,9 @@ impl HostedProvider {
             .execute(&mut *transaction)
             .await?;
         let collection = sqlx::query(
-            r#"SELECT resource_revision, wrapped_data_key, resources_ciphertext
+            r#"SELECT resource_revision, wrapped_data_key, resources_ciphertext,
+                      active_catalog_revision, active_projection_format_version,
+                      active_semantic_engine_version, active_projection_generation_id
                FROM hosted_provider_collections
                WHERE id = $1 AND state = 'active'"#,
         )
@@ -336,10 +341,25 @@ impl HostedProvider {
                 "The encrypted resource catalog revision does not match collection metadata.",
             ));
         }
-        let resource_documents =
+        let mut resource_documents =
             load_resource_documents(&mut transaction, &self.crypto, &data_key, collection_id)
                 .await?;
         let catalog = compile_point_catalog(resources, resource_documents.clone())?;
+        if matches!(operation, "list_views" | "read_view_source") {
+            resource_documents.extend(
+                load_exact_view_documents(
+                    &mut transaction,
+                    &self.crypto,
+                    &data_key,
+                    collection_id,
+                    &collection,
+                    &catalog,
+                    operation,
+                    input,
+                )
+                .await?,
+            );
+        }
         let result = catalog
             .execute_hosted_resource_read(operation, input, &resource_documents)
             .map_err(|error| {
@@ -484,6 +504,156 @@ impl HostedProvider {
         );
         Ok(result)
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn load_exact_view_documents(
+    transaction: &mut Transaction<'_, Postgres>,
+    crypto: &ProviderCrypto,
+    data_key: &[u8; 32],
+    collection_id: Uuid,
+    collection: &PgRow,
+    catalog: &mdbase::runtime::CompiledCatalog,
+    operation: &str,
+    input: &Value,
+) -> ApiResult<Vec<(String, String)>> {
+    let metadata = if operation == "read_view_source" {
+        let path = input.get("path").and_then(Value::as_str).ok_or_else(|| {
+            ApiError::bad_request(
+                "invalid_view_path",
+                "Reading a saved-view source requires a path.",
+            )
+        })?;
+        sqlx::query(
+            r#"SELECT record_id, content_bytes
+               FROM hosted_provider_records
+               WHERE collection_id = $1 AND path_token = $2"#,
+        )
+        .bind(collection_id)
+        .bind(path_token(data_key, path))
+        .fetch_all(&mut **transaction)
+        .await?
+    } else {
+        sqlx::query(
+            r#"WITH candidates AS (
+                 SELECT r.record_id, r.content_bytes, p.matched_types,
+                        p.record_id IS NOT NULL
+                        AND p.record_sequence = r.sequence
+                        AND p.record_revision = r.revision
+                        AND p.catalog_revision = $3
+                        AND p.projection_format_version = $4
+                        AND p.semantic_engine_version = $5
+                        AND p.semantic_complete AND p.resolution_complete
+                          AS projection_current
+                 FROM hosted_provider_records r
+                 LEFT JOIN hosted_provider_record_projections p
+                   ON p.collection_id = r.collection_id
+                  AND p.generation_id = $2
+                  AND p.record_id = r.record_id
+                  AND p.valid_to_sequence IS NULL
+                 WHERE r.collection_id = $1
+               )
+               SELECT record_id, content_bytes
+               FROM candidates
+               WHERE NOT projection_current OR 'view' = ANY(matched_types)
+               ORDER BY record_id
+               LIMIT $6"#,
+        )
+        .bind(collection_id)
+        .bind(collection.get::<Option<Uuid>, _>("active_projection_generation_id"))
+        .bind(catalog.resource_revision())
+        .bind(i64::from(
+            mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION,
+        ))
+        .bind(mdbase::VERSION)
+        .bind((MAX_HOSTED_RESOURCE_RECORDS + 1) as i64)
+        .fetch_all(&mut **transaction)
+        .await?
+    };
+    if metadata.len() > MAX_HOSTED_RESOURCE_RECORDS {
+        return Err(ApiError::quota(
+            "hosted_resource_count_budget_exceeded",
+            "The saved-view read exceeds its exact fallback record budget.",
+        ));
+    }
+    let bytes = metadata.iter().try_fold(0_u64, |total, row| {
+        let bytes = number(row.get::<i64, _>("content_bytes"), "record content bytes")?;
+        total.checked_add(bytes).ok_or_else(|| {
+            ApiError::quota(
+                "hosted_resource_byte_budget_exceeded",
+                "The saved-view read exceeds its exact fallback byte budget.",
+            )
+        })
+    })?;
+    if bytes > MAX_HOSTED_RESOURCE_RECORD_BYTES {
+        return Err(ApiError::quota(
+            "hosted_resource_byte_budget_exceeded",
+            "The saved-view read exceeds its exact fallback byte budget.",
+        ));
+    }
+    let record_ids = metadata
+        .into_iter()
+        .map(|row| row.get::<Uuid, _>("record_id"))
+        .collect::<Vec<_>>();
+    let rows = sqlx::query(
+        r#"SELECT record_id, sequence, revision, payload_ciphertext, updated_at
+           FROM hosted_provider_records
+           WHERE collection_id = $1 AND record_id = ANY($2::uuid[])
+           ORDER BY record_id"#,
+    )
+    .bind(collection_id)
+    .bind(&record_ids)
+    .fetch_all(&mut **transaction)
+    .await?;
+    if rows.len() != record_ids.len() {
+        return Err(ApiError::conflict(
+            "hosted_exact_snapshot_inconsistent",
+            "The saved-view fallback could not load its complete exact candidate set.",
+        ));
+    }
+    let mut views = Vec::new();
+    for row in rows {
+        let record_id: Uuid = row.get("record_id");
+        let sequence = number(row.get::<i64, _>("sequence"), "record sequence")?;
+        let record: PersistedRecord = crypto.decrypt_json(
+            data_key,
+            row.get("payload_ciphertext"),
+            &current_record_aad(collection_id, record_id, sequence),
+        )?;
+        if record.record_id != record_id || record.revision != row.get::<String, _>("revision") {
+            return Err(ApiError::internal(
+                "The saved-view fallback exact record is inconsistent.",
+            ));
+        }
+        let projection = catalog
+            .project_record(&mdbase::runtime::CanonicalRecordInput {
+                stable_id: Some(record_id.to_string()),
+                path: record.path.clone(),
+                document: record.document.clone(),
+                file_size: record.document.len() as u64,
+                file_mtime: Some(
+                    row.get::<DateTime<Utc>, _>("updated_at")
+                        .to_rfc3339_opts(SecondsFormat::Micros, true),
+                ),
+            })
+            .map_err(|error| {
+                ApiError::conflict(
+                    "hosted_projection_inconsistent",
+                    "The saved-view fallback could not classify an exact record.",
+                )
+                .with_details(json!({"semantic_code": error.code}))
+            })?;
+        if record.path.ends_with(".base")
+            || projection
+                .facts
+                .types
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case("view"))
+        {
+            views.push((record.path, record.document));
+        }
+    }
+    Ok(views)
 }
 
 pub(super) enum DirectRecordIdentity {

@@ -40,42 +40,43 @@ async fn execute_direct_semantic(
     let needs_incoming_context =
         catalog.hosted_mutation_requires_incoming_context(operation, &Value::Object(input.clone()));
     if needs_incoming_context {
-        let generation_id = collection
-            .get::<Option<Uuid>, _>("active_projection_generation_id")
-            .ok_or_else(|| {
-                ApiError::conflict(
-                    "hosted_projection_unavailable",
-                    "Reference-aware mutations require a current semantic projection.",
-                )
-            })?;
-        let rows = sqlx::query(
-            r#"SELECT DISTINCT source_record_id
-               FROM hosted_provider_record_relationships
-               WHERE collection_id = $1 AND generation_id = $2
-                 AND target_record_id = $3
-                 AND valid_to_sequence IS NULL
-                 AND resolution_state = 'resolved'
-               ORDER BY source_record_id
-               LIMIT $4"#,
-        )
-        .bind(collection_id)
-        .bind(generation_id)
-        .bind(primary_record_id)
-        .bind((MAX_HOSTED_MUTATION_CONTEXT_RECORDS + 1) as i64)
-        .fetch_all(&mut **transaction)
-        .await?;
-        if rows.len() > MAX_HOSTED_MUTATION_CONTEXT_RECORDS {
-            return Err(ApiError::quota(
-                "hosted_mutation_context_budget_exceeded",
-                "Reference-aware mutation context exceeds its exact-record budget.",
+        let incoming_ids = if let Some(generation_id) =
+            collection.get::<Option<Uuid>, _>("active_projection_generation_id")
+        {
+            let rows = sqlx::query(
+                r#"SELECT DISTINCT source_record_id
+                   FROM hosted_provider_record_relationships
+                   WHERE collection_id = $1 AND generation_id = $2
+                     AND target_record_id = $3
+                     AND valid_to_sequence IS NULL
+                     AND resolution_state = 'resolved'
+                   ORDER BY source_record_id
+                   LIMIT $4"#,
             )
-            .with_details(json!({
-                "budget": "exact_context_records",
-                "limit": MAX_HOSTED_MUTATION_CONTEXT_RECORDS,
-            })));
-        }
-        for row in rows {
-            let source_record_id: Uuid = row.get("source_record_id");
+            .bind(collection_id)
+            .bind(generation_id)
+            .bind(primary_record_id)
+            .bind((MAX_HOSTED_MUTATION_CONTEXT_RECORDS + 1) as i64)
+            .fetch_all(&mut **transaction)
+            .await?;
+            if rows.len() > MAX_HOSTED_MUTATION_CONTEXT_RECORDS {
+                return Err(hosted_mutation_context_record_budget());
+            }
+            rows.into_iter()
+                .map(|row| row.get::<Uuid, _>("source_record_id"))
+                .collect::<Vec<_>>()
+        } else {
+            load_exact_incoming_mutation_ids(
+                transaction,
+                provider,
+                data_key,
+                collection_id,
+                &catalog,
+                primary_record_id,
+            )
+            .await?
+        };
+        for source_record_id in incoming_ids {
             if source_record_id == primary_record_id
                 || before_records.contains_key(&source_record_id)
             {
@@ -182,6 +183,125 @@ async fn execute_direct_semantic(
         },
         before_records,
     ))
+}
+
+fn hosted_mutation_context_record_budget() -> ApiError {
+    ApiError::quota(
+        "hosted_mutation_context_budget_exceeded",
+        "Reference-aware mutation context exceeds its exact-record budget.",
+    )
+    .with_details(json!({
+        "budget": "exact_context_records",
+        "limit": MAX_HOSTED_MUTATION_CONTEXT_RECORDS,
+    }))
+}
+
+async fn load_exact_incoming_mutation_ids(
+    transaction: &mut Transaction<'_, Postgres>,
+    provider: &HostedProvider,
+    data_key: &[u8; 32],
+    collection_id: Uuid,
+    catalog: &mdbase::runtime::CompiledCatalog,
+    primary_record_id: Uuid,
+) -> ApiResult<Vec<Uuid>> {
+    let metadata = sqlx::query(
+        r#"SELECT record_id, content_bytes
+           FROM hosted_provider_records
+           WHERE collection_id = $1
+           ORDER BY record_id
+           LIMIT $2"#,
+    )
+    .bind(collection_id)
+    .bind((MAX_HOSTED_MUTATION_CONTEXT_RECORDS + 1) as i64)
+    .fetch_all(&mut **transaction)
+    .await?;
+    if metadata.len() > MAX_HOSTED_MUTATION_CONTEXT_RECORDS {
+        return Err(hosted_mutation_context_record_budget());
+    }
+    let plaintext_bytes = metadata.iter().try_fold(0_u64, |total, row| {
+        let bytes = number(row.get::<i64, _>("content_bytes"), "record content bytes")?;
+        total
+            .checked_add(bytes)
+            .ok_or_else(hosted_mutation_context_byte_budget)
+    })?;
+    if plaintext_bytes > MAX_HOSTED_MUTATION_CONTEXT_BYTES {
+        return Err(hosted_mutation_context_byte_budget());
+    }
+    let record_ids = metadata
+        .into_iter()
+        .map(|row| row.get::<Uuid, _>("record_id"))
+        .collect::<Vec<_>>();
+    let rows = sqlx::query(
+        r#"SELECT record_id, sequence, revision, payload_ciphertext, updated_at
+           FROM hosted_provider_records
+           WHERE collection_id = $1 AND record_id = ANY($2::uuid[])
+           ORDER BY record_id"#,
+    )
+    .bind(collection_id)
+    .bind(&record_ids)
+    .fetch_all(&mut **transaction)
+    .await?;
+    if rows.len() != record_ids.len() {
+        return Err(ApiError::conflict(
+            "hosted_exact_snapshot_inconsistent",
+            "The bounded mutation fallback could not load its complete exact snapshot.",
+        ));
+    }
+    let mut prepared = Vec::with_capacity(rows.len());
+    for row in rows {
+        let record_id: Uuid = row.get("record_id");
+        let sequence = number(row.get::<i64, _>("sequence"), "record sequence")?;
+        let record: PersistedRecord = provider.crypto.decrypt_json(
+            data_key,
+            row.get("payload_ciphertext"),
+            &current_record_aad(collection_id, record_id, sequence),
+        )?;
+        if record.record_id != record_id || record.revision != row.get::<String, _>("revision") {
+            return Err(ApiError::internal(
+                "The bounded mutation fallback exact record is inconsistent.",
+            ));
+        }
+        let input = mdbase::runtime::CanonicalRecordInput {
+            stable_id: Some(record_id.to_string()),
+            path: record.path.clone(),
+            file_size: record.document.len() as u64,
+            file_mtime: Some(
+                row.get::<DateTime<Utc>, _>("updated_at")
+                    .to_rfc3339_opts(SecondsFormat::Micros, true),
+            ),
+            document: record.document.clone(),
+        };
+        prepared.push((
+            record_id.to_string(),
+            catalog
+                .project_record(&input)
+                .map_err(mutation_projection_semantic_error)?,
+        ));
+    }
+    let finalized = catalog
+        .finalize_projection_batch(prepared)
+        .map_err(mutation_projection_semantic_error)?;
+    let target = primary_record_id.to_string();
+    Ok(finalized
+        .into_iter()
+        .filter_map(|(source, projection)| {
+            projection
+                .structure
+                .occurrences
+                .iter()
+                .any(|occurrence| occurrence.target_record_id.as_deref() == Some(target.as_str()))
+                .then(|| Uuid::parse_str(&source).ok())
+                .flatten()
+        })
+        .collect())
+}
+
+fn mutation_projection_semantic_error(error: mdbase::runtime::CatalogError) -> ApiError {
+    ApiError::conflict(
+        "hosted_projection_inconsistent",
+        "The bounded mutation fallback could not derive canonical relationship state.",
+    )
+    .with_details(json!({"semantic_code": error.code}))
 }
 
 fn hosted_mutation_semantic_error(error: mdbase::runtime::CatalogError) -> ApiError {
