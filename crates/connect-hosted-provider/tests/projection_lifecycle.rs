@@ -5439,8 +5439,11 @@ async fn candidate_b_exact_projected_filter_fixture(
     .unwrap();
 
     let inserted = sqlx::query(
-        r#"WITH template AS (
-             SELECT * FROM hosted_provider_record_projections
+        r#"WITH trusted_projection_write AS MATERIALIZED (
+             SELECT set_config('mdbase.projection_digest_write', 'on', true)
+           ), template AS (
+             SELECT projection.* FROM hosted_provider_record_projections AS projection
+             CROSS JOIN trusted_projection_write
              WHERE collection_id = $1 AND generation_id = $2
                AND canonical_path = 'tasks/open-a.md'
            ), decoys AS (
@@ -6370,8 +6373,11 @@ async fn candidate_b_base_candidate_prunes_fixture(
     // projections, without allocating 10,001 encrypted payloads. They prove
     // the SQL candidate plan prunes before the 10,000-row transfer ceiling.
     let inserted = sqlx::query(
-        r#"WITH template AS (
-             SELECT * FROM hosted_provider_record_projections
+        r#"WITH trusted_projection_write AS MATERIALIZED (
+             SELECT set_config('mdbase.projection_digest_write', 'on', true)
+           ), template AS (
+             SELECT projection.* FROM hosted_provider_record_projections AS projection
+             CROSS JOIN trusted_projection_write
              WHERE collection_id = $1 AND generation_id = $2
              ORDER BY record_id LIMIT 1
            ), decoys AS (
