@@ -5417,11 +5417,19 @@ async fn candidate_b_base_candidate_prunes_fixture(database_url: &str, decoy_cou
         let first = broad_base.unwrap();
         assert_eq!(first["result"]["meta"]["total_count"], decoy_count + 1);
         assert_eq!(first["result"]["results"].as_array().unwrap().len(), 200);
+        let verify_complete_traversal = decoy_count == 9_999;
+        let mut observed_paths = first["result"]["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["path"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
         let mut cursor = first["result"]["meta"]["cursor"]
             .as_str()
             .unwrap()
             .to_string();
-        for page_number in 2..=10 {
+        let mut page_number = 2;
+        loop {
             let started = Instant::now();
             let page = fixture
                 .provider
@@ -5447,10 +5455,29 @@ async fn candidate_b_base_candidate_prunes_fixture(database_url: &str, decoy_cou
                 );
             }
             assert_eq!(page["result"]["results"].as_array().unwrap().len(), 200);
-            cursor = page["result"]["meta"]["cursor"]
-                .as_str()
-                .unwrap()
-                .to_string();
+            observed_paths.extend(
+                page["result"]["results"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|row| row["path"].as_str().unwrap().to_string()),
+            );
+            let Some(next_cursor) = page["result"]["meta"]["cursor"].as_str() else {
+                break;
+            };
+            cursor = next_cursor.to_string();
+            if !verify_complete_traversal && page_number == 10 {
+                break;
+            }
+            page_number += 1;
+        }
+        if verify_complete_traversal {
+            let mut expected_paths = (1..=decoy_count)
+                .map(|index| format!("decoys/{index}.md"))
+                .chain(std::iter::once("tasks/selected.md".to_string()))
+                .collect::<Vec<_>>();
+            expected_paths.sort();
+            assert_eq!(observed_paths, expected_paths);
         }
     }
 
