@@ -75,6 +75,7 @@ mod operation_queries;
 mod operation_reads;
 mod operation_records;
 mod operation_types;
+mod operation_validation;
 mod operation_views;
 mod persistence;
 mod policy;

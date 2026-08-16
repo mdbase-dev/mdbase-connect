@@ -235,7 +235,7 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
                 allowed_types: Vec::new(),
                 contract_scope: Vec::new(),
                 full_collection: true,
-                allowed_operations: vec!["query".to_string()],
+                allowed_operations: vec!["query".to_string(), "validate".to_string()],
                 operation_transport_protocol: Some(3),
                 operation_transport_recovery_protocols: Vec::new(),
                 file_capability: None,
@@ -588,6 +588,37 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
         .unwrap()
         .iter()
         .any(|result| result["path"] == "notes/source.md"));
+    let validated = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "validate",
+            Uuid::new_v4(),
+            json!({"path": "notes/source.md"}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(validated["valid"], true);
+    assert_eq!(validated["result"]["path"], "notes/source.md");
+    let missing_validation = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "validate",
+            Uuid::new_v4(),
+            json!({"path": "notes/absent.md"}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing_validation["valid"], false);
+    assert_eq!(
+        missing_validation["diagnostics"][0]["code"],
+        "file_not_found"
+    );
 
     let writer_token = format!("candidate-b-writer-{}-{}", Uuid::new_v4(), Uuid::new_v4());
     fixture
