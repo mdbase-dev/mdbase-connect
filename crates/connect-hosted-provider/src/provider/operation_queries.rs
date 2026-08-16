@@ -7,7 +7,7 @@ const QUERY_CURSOR_IDLE_SECONDS: i64 = 60;
 const QUERY_CURSOR_HARD_SECONDS: i64 = 300;
 const MAX_LIVE_QUERY_CURSORS_PER_REPLICA: i64 = 64;
 const MAX_HOSTED_BASE_RELATIONSHIP_PAIRS: u64 = 65_536;
-const HOSTED_QUERY_EXECUTION_PROOF_VERSION: u32 = 1;
+const HOSTED_QUERY_EXECUTION_PROOF_VERSION: u32 = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HostedQueryRequestKind {
@@ -30,6 +30,7 @@ struct HostedQueryState {
     snapshot_head: u64,
     snapshot_record_count: u64,
     scan_budget_records: u64,
+    scan_budget_ciphertext_bytes: u64,
     generation_id: Option<Uuid>,
     projection_integrity_epoch: Option<u64>,
     catalog_revision: String,
@@ -64,6 +65,7 @@ struct HostedQueryExecutionProofV1 {
     snapshot_head: u64,
     snapshot_record_count: u64,
     scan_budget_records: u64,
+    scan_budget_ciphertext_bytes: u64,
     generation_id: Option<Uuid>,
     catalog_revision: String,
     projection_format_version: u32,
@@ -107,6 +109,12 @@ struct ExecutedQueryPage {
     last_boundary: Option<QueryPageBoundary>,
     candidate_rows: u64,
     exact_documents: u64,
+    exact_ciphertext_bytes: u64,
+}
+
+struct LoadedExactQueryRecords {
+    records: HashMap<Uuid, mdbase::runtime::CanonicalRecordInput>,
+    ciphertext_bytes: u64,
 }
 
 struct QueryPageBoundary {

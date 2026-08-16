@@ -358,19 +358,9 @@ fn active_query_binding(
     ))
 }
 
-fn hosted_query_scan_budget_records() -> u64 {
-    let manifest = HostedExecutionBudgetManifest::published();
-    if cfg!(debug_assertions)
-        && std::env::var("MDBASE_HOSTED_EXECUTION_TEST_ENTITLEMENT").as_deref()
-            == Ok("large_fixture_v1")
-    {
-        return manifest
-            .entitlements
-            .get("large_fixture_v1")
-            .expect("validated large-fixture entitlement exists")
-            .scanned_records;
-    }
-    manifest.defaults.scanned_records
+fn hosted_query_scan_budgets() -> (u64, u64) {
+    let budgets = crate::execution_budget::hosted_execution_budgets();
+    (budgets.scanned_records, budgets.scanned_ciphertext_bytes)
 }
 
 fn collection_projection_integrity_epoch(collection: &PgRow) -> ApiResult<Option<u64>> {
@@ -397,6 +387,26 @@ fn enforce_hosted_query_scan_budget(state: &HostedQueryState) -> ApiResult<()> {
     ))
 }
 
+fn enforce_exact_ciphertext_scan_budget(
+    state: &HostedQueryState,
+    observed_ciphertext_bytes: u64,
+) -> ApiResult<()> {
+    if observed_ciphertext_bytes <= state.scan_budget_ciphertext_bytes {
+        return Ok(());
+    }
+    Err(query_budget_error(
+        "hosted_scan_byte_budget_exceeded",
+        "The hosted query exceeded its exact-ciphertext scan budget.",
+        "scanned_ciphertext_bytes",
+        state.scan_budget_ciphertext_bytes,
+        scoped_budget_observed(
+            &state.allowed_types,
+            state.scan_budget_ciphertext_bytes,
+            observed_ciphertext_bytes,
+        ),
+    ))
+}
+
 fn execution_proof_for_state(
     state: &HostedQueryState,
     replica: &Replica,
@@ -411,6 +421,7 @@ fn execution_proof_for_state(
         snapshot_head: state.snapshot_head,
         snapshot_record_count: state.snapshot_record_count,
         scan_budget_records: state.scan_budget_records,
+        scan_budget_ciphertext_bytes: state.scan_budget_ciphertext_bytes,
         generation_id: state.generation_id,
         catalog_revision: state.catalog_revision.clone(),
         projection_format_version: state.projection_format_version,
@@ -433,6 +444,7 @@ fn validate_execution_proof(
         && proof.snapshot_head == state.snapshot_head
         && proof.snapshot_record_count == state.snapshot_record_count
         && proof.scan_budget_records == state.scan_budget_records
+        && proof.scan_budget_ciphertext_bytes == state.scan_budget_ciphertext_bytes
         && proof.generation_id == state.generation_id
         && proof.catalog_revision == state.catalog_revision
         && proof.projection_format_version == state.projection_format_version
@@ -856,7 +868,7 @@ async fn execute_projected_page(
             projection_bytes,
         ));
     }
-    let exact_records = if state.plan.requirements.exact_document {
+    let loaded_exact = if state.plan.requirements.exact_document {
         load_exact_query_records(
             transaction,
             crypto,
@@ -867,8 +879,14 @@ async fn execute_projected_page(
         )
         .await?
     } else {
-        HashMap::new()
+        LoadedExactQueryRecords {
+            records: HashMap::new(),
+            ciphertext_bytes: 0,
+        }
     };
+    enforce_exact_ciphertext_scan_budget(state, loaded_exact.ciphertext_bytes)?;
+    let exact_ciphertext_bytes = loaded_exact.ciphertext_bytes;
+    let exact_records = loaded_exact.records;
     let context_documents = u64::from(state.exact_context.is_some());
     if (exact_records.len() as u64).saturating_add(context_documents)
         > state.plan.budgets.max_exact_documents
@@ -977,5 +995,6 @@ async fn execute_projected_page(
         }),
         candidate_rows: rows.len() as u64,
         exact_documents: (exact_records.len() as u64).saturating_add(context_documents),
+        exact_ciphertext_bytes,
     })
 }

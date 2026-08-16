@@ -147,4 +147,30 @@ mod tests {
         );
         assert_eq!(semaphore.available_permits(), 2);
     }
+
+    #[tokio::test]
+    async fn execution_memory_permit_gate_accounts_and_releases_bytes() {
+        let semaphore = Arc::new(Semaphore::new(8));
+        let counters = Arc::new(HostedQueryActivityCounters::default());
+        let guard = HostedExecutionMemoryGuard::new(
+            semaphore.clone().acquire_many_owned(5).await.unwrap(),
+            counters.clone(),
+            5,
+        );
+        assert_eq!(
+            counters
+                .accounted_execution_bytes
+                .load(AtomicOrdering::Relaxed),
+            5
+        );
+        assert_eq!(semaphore.available_permits(), 3);
+        drop(guard);
+        assert_eq!(
+            counters
+                .accounted_execution_bytes
+                .load(AtomicOrdering::Relaxed),
+            0
+        );
+        assert_eq!(semaphore.available_permits(), 8);
+    }
 }

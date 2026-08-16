@@ -152,6 +152,7 @@ async fn load_base_projected_snapshot(
         projection_bytes,
         exact_documents: 0,
         exact_bytes: 0,
+        exact_ciphertext_bytes: 0,
         query_context: state.base_context.clone(),
     })
 }
@@ -299,7 +300,7 @@ async fn load_base_hybrid_snapshot(
             observed,
         ));
     }
-    let exact_records = load_exact_query_records(
+    let loaded_exact = load_exact_query_records(
         transaction,
         crypto,
         data_key,
@@ -308,6 +309,9 @@ async fn load_base_hybrid_snapshot(
         &exact_ids,
     )
     .await?;
+    enforce_exact_ciphertext_scan_budget(state, loaded_exact.ciphertext_bytes)?;
+    let exact_ciphertext_bytes = loaded_exact.ciphertext_bytes;
+    let exact_records = loaded_exact.records;
     if exact_records.len() != exact_ids.len() {
         return Err(ApiError::conflict(
             "hosted_exact_snapshot_inconsistent",
@@ -381,6 +385,7 @@ async fn load_base_hybrid_snapshot(
         projection_bytes,
         exact_documents: exact_ids.len() as u64,
         exact_bytes,
+        exact_ciphertext_bytes,
         query_context,
     })
 }
@@ -426,7 +431,7 @@ async fn load_base_exact_fallback_snapshot(
             ),
         ));
     }
-    let exact_records = load_exact_query_records(
+    let loaded_exact = load_exact_query_records(
         transaction,
         crypto,
         data_key,
@@ -435,6 +440,9 @@ async fn load_base_exact_fallback_snapshot(
         &live_ids,
     )
     .await?;
+    enforce_exact_ciphertext_scan_budget(state, loaded_exact.ciphertext_bytes)?;
+    let exact_ciphertext_bytes = loaded_exact.ciphertext_bytes;
+    let exact_records = loaded_exact.records;
     if exact_records.len() != live_ids.len() {
         return Err(ApiError::conflict(
             "hosted_exact_snapshot_inconsistent",
@@ -575,6 +583,7 @@ async fn load_base_exact_fallback_snapshot(
         projection_bytes,
         exact_documents: live_ids.len() as u64,
         exact_bytes,
+        exact_ciphertext_bytes,
         query_context,
     })
 }

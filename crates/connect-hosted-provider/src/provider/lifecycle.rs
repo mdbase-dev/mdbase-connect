@@ -52,11 +52,17 @@ impl HostedProvider {
                                 query_activity: Arc::new(HostedQueryActivityCounters::default()),
                                 query_scan_permits: Arc::new(Semaphore::new(
                                     usize::try_from(
-                                        crate::HostedExecutionBudgetManifest::published()
-                                            .defaults
+                                        crate::execution_budget::hosted_execution_budgets()
                                             .active_scan_permits_per_process,
                                     )
                                     .expect("published scan-permit budget fits usize"),
+                                )),
+                                query_memory_permits: Arc::new(Semaphore::new(
+                                    usize::try_from(
+                                        crate::execution_budget::hosted_execution_budgets()
+                                            .accounted_execution_bytes_per_process,
+                                    )
+                                    .expect("published process memory budget fits usize"),
                                 )),
                             };
                             provider.migrate_legacy_sync_receipts().await?;
@@ -267,6 +273,10 @@ impl HostedProvider {
             active_scan_permits: self
                 .query_activity
                 .active_scan_permits
+                .load(AtomicOrdering::Relaxed),
+            accounted_execution_bytes: self
+                .query_activity
+                .accounted_execution_bytes
                 .load(AtomicOrdering::Relaxed),
         }
     }

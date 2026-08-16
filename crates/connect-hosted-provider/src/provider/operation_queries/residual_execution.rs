@@ -715,9 +715,12 @@ async fn load_exact_query_records(
     collection_id: Uuid,
     snapshot_head: u64,
     record_ids: &[Uuid],
-) -> ApiResult<HashMap<Uuid, mdbase::runtime::CanonicalRecordInput>> {
+) -> ApiResult<LoadedExactQueryRecords> {
     if record_ids.is_empty() {
-        return Ok(HashMap::new());
+        return Ok(LoadedExactQueryRecords {
+            records: HashMap::new(),
+            ciphertext_bytes: 0,
+        });
     }
     let rows = sqlx::query(
         r#"SELECT DISTINCT ON (record_id) record_id, sequence, payload_ciphertext,
@@ -732,6 +735,7 @@ async fn load_exact_query_records(
     .fetch_all(&mut **transaction)
     .await?;
     let mut records = HashMap::with_capacity(rows.len());
+    let mut ciphertext_bytes = 0_u64;
     for row in rows {
         if row.get::<bool, _>("deleted") {
             continue;
@@ -741,6 +745,7 @@ async fn load_exact_query_records(
         let ciphertext = row
             .get::<Option<Vec<u8>>, _>("payload_ciphertext")
             .ok_or_else(|| ApiError::internal("A live exact record version has no ciphertext."))?;
+        ciphertext_bytes = ciphertext_bytes.saturating_add(ciphertext.len() as u64);
         let record: PersistedRecord = crypto.decrypt_json(
             data_key,
             &ciphertext,
@@ -764,7 +769,10 @@ async fn load_exact_query_records(
             },
         );
     }
-    Ok(records)
+    Ok(LoadedExactQueryRecords {
+        records,
+        ciphertext_bytes,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -896,11 +904,11 @@ async fn insert_query_cursor(
               last_order_values, last_record_id, emitted_rows, expires_at, hard_expires_at,
               execution_proof_version, execution_proof_ciphertext,
               execution_proof_bytes, snapshot_record_count, scan_budget_records,
-              projection_integrity_epoch, cursor_bytes)
+              scan_budget_ciphertext_bytes, projection_integrity_epoch, cursor_bytes)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
                    $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
                    LEAST(now() + make_interval(secs => $24), $25), $25,
-                   $26, $27, $28, $29, $30, $31, $32)"#,
+                   $26, $27, $28, $29, $30, $31, $32, $33)"#,
     )
     .bind(cursor_id)
     .bind(collection_id)
@@ -935,6 +943,10 @@ async fn insert_query_cursor(
         "query snapshot record count",
     )?)
     .bind(to_i64(state.scan_budget_records, "query scan budget")?)
+    .bind(to_i64(
+        state.scan_budget_ciphertext_bytes,
+        "query ciphertext scan budget",
+    )?)
     .bind(
         state
             .projection_integrity_epoch

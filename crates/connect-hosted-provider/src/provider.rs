@@ -210,6 +210,7 @@ pub struct HostedProvider {
     blob_store: Arc<dyn BlobStore>,
     query_activity: Arc<HostedQueryActivityCounters>,
     query_scan_permits: Arc<Semaphore>,
+    query_memory_permits: Arc<Semaphore>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -217,6 +218,7 @@ pub struct HostedQueryActivity {
     pub active_queries: u64,
     pub plaintext_scopes: u64,
     pub active_scan_permits: u64,
+    pub accounted_execution_bytes: u64,
 }
 
 #[derive(Default)]
@@ -224,6 +226,7 @@ struct HostedQueryActivityCounters {
     active_queries: AtomicU64,
     plaintext_scopes: AtomicU64,
     active_scan_permits: AtomicU64,
+    accounted_execution_bytes: AtomicU64,
 }
 
 struct HostedQueryActivityGuard {
@@ -234,6 +237,12 @@ struct HostedQueryActivityGuard {
 struct HostedScanPermitGuard {
     _permit: OwnedSemaphorePermit,
     counters: Arc<HostedQueryActivityCounters>,
+}
+
+struct HostedExecutionMemoryGuard {
+    _permit: OwnedSemaphorePermit,
+    counters: Arc<HostedQueryActivityCounters>,
+    bytes: u64,
 }
 
 struct PostgresQueryCancellationGuard {
@@ -343,6 +352,31 @@ impl Drop for HostedScanPermitGuard {
         self.counters
             .active_scan_permits
             .fetch_sub(1, AtomicOrdering::Relaxed);
+    }
+}
+
+impl HostedExecutionMemoryGuard {
+    fn new(
+        permit: OwnedSemaphorePermit,
+        counters: Arc<HostedQueryActivityCounters>,
+        bytes: u64,
+    ) -> Self {
+        counters
+            .accounted_execution_bytes
+            .fetch_add(bytes, AtomicOrdering::Relaxed);
+        Self {
+            _permit: permit,
+            counters,
+            bytes,
+        }
+    }
+}
+
+impl Drop for HostedExecutionMemoryGuard {
+    fn drop(&mut self) {
+        self.counters
+            .accounted_execution_bytes
+            .fetch_sub(self.bytes, AtomicOrdering::Relaxed);
     }
 }
 

@@ -211,6 +211,34 @@ impl HostedExecutionBudgetManifest {
     }
 }
 
+pub(crate) fn hosted_execution_budgets() -> HostedExecutionBudgets {
+    let manifest = HostedExecutionBudgetManifest::published();
+    let entitlement = cfg!(debug_assertions)
+        .then(|| std::env::var("MDBASE_HOSTED_EXECUTION_TEST_ENTITLEMENT").ok())
+        .flatten();
+    budgets_for_entitlement(manifest, entitlement.as_deref())
+}
+
+fn budgets_for_entitlement(
+    manifest: &HostedExecutionBudgetManifest,
+    entitlement: Option<&str>,
+) -> HostedExecutionBudgets {
+    let mut budgets = manifest.defaults.clone();
+    if let Some(entitlement) = entitlement
+        .and_then(|name| manifest.entitlements.get(name))
+        .filter(|entitlement| entitlement.test_only)
+    {
+        budgets.scanned_records = entitlement.scanned_records;
+        budgets.scanned_ciphertext_bytes = entitlement.scanned_ciphertext_bytes;
+        budgets.snapshot_lifetime_ms = entitlement.snapshot_lifetime_ms;
+        budgets.operation_deadline_ms = entitlement.operation_deadline_ms;
+        budgets.active_scan_permits_per_process = entitlement.active_scan_permits_per_process;
+        budgets.accounted_execution_bytes_per_process =
+            entitlement.accounted_execution_bytes_per_process;
+    }
+    budgets
+}
+
 fn validate_positive_limit_set(name: &str, budgets: &HostedExecutionBudgets) -> Result<(), String> {
     let value = serde_json::to_value(budgets)
         .map_err(|error| format!("serialize {name} hosted budgets: {error}"))?;
@@ -277,5 +305,34 @@ mod tests {
             serde_json::from_str(PUBLISHED_MANIFEST).unwrap();
         manifest.defaults.result_bytes = manifest.hard_maxima.result_bytes + 1;
         assert!(manifest.validate().is_err());
+    }
+
+    #[test]
+    fn large_fixture_entitlement_overrides_the_complete_published_limit_set() {
+        let manifest = HostedExecutionBudgetManifest::published();
+        let budgets = budgets_for_entitlement(manifest, Some("large_fixture_v1"));
+        let entitlement = &manifest.entitlements["large_fixture_v1"];
+        assert_eq!(budgets.scanned_records, entitlement.scanned_records);
+        assert_eq!(
+            budgets.scanned_ciphertext_bytes,
+            entitlement.scanned_ciphertext_bytes
+        );
+        assert_eq!(
+            budgets.snapshot_lifetime_ms,
+            entitlement.snapshot_lifetime_ms
+        );
+        assert_eq!(
+            budgets.operation_deadline_ms,
+            entitlement.operation_deadline_ms
+        );
+        assert_eq!(
+            budgets.active_scan_permits_per_process,
+            entitlement.active_scan_permits_per_process
+        );
+        assert_eq!(
+            budgets.accounted_execution_bytes_per_process,
+            entitlement.accounted_execution_bytes_per_process
+        );
+        assert_eq!(budgets.page_items, manifest.defaults.page_items);
     }
 }

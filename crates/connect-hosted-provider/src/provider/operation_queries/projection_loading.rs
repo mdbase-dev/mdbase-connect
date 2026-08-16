@@ -445,7 +445,7 @@ async fn execute_bounded_residual_page(
             ),
         ));
     }
-    let exact_records = load_exact_query_records(
+    let loaded_exact = load_exact_query_records(
         transaction,
         crypto,
         data_key,
@@ -454,6 +454,9 @@ async fn execute_bounded_residual_page(
         &exact_ids,
     )
     .await?;
+    enforce_exact_ciphertext_scan_budget(state, loaded_exact.ciphertext_bytes)?;
+    let exact_ciphertext_bytes = loaded_exact.ciphertext_bytes;
+    let exact_records = loaded_exact.records;
     let exact_bytes = exact_records
         .values()
         .fold(0_u64, |total, record| {
@@ -645,5 +648,6 @@ async fn execute_bounded_residual_page(
         last_boundary,
         candidate_rows: candidate_count,
         exact_documents: (exact_records.len() as u64).saturating_add(context_documents),
+        exact_ciphertext_bytes,
     })
 }

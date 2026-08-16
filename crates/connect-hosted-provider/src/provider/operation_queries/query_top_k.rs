@@ -193,6 +193,7 @@ struct BaseExecutionSnapshot {
     projection_bytes: u64,
     exact_documents: u64,
     exact_bytes: u64,
+    exact_ciphertext_bytes: u64,
     query_context: Option<mdbase::runtime::SemanticProjection>,
 }
 
@@ -245,6 +246,7 @@ async fn execute_bounded_base_page(
         projection_bytes,
         exact_documents,
         exact_bytes,
+        exact_ciphertext_bytes,
         query_context,
     } = snapshot;
     if let Some(context) = &query_context {
@@ -517,5 +519,6 @@ async fn execute_bounded_base_page(
         last_boundary,
         candidate_rows,
         exact_documents,
+        exact_ciphertext_bytes,
     })
 }

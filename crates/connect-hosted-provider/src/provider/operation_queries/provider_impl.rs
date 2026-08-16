@@ -7,7 +7,7 @@ impl HostedProvider {
         input: &Value,
         request_kind: HostedQueryRequestKind,
     ) -> ApiResult<OperationResult> {
-        let budgets = &HostedExecutionBudgetManifest::published().defaults;
+        let budgets = crate::execution_budget::hosted_execution_budgets();
         let deadline_ms = budgets
             .operation_deadline_ms
             .min(budgets.snapshot_lifetime_ms);
@@ -85,8 +85,42 @@ impl HostedProvider {
 
         let started = Instant::now();
         let mut activity = HostedQueryActivityGuard::begin(self.query_activity.clone());
+        let budgets = crate::execution_budget::hosted_execution_budgets();
         let connection_wait_ms =
             mdbase::runtime::HostedQueryBudgets::default().max_connection_wait_ms;
+        let accounted_execution_bytes = budgets.accounted_execution_bytes_per_operation;
+        let accounted_execution_permits = u32::try_from(accounted_execution_bytes)
+            .map_err(|_| ApiError::internal("The hosted execution memory budget is invalid."))?;
+        let _memory_permit = match tokio::time::timeout(
+            Duration::from_millis(connection_wait_ms),
+            self.query_memory_permits
+                .clone()
+                .acquire_many_owned(accounted_execution_permits),
+        )
+        .await
+        {
+            Ok(Ok(permit)) => HostedExecutionMemoryGuard::new(
+                permit,
+                self.query_activity.clone(),
+                accounted_execution_bytes,
+            ),
+            Ok(Err(_)) => {
+                return Err(ApiError::internal(
+                    "The hosted query memory-permit gate is unavailable.",
+                ));
+            }
+            Err(_) => {
+                return Err(query_budget_error(
+                    "hosted_memory_permit_budget_exceeded",
+                    "The hosted query exceeded its process memory-permit wait budget.",
+                    "accounted_execution_bytes_per_process",
+                    budgets.accounted_execution_bytes_per_process,
+                    budgets
+                        .accounted_execution_bytes_per_process
+                        .saturating_add(1),
+                ));
+            }
+        };
         let _scan_permit = match tokio::time::timeout(
             Duration::from_millis(connection_wait_ms),
             self.query_scan_permits.clone().acquire_owned(),
@@ -130,7 +164,6 @@ impl HostedProvider {
         sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             .execute(&mut *transaction)
             .await?;
-        let budgets = &HostedExecutionBudgetManifest::published().defaults;
         let statement_timeout_ms = budgets
             .operation_deadline_ms
             .min(budgets.snapshot_lifetime_ms)
@@ -652,6 +685,7 @@ impl HostedProvider {
             candidate_rows = page.candidate_rows,
             results = result.result["results"].as_array().map_or(0, |rows| rows.len()) as u64,
             exact_documents = page.exact_documents,
+            exact_ciphertext_bytes = page.exact_ciphertext_bytes,
             elapsed_ms = started.elapsed().as_millis() as u64,
             database_pool_size = self.pool.size(),
             database_pool_idle = self.pool.num_idle(),
@@ -693,13 +727,15 @@ impl HostedProvider {
         }
         enforce_exact_context_budget(&plan, exact_context.as_ref())?;
         let request_digest = plan.canonical_query_digest.clone();
+        let (scan_budget_records, scan_budget_ciphertext_bytes) = hosted_query_scan_budgets();
         Ok(HostedQueryState {
             snapshot_head: number(collection.get::<i64, _>("head"), "collection head")?,
             snapshot_record_count: number(
                 collection.get::<i64, _>("record_count"),
                 "collection record count",
             )?,
-            scan_budget_records: hosted_query_scan_budget_records(),
+            scan_budget_records,
+            scan_budget_ciphertext_bytes,
             generation_id,
             projection_integrity_epoch: collection_projection_integrity_epoch(collection)?,
             catalog_revision,
@@ -811,13 +847,15 @@ impl HostedProvider {
                 .map(|path| json!({"path": path}))
                 .unwrap_or(Value::Null),
         );
+        let (scan_budget_records, scan_budget_ciphertext_bytes) = hosted_query_scan_budgets();
         Ok(Ok(HostedQueryState {
             snapshot_head: number(collection.get::<i64, _>("head"), "collection head")?,
             snapshot_record_count: number(
                 collection.get::<i64, _>("record_count"),
                 "collection record count",
             )?,
-            scan_budget_records: hosted_query_scan_budget_records(),
+            scan_budget_records,
+            scan_budget_ciphertext_bytes,
             generation_id: Some(generation_id),
             projection_integrity_epoch: collection_projection_integrity_epoch(collection)?,
             catalog_revision,
@@ -942,13 +980,15 @@ impl HostedProvider {
                 .map(|path| json!({"path": path}))
                 .unwrap_or(Value::Null),
         );
+        let (scan_budget_records, scan_budget_ciphertext_bytes) = hosted_query_scan_budgets();
         Ok(Ok(HostedQueryState {
             snapshot_head,
             snapshot_record_count: number(
                 collection.get::<i64, _>("record_count"),
                 "collection record count",
             )?,
-            scan_budget_records: hosted_query_scan_budget_records(),
+            scan_budget_records,
+            scan_budget_ciphertext_bytes,
             generation_id,
             projection_integrity_epoch: collection_projection_integrity_epoch(collection)?,
             catalog_revision,
@@ -998,7 +1038,8 @@ impl HostedProvider {
                       c.last_record_id, c.emitted_rows, c.hard_expires_at,
                       c.execution_proof_version, c.execution_proof_ciphertext,
                       c.execution_proof_bytes, c.snapshot_record_count,
-                      c.scan_budget_records, c.projection_integrity_epoch
+                      c.scan_budget_records, c.scan_budget_ciphertext_bytes,
+                      c.projection_integrity_epoch
                FROM hosted_provider_query_cursors c
                LEFT JOIN hosted_provider_base_query_invocations i
                  ON i.invocation_id = c.base_invocation_id
@@ -1173,6 +1214,10 @@ impl HostedProvider {
                 "query snapshot record count",
             )?,
             scan_budget_records: number(row.get("scan_budget_records"), "query scan budget")?,
+            scan_budget_ciphertext_bytes: number(
+                row.get("scan_budget_ciphertext_bytes"),
+                "query ciphertext scan budget",
+            )?,
             generation_id: row.get("generation_id"),
             projection_integrity_epoch: row
                 .get::<Option<i64>, _>("projection_integrity_epoch")

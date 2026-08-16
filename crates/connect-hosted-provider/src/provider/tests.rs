@@ -63,6 +63,20 @@ fn receipt_retention_index_migration_is_quiescent_and_time_bounded() {
 }
 
 #[test]
+fn receipt_usage_and_ciphertext_budget_migrations_require_drained_ephemeral_state() {
+    let usage = include_str!("../../migrations/0049_hosted_query_receipt_usage.sql");
+    assert!(usage.contains("hosted_provider_query_page_receipts to be drained"));
+    assert!(usage.contains("hosted_provider_query_receipt_usage"));
+    assert!(usage.contains("AFTER INSERT OR DELETE"));
+    assert!(!usage.contains("sum(octet_length(response_ciphertext)"));
+
+    let ciphertext = include_str!("../../migrations/0050_hosted_query_ciphertext_budget.sql");
+    assert!(ciphertext.contains("hosted_provider_query_cursors to be drained"));
+    assert!(ciphertext.contains("scan_budget_ciphertext_bytes"));
+    assert!(ciphertext.contains("execution_proof_version IN (0, 1, 2)"));
+}
+
+#[test]
 fn temporal_projection_digest_upgrade_refuses_weaker_existing_rows() {
     let migration = include_str!("../../migrations/0046_hosted_projection_temporal_digest.sql");
     assert!(migration.contains("candidate_b_projection_rows_require_rebuild"));

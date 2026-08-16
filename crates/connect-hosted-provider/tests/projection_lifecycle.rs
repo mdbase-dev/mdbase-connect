@@ -717,7 +717,7 @@ async fn candidate_b_query_cursor_proof_is_encrypted_bound_and_tamper_evident() 
     let proof = sqlx::query(
         r#"SELECT cursor_id, execution_proof_version, execution_proof_ciphertext,
                   execution_proof_bytes, snapshot_record_count, scan_budget_records,
-                  projection_integrity_epoch
+                  scan_budget_ciphertext_bytes, projection_integrity_epoch
            FROM hosted_provider_query_cursors
            WHERE replica_id = $1
            ORDER BY created_at DESC, cursor_id DESC
@@ -727,7 +727,7 @@ async fn candidate_b_query_cursor_proof_is_encrypted_bound_and_tamper_evident() 
     .fetch_one(&fixture.pool)
     .await
     .unwrap();
-    assert_eq!(proof.get::<i32, _>("execution_proof_version"), 1);
+    assert_eq!(proof.get::<i32, _>("execution_proof_version"), 2);
     let ciphertext: Vec<u8> = proof.get("execution_proof_ciphertext");
     assert_eq!(
         i64::try_from(ciphertext.len()).unwrap(),
@@ -735,6 +735,10 @@ async fn candidate_b_query_cursor_proof_is_encrypted_bound_and_tamper_evident() 
     );
     assert_eq!(proof.get::<i64, _>("snapshot_record_count"), 2);
     assert_eq!(proof.get::<i64, _>("scan_budget_records"), 100_000);
+    assert_eq!(
+        proof.get::<i64, _>("scan_budget_ciphertext_bytes"),
+        1_073_741_824
+    );
     assert!(proof
         .get::<Option<i64>, _>("projection_integrity_epoch")
         .is_some());
@@ -4075,6 +4079,13 @@ async fn candidate_b_exact_projected_filter_and_group_230k() {
 }
 
 async fn candidate_b_exact_projected_filter_fixture(database_url: &str, decoy_count: i64) {
+    if decoy_count > 100_000 {
+        assert_eq!(
+            std::env::var("MDBASE_HOSTED_EXECUTION_TEST_ENTITLEMENT").as_deref(),
+            Ok("large_fixture_v1"),
+            "fixtures above the default scan budget require the explicit test entitlement"
+        );
+    }
     let fixture = FileLifecycleFixture::new(database_url).await;
     let token = format!("candidate-b-filter-{}-{}", Uuid::new_v4(), Uuid::new_v4());
     fixture
@@ -4249,6 +4260,16 @@ async fn candidate_b_exact_projected_filter_fixture(database_url: &str, decoy_co
     .unwrap()
     .rows_affected();
     assert_eq!(inserted, u64::try_from(decoy_count).unwrap());
+    sqlx::query(
+        r#"UPDATE hosted_provider_collections
+           SET record_count = record_count + $2
+           WHERE id = $1"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(decoy_count)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
     sqlx::query(
         r#"UPDATE hosted_provider_record_projections
            SET projection_digest = projection_observed_digest
