@@ -4865,7 +4865,12 @@ async fn candidate_b_exact_projected_filter_fixture(
     .execute(&fixture.pool)
     .await
     .unwrap();
-    let repetitions = if decoy_count > 100_000 { 5 } else { 7 };
+    let default_repetitions = if decoy_count > 100_000 { 5 } else { 7 };
+    let repetitions = std::env::var("MDBASE_PERF_REPETITIONS")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default_repetitions);
     for repetition in 1..=repetitions {
         let projected_started = Instant::now();
         let projected_page = fixture

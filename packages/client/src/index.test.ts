@@ -623,6 +623,42 @@ describe("provider-neutral collection client", () => {
     });
   });
 
+  it("preserves a typed deferred total-count outcome on bounded query pages", async () => {
+    const client = new MdbaseCollectionClient({
+      async operation<Result>() {
+        return {
+          valid: true,
+          diagnostics: [],
+          result: {
+            results: [{ path: "one.md", frontmatter: {}, types: [] }],
+            meta: {
+              total_count: null,
+              total_count_outcome: {
+                status: "deferred",
+                budget: "eager_summary_rows",
+                limit: 10_000
+              },
+              has_more: true,
+              cursor: "cursor:next"
+            }
+          }
+        } as Result;
+      }
+    });
+
+    const queried = unwrapConnectOutcome(await client.query({ pagination: "cursor" }));
+
+    expect(queried.meta).toEqual({
+      totalCountOutcome: {
+        status: "deferred",
+        budget: "eager_summary_rows",
+        limit: 10_000
+      },
+      hasMore: true,
+      cursor: "cursor:next"
+    });
+  });
+
   it("uses one total queryAll deadline while queryPages keeps an explicit per-page budget", async () => {
     vi.useFakeTimers();
     const requestOptions: Array<{ signal?: AbortSignal; timeoutMs?: number | null }> = [];
