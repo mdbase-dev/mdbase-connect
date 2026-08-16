@@ -76,6 +76,13 @@ fn receipt_usage_and_ciphertext_budget_migrations_require_drained_ephemeral_stat
     assert!(ciphertext.contains("hosted_provider_query_cursors to be drained"));
     assert!(ciphertext.contains("scan_budget_ciphertext_bytes bigint NOT NULL DEFAULT 1073741824"));
     assert!(ciphertext.contains("execution_proof_version IN (0, 1, 2)"));
+
+    let immutability =
+        include_str!("../../migrations/0051_hosted_query_receipt_payload_immutability.sql");
+    assert!(immutability.contains("SET LOCAL lock_timeout = '5s'"));
+    assert!(immutability.contains("SET LOCAL statement_timeout = '30s'"));
+    assert!(immutability.contains("BEFORE UPDATE OF response_ciphertext"));
+    assert!(immutability.contains("response ciphertext is immutable"));
 }
 
 #[test]

@@ -154,6 +154,10 @@ Every page response has an encrypted request-ID receipt for lost-response replay
 The newest 64 receipts per replica form a sliding window: page 65 evicts the oldest
 instead of failing a valid traversal. Per-receipt, replica, collection, account, and
 global ciphertext-byte quotas are serialized by an advisory transaction lock.
+Migration 0051 makes the encrypted response payload immutable in PostgreSQL. Account
+reconciliation may still rebind the receipt's account identifier, but no runtime or
+operator path may change its ciphertext footprint without deleting and recreating
+the ephemeral receipt through the ordinary admission path.
 Background expiry removes no more than 1,000 rows and 256 MiB per maintenance pass.
 A retry outside the recent window must restart from a new snapshot if its consumed
 cursor is no longer present; recent responses replay the same operation result.

@@ -1760,6 +1760,36 @@ async fn candidate_b_query_receipt_maintenance_is_global_and_bounded() {
     .await
     .unwrap();
     assert_eq!((bound_receipts, account_count, account_bytes), (1, 1, 1));
+
+    let payload_update = sqlx::query(
+        r#"UPDATE hosted_provider_query_page_receipts
+           SET response_ciphertext = decode('0000', 'hex')
+           WHERE collection_id = $1"#,
+    )
+    .bind(fixture.collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap_err();
+    assert!(payload_update
+        .as_database_error()
+        .is_some_and(|error| error.message().contains("response ciphertext is immutable")));
+    let (usage_count_after, usage_bytes_after, receipt_bytes_after): (i64, i64, i64) =
+        sqlx::query_as(
+            r#"SELECT usage.receipt_count, usage.ciphertext_bytes,
+                      receipt.response_ciphertext_bytes
+               FROM hosted_provider_query_page_receipts receipt
+               JOIN hosted_provider_query_receipt_usage usage
+                 ON usage.scope_kind = 'account' AND usage.scope_id = receipt.account_id
+               WHERE receipt.collection_id = $1"#,
+        )
+        .bind(fixture.collection_id)
+        .fetch_one(&fixture.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        (usage_count_after, usage_bytes_after, receipt_bytes_after),
+        (1, 1, 1)
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

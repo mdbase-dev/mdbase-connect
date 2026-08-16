@@ -270,6 +270,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         notification_config,
     )
     .await?;
+    let recovered_generations = provider.recover_projection_generations(20).await?;
+    if recovered_generations > 0 {
+        tracing::info!(
+            recovered_generations,
+            "advanced hosted semantic projection rebuilds before readiness"
+        );
+    }
     let state = AppState::new(provider.clone(), &secrets.internal_token)?;
     let maintenance = tokio::spawn(maintain_history(
         provider.clone(),
