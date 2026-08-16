@@ -43,6 +43,7 @@ impl HostedProvider {
         let replica = self
             .authenticate_for_sync(collection_id, token, required_operation, request_origin)
             .await?;
+        let presented_token_hash = token_hash(token);
         let claim = self
             .claim_sync_mutation(collection_id, &replica, &mutation)
             .await?;
@@ -73,6 +74,7 @@ impl HostedProvider {
             &mut transaction,
             collection_id,
             replica.id,
+            &presented_token_hash,
             required_operation,
             request_origin,
         )

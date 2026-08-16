@@ -593,6 +593,91 @@ async fn candidate_b_sync_mutation_rechecks_revocation_at_commit() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_sync_mutation_rechecks_token_rotation_at_commit() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let replica_id: Uuid = replica.get("id");
+    let scope_epoch = u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap();
+    let record_id = Uuid::now_v7();
+    let mutation_id = Uuid::new_v4();
+    let mut rotation = fixture.pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE")
+        .bind(replica_id)
+        .fetch_one(&mut *rotation)
+        .await
+        .unwrap();
+
+    let provider = fixture.provider.clone();
+    let collection_id = fixture.collection_id;
+    let token = fixture.token.clone();
+    let mutation = tokio::spawn(async move {
+        provider
+            .mutate(
+                collection_id,
+                &token,
+                SyncMutation {
+                    mutation_id,
+                    replica_id,
+                    scope_epoch,
+                    operation: SyncMutationOperation::Put,
+                    record_id,
+                    base_revision: None,
+                    path: Some("rotated-before-commit.md".to_string()),
+                    document: Some("This old-credential write must not commit.\n".to_string()),
+                    created_at: Utc::now().to_rfc3339(),
+                    causal_predecessor: None,
+                },
+                None,
+            )
+            .await
+    });
+    wait_for_query_blocked(&fixture.pool, "FROM hosted_provider_replicas").await;
+    let replacement_token = format!("replacement-credential-{}", Uuid::new_v4());
+    sqlx::query(
+        r#"UPDATE hosted_provider_replicas
+           SET token_hash = $2, token_expires_at = now() + interval '1 hour'
+           WHERE id = $1"#,
+    )
+    .bind(replica_id)
+    .bind(Sha256::digest(replacement_token.as_bytes()).to_vec())
+    .execute(&mut *rotation)
+    .await
+    .unwrap();
+    rotation.commit().await.unwrap();
+
+    let error = mutation.await.unwrap().unwrap_err();
+    assert_eq!(error.code, "invalid_replica_token");
+    let committed: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM hosted_provider_records WHERE collection_id = $1 AND record_id = $2)",
+    )
+    .bind(fixture.collection_id)
+    .bind(record_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert!(!committed);
+    let journal_state: String = sqlx::query_scalar(
+        r#"SELECT state FROM hosted_provider_mutation_journal
+           WHERE replica_id = $1 AND request_id = $2"#,
+    )
+    .bind(replica_id)
+    .bind(mutation_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(journal_state, "completed");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
 async fn candidate_b_projection_recovery_quarantines_invalid_exact_authority_without_poisoning() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");

@@ -107,6 +107,7 @@ pub(super) async fn reauthorize_sync_mutation_in(
     transaction: &mut Transaction<'_, Postgres>,
     collection_id: Uuid,
     expected_replica_id: Uuid,
+    presented_token_hash: &[u8],
     required_operation: &str,
     request_origin: Option<&str>,
 ) -> ApiResult<Replica> {
@@ -117,11 +118,13 @@ pub(super) async fn reauthorize_sync_mutation_in(
                   allowed_origin, proof_public_key, grant_id, scope_epoch
            FROM hosted_provider_replicas
            WHERE collection_id = $1 AND id = $2
+             AND token_hash = $3
              AND revoked_at IS NULL AND token_expires_at > now()
            FOR UPDATE"#,
     )
     .bind(collection_id)
     .bind(expected_replica_id)
+    .bind(presented_token_hash)
     .fetch_optional(&mut **transaction)
     .await?;
     let replica = replica_from_row(row)?;
