@@ -31,6 +31,7 @@ CREATE INDEX hosted_provider_base_query_invocations_collection_expiry_idx
   );
 
 ALTER TABLE hosted_provider_query_cursors
+  DROP CONSTRAINT hosted_provider_query_cursors_base_state_check,
   ADD COLUMN base_invocation_id uuid
     REFERENCES hosted_provider_base_query_invocations(invocation_id);
 
@@ -50,7 +51,6 @@ SET base_invocation_id = cursor_id,
 WHERE request_kind = 'obsidian_base';
 
 ALTER TABLE hosted_provider_query_cursors
-  DROP CONSTRAINT hosted_provider_query_cursors_base_state_check,
   ADD CONSTRAINT hosted_provider_query_cursors_base_state_check CHECK (
     (request_kind = 'obsidian_base' AND (
       (base_invocation_id IS NOT NULL AND base_plan IS NULL

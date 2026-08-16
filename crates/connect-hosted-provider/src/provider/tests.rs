@@ -9,6 +9,22 @@ fn rollback_binaries_tolerate_newer_additive_migrations() {
 }
 
 #[test]
+fn base_invocation_migration_releases_the_legacy_constraint_before_backfill() {
+    let migration = include_str!("../../migrations/0040_hosted_base_query_invocations.sql");
+    let drop_constraint = migration
+        .find("DROP CONSTRAINT hosted_provider_query_cursors_base_state_check")
+        .expect("migration drops the legacy Base cursor constraint");
+    let backfill = migration
+        .find("UPDATE hosted_provider_query_cursors")
+        .expect("migration backfills legacy Base cursors");
+    let replacement = migration
+        .rfind("ADD CONSTRAINT hosted_provider_query_cursors_base_state_check")
+        .expect("migration installs the invocation-aware constraint");
+    assert!(drop_constraint < backfill);
+    assert!(backfill < replacement);
+}
+
+#[test]
 fn hosted_transport_expansion_is_bounded_to_mutation_recovery() {
     let temporarily_unbound = AuthorizedRequest {
         operation_transport_protocol: None,

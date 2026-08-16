@@ -13,6 +13,103 @@ use support::FileLifecycleFixture;
 use uuid::Uuid;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires a clean MDBASE_PROJECTION_DATABASE_URL disposable PostgreSQL database"]
+async fn candidate_b_migration_0040_upgrades_a_live_legacy_base_cursor() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+    let mut pre_invocation = sqlx::migrate!("./migrations");
+    pre_invocation
+        .migrations
+        .to_mut()
+        .retain(|migration| migration.version < 40);
+    pre_invocation.run(&pool).await.unwrap();
+
+    let collection_id = Uuid::now_v7();
+    let replica_id = Uuid::now_v7();
+    let cursor_id = Uuid::now_v7();
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_collections
+             (id, template, spec_version, max_records, max_content_bytes,
+              max_document_bytes, max_mirror_replicas, resource_revision,
+              wrapped_data_key, resources_ciphertext, timezone,
+              max_application_replicas)
+           VALUES ($1, 'blank', '0.3', 10000, 1073741824, 16777216, 5,
+                   'legacy-catalog', '\x00', '\x00', 'UTC', 5)"#,
+    )
+    .bind(collection_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_replicas
+             (id, collection_id, name, purpose, mode, full_collection,
+              token_hash, token_expires_at)
+           VALUES ($1, $2, 'legacy Base cursor', 'application', 'read_only', true,
+                   decode(repeat('11', 32), 'hex'), now() + interval '1 day')"#,
+    )
+    .bind(replica_id)
+    .bind(collection_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_query_cursors
+             (cursor_id, collection_id, replica_id, scope_epoch, snapshot_head,
+              catalog_revision, projection_format_version,
+              semantic_engine_version, query_plan_version, query_digest,
+              query_plan, emitted_rows, expires_at, hard_expires_at,
+              request_kind, request_digest, result_meta, base_plan,
+              base_context, base_operation_clock)
+           VALUES ($1, $2, $3, 1, 0, 'legacy-catalog', 3, '0.4.0-rc.4', 1,
+                   decode(repeat('22', 32), 'hex'), '{}'::jsonb, 1,
+                   now() + interval '5 minutes', now() + interval '1 hour',
+                   'obsidian_base', decode(repeat('33', 32), 'hex'), '{}'::jsonb,
+                   '{"plan_version":3}'::jsonb, '{"path":"context.md"}'::jsonb,
+                   '2026-08-16T00:00:00Z')"#,
+    )
+    .bind(cursor_id)
+    .bind(collection_id)
+    .bind(replica_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+    let migrated = sqlx::query(
+        r#"SELECT c.base_invocation_id, c.base_plan, c.base_context,
+                  c.base_operation_clock, i.base_plan AS invocation_plan,
+                  i.base_context AS invocation_context
+           FROM hosted_provider_query_cursors c
+           JOIN hosted_provider_base_query_invocations i
+             ON i.invocation_id = c.base_invocation_id
+           WHERE c.cursor_id = $1"#,
+    )
+    .bind(cursor_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(migrated.get::<Uuid, _>("base_invocation_id"), cursor_id);
+    assert!(migrated
+        .get::<Option<serde_json::Value>, _>("base_plan")
+        .is_none());
+    assert!(migrated
+        .get::<Option<serde_json::Value>, _>("base_context")
+        .is_none());
+    assert!(migrated
+        .get::<Option<String>, _>("base_operation_clock")
+        .is_none());
+    assert_eq!(
+        migrated.get::<serde_json::Value, _>("invocation_plan")["plan_version"],
+        3
+    );
+    assert_eq!(
+        migrated.get::<serde_json::Value, _>("invocation_context")["path"],
+        "context.md"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
 async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
@@ -1705,7 +1802,19 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
 async fn candidate_b_base_candidate_prunes_over_scan_budget() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
-    let fixture = FileLifecycleFixture::new(&database_url).await;
+    candidate_b_base_candidate_prunes_fixture(&database_url, 10_001).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_base_candidate_prunes_100k_live_rows() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    candidate_b_base_candidate_prunes_fixture(&database_url, 100_001).await;
+}
+
+async fn candidate_b_base_candidate_prunes_fixture(database_url: &str, decoy_count: i64) {
+    let fixture = FileLifecycleFixture::new(database_url).await;
     fixture
         .enable_obsidian_base_pattern("views/**/*.base")
         .await;
@@ -1746,7 +1855,7 @@ async fn candidate_b_base_candidate_prunes_over_scan_budget() {
                       '{structure,body_tags}', '[]'::jsonb, true
                     ) AS projection,
                     t.*
-             FROM template t CROSS JOIN generate_series(1, 10001) AS g
+             FROM template t CROSS JOIN generate_series(1, $3::bigint) AS g
            )
            INSERT INTO hosted_provider_record_projections
              (collection_id, record_id, record_sequence, valid_from_sequence,
@@ -1765,11 +1874,12 @@ async fn candidate_b_base_candidate_prunes_over_scan_budget() {
     )
     .bind(fixture.collection_id)
     .bind(generation_id)
+    .bind(decoy_count)
     .execute(&fixture.pool)
     .await
     .unwrap()
     .rows_affected();
-    assert_eq!(inserted, 10_001);
+    assert_eq!(inserted, u64::try_from(decoy_count).unwrap());
     let inserted_versions = sqlx::query(
         r#"INSERT INTO hosted_provider_record_versions
              (collection_id, record_id, sequence, revision, types,
@@ -1786,7 +1896,7 @@ async fn candidate_b_base_candidate_prunes_over_scan_budget() {
     .await
     .unwrap()
     .rows_affected();
-    assert_eq!(inserted_versions, 10_001);
+    assert_eq!(inserted_versions, u64::try_from(decoy_count).unwrap());
 
     // A candidate-matching projection with no live authority version must not
     // leak into results even when its semantic JSON is otherwise complete.
@@ -1821,6 +1931,10 @@ async fn candidate_b_base_candidate_prunes_over_scan_budget() {
     .unwrap()
     .rows_affected();
     assert_eq!(orphan_inserted, 1);
+    sqlx::query("ANALYZE hosted_provider_record_versions, hosted_provider_record_projections")
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
 
     let token = format!("candidate-b-scale-{}-{}", Uuid::new_v4(), Uuid::new_v4());
     fixture

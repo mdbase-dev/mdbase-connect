@@ -1,0 +1,65 @@
+{
+  "captured_at": "2026-08-16",
+  "connect_revision_under_test": "2f5eef65",
+  "mdbase_rs_revision_under_test": "2e36e77",
+  "database": {
+    "product": "PostgreSQL",
+    "version": "18.4",
+    "database_bytes": 260249279
+  },
+  "host": {
+    "kernel": "Linux 7.1.3-arch1-2 x86_64",
+    "cpu": "AMD Ryzen 9 7940HS w/ Radeon 780M Graphics",
+    "logical_cpus": 16,
+    "memory_bytes": 98916249600
+  },
+  "fixture": {
+    "record_version_rows": 100003,
+    "live_candidate_decoys": 100001,
+    "deleted_rows": 1,
+    "rows_with_exact_ciphertext": 1,
+    "projection_rows": 100003,
+    "projection_json_bytes": 130503947,
+    "versions_table_bytes": 10928128,
+    "versions_index_bytes": 16171008,
+    "projections_table_bytes": 163856384,
+    "projections_index_bytes": 58753024,
+    "general_projection_gin": false
+  },
+  "query": {
+    "workload": "unscoped file.hasTag('task') stale-union candidate selection",
+    "snapshot_head": 4,
+    "limit": 10001,
+    "selected_rows": 0,
+    "rows_removed_by_filter": 100001,
+    "tag_function_loops": 100001,
+    "planning_ms": 0.933,
+    "execution_ms": 345.119,
+    "shared_hit_blocks": 108610,
+    "shared_read_blocks": 12315,
+    "temp_blocks": 0,
+    "wal_records": 0,
+    "wal_bytes": 0,
+    "live_hash_memory_kib": 7654,
+    "sort_memory_kib": 25,
+    "plan_shape": [
+      "Limit",
+      "Sort",
+      "Hash Right Join",
+      "Seq Scan hosted_provider_record_projections",
+      "Index Scan hosted_provider_versions_snapshot_idx",
+      "Function Scan jsonb_array_elements_text"
+    ]
+  },
+  "end_to_end_test": {
+    "test": "candidate_b_base_candidate_prunes_100k_live_rows",
+    "result": "pass",
+    "elapsed_seconds_including_fixture_setup_latest_clean_run": 15.51,
+    "elapsed_seconds_including_fixture_setup_observed_min": 8.85
+  },
+  "limitations": [
+    "Synthetic decoys have no encrypted payload and therefore isolate production candidate selection rather than import or decrypt cost.",
+    "This worst-case retained state has no surviving tag match after the selected authority was tombstoned.",
+    "A single warm local run is diagnostic plan evidence, not a latency distribution or shared-staging service-level result."
+  ]
+}
