@@ -2,7 +2,11 @@
 
 mod support;
 
-use mdbase_connect_protocol::{SyncMutation, SyncMutationOperation, SyncMutationReceipt};
+use mdbase_connect_hosted_provider::{RegisterReplica, ReplicaPurpose};
+use mdbase_connect_protocol::{
+    SyncMutation, SyncMutationOperation, SyncMutationReceipt, SyncReplicaMode,
+};
+use serde_json::json;
 use sqlx::Row;
 use support::FileLifecycleFixture;
 use uuid::Uuid;
@@ -206,6 +210,112 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
     .await
     .unwrap();
     assert_eq!(active_generation, second_generation);
+
+    let application_token = format!("candidate-b-query-{}-{}", Uuid::new_v4(), Uuid::new_v4());
+    fixture
+        .provider
+        .register_replica(
+            fixture.collection_id,
+            RegisterReplica {
+                replica_id: Uuid::now_v7(),
+                name: "Candidate B query reader".to_string(),
+                purpose: ReplicaPurpose::Application,
+                mode: SyncReplicaMode::ReadOnly,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
+                allowed_operations: vec!["query".to_string()],
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: Vec::new(),
+                file_capability: None,
+                allowed_origin: None,
+                proof_public_key: None,
+                grant_id: Some(Uuid::now_v7()),
+                application_declaration_id: None,
+                application_declaration_digest: None,
+                token: application_token.clone(),
+                token_ttl_seconds: None,
+            },
+        )
+        .await
+        .unwrap();
+    let query = json!({
+        "pagination": "cursor",
+        "limit": 1,
+        "include_body": true,
+        "order_by": [{"field": "file.path", "direction": "asc"}],
+    });
+    let first = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            query,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(first["result"]["meta"]["total_count"], 2);
+    assert_eq!(first["result"]["meta"]["has_more"], true);
+    assert!(first["result"]["results"][0]["body"].is_string());
+    let first_path = first["result"]["results"][0]["path"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let cursor = first["result"]["meta"]["cursor"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let post_snapshot_id = Uuid::now_v7();
+    put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        post_snapshot_id,
+        None,
+        "notes/post-snapshot.md",
+        "This record must not enter the pinned query.\n",
+    )
+    .await;
+    let second = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "cursor": cursor,
+                "limit": 1,
+                "include_body": true,
+                "order_by": [{"field": "file.path", "direction": "asc"}],
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(second["result"]["meta"]["total_count"], 2);
+    assert_eq!(second["result"]["meta"]["has_more"], false);
+    assert!(second["result"]["meta"]["cursor"].is_null());
+    let second_path = second["result"]["results"][0]["path"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        [first_path, second_path],
+        ["notes/new.md", "notes/source.md"]
+    );
+
+    let current_head: i64 =
+        sqlx::query_scalar("SELECT head FROM hosted_provider_collections WHERE id = $1")
+            .bind(fixture.collection_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    assert!(current_head > delete_head);
 
     // Keep the compiler honest that the updated source remains a real exact
     // authority record throughout relationship-only revalidation.

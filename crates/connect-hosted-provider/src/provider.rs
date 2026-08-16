@@ -68,6 +68,7 @@ mod mutation_receipt;
 mod mutations;
 mod operation_context;
 mod operation_dispatch;
+mod operation_queries;
 mod operation_reads;
 mod operation_records;
 mod operation_types;

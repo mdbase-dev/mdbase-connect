@@ -168,9 +168,13 @@ impl HostedProvider {
                         None,
                     ),
                 };
-                let result = self
-                    .execute_read_operation(collection_id, operation, &scoped_input)
-                    .await?;
+                let result = if operation == "query" {
+                    self.execute_hosted_query(collection_id, replica, &scoped_input)
+                        .await?
+                } else {
+                    self.execute_read_operation(collection_id, operation, &scoped_input)
+                        .await?
+                };
                 if contract_scope.is_none() && matches!(operation, "read" | "validate") {
                     ensure_operation_result_visible(&result, &replica.allowed_types)?;
                 }
