@@ -86,6 +86,21 @@ fn receipt_usage_and_ciphertext_budget_migrations_require_drained_ephemeral_stat
 }
 
 #[test]
+fn managed_upgrade_preflight_fences_and_checks_every_quiescent_migration() {
+    let preflight =
+        include_str!("../../../../deploy/postgres/preflight-hosted-provider-upgrade.sql");
+    assert!(preflight.contains("pg_advisory_xact_lock"));
+    assert!(preflight.contains("query_admission_suspended = true"));
+    assert!(preflight.contains("without a durable admission fence"));
+    assert!(preflight.contains("version = 46"));
+    assert!(preflight.contains("version = 49"));
+    assert!(preflight.contains("version = 50"));
+    assert!(preflight.contains("projection rows must be rebuilt"));
+    assert!(preflight.contains("query page receipts must be drained"));
+    assert!(preflight.contains("query cursors must be drained"));
+}
+
+#[test]
 fn projection_source_revision_constraint_is_time_bounded() {
     let migration =
         include_str!("../../migrations/0048_hosted_projection_generation_source_resource.sql");

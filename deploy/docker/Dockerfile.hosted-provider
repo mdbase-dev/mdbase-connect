@@ -32,11 +32,12 @@ FROM debian:bookworm-slim AS runtime
 
 ARG MDBASE_CONNECT_REVISION
 RUN apt-get update \
- && apt-get install --yes --no-install-recommends ca-certificates curl \
+ && apt-get install --yes --no-install-recommends ca-certificates curl postgresql-client \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --create-home --uid 10001 mdbase
 
 COPY --from=build /build/output/ /usr/local/bin/
+COPY deploy/postgres/ /usr/local/share/mdbase-connect/postgres/
 
 ENV HOST=0.0.0.0 \
     PORT=8790 \

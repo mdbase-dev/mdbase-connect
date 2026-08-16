@@ -330,6 +330,15 @@ and 30-second statement timeout. Production preflight must prove the provider is
 drained and the table is new/empty; an unexpected populated deployment fails for
 operator review instead of waiting indefinitely on a blocking `CREATE INDEX`.
 
+Migrations 0053 and 0055 are non-transactional `CREATE INDEX CONCURRENTLY`
+steps. Provider startup dedicates one migration connection, applies a five-second
+lock timeout and 30-minute statement timeout, and concurrently removes only the
+two allowlisted invalid indexes left by an interrupted prior build before retrying.
+The candidate image also contains PostgreSQL client tooling and every reviewed
+preflight under `/usr/local/share/mdbase-connect/postgres`; managed rollout invokes
+those exact files as waited one-off jobs rather than relying on an operator's
+workstation or an unversioned SQL copy.
+
 Ordinary writes after activation always generate against the active catalog. They
 close prior temporal rows and commit ciphertext, revision, current projection
 binding, relationship state, versions/changes, quotas, journal settlement, receipt,
