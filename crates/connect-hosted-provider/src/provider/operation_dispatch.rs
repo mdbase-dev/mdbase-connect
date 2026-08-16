@@ -355,7 +355,10 @@ impl HostedProvider {
         }
     }
 
-    async fn candidate_b_execution_enabled(&self, collection_id: Uuid) -> ApiResult<bool> {
+    pub(super) async fn candidate_b_execution_enabled(
+        &self,
+        collection_id: Uuid,
+    ) -> ApiResult<bool> {
         sqlx::query_scalar(
             "SELECT hosted_execution_model = 'candidate_b' FROM hosted_provider_collections WHERE id = $1 AND state = 'active'",
         )

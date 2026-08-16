@@ -226,6 +226,13 @@ impl HostedProvider {
                 .execute_direct_resource_read(collection_id, operation, input)
                 .await;
         }
+        if matches!(operation, "assess_type_pack" | "assess_collection_setup")
+            && self.candidate_b_execution_enabled(collection_id).await?
+        {
+            return self
+                .execute_direct_definition_assessment(collection_id, operation, input)
+                .await;
+        }
         let snapshot_started = Instant::now();
         let mut transaction = self.pool.begin().await?;
         let collection = sqlx::query(
@@ -386,6 +393,118 @@ impl HostedProvider {
             "privacy-safe hosted provider metric"
         );
         Ok(result)
+    }
+
+    async fn execute_direct_definition_assessment(
+        &self,
+        collection_id: Uuid,
+        operation: &str,
+        input: &Value,
+    ) -> ApiResult<OperationResult> {
+        let started = Instant::now();
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query("SET LOCAL statement_timeout = 15000")
+            .execute(&mut *transaction)
+            .await?;
+        let collection = sqlx::query(
+            r#"SELECT resource_revision, wrapped_data_key, resources_ciphertext
+               FROM hosted_provider_collections
+               WHERE id = $1 AND state = 'active'"#,
+        )
+        .bind(collection_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                "hosted_collection_not_found",
+                "Hosted collection not found.",
+            )
+        })?;
+        let data_key = self
+            .collection_key(collection_id, collection.get("wrapped_data_key"))
+            .await?;
+        let resources: SyncCollectionResources = self.crypto.decrypt_json(
+            &data_key,
+            collection.get("resources_ciphertext"),
+            &resources_aad(collection_id),
+        )?;
+        if resources.revision != collection.get::<String, _>("resource_revision") {
+            return Err(ApiError::internal(
+                "The encrypted resource catalog revision does not match collection metadata.",
+            ));
+        }
+        let resource_documents =
+            load_resource_documents(&mut transaction, &self.crypto, &data_key, collection_id)
+                .await?;
+        let catalog = compile_point_catalog(resources, resource_documents.clone())?;
+        let plan = match operation {
+            "assess_type_pack" => {
+                let request = serde_json::from_value::<AssessTypePackInput>(input.clone())
+                    .map_err(|error| {
+                        ApiError::bad_request(
+                            "invalid_type_pack",
+                            format!("The type-pack assessment is invalid: {error}"),
+                        )
+                    })?;
+                let provision = engine_type_pack_provision(&request.provision)?;
+                let options = mdbase::v03::TypePackAssessmentOptions {
+                    installed_by: request.installed_by,
+                    adopt_resources: request.adopt_resources,
+                    preserve_seed_targets: request.preserve_seed_targets,
+                    target_overrides: request.target_overrides,
+                    contract_setups: request
+                        .contract_setups
+                        .iter()
+                        .map(engine_contract_setup)
+                        .collect(),
+                };
+                catalog.plan_hosted_definition_operation(
+                    HostedDefinitionOperation::AssessTypePack {
+                        provision: &provision,
+                        options: &options,
+                    },
+                    &resource_documents,
+                )
+            }
+            "assess_collection_setup" => {
+                let request = serde_json::from_value::<AssessCollectionSetupInput>(input.clone())
+                    .map_err(|error| {
+                    ApiError::bad_request(
+                        "invalid_collection_setup",
+                        format!("The collection-setup assessment is invalid: {error}"),
+                    )
+                })?;
+                let setup = engine_collection_setup(&request)?;
+                catalog.plan_hosted_definition_operation(
+                    HostedDefinitionOperation::AssessCollectionSetup { setup: &setup },
+                    &resource_documents,
+                )
+            }
+            _ => unreachable!("definition assessment is closed above"),
+        }
+        .map_err(|error| {
+            if error.code.contains("budget_exceeded") {
+                ApiError::quota(error.code, error.message)
+            } else {
+                ApiError::internal(format!(
+                    "Canonical hosted definition assessment failed ({}): {}",
+                    error.code, error.message
+                ))
+            }
+        })?;
+        transaction.commit().await?;
+        tracing::info!(
+            target: "mdbase_connect::metrics",
+            metric = "hosted_direct_definition_assessment",
+            operation,
+            resource_documents = resource_documents.len() as u64,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "privacy-safe hosted provider metric"
+        );
+        Ok(plan.result)
     }
 
     pub(super) async fn execute_direct_point_read_by_id(

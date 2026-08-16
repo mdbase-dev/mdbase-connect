@@ -8,6 +8,7 @@ use mdbase_connect_protocol::{
     SyncMutation, SyncMutationOperation, SyncMutationReceipt, SyncReplicaMode,
 };
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use sqlx::Row;
 use std::time::Duration;
 use support::FileLifecycleFixture;
@@ -953,6 +954,8 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
                     "rename".to_string(),
                     "create_type".to_string(),
                     "read_type".to_string(),
+                    "assess_type_pack".to_string(),
+                    "apply_type_pack".to_string(),
                     "create_view_source".to_string(),
                     "update_view_source".to_string(),
                     "read_view_source".to_string(),
@@ -1523,9 +1526,117 @@ views:
         .unwrap();
     assert_eq!(read_view["result"]["document"], view_document);
 
+    exercise_candidate_b_definition_operations_without_record_decryption(
+        &fixture,
+        &writer_token,
+        source_id,
+        rebuilt_generation,
+    )
+    .await;
+
     // Keep the compiler honest that the updated source remains a real exact
     // authority record throughout relationship-only revalidation.
     assert!(!source.revision.is_empty());
+}
+
+async fn exercise_candidate_b_definition_operations_without_record_decryption(
+    fixture: &FileLifecycleFixture,
+    writer_token: &str,
+    source_id: Uuid,
+    previous_generation: Uuid,
+) {
+    let project_type = "---\nkind: mdbase.type\nname: project\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object}\n---\n";
+    let pack = json!({
+        "provision": {
+            "manifest": {
+                "kind": "mdbase.type-pack",
+                "id": "dev.mdbase.candidate-b-project",
+                "version": "1.0.0",
+                "resources": [{
+                    "kind": "type",
+                    "mode": "managed",
+                    "source": "types/project.md",
+                    "target": "_types/project.md",
+                    "digest": format!("sha256:{:x}", Sha256::digest(project_type.as_bytes()))
+                }]
+            },
+            "resources": [{"source": "types/project.md", "document": project_type}],
+            "provides": []
+        },
+        "installed_by": "dev.mdbase.candidate-b-project",
+        "adopt_resources": {},
+        "preserve_seed_targets": [],
+        "target_overrides": {},
+        "contract_setups": []
+    });
+    let original_ciphertext: Vec<u8> = sqlx::query_scalar(
+        "SELECT payload_ciphertext FROM hosted_provider_records WHERE collection_id = $1 AND record_id = $2",
+    )
+    .bind(fixture.collection_id)
+    .bind(source_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE hosted_provider_records SET payload_ciphertext = '\\x00' WHERE collection_id = $1 AND record_id = $2",
+    )
+    .bind(fixture.collection_id)
+    .bind(source_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let assessment = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            writer_token,
+            "assess_type_pack",
+            Uuid::new_v4(),
+            pack.clone(),
+            None,
+        )
+        .await
+        .expect("Candidate B definition assessment never decrypts record Markdown");
+    assert_eq!(assessment["valid"], true);
+    let mut apply = pack;
+    apply["expected_assessment_digest"] = assessment["result"]["assessment_digest"].clone();
+    apply["allow_downgrade"] = json!(false);
+    let applied = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            writer_token,
+            "apply_type_pack",
+            Uuid::new_v4(),
+            apply,
+            None,
+        )
+        .await
+        .expect("Candidate B definition apply never decrypts record Markdown");
+    assert_eq!(applied["valid"], true);
+    sqlx::query(
+        "UPDATE hosted_provider_records SET payload_ciphertext = $3 WHERE collection_id = $1 AND record_id = $2",
+    )
+    .bind(fixture.collection_id)
+    .bind(source_id)
+    .bind(original_ciphertext)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let project = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            writer_token,
+            "read_type",
+            Uuid::new_v4(),
+            json!({"name": "project"}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(project["result"]["document"], project_type);
+    assert!(complete_generation(fixture).await != previous_generation);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

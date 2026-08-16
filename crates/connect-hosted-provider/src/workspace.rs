@@ -21,7 +21,9 @@ mod types;
 #[cfg(test)]
 use support::operation_input;
 use support::{safe_path, write_document};
-use type_packs::{engine_collection_setup, engine_contract_setup, engine_type_pack_provision};
+pub(crate) use type_packs::{
+    engine_collection_setup, engine_contract_setup, engine_type_pack_provision,
+};
 pub use types::{Execution, StoredDocument};
 
 pub struct WorkingSet {

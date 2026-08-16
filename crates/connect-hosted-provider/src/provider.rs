@@ -9,7 +9,10 @@ use axum::http::StatusCode;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{DateTime, SecondsFormat, Utc};
 use hmac::{Hmac, Mac};
-use mdbase::v03::{Diagnostic, OperationResult};
+use mdbase::{
+    runtime::HostedDefinitionOperation,
+    v03::{Diagnostic, OperationResult},
+};
 use mdbase_connect_protocol::{
     authority_file_hash, authority_manifest_digest as snapshot_manifest_digest,
     ApplicationCollectionSetupProvisions, ApplicationCollectionSetupRequirements,
@@ -46,7 +49,10 @@ use crate::{
     error::{ApiError, ApiResult},
     notifications::{HostedNotificationConfig, HostedNotificationRuntime},
     template,
-    workspace::{StoredDocument, WorkingSet},
+    workspace::{
+        engine_collection_setup, engine_contract_setup, engine_type_pack_provision, StoredDocument,
+        WorkingSet,
+    },
 };
 
 mod account_quotas;

@@ -213,7 +213,7 @@ impl HostedProvider {
     }
 }
 
-fn hosted_type_descriptor(
+pub(super) fn hosted_type_descriptor(
     resource: &mdbase::runtime::ResolvedTypeResource,
 ) -> ApiResult<CollectionTypeDescriptor> {
     let definition = resource.definition.as_object().ok_or_else(|| {
@@ -244,7 +244,7 @@ fn hosted_type_descriptor(
     })
 }
 
-fn hosted_contract_descriptor(
+pub(super) fn hosted_contract_descriptor(
     contract: &mdbase::data_contracts::ResolvedRecordContract,
 ) -> CollectionContractDescriptor {
     CollectionContractDescriptor {

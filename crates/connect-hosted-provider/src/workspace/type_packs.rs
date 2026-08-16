@@ -4,7 +4,7 @@ use mdbase_connect_protocol::{
 
 use crate::error::{ApiError, ApiResult};
 
-pub(super) fn engine_type_pack_provision(
+pub(crate) fn engine_type_pack_provision(
     provision: &TypePackProvision,
 ) -> ApiResult<mdbase::v03::TypePackProvision> {
     let manifest = serde_json::to_value(&provision.manifest).map_err(|error| {
@@ -25,7 +25,7 @@ pub(super) fn engine_type_pack_provision(
     })
 }
 
-pub(super) fn engine_contract_setup(
+pub(crate) fn engine_contract_setup(
     setup: &ContractSetupChoice,
 ) -> mdbase::v03::ContractSetupChoice {
     let contract = mdbase::v03::ContractIdentity {
@@ -51,7 +51,7 @@ pub(super) fn engine_contract_setup(
     mdbase::v03::ContractSetupChoice { contract, mode }
 }
 
-pub(super) fn engine_collection_setup(
+pub(crate) fn engine_collection_setup(
     input: &AssessCollectionSetupInput,
 ) -> ApiResult<mdbase::v03::CollectionSetup> {
     let type_packs = input

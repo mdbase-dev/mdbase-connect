@@ -88,6 +88,15 @@ changes the semantic digest and invalidates the binding. Authorization and query
 currentness never compare the broader resource revision as a substitute for this
 semantic digest.
 
+Type-pack and collection-setup assessment/apply use mdbase-rs's closed bounded
+definition seam. Connect decrypts at most 2,000 exact resource documents and 32 MiB,
+never reads record ciphertext for the inline definition operation, and atomically
+persists the returned resource/type/contract catalog. A successful semantic change
+opens a new projection generation; it does not reclassify or rewrite every record
+inside the definition transaction. Until rebuild completion, query and authorization
+paths use the same stale/absent canonical fallback and fail-closed rules described
+above. Legacy collections retain their prior behavior until explicitly activated.
+
 ## Structural relationship graph
 
 Each projection carries a deterministic structural/link digest and a canonical set
