@@ -384,6 +384,73 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
         "notes/post-snapshot.md"
     );
 
+    let ordered = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "pagination": "cursor",
+                "limit": 1,
+                "order_by": [{"field": "record.title", "direction": "desc"}],
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(ordered["result"]["results"][0]["path"], "notes/new.md");
+    let ordered_cursor = ordered["result"]["meta"]["cursor"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let ordered_next = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "cursor": ordered_cursor,
+                "limit": 1,
+                "order_by": [{"field": "record.title", "direction": "desc"}],
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        ordered_next["result"]["results"][0]["path"],
+        "notes/source.md"
+    );
+
+    let grouped = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "limit": 10,
+                "group_by": [{"field": "record.title"}],
+                "summaries": [
+                    {"field": "record.title", "function": "count", "name": "records"}
+                ],
+                "order_by": [{"field": "file.path"}],
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    let groups = grouped["result"]["meta"]["groups"].as_array().unwrap();
+    assert_eq!(groups.len(), 3);
+    assert!(groups
+        .iter()
+        .all(|group| group["count"] == 1 && group["summaries"]["records"] == 1));
+
     sqlx::query(
         r#"UPDATE hosted_provider_record_projections
            SET semantic_complete = false

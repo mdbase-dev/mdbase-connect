@@ -11,6 +11,7 @@ struct HostedQueryState {
     projection_format_version: u32,
     semantic_engine_version: String,
     plan: mdbase::runtime::HostedQueryPlan,
+    last_order_values: Vec<Value>,
     last_path: Option<String>,
     last_record_id: Option<Uuid>,
     emitted_rows: u64,
@@ -27,10 +28,17 @@ struct ProjectedQueryRow {
 struct ExecutedQueryPage {
     results: Vec<Value>,
     diagnostics: Vec<Diagnostic>,
+    groups: Option<Vec<Value>>,
     total_count: u64,
-    last_boundary: Option<(String, Uuid)>,
+    last_boundary: Option<QueryPageBoundary>,
     candidate_rows: u64,
     exact_documents: u64,
+}
+
+struct QueryPageBoundary {
+    order_values: Vec<Value>,
+    path: String,
+    record_id: Uuid,
 }
 
 impl HostedProvider {
@@ -154,17 +162,14 @@ impl HostedProvider {
                 "The hosted query candidate plan is not yet available in the production SQL executor.",
             )
         })?;
-        let order_descending = path_order_direction(&state.plan).ok_or_else(|| {
-            ApiError::bad_request(
-                "unsupported_hosted_order_runtime",
-                "This hosted order requires the bounded top-K executor.",
-            )
-        })?;
+        let path_order_descending = path_order_direction(&state.plan);
         let projection_fallback =
             projection_fallback_exists(&mut transaction, collection_id, &state).await?;
         let page = if state.plan.residual.filter_fully_projected
             && !state.plan.requirements.diagnostic_type_matchers
+            && !state.plan.requirements.bounded_grouping
             && !projection_fallback
+            && path_order_descending.is_some()
         {
             execute_projected_page(
                 &mut transaction,
@@ -174,7 +179,7 @@ impl HostedProvider {
                 &state,
                 &catalog,
                 &candidate_types,
-                order_descending,
+                path_order_descending.unwrap_or(false),
                 requested_page_size,
             )
             .await?
@@ -186,7 +191,6 @@ impl HostedProvider {
                 collection_id,
                 &state,
                 &catalog,
-                order_descending,
                 requested_page_size,
                 started,
             )
@@ -201,7 +205,7 @@ impl HostedProvider {
             .saturating_add(page_count);
         let has_more = consumed < page.total_count;
         let next_cursor = if has_more {
-            let (last_path, last_record_id) = page.last_boundary.as_ref().ok_or_else(|| {
+            let boundary = page.last_boundary.as_ref().ok_or_else(|| {
                 ApiError::internal("A hosted query reported more rows without a keyset boundary.")
             })?;
             let cursor_id = Uuid::new_v4();
@@ -211,8 +215,9 @@ impl HostedProvider {
                 replica,
                 cursor_id,
                 &state,
-                last_path,
-                *last_record_id,
+                &boundary.order_values,
+                &boundary.path,
+                boundary.record_id,
                 state.emitted_rows.saturating_add(page_count),
             )
             .await?;
@@ -246,15 +251,19 @@ impl HostedProvider {
         );
         let serialized_diagnostics =
             serde_json::to_value(&page.diagnostics).unwrap_or_else(|_| json!([]));
+        let mut meta = json!({
+            "total_count": page.total_count,
+            "has_more": has_more,
+            "cursor": next_cursor,
+        });
+        if let Some(groups) = page.groups {
+            meta["groups"] = Value::Array(groups);
+        }
         Ok(OperationResult {
             valid: true,
             result: json!({
                 "results": page.results,
-                "meta": {
-                    "total_count": page.total_count,
-                    "has_more": has_more,
-                    "cursor": next_cursor,
-                },
+                "meta": meta,
                 "diagnostics": serialized_diagnostics,
             }),
             diagnostics: page.diagnostics,
@@ -316,6 +325,7 @@ impl HostedProvider {
             projection_format_version,
             semantic_engine_version,
             plan,
+            last_order_values: Vec::new(),
             last_path: None,
             last_record_id: None,
             emitted_rows: 0,
@@ -372,13 +382,20 @@ impl HostedProvider {
                 "The hosted query cursor does not match the requested query.",
             ));
         }
-        let order_values: Value = row.get("last_order_values");
-        let last_path = order_values
+        let mut order_values = row
+            .get::<Value, _>("last_order_values")
             .as_array()
-            .and_then(|values| values.first())
-            .and_then(Value::as_str)
-            .map(String::from)
+            .cloned()
             .ok_or_else(|| ApiError::internal("Stored hosted query keyset is invalid."))?;
+        if order_values.len() != plan.order.len().saturating_add(1) {
+            return Err(ApiError::internal(
+                "Stored hosted query keyset does not match its query plan.",
+            ));
+        }
+        let last_path = order_values
+            .pop()
+            .and_then(|value| value.as_str().map(String::from))
+            .ok_or_else(|| ApiError::internal("Stored hosted query path key is invalid."))?;
         Ok(HostedQueryState {
             snapshot_head: number(row.get("snapshot_head"), "query snapshot head")?,
             generation_id: row.get("generation_id"),
@@ -389,6 +406,7 @@ impl HostedProvider {
             )? as u32,
             semantic_engine_version: row.get("semantic_engine_version"),
             plan,
+            last_order_values: order_values,
             last_path: Some(last_path),
             last_record_id: row.get("last_record_id"),
             emitted_rows: number(row.get("emitted_rows"), "emitted query rows")?,
@@ -583,10 +601,18 @@ async fn execute_projected_page(
     Ok(ExecutedQueryPage {
         results,
         diagnostics,
+        groups: None,
         total_count,
-        last_boundary: rows
-            .last()
-            .map(|row| (row.canonical_path.clone(), row.record_id)),
+        last_boundary: rows.last().map(|row| QueryPageBoundary {
+            order_values: state
+                .plan
+                .order
+                .iter()
+                .map(|_| Value::String(row.canonical_path.clone()))
+                .collect(),
+            path: row.canonical_path.clone(),
+            record_id: row.record_id,
+        }),
         candidate_rows: rows.len() as u64,
         exact_documents: exact_records.len() as u64,
     })
@@ -594,6 +620,14 @@ async fn execute_projected_page(
 
 struct BoundedProjectionCandidate {
     record_id: Uuid,
+}
+
+struct BoundedQueryMatch {
+    path: String,
+    record_id: Uuid,
+    result: Value,
+    order_values: Vec<Value>,
+    reduction: mdbase::runtime::HostedReductionInput,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -604,7 +638,6 @@ async fn execute_bounded_residual_page(
     collection_id: Uuid,
     state: &HostedQueryState,
     catalog: &mdbase::runtime::CompiledCatalog,
-    descending: bool,
     page_size: u64,
     started: Instant,
 ) -> ApiResult<ExecutedQueryPage> {
@@ -747,7 +780,7 @@ async fn execute_bounded_residual_page(
     }
 
     let mut diagnostics = Vec::new();
-    let mut matching = Vec::<(String, Uuid, Value)>::new();
+    let mut matching = Vec::<BoundedQueryMatch>::new();
     for candidate in candidates {
         let evaluation =
             if let Some(evaluation) = projected_evaluations.remove(&candidate.record_id) {
@@ -767,31 +800,121 @@ async fn execute_bounded_residual_page(
                 .and_then(Value::as_str)
                 .ok_or_else(|| ApiError::internal("A hosted query result has no path."))?
                 .to_string();
-            matching.push((path, candidate.record_id, result));
+            matching.push(BoundedQueryMatch {
+                path,
+                record_id: candidate.record_id,
+                result,
+                order_values: evaluation.order_values,
+                reduction: mdbase::runtime::HostedReductionInput {
+                    group_values: evaluation.group_values,
+                    aggregate_values: evaluation.aggregate_values,
+                },
+            });
         }
     }
     matching.sort_by(|left, right| {
-        let path = if descending {
-            right.0.cmp(&left.0)
-        } else {
-            left.0.cmp(&right.0)
-        };
-        path.then_with(|| left.1.cmp(&right.1))
+        state
+            .plan
+            .compare_order_values(
+                &left.order_values,
+                &left.path,
+                &right.order_values,
+                &right.path,
+            )
+            .then_with(|| left.record_id.cmp(&right.record_id))
     });
     let total_count = matching.len() as u64;
-    let after_keyset = matching.into_iter().filter(|(path, record_id, _)| {
+    let operator_steps = candidate_count.saturating_add(
+        total_count.saturating_mul(
+            u64::from(total_count.max(1).ilog2().saturating_add(1))
+                .saturating_add(state.plan.order.len() as u64)
+                .saturating_add(state.plan.groups.len() as u64)
+                .saturating_add(state.plan.aggregates.len() as u64),
+        ),
+    );
+    if operator_steps > state.plan.budgets.max_operator_steps {
+        return Err(query_budget_error(
+            "hosted_operator_budget_exceeded",
+            "The hosted query exceeded its bounded operator-step budget.",
+            "operator_steps",
+            state.plan.budgets.max_operator_steps,
+            operator_steps,
+        ));
+    }
+    let matching_bytes = matching.iter().fold(0_u64, |total, item| {
+        total
+            .saturating_add(serialized_value_bytes(&item.result))
+            .saturating_add(serialized_value_bytes(&Value::Array(
+                item.order_values.clone(),
+            )))
+            .saturating_add(serialized_value_bytes(&Value::Array(
+                item.reduction.group_values.clone(),
+            )))
+            .saturating_add(serialized_value_bytes(&Value::Array(
+                item.reduction.aggregate_values.clone(),
+            )))
+    });
+    let reduction_inputs = matching
+        .iter()
+        .map(|item| item.reduction.clone())
+        .collect::<Vec<_>>();
+    let reduction_input_bytes = reduction_inputs.iter().fold(0_u64, |total, item| {
+        total
+            .saturating_add(serialized_value_bytes(&Value::Array(
+                item.group_values.clone(),
+            )))
+            .saturating_add(serialized_value_bytes(&Value::Array(
+                item.aggregate_values.clone(),
+            )))
+    });
+    let pre_reduction_resident_bytes = projection_bytes
+        .saturating_add(exact_bytes)
+        .saturating_add(matching_bytes)
+        // The reducer partitions its bounded input by value. Account for that
+        // temporary copy before allocating it, rather than observing RSS late.
+        .saturating_add(reduction_input_bytes.saturating_mul(2));
+    if pre_reduction_resident_bytes > state.plan.budgets.max_memory_bytes {
+        return Err(query_budget_error(
+            "hosted_memory_budget_exceeded",
+            "The hosted query exceeded its bounded resident-memory budget.",
+            "memory_bytes",
+            state.plan.budgets.max_memory_bytes,
+            pre_reduction_resident_bytes,
+        ));
+    }
+    let reduction = state
+        .plan
+        .reduce_matches(&reduction_inputs)
+        .map_err(projection_inconsistent)?;
+    diagnostics.extend(reduction.diagnostics);
+    let groups_bytes = reduction.groups.as_ref().map_or(0, |groups| {
+        serialized_value_bytes(&Value::Array(groups.clone()))
+    });
+    let resident_bytes = pre_reduction_resident_bytes.saturating_add(groups_bytes);
+    if resident_bytes > state.plan.budgets.max_memory_bytes {
+        return Err(query_budget_error(
+            "hosted_memory_budget_exceeded",
+            "The hosted query exceeded its bounded resident-memory budget.",
+            "memory_bytes",
+            state.plan.budgets.max_memory_bytes,
+            resident_bytes,
+        ));
+    }
+    let after_keyset = matching.into_iter().filter(|item| {
         let Some(last_path) = state.last_path.as_deref() else {
             return true;
         };
-        if descending {
-            path.as_str() < last_path
-                || (path.as_str() == last_path
-                    && state.last_record_id.is_some_and(|last| *record_id > last))
-        } else {
-            path.as_str() > last_path
-                || (path.as_str() == last_path
-                    && state.last_record_id.is_some_and(|last| *record_id > last))
-        }
+        let ordering = state.plan.compare_order_values(
+            &item.order_values,
+            &item.path,
+            &state.last_order_values,
+            last_path,
+        );
+        ordering.is_gt()
+            || (ordering.is_eq()
+                && state
+                    .last_record_id
+                    .is_some_and(|last| item.record_id > last))
     });
     let offset = if state.last_path.is_none() {
         state.plan.offset
@@ -802,28 +925,12 @@ async fn execute_bounded_residual_page(
         .skip(usize::try_from(offset).unwrap_or(usize::MAX))
         .take(usize::try_from(page_size).unwrap_or(usize::MAX))
         .collect::<Vec<_>>();
-    let last_boundary = page
-        .last()
-        .map(|(path, record_id, _)| (path.clone(), *record_id));
-    let results = page
-        .into_iter()
-        .map(|(_, _, result)| result)
-        .collect::<Vec<_>>();
-    let resident_bytes = projection_bytes.saturating_add(exact_bytes).saturating_add(
-        results
-            .iter()
-            .map(|result| serde_json::to_vec(result).map_or(0, |bytes| bytes.len() as u64))
-            .sum::<u64>(),
-    );
-    if resident_bytes > state.plan.budgets.max_memory_bytes {
-        return Err(query_budget_error(
-            "hosted_memory_budget_exceeded",
-            "The hosted query exceeded its bounded resident-memory budget.",
-            "memory_bytes",
-            state.plan.budgets.max_memory_bytes,
-            resident_bytes,
-        ));
-    }
+    let last_boundary = page.last().map(|item| QueryPageBoundary {
+        order_values: item.order_values.clone(),
+        path: item.path.clone(),
+        record_id: item.record_id,
+    });
+    let results = page.into_iter().map(|item| item.result).collect::<Vec<_>>();
     if started.elapsed().as_millis() as u64 > state.plan.budgets.max_wall_time_ms {
         return Err(query_budget_error(
             "hosted_time_budget_exceeded",
@@ -836,6 +943,7 @@ async fn execute_bounded_residual_page(
     Ok(ExecutedQueryPage {
         results,
         diagnostics,
+        groups: reduction.groups,
         total_count,
         last_boundary,
         candidate_rows: candidate_count,
@@ -860,6 +968,10 @@ fn query_budget_error(
         "limit": limit,
         "observed": observed,
     }))
+}
+
+fn serialized_value_bytes(value: &Value) -> u64 {
+    serde_json::to_vec(value).map_or(0, |bytes| bytes.len() as u64)
 }
 
 async fn count_projected_candidates(
@@ -1028,6 +1140,7 @@ async fn insert_query_cursor(
     replica: &Replica,
     cursor_id: Uuid,
     state: &HostedQueryState,
+    last_order_values: &[Value],
     last_path: &str,
     last_record_id: Uuid,
     emitted_rows: u64,
@@ -1035,6 +1148,8 @@ async fn insert_query_cursor(
     let plan = serde_json::to_value(&state.plan).map_err(|error| {
         ApiError::internal(format!("Hosted query plan could not serialize: {error}"))
     })?;
+    let mut keyset = last_order_values.to_vec();
+    keyset.push(Value::String(last_path.to_string()));
     sqlx::query(
         r#"INSERT INTO hosted_provider_query_cursors
              (cursor_id, collection_id, replica_id, scope_epoch, snapshot_head,
@@ -1042,7 +1157,7 @@ async fn insert_query_cursor(
               semantic_engine_version, query_plan_version, query_digest, query_plan,
               last_order_values, last_record_id, emitted_rows, expires_at, hard_expires_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                   jsonb_build_array($13::text), $14, $15,
+                   $13, $14, $15,
                    LEAST(now() + make_interval(secs => $16), $17), $17)"#,
     )
     .bind(cursor_id)
@@ -1057,7 +1172,7 @@ async fn insert_query_cursor(
     .bind(i64::from(state.plan.version))
     .bind(decode_sha256_digest(&state.plan.canonical_query_digest)?)
     .bind(plan)
-    .bind(last_path)
+    .bind(sqlx::types::Json(keyset))
     .bind(last_record_id)
     .bind(to_i64(emitted_rows, "emitted query rows")?)
     .bind(QUERY_CURSOR_IDLE_SECONDS)
