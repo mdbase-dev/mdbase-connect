@@ -1526,11 +1526,13 @@ views:
         .unwrap();
     assert_eq!(read_view["result"]["document"], view_document);
 
-    exercise_candidate_b_definition_operations_without_record_decryption(
-        &fixture,
-        &writer_token,
-        source_id,
-        rebuilt_generation,
+    Box::pin(
+        exercise_candidate_b_definition_operations_without_record_decryption(
+            &fixture,
+            &writer_token,
+            source_id,
+            rebuilt_generation,
+        ),
     )
     .await;
 
@@ -2478,6 +2480,7 @@ async fn candidate_b_base_candidate_prunes_fixture(database_url: &str, decoy_cou
                 contract_scope: Vec::new(),
                 full_collection: true,
                 allowed_operations: vec![
+                    "query".to_string(),
                     "create_view_source".to_string(),
                     "execute_view".to_string(),
                 ],
@@ -2495,6 +2498,59 @@ async fn candidate_b_base_candidate_prunes_fixture(database_url: &str, decoy_cou
         )
         .await
         .unwrap();
+    let first_ordered_page = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "pagination": "cursor",
+                "limit": 1000,
+                "order_by": [{"field": "file.mtime", "direction": "desc"}]
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        first_ordered_page["result"]["meta"]["total_count"],
+        decoy_count + 1
+    );
+    assert_eq!(
+        first_ordered_page["result"]["results"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1000
+    );
+    let first_ordered_cursor = first_ordered_page["result"]["meta"]["cursor"]
+        .as_str()
+        .unwrap();
+    let second_ordered_page = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "cursor": first_ordered_cursor,
+                "limit": 1000,
+                "order_by": [{"field": "file.mtime", "direction": "desc"}]
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        second_ordered_page["result"]["results"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1000
+    );
     let source = r##"filters:
   and:
     - 'file.hasTag("#task")'

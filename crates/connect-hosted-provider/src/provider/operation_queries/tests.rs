@@ -77,6 +77,41 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn scalar_keyset_sql_preserves_canonical_null_direction() {
+        use mdbase::runtime::{
+            CandidateField, HostedOrder, HostedOrderDirection, HostedScalarKind,
+            HostedSortSemantics,
+        };
+        let ascending = HostedOrder {
+            field: CandidateField::EffectiveFrontmatter(vec!["created_at".to_string()]),
+            direction: HostedOrderDirection::Ascending,
+            canonical_path_tiebreak: true,
+            semantics: HostedSortSemantics::CanonicalV03,
+            value_kind: Some(HostedScalarKind::String),
+        };
+        let mut after_value = QueryBuilder::<Postgres>::new("");
+        push_scalar_order_after(&mut after_value, &ascending, &json!("2026-01-01"));
+        assert_eq!(
+            after_value.sql(),
+            "(p.semantic_projection #>> $1 IS NULL OR p.semantic_projection #>> $2 > $3)"
+        );
+        let mut after_null = QueryBuilder::<Postgres>::new("");
+        push_scalar_order_after(&mut after_null, &ascending, &Value::Null);
+        assert_eq!(after_null.sql(), "FALSE");
+
+        let descending = HostedOrder {
+            direction: HostedOrderDirection::Descending,
+            ..ascending
+        };
+        let mut descending_after_null = QueryBuilder::<Postgres>::new("");
+        push_scalar_order_after(&mut descending_after_null, &descending, &Value::Null);
+        assert_eq!(
+            descending_after_null.sql(),
+            "p.semantic_projection #>> $1 IS NOT NULL"
+        );
+    }
+
     #[tokio::test]
     async fn scan_permit_gate_is_bounded_and_releases_independently() {
         let semaphore = Arc::new(Semaphore::new(2));

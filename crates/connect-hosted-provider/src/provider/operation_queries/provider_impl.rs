@@ -397,13 +397,20 @@ impl HostedProvider {
                     "The hosted query candidate plan is not yet available in the production SQL executor.",
                 )
             })?;
-            let path_order_descending = path_order_direction(&state.plan);
+            let scalar_order_supported = projected_scalar_order_supported(&state.plan)
+                && projected_scalar_order_values_are_valid(
+                    &mut transaction,
+                    collection_id,
+                    &state,
+                    &candidate_types,
+                )
+                .await?;
             if state.plan.residual.filter_fully_projected
                 && !state.plan.requirements.diagnostic_type_matchers
                 && !state.plan.requirements.bounded_grouping
                 && candidate_predicate_is_total(&state.plan.candidate)
                 && !projection_fallback
-                && path_order_descending.is_some()
+                && scalar_order_supported
             {
                 execute_projected_page(
                     &mut transaction,
@@ -413,7 +420,6 @@ impl HostedProvider {
                     &state,
                     &catalog,
                     &candidate_types,
-                    path_order_descending.unwrap_or(false),
                     requested_page_size,
                 )
                 .await?

@@ -517,7 +517,6 @@ async fn execute_projected_page(
     state: &HostedQueryState,
     catalog: &mdbase::runtime::CompiledCatalog,
     candidate_types: &[String],
-    order_descending: bool,
     page_size: u64,
 ) -> ApiResult<ExecutedQueryPage> {
     let total_count =
@@ -527,7 +526,6 @@ async fn execute_projected_page(
         collection_id,
         state,
         candidate_types,
-        order_descending,
         page_size,
     )
     .await?;
@@ -595,6 +593,7 @@ async fn execute_projected_page(
     }
     let mut results = Vec::with_capacity(rows.len());
     let mut diagnostics = Vec::new();
+    let mut last_order_values = None;
     for row in &rows {
         let evaluation = if state.plan.requirements.exact_document {
             let record = exact_records.get(&row.record_id).ok_or_else(|| {
@@ -615,6 +614,7 @@ async fn execute_projected_page(
                 "A SQL-selected projection disagreed with canonical residual evaluation.",
             ));
         }
+        last_order_values = Some(evaluation.order_values.clone());
         diagnostics.extend(evaluation.diagnostics);
         results.push(evaluation.record.ok_or_else(|| {
             ApiError::internal("A matching hosted residual omitted its result record.")
@@ -642,12 +642,7 @@ async fn execute_projected_page(
         groups: None,
         total_count,
         last_boundary: rows.last().map(|row| QueryPageBoundary {
-            order_values: state
-                .plan
-                .order
-                .iter()
-                .map(|_| Value::String(row.canonical_path.clone()))
-                .collect(),
+            order_values: last_order_values.unwrap_or_default(),
             path: row.canonical_path.clone(),
             record_id: row.record_id,
         }),

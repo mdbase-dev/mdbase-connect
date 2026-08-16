@@ -76,72 +76,150 @@ async fn load_projected_page(
     collection_id: Uuid,
     state: &HostedQueryState,
     candidate_types: &[String],
-    descending: bool,
     page_size: u64,
 ) -> ApiResult<Vec<ProjectedQueryRow>> {
-    let sql = if descending {
-        r#"WITH live AS (
-             SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted
-             FROM hosted_provider_record_versions
-             WHERE collection_id = $1 AND sequence <= $3
-             ORDER BY record_id, sequence DESC
-           )
-           SELECT p.record_id, p.canonical_path, p.projection_bytes
-           FROM hosted_provider_record_projections p
-           JOIN live l ON l.record_id = p.record_id AND NOT l.deleted
-             AND l.sequence = p.record_sequence AND l.revision = p.record_revision
-           WHERE p.collection_id = $1 AND p.generation_id = $2
-             AND p.valid_from_sequence <= $3
-             AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > $3)
-             AND p.catalog_revision = $4 AND p.projection_format_version = $5
-             AND p.semantic_engine_version = $6
-             AND p.semantic_complete AND p.resolution_complete
-             AND (cardinality($7::text[]) = 0 OR p.matched_types && $7::text[])
-             AND ($8::text IS NULL OR p.canonical_path < $8
-                  OR (p.canonical_path = $8 AND p.record_id > $9))
-           ORDER BY p.canonical_path COLLATE "C" DESC, p.record_id ASC
-           OFFSET $10 LIMIT $11"#
-    } else {
-        r#"WITH live AS (
-             SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted
-             FROM hosted_provider_record_versions
-             WHERE collection_id = $1 AND sequence <= $3
-             ORDER BY record_id, sequence DESC
-           )
-           SELECT p.record_id, p.canonical_path, p.projection_bytes
-           FROM hosted_provider_record_projections p
-           JOIN live l ON l.record_id = p.record_id AND NOT l.deleted
-             AND l.sequence = p.record_sequence AND l.revision = p.record_revision
-           WHERE p.collection_id = $1 AND p.generation_id = $2
-             AND p.valid_from_sequence <= $3
-             AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > $3)
-             AND p.catalog_revision = $4 AND p.projection_format_version = $5
-             AND p.semantic_engine_version = $6
-             AND p.semantic_complete AND p.resolution_complete
-             AND (cardinality($7::text[]) = 0 OR p.matched_types && $7::text[])
-             AND ($8::text IS NULL OR p.canonical_path > $8
-                  OR (p.canonical_path = $8 AND p.record_id > $9))
-           ORDER BY p.canonical_path COLLATE "C" ASC, p.record_id ASC
-           OFFSET $10 LIMIT $11"#
-    };
-    let rows = sqlx::query(sql)
-        .bind(collection_id)
-        .bind(state.generation_id)
-        .bind(to_i64(state.snapshot_head, "query snapshot head")?)
-        .bind(&state.catalog_revision)
-        .bind(i64::from(state.projection_format_version))
-        .bind(&state.semantic_engine_version)
-        .bind(candidate_types)
-        .bind(state.last_path.as_deref())
-        .bind(state.last_record_id)
-        .bind(if state.last_path.is_none() {
+    let snapshot_head = to_i64(state.snapshot_head, "query snapshot head")?;
+    let mut query = QueryBuilder::<Postgres>::new(
+        "WITH live AS (SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted \
+         FROM hosted_provider_record_versions WHERE collection_id = ",
+    );
+    query
+        .push_bind(collection_id)
+        .push(" AND sequence <= ")
+        .push_bind(snapshot_head)
+        .push(
+            " ORDER BY record_id, sequence DESC) \
+             SELECT p.record_id, p.canonical_path, p.projection_bytes \
+             FROM hosted_provider_record_projections p \
+             JOIN live l ON l.record_id = p.record_id AND NOT l.deleted \
+              AND l.sequence = p.record_sequence AND l.revision = p.record_revision \
+             WHERE p.collection_id = ",
+        )
+        .push_bind(collection_id)
+        .push(" AND p.generation_id = ")
+        .push_bind(state.generation_id)
+        .push(" AND p.valid_from_sequence <= ")
+        .push_bind(snapshot_head)
+        .push(" AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > ")
+        .push_bind(snapshot_head)
+        .push(") AND p.catalog_revision = ")
+        .push_bind(state.catalog_revision.clone())
+        .push(" AND p.projection_format_version = ")
+        .push_bind(i64::from(state.projection_format_version))
+        .push(" AND p.semantic_engine_version = ")
+        .push_bind(state.semantic_engine_version.clone())
+        .push(
+            " AND p.semantic_complete AND p.resolution_complete \
+              AND (cardinality(",
+        )
+        .push_bind(candidate_types.to_vec())
+        .push("::text[]) = 0 OR p.matched_types && ")
+        .push_bind(candidate_types.to_vec())
+        .push("::text[])");
+
+    if let Some(last_path) = state.last_path.as_deref() {
+        let last_record_id = state.last_record_id.ok_or_else(|| {
+            ApiError::conflict(
+                "query_cursor_invalidated",
+                "The hosted query cursor has no stable record boundary.",
+            )
+        })?;
+        if state.last_order_values.len() != state.plan.order.len()
+            || state
+                .last_order_values
+                .iter()
+                .any(|value| !value.is_null() && !value.is_string())
+        {
+            return Err(ApiError::conflict(
+                "query_cursor_invalidated",
+                "The hosted query cursor does not match its scalar order proof.",
+            ));
+        }
+        query.push(" AND (");
+        for index in 0..state.plan.order.len() {
+            if index > 0 {
+                query.push(" OR ");
+            }
+            query.push("(");
+            push_scalar_order_prefix_equal(
+                &mut query,
+                &state.plan.order[..index],
+                &state.last_order_values[..index],
+            );
+            if index > 0 {
+                query.push(" AND ");
+            }
+            push_scalar_order_after(
+                &mut query,
+                &state.plan.order[index],
+                &state.last_order_values[index],
+            );
+            query.push(")");
+        }
+        if !state.plan.order.is_empty() {
+            query.push(" OR ");
+        }
+        query.push("(");
+        push_scalar_order_prefix_equal(
+            &mut query,
+            &state.plan.order,
+            &state.last_order_values,
+        );
+        if !state.plan.order.is_empty() {
+            query.push(" AND ");
+        }
+        query
+            .push("p.canonical_path COLLATE \"C\" > ")
+            .push_bind(last_path.to_string())
+            .push(") OR (");
+        push_scalar_order_prefix_equal(
+            &mut query,
+            &state.plan.order,
+            &state.last_order_values,
+        );
+        if !state.plan.order.is_empty() {
+            query.push(" AND ");
+        }
+        query
+            .push("p.canonical_path = ")
+            .push_bind(last_path.to_string())
+            .push(" AND p.record_id > ")
+            .push_bind(last_record_id)
+            .push("))");
+    }
+
+    query.push(" ORDER BY ");
+    for order in &state.plan.order {
+        push_scalar_order_expression(&mut query, order, false);
+        query.push(" IS NULL");
+        query.push(if matches!(
+            order.direction,
+            mdbase::runtime::HostedOrderDirection::Descending
+        ) {
+            " DESC, "
+        } else {
+            " ASC, "
+        });
+        push_scalar_order_expression(&mut query, order, false);
+        query.push(if matches!(
+            order.direction,
+            mdbase::runtime::HostedOrderDirection::Descending
+        ) {
+            " COLLATE \"C\" DESC, "
+        } else {
+            " COLLATE \"C\" ASC, "
+        });
+    }
+    query
+        .push("p.canonical_path COLLATE \"C\" ASC, p.record_id ASC OFFSET ")
+        .push_bind(if state.last_path.is_none() {
             to_i64(state.plan.offset, "query offset")?
         } else {
             0
         })
-        .bind(to_i64(page_size, "query page size")?)
-        .fetch_all(&mut **transaction)
-        .await?;
+        .push(" LIMIT ")
+        .push_bind(to_i64(page_size, "query page size")?);
+    let rows = query.build().fetch_all(&mut **transaction).await?;
     let metadata = rows
         .into_iter()
         .map(|row| {
@@ -186,6 +264,170 @@ async fn load_projected_page(
             Ok(row)
         })
         .collect()
+}
+
+async fn projected_scalar_order_values_are_valid(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    state: &HostedQueryState,
+    candidate_types: &[String],
+) -> ApiResult<bool> {
+    let json_orders = state
+        .plan
+        .order
+        .iter()
+        .filter(|order| scalar_order_json_path(&order.field).is_some())
+        .collect::<Vec<_>>();
+    if json_orders.is_empty() {
+        return Ok(true);
+    }
+    let snapshot_head = to_i64(state.snapshot_head, "query snapshot head")?;
+    let mut query = QueryBuilder::<Postgres>::new(
+        "WITH live AS (SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted \
+         FROM hosted_provider_record_versions WHERE collection_id = ",
+    );
+    query
+        .push_bind(collection_id)
+        .push(" AND sequence <= ")
+        .push_bind(snapshot_head)
+        .push(
+            " ORDER BY record_id, sequence DESC) SELECT NOT EXISTS (SELECT 1 \
+             FROM hosted_provider_record_projections p \
+             JOIN live l ON l.record_id = p.record_id AND NOT l.deleted \
+              AND l.sequence = p.record_sequence AND l.revision = p.record_revision \
+             WHERE p.collection_id = ",
+        )
+        .push_bind(collection_id)
+        .push(" AND p.generation_id = ")
+        .push_bind(state.generation_id)
+        .push(" AND p.valid_from_sequence <= ")
+        .push_bind(snapshot_head)
+        .push(" AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > ")
+        .push_bind(snapshot_head)
+        .push(") AND p.catalog_revision = ")
+        .push_bind(state.catalog_revision.clone())
+        .push(" AND p.projection_format_version = ")
+        .push_bind(i64::from(state.projection_format_version))
+        .push(" AND p.semantic_engine_version = ")
+        .push_bind(state.semantic_engine_version.clone())
+        .push(
+            " AND p.semantic_complete AND p.resolution_complete \
+              AND (cardinality(",
+        )
+        .push_bind(candidate_types.to_vec())
+        .push("::text[]) = 0 OR p.matched_types && ")
+        .push_bind(candidate_types.to_vec())
+        .push("::text[]) AND (");
+    for (index, order) in json_orders.into_iter().enumerate() {
+        if index > 0 {
+            query.push(" OR ");
+        }
+        query.push("(jsonb_typeof(");
+        push_scalar_order_expression(&mut query, order, true);
+        query.push(") IS NOT NULL AND jsonb_typeof(");
+        push_scalar_order_expression(&mut query, order, true);
+        query.push(") NOT IN ('string', 'null'))");
+    }
+    query.push(") LIMIT 1)");
+    query
+        .build_query_scalar::<bool>()
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(ApiError::from)
+}
+
+fn scalar_order_json_path(field: &mdbase::runtime::CandidateField) -> Option<Vec<String>> {
+    match field {
+        mdbase::runtime::CandidateField::File(name) if name == "mtime" => {
+            Some(vec!["file".to_string(), "mtime".to_string()])
+        }
+        mdbase::runtime::CandidateField::PersistedFrontmatter(path) => {
+            let mut result = vec!["persisted_frontmatter".to_string()];
+            result.extend(path.iter().cloned());
+            Some(result)
+        }
+        mdbase::runtime::CandidateField::EffectiveFrontmatter(path) => {
+            let mut result = vec!["effective_frontmatter".to_string()];
+            result.extend(path.iter().cloned());
+            Some(result)
+        }
+        _ => None,
+    }
+}
+
+fn push_scalar_order_expression(
+    query: &mut QueryBuilder<Postgres>,
+    order: &mdbase::runtime::HostedOrder,
+    json_value: bool,
+) {
+    if let Some(path) = scalar_order_json_path(&order.field) {
+        query.push("p.semantic_projection #");
+        query.push(if json_value { "> " } else { ">> " });
+        query.push_bind(path);
+    } else {
+        query.push("p.canonical_path");
+    }
+}
+
+fn push_scalar_order_prefix_equal(
+    query: &mut QueryBuilder<Postgres>,
+    orders: &[mdbase::runtime::HostedOrder],
+    values: &[Value],
+) {
+    for (index, (order, value)) in orders.iter().zip(values).enumerate() {
+        if index > 0 {
+            query.push(" AND ");
+        }
+        if value.is_null() {
+            push_scalar_order_expression(query, order, false);
+            query.push(" IS NULL");
+        } else {
+            push_scalar_order_expression(query, order, false);
+            query.push(" = ").push_bind(
+                value
+                    .as_str()
+                    .expect("scalar cursor values were validated above")
+                    .to_string(),
+            );
+        }
+    }
+}
+
+fn push_scalar_order_after(
+    query: &mut QueryBuilder<Postgres>,
+    order: &mdbase::runtime::HostedOrder,
+    value: &Value,
+) {
+    let descending = matches!(
+        order.direction,
+        mdbase::runtime::HostedOrderDirection::Descending
+    );
+    if value.is_null() {
+        if descending {
+            push_scalar_order_expression(query, order, false);
+            query.push(" IS NOT NULL");
+        } else {
+            query.push("FALSE");
+        }
+        return;
+    }
+    if !descending {
+        query.push("(");
+        push_scalar_order_expression(query, order, false);
+        query.push(" IS NULL OR ");
+    }
+    push_scalar_order_expression(query, order, false);
+    query
+        .push(if descending { " < " } else { " > " })
+        .push_bind(
+            value
+                .as_str()
+                .expect("scalar cursor values were validated above")
+                .to_string(),
+        );
+    if !descending {
+        query.push(")");
+    }
 }
 
 async fn load_exact_query_records(
@@ -381,4 +623,3 @@ async fn insert_query_cursor(
     .await?;
     Ok(())
 }
-

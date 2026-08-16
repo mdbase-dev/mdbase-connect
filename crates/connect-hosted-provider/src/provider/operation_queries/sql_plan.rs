@@ -335,27 +335,20 @@ fn candidate_type_union(predicate: &mdbase::runtime::CandidatePredicate) -> Opti
     }
 }
 
-fn path_order_direction(plan: &mdbase::runtime::HostedQueryPlan) -> Option<bool> {
-    if plan.order.is_empty() {
-        return Some(false);
-    }
-    let mut descending = None;
-    for order in &plan.order {
-        let path = matches!(order.field, mdbase::runtime::CandidateField::Path)
-            || matches!(&order.field, mdbase::runtime::CandidateField::File(name) if name == "path");
-        if !path {
-            return None;
-        }
-        let current = matches!(
-            order.direction,
-            mdbase::runtime::HostedOrderDirection::Descending
-        );
-        if descending.is_some_and(|value| value != current) {
-            return None;
-        }
-        descending = Some(current);
-    }
-    descending
+fn projected_scalar_order_supported(plan: &mdbase::runtime::HostedQueryPlan) -> bool {
+    plan.order.iter().all(|order| {
+        order.value_kind == Some(mdbase::runtime::HostedScalarKind::String)
+            && match &order.field {
+                mdbase::runtime::CandidateField::Path => true,
+                mdbase::runtime::CandidateField::File(name) => {
+                    matches!(name.as_str(), "path" | "mtime")
+                }
+                mdbase::runtime::CandidateField::PersistedFrontmatter(path)
+                | mdbase::runtime::CandidateField::EffectiveFrontmatter(path) => !path.is_empty(),
+                mdbase::runtime::CandidateField::Types
+                | mdbase::runtime::CandidateField::BodyTags => false,
+            }
+    })
 }
 
 fn query_page_size(input: &Value) -> ApiResult<u64> {
@@ -432,4 +425,3 @@ fn empty_query_result() -> OperationResult {
         diagnostics: Vec::new(),
     }
 }
-
