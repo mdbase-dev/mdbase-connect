@@ -115,6 +115,14 @@ structural set is unchanged, the transaction does not rewrite relationship edges
 When it changes, the encrypted document, revision, current projection binding, and
 relationship state commit atomically.
 
+Configured Obsidian Base execution remains an mdbase-rs semantic surface. Connect
+may persist its closed parsed plan, projected `this.file` context, operation clock,
+and keyset as readable bounded cursor state, and may load a bounded one-hop
+projection/relationship neighborhood. It must not translate TaskNotes formulas or
+backlink behavior into independent SQL/CEL semantics. This cursor state reveals
+formula and property-reference metadata to database/backup readers; exact `.base`
+formatting, exact record Markdown, and body prose remain encrypted.
+
 ### Candidate C: provider-readable canonical records with projections
 
 - Exact Markdown and semantic projections are provider-readable at the PostgreSQL

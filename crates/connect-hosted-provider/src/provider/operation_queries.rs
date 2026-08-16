@@ -9,6 +9,7 @@ const MAX_LIVE_QUERY_CURSORS_PER_REPLICA: i64 = 64;
 enum HostedQueryRequestKind {
     Query,
     CanonicalView,
+    ObsidianBase,
 }
 
 impl HostedQueryRequestKind {
@@ -16,6 +17,7 @@ impl HostedQueryRequestKind {
         match self {
             Self::Query => "query",
             Self::CanonicalView => "canonical_view",
+            Self::ObsidianBase => "obsidian_base",
         }
     }
 }
@@ -37,6 +39,9 @@ struct HostedQueryState {
     request_digest: String,
     result_meta: serde_json::Map<String, Value>,
     exact_context: Option<mdbase::runtime::CanonicalRecordInput>,
+    base_plan: Option<mdbase::runtime::HostedBasePlan>,
+    base_context: Option<mdbase::runtime::SemanticProjection>,
+    base_operation_clock: Option<String>,
 }
 
 struct ProjectedQueryRow {
@@ -83,13 +88,17 @@ impl HostedProvider {
         replica: &Replica,
         input: &Value,
     ) -> ApiResult<OperationResult> {
-        self.execute_hosted_query_request(
-            collection_id,
-            replica,
-            input,
-            HostedQueryRequestKind::CanonicalView,
-        )
-        .await
+        let request_kind = if input
+            .get("path")
+            .and_then(Value::as_str)
+            .is_some_and(|path| path.ends_with(".base"))
+        {
+            HostedQueryRequestKind::ObsidianBase
+        } else {
+            HostedQueryRequestKind::CanonicalView
+        };
+        self.execute_hosted_query_request(collection_id, replica, input, request_kind)
+            .await
     }
 
     async fn execute_hosted_query_request(
@@ -197,7 +206,7 @@ impl HostedProvider {
             load_resource_documents(&mut transaction, &self.crypto, &data_key, collection_id)
                 .await?;
         let catalog = compile_point_catalog(resources, resource_documents.clone())?;
-        let requested_page_size = query_page_size(input)?;
+        let transport_page_size = query_page_size(input)?;
         let mut state = if let Some(cursor) = input.get("cursor") {
             let cursor = cursor.as_str().ok_or_else(|| {
                 ApiError::bad_request(
@@ -213,6 +222,7 @@ impl HostedProvider {
                         .canonical_query_digest
                 }
                 HostedQueryRequestKind::CanonicalView => canonical_view_request_digest(input)?,
+                HostedQueryRequestKind::ObsidianBase => canonical_view_request_digest(input)?,
             };
             self.load_query_cursor(
                 &mut transaction,
@@ -260,7 +270,37 @@ impl HostedProvider {
                         }
                     }
                 }
+                HostedQueryRequestKind::ObsidianBase => {
+                    match self
+                        .start_obsidian_base_state(
+                            &mut transaction,
+                            collection_id,
+                            &collection,
+                            replica,
+                            input,
+                            &catalog,
+                            &resource_documents,
+                        )
+                        .await?
+                    {
+                        Ok(state) => state,
+                        Err(result) => {
+                            transaction.commit().await?;
+                            database_cancellation.disarm();
+                            return Ok(result);
+                        }
+                    }
+                }
             }
+        };
+        let requested_page_size = if input.get("limit").is_none() {
+            state
+                .base_plan
+                .as_ref()
+                .and_then(|plan| plan.suggested_page_size)
+                .unwrap_or(transport_page_size)
+        } else {
+            transport_page_size
         };
         if requested_page_size > state.plan.budgets.max_page_size {
             return Ok(mdbase::runtime::invalid_operation_result(
@@ -279,51 +319,74 @@ impl HostedProvider {
         }
         validate_generation_binding(&mut transaction, collection_id, &state).await?;
 
-        let candidate_types = candidate_type_union(&state.plan.candidate).ok_or_else(|| {
-            ApiError::bad_request(
-                "unsupported_hosted_candidate",
-                "The hosted query candidate plan is not yet available in the production SQL executor.",
-            )
-        })?;
-        let path_order_descending = path_order_direction(&state.plan);
-        let projection_fallback =
-            projection_fallback_exists(&mut transaction, collection_id, &state).await?;
-        let page = if state.plan.residual.filter_fully_projected
-            && !state.plan.requirements.diagnostic_type_matchers
-            && !state.plan.requirements.bounded_grouping
-            && !projection_fallback
-            && path_order_descending.is_some()
-        {
-            execute_projected_page(
-                &mut transaction,
-                &self.crypto,
-                &data_key,
-                collection_id,
-                &state,
-                &catalog,
-                &candidate_types,
-                path_order_descending.unwrap_or(false),
-                requested_page_size,
-            )
-            .await?
+        let projection_fallback = if state.base_plan.is_some() {
+            base_projection_fallback_exists(&mut transaction, collection_id, &state).await?
         } else {
-            execute_bounded_residual_page(
+            projection_fallback_exists(&mut transaction, collection_id, &state).await?
+        };
+        let page = if state.base_plan.is_some() {
+            if projection_fallback {
+                return Err(ApiError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "hosted_base_projection_fallback_required",
+                    "Obsidian Base execution requires canonical fallback for a stale or absent projection.",
+                ));
+            }
+            execute_bounded_base_page(
                 &mut transaction,
-                &self.crypto,
-                &data_key,
                 collection_id,
                 &state,
-                &catalog,
                 requested_page_size,
                 started,
             )
             .await?
+        } else {
+            let candidate_types = candidate_type_union(&state.plan.candidate).ok_or_else(|| {
+                ApiError::bad_request(
+                    "unsupported_hosted_candidate",
+                    "The hosted query candidate plan is not yet available in the production SQL executor.",
+                )
+            })?;
+            let path_order_descending = path_order_direction(&state.plan);
+            if state.plan.residual.filter_fully_projected
+                && !state.plan.requirements.diagnostic_type_matchers
+                && !state.plan.requirements.bounded_grouping
+                && !projection_fallback
+                && path_order_descending.is_some()
+            {
+                execute_projected_page(
+                    &mut transaction,
+                    &self.crypto,
+                    &data_key,
+                    collection_id,
+                    &state,
+                    &catalog,
+                    &candidate_types,
+                    path_order_descending.unwrap_or(false),
+                    requested_page_size,
+                )
+                .await?
+            } else {
+                execute_bounded_residual_page(
+                    &mut transaction,
+                    &self.crypto,
+                    &data_key,
+                    collection_id,
+                    &state,
+                    &catalog,
+                    requested_page_size,
+                    started,
+                )
+                .await?
+            }
         };
 
         let page_count = page.results.len() as u64;
-        let consumed = state
-            .plan
-            .offset
+        let semantic_offset = state
+            .base_plan
+            .as_ref()
+            .map_or(state.plan.offset, |plan| plan.offset);
+        let consumed = semantic_offset
             .saturating_add(state.emitted_rows)
             .saturating_add(page_count);
         let has_more = consumed < page.total_count;
@@ -482,6 +545,9 @@ impl HostedProvider {
             request_digest,
             result_meta: serde_json::Map::new(),
             exact_context,
+            base_plan: None,
+            base_context: None,
+            base_operation_clock: None,
         })
     }
 
@@ -588,6 +654,137 @@ impl HostedProvider {
             request_digest: canonical_view_request_digest(input)?,
             result_meta,
             exact_context,
+            base_plan: None,
+            base_context: None,
+            base_operation_clock: None,
+        }))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn start_obsidian_base_state(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        collection_id: Uuid,
+        collection: &PgRow,
+        replica: &Replica,
+        input: &Value,
+        catalog: &mdbase::runtime::CompiledCatalog,
+        resource_documents: &[(String, String)],
+    ) -> ApiResult<Result<HostedQueryState, OperationResult>> {
+        let requested_path = input.get("path").and_then(Value::as_str).ok_or_else(|| {
+            ApiError::bad_request("invalid_request", "Saved-view path is required.")
+        })?;
+        let Some((_, view_document)) = resource_documents
+            .iter()
+            .find(|(path, _)| path == requested_path)
+        else {
+            return Ok(Err(mdbase::runtime::invalid_operation_result(
+                "view_not_found",
+                format!("View resource '{requested_path}' was not found."),
+            )));
+        };
+        let view_record = mdbase::runtime::CanonicalRecordInput {
+            stable_id: None,
+            path: requested_path.to_string(),
+            document: view_document.clone(),
+            file_size: view_document.len() as u64,
+            file_mtime: None,
+        };
+        let planning = catalog
+            .plan_hosted_obsidian_base(input, &view_record, &replica.allowed_types)
+            .map_err(|error| {
+                ApiError::bad_request(
+                    error.code,
+                    format!("Obsidian Base planning failed: {}", error.message),
+                )
+            })?;
+        let base_plan = match planning {
+            mdbase::runtime::HostedBasePlanning::Planned { plan } => *plan,
+            mdbase::runtime::HostedBasePlanning::Invalid { result } => return Ok(Err(result)),
+        };
+        let (generation_id, catalog_revision, projection_format_version, semantic_engine_version) =
+            active_query_binding(collection, catalog)?;
+        let snapshot_head = number(collection.get::<i64, _>("head"), "collection head")?;
+        let base_context = match base_plan.context_path.as_deref() {
+            Some(path) => Some(
+                load_base_context_projection(
+                    transaction,
+                    collection_id,
+                    generation_id,
+                    snapshot_head,
+                    &catalog_revision,
+                    projection_format_version,
+                    &semantic_engine_version,
+                    path,
+                )
+                .await?
+                .ok_or_else(|| {
+                    ApiError::conflict(
+                        "hosted_base_context_unavailable",
+                        "The Obsidian Base context has no current snapshot projection.",
+                    )
+                })?,
+            ),
+            None => None,
+        };
+        if let Some(context) = &base_context {
+            if !replica.allowed_types.is_empty()
+                && !context.facts.types.iter().any(|actual| {
+                    replica
+                        .allowed_types
+                        .iter()
+                        .any(|allowed| allowed.eq_ignore_ascii_case(actual))
+                })
+            {
+                return Err(ApiError::forbidden(
+                    "scope_denied",
+                    "The Obsidian Base context is outside this application's record scope.",
+                ));
+            }
+        }
+        let mut candidate_input = json!({
+            "select": ["path"],
+            "pagination": "cursor",
+        });
+        if !base_plan.allowed_types.is_empty() {
+            candidate_input["types"] = json!(base_plan.allowed_types);
+        }
+        let plan = catalog
+            .compile_hosted_query(&candidate_input)
+            .map_err(|error| ApiError::bad_request(error.code, error.message))?;
+        let mut result_meta = serde_json::Map::new();
+        result_meta.insert(
+            "view".to_string(),
+            json!({"path": base_plan.view_path, "id": base_plan.view_id}),
+        );
+        result_meta.insert(
+            "context".to_string(),
+            base_plan
+                .context_path
+                .as_ref()
+                .map(|path| json!({"path": path}))
+                .unwrap_or(Value::Null),
+        );
+        Ok(Ok(HostedQueryState {
+            snapshot_head,
+            generation_id,
+            catalog_revision,
+            projection_format_version,
+            semantic_engine_version,
+            plan,
+            last_order_values: Vec::new(),
+            last_path: None,
+            last_record_id: None,
+            emitted_rows: 0,
+            hard_expires_at: Utc::now() + chrono::Duration::seconds(QUERY_CURSOR_HARD_SECONDS),
+            consumed_cursor_id: None,
+            request_kind: HostedQueryRequestKind::ObsidianBase,
+            request_digest: canonical_view_request_digest(input)?,
+            result_meta,
+            exact_context: None,
+            base_plan: Some(base_plan),
+            base_context,
+            base_operation_clock: Some(Utc::now().to_rfc3339()),
         }))
     }
 
@@ -606,7 +803,8 @@ impl HostedProvider {
             r#"SELECT snapshot_head, generation_id, catalog_revision,
                       projection_format_version, semantic_engine_version,
                       query_plan, query_digest, request_kind, request_digest,
-                      result_meta, exact_context_ciphertext, last_order_values,
+                      result_meta, exact_context_ciphertext, base_plan, base_context,
+                      base_operation_clock, last_order_values,
                       last_record_id, emitted_rows, hard_expires_at
                FROM hosted_provider_query_cursors
                WHERE cursor_id = $1 AND collection_id = $2 AND replica_id = $3
@@ -638,6 +836,7 @@ impl HostedProvider {
         let stored_kind = match row.get::<String, _>("request_kind").as_str() {
             "query" => HostedQueryRequestKind::Query,
             "canonical_view" => HostedQueryRequestKind::CanonicalView,
+            "obsidian_base" => HostedQueryRequestKind::ObsidianBase,
             _ => {
                 return Err(ApiError::internal(
                     "Stored hosted query request kind is invalid.",
@@ -659,7 +858,30 @@ impl HostedProvider {
             .as_array()
             .cloned()
             .ok_or_else(|| ApiError::internal("Stored hosted query keyset is invalid."))?;
-        if order_values.len() != plan.order.len().saturating_add(1) {
+        let base_plan = row
+            .get::<Option<Value>, _>("base_plan")
+            .map(|value| {
+                serde_json::from_value::<mdbase::runtime::HostedBasePlan>(value).map_err(|error| {
+                    ApiError::internal(format!("Stored Obsidian Base plan is invalid: {error}"))
+                })
+            })
+            .transpose()?;
+        if let Some(base_plan) = &base_plan {
+            base_plan.validate_integrity().map_err(|error| {
+                ApiError::internal(format!(
+                    "Stored Obsidian Base plan failed integrity validation: {}",
+                    error.code
+                ))
+            })?;
+        }
+        let expected_order_values = base_plan
+            .as_ref()
+            .map_or(
+                plan.order.len(),
+                mdbase::runtime::HostedBasePlan::order_arity,
+            )
+            .saturating_add(1);
+        if order_values.len() != expected_order_values {
             return Err(ApiError::internal(
                 "Stored hosted query keyset does not match its query plan.",
             ));
@@ -684,6 +906,24 @@ impl HostedProvider {
             .as_object()
             .cloned()
             .ok_or_else(|| ApiError::internal("Stored hosted query result metadata is invalid."))?;
+        let base_context = row
+            .get::<Option<Value>, _>("base_context")
+            .map(|value| {
+                serde_json::from_value(value).map_err(|error| {
+                    ApiError::internal(format!(
+                        "Stored Obsidian Base context projection is invalid: {error}"
+                    ))
+                })
+            })
+            .transpose()?;
+        let base_operation_clock = row.get::<Option<String>, _>("base_operation_clock");
+        if (stored_kind == HostedQueryRequestKind::ObsidianBase)
+            != (base_plan.is_some() && base_operation_clock.is_some())
+        {
+            return Err(ApiError::internal(
+                "Stored hosted query request kind and Base state disagree.",
+            ));
+        }
         Ok(HostedQueryState {
             snapshot_head: number(row.get("snapshot_head"), "query snapshot head")?,
             generation_id: row.get("generation_id"),
@@ -704,6 +944,9 @@ impl HostedProvider {
             request_digest: request_digest.to_string(),
             result_meta,
             exact_context,
+            base_plan,
+            base_context,
+            base_operation_clock,
         })
     }
 }
@@ -750,6 +993,50 @@ fn active_query_binding(
         projection_format_version,
         semantic_engine_version,
     ))
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn load_base_context_projection(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    generation_id: Uuid,
+    snapshot_head: u64,
+    catalog_revision: &str,
+    projection_format_version: u32,
+    semantic_engine_version: &str,
+    path: &str,
+) -> ApiResult<Option<mdbase::runtime::SemanticProjection>> {
+    let row = sqlx::query(
+        r#"SELECT semantic_projection
+           FROM hosted_provider_record_projections
+           WHERE collection_id = $1 AND generation_id = $2
+             AND canonical_path = $3
+             AND valid_from_sequence <= $4
+             AND (valid_to_sequence IS NULL OR valid_to_sequence > $4)
+             AND catalog_revision = $5 AND projection_format_version = $6
+             AND semantic_engine_version = $7
+             AND resolution_complete
+           ORDER BY valid_from_sequence DESC
+           LIMIT 1"#,
+    )
+    .bind(collection_id)
+    .bind(generation_id)
+    .bind(path)
+    .bind(to_i64(snapshot_head, "query snapshot head")?)
+    .bind(catalog_revision)
+    .bind(i64::from(projection_format_version))
+    .bind(semantic_engine_version)
+    .fetch_optional(&mut **transaction)
+    .await?;
+    row.map(|row| {
+        serde_json::from_value(row.get("semantic_projection")).map_err(|error| {
+            ApiError::conflict(
+                "hosted_projection_inconsistent",
+                format!("The Obsidian Base context projection could not decode: {error}"),
+            )
+        })
+    })
+    .transpose()
 }
 
 async fn load_query_context_record(
@@ -950,6 +1237,50 @@ async fn projection_fallback_exists(
     .map_err(ApiError::from)
 }
 
+async fn base_projection_fallback_exists(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    state: &HostedQueryState,
+) -> ApiResult<bool> {
+    let relationships_required = state.base_plan.as_ref().is_some_and(|plan| {
+        plan.requirements.backlinks
+            || plan.requirements.outgoing_relationships
+            || plan.requirements.link_resolution
+    });
+    sqlx::query_scalar(
+        r#"WITH live AS (
+             SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted
+             FROM hosted_provider_record_versions
+             WHERE collection_id = $1 AND sequence <= $2
+             ORDER BY record_id, sequence DESC
+           )
+           SELECT EXISTS (
+             SELECT 1 FROM live l
+             LEFT JOIN hosted_provider_record_projections p
+               ON p.collection_id = $1 AND p.generation_id = $3
+              AND p.record_id = l.record_id
+              AND p.valid_from_sequence <= $2
+              AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > $2)
+             WHERE NOT l.deleted AND (
+               p.record_id IS NULL OR p.record_sequence <> l.sequence
+               OR p.record_revision <> l.revision OR p.catalog_revision <> $4
+               OR p.projection_format_version <> $5 OR p.semantic_engine_version <> $6
+               OR ($7 AND NOT p.resolution_complete)
+             )
+           )"#,
+    )
+    .bind(collection_id)
+    .bind(to_i64(state.snapshot_head, "query snapshot head")?)
+    .bind(state.generation_id)
+    .bind(&state.catalog_revision)
+    .bind(i64::from(state.projection_format_version))
+    .bind(&state.semantic_engine_version)
+    .bind(relationships_required)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(ApiError::from)
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn execute_projected_page(
     transaction: &mut Transaction<'_, Postgres>,
@@ -1108,6 +1439,401 @@ struct BoundedQueryMatch {
     result: Value,
     order_values: Vec<Value>,
     reduction: mdbase::runtime::HostedReductionInput,
+}
+
+struct BoundedBaseMatch {
+    record_id: Uuid,
+    row: mdbase::runtime::HostedBaseRow,
+}
+
+async fn execute_bounded_base_page(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    state: &HostedQueryState,
+    page_size: u64,
+    started: Instant,
+) -> ApiResult<ExecutedQueryPage> {
+    let plan = state
+        .base_plan
+        .as_ref()
+        .ok_or_else(|| ApiError::internal("Obsidian Base execution has no semantic plan."))?;
+    let rows = load_base_candidate_projections(transaction, collection_id, state, plan).await?;
+    if rows.len() as u64 > state.plan.budgets.max_candidate_rows {
+        return Err(query_budget_error(
+            "hosted_scan_budget_exceeded",
+            "The Obsidian Base exceeded its candidate-row budget.",
+            "candidate_rows",
+            state.plan.budgets.max_candidate_rows,
+            rows.len() as u64,
+        ));
+    }
+    let candidate_ids = rows.iter().map(|row| row.record_id).collect::<Vec<_>>();
+    let mut adjacency = HashMap::<Uuid, BTreeSet<Uuid>>::new();
+    let relationship_rows = if plan.requirements.backlinks
+        || plan.requirements.outgoing_relationships
+        || plan.requirements.link_resolution
+    {
+        let rows = sqlx::query(
+            r#"SELECT source_record_id, target_record_id
+               FROM hosted_provider_record_relationships
+               WHERE collection_id = $1 AND generation_id = $2
+                 AND valid_from_sequence <= $3
+                 AND (valid_to_sequence IS NULL OR valid_to_sequence > $3)
+                 AND resolution_state = 'resolved'
+                 AND (source_record_id = ANY($4::uuid[])
+                      OR target_record_id = ANY($4::uuid[]))
+               ORDER BY source_record_id, target_record_id, occurrence_key
+               LIMIT $5"#,
+        )
+        .bind(collection_id)
+        .bind(state.generation_id)
+        .bind(to_i64(state.snapshot_head, "query snapshot head")?)
+        .bind(&candidate_ids)
+        .bind(to_i64(
+            state.plan.budgets.max_operator_steps.saturating_add(1),
+            "relationship operator budget",
+        )?)
+        .fetch_all(&mut **transaction)
+        .await?;
+        if rows.len() as u64 > state.plan.budgets.max_operator_steps {
+            return Err(query_budget_error(
+                "hosted_operator_budget_exceeded",
+                "The Obsidian Base exceeded its relationship-edge budget.",
+                "relationship_edges",
+                state.plan.budgets.max_operator_steps,
+                rows.len() as u64,
+            ));
+        }
+        for row in &rows {
+            let source: Uuid = row.get("source_record_id");
+            let Some(target) = row.get::<Option<Uuid>, _>("target_record_id") else {
+                continue;
+            };
+            adjacency.entry(source).or_default().insert(target);
+            adjacency.entry(target).or_default().insert(source);
+        }
+        rows.len() as u64
+    } else {
+        0
+    };
+    let operator_steps = (rows.len() as u64).saturating_add(relationship_rows);
+    if operator_steps > state.plan.budgets.max_operator_steps {
+        return Err(query_budget_error(
+            "hosted_operator_budget_exceeded",
+            "The Obsidian Base exceeded its total operator-step budget.",
+            "operator_steps",
+            state.plan.budgets.max_operator_steps,
+            operator_steps,
+        ));
+    }
+    let candidate_set = candidate_ids.iter().copied().collect::<BTreeSet<_>>();
+    let related_ids = adjacency
+        .values()
+        .flatten()
+        .filter(|record_id| !candidate_set.contains(record_id))
+        .copied()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let related =
+        load_base_related_projections(transaction, collection_id, state, &related_ids).await?;
+    let projections = rows
+        .iter()
+        .map(|row| (row.record_id, row.projection.clone()))
+        .chain(related)
+        .collect::<HashMap<_, _>>();
+    let projection_bytes = projections.values().try_fold(0_u64, |total, projection| {
+        let bytes = serde_json::to_vec(projection).map_err(|error| {
+            ApiError::internal(format!(
+                "Obsidian Base projection could not serialize: {error}"
+            ))
+        })?;
+        Ok::<_, ApiError>(total.saturating_add(bytes.len() as u64))
+    })?;
+    if projection_bytes > state.plan.budgets.max_candidate_bytes {
+        return Err(query_budget_error(
+            "hosted_byte_budget_exceeded",
+            "The Obsidian Base exceeded its transferred projection-byte budget.",
+            "candidate_bytes",
+            state.plan.budgets.max_candidate_bytes,
+            projection_bytes,
+        ));
+    }
+    let operation_clock = state.base_operation_clock.as_ref().ok_or_else(|| {
+        ApiError::internal("Obsidian Base execution has no snapshot operation clock.")
+    })?;
+    let expression_steps_per_record = if rows.is_empty() {
+        0
+    } else {
+        state
+            .plan
+            .budgets
+            .max_operator_steps
+            .saturating_sub(operator_steps)
+            / rows.len() as u64
+    };
+    if !rows.is_empty() && expression_steps_per_record == 0 {
+        return Err(query_budget_error(
+            "hosted_operator_budget_exceeded",
+            "The Obsidian Base has no remaining expression-step budget.",
+            "operator_steps",
+            state.plan.budgets.max_operator_steps,
+            operator_steps.saturating_add(1),
+        ));
+    }
+    let mut diagnostics = Vec::new();
+    let mut matching = Vec::<BoundedBaseMatch>::new();
+    for row in &rows {
+        let related = adjacency
+            .get(&row.record_id)
+            .into_iter()
+            .flatten()
+            .filter_map(|record_id| projections.get(record_id).cloned())
+            .collect::<Vec<_>>();
+        let evaluated = plan
+            .evaluate_record(&mdbase::runtime::HostedBaseRecordContext {
+                projection: row.projection.clone(),
+                related,
+                relationship_neighborhood_complete: true,
+                query_context: state.base_context.clone(),
+                operation_clock: operation_clock.clone(),
+                max_expression_steps: expression_steps_per_record,
+            })
+            .map_err(|error| {
+                if error.code == "hosted_base_operator_budget_exceeded" {
+                    query_budget_error(
+                        "hosted_operator_budget_exceeded",
+                        "The Obsidian Base exceeded its expression-step budget.",
+                        "expression_steps_per_record",
+                        expression_steps_per_record,
+                        expression_steps_per_record.saturating_add(1),
+                    )
+                } else {
+                    projection_inconsistent(error)
+                }
+            })?;
+        match evaluated {
+            mdbase::runtime::HostedBaseEvaluation::Included { row: result } => {
+                matching.push(BoundedBaseMatch {
+                    record_id: row.record_id,
+                    row: *result,
+                });
+            }
+            mdbase::runtime::HostedBaseEvaluation::Excluded {
+                diagnostics: excluded,
+            } => diagnostics.extend(excluded),
+        }
+    }
+    matching.sort_by(|left, right| {
+        plan.compare_rows(&left.row, &right.row)
+            .then_with(|| left.record_id.cmp(&right.record_id))
+    });
+    let total_count = matching.len() as u64;
+    let matching_bytes = matching.iter().fold(0_u64, |total, item| {
+        total.saturating_add(serde_json::to_vec(&item.row).map_or(0, |bytes| bytes.len() as u64))
+    });
+    // Candidate projections are owned once by the SQL row set and once by the
+    // identity map; one candidate's relationship context is cloned during
+    // evaluation. Group construction similarly owns a temporary row copy.
+    let pre_reduction_resident_bytes = projection_bytes
+        .saturating_mul(3)
+        .saturating_add(matching_bytes.saturating_mul(2));
+    if pre_reduction_resident_bytes > state.plan.budgets.max_memory_bytes {
+        return Err(query_budget_error(
+            "hosted_memory_budget_exceeded",
+            "The Obsidian Base exceeded its bounded resident-memory budget.",
+            "memory_bytes",
+            state.plan.budgets.max_memory_bytes,
+            pre_reduction_resident_bytes,
+        ));
+    }
+    let group_rows = matching
+        .iter()
+        .map(|item| item.row.clone())
+        .collect::<Vec<_>>();
+    let groups = plan.groups(&group_rows);
+    if groups
+        .as_ref()
+        .is_some_and(|groups| groups.len() as u64 > state.plan.budgets.max_groups)
+    {
+        return Err(query_budget_error(
+            "hosted_group_budget_exceeded",
+            "The Obsidian Base exceeded its group budget.",
+            "groups",
+            state.plan.budgets.max_groups,
+            groups.as_ref().map_or(0, |groups| groups.len() as u64),
+        ));
+    }
+    let after_keyset = matching.into_iter().filter(|item| {
+        let Some(last_path) = state.last_path.as_deref() else {
+            return true;
+        };
+        match plan.compare_row_to_boundary(&item.row, &state.last_order_values, last_path) {
+            Ok(ordering) => {
+                ordering.is_gt()
+                    || (ordering.is_eq()
+                        && state
+                            .last_record_id
+                            .is_some_and(|last| item.record_id > last))
+            }
+            Err(_) => false,
+        }
+    });
+    let offset = if state.last_path.is_none() {
+        plan.offset
+    } else {
+        0
+    };
+    let page = after_keyset
+        .skip(usize::try_from(offset).unwrap_or(usize::MAX))
+        .take(usize::try_from(page_size).unwrap_or(usize::MAX))
+        .collect::<Vec<_>>();
+    let last_boundary = page.last().map(|item| QueryPageBoundary {
+        order_values: plan.row_order_values(&item.row),
+        path: item.row.path.clone(),
+        record_id: item.record_id,
+    });
+    let results = page
+        .iter()
+        .map(|item| {
+            json!({
+                "path": item.row.path,
+                "file": item.row.file,
+                "effective_frontmatter": item.row.effective_frontmatter,
+                "types": item.row.types,
+                "values": item.row.values,
+            })
+        })
+        .collect::<Vec<_>>();
+    let result_bytes = serialized_value_bytes(&Value::Array(results.clone()));
+    let group_bytes = groups.as_ref().map_or(0, |groups| {
+        serialized_value_bytes(&Value::Array(groups.clone()))
+    });
+    let resident_bytes = pre_reduction_resident_bytes
+        .saturating_add(result_bytes)
+        .saturating_add(group_bytes);
+    if resident_bytes > state.plan.budgets.max_memory_bytes {
+        return Err(query_budget_error(
+            "hosted_memory_budget_exceeded",
+            "The Obsidian Base exceeded its bounded resident-memory budget.",
+            "memory_bytes",
+            state.plan.budgets.max_memory_bytes,
+            resident_bytes,
+        ));
+    }
+    if started.elapsed().as_millis() as u64 > state.plan.budgets.max_wall_time_ms {
+        return Err(query_budget_error(
+            "hosted_time_budget_exceeded",
+            "The Obsidian Base exceeded its wall-time budget.",
+            "wall_time_ms",
+            state.plan.budgets.max_wall_time_ms,
+            started.elapsed().as_millis() as u64,
+        ));
+    }
+    Ok(ExecutedQueryPage {
+        results,
+        diagnostics,
+        groups,
+        total_count,
+        last_boundary,
+        candidate_rows: rows.len() as u64,
+        exact_documents: 0,
+    })
+}
+
+async fn load_base_candidate_projections(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    state: &HostedQueryState,
+    plan: &mdbase::runtime::HostedBasePlan,
+) -> ApiResult<Vec<ProjectedQueryRow>> {
+    let rows = sqlx::query(
+        r#"SELECT record_id, canonical_path, semantic_projection
+           FROM hosted_provider_record_projections
+           WHERE collection_id = $1 AND generation_id = $2
+             AND valid_from_sequence <= $3
+             AND (valid_to_sequence IS NULL OR valid_to_sequence > $3)
+             AND catalog_revision = $4 AND projection_format_version = $5
+             AND semantic_engine_version = $6
+             AND resolution_complete
+             AND (cardinality($7::text[]) = 0 OR matched_types && $7::text[])
+           ORDER BY record_id
+           LIMIT $8"#,
+    )
+    .bind(collection_id)
+    .bind(state.generation_id)
+    .bind(to_i64(state.snapshot_head, "query snapshot head")?)
+    .bind(&state.catalog_revision)
+    .bind(i64::from(state.projection_format_version))
+    .bind(&state.semantic_engine_version)
+    .bind(&plan.allowed_types)
+    .bind(to_i64(
+        state.plan.budgets.max_candidate_rows.saturating_add(1),
+        "candidate row budget",
+    )?)
+    .fetch_all(&mut **transaction)
+    .await?;
+    rows.into_iter()
+        .map(|row| {
+            Ok(ProjectedQueryRow {
+                record_id: row.get("record_id"),
+                canonical_path: row.get("canonical_path"),
+                projection: serde_json::from_value(row.get("semantic_projection")).map_err(
+                    |error| {
+                        ApiError::conflict(
+                            "hosted_projection_inconsistent",
+                            format!("An Obsidian Base projection could not decode: {error}"),
+                        )
+                    },
+                )?,
+            })
+        })
+        .collect()
+}
+
+async fn load_base_related_projections(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    state: &HostedQueryState,
+    record_ids: &[Uuid],
+) -> ApiResult<Vec<(Uuid, mdbase::runtime::SemanticProjection)>> {
+    if record_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows = sqlx::query(
+        r#"SELECT record_id, semantic_projection
+           FROM hosted_provider_record_projections
+           WHERE collection_id = $1 AND generation_id = $2
+             AND record_id = ANY($3::uuid[])
+             AND valid_from_sequence <= $4
+             AND (valid_to_sequence IS NULL OR valid_to_sequence > $4)
+             AND catalog_revision = $5 AND projection_format_version = $6
+             AND semantic_engine_version = $7
+             AND resolution_complete
+           ORDER BY record_id"#,
+    )
+    .bind(collection_id)
+    .bind(state.generation_id)
+    .bind(record_ids)
+    .bind(to_i64(state.snapshot_head, "query snapshot head")?)
+    .bind(&state.catalog_revision)
+    .bind(i64::from(state.projection_format_version))
+    .bind(&state.semantic_engine_version)
+    .fetch_all(&mut **transaction)
+    .await?;
+    rows.into_iter()
+        .map(|row| {
+            let record_id = row.get("record_id");
+            let projection =
+                serde_json::from_value(row.get("semantic_projection")).map_err(|error| {
+                    ApiError::conflict(
+                        "hosted_projection_inconsistent",
+                        format!("A related Obsidian Base projection could not decode: {error}"),
+                    )
+                })?;
+            Ok((record_id, projection))
+        })
+        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1677,16 +2403,35 @@ async fn insert_query_cursor(
             )
         })
         .transpose()?;
+    let base_plan = state
+        .base_plan
+        .as_ref()
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|error| {
+            ApiError::internal(format!("Obsidian Base plan could not serialize: {error}"))
+        })?;
+    let base_context = state
+        .base_context
+        .as_ref()
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|error| {
+            ApiError::internal(format!(
+                "Obsidian Base context projection could not serialize: {error}"
+            ))
+        })?;
     sqlx::query(
         r#"INSERT INTO hosted_provider_query_cursors
              (cursor_id, collection_id, replica_id, scope_epoch, snapshot_head,
               generation_id, catalog_revision, projection_format_version,
               semantic_engine_version, query_plan_version, query_digest, query_plan,
               request_kind, request_digest, result_meta, exact_context_ciphertext,
+              base_plan, base_context, base_operation_clock,
               last_order_values, last_record_id, emitted_rows, expires_at, hard_expires_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                   $13, $14, $15, $16, $17, $18, $19,
-                   LEAST(now() + make_interval(secs => $20), $21), $21)"#,
+                   $13, $14, $15, $16, $17, $18, $19, $20, $21, $22,
+                   LEAST(now() + make_interval(secs => $23), $24), $24)"#,
     )
     .bind(cursor_id)
     .bind(collection_id)
@@ -1704,6 +2449,9 @@ async fn insert_query_cursor(
     .bind(decode_sha256_digest(&state.request_digest)?)
     .bind(sqlx::types::Json(&state.result_meta))
     .bind(exact_context_ciphertext)
+    .bind(base_plan)
+    .bind(base_context)
+    .bind(state.base_operation_clock.as_deref())
     .bind(sqlx::types::Json(keyset))
     .bind(last_record_id)
     .bind(to_i64(emitted_rows, "emitted query rows")?)

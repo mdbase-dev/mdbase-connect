@@ -18,6 +18,9 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
     let fixture = FileLifecycleFixture::new(&database_url).await;
+    fixture
+        .enable_obsidian_base_pattern("views/**/*.base")
+        .await;
     let replica = sqlx::query(
         "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
     )
@@ -923,6 +926,143 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
         "notes/app-reference.md"
     );
 
+    for (path, priority) in [("tasks/high.md", "high"), ("tasks/low.md", "low")] {
+        let created = fixture
+            .provider
+            .operation(
+                fixture.collection_id,
+                &writer_token,
+                "create",
+                Uuid::new_v4(),
+                json!({
+                    "path": path,
+                    "frontmatter": {
+                        "status": "todo",
+                        "priority": priority,
+                        "tags": ["task"],
+                    },
+                    "body": format!("{priority} task prose\n"),
+                }),
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(created["valid"], true);
+    }
+    let tasknotes_base = r#"filters:
+  and:
+    - 'file.hasTag("task")'
+formulas:
+  urgency: 'if(priority == "high", 2, 1)'
+views:
+  - type: tasknotesTaskList
+    name: Open tasks
+    filters:
+      and:
+        - 'status != "done"'
+    order: [status, formula.urgency, file.name]
+    sort:
+      - property: formula.urgency
+        direction: DESC
+"#;
+    let created_base = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &writer_token,
+            "create_view_source",
+            Uuid::new_v4(),
+            json!({"path": "views/tasks.base", "document": tasknotes_base}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(created_base["valid"], true);
+    let first_base_page = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "execute_view",
+            Uuid::new_v4(),
+            json!({"path": "views/tasks.base", "view": "open-tasks", "limit": 1}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(first_base_page["valid"], true);
+    assert_eq!(first_base_page["result"]["meta"]["total_count"], 2);
+    assert_eq!(
+        first_base_page["result"]["results"][0]["path"],
+        "tasks/high.md"
+    );
+    assert_eq!(
+        first_base_page["result"]["results"][0]["values"]["formula.urgency"],
+        2
+    );
+    let base_cursor = first_base_page["result"]["meta"]["cursor"]
+        .as_str()
+        .expect("TaskNotes Base has another page");
+    let base_cursor_state = sqlx::query(
+        "SELECT base_plan, exact_context_ciphertext FROM hosted_provider_query_cursors
+         WHERE collection_id = $1 AND request_kind = 'obsidian_base'
+         ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert!(base_cursor_state
+        .get::<serde_json::Value, _>("base_plan")
+        .is_object());
+    assert!(base_cursor_state
+        .get::<Option<Vec<u8>>, _>("exact_context_ciphertext")
+        .is_none());
+    let changed_base = tasknotes_base.replace(
+        "if(priority == \"high\", 2, 1)",
+        "if(priority == \"high\", 0, 3)",
+    );
+    let updated_base = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &writer_token,
+            "update_view_source",
+            Uuid::new_v4(),
+            json!({
+                "path": "views/tasks.base",
+                "if_revision": created_base["result"]["revision"],
+                "document": changed_base,
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(updated_base["valid"], true);
+    let second_base_page = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "execute_view",
+            Uuid::new_v4(),
+            json!({
+                "path": "views/tasks.base",
+                "view": "open-tasks",
+                "cursor": base_cursor,
+                "limit": 1,
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(second_base_page["valid"], true);
+    assert_eq!(
+        second_base_page["result"]["results"][0]["path"],
+        "tasks/low.md"
+    );
+    assert_eq!(second_base_page["result"]["meta"]["has_more"], false);
+
     let stable_view_document = "---\ntype: view\nid: stable.views\nversion: 1\nname: Stable\nquery:\n  where: this.id == 'stable.views'\nviews:\n  - id: all\n    name: All\n---\n";
     let stable_view = fixture
         .provider
@@ -1157,6 +1297,119 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
     // Keep the compiler honest that the updated source remains a real exact
     // authority record throughout relationship-only revalidation.
     assert!(!source.revision.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    fixture
+        .enable_obsidian_base_pattern("views/**/*.base")
+        .await;
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let replica_id: Uuid = replica.get("id");
+    let scope_epoch = u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap();
+    put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        Uuid::now_v7(),
+        None,
+        "projects/mobile.md",
+        "---\ntitle: Mobile roadmap\n---\nProject notes\n",
+    )
+    .await;
+    put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        Uuid::now_v7(),
+        None,
+        "tasks/project-task.md",
+        "---\nstatus: todo\ntags: [task]\nprojects: ['[[projects/mobile]]']\n---\nShip mobile\n",
+    )
+    .await;
+    complete_generation(&fixture).await;
+
+    let token = format!("candidate-b-base-{}-{}", Uuid::new_v4(), Uuid::new_v4());
+    fixture
+        .provider
+        .register_replica(
+            fixture.collection_id,
+            RegisterReplica {
+                replica_id: Uuid::now_v7(),
+                name: "Candidate B TaskNotes Base mission".to_string(),
+                purpose: ReplicaPurpose::Application,
+                mode: SyncReplicaMode::ReadWrite,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
+                allowed_operations: vec![
+                    "create_view_source".to_string(),
+                    "execute_view".to_string(),
+                    "list_views".to_string(),
+                ],
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: Vec::new(),
+                file_capability: None,
+                allowed_origin: None,
+                proof_public_key: None,
+                grant_id: Some(Uuid::now_v7()),
+                application_declaration_id: None,
+                application_declaration_digest: None,
+                token: token.clone(),
+                token_ttl_seconds: None,
+            },
+        )
+        .await
+        .unwrap();
+    let projects_base = r##"views:
+  - type: tasknotesProjects
+    name: Projects
+    filters:
+      and:
+        - 'file.backlinks.filter((value.asFile().properties["status"].isEmpty() == false) && (value.asFile().properties["status"] != "done") && (list(value.asFile().properties["projects"]).map(file(value.replace(/^\[[^\]]+\]\((.*)\)$/, "$1").replace("[[", "").replace("]]", "").split("|")[0].split("#")[0].replace(/%20/g, " ")).asLink()).contains(file.asLink()))).length > 0'
+    order: [file.name, file.folder]
+"##;
+    let created = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "create_view_source",
+            Uuid::new_v4(),
+            json!({"path": "views/projects.base", "document": projects_base}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(created["valid"], true);
+    let projects = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "execute_view",
+            Uuid::new_v4(),
+            json!({"path": "views/projects.base", "view": "projects"}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(projects["valid"], true);
+    assert_eq!(projects["result"]["meta"]["total_count"], 1);
+    assert_eq!(
+        projects["result"]["results"][0]["path"],
+        "projects/mobile.md"
+    );
 }
 
 async fn complete_generation(fixture: &FileLifecycleFixture) -> Uuid {

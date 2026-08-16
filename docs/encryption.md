@@ -325,6 +325,14 @@ record, that bounded context is retained only as collection-envelope ciphertext
 with cursor-specific associated data; body prose is never copied into readable
 cursor columns.
 
+Obsidian Base cursors additionally retain a readable parsed semantic plan, pinned
+operation clock, and optional semantic context projection. A database or backup
+reader can therefore learn Base formulas, filters, referenced property names,
+renderer options, ordering/grouping choices, and the projected context facts. The
+exact `.base` resource formatting, exact record Markdown, and body prose remain
+encrypted. Base cursors are separately operation-bound and cannot be replayed as a
+direct query or canonical Markdown view cursor.
+
 No general projection GIN or automatic per-field index is part of the selected
 model. Every additional physical index needs a leakage analysis and measured query,
 write, WAL, HOT, rebuild, vacuum, and bloat justification.

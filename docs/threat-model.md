@@ -130,6 +130,13 @@ frontmatter, diagnostics, relationship edges, structural body facts, and value
 frequency. They must not receive exact Markdown or body prose from the projection.
 Logs and telemetry may record bounded counts and timing, never projection payloads.
 
+Snapshot cursors also make closed query metadata readable. Obsidian Base cursors
+reveal parsed formulas, filters, property references, renderer options,
+ordering/grouping choices, a pinned operation clock, and any projected `this.file`
+context. They do not reveal exact `.base` formatting, exact record Markdown, or
+body prose. Cursor ownership, scope epoch, operation kind, semantic-plan digest,
+single-use rotation, and hard expiry prevent cross-capability or cross-surface use.
+
 Projection rows are non-authoritative and revision-, semantic-catalog-, engine-,
 format-, and generation-bound. A current projection may narrow candidate selection and
 authorization classification. A stale, absent, ambiguous, corrupt, or unverifiable
@@ -178,6 +185,7 @@ explicitly labelled as unsigned beta previews otherwise.
 | Provider database is copied | Exact Markdown/body prose remain envelope-encrypted; readable projection and relationship leakage is explicitly inventoried and access-controlled |
 | Stale or corrupt projection widens a scoped grant | Version-bound currentness; canonical mdbase-rs fallback; fail-closed authorization; transaction-time grant/catalog/revision revalidation |
 | Projection candidate plan misses an authorized semantic match | Closed versioned IR; no-false-negative conformance; stale/absent union; canonical residual evaluation |
+| Obsidian Base expression exhausts CPU, stack, graph, or retained rows | AST work counter, bounded growable evaluator stack, one-hop graph completion proof, candidate/edge/group/byte/memory/time budgets, typed failure |
 | Malicious dependency or artifact | Frozen lockfiles, automated dependency review, audit gate, pinned Actions, provenance, signatures, checksums |
 | UI hides or confuses a security decision | Concrete permission review, semantic browser checks, keyboard navigation, and reduced-motion coverage |
 | Authorized application targets scripts or control files | Canonical record namespace, extension allowlist, resource-kind binding, shadow validation, symlink and regular-file checks |

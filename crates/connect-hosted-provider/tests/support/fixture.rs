@@ -8,11 +8,11 @@ use mdbase_connect_hosted_provider::{
 use mdbase_connect_protocol::{
     AbortFileTransferRequest, AbortFileTransferRequestKind, CommitFileUploadRequest,
     CommitFileUploadRequestKind, OpenFileUploadRequest, OpenFileUploadRequestKind,
-    PrepareFileUploadPartRequest, PrepareFileUploadPartRequestKind, SyncReplicaMode,
-    FILE_PROTOCOL_VERSION,
+    PrepareFileUploadPartRequest, PrepareFileUploadPartRequestKind, SyncCollectionResources,
+    SyncReplicaMode, FILE_PROTOCOL_VERSION,
 };
 use sha2::{Digest, Sha256};
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 use uuid::Uuid;
 
 use super::ControlledBlobStore;
@@ -21,6 +21,8 @@ pub struct FileLifecycleFixture {
     pub provider: HostedProvider,
     pub pool: PgPool,
     pub blobs: ControlledBlobStore,
+    #[allow(dead_code)]
+    pub crypto: ProviderCrypto,
     pub collection_id: Uuid,
     pub token: String,
 }
@@ -32,7 +34,7 @@ impl FileLifecycleFixture {
             .expect("test master key is valid");
         let provider = HostedProvider::connect(
             database_url,
-            crypto,
+            crypto.clone(),
             ProviderLimits::default(),
             Arc::new(blobs.clone()),
             None,
@@ -104,9 +106,88 @@ impl FileLifecycleFixture {
             provider,
             pool,
             blobs,
+            crypto,
             collection_id,
             token,
         }
+    }
+
+    /// Test-only collection bootstrap performed before any semantic generation
+    /// exists. Production configuration changes must use the reviewed setup
+    /// operation and its journal/receipt path.
+    #[allow(dead_code)]
+    pub async fn enable_obsidian_base_pattern(&self, pattern: &str) {
+        let mut transaction = self.pool.begin().await.expect("test transaction opens");
+        let collection = sqlx::query(
+            "SELECT head, wrapped_data_key, resources_ciphertext FROM hosted_provider_collections WHERE id = $1 FOR UPDATE",
+        )
+        .bind(self.collection_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .expect("test collection exists");
+        let data_key = self
+            .crypto
+            .unwrap_data_key(collection.get("wrapped_data_key"), self.collection_id)
+            .await
+            .expect("test data key unwraps");
+        let resources_aad = serde_json::to_vec(&("resources", self.collection_id)).unwrap();
+        let mut resources: SyncCollectionResources = self
+            .crypto
+            .decrypt_json(
+                &data_key,
+                collection.get("resources_ciphertext"),
+                &resources_aad,
+            )
+            .expect("test resources decrypt");
+        let config = sqlx::query(
+            "SELECT document_ciphertext FROM hosted_provider_resources WHERE collection_id = $1 AND path = 'mdbase.yaml' FOR UPDATE",
+        )
+        .bind(self.collection_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .expect("configuration resource exists");
+        let config_aad =
+            serde_json::to_vec(&("resource_document", self.collection_id, "mdbase.yaml")).unwrap();
+        let current = self
+            .crypto
+            .decrypt_bytes(&data_key, config.get("document_ciphertext"), &config_aad)
+            .expect("test configuration decrypts");
+        let mut document = String::from_utf8(current).expect("test configuration is UTF-8");
+        document.push_str(&format!(
+            "x-obsidian:\n  bases:\n    include:\n      - {pattern}\n"
+        ));
+        let revision = format!("sha256:{:x}", Sha256::digest(document.as_bytes()));
+        let ciphertext = self
+            .crypto
+            .encrypt_bytes(&data_key, document.as_bytes(), &config_aad)
+            .expect("test configuration encrypts");
+        let head = collection.get::<i64, _>("head") + 1;
+        resources.revision = format!("test:{head}:resources");
+        let resources_ciphertext = self
+            .crypto
+            .encrypt_json(&data_key, &resources, &resources_aad)
+            .expect("test resources encrypt");
+        sqlx::query(
+            "UPDATE hosted_provider_resources SET revision = $3, document_ciphertext = $4, updated_at = now() WHERE collection_id = $1 AND path = $2",
+        )
+        .bind(self.collection_id)
+        .bind("mdbase.yaml")
+        .bind(revision)
+        .bind(ciphertext)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE hosted_provider_collections SET head = $2, resource_revision = $3, resources_ciphertext = $4 WHERE id = $1",
+        )
+        .bind(self.collection_id)
+        .bind(head)
+        .bind(&resources.revision)
+        .bind(resources_ciphertext)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
     }
 
     pub async fn stage_upload(&self, path: &str, bytes: &[u8]) -> Uuid {

@@ -5,6 +5,7 @@ Status: additive schema drafted; isolated validation only; no existing-data migr
 Migration: `crates/connect-hosted-provider/migrations/0035_hosted_semantic_projections.sql`
 Activation gate: `crates/connect-hosted-provider/migrations/0036_hosted_execution_model.sql`
 Cursor invocation binding: `crates/connect-hosted-provider/migrations/0037_hosted_query_invocations.sql`
+Obsidian Base cursor state: `crates/connect-hosted-provider/migrations/0038_hosted_obsidian_base_cursors.sql`
 
 ## Compatibility strategy
 
@@ -72,6 +73,11 @@ A rename/swap transaction closes every affected open path before inserting new
 versions. A projection digest detects accidental substitution or corruption; it is
 not a MAC and never replaces exact authorization or canonical classification.
 
+Projection format 3 corrects the closed link-resolution contract so the mandatory
+Markdown `.md` path alternative is always present in addition to configured extra
+record extensions. A format-2 generation must be rebuilt; it cannot be relabelled,
+because extensionless wikilinks may have persisted an incorrect `missing` outcome.
+
 `hosted_provider_record_resolution_keys` stores the complete closed lookup-key set
 emitted by mdbase-rs for each record version: exact path plus normalized basename,
 configured ID, and title keys. Connect performs exact indexed lookup only; it does
@@ -101,6 +107,13 @@ exact-byte budget; it is decrypted for one page and dropped with that request.
 Each page consumes its presented cursor row transactionally and emits a fresh
 single-use cursor when more results remain. Per-replica live cursor counts, release,
 and idle/hard expiry bound retained state.
+
+Migration 0038 extends the same cursor state machine with a distinct
+`obsidian_base` request kind, a bounded digest-checked mdbase-rs Base plan, an
+optional readable semantic context projection, and a pinned operation clock.
+Cross-kind replay remains invalid. The Base plan may reveal formulas, property
+references, renderer configuration, and ordering/grouping semantics to a database
+reader; it never stores exact Markdown or body prose.
 
 ## Index inventory
 

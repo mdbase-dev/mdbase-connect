@@ -114,12 +114,27 @@ public invocation digest; an exact `this` context is stored only as bounded
 collection-encrypted cursor state. View-only resource edits do not alter an already
 pinned page sequence.
 
+Configured Obsidian Base sources use a dedicated mdbase-rs semantic plan rather
+than CEL or SQL reinterpretation. The plan evaluates formulas, shared/local filters,
+ordering, grouping, TaskNotes link operations, and backlink traversal over current
+projections plus a bounded one-hop relationship neighborhood. Its operation clock,
+optional projected `this.file` context, semantic plan, and keyset are pinned across
+pages. Expression AST work, candidate rows, relationship edges, groups, transferred
+projection bytes, retained rows, and resident copies all consume explicit budgets.
+The readable cursor plan exposes Base formulas and referenced property names, but
+not the exact `.base` formatting, exact record Markdown, or body prose.
+
 SQL applies safe ordering and limiting before transfer. Unsupported ordering uses
 an explicitly bounded top-K operator; grouping and summaries retain only bounded
 state. Scan rows, transferred bytes, decrypted documents, plaintext bytes, result
 bytes, operator state, wall time, statement time, connections, and memory are
 accounted separately. Exhaustion returns a typed budget outcome. No request silently
 falls back to collection-wide `WorkingSet`.
+
+The current review checkpoint implements current-projection Base execution and
+fails closed with `hosted_base_projection_fallback_required` if any live candidate
+projection is stale or absent. Canonical stale/absent Base fallback remains a
+rollout blocker; it may not be replaced by silent candidate omission.
 
 ## Mutation transaction
 
