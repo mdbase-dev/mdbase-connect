@@ -4,6 +4,21 @@ use super::*;
 
 const MUTATION_LEASE_SECONDS: i64 = 30;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct StoredSyncEffect {
+    schema_version: u32,
+    receipt: SyncMutationReceipt,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    semantic_result: Option<OperationResult>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum CompatibleStoredSyncEffect {
+    Current(StoredSyncEffect),
+    Legacy(SyncMutationReceipt),
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct HostedMutationJournalDiagnostics {
     pub state_counts: BTreeMap<String, u64>,
@@ -709,6 +724,7 @@ impl HostedProvider {
         data_key: &[u8; 32],
         lease: &HostedMutationLease,
         receipt: &SyncMutationReceipt,
+        semantic_result: Option<&OperationResult>,
         public_result: bool,
     ) -> ApiResult<()> {
         if public_result {
@@ -736,7 +752,11 @@ impl HostedProvider {
         }
         let ciphertext = self.crypto.encrypt_json(
             data_key,
-            receipt,
+            &StoredSyncEffect {
+                schema_version: 1,
+                receipt: receipt.clone(),
+                semantic_result: semantic_result.cloned(),
+            },
             &hosted_sync_effect_aad(lease.replica_id, lease.request_id),
         )?;
         self.store_sync_evidence_update(
@@ -787,7 +807,7 @@ impl HostedProvider {
         &self,
         collection_id: Uuid,
         lease: &HostedMutationLease,
-    ) -> ApiResult<Option<SyncMutationReceipt>> {
+    ) -> ApiResult<Option<(SyncMutationReceipt, Option<OperationResult>)>> {
         let row = sqlx::query(
             r#"SELECT journal.state, journal.evidence_kind,
                       journal.evidence_ciphertext, collection.wrapped_data_key
@@ -814,13 +834,22 @@ impl HostedProvider {
         let data_key = self
             .collection_key(collection_id, row.get("wrapped_data_key"))
             .await?;
-        self.crypto
-            .decrypt_json(
-                &data_key,
-                &row.get::<Vec<u8>, _>("evidence_ciphertext"),
-                &hosted_sync_effect_aad(lease.replica_id, lease.request_id),
-            )
-            .map(Some)
+        let stored: CompatibleStoredSyncEffect = self.crypto.decrypt_json(
+            &data_key,
+            &row.get::<Vec<u8>, _>("evidence_ciphertext"),
+            &hosted_sync_effect_aad(lease.replica_id, lease.request_id),
+        )?;
+        Ok(Some(match stored {
+            CompatibleStoredSyncEffect::Current(effect) => {
+                if effect.schema_version != 1 {
+                    return Err(ApiError::internal(
+                        "Stored hosted sync effect has an unsupported schema version.",
+                    ));
+                }
+                (effect.receipt, effect.semantic_result)
+            }
+            CompatibleStoredSyncEffect::Legacy(receipt) => (receipt, None),
+        }))
     }
 
     pub(super) async fn complete_operation_mutation(

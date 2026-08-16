@@ -294,7 +294,8 @@ impl HostedProvider {
         invalidate_projection_catalog_binding(&mut transaction, collection_id).await?;
         sqlx::query(
             r#"UPDATE hosted_provider_collections
-               SET head = $2, resource_revision = $3, resources_ciphertext = $4, updated_at = now()
+               SET head = $2, retained_after = $2, resource_revision = $3,
+                   resources_ciphertext = $4, updated_at = now()
                WHERE id = $1"#,
         )
         .bind(collection_id)
@@ -614,7 +615,8 @@ impl HostedProvider {
         invalidate_projection_catalog_binding(&mut transaction, collection_id).await?;
         sqlx::query(
             r#"UPDATE hosted_provider_collections
-               SET head = $2, resource_revision = $3, resources_ciphertext = $4, updated_at = now()
+               SET head = $2, retained_after = $2, resource_revision = $3,
+                   resources_ciphertext = $4, updated_at = now()
                WHERE id = $1"#,
         )
         .bind(collection_id)

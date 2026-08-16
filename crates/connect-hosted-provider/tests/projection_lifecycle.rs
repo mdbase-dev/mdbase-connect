@@ -169,6 +169,16 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
         .start_projection_generation(fixture.collection_id)
         .await
         .unwrap();
+    let pruned_first_generation: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_record_projections
+         WHERE collection_id = $1 AND generation_id = $2",
+    )
+    .bind(fixture.collection_id)
+    .bind(first_generation)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(pruned_first_generation, 0);
     let _new_record = put(
         &fixture,
         replica_id,
@@ -684,19 +694,21 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
         .unwrap();
     assert_eq!(reference_created["valid"], true);
 
+    let rename_request_id = Uuid::new_v4();
+    let rename_input = json!({
+        "from": "notes/app-target.md",
+        "to": "notes/app-renamed.md",
+        "if_revision": target_revision,
+        "update_refs": true,
+    });
     let renamed = fixture
         .provider
         .operation(
             fixture.collection_id,
             &writer_token,
             "rename",
-            Uuid::new_v4(),
-            json!({
-                "from": "notes/app-target.md",
-                "to": "notes/app-renamed.md",
-                "if_revision": target_revision,
-                "update_refs": true,
-            }),
+            rename_request_id,
+            rename_input.clone(),
             None,
         )
         .await
@@ -707,6 +719,19 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
         renamed["result"]["references_updated"][0]["path"],
         "notes/app-reference.md"
     );
+    let renamed_replay = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &writer_token,
+            "rename",
+            rename_request_id,
+            rename_input,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(renamed_replay, renamed);
     let renamed_revision = renamed["result"]["revision"].as_str().unwrap().to_string();
     let exact_reference = fixture
         .provider

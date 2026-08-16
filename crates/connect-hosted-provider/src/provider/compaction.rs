@@ -1,3 +1,4 @@
+use super::projections::prune_unpinned_projection_generations_in;
 use super::*;
 
 impl HostedProvider {
@@ -75,6 +76,34 @@ impl HostedProvider {
         let prune_boundary = oldest_live_snapshot
             .map(|cursor| cursor.min(through_i64))
             .unwrap_or(through_i64);
+        sqlx::query(
+            "DELETE FROM hosted_provider_record_relationships
+             WHERE collection_id = $1 AND valid_to_sequence IS NOT NULL
+               AND valid_to_sequence <= $2",
+        )
+        .bind(collection_id)
+        .bind(prune_boundary)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "DELETE FROM hosted_provider_record_resolution_keys
+             WHERE collection_id = $1 AND valid_to_sequence IS NOT NULL
+               AND valid_to_sequence <= $2",
+        )
+        .bind(collection_id)
+        .bind(prune_boundary)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "DELETE FROM hosted_provider_record_projections
+             WHERE collection_id = $1 AND valid_to_sequence IS NOT NULL
+               AND valid_to_sequence <= $2",
+        )
+        .bind(collection_id)
+        .bind(prune_boundary)
+        .execute(&mut *transaction)
+        .await?;
+        prune_unpinned_projection_generations_in(&mut transaction, collection_id).await?;
         sqlx::query(
             r#"DELETE FROM hosted_provider_record_versions version
                WHERE version.collection_id = $1

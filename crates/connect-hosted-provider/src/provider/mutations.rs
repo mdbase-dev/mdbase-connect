@@ -108,10 +108,12 @@ impl HostedProvider {
         let mut transaction = self.pool.begin().await?;
         let replica = authenticate_in(&mut transaction, collection_id, token, purpose).await?;
         if let Some(lease) = journal_lease {
-            if let Some(receipt) = self.load_sync_effect(collection_id, lease).await? {
+            if let Some((receipt, semantic_result)) =
+                self.load_sync_effect(collection_id, lease).await?
+            {
                 return Ok(ApplicationMutationResult {
                     receipt,
-                    semantic_result: None,
+                    semantic_result,
                 });
             }
         }
@@ -142,6 +144,7 @@ impl HostedProvider {
         mutation: &SyncMutation,
         operation: &str,
         input: serde_json::Map<String, Value>,
+        allowed_types: &[String],
     ) -> ApiResult<OperationResult> {
         let mut transaction = self.pool.begin().await?;
         let collection = sqlx::query(
@@ -172,7 +175,7 @@ impl HostedProvider {
         )
         .await?
         .map(|(record, _)| record);
-        let (execution, _) = execute_direct_semantic(
+        let (execution, before_records) = execute_direct_semantic(
             &mut transaction,
             self,
             &data_key,
@@ -184,6 +187,21 @@ impl HostedProvider {
             current,
         )
         .await?;
+        for (record_id, after, _) in &execution.changed {
+            let before = before_records.get(record_id);
+            if before.is_some_and(|record| !visible(record, allowed_types))
+                || after
+                    .as_ref()
+                    .is_some_and(|record| !visible(record, allowed_types))
+            {
+                return Ok(invalid_operation_result(
+                    "scope_denied",
+                    "The mutation would change a record outside the replica scope.",
+                    None,
+                    None,
+                ));
+            }
+        }
         Ok(execution.envelope)
     }
 
@@ -396,16 +414,7 @@ impl HostedProvider {
                         current_revision: Some(current.revision.clone()),
                     }),
                 };
-                store_receipt(
-                    &mut transaction,
-                    &self.crypto,
-                    &data_key,
-                    replica.id,
-                    &mutation,
-                    &journal,
-                    &receipt,
-                )
-                .await?;
+                store_receipt(&mut transaction, &data_key, &journal, &receipt, None).await?;
                 transaction.commit().await?;
                 return Ok(receipt);
             }
@@ -749,12 +758,10 @@ impl HostedProvider {
         };
         store_receipt(
             &mut transaction,
-            &self.crypto,
             &data_key,
-            replica.id,
-            &mutation,
             &journal,
             &receipt,
+            semantic_requested.then_some(&execution.envelope),
         )
         .await?;
         transaction.commit().await?;
@@ -831,12 +838,8 @@ async fn execute_direct_semantic(
     if exact_context_bytes.is_none_or(|bytes| bytes > MAX_HOSTED_MUTATION_CONTEXT_BYTES) {
         return Err(hosted_mutation_context_byte_budget());
     }
-    let needs_incoming_context = operation == "rename"
-        || (operation == "delete"
-            && input
-                .get("check_backlinks")
-                .and_then(Value::as_bool)
-                .unwrap_or(false));
+    let needs_incoming_context =
+        catalog.hosted_mutation_requires_incoming_context(operation, &Value::Object(input.clone()));
     if needs_incoming_context {
         let generation_id = collection
             .get::<Option<Uuid>, _>("active_projection_generation_id")

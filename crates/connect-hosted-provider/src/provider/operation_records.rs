@@ -242,6 +242,7 @@ impl HostedProvider {
                 &prepared.mutation,
                 &prepared.semantic_operation,
                 prepared.semantic_input,
+                &replica.allowed_types,
             )
             .await?;
         serde_json::to_value(result).map_err(|error| {

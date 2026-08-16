@@ -369,7 +369,7 @@ pub(super) struct SyncJournalContext<'a> {
 
 pub(super) async fn store_rejection(
     mut transaction: Transaction<'_, Postgres>,
-    crypto: &ProviderCrypto,
+    _crypto: &ProviderCrypto,
     data_key: &[u8; 32],
     mutation: &SyncMutation,
     journal: &SyncJournalContext<'_>,
@@ -383,30 +383,18 @@ pub(super) async fn store_rejection(
             message: message.to_string(),
         },
     };
-    store_receipt(
-        &mut transaction,
-        crypto,
-        data_key,
-        mutation.replica_id,
-        mutation,
-        journal,
-        &receipt,
-    )
-    .await?;
+    store_receipt(&mut transaction, data_key, journal, &receipt, None).await?;
     transaction.commit().await?;
     Ok(receipt)
 }
 
 pub(super) async fn store_receipt(
     transaction: &mut Transaction<'_, Postgres>,
-    crypto: &ProviderCrypto,
     data_key: &[u8; 32],
-    replica_id: Uuid,
-    mutation: &SyncMutation,
     journal: &SyncJournalContext<'_>,
     receipt: &SyncMutationReceipt,
+    semantic_result: Option<&OperationResult>,
 ) -> ApiResult<()> {
-    let _ = (crypto, replica_id, mutation);
     journal
         .provider
         .store_sync_effect_in(
@@ -414,6 +402,7 @@ pub(super) async fn store_receipt(
             data_key,
             journal.lease,
             receipt,
+            semantic_result,
             journal.public_result,
         )
         .await

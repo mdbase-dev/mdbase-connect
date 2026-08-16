@@ -7,6 +7,7 @@ const MAX_PROJECTION_BATCH_CIPHERTEXT_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_RESOLUTION_BATCH_PROJECTION_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_RELATIONSHIP_REVALIDATION_RECORDS: usize = 200;
 const MAX_RELATIONSHIP_REVALIDATION_BYTES: u64 = 32 * 1024 * 1024;
+const MAX_RETAINED_PROJECTION_GENERATIONS: i64 = 4;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct HostedProjectionGeneration {
@@ -83,6 +84,23 @@ impl HostedProvider {
         .bind(collection_id)
         .execute(&mut *transaction)
         .await?;
+        prune_unpinned_projection_generations_in(&mut transaction, collection_id).await?;
+        let retained_generations: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM hosted_provider_projection_generations WHERE collection_id = $1",
+        )
+        .bind(collection_id)
+        .fetch_one(&mut *transaction)
+        .await?;
+        if retained_generations >= MAX_RETAINED_PROJECTION_GENERATIONS {
+            return Err(ApiError::quota(
+                "projection_generation_retention_exceeded",
+                "Too many projection generations remain pinned for safe rebuild.",
+            )
+            .with_details(json!({
+                "limit": MAX_RETAINED_PROJECTION_GENERATIONS,
+                "retained": retained_generations,
+            })));
+        }
         sqlx::query(
             r#"INSERT INTO hosted_provider_projection_generations
                  (collection_id, generation_id, target_catalog_revision,
@@ -406,6 +424,28 @@ impl HostedProvider {
         sqlx::query("SET LOCAL statement_timeout = 15000")
             .execute(&mut *transaction)
             .await?;
+        let may_complete: bool = sqlx::query_scalar(
+            r#"SELECT NOT EXISTS (
+                 SELECT 1 FROM hosted_provider_record_projections
+                 WHERE collection_id = $1 AND generation_id = $2
+                   AND valid_to_sequence IS NULL AND resolution_complete = false
+               )"#,
+        )
+        .bind(collection_id)
+        .bind(generation_id)
+        .fetch_one(&mut *transaction)
+        .await?;
+        if may_complete {
+            // Every path that can lock both rows uses collection -> generation.
+            // Ordinary resolution batches never need the collection row lock.
+            sqlx::query(
+                "SELECT id FROM hosted_provider_collections WHERE id = $1 AND state = 'active' FOR UPDATE",
+            )
+            .bind(collection_id)
+            .fetch_optional(&mut *transaction)
+            .await?
+            .ok_or_else(projection_binding_changed)?;
+        }
         let generation = sqlx::query(
             r#"UPDATE hosted_provider_projection_generations
                SET lease_owner = $3,
@@ -739,6 +779,72 @@ impl HostedProvider {
             phase_advanced: completed,
         })
     }
+}
+
+pub(super) async fn prune_unpinned_projection_generations_in(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+) -> ApiResult<()> {
+    sqlx::query("DELETE FROM hosted_provider_query_cursors WHERE hard_expires_at <= now()")
+        .execute(&mut **transaction)
+        .await?;
+    let removable = sqlx::query_scalar::<_, Uuid>(
+        r#"SELECT generation_id
+           FROM hosted_provider_projection_generations generation
+           WHERE generation.collection_id = $1
+             AND generation.status IN ('complete', 'abandoned')
+             AND NOT EXISTS (
+               SELECT 1 FROM hosted_provider_collections collection
+               WHERE collection.id = generation.collection_id
+                 AND collection.active_projection_generation_id = generation.generation_id
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM hosted_provider_query_cursors cursor
+               WHERE cursor.collection_id = generation.collection_id
+                 AND cursor.generation_id = generation.generation_id
+                 AND cursor.hard_expires_at > now()
+             )
+           ORDER BY generation.updated_at, generation.generation_id"#,
+    )
+    .bind(collection_id)
+    .fetch_all(&mut **transaction)
+    .await?;
+    if removable.is_empty() {
+        return Ok(());
+    }
+    sqlx::query(
+        "DELETE FROM hosted_provider_record_relationships
+         WHERE collection_id = $1 AND generation_id = ANY($2::uuid[])",
+    )
+    .bind(collection_id)
+    .bind(&removable)
+    .execute(&mut **transaction)
+    .await?;
+    sqlx::query(
+        "DELETE FROM hosted_provider_record_resolution_keys
+         WHERE collection_id = $1 AND generation_id = ANY($2::uuid[])",
+    )
+    .bind(collection_id)
+    .bind(&removable)
+    .execute(&mut **transaction)
+    .await?;
+    sqlx::query(
+        "DELETE FROM hosted_provider_record_projections
+         WHERE collection_id = $1 AND generation_id = ANY($2::uuid[])",
+    )
+    .bind(collection_id)
+    .bind(&removable)
+    .execute(&mut **transaction)
+    .await?;
+    sqlx::query(
+        "DELETE FROM hosted_provider_projection_generations
+         WHERE collection_id = $1 AND generation_id = ANY($2::uuid[])",
+    )
+    .bind(collection_id)
+    .bind(&removable)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
 }
 
 impl HostedProvider {
