@@ -24,6 +24,15 @@ struct ProjectedQueryRow {
     projection: mdbase::runtime::SemanticProjection,
 }
 
+struct ExecutedQueryPage {
+    results: Vec<Value>,
+    diagnostics: Vec<Diagnostic>,
+    total_count: u64,
+    last_boundary: Option<(String, Uuid)>,
+    candidate_rows: u64,
+    exact_documents: u64,
+}
+
 impl HostedProvider {
     pub(super) async fn execute_hosted_query(
         &self,
@@ -151,82 +160,49 @@ impl HostedProvider {
                 "This hosted order requires the bounded top-K executor.",
             )
         })?;
-        if !state.plan.residual.filter_fully_projected
-            || state.plan.requirements.diagnostic_type_matchers
+        let projection_fallback =
+            projection_fallback_exists(&mut transaction, collection_id, &state).await?;
+        let page = if state.plan.residual.filter_fully_projected
+            && !state.plan.requirements.diagnostic_type_matchers
+            && !projection_fallback
         {
-            return Ok(mdbase::runtime::invalid_operation_result(
-                "hosted_scan_budget_exceeded",
-                "This query requires the bounded residual scan executor and was not allowed to fall back to a collection working set.",
-            ));
-        }
-        if projection_fallback_exists(&mut transaction, collection_id, &state).await? {
-            return Ok(mdbase::runtime::invalid_operation_result(
-                "hosted_projection_fallback_required",
-                "A stale or absent semantic projection requires bounded canonical fallback.",
-            ));
-        }
-
-        let total_count =
-            count_projected_candidates(&mut transaction, collection_id, &state, &candidate_types)
-                .await?;
-        let rows = load_projected_page(
-            &mut transaction,
-            collection_id,
-            &state,
-            &candidate_types,
-            order_descending,
-            requested_page_size,
-        )
-        .await?;
-        let exact_records = if state.plan.requirements.exact_document {
-            load_exact_query_records(
+            execute_projected_page(
                 &mut transaction,
                 &self.crypto,
                 &data_key,
                 collection_id,
-                state.snapshot_head,
-                &rows.iter().map(|row| row.record_id).collect::<Vec<_>>(),
+                &state,
+                &catalog,
+                &candidate_types,
+                order_descending,
+                requested_page_size,
             )
             .await?
         } else {
-            HashMap::new()
+            execute_bounded_residual_page(
+                &mut transaction,
+                &self.crypto,
+                &data_key,
+                collection_id,
+                &state,
+                &catalog,
+                &candidate_types,
+                order_descending,
+                requested_page_size,
+                started,
+            )
+            .await?
         };
-        let mut results = Vec::with_capacity(rows.len());
-        let mut diagnostics = Vec::new();
-        for row in &rows {
-            let evaluation = if state.plan.requirements.exact_document {
-                let record = exact_records.get(&row.record_id).ok_or_else(|| {
-                    ApiError::internal("A selected hosted query row has no exact snapshot record.")
-                })?;
-                catalog.evaluate_hosted_residual(&state.plan, record)
-            } else {
-                catalog.evaluate_hosted_projection_residual(&state.plan, &row.projection)
-            }
-            .map_err(|error| {
-                ApiError::conflict("hosted_projection_inconsistent", error.message)
-                    .with_details(json!({ "semantic_code": error.code }))
-            })?;
-            if !evaluation.matched {
-                return Err(ApiError::conflict(
-                    "hosted_projection_inconsistent",
-                    "A SQL-selected projection disagreed with canonical residual evaluation.",
-                ));
-            }
-            diagnostics.extend(evaluation.diagnostics);
-            results.push(evaluation.record.ok_or_else(|| {
-                ApiError::internal("A matching hosted residual omitted its result record.")
-            })?);
-        }
 
-        let page_count = results.len() as u64;
+        let page_count = page.results.len() as u64;
         let consumed = state
             .plan
             .offset
             .saturating_add(state.emitted_rows)
             .saturating_add(page_count);
-        let has_more = consumed < total_count;
+        let has_more = consumed < page.total_count;
         let next_cursor = if has_more {
-            let last = rows.last().ok_or_else(|| {
+            let (last_path, last_record_id) = page.last_boundary.as_ref().ok_or_else(|| {
                 ApiError::internal("A hosted query reported more rows without a keyset boundary.")
             })?;
             let cursor_id = Uuid::new_v4();
@@ -236,8 +212,8 @@ impl HostedProvider {
                 replica,
                 cursor_id,
                 &state,
-                &last.canonical_path,
-                last.record_id,
+                last_path,
+                *last_record_id,
                 state.emitted_rows.saturating_add(page_count),
             )
             .await?;
@@ -258,9 +234,9 @@ impl HostedProvider {
             target: "mdbase_connect::metrics",
             metric = "hosted_projection_query_page",
             snapshot_head = state.snapshot_head,
-            candidate_rows = rows.len() as u64,
-            results = results.len() as u64,
-            exact_documents = exact_records.len() as u64,
+            candidate_rows = page.candidate_rows,
+            results = page.results.len() as u64,
+            exact_documents = page.exact_documents,
             elapsed_ms = started.elapsed().as_millis() as u64,
             database_pool_size = self.pool.size(),
             database_pool_idle = self.pool.num_idle(),
@@ -270,19 +246,19 @@ impl HostedProvider {
             "privacy-safe hosted provider metric"
         );
         let serialized_diagnostics =
-            serde_json::to_value(&diagnostics).unwrap_or_else(|_| json!([]));
+            serde_json::to_value(&page.diagnostics).unwrap_or_else(|_| json!([]));
         Ok(OperationResult {
             valid: true,
             result: json!({
-                "results": results,
+                "results": page.results,
                 "meta": {
-                    "total_count": total_count,
+                    "total_count": page.total_count,
                     "has_more": has_more,
                     "cursor": next_cursor,
                 },
                 "diagnostics": serialized_diagnostics,
             }),
-            diagnostics,
+            diagnostics: page.diagnostics,
         })
     }
 
@@ -490,6 +466,406 @@ async fn projection_fallback_exists(
     .fetch_one(&mut **transaction)
     .await
     .map_err(ApiError::from)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn execute_projected_page(
+    transaction: &mut Transaction<'_, Postgres>,
+    crypto: &ProviderCrypto,
+    data_key: &[u8; 32],
+    collection_id: Uuid,
+    state: &HostedQueryState,
+    catalog: &mdbase::runtime::CompiledCatalog,
+    candidate_types: &[String],
+    order_descending: bool,
+    page_size: u64,
+) -> ApiResult<ExecutedQueryPage> {
+    let total_count =
+        count_projected_candidates(transaction, collection_id, state, candidate_types).await?;
+    let rows = load_projected_page(
+        transaction,
+        collection_id,
+        state,
+        candidate_types,
+        order_descending,
+        page_size,
+    )
+    .await?;
+    let projection_bytes = rows.iter().try_fold(0_u64, |total, row| {
+        let bytes = serde_json::to_vec(&row.projection).map_err(|error| {
+            ApiError::internal(format!(
+                "Hosted semantic projection could not serialize: {error}"
+            ))
+        })?;
+        Ok::<_, ApiError>(total.saturating_add(bytes.len() as u64))
+    })?;
+    if projection_bytes > state.plan.budgets.max_candidate_bytes {
+        return Err(query_budget_error(
+            "hosted_byte_budget_exceeded",
+            "The hosted query page exceeded its transferred projection-byte budget.",
+            "candidate_bytes",
+            state.plan.budgets.max_candidate_bytes,
+            projection_bytes,
+        ));
+    }
+    let exact_records = if state.plan.requirements.exact_document {
+        load_exact_query_records(
+            transaction,
+            crypto,
+            data_key,
+            collection_id,
+            state.snapshot_head,
+            &rows.iter().map(|row| row.record_id).collect::<Vec<_>>(),
+        )
+        .await?
+    } else {
+        HashMap::new()
+    };
+    if exact_records.len() as u64 > state.plan.budgets.max_exact_documents {
+        return Err(query_budget_error(
+            "hosted_exact_document_budget_exceeded",
+            "The hosted query page exceeded its exact-document budget.",
+            "exact_documents",
+            state.plan.budgets.max_exact_documents,
+            exact_records.len() as u64,
+        ));
+    }
+    let exact_bytes = exact_records.values().fold(0_u64, |total, record| {
+        total.saturating_add(record.document.len() as u64)
+    });
+    if exact_bytes > state.plan.budgets.max_exact_bytes {
+        return Err(query_budget_error(
+            "hosted_exact_byte_budget_exceeded",
+            "The hosted query page exceeded its exact-plaintext byte budget.",
+            "exact_bytes",
+            state.plan.budgets.max_exact_bytes,
+            exact_bytes,
+        ));
+    }
+    let mut results = Vec::with_capacity(rows.len());
+    let mut diagnostics = Vec::new();
+    for row in &rows {
+        let evaluation = if state.plan.requirements.exact_document {
+            let record = exact_records.get(&row.record_id).ok_or_else(|| {
+                ApiError::internal("A selected hosted query row has no exact snapshot record.")
+            })?;
+            catalog.evaluate_hosted_residual(&state.plan, record)
+        } else {
+            catalog.evaluate_hosted_projection_residual(&state.plan, &row.projection)
+        }
+        .map_err(projection_inconsistent)?;
+        if !evaluation.matched {
+            return Err(ApiError::conflict(
+                "hosted_projection_inconsistent",
+                "A SQL-selected projection disagreed with canonical residual evaluation.",
+            ));
+        }
+        diagnostics.extend(evaluation.diagnostics);
+        results.push(evaluation.record.ok_or_else(|| {
+            ApiError::internal("A matching hosted residual omitted its result record.")
+        })?);
+    }
+    let result_bytes = results
+        .iter()
+        .map(|result| serde_json::to_vec(result).map_or(0, |bytes| bytes.len() as u64))
+        .sum::<u64>();
+    let resident_bytes = projection_bytes
+        .saturating_add(exact_bytes)
+        .saturating_add(result_bytes);
+    if resident_bytes > state.plan.budgets.max_memory_bytes {
+        return Err(query_budget_error(
+            "hosted_memory_budget_exceeded",
+            "The hosted query page exceeded its bounded resident-memory budget.",
+            "memory_bytes",
+            state.plan.budgets.max_memory_bytes,
+            resident_bytes,
+        ));
+    }
+    Ok(ExecutedQueryPage {
+        results,
+        diagnostics,
+        total_count,
+        last_boundary: rows
+            .last()
+            .map(|row| (row.canonical_path.clone(), row.record_id)),
+        candidate_rows: rows.len() as u64,
+        exact_documents: exact_records.len() as u64,
+    })
+}
+
+struct BoundedProjectionCandidate {
+    record_id: Uuid,
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn execute_bounded_residual_page(
+    transaction: &mut Transaction<'_, Postgres>,
+    crypto: &ProviderCrypto,
+    data_key: &[u8; 32],
+    collection_id: Uuid,
+    state: &HostedQueryState,
+    catalog: &mdbase::runtime::CompiledCatalog,
+    candidate_types: &[String],
+    descending: bool,
+    page_size: u64,
+    started: Instant,
+) -> ApiResult<ExecutedQueryPage> {
+    let type_filter = if state.plan.requirements.diagnostic_type_matchers {
+        &[][..]
+    } else {
+        candidate_types
+    };
+    let rows = sqlx::query(
+        r#"WITH live AS (
+             SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted
+             FROM hosted_provider_record_versions
+             WHERE collection_id = $1 AND sequence <= $2
+             ORDER BY record_id, sequence DESC
+           ), joined AS (
+             SELECT l.record_id, l.deleted, p.matched_types, p.semantic_projection,
+                    p.record_id IS NOT NULL
+                    AND p.record_sequence = l.sequence
+                    AND p.record_revision = l.revision
+                    AND p.catalog_revision = $4
+                    AND p.projection_format_version = $5
+                    AND p.semantic_engine_version = $6
+                    AND p.semantic_complete AND p.resolution_complete AS projection_current
+             FROM live l
+             LEFT JOIN hosted_provider_record_projections p
+               ON p.collection_id = $1 AND p.generation_id = $3
+              AND p.record_id = l.record_id
+              AND p.valid_from_sequence <= $2
+              AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > $2)
+           )
+           SELECT record_id,
+                  CASE WHEN projection_current THEN semantic_projection END AS semantic_projection,
+                  CASE WHEN projection_current THEN pg_column_size(semantic_projection) ELSE 0 END AS projection_bytes
+           FROM joined
+           WHERE NOT deleted
+             AND (NOT projection_current OR cardinality($7::text[]) = 0
+                  OR matched_types && $7::text[])
+           ORDER BY record_id
+           LIMIT $8"#,
+    )
+    .bind(collection_id)
+    .bind(to_i64(state.snapshot_head, "query snapshot head")?)
+    .bind(state.generation_id)
+    .bind(&state.catalog_revision)
+    .bind(i64::from(state.projection_format_version))
+    .bind(&state.semantic_engine_version)
+    .bind(type_filter)
+    .bind(to_i64(
+        state.plan.budgets.max_candidate_rows.saturating_add(1),
+        "candidate row budget",
+    )?)
+    .fetch_all(&mut **transaction)
+    .await?;
+    if rows.len() as u64 > state.plan.budgets.max_candidate_rows {
+        return Err(query_budget_error(
+            "hosted_scan_budget_exceeded",
+            "The hosted query exceeded its candidate-row budget.",
+            "candidate_rows",
+            state.plan.budgets.max_candidate_rows,
+            rows.len() as u64,
+        ));
+    }
+    let projection_bytes = rows.iter().try_fold(0_u64, |total, row| {
+        let bytes = number(
+            i64::from(row.get::<i32, _>("projection_bytes")),
+            "candidate projection bytes",
+        )?;
+        Ok::<_, ApiError>(total.saturating_add(bytes))
+    })?;
+    if projection_bytes > state.plan.budgets.max_candidate_bytes {
+        return Err(query_budget_error(
+            "hosted_byte_budget_exceeded",
+            "The hosted query exceeded its candidate-byte budget.",
+            "candidate_bytes",
+            state.plan.budgets.max_candidate_bytes,
+            projection_bytes,
+        ));
+    }
+    if rows.len() as u64 > state.plan.budgets.max_operator_steps {
+        return Err(query_budget_error(
+            "hosted_operator_budget_exceeded",
+            "The hosted query exceeded its operator-step budget.",
+            "operator_steps",
+            state.plan.budgets.max_operator_steps,
+            rows.len() as u64,
+        ));
+    }
+
+    let candidate_count = rows.len() as u64;
+    let mut candidates = Vec::with_capacity(rows.len());
+    let mut exact_ids = Vec::new();
+    let mut projected_evaluations = HashMap::new();
+    for row in rows {
+        let record_id: Uuid = row.get("record_id");
+        let projection = row
+            .get::<Option<Value>, _>("semantic_projection")
+            .and_then(|value| serde_json::from_value(value).ok());
+        if state.plan.requirements.exact_document || projection.is_none() {
+            exact_ids.push(record_id);
+        } else if let Some(projection) = projection.as_ref() {
+            match catalog.evaluate_hosted_projection_residual(&state.plan, projection) {
+                Ok(evaluation) => {
+                    projected_evaluations.insert(record_id, evaluation);
+                }
+                Err(error) if error.code == "hosted_exact_residual_required" => {
+                    exact_ids.push(record_id);
+                }
+                Err(error) => return Err(projection_inconsistent(error)),
+            }
+        }
+        candidates.push(BoundedProjectionCandidate { record_id });
+    }
+    exact_ids.sort();
+    exact_ids.dedup();
+    if exact_ids.len() as u64 > state.plan.budgets.max_exact_documents {
+        return Err(query_budget_error(
+            "hosted_exact_document_budget_exceeded",
+            "The hosted query exceeded its exact-document budget.",
+            "exact_documents",
+            state.plan.budgets.max_exact_documents,
+            exact_ids.len() as u64,
+        ));
+    }
+    let exact_records = load_exact_query_records(
+        transaction,
+        crypto,
+        data_key,
+        collection_id,
+        state.snapshot_head,
+        &exact_ids,
+    )
+    .await?;
+    let exact_bytes = exact_records.values().fold(0_u64, |total, record| {
+        total.saturating_add(record.document.len() as u64)
+    });
+    if exact_bytes > state.plan.budgets.max_exact_bytes {
+        return Err(query_budget_error(
+            "hosted_exact_byte_budget_exceeded",
+            "The hosted query exceeded its exact-plaintext byte budget.",
+            "exact_bytes",
+            state.plan.budgets.max_exact_bytes,
+            exact_bytes,
+        ));
+    }
+
+    let mut diagnostics = Vec::new();
+    let mut matching = Vec::<(String, Uuid, Value)>::new();
+    for candidate in candidates {
+        let evaluation =
+            if let Some(evaluation) = projected_evaluations.remove(&candidate.record_id) {
+                evaluation
+            } else {
+                let record = exact_records.get(&candidate.record_id).ok_or_else(|| {
+                    ApiError::internal("A bounded hosted candidate has no exact snapshot record.")
+                })?;
+                catalog
+                    .evaluate_hosted_residual(&state.plan, record)
+                    .map_err(projection_inconsistent)?
+            };
+        diagnostics.extend(evaluation.diagnostics);
+        if let Some(result) = evaluation.record.filter(|_| evaluation.matched) {
+            let path = result
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ApiError::internal("A hosted query result has no path."))?
+                .to_string();
+            matching.push((path, candidate.record_id, result));
+        }
+    }
+    matching.sort_by(|left, right| {
+        let path = if descending {
+            right.0.cmp(&left.0)
+        } else {
+            left.0.cmp(&right.0)
+        };
+        path.then_with(|| left.1.cmp(&right.1))
+    });
+    let total_count = matching.len() as u64;
+    let after_keyset = matching.into_iter().filter(|(path, record_id, _)| {
+        let Some(last_path) = state.last_path.as_deref() else {
+            return true;
+        };
+        if descending {
+            path.as_str() < last_path
+                || (path.as_str() == last_path
+                    && state.last_record_id.is_some_and(|last| *record_id > last))
+        } else {
+            path.as_str() > last_path
+                || (path.as_str() == last_path
+                    && state.last_record_id.is_some_and(|last| *record_id > last))
+        }
+    });
+    let offset = if state.last_path.is_none() {
+        state.plan.offset
+    } else {
+        0
+    };
+    let page = after_keyset
+        .skip(usize::try_from(offset).unwrap_or(usize::MAX))
+        .take(usize::try_from(page_size).unwrap_or(usize::MAX))
+        .collect::<Vec<_>>();
+    let last_boundary = page
+        .last()
+        .map(|(path, record_id, _)| (path.clone(), *record_id));
+    let results = page
+        .into_iter()
+        .map(|(_, _, result)| result)
+        .collect::<Vec<_>>();
+    let resident_bytes = projection_bytes.saturating_add(exact_bytes).saturating_add(
+        results
+            .iter()
+            .map(|result| serde_json::to_vec(result).map_or(0, |bytes| bytes.len() as u64))
+            .sum::<u64>(),
+    );
+    if resident_bytes > state.plan.budgets.max_memory_bytes {
+        return Err(query_budget_error(
+            "hosted_memory_budget_exceeded",
+            "The hosted query exceeded its bounded resident-memory budget.",
+            "memory_bytes",
+            state.plan.budgets.max_memory_bytes,
+            resident_bytes,
+        ));
+    }
+    if started.elapsed().as_millis() as u64 > state.plan.budgets.max_wall_time_ms {
+        return Err(query_budget_error(
+            "hosted_time_budget_exceeded",
+            "The hosted query exceeded its wall-time budget.",
+            "wall_time_ms",
+            state.plan.budgets.max_wall_time_ms,
+            started.elapsed().as_millis() as u64,
+        ));
+    }
+    Ok(ExecutedQueryPage {
+        results,
+        diagnostics,
+        total_count,
+        last_boundary,
+        candidate_rows: candidate_count,
+        exact_documents: exact_records.len() as u64,
+    })
+}
+
+fn projection_inconsistent(error: mdbase::runtime::CatalogError) -> ApiError {
+    ApiError::conflict("hosted_projection_inconsistent", error.message)
+        .with_details(json!({ "semantic_code": error.code }))
+}
+
+fn query_budget_error(
+    code: &str,
+    message: &str,
+    budget: &str,
+    limit: u64,
+    observed: u64,
+) -> ApiError {
+    ApiError::quota(code, message).with_details(json!({
+        "budget": budget,
+        "limit": limit,
+        "observed": observed,
+    }))
 }
 
 async fn count_projected_candidates(

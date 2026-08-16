@@ -317,6 +317,89 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
             .unwrap();
     assert!(current_head > delete_head);
 
+    let projected_filter = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "where": "record.title == 'Source'",
+                "limit": 10,
+                "order_by": [{"field": "file.path"}],
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(projected_filter["result"]["meta"]["total_count"], 1);
+    assert_eq!(
+        projected_filter["result"]["results"][0]["path"],
+        "notes/source.md"
+    );
+
+    let body_filter = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "where": "file.body.contains('Changed prose')",
+                "limit": 10,
+                "order_by": [{"field": "file.path"}],
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(body_filter["result"]["meta"]["total_count"], 1);
+    assert_eq!(
+        body_filter["result"]["results"][0]["path"],
+        "notes/source.md"
+    );
+    assert!(body_filter["result"]["results"][0].get("body").is_none());
+
+    sqlx::query(
+        r#"UPDATE hosted_provider_record_projections
+           SET semantic_complete = false
+           WHERE collection_id = $1 AND generation_id = $2 AND record_id = $3
+             AND valid_to_sequence IS NULL"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(second_generation)
+    .bind(source_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let stale_fallback = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({"limit": 10, "order_by": [{"field": "file.path"}]}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(stale_fallback["result"]["meta"]["total_count"], 3);
+    assert_eq!(
+        stale_fallback["result"]["results"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+    assert!(stale_fallback["result"]["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|result| result["path"] == "notes/source.md"));
+
     // Keep the compiler honest that the updated source remains a real exact
     // authority record throughout relationship-only revalidation.
     assert!(!source.revision.is_empty());
