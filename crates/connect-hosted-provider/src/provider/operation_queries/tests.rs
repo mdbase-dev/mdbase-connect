@@ -65,16 +65,17 @@ mod tests {
         assert!(candidate_predicate_is_total(&CandidatePredicate::HasType {
             type_name: "task".to_string(),
         }));
-        assert!(!candidate_predicate_is_total(
-            &CandidatePredicate::Compare {
-                comparison: CandidateComparison {
-                    field: CandidateField::EffectiveFrontmatter(vec!["status".to_string()]),
-                    operator: CandidateComparisonOperator::Equal,
-                    value: Value::String("open".to_string()),
-                    pruning: CandidateComparisonPruning::ExactJson,
-                },
-            }
-        ));
+        let comparison = CandidatePredicate::Compare {
+            comparison: CandidateComparison {
+                field: CandidateField::EffectiveFrontmatter(vec!["status".to_string()]),
+                operator: CandidateComparisonOperator::Equal,
+                value: Value::String("open".to_string()),
+                pruning: CandidateComparisonPruning::ExactJson,
+                value_kind: Some(mdbase::runtime::HostedScalarKind::String),
+            },
+        };
+        assert!(!candidate_predicate_is_total(&comparison));
+        assert!(candidate_predicate_is_projection_exact(&comparison));
     }
 
     #[test]

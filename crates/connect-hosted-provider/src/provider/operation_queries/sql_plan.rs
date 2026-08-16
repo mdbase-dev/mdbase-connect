@@ -100,6 +100,133 @@ fn candidate_predicate_is_total(predicate: &mdbase::runtime::CandidatePredicate)
     }
 }
 
+fn candidate_predicate_is_projection_exact(
+    predicate: &mdbase::runtime::CandidatePredicate,
+) -> bool {
+    use mdbase::runtime::{
+        CandidateComparisonOperator as Operator, CandidateComparisonPruning as Pruning,
+        CandidatePredicate, HostedScalarKind,
+    };
+    match predicate {
+        CandidatePredicate::All | CandidatePredicate::None | CandidatePredicate::HasType { .. } => {
+            true
+        }
+        CandidatePredicate::And { terms } | CandidatePredicate::Or { terms } => {
+            terms.iter().all(candidate_predicate_is_projection_exact)
+        }
+        CandidatePredicate::Not { term } => candidate_predicate_is_projection_exact(term),
+        CandidatePredicate::Compare { comparison } => {
+            comparison.pruning == Pruning::ExactJson
+                && matches!(
+                    comparison.operator,
+                    Operator::Equal | Operator::NotEqual | Operator::In
+                )
+                && match comparison.value_kind {
+                    Some(HostedScalarKind::String) => match comparison.operator {
+                        Operator::In => comparison
+                            .value
+                            .as_array()
+                            .is_some_and(|values| values.iter().all(Value::is_string)),
+                        _ => comparison.value.is_string(),
+                    },
+                    Some(HostedScalarKind::Boolean) => match comparison.operator {
+                        Operator::In => comparison
+                            .value
+                            .as_array()
+                            .is_some_and(|values| values.iter().all(Value::is_boolean)),
+                        _ => comparison.value.is_boolean(),
+                    },
+                    Some(HostedScalarKind::Number) | None => false,
+                }
+        }
+    }
+}
+
+fn push_exact_candidate_predicate(
+    query: &mut QueryBuilder<Postgres>,
+    predicate: &mdbase::runtime::CandidatePredicate,
+) {
+    use mdbase::runtime::{CandidateComparisonOperator as Operator, CandidatePredicate};
+    match predicate {
+        CandidatePredicate::All => {
+            query.push("TRUE");
+        }
+        CandidatePredicate::None => {
+            query.push("FALSE");
+        }
+        CandidatePredicate::HasType { type_name } => {
+            query
+                .push("matched_types @> ARRAY[")
+                .push_bind(type_name.clone())
+                .push("]::text[]");
+        }
+        CandidatePredicate::And { terms } | CandidatePredicate::Or { terms } => {
+            let separator = if matches!(predicate, CandidatePredicate::And { .. }) {
+                " AND "
+            } else {
+                " OR "
+            };
+            query.push("(");
+            for (index, term) in terms.iter().enumerate() {
+                if index > 0 {
+                    query.push(separator);
+                }
+                push_exact_candidate_predicate(query, term);
+            }
+            query.push(")");
+        }
+        CandidatePredicate::Not { term } => {
+            query.push("NOT (");
+            push_exact_candidate_predicate(query, term);
+            query.push(")");
+        }
+        CandidatePredicate::Compare { comparison } => match comparison.operator {
+            Operator::Equal | Operator::NotEqual => {
+                push_candidate_field(query, &comparison.field);
+                query.push(if comparison.operator == Operator::Equal {
+                    " = "
+                } else {
+                    " <> "
+                });
+                query.push_bind(sqlx::types::Json(comparison.value.clone()));
+            }
+            Operator::In => {
+                query.push("(");
+                for (index, value) in comparison
+                    .value
+                    .as_array()
+                    .expect("exact scalar membership was validated above")
+                    .iter()
+                    .enumerate()
+                {
+                    if index > 0 {
+                        query.push(" OR ");
+                    }
+                    push_candidate_field(query, &comparison.field);
+                    query
+                        .push(" = ")
+                        .push_bind(sqlx::types::Json(value.clone()));
+                }
+                if comparison
+                    .value
+                    .as_array()
+                    .is_some_and(Vec::is_empty)
+                {
+                    query.push("FALSE");
+                }
+                query.push(")");
+            }
+            Operator::LessThan
+            | Operator::LessThanOrEqual
+            | Operator::GreaterThan
+            | Operator::GreaterThanOrEqual
+            | Operator::Contains => {
+                unreachable!("exact candidate support was checked before SQL translation")
+            }
+        },
+    }
+}
+
 fn candidate_field_supported(field: &mdbase::runtime::CandidateField) -> bool {
     use mdbase::runtime::CandidateField;
     match field {
@@ -349,6 +476,29 @@ fn projected_scalar_order_supported(plan: &mdbase::runtime::HostedQueryPlan) -> 
                 | mdbase::runtime::CandidateField::BodyTags => false,
             }
     })
+}
+
+fn projected_grouping_supported(plan: &mdbase::runtime::HostedQueryPlan) -> bool {
+    !plan.groups.is_empty()
+        && plan.groups.iter().all(|group| {
+            group.value_kind == Some(mdbase::runtime::HostedScalarKind::String)
+                && match &group.field {
+                    mdbase::runtime::CandidateField::Path => true,
+                    mdbase::runtime::CandidateField::File(name) => {
+                        matches!(name.as_str(), "path" | "mtime")
+                    }
+                    mdbase::runtime::CandidateField::PersistedFrontmatter(path)
+                    | mdbase::runtime::CandidateField::EffectiveFrontmatter(path) => {
+                        !path.is_empty()
+                    }
+                    mdbase::runtime::CandidateField::Types
+                    | mdbase::runtime::CandidateField::BodyTags => false,
+                }
+        })
+        && plan
+            .aggregates
+            .iter()
+            .all(|aggregate| aggregate.provider_safe && aggregate.function == "count")
 }
 
 fn query_page_size(input: &Value) -> ApiResult<u64> {

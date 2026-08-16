@@ -518,6 +518,7 @@ async fn execute_projected_page(
     catalog: &mdbase::runtime::CompiledCatalog,
     candidate_types: &[String],
     page_size: u64,
+    started: Instant,
 ) -> ApiResult<ExecutedQueryPage> {
     let total_count =
         count_projected_candidates(transaction, collection_id, state, candidate_types).await?;
@@ -624,9 +625,20 @@ async fn execute_projected_page(
         .iter()
         .map(|result| serde_json::to_vec(result).map_or(0, |bytes| bytes.len() as u64))
         .sum::<u64>();
+    let groups = load_projected_groups(
+        transaction,
+        collection_id,
+        state,
+        candidate_types,
+    )
+    .await?;
+    let group_bytes = groups.as_ref().map_or(0, |groups| {
+        serialized_value_bytes(&Value::Array(groups.clone()))
+    });
     let resident_bytes = projection_bytes
         .saturating_add(exact_bytes)
-        .saturating_add(result_bytes);
+        .saturating_add(result_bytes)
+        .saturating_add(group_bytes);
     if resident_bytes > state.plan.budgets.max_memory_bytes {
         return Err(query_budget_error(
             "hosted_memory_budget_exceeded",
@@ -636,10 +648,19 @@ async fn execute_projected_page(
             resident_bytes,
         ));
     }
+    if started.elapsed().as_millis() as u64 > state.plan.budgets.max_wall_time_ms {
+        return Err(query_budget_error(
+            "hosted_time_budget_exceeded",
+            "The hosted query page exceeded its wall-time budget.",
+            "wall_time_ms",
+            state.plan.budgets.max_wall_time_ms,
+            started.elapsed().as_millis() as u64,
+        ));
+    }
     Ok(ExecutedQueryPage {
         results,
         diagnostics,
-        groups: None,
+        groups,
         total_count,
         last_boundary: rows.last().map(|row| QueryPageBoundary {
             order_values: last_order_values.unwrap_or_default(),

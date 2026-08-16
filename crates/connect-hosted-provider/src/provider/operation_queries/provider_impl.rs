@@ -397,7 +397,8 @@ impl HostedProvider {
                     "The hosted query candidate plan is not yet available in the production SQL executor.",
                 )
             })?;
-            let scalar_order_supported = projected_scalar_order_supported(&state.plan)
+            let scalar_order_plan = projected_scalar_order_supported(&state.plan);
+            let scalar_order_values_valid = scalar_order_plan
                 && projected_scalar_order_values_are_valid(
                     &mut transaction,
                     collection_id,
@@ -405,12 +406,31 @@ impl HostedProvider {
                     &candidate_types,
                 )
                 .await?;
-            if state.plan.residual.filter_fully_projected
+            let exact_candidate_plan =
+                candidate_predicate_is_projection_exact(&state.plan.candidate);
+            let exact_candidate_values_valid = exact_candidate_plan
+                && projected_exact_candidate_values_are_valid(
+                    &mut transaction,
+                    collection_id,
+                    &state,
+                    &candidate_types,
+                )
+                .await?;
+            let grouping_plan = projected_grouping_supported(&state.plan);
+            let grouping_values_valid = grouping_plan
+                && projected_scalar_group_values_are_valid(
+                    &mut transaction,
+                    collection_id,
+                    &state,
+                    &candidate_types,
+                )
+                .await?;
+            if state.plan.residual.projection_filter_safe
                 && !state.plan.requirements.diagnostic_type_matchers
-                && !state.plan.requirements.bounded_grouping
-                && candidate_predicate_is_total(&state.plan.candidate)
+                && (!state.plan.requirements.bounded_grouping || grouping_values_valid)
+                && exact_candidate_values_valid
                 && !projection_fallback
-                && scalar_order_supported
+                && scalar_order_values_valid
             {
                 execute_projected_page(
                     &mut transaction,
@@ -421,6 +441,7 @@ impl HostedProvider {
                     &catalog,
                     &candidate_types,
                     requested_page_size,
+                    started,
                 )
                 .await?
             } else {
@@ -433,6 +454,9 @@ impl HostedProvider {
                     &catalog,
                     requested_page_size,
                     started,
+                    (exact_candidate_plan && !exact_candidate_values_valid)
+                        || (scalar_order_plan && !scalar_order_values_valid)
+                        || (grouping_plan && !grouping_values_valid),
                 )
                 .await?
             }

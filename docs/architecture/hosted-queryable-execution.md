@@ -175,13 +175,15 @@ closed normalized tag candidate returns only the canonical live result without
 triggering the scan budget, proving pruning occurs before projection transfer and
 residual work while orphan state is excluded.
 
-SQL applies safe ordering and limiting before transfer. Query-plan version 9 carries
-mdbase-rs catalog proofs for scalar order/group keys. Connect accepts only the
+SQL applies safe ordering and limiting before transfer. Query-plan version 10 carries
+mdbase-rs catalog proofs for scalar candidate, order, and group keys. Connect accepts only the
 closed string proof for canonical path, file mtime, and schema-declared projected
-frontmatter fields, verifies that every current candidate is string-or-null at the
-pinned snapshot, and then uses canonical null placement plus deterministic SQL
-keyset ordering. A malformed value fails the fast-path proof and remains canonical
-bounded residual work; it is never silently dropped. Unsupported ordering uses an
+frontmatter fields (plus boolean equality/membership predicates), verifies actual
+current values at the pinned snapshot, and then uses strict SQL filtering, canonical
+null placement, deterministic keyset ordering, and count-only SQL grouping. Exact
+body hydration happens only after the page identities are selected. A malformed
+value fails the fast-path proof and forces fail-closed exact residual work; it is
+never silently dropped. Unsupported ordering uses an
 explicitly bounded top-K operator; grouping and summaries retain only bounded
 state. Scan rows, transferred bytes, decrypted documents, plaintext bytes, result
 bytes, operator state, wall time, statement time, connections, and memory are
@@ -189,10 +191,11 @@ accounted separately. Exhaustion returns a typed budget outcome. No request sile
 falls back to collection-wide `WorkingSet`.
 
 The production regression corpus also executes two consecutive 1,000-row
-file-mtime keyset pages over 100,002 live identities (plus an orphan projection)
-without crossing the 10,000-row transfer ceiling. This distinguishes page-local
-SQL ordering from the disposable benchmark prototype's repeat-to-completion top-K
-implementation.
+file-mtime keyset pages over 100,002 live identities (plus an orphan projection),
+and a 100,003-match typed filter plus two-group count over a 100,004-row typed
+snapshot. Neither crosses the 10,000-row transfer ceiling. This distinguishes
+page-local SQL execution from the disposable benchmark prototype's
+repeat-to-completion top-K implementation.
 
 For a Base that does not require relationship semantics, Connect executes a safe
 snapshot union: SQL returns candidate-matching current projections plus every stale

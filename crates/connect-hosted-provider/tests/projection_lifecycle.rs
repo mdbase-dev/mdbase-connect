@@ -10,7 +10,7 @@ use mdbase_connect_protocol::{
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::Row;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use support::FileLifecycleFixture;
 use uuid::Uuid;
 
@@ -2188,6 +2188,292 @@ async fn candidate_b_base_candidate_prunes_100k_live_rows() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
     candidate_b_base_candidate_prunes_fixture(&database_url, 100_001).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_exact_projected_filter_pages_over_10k() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    candidate_b_exact_projected_filter_fixture(&database_url, 10_001).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_exact_projected_filter_and_group_100k() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    candidate_b_exact_projected_filter_fixture(&database_url, 100_001).await;
+}
+
+async fn candidate_b_exact_projected_filter_fixture(database_url: &str, decoy_count: i64) {
+    let fixture = FileLifecycleFixture::new(database_url).await;
+    let token = format!("candidate-b-filter-{}-{}", Uuid::new_v4(), Uuid::new_v4());
+    fixture
+        .provider
+        .register_replica(
+            fixture.collection_id,
+            RegisterReplica {
+                replica_id: Uuid::now_v7(),
+                name: "Candidate B exact projected filter mission".to_string(),
+                purpose: ReplicaPurpose::Application,
+                mode: SyncReplicaMode::ReadWrite,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
+                allowed_operations: vec!["create_type".to_string(), "query".to_string()],
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: Vec::new(),
+                file_capability: None,
+                allowed_origin: None,
+                proof_public_key: None,
+                grant_id: Some(Uuid::now_v7()),
+                application_declaration_id: None,
+                application_declaration_digest: None,
+                token: token.clone(),
+                token_ttl_seconds: None,
+            },
+        )
+        .await
+        .unwrap();
+    let type_document = "---\nkind: mdbase.type\nname: task\nversion: 1\nmatch:\n  path_glob: 'tasks/*.md'\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    required: [status, archived]\n    properties:\n      status: {type: string}\n      archived: {type: boolean}\n---\n";
+    fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "create_type",
+            Uuid::new_v4(),
+            json!({"document": type_document}),
+            None,
+        )
+        .await
+        .unwrap();
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1 AND purpose = 'mirror'",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let replica_id: Uuid = replica.get("id");
+    let scope_epoch = u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap();
+    for (path, status, archived) in [
+        ("tasks/open-a.md", "open", false),
+        ("tasks/open-b.md", "open", false),
+        ("tasks/closed.md", "closed", false),
+    ] {
+        put(
+            &fixture,
+            replica_id,
+            scope_epoch,
+            Uuid::now_v7(),
+            None,
+            path,
+            &format!("---\nstatus: {status}\narchived: {archived}\n---\nBody for {path}\n"),
+        )
+        .await;
+    }
+    let generation_id = complete_generation(&fixture).await;
+    let exact_page = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "types": ["task"],
+                "where": "record.status == 'open' && record.archived == false",
+                "include_body": true,
+                "order_by": [{"field": "file.path"}],
+                "limit": 1,
+                "pagination": "cursor"
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(exact_page["result"]["meta"]["total_count"], 2);
+    assert!(exact_page["result"]["results"][0]["body"].is_string());
+    assert!(exact_page["result"]["meta"]["cursor"].is_string());
+
+    let original_projection: serde_json::Value = sqlx::query_scalar(
+        r#"SELECT semantic_projection FROM hosted_provider_record_projections
+           WHERE collection_id = $1 AND generation_id = $2
+             AND canonical_path = 'tasks/open-a.md' AND valid_to_sequence IS NULL"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"UPDATE hosted_provider_record_projections
+           SET semantic_projection = jsonb_set(
+             semantic_projection, '{effective_frontmatter,archived}', '"invalid"'::jsonb, true)
+           WHERE collection_id = $1 AND generation_id = $2
+             AND canonical_path = 'tasks/open-a.md' AND valid_to_sequence IS NULL"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let fail_closed = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "types": ["task"],
+                "where": "record.status == 'open' && record.archived == false",
+                "order_by": [{"field": "file.path"}],
+                "limit": 10
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(fail_closed["result"]["meta"]["total_count"], 2);
+    sqlx::query(
+        r#"UPDATE hosted_provider_record_projections SET semantic_projection = $3
+           WHERE collection_id = $1 AND generation_id = $2
+             AND canonical_path = 'tasks/open-a.md' AND valid_to_sequence IS NULL"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .bind(original_projection)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+
+    let inserted = sqlx::query(
+        r#"WITH template AS (
+             SELECT * FROM hosted_provider_record_projections
+             WHERE collection_id = $1 AND generation_id = $2
+               AND canonical_path = 'tasks/open-a.md'
+           ), decoys AS (
+             SELECT g, format('tasks/scale-%s.md', g) AS path, t.*
+             FROM template t CROSS JOIN generate_series(1, $3::bigint) AS g
+           )
+           INSERT INTO hosted_provider_record_projections
+             (collection_id, record_id, record_sequence, valid_from_sequence,
+              record_revision, catalog_revision, projection_format_version,
+              semantic_engine_version, generation_id, canonical_path, matched_types,
+              file_size_bytes, file_modified_at, semantic_complete, resolution_complete,
+              semantic_projection, projection_digest, structural_digest, projection_bytes)
+           SELECT collection_id, md5('exact-filter-decoy-' || g::text)::uuid,
+                  record_sequence, valid_from_sequence, 'filter-decoy:' || g::text,
+                  catalog_revision, projection_format_version, semantic_engine_version,
+                  generation_id, path, matched_types, file_size_bytes, file_modified_at,
+                  true, true, semantic_projection, decode(repeat('06', 32), 'hex'),
+                  decode(repeat('07', 32), 'hex'), projection_bytes
+           FROM decoys"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .bind(decoy_count)
+    .execute(&fixture.pool)
+    .await
+    .unwrap()
+    .rows_affected();
+    assert_eq!(inserted, u64::try_from(decoy_count).unwrap());
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_record_versions
+             (collection_id, record_id, sequence, revision, types, payload_ciphertext, deleted)
+           SELECT collection_id, record_id, record_sequence, record_revision,
+                  matched_types, NULL, false
+           FROM hosted_provider_record_projections
+           WHERE collection_id = $1 AND generation_id = $2
+             AND canonical_path LIKE 'tasks/scale-%'"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query("ANALYZE hosted_provider_record_versions, hosted_provider_record_projections")
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+    let projected_started = Instant::now();
+    let projected_page = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "types": ["task"],
+                "where": "record.status == 'open' && record.archived == false",
+                "limit": 1000,
+                "pagination": "cursor"
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    let projected_elapsed = projected_started.elapsed();
+    eprintln!(
+        "candidate_b_exact_filter_page decoys={decoy_count} elapsed_ms={}",
+        projected_elapsed.as_millis()
+    );
+    assert!(projected_elapsed < Duration::from_secs(15));
+    assert_eq!(
+        projected_page["result"]["meta"]["total_count"],
+        decoy_count + 2
+    );
+    assert_eq!(
+        projected_page["result"]["results"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1000
+    );
+    assert!(projected_page["result"]["meta"]["cursor"].is_string());
+    let grouped_started = Instant::now();
+    let grouped = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "types": ["task"],
+                "group_by": [{"field": "record.status"}],
+                "summaries": [
+                    {"field": "record.status", "function": "count", "name": "records"}
+                ],
+                "limit": 1000
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    let grouped_elapsed = grouped_started.elapsed();
+    eprintln!(
+        "candidate_b_group_count decoys={decoy_count} elapsed_ms={}",
+        grouped_elapsed.as_millis()
+    );
+    assert!(grouped_elapsed < Duration::from_secs(15));
+    assert_eq!(grouped["result"]["meta"]["total_count"], decoy_count + 3);
+    let groups = grouped["result"]["meta"]["groups"].as_array().unwrap();
+    assert_eq!(groups.len(), 2);
+    assert!(groups.iter().any(|group| {
+        group["values"]["record.status"] == "open"
+            && group["count"] == decoy_count + 2
+            && group["summaries"]["records"] == decoy_count + 2
+    }));
+    assert!(groups.iter().any(|group| {
+        group["values"]["record.status"] == "closed"
+            && group["count"] == 1
+            && group["summaries"]["records"] == 1
+    }));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

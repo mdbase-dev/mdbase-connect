@@ -300,6 +300,7 @@ async fn execute_bounded_residual_page(
     catalog: &mdbase::runtime::CompiledCatalog,
     page_size: u64,
     started: Instant,
+    force_exact_residual: bool,
 ) -> ApiResult<ExecutedQueryPage> {
     let mut query = QueryBuilder::<Postgres>::new(
         "WITH live AS (SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted \
@@ -337,7 +338,7 @@ async fn execute_bounded_residual_page(
                 projection_bytes ELSE 0 END AS projection_bytes FROM joined \
                 WHERE NOT deleted AND (NOT projection_current OR (",
         );
-    if state.plan.requirements.diagnostic_type_matchers {
+    if state.plan.requirements.diagnostic_type_matchers || force_exact_residual {
         query.push("TRUE");
     } else {
         push_candidate_predicate(&mut query, &state.plan.candidate);
@@ -403,7 +404,7 @@ async fn execute_bounded_residual_page(
         let projection = current_projections
             .get(&record_id)
             .map(|row| &row.projection);
-        if state.plan.requirements.exact_document || projection.is_none() {
+        if force_exact_residual || state.plan.requirements.exact_document || projection.is_none() {
             exact_ids.push(record_id);
         } else if let Some(projection) = projection {
             match catalog.evaluate_hosted_projection_residual(&state.plan, projection) {

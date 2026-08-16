@@ -39,35 +39,168 @@ async fn count_projected_candidates(
     state: &HostedQueryState,
     candidate_types: &[String],
 ) -> ApiResult<u64> {
-    let count: i64 = sqlx::query_scalar(
-        r#"WITH live AS (
-             SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted
-             FROM hosted_provider_record_versions
-             WHERE collection_id = $1 AND sequence <= $3
-             ORDER BY record_id, sequence DESC
-           )
-           SELECT count(*)
-           FROM hosted_provider_record_projections p
-           JOIN live l ON l.record_id = p.record_id AND NOT l.deleted
-             AND l.sequence = p.record_sequence AND l.revision = p.record_revision
-           WHERE p.collection_id = $1 AND p.generation_id = $2
-             AND p.valid_from_sequence <= $3
-             AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > $3)
-             AND p.catalog_revision = $4 AND p.projection_format_version = $5
-             AND p.semantic_engine_version = $6
-             AND p.semantic_complete AND p.resolution_complete
-             AND (cardinality($7::text[]) = 0 OR p.matched_types && $7::text[])"#,
-    )
-    .bind(collection_id)
-    .bind(state.generation_id)
-    .bind(to_i64(state.snapshot_head, "query snapshot head")?)
-    .bind(&state.catalog_revision)
-    .bind(i64::from(state.projection_format_version))
-    .bind(&state.semantic_engine_version)
-    .bind(candidate_types)
-    .fetch_one(&mut **transaction)
-    .await?;
+    let snapshot_head = to_i64(state.snapshot_head, "query snapshot head")?;
+    let mut query = QueryBuilder::<Postgres>::new(
+        "WITH live AS (SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted \
+         FROM hosted_provider_record_versions WHERE collection_id = ",
+    );
+    query
+        .push_bind(collection_id)
+        .push(" AND sequence <= ")
+        .push_bind(snapshot_head)
+        .push(
+            " ORDER BY record_id, sequence DESC) SELECT count(*) \
+             FROM hosted_provider_record_projections p \
+             JOIN live l ON l.record_id = p.record_id AND NOT l.deleted \
+              AND l.sequence = p.record_sequence AND l.revision = p.record_revision \
+             WHERE p.collection_id = ",
+        )
+        .push_bind(collection_id)
+        .push(" AND p.generation_id = ")
+        .push_bind(state.generation_id)
+        .push(" AND p.valid_from_sequence <= ")
+        .push_bind(snapshot_head)
+        .push(" AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > ")
+        .push_bind(snapshot_head)
+        .push(") AND p.catalog_revision = ")
+        .push_bind(state.catalog_revision.clone())
+        .push(" AND p.projection_format_version = ")
+        .push_bind(i64::from(state.projection_format_version))
+        .push(" AND p.semantic_engine_version = ")
+        .push_bind(state.semantic_engine_version.clone())
+        .push(
+            " AND p.semantic_complete AND p.resolution_complete \
+              AND (cardinality(",
+        )
+        .push_bind(candidate_types.to_vec())
+        .push("::text[]) = 0 OR p.matched_types && ")
+        .push_bind(candidate_types.to_vec())
+        .push("::text[]) AND (");
+    push_exact_candidate_predicate(&mut query, &state.plan.candidate);
+    query.push(")");
+    let count: i64 = query
+        .build_query_scalar()
+        .fetch_one(&mut **transaction)
+        .await?;
     number(count, "query total count")
+}
+
+async fn load_projected_groups(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    state: &HostedQueryState,
+    candidate_types: &[String],
+) -> ApiResult<Option<Vec<Value>>> {
+    if state.plan.groups.is_empty() && state.plan.aggregates.is_empty() {
+        return Ok(None);
+    }
+    let snapshot_head = to_i64(state.snapshot_head, "query snapshot head")?;
+    let mut query = QueryBuilder::<Postgres>::new(
+        "WITH live AS (SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted \
+         FROM hosted_provider_record_versions WHERE collection_id = ",
+    );
+    query
+        .push_bind(collection_id)
+        .push(" AND sequence <= ")
+        .push_bind(snapshot_head)
+        .push(" ORDER BY record_id, sequence DESC) SELECT ");
+    for (index, group) in state.plan.groups.iter().enumerate() {
+        if index > 0 {
+            query.push(", ");
+        }
+        query.push("COALESCE(");
+        push_candidate_field(&mut query, &group.field);
+        query
+            .push(", 'null'::jsonb) AS group_")
+            .push(index.to_string());
+    }
+    if !state.plan.groups.is_empty() {
+        query.push(", ");
+    }
+    query.push(
+        "count(*) AS row_count FROM hosted_provider_record_projections p \
+         JOIN live l ON l.record_id = p.record_id AND NOT l.deleted \
+          AND l.sequence = p.record_sequence AND l.revision = p.record_revision \
+         WHERE p.collection_id = ",
+    );
+    query
+        .push_bind(collection_id)
+        .push(" AND p.generation_id = ")
+        .push_bind(state.generation_id)
+        .push(" AND p.valid_from_sequence <= ")
+        .push_bind(snapshot_head)
+        .push(" AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > ")
+        .push_bind(snapshot_head)
+        .push(") AND p.catalog_revision = ")
+        .push_bind(state.catalog_revision.clone())
+        .push(" AND p.projection_format_version = ")
+        .push_bind(i64::from(state.projection_format_version))
+        .push(" AND p.semantic_engine_version = ")
+        .push_bind(state.semantic_engine_version.clone())
+        .push(
+            " AND p.semantic_complete AND p.resolution_complete \
+              AND (cardinality(",
+        )
+        .push_bind(candidate_types.to_vec())
+        .push("::text[]) = 0 OR p.matched_types && ")
+        .push_bind(candidate_types.to_vec())
+        .push("::text[]) AND (");
+    push_exact_candidate_predicate(&mut query, &state.plan.candidate);
+    query.push(")");
+    if !state.plan.groups.is_empty() {
+        query.push(" GROUP BY ");
+        for index in 0..state.plan.groups.len() {
+            if index > 0 {
+                query.push(", ");
+            }
+            query.push((index + 1).to_string());
+        }
+    }
+    query.push(" LIMIT ").push_bind(to_i64(
+        state.plan.budgets.max_groups.saturating_add(1),
+        "group budget",
+    )?);
+    let rows = query.build().fetch_all(&mut **transaction).await?;
+    if rows.len() as u64 > state.plan.budgets.max_groups {
+        return Err(query_budget_error(
+            "hosted_group_budget_exceeded",
+            "The hosted query exceeded its group budget.",
+            "groups",
+            state.plan.budgets.max_groups,
+            rows.len() as u64,
+        ));
+    }
+    let mut reduction = state.plan.start_reduction();
+    let mut operator_steps = 0_u64;
+    for row in rows {
+        let count = number(row.get::<i64, _>("row_count"), "group row count")?;
+        operator_steps = operator_steps.saturating_add(count.saturating_mul(
+            (state.plan.groups.len() + state.plan.aggregates.len()).max(1) as u64,
+        ));
+        if operator_steps > state.plan.budgets.max_operator_steps {
+            return Err(query_budget_error(
+                "hosted_operator_budget_exceeded",
+                "The hosted grouping exceeded its operator-step budget.",
+                "operator_steps",
+                state.plan.budgets.max_operator_steps,
+                operator_steps,
+            ));
+        }
+        let group_values = (0..state.plan.groups.len())
+            .map(|index| row.get::<Value, _>(format!("group_{index}").as_str()))
+            .collect::<Vec<_>>();
+        let input = mdbase::runtime::HostedReductionInput {
+            group_values,
+            aggregate_values: vec![Value::Null; state.plan.aggregates.len()],
+        };
+        for _ in 0..count {
+            reduction.push(&input).map_err(projection_inconsistent)?;
+        }
+    }
+    reduction
+        .finish()
+        .map(|reduction| reduction.groups)
+        .map_err(projection_inconsistent)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -115,7 +248,9 @@ async fn load_projected_page(
         .push_bind(candidate_types.to_vec())
         .push("::text[]) = 0 OR p.matched_types && ")
         .push_bind(candidate_types.to_vec())
-        .push("::text[])");
+        .push("::text[]) AND (");
+    push_exact_candidate_predicate(&mut query, &state.plan.candidate);
+    query.push(")");
 
     if let Some(last_path) = state.last_path.as_deref() {
         let last_record_id = state.last_record_id.ok_or_else(|| {
@@ -334,6 +469,169 @@ async fn projected_scalar_order_values_are_valid(
         .fetch_one(&mut **transaction)
         .await
         .map_err(ApiError::from)
+}
+
+async fn projected_exact_candidate_values_are_valid(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    state: &HostedQueryState,
+    candidate_types: &[String],
+) -> ApiResult<bool> {
+    let mut fields = Vec::new();
+    collect_exact_candidate_scalar_fields(&state.plan.candidate, &mut fields);
+    fields.sort_by(|left, right| format!("{:?}", left.0).cmp(&format!("{:?}", right.0)));
+    fields.dedup();
+    if fields.is_empty() {
+        return Ok(true);
+    }
+    let snapshot_head = to_i64(state.snapshot_head, "query snapshot head")?;
+    let mut query = QueryBuilder::<Postgres>::new(
+        "WITH live AS (SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted \
+         FROM hosted_provider_record_versions WHERE collection_id = ",
+    );
+    query
+        .push_bind(collection_id)
+        .push(" AND sequence <= ")
+        .push_bind(snapshot_head)
+        .push(
+            " ORDER BY record_id, sequence DESC) SELECT NOT EXISTS (SELECT 1 \
+             FROM hosted_provider_record_projections p \
+             JOIN live l ON l.record_id = p.record_id AND NOT l.deleted \
+              AND l.sequence = p.record_sequence AND l.revision = p.record_revision \
+             WHERE p.collection_id = ",
+        )
+        .push_bind(collection_id)
+        .push(" AND p.generation_id = ")
+        .push_bind(state.generation_id)
+        .push(" AND p.valid_from_sequence <= ")
+        .push_bind(snapshot_head)
+        .push(" AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > ")
+        .push_bind(snapshot_head)
+        .push(") AND p.catalog_revision = ")
+        .push_bind(state.catalog_revision.clone())
+        .push(" AND p.projection_format_version = ")
+        .push_bind(i64::from(state.projection_format_version))
+        .push(" AND p.semantic_engine_version = ")
+        .push_bind(state.semantic_engine_version.clone())
+        .push(
+            " AND p.semantic_complete AND p.resolution_complete \
+              AND (cardinality(",
+        )
+        .push_bind(candidate_types.to_vec())
+        .push("::text[]) = 0 OR p.matched_types && ")
+        .push_bind(candidate_types.to_vec())
+        .push("::text[]) AND (");
+    for (index, (field, kind)) in fields.iter().enumerate() {
+        if index > 0 {
+            query.push(" OR ");
+        }
+        query.push("jsonb_typeof(");
+        push_candidate_field(&mut query, field);
+        query.push(") IS DISTINCT FROM ");
+        query.push_bind(match kind {
+            mdbase::runtime::HostedScalarKind::String => "string",
+            mdbase::runtime::HostedScalarKind::Boolean => "boolean",
+            mdbase::runtime::HostedScalarKind::Number => "number",
+        });
+    }
+    query.push(") LIMIT 1)");
+    query
+        .build_query_scalar::<bool>()
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(ApiError::from)
+}
+
+async fn projected_scalar_group_values_are_valid(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    state: &HostedQueryState,
+    candidate_types: &[String],
+) -> ApiResult<bool> {
+    if state.plan.groups.is_empty() {
+        return Ok(true);
+    }
+    let snapshot_head = to_i64(state.snapshot_head, "query snapshot head")?;
+    let mut query = QueryBuilder::<Postgres>::new(
+        "WITH live AS (SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted \
+         FROM hosted_provider_record_versions WHERE collection_id = ",
+    );
+    query
+        .push_bind(collection_id)
+        .push(" AND sequence <= ")
+        .push_bind(snapshot_head)
+        .push(
+            " ORDER BY record_id, sequence DESC) SELECT NOT EXISTS (SELECT 1 \
+             FROM hosted_provider_record_projections p \
+             JOIN live l ON l.record_id = p.record_id AND NOT l.deleted \
+              AND l.sequence = p.record_sequence AND l.revision = p.record_revision \
+             WHERE p.collection_id = ",
+        )
+        .push_bind(collection_id)
+        .push(" AND p.generation_id = ")
+        .push_bind(state.generation_id)
+        .push(" AND p.valid_from_sequence <= ")
+        .push_bind(snapshot_head)
+        .push(" AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > ")
+        .push_bind(snapshot_head)
+        .push(") AND p.catalog_revision = ")
+        .push_bind(state.catalog_revision.clone())
+        .push(" AND p.projection_format_version = ")
+        .push_bind(i64::from(state.projection_format_version))
+        .push(" AND p.semantic_engine_version = ")
+        .push_bind(state.semantic_engine_version.clone())
+        .push(
+            " AND p.semantic_complete AND p.resolution_complete \
+              AND (cardinality(",
+        )
+        .push_bind(candidate_types.to_vec())
+        .push("::text[]) = 0 OR p.matched_types && ")
+        .push_bind(candidate_types.to_vec())
+        .push("::text[]) AND (");
+    for (index, group) in state.plan.groups.iter().enumerate() {
+        if index > 0 {
+            query.push(" OR ");
+        }
+        query.push("(jsonb_typeof(");
+        push_candidate_field(&mut query, &group.field);
+        query.push(") IS NOT NULL AND jsonb_typeof(");
+        push_candidate_field(&mut query, &group.field);
+        query.push(") NOT IN ('string', 'null'))");
+    }
+    query.push(") LIMIT 1)");
+    query
+        .build_query_scalar::<bool>()
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(ApiError::from)
+}
+
+fn collect_exact_candidate_scalar_fields(
+    predicate: &mdbase::runtime::CandidatePredicate,
+    fields: &mut Vec<(
+        mdbase::runtime::CandidateField,
+        mdbase::runtime::HostedScalarKind,
+    )>,
+) {
+    match predicate {
+        mdbase::runtime::CandidatePredicate::And { terms }
+        | mdbase::runtime::CandidatePredicate::Or { terms } => {
+            for term in terms {
+                collect_exact_candidate_scalar_fields(term, fields);
+            }
+        }
+        mdbase::runtime::CandidatePredicate::Not { term } => {
+            collect_exact_candidate_scalar_fields(term, fields);
+        }
+        mdbase::runtime::CandidatePredicate::Compare { comparison } => {
+            if let Some(kind) = comparison.value_kind {
+                fields.push((comparison.field.clone(), kind));
+            }
+        }
+        mdbase::runtime::CandidatePredicate::All
+        | mdbase::runtime::CandidatePredicate::None
+        | mdbase::runtime::CandidatePredicate::HasType { .. } => {}
+    }
 }
 
 fn scalar_order_json_path(field: &mdbase::runtime::CandidateField) -> Option<Vec<String>> {
