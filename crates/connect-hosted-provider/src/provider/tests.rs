@@ -177,6 +177,11 @@ fn query_receipt_compression_is_additive_and_legacy_writers_keep_json() {
     assert!(migration.contains("DEFAULT 'json-v1'"));
     assert!(migration.contains("'zstd-json-v1'"));
     assert!(!migration.contains("DROP COLUMN"));
+    let rollback =
+        include_str!("../../../../deploy/postgres/preflight-hosted-provider-pre-0056-rollback.sql");
+    assert!(rollback.contains("query_admission_suspended = true"));
+    assert!(rollback.contains("response_encoding = 'zstd-json-v1'"));
+    assert!(rollback.contains("one-hour hard receipt lifetime"));
 }
 
 #[test]

@@ -339,6 +339,13 @@ preflight under `/usr/local/share/mdbase-connect/postgres`; managed rollout invo
 those exact files as waited one-off jobs rather than relying on an operator's
 workstation or an unversioned SQL copy.
 
+Rollback to a provider predating migration 0056 additionally requires query
+admission to remain fenced and every `zstd-json-v1` query-page receipt to be
+released or drained after its one-hour hard lifetime. The image-bundled
+pre-0056 gate runs before the existing pre-0044 and pre-0040 compatibility
+checks, so lost-response replay is never handed to a binary that cannot decode
+its durable receipt.
+
 Ordinary writes after activation always generate against the active catalog. They
 close prior temporal rows and commit ciphertext, revision, current projection
 binding, relationship state, versions/changes, quotas, journal settlement, receipt,

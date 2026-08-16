@@ -3,7 +3,7 @@
 -- A provider binary predating migration 0040 cannot decode Base cursors whose
 -- immutable invocation state has moved out of the cursor row. This preflight is
 -- intentionally fail-closed: release those cursors through the query API or
--- wait for their five-minute hard expiry and maintenance cleanup, then rerun.
+-- wait for their one-hour hard expiry and maintenance cleanup, then rerun.
 DO $candidate_b_rollback_preflight$
 DECLARE
   live_invocation_cursors bigint;
