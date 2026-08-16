@@ -1410,6 +1410,34 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
         projects["result"]["results"][0]["path"],
         "projects/mobile.md"
     );
+
+    sqlx::query(
+        r#"UPDATE hosted_provider_record_projections
+           SET semantic_complete = false, resolution_complete = false
+           WHERE collection_id = $1 AND valid_to_sequence IS NULL"#,
+    )
+    .bind(fixture.collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let exact_fallback = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "execute_view",
+            Uuid::new_v4(),
+            json!({"path": "views/projects.base", "view": "projects"}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(exact_fallback["valid"], true);
+    assert_eq!(exact_fallback["result"]["meta"]["total_count"], 1);
+    assert_eq!(
+        exact_fallback["result"]["results"][0]["path"],
+        "projects/mobile.md"
+    );
 }
 
 async fn complete_generation(fixture: &FileLifecycleFixture) -> Uuid {

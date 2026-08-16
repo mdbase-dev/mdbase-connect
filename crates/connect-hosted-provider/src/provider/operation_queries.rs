@@ -325,19 +325,16 @@ impl HostedProvider {
             projection_fallback_exists(&mut transaction, collection_id, &state).await?
         };
         let page = if state.base_plan.is_some() {
-            if projection_fallback {
-                return Err(ApiError::new(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "hosted_base_projection_fallback_required",
-                    "Obsidian Base execution requires canonical fallback for a stale or absent projection.",
-                ));
-            }
             execute_bounded_base_page(
                 &mut transaction,
+                &self.crypto,
+                &data_key,
                 collection_id,
                 &state,
+                &catalog,
                 requested_page_size,
                 started,
+                projection_fallback,
             )
             .await?
         } else {
@@ -1446,18 +1443,55 @@ struct BoundedBaseMatch {
     row: mdbase::runtime::HostedBaseRow,
 }
 
+struct BaseExecutionSnapshot {
+    rows: Vec<ProjectedQueryRow>,
+    projections: HashMap<Uuid, mdbase::runtime::SemanticProjection>,
+    adjacency: HashMap<Uuid, BTreeSet<Uuid>>,
+    relationship_rows: u64,
+    projection_bytes: u64,
+    exact_documents: u64,
+    exact_bytes: u64,
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn execute_bounded_base_page(
     transaction: &mut Transaction<'_, Postgres>,
+    crypto: &ProviderCrypto,
+    data_key: &[u8; 32],
     collection_id: Uuid,
     state: &HostedQueryState,
+    catalog: &mdbase::runtime::CompiledCatalog,
     page_size: u64,
     started: Instant,
+    projection_fallback: bool,
 ) -> ApiResult<ExecutedQueryPage> {
     let plan = state
         .base_plan
         .as_ref()
         .ok_or_else(|| ApiError::internal("Obsidian Base execution has no semantic plan."))?;
-    let rows = load_base_candidate_projections(transaction, collection_id, state, plan).await?;
+    let snapshot = if projection_fallback {
+        load_base_exact_fallback_snapshot(
+            transaction,
+            crypto,
+            data_key,
+            collection_id,
+            state,
+            catalog,
+            plan,
+        )
+        .await?
+    } else {
+        load_base_projected_snapshot(transaction, collection_id, state, plan).await?
+    };
+    let BaseExecutionSnapshot {
+        rows,
+        projections,
+        adjacency,
+        relationship_rows,
+        projection_bytes,
+        exact_documents,
+        exact_bytes,
+    } = snapshot;
     if rows.len() as u64 > state.plan.budgets.max_candidate_rows {
         return Err(query_budget_error(
             "hosted_scan_budget_exceeded",
@@ -1467,55 +1501,6 @@ async fn execute_bounded_base_page(
             rows.len() as u64,
         ));
     }
-    let candidate_ids = rows.iter().map(|row| row.record_id).collect::<Vec<_>>();
-    let mut adjacency = HashMap::<Uuid, BTreeSet<Uuid>>::new();
-    let relationship_rows = if plan.requirements.backlinks
-        || plan.requirements.outgoing_relationships
-        || plan.requirements.link_resolution
-    {
-        let rows = sqlx::query(
-            r#"SELECT source_record_id, target_record_id
-               FROM hosted_provider_record_relationships
-               WHERE collection_id = $1 AND generation_id = $2
-                 AND valid_from_sequence <= $3
-                 AND (valid_to_sequence IS NULL OR valid_to_sequence > $3)
-                 AND resolution_state = 'resolved'
-                 AND (source_record_id = ANY($4::uuid[])
-                      OR target_record_id = ANY($4::uuid[]))
-               ORDER BY source_record_id, target_record_id, occurrence_key
-               LIMIT $5"#,
-        )
-        .bind(collection_id)
-        .bind(state.generation_id)
-        .bind(to_i64(state.snapshot_head, "query snapshot head")?)
-        .bind(&candidate_ids)
-        .bind(to_i64(
-            state.plan.budgets.max_operator_steps.saturating_add(1),
-            "relationship operator budget",
-        )?)
-        .fetch_all(&mut **transaction)
-        .await?;
-        if rows.len() as u64 > state.plan.budgets.max_operator_steps {
-            return Err(query_budget_error(
-                "hosted_operator_budget_exceeded",
-                "The Obsidian Base exceeded its relationship-edge budget.",
-                "relationship_edges",
-                state.plan.budgets.max_operator_steps,
-                rows.len() as u64,
-            ));
-        }
-        for row in &rows {
-            let source: Uuid = row.get("source_record_id");
-            let Some(target) = row.get::<Option<Uuid>, _>("target_record_id") else {
-                continue;
-            };
-            adjacency.entry(source).or_default().insert(target);
-            adjacency.entry(target).or_default().insert(source);
-        }
-        rows.len() as u64
-    } else {
-        0
-    };
     let operator_steps = (rows.len() as u64).saturating_add(relationship_rows);
     if operator_steps > state.plan.budgets.max_operator_steps {
         return Err(query_budget_error(
@@ -1526,30 +1511,6 @@ async fn execute_bounded_base_page(
             operator_steps,
         ));
     }
-    let candidate_set = candidate_ids.iter().copied().collect::<BTreeSet<_>>();
-    let related_ids = adjacency
-        .values()
-        .flatten()
-        .filter(|record_id| !candidate_set.contains(record_id))
-        .copied()
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect::<Vec<_>>();
-    let related =
-        load_base_related_projections(transaction, collection_id, state, &related_ids).await?;
-    let projections = rows
-        .iter()
-        .map(|row| (row.record_id, row.projection.clone()))
-        .chain(related)
-        .collect::<HashMap<_, _>>();
-    let projection_bytes = projections.values().try_fold(0_u64, |total, projection| {
-        let bytes = serde_json::to_vec(projection).map_err(|error| {
-            ApiError::internal(format!(
-                "Obsidian Base projection could not serialize: {error}"
-            ))
-        })?;
-        Ok::<_, ApiError>(total.saturating_add(bytes.len() as u64))
-    })?;
     if projection_bytes > state.plan.budgets.max_candidate_bytes {
         return Err(query_budget_error(
             "hosted_byte_budget_exceeded",
@@ -1637,6 +1598,7 @@ async fn execute_bounded_base_page(
     // evaluation. Group construction similarly owns a temporary row copy.
     let pre_reduction_resident_bytes = projection_bytes
         .saturating_mul(3)
+        .saturating_add(exact_bytes)
         .saturating_add(matching_bytes.saturating_mul(2));
     if pre_reduction_resident_bytes > state.plan.budgets.max_memory_bytes {
         return Err(query_budget_error(
@@ -1737,7 +1699,270 @@ async fn execute_bounded_base_page(
         total_count,
         last_boundary,
         candidate_rows: rows.len() as u64,
+        exact_documents,
+    })
+}
+
+async fn load_base_projected_snapshot(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    state: &HostedQueryState,
+    plan: &mdbase::runtime::HostedBasePlan,
+) -> ApiResult<BaseExecutionSnapshot> {
+    let rows = load_base_candidate_projections(transaction, collection_id, state, plan).await?;
+    let candidate_ids = rows.iter().map(|row| row.record_id).collect::<Vec<_>>();
+    let mut adjacency = HashMap::<Uuid, BTreeSet<Uuid>>::new();
+    let relationship_rows = if plan.requirements.backlinks
+        || plan.requirements.outgoing_relationships
+        || plan.requirements.link_resolution
+    {
+        let relationship_rows = sqlx::query(
+            r#"SELECT source_record_id, target_record_id
+               FROM hosted_provider_record_relationships
+               WHERE collection_id = $1 AND generation_id = $2
+                 AND valid_from_sequence <= $3
+                 AND (valid_to_sequence IS NULL OR valid_to_sequence > $3)
+                 AND resolution_state = 'resolved'
+                 AND (source_record_id = ANY($4::uuid[])
+                      OR target_record_id = ANY($4::uuid[]))
+               ORDER BY source_record_id, target_record_id, occurrence_key
+               LIMIT $5"#,
+        )
+        .bind(collection_id)
+        .bind(state.generation_id)
+        .bind(to_i64(state.snapshot_head, "query snapshot head")?)
+        .bind(&candidate_ids)
+        .bind(to_i64(
+            state.plan.budgets.max_operator_steps.saturating_add(1),
+            "relationship operator budget",
+        )?)
+        .fetch_all(&mut **transaction)
+        .await?;
+        if relationship_rows.len() as u64 > state.plan.budgets.max_operator_steps {
+            return Err(query_budget_error(
+                "hosted_operator_budget_exceeded",
+                "The Obsidian Base exceeded its relationship-edge budget.",
+                "relationship_edges",
+                state.plan.budgets.max_operator_steps,
+                relationship_rows.len() as u64,
+            ));
+        }
+        for row in &relationship_rows {
+            let source: Uuid = row.get("source_record_id");
+            let Some(target) = row.get::<Option<Uuid>, _>("target_record_id") else {
+                continue;
+            };
+            adjacency.entry(source).or_default().insert(target);
+            adjacency.entry(target).or_default().insert(source);
+        }
+        relationship_rows.len() as u64
+    } else {
+        0
+    };
+    let candidate_set = candidate_ids.iter().copied().collect::<BTreeSet<_>>();
+    let related_ids = adjacency
+        .values()
+        .flatten()
+        .filter(|record_id| !candidate_set.contains(record_id))
+        .copied()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let related =
+        load_base_related_projections(transaction, collection_id, state, &related_ids).await?;
+    let projections = rows
+        .iter()
+        .map(|row| (row.record_id, row.projection.clone()))
+        .chain(related)
+        .collect::<HashMap<_, _>>();
+    let projection_bytes = serialized_projection_bytes(&projections)?;
+    Ok(BaseExecutionSnapshot {
+        rows,
+        projections,
+        adjacency,
+        relationship_rows,
+        projection_bytes,
         exact_documents: 0,
+        exact_bytes: 0,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn load_base_exact_fallback_snapshot(
+    transaction: &mut Transaction<'_, Postgres>,
+    crypto: &ProviderCrypto,
+    data_key: &[u8; 32],
+    collection_id: Uuid,
+    state: &HostedQueryState,
+    catalog: &mdbase::runtime::CompiledCatalog,
+    plan: &mdbase::runtime::HostedBasePlan,
+) -> ApiResult<BaseExecutionSnapshot> {
+    let live_ids = sqlx::query_scalar::<_, Uuid>(
+        r#"WITH live AS (
+             SELECT DISTINCT ON (record_id) record_id, deleted
+             FROM hosted_provider_record_versions
+             WHERE collection_id = $1 AND sequence <= $2
+             ORDER BY record_id, sequence DESC
+           )
+           SELECT record_id FROM live WHERE NOT deleted
+           ORDER BY record_id LIMIT $3"#,
+    )
+    .bind(collection_id)
+    .bind(to_i64(state.snapshot_head, "query snapshot head")?)
+    .bind(to_i64(
+        state.plan.budgets.max_exact_documents.saturating_add(1),
+        "exact fallback document budget",
+    )?)
+    .fetch_all(&mut **transaction)
+    .await?;
+    if live_ids.len() as u64 > state.plan.budgets.max_exact_documents {
+        return Err(query_budget_error(
+            "hosted_exact_document_budget_exceeded",
+            "The stale Obsidian Base fallback exceeded its exact-document budget.",
+            "exact_documents",
+            state.plan.budgets.max_exact_documents,
+            live_ids.len() as u64,
+        ));
+    }
+    let exact_records = load_exact_query_records(
+        transaction,
+        crypto,
+        data_key,
+        collection_id,
+        state.snapshot_head,
+        &live_ids,
+    )
+    .await?;
+    if exact_records.len() != live_ids.len() {
+        return Err(ApiError::conflict(
+            "hosted_exact_snapshot_inconsistent",
+            "The stale Obsidian Base fallback could not load its complete exact snapshot.",
+        ));
+    }
+    let exact_bytes = exact_records.values().fold(0_u64, |total, record| {
+        total.saturating_add(record.document.len() as u64)
+    });
+    if exact_bytes > state.plan.budgets.max_exact_bytes {
+        return Err(query_budget_error(
+            "hosted_exact_byte_budget_exceeded",
+            "The stale Obsidian Base fallback exceeded its exact-plaintext byte budget.",
+            "exact_bytes",
+            state.plan.budgets.max_exact_bytes,
+            exact_bytes,
+        ));
+    }
+
+    let mut prepared = Vec::with_capacity(live_ids.len());
+    for record_id in &live_ids {
+        let record = exact_records.get(record_id).ok_or_else(|| {
+            ApiError::internal("An exact fallback record disappeared from its bounded snapshot.")
+        })?;
+        let projection = catalog.project_record(record).map_err(|error| {
+            ApiError::conflict(
+                "hosted_projection_inconsistent",
+                format!(
+                    "Exact Obsidian Base fallback projection failed canonical semantics: {}",
+                    error.code
+                ),
+            )
+        })?;
+        prepared.push((record_id.to_string(), projection));
+    }
+    let finalized = catalog
+        .finalize_projection_batch(prepared)
+        .map_err(|error| {
+            if error.code == "relationship_resolution_budget_exceeded" {
+                query_budget_error(
+                    "hosted_operator_budget_exceeded",
+                    "The stale Obsidian Base fallback exceeded its relationship-resolution budget.",
+                    "relationship_candidates",
+                    mdbase::runtime::MAX_RESOLUTION_CANDIDATES as u64,
+                    (mdbase::runtime::MAX_RESOLUTION_CANDIDATES as u64).saturating_add(1),
+                )
+            } else {
+                projection_inconsistent(error)
+            }
+        })?;
+    let projections = finalized
+        .into_iter()
+        .map(|(record_id, projection)| {
+            let record_id = Uuid::parse_str(&record_id).map_err(|_| {
+                ApiError::internal(
+                    "A canonical exact fallback projection lost its record identity.",
+                )
+            })?;
+            Ok((record_id, projection))
+        })
+        .collect::<ApiResult<HashMap<_, _>>>()?;
+    let rows = live_ids
+        .iter()
+        .filter_map(|record_id| {
+            let projection = projections.get(record_id)?;
+            (plan.allowed_types.is_empty()
+                || projection
+                    .facts
+                    .types
+                    .iter()
+                    .any(|name| plan.allowed_types.contains(name)))
+            .then(|| ProjectedQueryRow {
+                record_id: *record_id,
+                canonical_path: projection.facts.path.clone(),
+                projection: projection.clone(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut adjacency = HashMap::<Uuid, BTreeSet<Uuid>>::new();
+    let mut relationship_rows = 0_u64;
+    if plan.requirements.backlinks
+        || plan.requirements.outgoing_relationships
+        || plan.requirements.link_resolution
+    {
+        for (source, projection) in &projections {
+            for occurrence in &projection.structure.occurrences {
+                let Some(target) = occurrence
+                    .target_record_id
+                    .as_deref()
+                    .and_then(|value| Uuid::parse_str(value).ok())
+                else {
+                    continue;
+                };
+                relationship_rows = relationship_rows.saturating_add(1);
+                if relationship_rows > state.plan.budgets.max_operator_steps {
+                    return Err(query_budget_error(
+                        "hosted_operator_budget_exceeded",
+                        "The stale Obsidian Base fallback exceeded its relationship-edge budget.",
+                        "relationship_edges",
+                        state.plan.budgets.max_operator_steps,
+                        relationship_rows,
+                    ));
+                }
+                adjacency.entry(*source).or_default().insert(target);
+                adjacency.entry(target).or_default().insert(*source);
+            }
+        }
+    }
+    let projection_bytes = serialized_projection_bytes(&projections)?;
+    Ok(BaseExecutionSnapshot {
+        rows,
+        projections,
+        adjacency,
+        relationship_rows,
+        projection_bytes,
+        exact_documents: live_ids.len() as u64,
+        exact_bytes,
+    })
+}
+
+fn serialized_projection_bytes(
+    projections: &HashMap<Uuid, mdbase::runtime::SemanticProjection>,
+) -> ApiResult<u64> {
+    projections.values().try_fold(0_u64, |total, projection| {
+        let bytes = serde_json::to_vec(projection).map_err(|error| {
+            ApiError::internal(format!(
+                "Obsidian Base projection could not serialize: {error}"
+            ))
+        })?;
+        Ok(total.saturating_add(bytes.len() as u64))
     })
 }
 

@@ -131,10 +131,13 @@ bytes, operator state, wall time, statement time, connections, and memory are
 accounted separately. Exhaustion returns a typed budget outcome. No request silently
 falls back to collection-wide `WorkingSet`.
 
-The current review checkpoint implements current-projection Base execution and
-fails closed with `hosted_base_projection_fallback_required` if any live candidate
-projection is stale or absent. Canonical stale/absent Base fallback remains a
-rollout blocker; it may not be replaced by silent candidate omission.
+If any live Base projection is absent, stale, or relationship-incomplete, Connect
+does not trust a mixed projection graph. It loads a complete snapshot only within
+the exact-document and plaintext-byte ceilings, decrypts those exact authorities,
+regenerates and resolves the full bounded graph through mdbase-rs, and evaluates the
+same closed Base plan. A snapshot above those ceilings returns the corresponding
+typed exact-document, byte, relationship, memory, or time budget outcome; it never
+silently omits a candidate or falls back to `WorkingSet`.
 
 ## Mutation transaction
 
