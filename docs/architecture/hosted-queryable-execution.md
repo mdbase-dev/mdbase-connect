@@ -135,14 +135,18 @@ operation/plaintext counters remain independently guarded and observable.
 
 Connect translates only the Base plan's closed candidate predicate. It currently
 lowers proven frontmatter equality/inequality and canonical combined frontmatter/
-body tag membership; every selected row still runs through mdbase-rs. Complex
-TaskNotes relationship expressions remain bounded residual work. Unsupported
+body tag exact-or-descendant membership; every selected row still runs through
+mdbase-rs. Candidate SQL joins the projection to the record revision live at the
+pinned snapshot, so a stale, deleted, or orphan projection cannot become a result.
+Complex TaskNotes relationship expressions remain bounded residual work. Unsupported
 predicates never become ad-hoc SQL and never narrow candidates.
 
-The disposable PostgreSQL regression corpus includes 10,001 nonmatching readable
-projection rows—one more than the transfer ceiling—plus one matching TaskNotes row.
-The closed tag candidate returns the canonical single result without triggering the
-scan budget, proving pruning occurs before projection transfer and residual work.
+The disposable PostgreSQL regression corpus includes 10,001 nonmatching live
+version/projection pairs—one more than the transfer ceiling—one matching TaskNotes
+row with a hierarchical tag, and one candidate-matching orphan projection. The
+closed normalized tag candidate returns only the canonical live result without
+triggering the scan budget, proving pruning occurs before projection transfer and
+residual work while orphan state is excluded.
 
 SQL applies safe ordering and limiting before transfer. Unsupported ordering uses
 an explicitly bounded top-K operator; grouping and summaries retain only bounded

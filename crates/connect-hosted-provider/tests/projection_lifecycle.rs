@@ -1465,6 +1465,48 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
     sqlx::query(
         r#"UPDATE hosted_provider_record_projections
            SET semantic_complete = false
+           WHERE collection_id = $1 AND valid_to_sequence IS NULL
+             AND canonical_path = 'projects/mobile.md'"#,
+    )
+    .bind(fixture.collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let stale_context_fallback = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "execute_view",
+            Uuid::new_v4(),
+            json!({
+                "path": "views/projects.base",
+                "view": "projects",
+                "context": {"path": "projects/mobile.md"}
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(stale_context_fallback["valid"], true);
+    assert_eq!(
+        stale_context_fallback["result"]["results"][0]["path"],
+        "projects/mobile.md"
+    );
+    sqlx::query(
+        r#"UPDATE hosted_provider_record_projections
+           SET semantic_complete = true
+           WHERE collection_id = $1 AND valid_to_sequence IS NULL
+             AND canonical_path = 'projects/mobile.md'"#,
+    )
+    .bind(fixture.collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        r#"UPDATE hosted_provider_record_projections
+           SET semantic_complete = false
            WHERE collection_id = $1 AND valid_to_sequence IS NULL"#,
     )
     .bind(fixture.collection_id)
@@ -1576,14 +1618,14 @@ async fn candidate_b_base_candidate_prunes_over_scan_budget() {
         Uuid::now_v7(),
         None,
         "tasks/selected.md",
-        "---\nstatus: todo\ntags: [task]\n---\nSelected task\n",
+        "---\nstatus: todo\ntags: [task/subtag]\n---\nSelected task\n",
     )
     .await;
     let generation_id = complete_generation(&fixture).await;
 
-    // These rows are deliberately outside the exact authority and exist only
-    // to prove the SQL candidate plan prunes before the 10,000-row transfer
-    // ceiling. They are isolated in this disposable test collection.
+    // These rows form a synthetic live version ledger plus matching complete
+    // projections, without allocating 10,001 encrypted payloads. They prove
+    // the SQL candidate plan prunes before the 10,000-row transfer ceiling.
     let inserted = sqlx::query(
         r#"WITH template AS (
              SELECT * FROM hosted_provider_record_projections
@@ -1622,6 +1664,57 @@ async fn candidate_b_base_candidate_prunes_over_scan_budget() {
     .unwrap()
     .rows_affected();
     assert_eq!(inserted, 10_001);
+    let inserted_versions = sqlx::query(
+        r#"INSERT INTO hosted_provider_record_versions
+             (collection_id, record_id, sequence, revision, types,
+              payload_ciphertext, deleted)
+           SELECT collection_id, record_id, record_sequence, record_revision,
+                  matched_types, NULL, false
+           FROM hosted_provider_record_projections
+           WHERE collection_id = $1 AND generation_id = $2
+             AND canonical_path LIKE 'decoys/%'"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap()
+    .rows_affected();
+    assert_eq!(inserted_versions, 10_001);
+
+    // A candidate-matching projection with no live authority version must not
+    // leak into results even when its semantic JSON is otherwise complete.
+    let orphan_inserted = sqlx::query(
+        r#"WITH template AS (
+             SELECT * FROM hosted_provider_record_projections
+             WHERE collection_id = $1 AND generation_id = $2
+             ORDER BY record_id LIMIT 1
+           )
+           INSERT INTO hosted_provider_record_projections
+             (collection_id, record_id, record_sequence, valid_from_sequence,
+              record_revision, catalog_revision, projection_format_version,
+              semantic_engine_version, generation_id, canonical_path, matched_types,
+              file_size_bytes, semantic_complete, resolution_complete,
+              semantic_projection, projection_digest, structural_digest,
+              projection_bytes)
+           SELECT collection_id, md5('candidate-orphan')::uuid,
+                  record_sequence, valid_from_sequence, 'orphan:1',
+                  catalog_revision, projection_format_version,
+                  semantic_engine_version, generation_id, 'tasks/orphan.md',
+                  matched_types, 0, true, true,
+                  jsonb_set(semantic_projection,
+                    '{effective_frontmatter,tags}', '["task/subtag"]'::jsonb, true),
+                  decode(repeat('02', 32), 'hex'),
+                  decode(repeat('03', 32), 'hex'), 0
+           FROM template"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap()
+    .rows_affected();
+    assert_eq!(orphan_inserted, 1);
 
     let token = format!("candidate-b-scale-{}-{}", Uuid::new_v4(), Uuid::new_v4());
     fixture
@@ -1654,14 +1747,14 @@ async fn candidate_b_base_candidate_prunes_over_scan_budget() {
         )
         .await
         .unwrap();
-    let source = r#"filters:
+    let source = r##"filters:
   and:
-    - 'file.hasTag("task")'
+    - 'file.hasTag("#task")'
 views:
   - type: table
     name: Tasks
     order: [file.name]
-"#;
+"##;
     fixture
         .provider
         .operation(

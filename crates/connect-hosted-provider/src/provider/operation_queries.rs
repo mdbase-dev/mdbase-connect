@@ -734,7 +734,7 @@ impl HostedProvider {
             base_query_binding(collection, catalog);
         let snapshot_head = number(collection.get::<i64, _>("head"), "collection head")?;
         let base_context = match (base_plan.context_path.as_deref(), generation_id) {
-            (Some(path), Some(generation_id)) => Some(
+            (Some(path), Some(generation_id)) => {
                 load_base_context_projection(
                     transaction,
                     collection_id,
@@ -746,13 +746,7 @@ impl HostedProvider {
                     path,
                 )
                 .await?
-                .ok_or_else(|| {
-                    ApiError::conflict(
-                        "hosted_base_context_unavailable",
-                        "The Obsidian Base context has no current snapshot projection.",
-                    )
-                })?,
-            ),
+            }
             _ => None,
         };
         if let Some(context) = &base_context {
@@ -849,7 +843,7 @@ impl HostedProvider {
                WHERE c.cursor_id = $1 AND c.collection_id = $2 AND c.replica_id = $3
                  AND c.scope_epoch = $4 AND c.expires_at > now()
                  AND c.hard_expires_at > now()
-               FOR UPDATE"#,
+               FOR UPDATE OF c"#,
         )
         .bind(cursor_id)
         .bind(collection_id)
@@ -1337,6 +1331,14 @@ async fn base_projection_fallback_exists(
     if state.generation_id.is_none() {
         return Ok(true);
     }
+    if state
+        .base_plan
+        .as_ref()
+        .is_some_and(|plan| plan.context_path.is_some())
+        && state.base_context.is_none()
+    {
+        return Ok(true);
+    }
     let relationships_required = state.base_plan.as_ref().is_some_and(|plan| {
         plan.requirements.backlinks
             || plan.requirements.outgoing_relationships
@@ -1592,6 +1594,20 @@ async fn execute_bounded_base_page(
         exact_bytes,
         query_context,
     } = snapshot;
+    if let Some(context) = &query_context {
+        if !plan.allowed_types.is_empty()
+            && !context.facts.types.iter().any(|actual| {
+                plan.allowed_types
+                    .iter()
+                    .any(|allowed| allowed.eq_ignore_ascii_case(actual))
+            })
+        {
+            return Err(ApiError::forbidden(
+                "scope_denied",
+                "The Obsidian Base context is outside this application's record scope.",
+            ));
+        }
+    }
     if rows.len() as u64 > state.plan.budgets.max_candidate_rows {
         return Err(query_budget_error(
             "hosted_scan_budget_exceeded",
@@ -2121,33 +2137,50 @@ async fn load_base_candidate_projections(
     plan: &mdbase::runtime::HostedBasePlan,
 ) -> ApiResult<Vec<ProjectedQueryRow>> {
     let mut query = QueryBuilder::<Postgres>::new(
-        "SELECT record_id, canonical_path, semantic_projection \
-         FROM hosted_provider_record_projections WHERE collection_id = ",
+        "WITH live AS (\
+           SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted \
+           FROM hosted_provider_record_versions WHERE collection_id = ",
     );
     query
         .push_bind(collection_id)
-        .push(" AND generation_id = ")
+        .push(" AND sequence <= ")
+        .push_bind(to_i64(state.snapshot_head, "query snapshot head")?)
+        .push(
+            " ORDER BY record_id, sequence DESC\
+         ) SELECT p.record_id, p.canonical_path, p.semantic_projection \
+         FROM hosted_provider_record_projections p JOIN live l \
+           ON l.record_id = p.record_id AND NOT l.deleted \
+          AND l.sequence = p.record_sequence AND l.revision = p.record_revision \
+         WHERE p.collection_id = ",
+        )
+        .push_bind(collection_id)
+        .push(" AND p.generation_id = ")
         .push_bind(state.generation_id)
-        .push(" AND valid_from_sequence <= ")
+        .push(" AND p.valid_from_sequence <= ")
         .push_bind(to_i64(state.snapshot_head, "query snapshot head")?)
-        .push(" AND (valid_to_sequence IS NULL OR valid_to_sequence > ")
+        .push(" AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > ")
         .push_bind(to_i64(state.snapshot_head, "query snapshot head")?)
-        .push(") AND catalog_revision = ")
+        .push(") AND p.catalog_revision = ")
         .push_bind(&state.catalog_revision)
-        .push(" AND projection_format_version = ")
+        .push(" AND p.projection_format_version = ")
         .push_bind(i64::from(state.projection_format_version))
-        .push(" AND semantic_engine_version = ")
+        .push(" AND p.semantic_engine_version = ")
         .push_bind(&state.semantic_engine_version)
-        .push(" AND semantic_complete AND resolution_complete AND (cardinality(")
+        .push(
+            " AND p.semantic_complete AND p.resolution_complete \
+                AND (cardinality(",
+        )
         .push_bind(&plan.allowed_types)
-        .push("::text[]) = 0 OR matched_types && ")
+        .push("::text[]) = 0 OR p.matched_types && ")
         .push_bind(&plan.allowed_types)
         .push("::text[]) AND (");
     push_candidate_predicate(&mut query, &plan.candidate);
-    query.push(") ORDER BY record_id LIMIT ").push_bind(to_i64(
-        state.plan.budgets.max_candidate_rows.saturating_add(1),
-        "candidate row budget",
-    )?);
+    query
+        .push(") ORDER BY p.record_id LIMIT ")
+        .push_bind(to_i64(
+            state.plan.budgets.max_candidate_rows.saturating_add(1),
+            "candidate row budget",
+        )?);
     let rows = query.build().fetch_all(&mut **transaction).await?;
     rows.into_iter()
         .map(|row| {
@@ -2907,6 +2940,16 @@ fn push_candidate_predicate(
             query.push("TRUE");
         }
         CandidatePredicate::Compare { comparison }
+            if comparison.pruning
+                == mdbase::runtime::CandidateComparisonPruning::NormalizedTagHierarchy
+                && comparison.field == mdbase::runtime::CandidateField::BodyTags
+                && comparison.operator
+                    == mdbase::runtime::CandidateComparisonOperator::Contains
+                && comparison.value.is_string() =>
+        {
+            push_tag_hierarchy_candidate_comparison(query, comparison);
+        }
+        CandidatePredicate::Compare { comparison }
             if comparison.pruning == mdbase::runtime::CandidateComparisonPruning::ExactJson
                 && candidate_field_supported(&comparison.field) =>
         {
@@ -2923,6 +2966,24 @@ fn push_candidate_predicate(
             query.push("TRUE");
         }
     }
+}
+
+fn push_tag_hierarchy_candidate_comparison(
+    query: &mut QueryBuilder<Postgres>,
+    comparison: &mdbase::runtime::CandidateComparison,
+) {
+    let needle = comparison
+        .value
+        .as_str()
+        .expect("tag hierarchy pruning always has a normalized string literal");
+    query.push("EXISTS (SELECT 1 FROM jsonb_array_elements_text(");
+    push_candidate_field(query, &comparison.field);
+    query.push(") AS candidate_tag(value) WHERE ltrim(candidate_tag.value, '#') = ");
+    query.push_bind(needle.to_string());
+    query.push(" OR left(ltrim(candidate_tag.value, '#'), char_length(");
+    query.push_bind(needle.to_string());
+    query.push(") + 1) = ");
+    query.push_bind(format!("{needle}/")).push(")");
 }
 
 fn candidate_predicate_is_total(predicate: &mdbase::runtime::CandidatePredicate) -> bool {
