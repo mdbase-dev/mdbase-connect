@@ -442,6 +442,69 @@ describe("provider-neutral collection client", () => {
     ]);
   });
 
+  it("pages a saved view with opaque cursors and releases the final lease", async () => {
+    const calls: Array<{ operation: string; input: Record<string, unknown> }> = [];
+    const rows = ["one.md", "two.md", "three.md"].map((path) => ({
+      path,
+      frontmatter: {},
+      effective_frontmatter: {},
+      types: []
+    }));
+    const client = new MdbaseCollectionClient({
+      async operation<Result>(operation: string, input: unknown) {
+        const request = input as Record<string, unknown>;
+        calls.push({ operation, input: request });
+        if (operation === "query") {
+          return {
+            valid: true,
+            diagnostics: [],
+            result: { results: [], meta: { has_more: false } }
+          } as Result;
+        }
+        const first = request.cursor === undefined;
+        return {
+          valid: true,
+          diagnostics: [],
+          result: {
+            results: first ? rows.slice(0, 1) : rows.slice(1),
+            meta: {
+              total_count: 3,
+              has_more: first,
+              ...(first ? { cursor: "saved-view-page-2" } : {}),
+              view: { path: "views/tasks.base", id: "all" }
+            }
+          }
+        } as Result;
+      }
+    });
+    const loaded: string[] = [];
+    for await (const outcome of client.executeViewPages(
+      { path: "views/tasks.base", view: "all" },
+      { firstPageSize: 1, pageSize: 2 }
+    )) {
+      expect(outcome.ok).toBe(true);
+      if (outcome.ok) loaded.push(...outcome.value.results.map((row) => row.path));
+    }
+
+    expect(loaded).toEqual(["one.md", "two.md", "three.md"]);
+    expect(calls).toEqual([
+      {
+        operation: "execute_view",
+        input: { path: "views/tasks.base", view: "all", limit: 1, offset: 0 }
+      },
+      {
+        operation: "execute_view",
+        input: {
+          path: "views/tasks.base",
+          view: "all",
+          limit: 2,
+          cursor: "saved-view-page-2"
+        }
+      },
+      { operation: "query", input: { release_cursor: "saved-view-page-2" } }
+    ]);
+  });
+
   it("falls back to legacy offset pages when an authority rejects the automatic cursor probe", async () => {
     const calls: Array<Record<string, unknown>> = [];
     const records = ["one.md", "two.md", "three.md"].map((path) => ({

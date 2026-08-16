@@ -90,6 +90,8 @@ import type {
   RenameResult,
   RecordDocument,
   SavedViewExecution,
+  SavedViewPage,
+  SavedViewPagesOptions,
   SavedViewList,
   SavedViewSourceDocument,
   TypePackApplyResult,
@@ -241,6 +243,76 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
   async executeView(input: ExecuteViewInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<SavedViewExecution<Frontmatter>, CollectionReadProblemCode>> {
     const outcome = await this.envelopeOperation<WireSavedViewExecution<Frontmatter>, CollectionReadProblemCode>("execute_view", input satisfies WireExecuteViewInput, COLLECTION_READ_PROBLEM_CODES, options);
     return mapOutcome(outcome, wireSavedViewExecution);
+  }
+
+  async *executeViewPages(
+    input: ExecuteViewInput,
+    options: SavedViewPagesOptions<Frontmatter> = {}
+  ): AsyncGenerator<ConnectOutcome<SavedViewPage<Frontmatter>, CollectionReadProblemCode>> {
+    const { offset: requestedOffset, limit: requestedLimit, cursor: requestedCursor, ...criteria } = input;
+    let offset = pageNonNegativeInteger(requestedOffset, 0);
+    const firstPageSize = pagePositiveInteger(options.firstPageSize ?? requestedLimit, 200);
+    const pageSize = pagePositiveInteger(options.pageSize ?? requestedLimit, 1_000);
+    let cursor = requestedCursor;
+    let cursorMode = requestedCursor !== undefined;
+    let cursorToRelease = requestedCursor;
+    let loaded = 0;
+    let pageNumber = 0;
+    try {
+      while (!options.signal?.aborted) {
+        const pageCursor = cursor;
+        const outcome = await this.executeView(
+          {
+            ...criteria,
+            limit: pageNumber === 0 ? firstPageSize : pageSize,
+            ...(cursorMode && pageCursor ? { cursor: pageCursor } : { offset })
+          },
+          {
+            signal: options.signal,
+            timeoutMs: options.pageTimeoutMs,
+            coordination: { ...options.coordination, coalesce: false }
+          }
+        );
+        if (!outcome.ok) {
+          yield outcome;
+          return;
+        }
+        const result = outcome.value;
+        const returnedCursor = result.meta.cursor;
+        if (returnedCursor) {
+          cursorMode = true;
+          cursor = returnedCursor;
+          cursorToRelease = returnedCursor;
+        } else if (cursorMode) {
+          cursor = undefined;
+          cursorToRelease = pageCursor;
+        }
+        if (cursorMode && result.meta.hasMore && !returnedCursor) {
+          yield connectFailure(connectProblem(
+            "invalid_operation_response",
+            "The collection authority omitted the cursor required for the next saved-view page."
+          ));
+          return;
+        }
+        loaded += result.results.length;
+        const complete = !result.meta.hasMore || result.results.length === 0;
+        const page: SavedViewPage<Frontmatter> = {
+          ...result,
+          page: pageNumber,
+          offset,
+          loaded,
+          complete,
+          ...(returnedCursor ? { cursor: returnedCursor } : {})
+        };
+        options.onProgress?.(page);
+        yield connectSuccess(page, outcome.diagnostics);
+        if (complete) return;
+        offset += result.results.length;
+        pageNumber += 1;
+      }
+    } finally {
+      if (cursorMode && cursorToRelease) await this.releaseQueryCursor(cursorToRelease);
+    }
   }
 
   readViewSource(input: ReadViewSourceInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<SavedViewSourceDocument, CollectionReadProblemCode>> {
@@ -819,11 +891,24 @@ function wireSavedViewExecution<Frontmatter extends JsonObject>(value: WireSaved
     meta: {
       totalCount: value.meta.total_count,
       hasMore: value.meta.has_more,
+      ...(value.meta.cursor ? { cursor: value.meta.cursor } : {}),
       view: value.meta.view,
       ...(value.meta.context ? { context: value.meta.context } : {}),
       ...(value.meta.groups ? { groups: value.meta.groups } : {})
     }
   };
+}
+
+function pageNonNegativeInteger(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.floor(value))
+    : fallback;
+}
+
+function pagePositiveInteger(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : fallback;
 }
 
 function wireTypePackResource(value: import("@mdbase-dev/connect-protocol").TypePackResourceDiff): import("./operation-types.js").TypePackResourceDiff {

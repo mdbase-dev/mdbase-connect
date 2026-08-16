@@ -791,6 +791,8 @@ export interface ExecuteViewInput {
   context?: { path: string } | null;
   limit?: number;
   offset?: number;
+  /** Opaque, single-use token returned for the next snapshot-pinned page. */
+  cursor?: string;
   render?: boolean;
 }
 
@@ -809,6 +811,7 @@ export interface SavedViewExecution<Frontmatter extends JsonObject = JsonObject>
   meta: {
     total_count: number;
     has_more: boolean;
+    cursor?: string;
     view: { path: string; id: string };
     context?: { path: string };
     groups?: Array<{

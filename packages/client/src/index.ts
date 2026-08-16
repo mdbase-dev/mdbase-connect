@@ -145,6 +145,8 @@ export type {
   SavedViewList,
   SavedViewSourceDocument,
   SavedViewExecution,
+  SavedViewPage,
+  SavedViewPagesOptions,
   ContractSetupChoice,
   TypePackResourceDiff,
   TypePackReceipt,

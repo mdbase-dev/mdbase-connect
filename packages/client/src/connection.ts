@@ -91,6 +91,8 @@ import type {
   RenameResult,
   RecordDocument,
   SavedViewExecution,
+  SavedViewPage,
+  SavedViewPagesOptions,
   SavedViewList,
   SavedViewSourceDocument,
   TypePackApplyResult,
@@ -519,6 +521,10 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
 
   executeView(input: ExecuteViewInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<SavedViewExecution<Frontmatter>, CollectionReadProblemCode>> {
     return this.collectionClient.executeView(input, options);
+  }
+
+  executeViewPages(input: ExecuteViewInput, options: SavedViewPagesOptions<Frontmatter> = {}): AsyncGenerator<ConnectOutcome<SavedViewPage<Frontmatter>, CollectionReadProblemCode>> {
+    return this.collectionClient.executeViewPages(input, options);
   }
 
   readViewSource(input: ReadViewSourceInput, options?: ConnectRequestOptions): Promise<ConnectOutcome<SavedViewSourceDocument, CollectionReadProblemCode>> {

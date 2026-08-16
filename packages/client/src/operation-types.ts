@@ -425,7 +425,19 @@ export interface ExecuteViewInput {
   context?: { path: string } | null;
   limit?: number;
   offset?: number;
+  /** Opaque, single-use token returned for the next snapshot-pinned page. */
+  cursor?: string;
   render?: boolean;
+}
+
+export interface SavedViewPagesOptions<Frontmatter extends JsonObject = JsonObject> {
+  firstPageSize?: number;
+  pageSize?: number;
+  signal?: AbortSignal;
+  /** Independent budget for each page requested by this caller-driven iterator. */
+  pageTimeoutMs?: number | null;
+  coordination?: RequestCoordinationOptions;
+  onProgress?: (page: SavedViewPage<Frontmatter>) => void;
 }
 
 export interface SavedViewPresentation extends JsonObject {
@@ -487,10 +499,21 @@ export interface SavedViewExecution<Frontmatter extends JsonObject = JsonObject>
   meta: {
     totalCount: number;
     hasMore: boolean;
+    cursor?: string;
     view: { path: string; id: string };
     context?: { path: string };
     groups?: Array<{ values: JsonObject; count: number; summaries: JsonObject }>;
   };
+}
+
+export interface SavedViewPage<Frontmatter extends JsonObject = JsonObject>
+  extends SavedViewExecution<Frontmatter> {
+  page: number;
+  offset: number;
+  loaded: number;
+  complete: boolean;
+  /** Opaque token for the next page while this iterator remains open. */
+  cursor?: string;
 }
 
 export type ContractSetupChoice =
