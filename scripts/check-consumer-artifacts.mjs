@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -15,11 +16,24 @@ const consumers = [
   ["mdbase Workouts", "workout_tracker"],
   ["Pickle", "pickle-android"]
 ];
+const sourceRevision = execFileSync("git", ["rev-parse", "HEAD"], {
+  cwd: repositoryRoot,
+  encoding: "utf8"
+}).trim();
+const sourcePackage = JSON.parse(
+  await readFile(resolve(repositoryRoot, "packages/client/package.json"), "utf8")
+);
 
 const inventories = [];
 for (const [product, checkout] of consumers) {
   inventories.push(await inspectConsumer(product, resolve(projectsRoot, checkout)));
 }
+inventories.push({
+  product: "mdbase Editor (workspace)",
+  revision: sourceRevision,
+  version: sourcePackage.version,
+  artifacts: ["workspace:packages/client"]
+});
 
 const revisions = new Set(inventories.map(({ revision }) => revision));
 const versions = new Set(inventories.map(({ version }) => version));
@@ -28,6 +42,11 @@ if (revisions.size !== 1 || versions.size !== 1) {
     "Controlled consumers do not use one Connect artifact build: "
       + inventories.map(({ product, version, revision }) =>
         `${product}=${version}@${revision.slice(0, 12)}`).join(", ")
+  );
+}
+if ([...revisions][0] !== sourceRevision) {
+  throw new Error(
+    `Controlled consumers use ${[...revisions][0]}, not current Connect ${sourceRevision}.`
   );
 }
 
@@ -86,7 +105,7 @@ async function inspectConsumer(product, checkout) {
     throw new Error(`${product} mixes Connect package versions: ${[...versions].join(", ")}.`);
   }
 
-  const packageSource = await readFile(resolve(checkout, "package.json"), "utf8");
+  const packageSource = (await readPackageSources(checkout)).join("\n");
   const [lockName, lockSource] = await readLockfile(checkout);
   const packageFiles = referencedArtifacts(packageSource);
   const lockFiles = referencedArtifacts(lockSource);
@@ -99,6 +118,35 @@ async function inspectConsumer(product, checkout) {
     version: [...versions][0],
     artifacts: [...declaredFiles].sort()
   };
+}
+
+async function readPackageSources(checkout) {
+  const sources = [await readFile(resolve(checkout, "package.json"), "utf8")];
+  for (const workspaceDirectory of ["apps", "packages"]) {
+    let entries;
+    try {
+      entries = await readdir(resolve(checkout, workspaceDirectory), {
+        withFileTypes: true
+      });
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      throw error;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      try {
+        sources.push(
+          await readFile(
+            resolve(checkout, workspaceDirectory, entry.name, "package.json"),
+            "utf8"
+          )
+        );
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
+    }
+  }
+  return sources;
 }
 
 async function readLockfile(checkout) {
