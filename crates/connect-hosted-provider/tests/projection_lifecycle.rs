@@ -1694,6 +1694,7 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
                     "create_view_source".to_string(),
                     "execute_view".to_string(),
                     "list_views".to_string(),
+                    "query".to_string(),
                 ],
                 operation_transport_protocol: Some(3),
                 operation_transport_recovery_protocols: Vec::new(),
@@ -1944,6 +1945,61 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
         absent_binding_page_two["result"]["results"][0]["path"],
         "projects/web.md"
     );
+
+    let exact_query_page_one = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "where": "file.folder == 'projects'",
+                "include_body": true,
+                "limit": 1,
+                "order_by": [{"field": "file.path", "direction": "asc"}]
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(exact_query_page_one["valid"], true);
+    assert_eq!(exact_query_page_one["result"]["meta"]["total_count"], 2);
+    assert_eq!(exact_query_page_one["result"]["meta"]["has_more"], true);
+    assert!(exact_query_page_one["result"]["results"][0]["body"].is_string());
+    let exact_query_cursor = exact_query_page_one["result"]["meta"]["cursor"]
+        .as_str()
+        .unwrap();
+    let exact_query_generation: Option<Uuid> = sqlx::query_scalar(
+        "SELECT generation_id FROM hosted_provider_query_cursors
+         WHERE collection_id = $1 AND request_kind = 'query'",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert!(exact_query_generation.is_none());
+    let exact_query_page_two = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "where": "file.folder == 'projects'",
+                "include_body": true,
+                "limit": 1,
+                "order_by": [{"field": "file.path", "direction": "asc"}],
+                "cursor": exact_query_cursor
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(exact_query_page_two["valid"], true);
+    assert_eq!(exact_query_page_two["result"]["meta"]["has_more"], false);
+    assert!(exact_query_page_two["result"]["meta"]["cursor"].is_null());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
