@@ -26,9 +26,26 @@ try {
     "test", "-p", "mdbase-connect-hosted-provider",
     "--test", "file_lifecycle_adversarial", "--", "--ignored", "--nocapture"
   ], { MDBASE_ADVERSARIAL_DATABASE_URL: databaseUrl });
+  const migrationDatabase = "mdbase_projection_migration";
+  await execute(
+    "docker",
+    ["exec", container, "createdb", "-U", "mdbase", migrationDatabase],
+    { cwd: root }
+  );
   await run("cargo", [
     "test", "-p", "mdbase-connect-hosted-provider",
-    "--test", "projection_lifecycle", "--", "--ignored", "--nocapture"
+    "--test", "projection_lifecycle",
+    "candidate_b_migration_0040_upgrades_a_live_legacy_base_cursor",
+    "--", "--ignored", "--nocapture"
+  ], {
+    MDBASE_PROJECTION_DATABASE_URL:
+      `postgres://mdbase:${password}@127.0.0.1:${port}/${migrationDatabase}`
+  });
+  await run("cargo", [
+    "test", "-p", "mdbase-connect-hosted-provider",
+    "--test", "projection_lifecycle", "--", "--ignored", "--nocapture",
+    "--test-threads=1",
+    "--skip", "candidate_b_migration_0040_upgrades_a_live_legacy_base_cursor"
   ], { MDBASE_PROJECTION_DATABASE_URL: databaseUrl });
 } finally {
   await execute("docker", ["stop", container], { cwd: root }).catch(() => {});
