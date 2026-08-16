@@ -1,6 +1,7 @@
 use super::operation_reads::{compile_point_catalog, load_direct_record, DirectRecordIdentity};
 use super::*;
 use crate::HostedExecutionBudgetManifest;
+use std::cmp::Ordering;
 
 const QUERY_CURSOR_IDLE_SECONDS: i64 = 60;
 const QUERY_CURSOR_HARD_SECONDS: i64 = 300;
@@ -1605,6 +1606,97 @@ struct BoundedQueryMatch {
     reduction: mdbase::runtime::HostedReductionInput,
 }
 
+struct BoundedQueryTopK<'a> {
+    plan: &'a mdbase::runtime::HostedQueryPlan,
+    capacity: usize,
+    // A max heap under canonical query ordering; the worst retained row is at
+    // the root and can be replaced without retaining every match.
+    heap: Vec<BoundedQueryMatch>,
+}
+
+impl<'a> BoundedQueryTopK<'a> {
+    fn new(plan: &'a mdbase::runtime::HostedQueryPlan, capacity: usize) -> Self {
+        Self {
+            plan,
+            capacity,
+            heap: Vec::with_capacity(capacity),
+        }
+    }
+
+    fn compare(&self, left: &BoundedQueryMatch, right: &BoundedQueryMatch) -> Ordering {
+        self.plan
+            .compare_order_values(
+                &left.order_values,
+                &left.path,
+                &right.order_values,
+                &right.path,
+            )
+            .then_with(|| left.record_id.cmp(&right.record_id))
+    }
+
+    fn push(&mut self, item: BoundedQueryMatch) {
+        if self.capacity == 0 {
+            return;
+        }
+        if self.heap.len() < self.capacity {
+            self.heap.push(item);
+            self.sift_up(self.heap.len() - 1);
+            return;
+        }
+        if self.compare(&item, &self.heap[0]).is_lt() {
+            self.heap[0] = item;
+            self.sift_down(0);
+        }
+    }
+
+    fn sift_up(&mut self, mut index: usize) {
+        while index > 0 {
+            let parent = (index - 1) / 2;
+            if !self.compare(&self.heap[index], &self.heap[parent]).is_gt() {
+                break;
+            }
+            self.heap.swap(index, parent);
+            index = parent;
+        }
+    }
+
+    fn sift_down(&mut self, mut index: usize) {
+        loop {
+            let left = index.saturating_mul(2).saturating_add(1);
+            if left >= self.heap.len() {
+                break;
+            }
+            let right = left + 1;
+            let child = if right < self.heap.len()
+                && self.compare(&self.heap[right], &self.heap[left]).is_gt()
+            {
+                right
+            } else {
+                left
+            };
+            if !self.compare(&self.heap[child], &self.heap[index]).is_gt() {
+                break;
+            }
+            self.heap.swap(index, child);
+            index = child;
+        }
+    }
+
+    fn into_sorted(mut self) -> Vec<BoundedQueryMatch> {
+        let plan = self.plan;
+        self.heap.sort_by(|left, right| {
+            plan.compare_order_values(
+                &left.order_values,
+                &left.path,
+                &right.order_values,
+                &right.path,
+            )
+            .then_with(|| left.record_id.cmp(&right.record_id))
+        });
+        self.heap
+    }
+}
+
 struct BoundedBaseMatch {
     record_id: Uuid,
     row: mdbase::runtime::HostedBaseRow,
@@ -2933,7 +3025,18 @@ async fn execute_bounded_residual_page(
     }
 
     let mut diagnostics = Vec::new();
-    let mut matching = Vec::<BoundedQueryMatch>::new();
+    let offset = if state.last_path.is_none() {
+        state.plan.offset
+    } else {
+        0
+    };
+    let top_k_capacity = offset.saturating_add(page_size);
+    let mut top_k = BoundedQueryTopK::new(
+        &state.plan,
+        usize::try_from(top_k_capacity).unwrap_or(usize::MAX),
+    );
+    let mut reduction = state.plan.start_reduction();
+    let mut total_count = 0_u64;
     for candidate in candidates {
         let evaluation =
             if let Some(evaluation) = projected_evaluations.remove(&candidate.record_id) {
@@ -2957,7 +3060,7 @@ async fn execute_bounded_residual_page(
                 .and_then(Value::as_str)
                 .ok_or_else(|| ApiError::internal("A hosted query result has no path."))?
                 .to_string();
-            matching.push(BoundedQueryMatch {
+            let item = BoundedQueryMatch {
                 path,
                 record_id: candidate.record_id,
                 result,
@@ -2966,24 +3069,33 @@ async fn execute_bounded_residual_page(
                     group_values: evaluation.group_values,
                     aggregate_values: evaluation.aggregate_values,
                 },
+            };
+            total_count = total_count.saturating_add(1);
+            reduction
+                .push(&item.reduction)
+                .map_err(projection_inconsistent)?;
+            let after_keyset = state.last_path.as_deref().is_none_or(|last_path| {
+                let ordering = state.plan.compare_order_values(
+                    &item.order_values,
+                    &item.path,
+                    &state.last_order_values,
+                    last_path,
+                );
+                ordering.is_gt()
+                    || (ordering.is_eq()
+                        && state
+                            .last_record_id
+                            .is_some_and(|last| item.record_id > last))
             });
+            if after_keyset {
+                top_k.push(item);
+            }
         }
     }
-    matching.sort_by(|left, right| {
-        state
-            .plan
-            .compare_order_values(
-                &left.order_values,
-                &left.path,
-                &right.order_values,
-                &right.path,
-            )
-            .then_with(|| left.record_id.cmp(&right.record_id))
-    });
-    let total_count = matching.len() as u64;
+    let matching = top_k.into_sorted();
     let operator_steps = candidate_count.saturating_add(
         total_count.saturating_mul(
-            u64::from(total_count.max(1).ilog2().saturating_add(1))
+            u64::from(top_k_capacity.max(1).ilog2().saturating_add(1))
                 .saturating_add(state.plan.order.len() as u64)
                 .saturating_add(state.plan.groups.len() as u64)
                 .saturating_add(state.plan.aggregates.len() as u64),
@@ -3011,25 +3123,9 @@ async fn execute_bounded_residual_page(
                 item.reduction.aggregate_values.clone(),
             )))
     });
-    let reduction_inputs = matching
-        .iter()
-        .map(|item| item.reduction.clone())
-        .collect::<Vec<_>>();
-    let reduction_input_bytes = reduction_inputs.iter().fold(0_u64, |total, item| {
-        total
-            .saturating_add(serialized_value_bytes(&Value::Array(
-                item.group_values.clone(),
-            )))
-            .saturating_add(serialized_value_bytes(&Value::Array(
-                item.aggregate_values.clone(),
-            )))
-    });
     let pre_reduction_resident_bytes = projection_bytes
         .saturating_add(exact_bytes)
-        .saturating_add(matching_bytes)
-        // The reducer partitions its bounded input by value. Account for that
-        // temporary copy before allocating it, rather than observing RSS late.
-        .saturating_add(reduction_input_bytes.saturating_mul(2));
+        .saturating_add(matching_bytes);
     if pre_reduction_resident_bytes > state.plan.budgets.max_memory_bytes {
         return Err(query_budget_error(
             "hosted_memory_budget_exceeded",
@@ -3039,10 +3135,7 @@ async fn execute_bounded_residual_page(
             pre_reduction_resident_bytes,
         ));
     }
-    let reduction = state
-        .plan
-        .reduce_matches(&reduction_inputs)
-        .map_err(projection_inconsistent)?;
+    let reduction = reduction.finish().map_err(projection_inconsistent)?;
     diagnostics.extend(reduction.diagnostics);
     let groups_bytes = reduction.groups.as_ref().map_or(0, |groups| {
         serialized_value_bytes(&Value::Array(groups.clone()))
@@ -3057,28 +3150,8 @@ async fn execute_bounded_residual_page(
             resident_bytes,
         ));
     }
-    let after_keyset = matching.into_iter().filter(|item| {
-        let Some(last_path) = state.last_path.as_deref() else {
-            return true;
-        };
-        let ordering = state.plan.compare_order_values(
-            &item.order_values,
-            &item.path,
-            &state.last_order_values,
-            last_path,
-        );
-        ordering.is_gt()
-            || (ordering.is_eq()
-                && state
-                    .last_record_id
-                    .is_some_and(|last| item.record_id > last))
-    });
-    let offset = if state.last_path.is_none() {
-        state.plan.offset
-    } else {
-        0
-    };
-    let page = after_keyset
+    let page = matching
+        .into_iter()
         .skip(usize::try_from(offset).unwrap_or(usize::MAX))
         .take(usize::try_from(page_size).unwrap_or(usize::MAX))
         .collect::<Vec<_>>();
