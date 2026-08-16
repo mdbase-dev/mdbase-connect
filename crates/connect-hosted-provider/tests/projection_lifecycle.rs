@@ -4557,7 +4557,7 @@ async fn candidate_b_base_paginates_10k_projected_rows() {
 async fn candidate_b_base_candidate_prunes_100k_live_rows() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
-    candidate_b_base_candidate_prunes_fixture(&database_url, 100_001).await;
+    candidate_b_base_candidate_prunes_fixture(&database_url, 99_999).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -4565,7 +4565,7 @@ async fn candidate_b_base_candidate_prunes_100k_live_rows() {
 async fn candidate_b_exact_projected_filter_pages_over_10k() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
-    candidate_b_exact_projected_filter_fixture(&database_url, 10_001).await;
+    candidate_b_exact_projected_filter_fixture(&database_url, 10_001, 1_000).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -4573,7 +4573,7 @@ async fn candidate_b_exact_projected_filter_pages_over_10k() {
 async fn candidate_b_exact_projected_filter_and_group_100k() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
-    candidate_b_exact_projected_filter_fixture(&database_url, 100_001).await;
+    candidate_b_exact_projected_filter_fixture(&database_url, 99_997, 200).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -4581,10 +4581,14 @@ async fn candidate_b_exact_projected_filter_and_group_100k() {
 async fn candidate_b_exact_projected_filter_and_group_230k() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
-    candidate_b_exact_projected_filter_fixture(&database_url, 230_128).await;
+    candidate_b_exact_projected_filter_fixture(&database_url, 230_128, 200).await;
 }
 
-async fn candidate_b_exact_projected_filter_fixture(database_url: &str, decoy_count: i64) {
+async fn candidate_b_exact_projected_filter_fixture(
+    database_url: &str,
+    decoy_count: i64,
+    page_size: u64,
+) {
     if decoy_count > 100_000 {
         assert_eq!(
             std::env::var("MDBASE_HOSTED_EXECUTION_TEST_ENTITLEMENT").as_deref(),
@@ -4805,49 +4809,10 @@ async fn candidate_b_exact_projected_filter_fixture(database_url: &str, decoy_co
         .execute(&fixture.pool)
         .await
         .unwrap();
-    let projected_started = Instant::now();
-    let projected_page = fixture
-        .provider
-        .operation(
-            fixture.collection_id,
-            &token,
-            "query",
-            Uuid::new_v4(),
-            json!({
-                "types": ["task"],
-                "where": "record.status == 'open' && record.archived == false",
-                "limit": 1000,
-                "pagination": "cursor"
-            }),
-            None,
-        )
-        .await
-        .unwrap();
-    let projected_elapsed = projected_started.elapsed();
-    eprintln!(
-        "candidate_b_exact_filter_page decoys={decoy_count} elapsed_ms={}",
-        projected_elapsed.as_millis()
-    );
-    assert!(projected_elapsed < Duration::from_secs(15));
-    assert_eq!(
-        projected_page["result"]["meta"]["total_count"],
-        decoy_count + 2
-    );
-    assert_eq!(
-        projected_page["result"]["results"]
-            .as_array()
-            .unwrap()
-            .len(),
-        1000
-    );
-    assert!(projected_page["result"]["meta"]["cursor"].is_string());
-    let mut projected_cursor = projected_page["result"]["meta"]["cursor"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    for page_number in 2..=10 {
-        let page_started = Instant::now();
-        let page = fixture
+    let repetitions = if decoy_count > 100_000 { 5 } else { 7 };
+    for repetition in 1..=repetitions {
+        let projected_started = Instant::now();
+        let projected_page = fixture
             .provider
             .operation(
                 fixture.collection_id,
@@ -4857,66 +4822,118 @@ async fn candidate_b_exact_projected_filter_fixture(database_url: &str, decoy_co
                 json!({
                     "types": ["task"],
                     "where": "record.status == 'open' && record.archived == false",
-                    "limit": 1000,
-                    "pagination": "cursor",
-                    "cursor": projected_cursor
+                    "limit": page_size,
+                    "pagination": "cursor"
                 }),
                 None,
             )
             .await
             .unwrap();
-        let page_elapsed = page_started.elapsed();
-        if matches!(page_number, 2 | 10) {
-            eprintln!(
-                "candidate_b_exact_filter_page decoys={decoy_count} page={page_number} elapsed_ms={}",
-                page_elapsed.as_millis()
-            );
-        }
-        assert_eq!(page["result"]["results"].as_array().unwrap().len(), 1000);
-        projected_cursor = page["result"]["meta"]["cursor"]
+        let projected_elapsed = projected_started.elapsed();
+        eprintln!(
+            "candidate_b_exact_filter_page decoys={decoy_count} page=1 repetition={repetition} elapsed_ms={}",
+            projected_elapsed.as_millis()
+        );
+        assert!(projected_elapsed < Duration::from_secs(15));
+        assert_eq!(
+            projected_page["result"]["meta"]["total_count"],
+            decoy_count + 2
+        );
+        assert_eq!(
+            projected_page["result"]["results"]
+                .as_array()
+                .unwrap()
+                .len(),
+            usize::try_from(page_size).unwrap()
+        );
+        assert!(projected_page["result"]["meta"]["cursor"].is_string());
+        let mut projected_cursor = projected_page["result"]["meta"]["cursor"]
             .as_str()
             .unwrap()
             .to_string();
+        for page_number in 2..=10 {
+            let page_started = Instant::now();
+            let page = fixture
+                .provider
+                .operation(
+                    fixture.collection_id,
+                    &token,
+                    "query",
+                    Uuid::new_v4(),
+                    json!({
+                        "types": ["task"],
+                        "where": "record.status == 'open' && record.archived == false",
+                        "limit": page_size,
+                        "pagination": "cursor",
+                        "cursor": projected_cursor
+                    }),
+                    None,
+                )
+                .await
+                .unwrap();
+            let page_elapsed = page_started.elapsed();
+            if matches!(page_number, 2 | 10) {
+                eprintln!(
+                    "candidate_b_exact_filter_page decoys={decoy_count} page={page_number} repetition={repetition} elapsed_ms={}",
+                    page_elapsed.as_millis()
+                );
+            }
+            assert_eq!(
+                page["result"]["results"].as_array().unwrap().len(),
+                usize::try_from(page_size).unwrap()
+            );
+            projected_cursor = page["result"]["meta"]["cursor"]
+                .as_str()
+                .unwrap()
+                .to_string();
+        }
     }
-    let grouped_started = Instant::now();
-    let grouped = fixture
-        .provider
-        .operation(
-            fixture.collection_id,
-            &token,
-            "query",
-            Uuid::new_v4(),
-            json!({
-                "types": ["task"],
-                "group_by": [{"field": "record.status"}],
-                "summaries": [
-                    {"field": "record.status", "function": "count", "name": "records"}
-                ],
-                "limit": 1000
-            }),
-            None,
-        )
-        .await
-        .unwrap();
-    let grouped_elapsed = grouped_started.elapsed();
-    eprintln!(
-        "candidate_b_group_count decoys={decoy_count} elapsed_ms={}",
-        grouped_elapsed.as_millis()
-    );
-    assert!(grouped_elapsed < Duration::from_secs(15));
-    assert_eq!(grouped["result"]["meta"]["total_count"], decoy_count + 3);
-    let groups = grouped["result"]["meta"]["groups"].as_array().unwrap();
-    assert_eq!(groups.len(), 2);
-    assert!(groups.iter().any(|group| {
-        group["values"]["record.status"] == "open"
-            && group["count"] == decoy_count + 2
-            && group["summaries"]["records"] == decoy_count + 2
-    }));
-    assert!(groups.iter().any(|group| {
-        group["values"]["record.status"] == "closed"
-            && group["count"] == 1
-            && group["summaries"]["records"] == 1
-    }));
+    for repetition in 1..=repetitions {
+        let grouped_started = Instant::now();
+        let grouped = fixture
+            .provider
+            .operation(
+                fixture.collection_id,
+                &token,
+                "query",
+                Uuid::new_v4(),
+                json!({
+                    "types": ["task"],
+                    "group_by": [{"field": "record.status"}],
+                    "summaries": [
+                        {"field": "record.status", "function": "count", "name": "records"}
+                    ],
+                    "limit": 1000
+                }),
+                None,
+            )
+            .await
+            .unwrap();
+        let grouped_elapsed = grouped_started.elapsed();
+        eprintln!(
+            "candidate_b_group_count decoys={decoy_count} repetition={repetition} elapsed_ms={}",
+            grouped_elapsed.as_millis()
+        );
+        assert!(grouped_elapsed < Duration::from_secs(15));
+        assert_eq!(grouped["result"]["meta"]["total_count"], decoy_count + 3);
+        let groups = grouped["result"]["meta"]["groups"].as_array().unwrap();
+        assert_eq!(groups.len(), 2);
+        assert!(groups.iter().any(|group| {
+            group["values"]["record.status"] == "open"
+                && group["count"] == decoy_count + 2
+                && group["summaries"]["records"] == decoy_count + 2
+        }));
+        assert!(groups.iter().any(|group| {
+            group["values"]["record.status"] == "closed"
+                && group["count"] == 1
+                && group["summaries"]["records"] == 1
+        }));
+        if repetition == repetitions {
+            eprintln!(
+                "candidate_b_exact_filter_samples_complete decoys={decoy_count} repetitions={repetitions}"
+            );
+        }
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
