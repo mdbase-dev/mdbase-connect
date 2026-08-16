@@ -166,8 +166,68 @@ fn concurrent_index_migrations_have_bounded_retry_cleanup() {
     let lifecycle = include_str!("lifecycle.rs");
     assert!(lifecycle.contains("SET lock_timeout = '5s'"));
     assert!(lifecycle.contains("SET statement_timeout = '30min'"));
-    assert!(lifecycle.contains("NOT i.indisvalid"));
+    assert!(lifecycle.contains("pg_get_indexdef"));
     assert!(lifecycle.contains("DROP INDEX CONCURRENTLY IF EXISTS"));
+}
+
+#[test]
+fn concurrent_index_migrations_reject_same_name_definition_drift() {
+    let path = "CREATE INDEX hosted_provider_record_projections_snapshot_path_cursor_idx \
+        ON public.hosted_provider_record_projections USING btree \
+        (collection_id, generation_id, canonical_path COLLATE \"C\", record_id, \
+         valid_from_sequence, valid_to_sequence)";
+    assert!(super::lifecycle::concurrent_migration_index_matches(
+        "hosted_provider_record_projections_snapshot_path_cursor_idx",
+        path,
+        "C",
+    ));
+    assert!(!super::lifecycle::concurrent_migration_index_matches(
+        "hosted_provider_record_projections_snapshot_path_cursor_idx",
+        &path.replace(
+            "record_id, valid_from_sequence",
+            "valid_from_sequence, record_id"
+        ),
+        "C",
+    ));
+    assert!(!super::lifecycle::concurrent_migration_index_matches(
+        "hosted_provider_record_projections_snapshot_path_cursor_idx",
+        &format!("{path} WHERE valid_to_sequence IS NULL"),
+        "C",
+    ));
+
+    let mtime = "CREATE INDEX hosted_provider_record_projections_snapshot_mtime_cursor_idx \
+        ON hosted_provider_record_projections USING btree \
+        (collection_id, generation_id, file_modified_at DESC NULLS FIRST, \
+         canonical_path COLLATE \"C\", record_id, valid_from_sequence, valid_to_sequence)";
+    assert!(super::lifecycle::concurrent_migration_index_matches(
+        "hosted_provider_record_projections_snapshot_mtime_cursor_idx",
+        mtime,
+        "C",
+    ));
+    assert!(!super::lifecycle::concurrent_migration_index_matches(
+        "hosted_provider_record_projections_snapshot_mtime_cursor_idx",
+        &mtime.replace("DESC NULLS FIRST", "ASC NULLS LAST"),
+        "C",
+    ));
+    let rendered_mtime_defaults = mtime
+        .replace(" DESC NULLS FIRST", " DESC")
+        .replace(" COLLATE \"C\"", "");
+    assert!(super::lifecycle::concurrent_migration_index_matches(
+        "hosted_provider_record_projections_snapshot_mtime_cursor_idx",
+        &rendered_mtime_defaults,
+        "C",
+    ));
+    let default_c = path.replace(" COLLATE \"C\"", "");
+    assert!(super::lifecycle::concurrent_migration_index_matches(
+        "hosted_provider_record_projections_snapshot_path_cursor_idx",
+        &default_c,
+        "C",
+    ));
+    assert!(!super::lifecycle::concurrent_migration_index_matches(
+        "hosted_provider_record_projections_snapshot_path_cursor_idx",
+        &default_c,
+        "en_US.UTF-8",
+    ));
 }
 
 #[test]

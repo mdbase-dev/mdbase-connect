@@ -266,6 +266,39 @@ pub(super) const CONCURRENT_MIGRATION_INDEXES: [&str; 2] = [
     "hosted_provider_record_projections_snapshot_mtime_cursor_idx",
 ];
 
+pub(super) fn concurrent_migration_index_matches(
+    index: &str,
+    definition: &str,
+    indexed_path_collation: &str,
+) -> bool {
+    let normalized = definition
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase();
+    let key_suffix = match index {
+        "hosted_provider_record_projections_snapshot_path_cursor_idx" => {
+            "using btree (collection_id, generation_id, canonical_path collate \"c\", record_id, valid_from_sequence, valid_to_sequence)"
+        }
+        "hosted_provider_record_projections_snapshot_mtime_cursor_idx" => {
+            "using btree (collection_id, generation_id, file_modified_at desc nulls first, canonical_path collate \"c\", record_id, valid_from_sequence, valid_to_sequence)"
+        }
+        _ => return false,
+    };
+    let default_c_suffix = key_suffix.replace(" collate \"c\"", "");
+    let default_nulls_suffix = key_suffix.replace(" desc nulls first", " desc");
+    let default_c_and_nulls_suffix = default_c_suffix.replace(" desc nulls first", " desc");
+    let c_path_collation = indexed_path_collation.eq_ignore_ascii_case("C")
+        || indexed_path_collation.eq_ignore_ascii_case("POSIX");
+    normalized.contains(" on ")
+        && normalized.contains("hosted_provider_record_projections ")
+        && (normalized.ends_with(key_suffix)
+            || normalized.ends_with(&default_nulls_suffix)
+            || (c_path_collation
+                && (normalized.ends_with(&default_c_suffix)
+                    || normalized.ends_with(&default_c_and_nulls_suffix))))
+}
+
 async fn run_hosted_migrations(pool: &PgPool) -> Result<(), String> {
     let mut connection = pool.acquire().await.map_err(|error| error.to_string())?;
     sqlx::query("SET lock_timeout = '5s'")
@@ -278,21 +311,34 @@ async fn run_hosted_migrations(pool: &PgPool) -> Result<(), String> {
         .map_err(|error| error.to_string())?;
 
     for index in CONCURRENT_MIGRATION_INDEXES {
-        let invalid: bool = sqlx::query_scalar(
-            r#"SELECT EXISTS (
-                 SELECT 1
+        let existing: Option<(bool, String, String)> = sqlx::query_as(
+            r#"SELECT i.indisvalid, pg_get_indexdef(i.indexrelid),
+                      COALESCE((
+                        SELECT coll.collname
+                        FROM unnest(i.indcollation::oid[]) WITH ORDINALITY key(oid, position)
+                        JOIN pg_collation coll ON coll.oid = key.oid
+                        WHERE key.position = CASE WHEN c.relname =
+                          'hosted_provider_record_projections_snapshot_path_cursor_idx'
+                          THEN 3 ELSE 4 END
+                      ), '')
                  FROM pg_index i
                  JOIN pg_class c ON c.oid = i.indexrelid
                  JOIN pg_namespace n ON n.oid = c.relnamespace
                  WHERE n.nspname = current_schema()
-                   AND c.relname = $1 AND NOT i.indisvalid
-               )"#,
+                   AND c.relname = $1"#,
         )
         .bind(index)
-        .fetch_one(&mut *connection)
+        .fetch_optional(&mut *connection)
         .await
         .map_err(|error| error.to_string())?;
-        if invalid {
+        if let Some((true, definition, indexed_path_collation)) = existing.as_ref() {
+            if !concurrent_migration_index_matches(index, definition, indexed_path_collation) {
+                return Err(format!(
+                    "hosted concurrent migration index {index} exists with an unexpected definition; refusing to migrate"
+                ));
+            }
+        }
+        if matches!(existing, Some((false, _, _))) {
             let statement = match index {
                 "hosted_provider_record_projections_snapshot_path_cursor_idx" => {
                     "DROP INDEX CONCURRENTLY IF EXISTS hosted_provider_record_projections_snapshot_path_cursor_idx"

@@ -51,6 +51,27 @@ async fn load_exact_query_records(
         "selected exact ciphertext bytes",
     )?;
     enforce_exact_ciphertext_scan_budget(state, ciphertext_bytes)?;
+    // The encrypted persisted JSON is always larger than its Markdown
+    // document: it contains the document plus record metadata and AEAD
+    // overhead. Treating selected ciphertext bytes as a conservative
+    // plaintext upper bound lets an oversized exact page fail before any
+    // record is decrypted. Near-boundary pages may receive the same typed
+    // budget outcome conservatively; they never bypass the published limit.
+    let conservative_plaintext_bytes =
+        reserved_plaintext_bytes.saturating_add(ciphertext_bytes);
+    if conservative_plaintext_bytes > state.plan.budgets.max_exact_bytes {
+        return Err(query_budget_error(
+            "hosted_exact_byte_budget_exceeded",
+            "The hosted query exceeded its conservative exact-plaintext byte budget.",
+            "exact_bytes",
+            state.plan.budgets.max_exact_bytes,
+            scoped_budget_observed(
+                &state.allowed_types,
+                state.plan.budgets.max_exact_bytes,
+                conservative_plaintext_bytes,
+            ),
+        ));
+    }
 
     let mut rows = sqlx::query(
         r#"SELECT DISTINCT ON (record_id) record_id, sequence, payload_ciphertext,

@@ -167,25 +167,28 @@ async fn load_projected_groups(
         state.plan.budgets.max_groups.saturating_add(1),
         "group budget",
     )?);
-    let rows = query.build().fetch_all(&mut **transaction).await?;
-    if rows.len() as u64 > state.plan.budgets.max_groups {
-        return Err(query_budget_error(
-            "hosted_group_budget_exceeded",
-            "The hosted query exceeded its group budget.",
-            "groups",
-            state.plan.budgets.max_groups,
-            rows.len() as u64,
-        ));
-    }
     let mut reduction = state.plan.start_reduction();
     let mut operator_steps = 0_u64;
     let mut total_count = 0_u64;
+    let mut group_count = 0_u64;
     let count_only = state
         .plan
         .aggregates
         .iter()
         .all(|aggregate| aggregate.function == "count");
-    for row in rows {
+    let built_query = query.build();
+    let mut rows = built_query.fetch(&mut **transaction);
+    while let Some(row) = rows.try_next().await? {
+        group_count = group_count.saturating_add(1);
+        if group_count > state.plan.budgets.max_groups {
+            return Err(query_budget_error(
+                "hosted_group_budget_exceeded",
+                "The hosted query exceeded its group budget.",
+                "groups",
+                state.plan.budgets.max_groups,
+                group_count,
+            ));
+        }
         let count = number(row.get::<i64, _>("row_count"), "group row count")?;
         total_count = total_count.saturating_add(count);
         let row_steps = (state.plan.groups.len() + state.plan.aggregates.len()).max(1) as u64;
@@ -222,6 +225,7 @@ async fn load_projected_groups(
             }
         }
     }
+    drop(rows);
     reduction
         .finish()
         .map(|reduction| (reduction.groups, Some(total_count)))

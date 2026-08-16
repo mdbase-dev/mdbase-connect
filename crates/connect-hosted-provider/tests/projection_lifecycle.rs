@@ -1590,7 +1590,7 @@ async fn candidate_b_query_cursor_rechecks_projection_integrity_after_epoch_chan
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
-async fn candidate_b_exact_plaintext_budget_stops_before_later_ciphertext_decryption() {
+async fn candidate_b_exact_plaintext_budget_preflights_before_any_ciphertext_decryption() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
     let fixture = FileLifecycleFixture::new(&database_url).await;
@@ -1603,7 +1603,6 @@ async fn candidate_b_exact_plaintext_budget_stops_before_later_ciphertext_decryp
     .unwrap();
     let mirror_id: Uuid = mirror.get("id");
     let scope_epoch = u64::try_from(mirror.get::<i64, _>("scope_epoch")).unwrap();
-    let large_document = "x".repeat(1_750_000);
     for ordinal in 1..=40_u128 {
         put(
             &fixture,
@@ -1612,29 +1611,22 @@ async fn candidate_b_exact_plaintext_budget_stops_before_later_ciphertext_decryp
             Uuid::from_u128(ordinal),
             None,
             &format!("budget/{ordinal}.md"),
-            &large_document,
+            "Small canonical record used to isolate the exact ciphertext preflight.\n",
         )
         .await;
     }
-    let corrupt_later_id = Uuid::from_u128(41);
-    put(
-        &fixture,
-        mirror_id,
-        scope_epoch,
-        corrupt_later_id,
-        None,
-        "budget/41.md",
-        "This later authority is corrupted after projection.\n",
-    )
-    .await;
     complete_generation(&fixture).await;
+    // Inflate the encrypted authority rows after projection. The appended
+    // bytes make every ciphertext invalid, so any attempted decryption would
+    // fail with a crypto error. The metadata preflight must instead reject the
+    // selected 66+ MiB set with the typed exact-byte outcome.
     sqlx::query(
         r#"UPDATE hosted_provider_record_versions
-           SET payload_ciphertext = decode('00', 'hex')
-           WHERE collection_id = $1 AND record_id = $2 AND deleted = false"#,
+           SET payload_ciphertext = payload_ciphertext
+             || decode(repeat('00', 1750000), 'hex')
+           WHERE collection_id = $1 AND deleted = false"#,
     )
     .bind(fixture.collection_id)
-    .bind(corrupt_later_id)
     .execute(&fixture.pool)
     .await
     .unwrap();
@@ -2692,13 +2684,26 @@ async fn assert_scoped_public_query(fixture: &FileLifecycleFixture, token: &str)
     );
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[test]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
-async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
-    // Keep this unusually broad lifecycle scenario on the heap. Its many
-    // suspension points otherwise make the generated test future larger than
-    // Tokio's default worker stack in debug builds.
-    Box::pin(exercise_candidate_b_projection_lifecycle()).await;
+fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
+    // This intentionally comprehensive scenario combines many independently
+    // tested lifecycle slices in one debug-build future. Give its test-only
+    // runtime an explicit stack so runner platform defaults cannot turn the
+    // aggregate harness itself into a flaky stack overflow.
+    std::thread::Builder::new()
+        .name("candidate-b-lifecycle-test".to_string())
+        .stack_size(16 * 1024 * 1024)
+        .spawn(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async { Box::pin(exercise_candidate_b_projection_lifecycle()).await });
+        })
+        .unwrap()
+        .join()
+        .unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -4425,6 +4430,122 @@ async fn candidate_b_projection_bytes_are_preflighted_before_json_transfer() {
     assert_eq!(error.details.as_ref().unwrap()["budget"], "candidate_bytes");
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_grouping_streams_large_distinct_keys_into_aggregation_budget() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let replica_id = replica.get("id");
+    let scope_epoch = u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap();
+    let token = format!("candidate-b-large-groups-{}", Uuid::new_v4());
+    fixture
+        .provider
+        .register_replica(
+            fixture.collection_id,
+            RegisterReplica {
+                replica_id: Uuid::now_v7(),
+                name: "Candidate B large-group budget reader".to_string(),
+                purpose: ReplicaPurpose::Application,
+                mode: SyncReplicaMode::ReadWrite,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
+                allowed_operations: vec!["create_type".to_string(), "query".to_string()],
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: Vec::new(),
+                file_capability: None,
+                allowed_origin: None,
+                proof_public_key: None,
+                grant_id: Some(Uuid::now_v7()),
+                application_declaration_id: None,
+                application_declaration_digest: None,
+                token: token.clone(),
+                token_ttl_seconds: None,
+            },
+        )
+        .await
+        .unwrap();
+    fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "create_type",
+            Uuid::new_v4(),
+            json!({"document": r#"---
+kind: mdbase.type
+name: large_group
+version: 1
+match:
+  path_glob: 'groups/*.md'
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    required: [title]
+    properties:
+      title: {type: string}
+---
+"#}),
+            None,
+        )
+        .await
+        .unwrap();
+    for index in 0..128_u64 {
+        // Title is represented in persisted and effective frontmatter; keep
+        // each complete projection below 256 KiB while the distinct retained
+        // grouping keys collectively exceed the 8 MiB reducer budget.
+        let title = format!("group-{index:03}-{}", "x".repeat(67_000));
+        put(
+            &fixture,
+            replica_id,
+            scope_epoch,
+            Uuid::now_v7(),
+            None,
+            &format!("groups/large-{index:03}.md"),
+            &format!("---\ntitle: {title}\n---\nLarge grouping key.\n"),
+        )
+        .await;
+    }
+    complete_generation(&fixture).await;
+    let error = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "types": ["large_group"],
+                "limit": 1,
+                "group_by": [{"field": "record.title"}],
+                "summaries": [
+                    {"field": "record.title", "function": "count", "name": "records"}
+                ],
+                "order_by": [{"field": "file.path"}]
+            }),
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.code, "hosted_aggregation_state_budget_exceeded",
+        "unexpected grouping failure: {error:?}"
+    );
+    assert_eq!(
+        error.details.as_ref().unwrap()["budget"],
+        "aggregation_state_bytes"
+    );
+}
+
 async fn assert_projected_group_cancellation(fixture: &FileLifecycleFixture, token: &str) {
     let mut projected_group_lock = fixture.pool.begin().await.unwrap();
     sqlx::query("LOCK TABLE hosted_provider_record_projections IN ACCESS EXCLUSIVE MODE")
@@ -5044,7 +5165,7 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
 async fn candidate_b_base_candidate_prunes_over_scan_budget() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
-    candidate_b_base_candidate_prunes_fixture(&database_url, 10_001).await;
+    candidate_b_base_candidate_prunes_fixture(&database_url, 10_001, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -5052,7 +5173,7 @@ async fn candidate_b_base_candidate_prunes_over_scan_budget() {
 async fn candidate_b_base_paginates_10k_projected_rows() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
-    candidate_b_base_candidate_prunes_fixture(&database_url, 9_999).await;
+    candidate_b_base_candidate_prunes_fixture(&database_url, 9_999, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -5060,7 +5181,15 @@ async fn candidate_b_base_paginates_10k_projected_rows() {
 async fn candidate_b_base_candidate_prunes_100k_live_rows() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
-    candidate_b_base_candidate_prunes_fixture(&database_url, 99_999).await;
+    candidate_b_base_candidate_prunes_fixture(&database_url, 99_999, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_base_preflights_1000_large_projections_before_payload_transfer() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    candidate_b_base_candidate_prunes_fixture(&database_url, 1_000, true).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -6047,7 +6176,11 @@ async fn candidate_b_relationship_revalidation_preflights_plaintext_bytes() {
     assert_eq!(target_path, "notes/target.md");
 }
 
-async fn candidate_b_base_candidate_prunes_fixture(database_url: &str, decoy_count: i64) {
+async fn candidate_b_base_candidate_prunes_fixture(
+    database_url: &str,
+    decoy_count: i64,
+    large_projection_pressure: bool,
+) {
     if decoy_count > 100_000 {
         assert_eq!(
             std::env::var("MDBASE_HOSTED_EXECUTION_TEST_ENTITLEMENT").as_deref(),
@@ -6376,6 +6509,50 @@ async fn candidate_b_base_candidate_prunes_fixture(database_url: &str, decoy_cou
     assert_eq!(result["valid"], true);
     assert_eq!(result["result"]["meta"]["total_count"], 1);
     assert_eq!(result["result"]["results"][0]["path"], "tasks/selected.md");
+
+    if large_projection_pressure {
+        sqlx::query(
+            r#"UPDATE hosted_provider_record_projections
+               SET semantic_projection = jsonb_set(
+                     semantic_projection,
+                     '{effective_frontmatter,provider_budget_padding}',
+                     to_jsonb(repeat('x', 245000)), true),
+                   projection_bytes = 250000
+               WHERE collection_id = $1 AND generation_id = $2
+                 AND canonical_path LIKE 'decoys/%'"#,
+        )
+        .bind(fixture.collection_id)
+        .bind(generation_id)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"UPDATE hosted_provider_record_projections
+               SET projection_digest = projection_observed_digest
+               WHERE collection_id = $1 AND generation_id = $2
+                 AND canonical_path LIKE 'decoys/%'"#,
+        )
+        .bind(fixture.collection_id)
+        .bind(generation_id)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+        let error = fixture
+            .provider
+            .operation(
+                fixture.collection_id,
+                &token,
+                "execute_view",
+                Uuid::new_v4(),
+                json!({"path": "views/tasks.base", "view": "all", "limit": 1000}),
+                None,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "hosted_byte_budget_exceeded");
+        assert_eq!(error.details.as_ref().unwrap()["budget"], "candidate_bytes");
+        return;
+    }
 
     let broad_base = fixture
         .provider

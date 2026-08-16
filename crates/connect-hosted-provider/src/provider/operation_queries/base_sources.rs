@@ -80,8 +80,11 @@ async fn load_path_keyset_base_page(
              WHERE collection_id = $1 AND sequence <= $2
              ORDER BY record_id, sequence DESC
            )
-           SELECT p.record_id, p.canonical_path, p.projection_bytes,
-                  p.semantic_projection
+           SELECT p.record_id, p.canonical_path,
+                  GREATEST(
+                    p.projection_bytes::bigint,
+                    octet_length(p.semantic_projection::text)::bigint
+                  ) AS projection_bytes
            FROM live
            JOIN hosted_provider_record_projections p
              ON p.collection_id = $1 AND p.generation_id = $6
@@ -95,6 +98,9 @@ async fn load_path_keyset_base_page(
            ORDER BY p.canonical_path, p.record_id
            OFFSET $10 LIMIT $11"#
     );
+    // Fetch only fixed-width identity/path metadata first. A page containing
+    // many maximum-size projections must be rejected before PostgreSQL sends
+    // those JSON documents into provider memory.
     let database_rows = sqlx::query(AssertSqlSafe(page_sql))
         .bind(collection_id)
         .bind(snapshot_head)
@@ -112,23 +118,58 @@ async fn load_path_keyset_base_page(
         .bind(to_i64(page_size, "Base page size")?)
         .fetch_all(&mut **transaction)
         .await?;
-    let mut rows = Vec::with_capacity(database_rows.len());
+    let mut metadata = Vec::with_capacity(database_rows.len());
     let mut stored_projection_bytes = 0_u64;
     for row in database_rows {
-        let projection: mdbase::runtime::SemanticProjection =
-            serde_json::from_value(row.get("semantic_projection")).map_err(|error| {
-                ApiError::internal(format!("Hosted Base projection could not decode: {error}"))
-            })?;
-        stored_projection_bytes = stored_projection_bytes.saturating_add(number(
-            i64::from(row.get::<i32, _>("projection_bytes")),
+        let projection_bytes = number(
+            row.get::<i64, _>("projection_bytes"),
             "Base page projection bytes",
-        )?);
-        rows.push(ProjectedQueryRow {
+        )?;
+        stored_projection_bytes = stored_projection_bytes.saturating_add(projection_bytes);
+        metadata.push(ProjectedQueryMetadata {
             record_id: row.get("record_id"),
             canonical_path: row.get("canonical_path"),
-            projection,
+            projection_bytes,
         });
     }
+    if stored_projection_bytes > state.plan.budgets.max_candidate_bytes {
+        return Err(query_budget_error(
+            "hosted_byte_budget_exceeded",
+            "The Obsidian Base page exceeded its transferred projection-byte budget.",
+            "candidate_bytes",
+            state.plan.budgets.max_candidate_bytes,
+            scoped_budget_observed(
+                &plan.allowed_types,
+                state.plan.budgets.max_candidate_bytes,
+                stored_projection_bytes,
+            ),
+        ));
+    }
+    let record_ids = metadata
+        .iter()
+        .map(|row| row.record_id)
+        .collect::<Vec<_>>();
+    let mut projections =
+        load_current_projection_rows_by_ids(transaction, collection_id, state, &record_ids)
+            .await?;
+    let rows = metadata
+        .into_iter()
+        .map(|metadata| {
+            let row = projections.remove(&metadata.record_id).ok_or_else(|| {
+                ApiError::conflict(
+                    "hosted_projection_inconsistent",
+                    "A preflighted Base projection was absent from its query snapshot.",
+                )
+            })?;
+            if row.canonical_path != metadata.canonical_path {
+                return Err(ApiError::conflict(
+                    "hosted_projection_inconsistent",
+                    "A preflighted Base projection changed path within its query snapshot.",
+                ));
+            }
+            Ok(row)
+        })
+        .collect::<ApiResult<Vec<_>>>()?;
     let serialized_projection_bytes = rows.iter().try_fold(0_u64, |total, row| {
         serde_json::to_vec(&row.projection)
             .map(|bytes| total.saturating_add(bytes.len() as u64))
