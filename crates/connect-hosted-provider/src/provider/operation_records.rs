@@ -237,10 +237,11 @@ impl HostedProvider {
             )
             .await?;
         let result = self
-            .execute_read_operation(
+            .preflight_semantic_mutation(
                 collection_id,
+                &prepared.mutation,
                 &prepared.semantic_operation,
-                &Value::Object(prepared.semantic_input),
+                prepared.semantic_input,
             )
             .await?;
         serde_json::to_value(result).map_err(|error| {
@@ -279,7 +280,7 @@ impl HostedProvider {
             previous_path,
             include_document,
         } = prepared;
-        let receipt = self
+        let mutation_result = self
             .mutate_for(
                 context.collection_id,
                 context.token,
@@ -289,18 +290,20 @@ impl HostedProvider {
                 Some((semantic_operation, semantic_input)),
             )
             .await?;
+        let receipt = mutation_result.receipt;
+        let semantic_result = mutation_result.semantic_result;
         let result = match receipt {
             SyncMutationReceipt::Applied { record, .. }
             | SyncMutationReceipt::PreviouslyApplied { record, .. } => {
                 if context.operation == "delete" {
-                    OperationResult {
+                    semantic_result.unwrap_or_else(|| OperationResult {
                         valid: true,
                         result: json!({
                             "path": previous_path,
                             "deleted": true,
                         }),
                         diagnostics: Vec::new(),
-                    }
+                    })
                 } else {
                     let record = record.ok_or_else(|| {
                         ApiError::internal(
@@ -335,16 +338,24 @@ impl HostedProvider {
                             ),
                         ));
                     }
+                    let value = document.result.as_object_mut().ok_or_else(|| {
+                        ApiError::internal("mdbase-rs returned a non-object record document.")
+                    })?;
+                    if let Some(semantic) = semantic_result {
+                        if let Some(fields) = semantic.result.as_object() {
+                            value.extend(fields.clone());
+                        }
+                        document.diagnostics.extend(semantic.diagnostics);
+                    }
                     if context.operation == "rename" {
-                        let value = document.result.as_object_mut().ok_or_else(|| {
-                            ApiError::internal("mdbase-rs returned a non-object record document.")
-                        })?;
                         value.insert(
                             "from".to_string(),
                             Value::String(previous_path.unwrap_or_default()),
                         );
                         value.insert("to".to_string(), Value::String(record.path));
-                        value.insert("references_updated".to_string(), Value::Array(Vec::new()));
+                        value
+                            .entry("references_updated".to_string())
+                            .or_insert_with(|| Value::Array(Vec::new()));
                     }
                     document
                 }

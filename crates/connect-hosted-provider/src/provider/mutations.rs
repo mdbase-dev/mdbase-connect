@@ -7,6 +7,12 @@ struct MutationExecution<'a> {
     journal_lease: Option<&'a HostedMutationLease>,
     journal_result_is_public: bool,
     semantic: Option<(String, serde_json::Map<String, Value>)>,
+    semantic_result: Option<&'a mut Option<OperationResult>>,
+}
+
+pub(super) struct ApplicationMutationResult {
+    pub receipt: SyncMutationReceipt,
+    pub semantic_result: Option<OperationResult>,
 }
 
 impl HostedProvider {
@@ -73,6 +79,7 @@ impl HostedProvider {
                     journal_lease: Some(&lease),
                     journal_result_is_public: true,
                     semantic: None,
+                    semantic_result: None,
                 },
             )
             .await;
@@ -97,26 +104,87 @@ impl HostedProvider {
         purpose: ReplicaPurpose,
         journal_lease: Option<&HostedMutationLease>,
         semantic: Option<(String, serde_json::Map<String, Value>)>,
-    ) -> ApiResult<SyncMutationReceipt> {
+    ) -> ApiResult<ApplicationMutationResult> {
         let mut transaction = self.pool.begin().await?;
         let replica = authenticate_in(&mut transaction, collection_id, token, purpose).await?;
         if let Some(lease) = journal_lease {
             if let Some(receipt) = self.load_sync_effect(collection_id, lease).await? {
-                return Ok(receipt);
+                return Ok(ApplicationMutationResult {
+                    receipt,
+                    semantic_result: None,
+                });
             }
         }
-        self.mutate_in_transaction(
-            transaction,
-            collection_id,
-            mutation,
-            replica,
-            MutationExecution {
-                journal_lease,
-                journal_result_is_public: false,
-                semantic,
-            },
+        let mut semantic_result = None;
+        let receipt = self
+            .mutate_in_transaction(
+                transaction,
+                collection_id,
+                mutation,
+                replica,
+                MutationExecution {
+                    journal_lease,
+                    journal_result_is_public: false,
+                    semantic,
+                    semantic_result: Some(&mut semantic_result),
+                },
+            )
+            .await?;
+        Ok(ApplicationMutationResult {
+            receipt,
+            semantic_result,
+        })
+    }
+
+    pub(super) async fn preflight_semantic_mutation(
+        &self,
+        collection_id: Uuid,
+        mutation: &SyncMutation,
+        operation: &str,
+        input: serde_json::Map<String, Value>,
+    ) -> ApiResult<OperationResult> {
+        let mut transaction = self.pool.begin().await?;
+        let collection = sqlx::query(
+            r#"SELECT resource_revision, resources_ciphertext, wrapped_data_key,
+                      active_projection_generation_id
+               FROM hosted_provider_collections
+               WHERE id = $1 AND state = 'active'"#,
         )
-        .await
+        .bind(collection_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                "hosted_collection_not_found",
+                "Hosted collection not found.",
+            )
+        })?;
+        let wrapped_data_key: Vec<u8> = collection.get("wrapped_data_key");
+        let data_key = self
+            .collection_key(collection_id, &wrapped_data_key)
+            .await?;
+        let current = load_direct_record(
+            &mut transaction,
+            &self.crypto,
+            &data_key,
+            collection_id,
+            DirectRecordIdentity::StableId(mutation.record_id),
+        )
+        .await?
+        .map(|(record, _)| record);
+        let (execution, _) = execute_direct_semantic(
+            &mut transaction,
+            self,
+            &data_key,
+            collection_id,
+            &collection,
+            mutation.record_id,
+            operation,
+            input,
+            current,
+        )
+        .await?;
+        Ok(execution.envelope)
     }
 
     async fn mutate_in_transaction(
@@ -227,7 +295,7 @@ impl HostedProvider {
         let collection = sqlx::query(
             r#"SELECT head, record_count, content_bytes, max_records,
                       max_content_bytes, max_document_bytes, resource_revision,
-                      resources_ciphertext
+                      resources_ciphertext, active_projection_generation_id
                FROM hosted_provider_collections
                WHERE id = $1 AND state = 'active' FOR UPDATE"#,
         )
@@ -342,64 +410,25 @@ impl HostedProvider {
             }
         }
 
-        let semantic = execution.semantic;
+        let MutationExecution {
+            semantic,
+            semantic_result,
+            ..
+        } = execution;
         let direct_sync = semantic.is_none();
-        let working_set = if direct_sync {
-            None
-        } else {
-            Some(self.working_set(collection_id).await?)
-        };
-        let (execution, before_records, mut cached_guard) = if let Some((operation, input)) =
-            semantic
-        {
-            let mut cached_guard = working_set
-                .as_ref()
-                .expect("semantic mutations retain their working-set slot")
-                .lock()
-                .await;
-            if cached_guard
-                .as_ref()
-                .is_none_or(|working_set| working_set.head != Some(head))
-            {
-                let resources = load_resource_documents(
-                    &mut transaction,
-                    &self.crypto,
-                    &data_key,
-                    collection_id,
-                )
-                .await?;
-                let records =
-                    load_records(&mut transaction, &self.crypto, &data_key, collection_id).await?;
-                let workspace = WorkingSet::materialize(
-                    resources,
-                    records.values().map(|record| StoredDocument {
-                        record_id: record.record_id,
-                        path: record.path.clone(),
-                        document: record.document.clone(),
-                    }),
-                )?;
-                *cached_guard = Some(CachedCollection::new(Some(head), workspace, records));
-            }
-            let cached = cached_guard
-                .as_mut()
-                .expect("hosted working set was initialized above");
-            cached.head = None;
-            let execution =
-                cached
-                    .workspace
-                    .execute_semantic(mutation.record_id, &operation, &input)?;
-            let before_records = execution
-                .changed
-                .iter()
-                .filter_map(|(record_id, _, _)| {
-                    cached
-                        .records
-                        .get(record_id)
-                        .cloned()
-                        .map(|record| (*record_id, record))
-                })
-                .collect::<BTreeMap<_, _>>();
-            (execution, before_records, Some(cached_guard))
+        let (execution, before_records) = if let Some((operation, input)) = semantic {
+            execute_direct_semantic(
+                &mut transaction,
+                self,
+                &data_key,
+                collection_id,
+                &collection,
+                mutation.record_id,
+                &operation,
+                input,
+                current.clone(),
+            )
+            .await?
         } else {
             let destination_owner = if matches!(
                 mutation.operation,
@@ -473,8 +502,11 @@ impl HostedProvider {
                 .clone()
                 .map(|record| BTreeMap::from([(record.record_id, record)]))
                 .unwrap_or_default();
-            (execution, before_records, None)
+            (execution, before_records)
         };
+        if let Some(result) = semantic_result {
+            *result = Some(execution.envelope.clone());
+        }
         if !execution.envelope.valid {
             let (code, message) = operation_error(&execution.envelope);
             return store_rejection(
@@ -514,14 +546,14 @@ impl HostedProvider {
         }
         let mut next_record_count = i128::from(record_count);
         let mut next_content_bytes = i128::from(content_bytes);
-        for (record_id, after, document) in &execution.changed {
+        for (record_id, after, _) in &execution.changed {
             let before = before_records.get(record_id);
             let before_bytes = before
                 .map(|record| record.document.len() as i128)
                 .unwrap_or_default();
-            let after_bytes = document
+            let after_bytes = after
                 .as_ref()
-                .map(|value| value.len() as i128)
+                .map(|record| record.document.len() as i128)
                 .unwrap_or_default();
             if after.is_some()
                 && u64::try_from(after_bytes).unwrap_or(u64::MAX) > max_document_bytes
@@ -685,17 +717,6 @@ impl HostedProvider {
                         "The hosted write set disagrees with its exact document.",
                     ));
                 }
-                if let Some(cached) = cached_guard.as_mut() {
-                    cached
-                        .as_mut()
-                        .expect("hosted working set remains initialized")
-                        .replace_record(record_id, Some(record));
-                }
-            } else if let Some(cached) = cached_guard.as_mut() {
-                cached
-                    .as_mut()
-                    .expect("hosted working set remains initialized")
-                    .replace_record(record_id, None);
             }
         }
         self.maintain_active_projection_changes(
@@ -736,12 +757,7 @@ impl HostedProvider {
         )
         .await?;
         transaction.commit().await?;
-        if let Some(cached) = cached_guard.as_mut() {
-            cached
-                .as_mut()
-                .expect("hosted working set remains initialized")
-                .head = Some(head);
-        }
+        self.remove_working_set(collection_id).await;
         if direct_sync {
             let memory = crate::HostedProcessMemory::capture();
             tracing::info!(
@@ -772,6 +788,181 @@ impl HostedProvider {
             });
         }
         Ok(receipt)
+    }
+}
+
+const MAX_HOSTED_MUTATION_CONTEXT_RECORDS: usize = 2_000;
+
+#[allow(clippy::too_many_arguments)]
+async fn execute_direct_semantic(
+    transaction: &mut Transaction<'_, Postgres>,
+    provider: &HostedProvider,
+    data_key: &[u8; 32],
+    collection_id: Uuid,
+    collection: &PgRow,
+    primary_record_id: Uuid,
+    operation: &str,
+    input: serde_json::Map<String, Value>,
+    current: Option<SyncRecord>,
+) -> ApiResult<(crate::workspace::Execution, BTreeMap<Uuid, SyncRecord>)> {
+    let resources: SyncCollectionResources = provider.crypto.decrypt_json(
+        data_key,
+        collection.get("resources_ciphertext"),
+        &resources_aad(collection_id),
+    )?;
+    let resource_revision: String = collection.get("resource_revision");
+    if resources.revision != resource_revision {
+        return Err(ApiError::internal(
+            "The encrypted resource catalog revision does not match collection metadata.",
+        ));
+    }
+    let resource_documents =
+        load_resource_documents(transaction, &provider.crypto, data_key, collection_id).await?;
+    let catalog = compile_point_catalog(resources, resource_documents)?;
+
+    let mut before_records = current
+        .map(|record| BTreeMap::from([(record.record_id, record)]))
+        .unwrap_or_default();
+    let needs_incoming_context = operation == "rename"
+        || (operation == "delete"
+            && input
+                .get("check_backlinks")
+                .and_then(Value::as_bool)
+                .unwrap_or(false));
+    if needs_incoming_context {
+        let generation_id = collection
+            .get::<Option<Uuid>, _>("active_projection_generation_id")
+            .ok_or_else(|| {
+                ApiError::conflict(
+                    "hosted_projection_unavailable",
+                    "Reference-aware mutations require a current semantic projection.",
+                )
+            })?;
+        let rows = sqlx::query(
+            r#"SELECT DISTINCT source_record_id
+               FROM hosted_provider_record_relationships
+               WHERE collection_id = $1 AND generation_id = $2
+                 AND target_record_id = $3
+                 AND valid_to_sequence IS NULL
+                 AND resolution_state = 'resolved'
+               ORDER BY source_record_id
+               LIMIT $4"#,
+        )
+        .bind(collection_id)
+        .bind(generation_id)
+        .bind(primary_record_id)
+        .bind((MAX_HOSTED_MUTATION_CONTEXT_RECORDS + 1) as i64)
+        .fetch_all(&mut **transaction)
+        .await?;
+        if rows.len() > MAX_HOSTED_MUTATION_CONTEXT_RECORDS {
+            return Err(ApiError::quota(
+                "hosted_mutation_context_budget_exceeded",
+                "Reference-aware mutation context exceeds its exact-record budget.",
+            )
+            .with_details(json!({
+                "budget": "exact_context_records",
+                "limit": MAX_HOSTED_MUTATION_CONTEXT_RECORDS,
+            })));
+        }
+        for row in rows {
+            let source_record_id: Uuid = row.get("source_record_id");
+            if source_record_id == primary_record_id
+                || before_records.contains_key(&source_record_id)
+            {
+                continue;
+            }
+            let (record, _) = load_direct_record(
+                transaction,
+                &provider.crypto,
+                data_key,
+                collection_id,
+                DirectRecordIdentity::StableId(source_record_id),
+            )
+            .await?
+            .ok_or_else(|| {
+                ApiError::conflict(
+                    "hosted_projection_inconsistent",
+                    "A projected incoming relationship has no current exact source record.",
+                )
+            })?;
+            before_records.insert(source_record_id, record);
+        }
+    }
+
+    if matches!(operation, "create" | "rename") {
+        let destination = input
+            .get("path")
+            .or_else(|| input.get("to"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                ApiError::bad_request(
+                    "invalid_mutation",
+                    "Hosted create or rename requires a destination path.",
+                )
+            })?;
+        let destination_owner = sqlx::query_scalar::<_, Uuid>(
+            "SELECT record_id FROM hosted_provider_records
+             WHERE collection_id = $1 AND path_token = $2",
+        )
+        .bind(collection_id)
+        .bind(path_token(data_key, destination))
+        .fetch_optional(&mut **transaction)
+        .await?;
+        ensure_destination_available(destination_owner, primary_record_id)?;
+    }
+
+    let records = before_records
+        .values()
+        .map(|record| mdbase::runtime::CanonicalRecordInput {
+            stable_id: Some(record.record_id.to_string()),
+            path: record.path.clone(),
+            document: record.document.clone(),
+            file_size: record.document.len() as u64,
+            file_mtime: None,
+        })
+        .collect();
+    let plan = catalog
+        .plan_hosted_mutation(&mdbase::runtime::HostedMutationRequest {
+            operation: operation.to_string(),
+            primary_stable_id: primary_record_id.to_string(),
+            input: Value::Object(input),
+            records,
+        })
+        .map_err(hosted_mutation_semantic_error)?;
+    let mut changed = Vec::with_capacity(plan.changes.len());
+    for change in plan.changes {
+        let record_id = Uuid::parse_str(&change.stable_id).map_err(|_| {
+            ApiError::internal("Canonical hosted mutation returned a non-UUID stable identity.")
+        })?;
+        if let Some(record) = change.record {
+            let classified = classify_exact_sync_record(
+                Some(&catalog),
+                record_id,
+                &record.path,
+                &record.document,
+            )?;
+            changed.push((record_id, Some(classified), Some(record.document)));
+        } else {
+            changed.push((record_id, None, change.before_path));
+        }
+    }
+    Ok((
+        crate::workspace::Execution {
+            envelope: plan.result,
+            primary_record_id,
+            changed,
+        },
+        before_records,
+    ))
+}
+
+fn hosted_mutation_semantic_error(error: mdbase::runtime::CatalogError) -> ApiError {
+    match error.code.as_str() {
+        "hosted_mutation_context_budget_exceeded" => ApiError::quota(error.code, error.message),
+        "hosted_mutation_stage_failed" | "hosted_mutation_plan_incomplete" => {
+            ApiError::internal(error.message)
+        }
+        _ => ApiError::bad_request(error.code, error.message),
     }
 }
 

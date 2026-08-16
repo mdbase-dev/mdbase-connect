@@ -579,6 +579,175 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
         .iter()
         .any(|result| result["path"] == "notes/source.md"));
 
+    let writer_token = format!("candidate-b-writer-{}-{}", Uuid::new_v4(), Uuid::new_v4());
+    fixture
+        .provider
+        .register_replica(
+            fixture.collection_id,
+            RegisterReplica {
+                replica_id: Uuid::now_v7(),
+                name: "Candidate B mutation writer".to_string(),
+                purpose: ReplicaPurpose::Application,
+                mode: SyncReplicaMode::ReadWrite,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
+                allowed_operations: vec![
+                    "read".to_string(),
+                    "create".to_string(),
+                    "update".to_string(),
+                    "delete".to_string(),
+                    "rename".to_string(),
+                ],
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: Vec::new(),
+                file_capability: None,
+                allowed_origin: None,
+                proof_public_key: None,
+                grant_id: Some(Uuid::now_v7()),
+                application_declaration_id: None,
+                application_declaration_digest: None,
+                token: writer_token.clone(),
+                token_ttl_seconds: None,
+            },
+        )
+        .await
+        .unwrap();
+    let records_before_preflight: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM hosted_provider_records WHERE collection_id = $1")
+            .bind(fixture.collection_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    let dry_run = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &writer_token,
+            "create",
+            Uuid::new_v4(),
+            json!({
+                "path": "notes/preflight-only.md",
+                "frontmatter": {"title": "Preflight only"},
+                "body": "No durable write.\n",
+                "dry_run": true,
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(dry_run["valid"], true);
+    let records_after_preflight: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM hosted_provider_records WHERE collection_id = $1")
+            .bind(fixture.collection_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    assert_eq!(records_after_preflight, records_before_preflight);
+
+    let target_created = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &writer_token,
+            "create",
+            Uuid::new_v4(),
+            json!({
+                "path": "notes/app-target.md",
+                "frontmatter": {"title": "Application target"},
+                "body": "Target body.\n",
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(target_created["valid"], true);
+    let target_revision = target_created["result"]["revision"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let reference_created = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &writer_token,
+            "create",
+            Uuid::new_v4(),
+            json!({
+                "path": "notes/app-reference.md",
+                "frontmatter": {"title": "Application reference"},
+                "body": "See [[app-target]].\n",
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(reference_created["valid"], true);
+
+    let renamed = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &writer_token,
+            "rename",
+            Uuid::new_v4(),
+            json!({
+                "from": "notes/app-target.md",
+                "to": "notes/app-renamed.md",
+                "if_revision": target_revision,
+                "update_refs": true,
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(renamed["valid"], true);
+    assert_eq!(renamed["result"]["to"], "notes/app-renamed.md");
+    assert_eq!(
+        renamed["result"]["references_updated"][0]["path"],
+        "notes/app-reference.md"
+    );
+    let renamed_revision = renamed["result"]["revision"].as_str().unwrap().to_string();
+    let exact_reference = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &writer_token,
+            "read",
+            Uuid::new_v4(),
+            json!({"path": "notes/app-reference.md", "include_document": true}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(exact_reference["result"]["document"]
+        .as_str()
+        .unwrap()
+        .contains("app-renamed"));
+
+    let deleted = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &writer_token,
+            "delete",
+            Uuid::new_v4(),
+            json!({
+                "path": "notes/app-renamed.md",
+                "if_revision": renamed_revision,
+                "check_backlinks": true,
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(deleted["valid"], true);
+    assert_eq!(deleted["result"]["deleted"], true);
+    assert_eq!(
+        deleted["result"]["broken_links"][0]["path"],
+        "notes/app-reference.md"
+    );
+
     // Keep the compiler honest that the updated source remains a real exact
     // authority record throughout relationship-only revalidation.
     assert!(!source.revision.is_empty());

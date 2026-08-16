@@ -565,32 +565,6 @@ impl CachedCollection {
         })
     }
 
-    fn replace_record(&mut self, record_id: Uuid, after: Option<PersistedRecord>) {
-        let previous = self.plaintext_bytes;
-        let previous_count = self.records.len();
-        if let Some(before) = self.records.get(&record_id) {
-            self.plaintext_bytes = self
-                .plaintext_bytes
-                .saturating_sub(Self::record_plaintext_bytes(before));
-        }
-        if let Some(record) = after {
-            self.plaintext_bytes = self
-                .plaintext_bytes
-                .saturating_add(Self::record_plaintext_bytes(&record));
-            self.records.insert(record_id, record);
-        } else {
-            self.records.remove(&record_id);
-        }
-        let changed_bytes = self.plaintext_bytes.abs_diff(previous);
-        if changed_bytes >= 1024 * 1024
-            || (previous_count != self.records.len()
-                && !self.records.is_empty()
-                && self.records.len().is_multiple_of(1_000))
-        {
-            Self::log_measurement(self.plaintext_bytes, self.records.len());
-        }
-    }
-
     fn record_plaintext_bytes(record: &PersistedRecord) -> u64 {
         let frontmatter = serde_json::to_vec(&record.frontmatter)
             .map(|value| value.len() as u64)

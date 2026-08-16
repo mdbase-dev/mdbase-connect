@@ -3,10 +3,12 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+#[cfg(test)]
 use serde_json::{Map, Value};
 
 use crate::error::{ApiError, ApiResult};
 
+#[cfg(test)]
 pub(super) fn operation_input(
     operation: &str,
     source: &Map<String, Value>,
@@ -61,6 +63,7 @@ pub(super) fn operation_input(
     }
 }
 
+#[cfg(test)]
 fn required_string<'a>(value: &'a Value, field: &str) -> ApiResult<&'a str> {
     value.get(field).and_then(Value::as_str).ok_or_else(|| {
         ApiError::bad_request(
