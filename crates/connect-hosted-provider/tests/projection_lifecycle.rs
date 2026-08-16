@@ -2206,6 +2206,14 @@ async fn candidate_b_exact_projected_filter_and_group_100k() {
     candidate_b_exact_projected_filter_fixture(&database_url, 100_001).await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_exact_projected_filter_and_group_230k() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    candidate_b_exact_projected_filter_fixture(&database_url, 230_128).await;
+}
+
 async fn candidate_b_exact_projected_filter_fixture(database_url: &str, decoy_count: i64) {
     let fixture = FileLifecycleFixture::new(database_url).await;
     let token = format!("candidate-b-filter-{}-{}", Uuid::new_v4(), Uuid::new_v4());

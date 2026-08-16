@@ -41,20 +41,14 @@ async fn count_projected_candidates(
 ) -> ApiResult<u64> {
     let snapshot_head = to_i64(state.snapshot_head, "query snapshot head")?;
     let mut query = QueryBuilder::<Postgres>::new(
-        "WITH live AS (SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted \
-         FROM hosted_provider_record_versions WHERE collection_id = ",
+        "SELECT count(*) FROM hosted_provider_record_projections p \
+         JOIN hosted_provider_record_versions v ON v.collection_id = p.collection_id \
+          AND v.record_id = p.record_id AND v.sequence = p.record_sequence \
+          AND v.revision = p.record_revision AND NOT v.deleted AND v.sequence <= ",
     );
     query
-        .push_bind(collection_id)
-        .push(" AND sequence <= ")
         .push_bind(snapshot_head)
-        .push(
-            " ORDER BY record_id, sequence DESC) SELECT count(*) \
-             FROM hosted_provider_record_projections p \
-             JOIN live l ON l.record_id = p.record_id AND NOT l.deleted \
-              AND l.sequence = p.record_sequence AND l.revision = p.record_revision \
-             WHERE p.collection_id = ",
-        )
+        .push(" WHERE p.collection_id = ")
         .push_bind(collection_id)
         .push(" AND p.generation_id = ")
         .push_bind(state.generation_id)
@@ -95,15 +89,7 @@ async fn load_projected_groups(
         return Ok(None);
     }
     let snapshot_head = to_i64(state.snapshot_head, "query snapshot head")?;
-    let mut query = QueryBuilder::<Postgres>::new(
-        "WITH live AS (SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted \
-         FROM hosted_provider_record_versions WHERE collection_id = ",
-    );
-    query
-        .push_bind(collection_id)
-        .push(" AND sequence <= ")
-        .push_bind(snapshot_head)
-        .push(" ORDER BY record_id, sequence DESC) SELECT ");
+    let mut query = QueryBuilder::<Postgres>::new("SELECT ");
     for (index, group) in state.plan.groups.iter().enumerate() {
         if index > 0 {
             query.push(", ");
@@ -119,11 +105,13 @@ async fn load_projected_groups(
     }
     query.push(
         "count(*) AS row_count FROM hosted_provider_record_projections p \
-         JOIN live l ON l.record_id = p.record_id AND NOT l.deleted \
-          AND l.sequence = p.record_sequence AND l.revision = p.record_revision \
-         WHERE p.collection_id = ",
+         JOIN hosted_provider_record_versions v ON v.collection_id = p.collection_id \
+          AND v.record_id = p.record_id AND v.sequence = p.record_sequence \
+          AND v.revision = p.record_revision AND NOT v.deleted AND v.sequence <= ",
     );
     query
+        .push_bind(snapshot_head)
+        .push(" WHERE p.collection_id = ")
         .push_bind(collection_id)
         .push(" AND p.generation_id = ")
         .push_bind(state.generation_id)
@@ -213,21 +201,15 @@ async fn load_projected_page(
 ) -> ApiResult<Vec<ProjectedQueryRow>> {
     let snapshot_head = to_i64(state.snapshot_head, "query snapshot head")?;
     let mut query = QueryBuilder::<Postgres>::new(
-        "WITH live AS (SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted \
-         FROM hosted_provider_record_versions WHERE collection_id = ",
+        "SELECT p.record_id, p.canonical_path, p.projection_bytes \
+         FROM hosted_provider_record_projections p \
+         JOIN hosted_provider_record_versions v ON v.collection_id = p.collection_id \
+          AND v.record_id = p.record_id AND v.sequence = p.record_sequence \
+          AND v.revision = p.record_revision AND NOT v.deleted AND v.sequence <= ",
     );
     query
-        .push_bind(collection_id)
-        .push(" AND sequence <= ")
         .push_bind(snapshot_head)
-        .push(
-            " ORDER BY record_id, sequence DESC) \
-             SELECT p.record_id, p.canonical_path, p.projection_bytes \
-             FROM hosted_provider_record_projections p \
-             JOIN live l ON l.record_id = p.record_id AND NOT l.deleted \
-              AND l.sequence = p.record_sequence AND l.revision = p.record_revision \
-             WHERE p.collection_id = ",
-        )
+        .push(" WHERE p.collection_id = ")
         .push_bind(collection_id)
         .push(" AND p.generation_id = ")
         .push_bind(state.generation_id)
@@ -417,21 +399,19 @@ async fn projected_scalar_order_values_are_valid(
         return Ok(true);
     }
     let snapshot_head = to_i64(state.snapshot_head, "query snapshot head")?;
+    // The caller has already proved, in this repeatable-read transaction, that
+    // every live identity has a current projection. Joining the exact bound
+    // version therefore excludes orphan projections without reconstructing the
+    // full live set for each validation pass.
     let mut query = QueryBuilder::<Postgres>::new(
-        "WITH live AS (SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted \
-         FROM hosted_provider_record_versions WHERE collection_id = ",
+        "SELECT NOT EXISTS (SELECT 1 FROM hosted_provider_record_projections p \
+         JOIN hosted_provider_record_versions v ON v.collection_id = p.collection_id \
+          AND v.record_id = p.record_id AND v.sequence = p.record_sequence \
+          AND v.revision = p.record_revision AND NOT v.deleted AND v.sequence <= ",
     );
     query
-        .push_bind(collection_id)
-        .push(" AND sequence <= ")
         .push_bind(snapshot_head)
-        .push(
-            " ORDER BY record_id, sequence DESC) SELECT NOT EXISTS (SELECT 1 \
-             FROM hosted_provider_record_projections p \
-             JOIN live l ON l.record_id = p.record_id AND NOT l.deleted \
-              AND l.sequence = p.record_sequence AND l.revision = p.record_revision \
-             WHERE p.collection_id = ",
-        )
+        .push(" WHERE p.collection_id = ")
         .push_bind(collection_id)
         .push(" AND p.generation_id = ")
         .push_bind(state.generation_id)
@@ -486,20 +466,14 @@ async fn projected_exact_candidate_values_are_valid(
     }
     let snapshot_head = to_i64(state.snapshot_head, "query snapshot head")?;
     let mut query = QueryBuilder::<Postgres>::new(
-        "WITH live AS (SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted \
-         FROM hosted_provider_record_versions WHERE collection_id = ",
+        "SELECT NOT EXISTS (SELECT 1 FROM hosted_provider_record_projections p \
+         JOIN hosted_provider_record_versions v ON v.collection_id = p.collection_id \
+          AND v.record_id = p.record_id AND v.sequence = p.record_sequence \
+          AND v.revision = p.record_revision AND NOT v.deleted AND v.sequence <= ",
     );
     query
-        .push_bind(collection_id)
-        .push(" AND sequence <= ")
         .push_bind(snapshot_head)
-        .push(
-            " ORDER BY record_id, sequence DESC) SELECT NOT EXISTS (SELECT 1 \
-             FROM hosted_provider_record_projections p \
-             JOIN live l ON l.record_id = p.record_id AND NOT l.deleted \
-              AND l.sequence = p.record_sequence AND l.revision = p.record_revision \
-             WHERE p.collection_id = ",
-        )
+        .push(" WHERE p.collection_id = ")
         .push_bind(collection_id)
         .push(" AND p.generation_id = ")
         .push_bind(state.generation_id)
@@ -553,20 +527,14 @@ async fn projected_scalar_group_values_are_valid(
     }
     let snapshot_head = to_i64(state.snapshot_head, "query snapshot head")?;
     let mut query = QueryBuilder::<Postgres>::new(
-        "WITH live AS (SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted \
-         FROM hosted_provider_record_versions WHERE collection_id = ",
+        "SELECT NOT EXISTS (SELECT 1 FROM hosted_provider_record_projections p \
+         JOIN hosted_provider_record_versions v ON v.collection_id = p.collection_id \
+          AND v.record_id = p.record_id AND v.sequence = p.record_sequence \
+          AND v.revision = p.record_revision AND NOT v.deleted AND v.sequence <= ",
     );
     query
-        .push_bind(collection_id)
-        .push(" AND sequence <= ")
         .push_bind(snapshot_head)
-        .push(
-            " ORDER BY record_id, sequence DESC) SELECT NOT EXISTS (SELECT 1 \
-             FROM hosted_provider_record_projections p \
-             JOIN live l ON l.record_id = p.record_id AND NOT l.deleted \
-              AND l.sequence = p.record_sequence AND l.revision = p.record_revision \
-             WHERE p.collection_id = ",
-        )
+        .push(" WHERE p.collection_id = ")
         .push_bind(collection_id)
         .push(" AND p.generation_id = ")
         .push_bind(state.generation_id)
