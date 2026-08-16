@@ -46,6 +46,26 @@ async fn abandon_oversized_projection_candidate(
         return Ok(None);
     };
     let observed = number(observed, "oversized projection ciphertext")?;
+    abandon_projection_generation_for_oversized_record(
+        transaction,
+        collection_id,
+        generation_id,
+        process_epoch,
+        fence,
+        catalog_revision,
+    )
+    .await?;
+    Ok(Some(observed))
+}
+
+async fn abandon_projection_generation_for_oversized_record(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    generation_id: Uuid,
+    process_epoch: Uuid,
+    fence: u64,
+    catalog_revision: &str,
+) -> ApiResult<()> {
     let abandoned = sqlx::query(
         r#"UPDATE hosted_provider_projection_generations
            SET status = 'abandoned', abandoned_at = now(), updated_at = now(),
@@ -67,5 +87,5 @@ async fn abandon_oversized_projection_candidate(
     if abandoned.rows_affected() != 1 {
         return Err(projection_lease_unavailable());
     }
-    Ok(Some(observed))
+    Ok(())
 }

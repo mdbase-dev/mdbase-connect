@@ -387,6 +387,22 @@ async fn close_or_replace_projection_versions(
     .bind(generation_id)
     .execute(&mut **transaction)
     .await?;
+    // The temporal end is part of the v2 integrity envelope. Refresh expected
+    // only after the close update has caused the observer trigger to compute
+    // the new row digest; combining these assignments would hash the OLD row.
+    sqlx::query(
+        r#"UPDATE hosted_provider_record_projections projection
+           SET projection_digest = hosted_provider_projection_digest(projection)
+           WHERE collection_id = $1 AND record_id = $2
+             AND generation_id = $4
+             AND valid_to_sequence = $3 AND valid_from_sequence < $3"#,
+    )
+    .bind(collection_id)
+    .bind(record_id)
+    .bind(sequence)
+    .bind(generation_id)
+    .execute(&mut **transaction)
+    .await?;
     Ok(())
 }
 
@@ -496,14 +512,14 @@ fn projection_budget(kind: &str) -> ApiError {
     .with_details(json!({"budget_kind": kind}))
 }
 
-fn projection_record_too_large(observed: u64) -> ApiError {
+fn projection_record_too_large(budget: &str, limit: u64, observed: u64) -> ApiError {
     ApiError::quota(
         "projection_record_too_large",
-        "One encrypted exact record exceeds the bounded projection rebuild window.",
+        "One exact record cannot fit the bounded semantic projection rebuild window.",
     )
     .with_details(json!({
-        "budget": "projection_batch_ciphertext_bytes",
-        "limit": MAX_PROJECTION_BATCH_CIPHERTEXT_BYTES,
+        "budget": budget,
+        "limit": limit,
         "observed": observed,
         "terminal": true,
     }))

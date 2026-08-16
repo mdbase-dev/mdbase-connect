@@ -2,6 +2,7 @@ use super::projections::prune_unpinned_projection_generations_in;
 use super::*;
 
 const MAX_EXPIRED_QUERY_PAGE_RECEIPTS_PER_MAINTENANCE: i64 = 1_000;
+const MAX_EXPIRED_QUERY_PAGE_RECEIPT_BYTES_PER_MAINTENANCE: i64 = 256 * 1024 * 1024;
 
 impl HostedProvider {
     pub async fn compact_through(&self, collection_id: Uuid, through: u64) -> ApiResult<()> {
@@ -255,12 +256,23 @@ impl HostedProvider {
     pub async fn compact_expired_query_page_receipts(&self, limit: i64) -> ApiResult<usize> {
         let limit = limit.clamp(1, MAX_EXPIRED_QUERY_PAGE_RECEIPTS_PER_MAINTENANCE);
         let deleted = sqlx::query(
-            r#"WITH expired AS MATERIALIZED (
-                 SELECT replica_id, request_id
+            r#"WITH candidates AS MATERIALIZED (
+                 SELECT replica_id, request_id, collection_id, expires_at,
+                        octet_length(response_ciphertext)::bigint AS receipt_bytes
                  FROM hosted_provider_query_page_receipts
                  WHERE expires_at <= now()
                  ORDER BY expires_at, collection_id, replica_id, request_id
                  LIMIT $1
+               ), expired AS MATERIALIZED (
+                 SELECT replica_id, request_id
+                 FROM (
+                   SELECT *, sum(receipt_bytes) OVER (
+                     ORDER BY expires_at, collection_id, replica_id, request_id
+                     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                   ) AS cumulative_bytes
+                   FROM candidates
+                 ) bounded
+                 WHERE cumulative_bytes <= $2
                )
                DELETE FROM hosted_provider_query_page_receipts receipt
                USING expired
@@ -268,6 +280,7 @@ impl HostedProvider {
                  AND receipt.request_id = expired.request_id"#,
         )
         .bind(limit)
+        .bind(MAX_EXPIRED_QUERY_PAGE_RECEIPT_BYTES_PER_MAINTENANCE)
         .execute(&self.pool)
         .await?
         .rows_affected();

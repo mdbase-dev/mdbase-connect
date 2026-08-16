@@ -460,7 +460,21 @@ impl HostedProvider {
             })?;
             let bytes_len = bytes.len() as u64;
             if bytes_len > 262_144 {
-                return Err(projection_budget("projection_bytes"));
+                abandon_projection_generation_for_oversized_record(
+                    &mut transaction,
+                    collection_id,
+                    generation_id,
+                    self.process_epoch,
+                    fence,
+                    &catalog_revision,
+                )
+                .await?;
+                transaction.commit().await?;
+                return Err(projection_record_too_large(
+                    "semantic_projection_bytes",
+                    262_144,
+                    bytes_len,
+                ));
             }
             persist_prepared_projection(
                 &mut transaction,
@@ -495,7 +509,11 @@ impl HostedProvider {
             .await?
             {
                 transaction.commit().await?;
-                return Err(projection_record_too_large(observed));
+                return Err(projection_record_too_large(
+                    "projection_batch_ciphertext_bytes",
+                    MAX_PROJECTION_BATCH_CIPHERTEXT_BYTES,
+                    observed,
+                ));
             }
             let stale_exists: bool = sqlx::query_scalar(
                 r#"WITH snapshot AS (
@@ -773,7 +791,22 @@ impl HostedProvider {
                 ))
             })?;
             if bytes.len() > 262_144 {
-                return Err(projection_budget("projection_bytes"));
+                let observed = bytes.len() as u64;
+                abandon_projection_generation_for_oversized_record(
+                    &mut transaction,
+                    collection_id,
+                    generation_id,
+                    self.process_epoch,
+                    fence,
+                    &catalog_revision,
+                )
+                .await?;
+                transaction.commit().await?;
+                return Err(projection_record_too_large(
+                    "semantic_projection_bytes",
+                    262_144,
+                    observed,
+                ));
             }
             persist_resolved_projection(
                 &mut transaction,

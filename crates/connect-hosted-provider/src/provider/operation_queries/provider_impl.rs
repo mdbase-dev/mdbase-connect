@@ -146,6 +146,27 @@ impl HostedProvider {
         sqlx::query("SET LOCAL idle_in_transaction_session_timeout = 10000")
             .execute(&mut *transaction)
             .await?;
+        // Every query transaction holds the shared side until commit. Rollback
+        // tooling takes the exclusive side, waits for in-flight pages, persists
+        // the suspension flag, and can then inspect/drain without a new-admission
+        // race. Cursor release is handled above and intentionally remains live.
+        sqlx::query(
+            "SELECT pg_advisory_xact_lock_shared(hashtextextended('mdbase-hosted-query-admission-v1', 0))",
+        )
+        .execute(&mut *transaction)
+        .await?;
+        let query_admission_suspended: bool = sqlx::query_scalar(
+            "SELECT query_admission_suspended FROM hosted_provider_runtime_control WHERE singleton = true",
+        )
+        .fetch_one(&mut *transaction)
+        .await?;
+        if query_admission_suspended {
+            return Err(ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "hosted_query_admission_suspended",
+                "Hosted query admission is temporarily suspended for a controlled rollout operation.",
+            ));
+        }
         let session_fence = format!("mdbase-hosted-query/{}", Uuid::new_v4());
         sqlx::query("SELECT set_config('application_name', $1, true)")
             .bind(&session_fence)
@@ -161,11 +182,17 @@ impl HostedProvider {
         );
 
         let collection = sqlx::query(
-            r#"SELECT head, resource_revision, wrapped_data_key, resources_ciphertext,
+            r#"SELECT collection.head, collection.record_count,
+                      collection.resource_revision, collection.wrapped_data_key,
+                      collection.resources_ciphertext,
                       active_catalog_revision, active_projection_format_version,
-                      active_semantic_engine_version, active_projection_generation_id
-               FROM hosted_provider_collections
-               WHERE id = $1 AND state = 'active'"#,
+                      active_semantic_engine_version, active_projection_generation_id,
+                      generation.integrity_epoch AS projection_integrity_epoch
+               FROM hosted_provider_collections collection
+               LEFT JOIN hosted_provider_projection_generations generation
+                 ON generation.collection_id = collection.id
+                AND generation.generation_id = collection.active_projection_generation_id
+               WHERE collection.id = $1 AND collection.state = 'active'"#,
         )
         .bind(collection_id)
         .fetch_optional(&mut *transaction)
@@ -329,85 +356,102 @@ impl HostedProvider {
                 "The semantic catalog changed while this hosted query was being paged.",
             ));
         }
-        validate_generation_binding(&mut transaction, collection_id, &state).await?;
+        enforce_hosted_query_scan_budget(&state)?;
+        validate_generation_binding(&mut transaction, collection_id, &mut state).await?;
 
-        let projection_fallback = if let Some(base_plan) = state.base_plan.as_ref() {
-            if state.generation_id.is_some() && !base_requires_relationships(base_plan) {
-                false
-            } else {
-                base_projection_fallback_exists(&mut transaction, collection_id, &state).await?
-            }
-        } else {
-            projection_fallback_exists(&mut transaction, collection_id, &state).await?
-        };
-        let page = if state.base_plan.is_some() {
-            execute_bounded_base_page(
-                &mut transaction,
-                &self.crypto,
-                &data_key,
-                collection_id,
-                &state,
-                &catalog,
-                requested_page_size,
-                started,
-                projection_fallback,
-            )
-            .await?
-        } else {
-            let candidate_types = candidate_type_union(&state.plan.candidate).ok_or_else(|| {
-                ApiError::bad_request(
-                    "unsupported_hosted_candidate",
-                    "The hosted query candidate plan is not yet available in the production SQL executor.",
-                )
-            })?;
-            let scalar_order_plan = projected_scalar_order_supported(&state.plan);
-            let scalar_order_values_valid = scalar_order_plan
-                && projected_scalar_order_values_are_valid(
-                    &mut transaction,
-                    collection_id,
-                    &state,
-                    &candidate_types,
-                )
-                .await?;
-            let exact_candidate_plan =
-                candidate_predicate_is_projection_exact(&state.plan.candidate);
-            let exact_candidate_values_valid = exact_candidate_plan
-                && projected_exact_candidate_values_are_valid(
-                    &mut transaction,
-                    collection_id,
-                    &state,
-                    &candidate_types,
-                )
-                .await?;
-            let grouping_plan = projected_grouping_supported(&state.plan);
-            let grouping_values_valid = grouping_plan
-                && projected_scalar_group_values_are_valid(
-                    &mut transaction,
-                    collection_id,
-                    &state,
-                    &candidate_types,
-                )
-                .await?;
-            if state.plan.residual.projection_filter_safe
-                && !state.plan.requirements.diagnostic_type_matchers
-                && (!state.plan.requirements.bounded_grouping || grouping_values_valid)
-                && exact_candidate_values_valid
-                && !projection_fallback
-                && scalar_order_values_valid
-            {
-                execute_projected_page(
+        let prior_execution = state
+            .execution_proof
+            .as_ref()
+            .map(|proof| proof.execution.clone());
+        let (page, execution) = match (state.base_plan.as_ref(), prior_execution) {
+            (Some(_), Some(HostedQueryExecutionModeV1::Base { projection_fallback })) => (
+                execute_bounded_base_page(
                     &mut transaction,
                     &self.crypto,
                     &data_key,
                     collection_id,
                     &state,
                     &catalog,
-                    &candidate_types,
                     requested_page_size,
                     started,
+                    projection_fallback,
                 )
-                .await?
-            } else {
+                .await?,
+                HostedQueryExecutionModeV1::Base {
+                    projection_fallback,
+                },
+            ),
+            (Some(base_plan), None) => {
+                let projection_fallback = if state.generation_id.is_some()
+                    && !base_requires_relationships(base_plan)
+                {
+                    false
+                } else {
+                    base_projection_fallback_exists(&mut transaction, collection_id, &state).await?
+                };
+                (
+                    execute_bounded_base_page(
+                        &mut transaction,
+                        &self.crypto,
+                        &data_key,
+                        collection_id,
+                        &state,
+                        &catalog,
+                        requested_page_size,
+                        started,
+                        projection_fallback,
+                    )
+                    .await?,
+                    HostedQueryExecutionModeV1::Base {
+                        projection_fallback,
+                    },
+                )
+            }
+            (Some(_), Some(_)) => {
+                return Err(query_cursor_conflict(
+                    "query_cursor_invalidated",
+                    "The hosted query cursor execution mode does not match its Base plan.",
+                ));
+            }
+            (
+                None,
+                Some(HostedQueryExecutionModeV1::ProjectedExact {
+                    total_count,
+                    groups,
+                }),
+            ) => {
+                let candidate_types = candidate_type_union(&state.plan.candidate).ok_or_else(|| {
+                    ApiError::bad_request(
+                        "unsupported_hosted_candidate",
+                        "The hosted query candidate plan is not available in the production SQL executor.",
+                    )
+                })?;
+                (
+                    execute_projected_page(
+                        &mut transaction,
+                        &self.crypto,
+                        &data_key,
+                        collection_id,
+                        &state,
+                        &catalog,
+                        &candidate_types,
+                        requested_page_size,
+                        started,
+                        Some((total_count, groups.clone())),
+                    )
+                    .await?,
+                    HostedQueryExecutionModeV1::ProjectedExact {
+                        total_count,
+                        groups,
+                    },
+                )
+            }
+            (
+                None,
+                Some(HostedQueryExecutionModeV1::BoundedResidual {
+                    force_exact_residual,
+                }),
+            ) => (
                 execute_bounded_residual_page(
                     &mut transaction,
                     &self.crypto,
@@ -417,13 +461,109 @@ impl HostedProvider {
                     &catalog,
                     requested_page_size,
                     started,
-                    (exact_candidate_plan && !exact_candidate_values_valid)
-                        || (scalar_order_plan && !scalar_order_values_valid)
-                        || (grouping_plan && !grouping_values_valid),
+                    force_exact_residual,
                 )
-                .await?
+                .await?,
+                HostedQueryExecutionModeV1::BoundedResidual {
+                    force_exact_residual,
+                },
+            ),
+            (None, Some(HostedQueryExecutionModeV1::Base { .. })) => {
+                return Err(query_cursor_conflict(
+                    "query_cursor_invalidated",
+                    "The hosted query cursor Base mode has no Base plan.",
+                ));
+            }
+            (None, None) => {
+                let projection_fallback =
+                    projection_fallback_exists(&mut transaction, collection_id, &state).await?;
+                let candidate_types = candidate_type_union(&state.plan.candidate).ok_or_else(|| {
+                    ApiError::bad_request(
+                        "unsupported_hosted_candidate",
+                        "The hosted query candidate plan is not yet available in the production SQL executor.",
+                    )
+                })?;
+                let scalar_order_plan = projected_scalar_order_supported(&state.plan);
+                let scalar_order_values_valid = scalar_order_plan
+                    && projected_scalar_order_values_are_valid(
+                        &mut transaction,
+                        collection_id,
+                        &state,
+                        &candidate_types,
+                    )
+                    .await?;
+                let exact_candidate_plan =
+                    candidate_predicate_is_projection_exact(&state.plan.candidate);
+                let exact_candidate_values_valid = exact_candidate_plan
+                    && projected_exact_candidate_values_are_valid(
+                        &mut transaction,
+                        collection_id,
+                        &state,
+                        &candidate_types,
+                    )
+                    .await?;
+                let grouping_plan = projected_grouping_supported(&state.plan);
+                let grouping_values_valid = grouping_plan
+                    && projected_scalar_group_values_are_valid(
+                        &mut transaction,
+                        collection_id,
+                        &state,
+                        &candidate_types,
+                    )
+                    .await?;
+                if state.plan.residual.projection_filter_safe
+                    && !state.plan.requirements.diagnostic_type_matchers
+                    && (!state.plan.requirements.bounded_grouping || grouping_values_valid)
+                    && exact_candidate_values_valid
+                    && !projection_fallback
+                    && scalar_order_values_valid
+                {
+                    let page = execute_projected_page(
+                        &mut transaction,
+                        &self.crypto,
+                        &data_key,
+                        collection_id,
+                        &state,
+                        &catalog,
+                        &candidate_types,
+                        requested_page_size,
+                        started,
+                        None,
+                    )
+                    .await?;
+                    let execution = HostedQueryExecutionModeV1::ProjectedExact {
+                        total_count: page.total_count,
+                        groups: page.groups.clone(),
+                    };
+                    (page, execution)
+                } else {
+                    let force_exact_residual =
+                        (exact_candidate_plan && !exact_candidate_values_valid)
+                            || (scalar_order_plan && !scalar_order_values_valid)
+                            || (grouping_plan && !grouping_values_valid);
+                    (
+                        execute_bounded_residual_page(
+                            &mut transaction,
+                            &self.crypto,
+                            &data_key,
+                            collection_id,
+                            &state,
+                            &catalog,
+                            requested_page_size,
+                            started,
+                            force_exact_residual,
+                        )
+                        .await?,
+                        HostedQueryExecutionModeV1::BoundedResidual {
+                            force_exact_residual,
+                        },
+                    )
+                }
             }
         };
+        if state.execution_proof.is_none() {
+            state.execution_proof = Some(execution_proof_for_state(&state, replica, execution));
+        }
 
         let page_count = page.results.len() as u64;
         let semantic_offset = state
@@ -555,7 +695,13 @@ impl HostedProvider {
         let request_digest = plan.canonical_query_digest.clone();
         Ok(HostedQueryState {
             snapshot_head: number(collection.get::<i64, _>("head"), "collection head")?,
+            snapshot_record_count: number(
+                collection.get::<i64, _>("record_count"),
+                "collection record count",
+            )?,
+            scan_budget_records: hosted_query_scan_budget_records(),
             generation_id,
+            projection_integrity_epoch: collection_projection_integrity_epoch(collection)?,
             catalog_revision,
             projection_format_version,
             semantic_engine_version,
@@ -575,6 +721,7 @@ impl HostedProvider {
             base_invocation_id: None,
             base_context: None,
             base_operation_clock: None,
+            execution_proof: None,
         })
     }
 
@@ -666,7 +813,13 @@ impl HostedProvider {
         );
         Ok(Ok(HostedQueryState {
             snapshot_head: number(collection.get::<i64, _>("head"), "collection head")?,
+            snapshot_record_count: number(
+                collection.get::<i64, _>("record_count"),
+                "collection record count",
+            )?,
+            scan_budget_records: hosted_query_scan_budget_records(),
             generation_id: Some(generation_id),
+            projection_integrity_epoch: collection_projection_integrity_epoch(collection)?,
             catalog_revision,
             projection_format_version,
             semantic_engine_version,
@@ -686,6 +839,7 @@ impl HostedProvider {
             base_invocation_id: None,
             base_context: None,
             base_operation_clock: None,
+            execution_proof: None,
         }))
     }
 
@@ -790,7 +944,13 @@ impl HostedProvider {
         );
         Ok(Ok(HostedQueryState {
             snapshot_head,
+            snapshot_record_count: number(
+                collection.get::<i64, _>("record_count"),
+                "collection record count",
+            )?,
+            scan_budget_records: hosted_query_scan_budget_records(),
             generation_id,
+            projection_integrity_epoch: collection_projection_integrity_epoch(collection)?,
             catalog_revision,
             projection_format_version,
             semantic_engine_version,
@@ -810,6 +970,7 @@ impl HostedProvider {
             base_invocation_id: None,
             base_context,
             base_operation_clock: Some(Utc::now().to_rfc3339()),
+            execution_proof: None,
         }))
     }
 
@@ -834,7 +995,10 @@ impl HostedProvider {
                       COALESCE(i.base_operation_clock, c.base_operation_clock)
                         AS base_operation_clock,
                       c.base_invocation_id, c.last_order_values,
-                      c.last_record_id, c.emitted_rows, c.hard_expires_at
+                      c.last_record_id, c.emitted_rows, c.hard_expires_at,
+                      c.execution_proof_version, c.execution_proof_ciphertext,
+                      c.execution_proof_bytes, c.snapshot_record_count,
+                      c.scan_budget_records, c.projection_integrity_epoch
                FROM hosted_provider_query_cursors c
                LEFT JOIN hosted_provider_base_query_invocations i
                  ON i.invocation_id = c.base_invocation_id
@@ -889,6 +1053,48 @@ impl HostedProvider {
                 "The hosted query cursor does not match the requested query.",
             ));
         }
+        let proof_version = number(
+            i64::from(row.get::<i32, _>("execution_proof_version")),
+            "query execution proof version",
+        )? as u32;
+        if proof_version != HOSTED_QUERY_EXECUTION_PROOF_VERSION {
+            return Err(query_cursor_conflict(
+                "query_cursor_upgrade_required",
+                "The hosted query cursor predates the current bounded execution proof.",
+            ));
+        }
+        let proof_ciphertext = row
+            .get::<Option<Vec<u8>>, _>("execution_proof_ciphertext")
+            .ok_or_else(|| ApiError::internal("Stored query execution proof is absent."))?;
+        let proof_bytes = number(
+            row.get::<i64, _>("execution_proof_bytes"),
+            "query execution proof bytes",
+        )?;
+        if proof_bytes != proof_ciphertext.len() as u64 {
+            return Err(ApiError::internal(
+                "Stored query execution proof byte accounting is invalid.",
+            ));
+        }
+        let execution_proof: HostedQueryExecutionProofV1 = self
+            .crypto
+            .decrypt_json(
+                data_key,
+                &proof_ciphertext,
+                &query_cursor_execution_proof_aad(
+                    collection_id,
+                    replica.id,
+                    replica.scope_epoch,
+                    cursor_id,
+                    proof_version,
+                    &plan.canonical_query_digest,
+                ),
+            )
+            .map_err(|_| {
+                query_cursor_conflict(
+                    "query_cursor_invalidated",
+                    "The hosted query cursor execution proof is invalid.",
+                )
+            })?;
         let mut order_values = row
             .get::<Value, _>("last_order_values")
             .as_array()
@@ -960,9 +1166,18 @@ impl HostedProvider {
                 "Stored hosted query request kind and Base state disagree.",
             ));
         }
-        Ok(HostedQueryState {
+        let mut state = HostedQueryState {
             snapshot_head: number(row.get("snapshot_head"), "query snapshot head")?,
+            snapshot_record_count: number(
+                row.get("snapshot_record_count"),
+                "query snapshot record count",
+            )?,
+            scan_budget_records: number(row.get("scan_budget_records"), "query scan budget")?,
             generation_id: row.get("generation_id"),
+            projection_integrity_epoch: row
+                .get::<Option<i64>, _>("projection_integrity_epoch")
+                .map(|epoch| number(epoch, "projection integrity epoch"))
+                .transpose()?,
             catalog_revision: row.get("catalog_revision"),
             projection_format_version: number(
                 i64::from(row.get::<i32, _>("projection_format_version")),
@@ -985,6 +1200,10 @@ impl HostedProvider {
             base_invocation_id: row.get("base_invocation_id"),
             base_context,
             base_operation_clock,
-        })
+            execution_proof: None,
+        };
+        validate_execution_proof(&execution_proof, &state, replica)?;
+        state.execution_proof = Some(execution_proof);
+        Ok(state)
     }
 }

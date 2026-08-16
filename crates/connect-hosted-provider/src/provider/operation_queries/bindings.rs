@@ -114,9 +114,16 @@ async fn store_query_page_receipt(
             ciphertext_bytes,
         ));
     }
-    // Serialize receipt admission for one replica. A request that reached this
-    // point did not replay an existing receipt, so every admitted row consumes
-    // one slot until its short hard expiry or explicit maintenance cleanup.
+    // Serialize every admission because collection/account/global byte quotas
+    // span replicas. Each replica retains only its newest bounded replay
+    // window; advancing beyond 64 pages evicts the oldest receipt instead of
+    // stalling a legitimate query chain. A retry outside the window receives
+    // the ordinary expired/missing-cursor outcome and must restart the query.
+    sqlx::query(
+        "SELECT pg_advisory_xact_lock(hashtextextended('mdbase-hosted-query-receipt-quota-v1', 0))",
+    )
+    .execute(&mut **transaction)
+    .await?;
     sqlx::query("SELECT id FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE")
         .bind(replica.id)
         .execute(&mut **transaction)
@@ -128,22 +135,98 @@ async fn store_query_page_receipt(
     .bind(replica.id)
     .execute(&mut **transaction)
     .await?;
-    let live_receipts: i64 = sqlx::query_scalar(
-        r#"SELECT count(*) FROM hosted_provider_query_page_receipts
-           WHERE replica_id = $1 AND expires_at > now()"#,
-    )
-    .bind(replica.id)
-    .fetch_one(&mut **transaction)
-    .await?;
-    if live_receipts >= MAX_QUERY_PAGE_RECEIPTS_PER_REPLICA {
+    if ciphertext_bytes > MAX_QUERY_PAGE_RECEIPT_BYTES_PER_REPLICA {
         return Err(query_budget_error(
-            "hosted_query_receipt_count_budget_exceeded",
-            "The application replica has too many live hosted query retry receipts.",
-            "live_query_receipts",
-            MAX_QUERY_PAGE_RECEIPTS_PER_REPLICA as u64,
-            live_receipts as u64,
+            "hosted_query_receipt_byte_budget_exceeded",
+            "The encrypted hosted query response exceeds the replica replay-window budget.",
+            "replica_query_receipt_bytes",
+            MAX_QUERY_PAGE_RECEIPT_BYTES_PER_REPLICA,
+            ciphertext_bytes,
         ));
     }
+    sqlx::query(
+        r#"WITH ranked AS MATERIALIZED (
+             SELECT request_id,
+                    row_number() OVER (
+                      ORDER BY created_at DESC, request_id DESC
+                    ) AS newest_position,
+                    sum(octet_length(response_ciphertext)::bigint) OVER (
+                      ORDER BY created_at DESC, request_id DESC
+                      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                    ) AS newest_bytes
+             FROM hosted_provider_query_page_receipts
+             WHERE replica_id = $1 AND expires_at > now()
+           )
+           DELETE FROM hosted_provider_query_page_receipts receipt
+           USING ranked
+           WHERE receipt.replica_id = $1
+             AND receipt.request_id = ranked.request_id
+             AND (
+               ranked.newest_position >= $2
+               OR ranked.newest_bytes + $3 > $4
+             )"#,
+    )
+    .bind(replica.id)
+    .bind(MAX_QUERY_PAGE_RECEIPTS_PER_REPLICA)
+    .bind(to_i64(ciphertext_bytes, "query receipt ciphertext bytes")?)
+    .bind(to_i64(
+        MAX_QUERY_PAGE_RECEIPT_BYTES_PER_REPLICA,
+        "replica query receipt byte quota",
+    )?)
+    .execute(&mut **transaction)
+    .await?;
+
+    let collection_bytes: i64 = sqlx::query_scalar(
+        r#"SELECT COALESCE(sum(octet_length(response_ciphertext)::bigint), 0)::bigint
+           FROM hosted_provider_query_page_receipts
+           WHERE collection_id = $1 AND expires_at > now()"#,
+    )
+    .bind(collection_id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    ensure_query_receipt_byte_quota(
+        "collection_query_receipt_bytes",
+        MAX_QUERY_PAGE_RECEIPT_BYTES_PER_COLLECTION,
+        collection_bytes,
+        ciphertext_bytes,
+    )?;
+    let account_id: Option<Uuid> = sqlx::query_scalar(
+        "SELECT account_id FROM hosted_provider_collections WHERE id = $1 FOR SHARE",
+    )
+    .bind(collection_id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    if let Some(account_id) = account_id {
+        let account_bytes: i64 = sqlx::query_scalar(
+            r#"SELECT COALESCE(sum(octet_length(receipt.response_ciphertext)::bigint), 0)::bigint
+               FROM hosted_provider_query_page_receipts receipt
+               JOIN hosted_provider_collections collection
+                 ON collection.id = receipt.collection_id
+               WHERE collection.account_id = $1 AND receipt.expires_at > now()"#,
+        )
+        .bind(account_id)
+        .fetch_one(&mut **transaction)
+        .await?;
+        ensure_query_receipt_byte_quota(
+            "account_query_receipt_bytes",
+            MAX_QUERY_PAGE_RECEIPT_BYTES_PER_ACCOUNT,
+            account_bytes,
+            ciphertext_bytes,
+        )?;
+    }
+    let global_bytes: i64 = sqlx::query_scalar(
+        r#"SELECT COALESCE(sum(octet_length(response_ciphertext)::bigint), 0)::bigint
+           FROM hosted_provider_query_page_receipts
+           WHERE expires_at > now()"#,
+    )
+    .fetch_one(&mut **transaction)
+    .await?;
+    ensure_query_receipt_byte_quota(
+        "global_query_receipt_bytes",
+        MAX_QUERY_PAGE_RECEIPT_BYTES_GLOBAL,
+        global_bytes,
+        ciphertext_bytes,
+    )?;
     sqlx::query(
         r#"INSERT INTO hosted_provider_query_page_receipts
              (replica_id, request_id, collection_id, scope_epoch, request_kind,
@@ -161,6 +244,25 @@ async fn store_query_page_receipt(
     .execute(&mut **transaction)
     .await?;
     Ok(())
+}
+
+fn ensure_query_receipt_byte_quota(
+    budget: &str,
+    limit: u64,
+    current: i64,
+    candidate: u64,
+) -> ApiResult<()> {
+    let observed = number(current, "live query receipt bytes")?.saturating_add(candidate);
+    if observed <= limit {
+        return Ok(());
+    }
+    Err(query_budget_error(
+        "hosted_query_receipt_byte_budget_exceeded",
+        "The durable hosted query replay-receipt byte quota is exhausted.",
+        budget,
+        limit,
+        limit.saturating_add(1),
+    ))
 }
 
 fn active_query_binding(
@@ -205,6 +307,96 @@ fn active_query_binding(
         projection_format_version,
         semantic_engine_version,
     ))
+}
+
+fn hosted_query_scan_budget_records() -> u64 {
+    let manifest = HostedExecutionBudgetManifest::published();
+    if cfg!(debug_assertions)
+        && std::env::var("MDBASE_HOSTED_EXECUTION_TEST_ENTITLEMENT").as_deref()
+            == Ok("large_fixture_v1")
+    {
+        return manifest
+            .entitlements
+            .get("large_fixture_v1")
+            .expect("validated large-fixture entitlement exists")
+            .scanned_records;
+    }
+    manifest.defaults.scanned_records
+}
+
+fn collection_projection_integrity_epoch(collection: &PgRow) -> ApiResult<Option<u64>> {
+    collection
+        .get::<Option<i64>, _>("projection_integrity_epoch")
+        .map(|epoch| number(epoch, "projection integrity epoch"))
+        .transpose()
+}
+
+fn enforce_hosted_query_scan_budget(state: &HostedQueryState) -> ApiResult<()> {
+    if state.snapshot_record_count <= state.scan_budget_records {
+        return Ok(());
+    }
+    Err(query_budget_error(
+        "hosted_scan_budget_exceeded",
+        "The hosted query exceeds its pinned collection-scan budget.",
+        "scanned_records",
+        state.scan_budget_records,
+        scoped_budget_observed(
+            &state.allowed_types,
+            state.scan_budget_records,
+            state.snapshot_record_count,
+        ),
+    ))
+}
+
+fn execution_proof_for_state(
+    state: &HostedQueryState,
+    replica: &Replica,
+    execution: HostedQueryExecutionModeV1,
+) -> HostedQueryExecutionProofV1 {
+    HostedQueryExecutionProofV1 {
+        version: HOSTED_QUERY_EXECUTION_PROOF_VERSION,
+        plan_digest: state.plan.canonical_query_digest.clone(),
+        request_digest: state.request_digest.clone(),
+        request_kind: state.request_kind.as_str().to_string(),
+        scope_epoch: replica.scope_epoch,
+        snapshot_head: state.snapshot_head,
+        snapshot_record_count: state.snapshot_record_count,
+        scan_budget_records: state.scan_budget_records,
+        generation_id: state.generation_id,
+        catalog_revision: state.catalog_revision.clone(),
+        projection_format_version: state.projection_format_version,
+        semantic_engine_version: state.semantic_engine_version.clone(),
+        projection_integrity_epoch: state.projection_integrity_epoch,
+        execution,
+    }
+}
+
+fn validate_execution_proof(
+    proof: &HostedQueryExecutionProofV1,
+    state: &HostedQueryState,
+    replica: &Replica,
+) -> ApiResult<()> {
+    let valid = proof.version == HOSTED_QUERY_EXECUTION_PROOF_VERSION
+        && proof.plan_digest == state.plan.canonical_query_digest
+        && proof.request_digest == state.request_digest
+        && proof.request_kind == state.request_kind.as_str()
+        && proof.scope_epoch == replica.scope_epoch
+        && proof.snapshot_head == state.snapshot_head
+        && proof.snapshot_record_count == state.snapshot_record_count
+        && proof.scan_budget_records == state.scan_budget_records
+        && proof.generation_id == state.generation_id
+        && proof.catalog_revision == state.catalog_revision
+        && proof.projection_format_version == state.projection_format_version
+        && proof.semantic_engine_version == state.semantic_engine_version
+        && proof.projection_integrity_epoch == state.projection_integrity_epoch;
+    if valid {
+        Ok(())
+    } else {
+        Err(query_cursor_conflict(
+            "query_cursor_invalidated",
+            "The hosted query cursor execution proof no longer matches its authority binding.",
+        ))
+    }
 }
 
 fn base_query_binding(
@@ -416,7 +608,7 @@ fn canonical_view_request_digest(input: &Value) -> ApiResult<String> {
 async fn validate_generation_binding(
     transaction: &mut Transaction<'_, Postgres>,
     collection_id: Uuid,
-    state: &HostedQueryState,
+    state: &mut HostedQueryState,
 ) -> ApiResult<()> {
     if state.generation_id.is_none() {
         return if matches!(
@@ -431,13 +623,12 @@ async fn validate_generation_binding(
             ))
         };
     }
-    let valid: bool = sqlx::query_scalar(
-        r#"SELECT EXISTS (
-             SELECT 1 FROM hosted_provider_projection_generations
-             WHERE collection_id = $1 AND generation_id = $2 AND status = 'complete'
-               AND target_catalog_revision = $3 AND projection_format_version = $4
-               AND semantic_engine_version = $5 AND source_head <= $6
-           )"#,
+    let integrity_epoch: Option<i64> = sqlx::query_scalar(
+        r#"SELECT integrity_epoch
+           FROM hosted_provider_projection_generations
+           WHERE collection_id = $1 AND generation_id = $2 AND status = 'complete'
+             AND target_catalog_revision = $3 AND projection_format_version = $4
+             AND semantic_engine_version = $5 AND source_head <= $6"#,
     )
     .bind(collection_id)
     .bind(state.generation_id)
@@ -445,16 +636,33 @@ async fn validate_generation_binding(
     .bind(i64::from(state.projection_format_version))
     .bind(&state.semantic_engine_version)
     .bind(to_i64(state.snapshot_head, "query snapshot head")?)
-    .fetch_one(&mut **transaction)
+    .fetch_optional(&mut **transaction)
     .await?;
-    if valid {
-        Ok(())
-    } else {
-        Err(query_cursor_conflict(
+    let Some(integrity_epoch) = integrity_epoch else {
+        return Err(query_cursor_conflict(
             "query_generation_unavailable",
             "The semantic generation pinned by this hosted query is unavailable.",
-        ))
+        ));
+    };
+    let integrity_epoch = number(integrity_epoch, "projection integrity epoch")?;
+    if state.projection_integrity_epoch != Some(integrity_epoch) {
+        // Ordinary writes append a new exact version and retain the projection
+        // row visible at this cursor's snapshot. Only reuse the frozen mode,
+        // count, and groups after proving that every exact row still visible at
+        // the snapshot has a matching, digest-valid projection row. This scan
+        // happens only when the generation epoch advances, not on every page.
+        if Box::pin(projection_fallback_exists(transaction, collection_id, state)).await? {
+            return Err(query_cursor_conflict(
+                "query_projection_changed",
+                "The semantic projection changed while this hosted query was being paged.",
+            ));
+        }
+        state.projection_integrity_epoch = Some(integrity_epoch);
+        if let Some(proof) = state.execution_proof.as_mut() {
+            proof.projection_integrity_epoch = Some(integrity_epoch);
+        }
     }
+    Ok(())
 }
 
 async fn projection_fallback_exists(
@@ -565,9 +773,15 @@ async fn execute_projected_page(
     candidate_types: &[String],
     page_size: u64,
     started: Instant,
+    cached_summary: Option<(u64, Option<Vec<Value>>)>,
 ) -> ApiResult<ExecutedQueryPage> {
-    let total_count =
-        count_projected_candidates(transaction, collection_id, state, candidate_types).await?;
+    let (total_count, cached_groups) = match cached_summary {
+        Some((total_count, groups)) => (total_count, Some(groups)),
+        None => (
+            count_projected_candidates(transaction, collection_id, state, candidate_types).await?,
+            None,
+        ),
+    };
     let rows = load_projected_page(
         transaction,
         collection_id,
@@ -671,13 +885,12 @@ async fn execute_projected_page(
         .iter()
         .map(|result| serde_json::to_vec(result).map_or(0, |bytes| bytes.len() as u64))
         .sum::<u64>();
-    let groups = load_projected_groups(
-        transaction,
-        collection_id,
-        state,
-        candidate_types,
-    )
-    .await?;
+    let groups = match cached_groups {
+        Some(groups) => groups,
+        None => {
+            load_projected_groups(transaction, collection_id, state, candidate_types).await?
+        }
+    };
     let group_bytes = groups.as_ref().map_or(0, |groups| {
         serialized_value_bytes(&Value::Array(groups.clone()))
     });

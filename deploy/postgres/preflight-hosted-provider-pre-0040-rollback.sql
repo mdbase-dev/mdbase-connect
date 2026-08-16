@@ -8,6 +8,14 @@ DO $candidate_b_rollback_preflight$
 DECLARE
   live_invocation_cursors bigint;
 BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM hosted_provider_runtime_control
+    WHERE singleton = true AND query_admission_suspended = true
+  ) THEN
+    RAISE EXCEPTION
+      'candidate_b_pre_0040_rollback_blocked: suspend hosted query admission first';
+  END IF;
+
   SELECT count(*)
     INTO live_invocation_cursors
   FROM hosted_provider_query_cursors

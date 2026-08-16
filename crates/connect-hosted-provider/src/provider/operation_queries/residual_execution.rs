@@ -786,25 +786,6 @@ async fn insert_query_cursor(
     })?;
     let mut keyset = last_order_values.to_vec();
     keyset.push(Value::String(last_path.to_string()));
-    sqlx::query("SELECT id FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE")
-        .bind(replica.id)
-        .execute(&mut **transaction)
-        .await?;
-    let live_cursors: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM hosted_provider_query_cursors WHERE replica_id = $1 AND hard_expires_at > now()",
-    )
-    .bind(replica.id)
-    .fetch_one(&mut **transaction)
-    .await?;
-    if live_cursors >= MAX_LIVE_QUERY_CURSORS_PER_REPLICA {
-        return Err(query_budget_error(
-            "hosted_cursor_budget_exceeded",
-            "The application replica has too many live hosted query cursors.",
-            "live_cursors",
-            MAX_LIVE_QUERY_CURSORS_PER_REPLICA as u64,
-            live_cursors as u64,
-        ));
-    }
     let exact_context_ciphertext = state
         .exact_context
         .as_ref()
@@ -834,6 +815,51 @@ async fn insert_query_cursor(
                 "Obsidian Base context projection could not serialize: {error}"
             ))
         })?;
+    let execution_proof = state.execution_proof.as_ref().ok_or_else(|| {
+        ApiError::internal("A paged hosted query has no bounded execution proof.")
+    })?;
+    validate_execution_proof(execution_proof, state, replica)?;
+    let execution_proof_ciphertext = crypto.encrypt_json(
+        data_key,
+        execution_proof,
+        &query_cursor_execution_proof_aad(
+            collection_id,
+            replica.id,
+            replica.scope_epoch,
+            cursor_id,
+            HOSTED_QUERY_EXECUTION_PROOF_VERSION,
+            &state.plan.canonical_query_digest,
+        ),
+    )?;
+    let execution_proof_bytes = execution_proof_ciphertext.len() as u64;
+    let cursor_bytes = 2_048_u64
+        .saturating_add(serialized_value_bytes(&plan))
+        .saturating_add(serialized_value_bytes(&Value::Array(keyset.clone())))
+        .saturating_add(serialized_value_bytes(&Value::Object(state.result_meta.clone())))
+        .saturating_add(
+            exact_context_ciphertext
+                .as_ref()
+                .map_or(0, |ciphertext| ciphertext.len() as u64),
+        )
+        .saturating_add(execution_proof_bytes)
+        .saturating_add(base_plan.as_ref().map_or(0, serialized_value_bytes))
+        .saturating_add(base_context.as_ref().map_or(0, serialized_value_bytes))
+        .saturating_add(
+            state
+                .base_operation_clock
+                .as_ref()
+                .map_or(0, |clock| clock.len() as u64),
+        )
+        .saturating_add(state.catalog_revision.len() as u64)
+        .saturating_add(state.semantic_engine_version.len() as u64);
+    admit_query_cursor(
+        transaction,
+        collection_id,
+        replica,
+        cursor_bytes,
+    )
+    .await?;
+
     let base_invocation_id = if let Some(base_plan) = base_plan {
         let invocation_id = state.base_invocation_id.unwrap_or_else(Uuid::new_v4);
         if state.base_invocation_id.is_none() {
@@ -867,10 +893,14 @@ async fn insert_query_cursor(
               semantic_engine_version, query_plan_version, query_digest, query_plan,
               request_kind, request_digest, result_meta, exact_context_ciphertext,
               base_plan, base_context, base_operation_clock, base_invocation_id,
-              last_order_values, last_record_id, emitted_rows, expires_at, hard_expires_at)
+              last_order_values, last_record_id, emitted_rows, expires_at, hard_expires_at,
+              execution_proof_version, execution_proof_ciphertext,
+              execution_proof_bytes, snapshot_record_count, scan_budget_records,
+              projection_integrity_epoch, cursor_bytes)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
                    $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
-                   LEAST(now() + make_interval(secs => $24), $25), $25)"#,
+                   LEAST(now() + make_interval(secs => $24), $25), $25,
+                   $26, $27, $28, $29, $30, $31, $32)"#,
     )
     .bind(cursor_id)
     .bind(collection_id)
@@ -897,7 +927,171 @@ async fn insert_query_cursor(
     .bind(to_i64(emitted_rows, "emitted query rows")?)
     .bind(QUERY_CURSOR_IDLE_SECONDS)
     .bind(state.hard_expires_at)
+    .bind(i64::from(HOSTED_QUERY_EXECUTION_PROOF_VERSION))
+    .bind(execution_proof_ciphertext)
+    .bind(to_i64(execution_proof_bytes, "query execution proof bytes")?)
+    .bind(to_i64(
+        state.snapshot_record_count,
+        "query snapshot record count",
+    )?)
+    .bind(to_i64(state.scan_budget_records, "query scan budget")?)
+    .bind(
+        state
+            .projection_integrity_epoch
+            .map(|epoch| to_i64(epoch, "projection integrity epoch"))
+            .transpose()?,
+    )
+    .bind(to_i64(cursor_bytes, "query cursor bytes")?)
     .execute(&mut **transaction)
     .await?;
     Ok(())
+}
+
+async fn admit_query_cursor(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    replica: &Replica,
+    cursor_bytes: u64,
+) -> ApiResult<()> {
+    let budgets = &HostedExecutionBudgetManifest::published().defaults;
+    if cursor_bytes > budgets.cursor_bytes {
+        return Err(query_budget_error(
+            "hosted_cursor_byte_budget_exceeded",
+            "The hosted query cursor exceeds its per-cursor byte budget.",
+            "cursor_bytes",
+            budgets.cursor_bytes,
+            cursor_bytes,
+        ));
+    }
+    sqlx::query(
+        "SELECT pg_advisory_xact_lock(hashtextextended('mdbase-hosted-query-cursor-quota-v1', 0))",
+    )
+    .execute(&mut **transaction)
+    .await?;
+    sqlx::query("SELECT id FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE")
+        .bind(replica.id)
+        .execute(&mut **transaction)
+        .await?;
+    sqlx::query(
+        "DELETE FROM hosted_provider_query_cursors \
+         WHERE expires_at <= now() OR hard_expires_at <= now()",
+    )
+    .execute(&mut **transaction)
+    .await?;
+    cleanup_base_query_invocations(&mut **transaction, collection_id).await?;
+
+    let account_id: Option<Uuid> = sqlx::query_scalar(
+        "SELECT account_id FROM hosted_provider_collections WHERE id = $1 FOR SHARE",
+    )
+    .bind(collection_id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    let replica_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_query_cursors WHERE replica_id = $1",
+    )
+    .bind(replica.id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    ensure_cursor_count_budget(
+        "replica_cursor_count",
+        MAX_LIVE_QUERY_CURSORS_PER_REPLICA as u64,
+        replica_count,
+    )?;
+    let (collection_count, collection_bytes): (i64, i64) = sqlx::query_as(
+        r#"SELECT count(*),
+                  COALESCE(sum(GREATEST(cursor_bytes, pg_column_size(cursor_row)::bigint))::bigint, 0)
+           FROM hosted_provider_query_cursors cursor_row
+           WHERE collection_id = $1"#,
+    )
+    .bind(collection_id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    ensure_cursor_count_budget(
+        "collection_cursor_count",
+        budgets.cursor_count_per_collection,
+        collection_count,
+    )?;
+    ensure_cursor_byte_quota(
+        "collection_cursor_bytes",
+        budgets.cursor_bytes_per_collection,
+        collection_bytes,
+        cursor_bytes,
+    )?;
+    if let Some(account_id) = account_id {
+        let (account_count, account_bytes): (i64, i64) = sqlx::query_as(
+            r#"SELECT count(*),
+                      COALESCE(sum(GREATEST(cursor.cursor_bytes,
+                                           pg_column_size(cursor)::bigint))::bigint, 0)
+               FROM hosted_provider_query_cursors cursor
+               JOIN hosted_provider_collections collection
+                 ON collection.id = cursor.collection_id
+               WHERE collection.account_id = $1"#,
+        )
+        .bind(account_id)
+        .fetch_one(&mut **transaction)
+        .await?;
+        ensure_cursor_count_budget(
+            "account_cursor_count",
+            budgets.cursor_count_per_account,
+            account_count,
+        )?;
+        ensure_cursor_byte_quota(
+            "account_cursor_bytes",
+            budgets.cursor_bytes_per_account,
+            account_bytes,
+            cursor_bytes,
+        )?;
+    }
+    let (global_count, global_bytes): (i64, i64) = sqlx::query_as(
+        r#"SELECT count(*),
+                  COALESCE(sum(GREATEST(cursor_bytes, pg_column_size(cursor_row)::bigint))::bigint, 0)
+           FROM hosted_provider_query_cursors cursor_row"#,
+    )
+    .fetch_one(&mut **transaction)
+    .await?;
+    ensure_cursor_count_budget(
+        "global_cursor_count",
+        budgets.cursor_count_global,
+        global_count,
+    )?;
+    ensure_cursor_byte_quota(
+        "global_cursor_bytes",
+        budgets.cursor_bytes_global,
+        global_bytes,
+        cursor_bytes,
+    )?;
+    Ok(())
+}
+
+fn ensure_cursor_count_budget(budget: &str, limit: u64, current: i64) -> ApiResult<()> {
+    let current = number(current, "live query cursor count")?;
+    if current < limit {
+        return Ok(());
+    }
+    Err(query_budget_error(
+        "hosted_cursor_count_budget_exceeded",
+        "The hosted query cursor count quota is exhausted.",
+        budget,
+        limit,
+        limit.saturating_add(1),
+    ))
+}
+
+fn ensure_cursor_byte_quota(
+    budget: &str,
+    limit: u64,
+    current: i64,
+    candidate: u64,
+) -> ApiResult<()> {
+    let observed = number(current, "live query cursor bytes")?.saturating_add(candidate);
+    if observed <= limit {
+        return Ok(());
+    }
+    Err(query_budget_error(
+        "hosted_cursor_byte_budget_exceeded",
+        "The hosted query cursor byte quota is exhausted.",
+        budget,
+        limit,
+        limit.saturating_add(1),
+    ))
 }

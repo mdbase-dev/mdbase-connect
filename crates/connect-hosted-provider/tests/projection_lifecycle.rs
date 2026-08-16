@@ -201,6 +201,666 @@ async fn candidate_b_projection_rebuild_abandons_an_oversized_first_record() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_projection_rebuild_quarantines_an_oversized_semantic_projection() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let document = format!(
+        "---\ntitle: {}\n---\nBounded exact body.\n",
+        "x".repeat(300_000)
+    );
+    put(
+        &fixture,
+        replica.get("id"),
+        u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap(),
+        Uuid::now_v7(),
+        None,
+        "semantic-oversized.md",
+        &document,
+    )
+    .await;
+
+    let generation = fixture
+        .provider
+        .start_projection_generation(fixture.collection_id)
+        .await
+        .unwrap();
+    let error = fixture
+        .provider
+        .project_generation_batch(fixture.collection_id, generation.generation_id, 1)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, "projection_record_too_large");
+    assert_eq!(
+        error.details.as_ref().unwrap()["budget"],
+        "semantic_projection_bytes"
+    );
+    assert_eq!(error.details.as_ref().unwrap()["terminal"], true);
+    let state = sqlx::query(
+        r#"SELECT status, last_error_code, lease_owner, abandoned_at
+           FROM hosted_provider_projection_generations
+           WHERE collection_id = $1 AND generation_id = $2"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation.generation_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(state.get::<String, _>("status"), "abandoned");
+    assert_eq!(
+        state.get::<Option<String>, _>("last_error_code").as_deref(),
+        Some("projection_record_too_large")
+    );
+    assert!(state.get::<Option<Uuid>, _>("lease_owner").is_none());
+
+    let generation_count_before: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_projection_generations WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    fixture
+        .provider
+        .recover_projection_generations(100)
+        .await
+        .unwrap();
+    let generation_count_after: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_projection_generations WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(generation_count_after, generation_count_before);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_query_receipt_window_does_not_stall_long_pagination() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let mirror = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let mirror_id: Uuid = mirror.get("id");
+    let scope_epoch = u64::try_from(mirror.get::<i64, _>("scope_epoch")).unwrap();
+    for index in 0..70 {
+        put(
+            &fixture,
+            mirror_id,
+            scope_epoch,
+            Uuid::now_v7(),
+            None,
+            &format!("receipts/{index:03}.md"),
+            &format!("---\ntitle: Receipt {index}\n---\nBounded page.\n"),
+        )
+        .await;
+    }
+    complete_generation(&fixture).await;
+
+    let application_replica_id = Uuid::now_v7();
+    let application_token = format!("candidate-b-receipt-window-{}", Uuid::new_v4());
+    fixture
+        .provider
+        .register_replica(
+            fixture.collection_id,
+            RegisterReplica {
+                replica_id: application_replica_id,
+                name: "Candidate B receipt-window reader".to_string(),
+                purpose: ReplicaPurpose::Application,
+                mode: SyncReplicaMode::ReadOnly,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
+                allowed_operations: vec!["query".to_string()],
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: Vec::new(),
+                file_capability: None,
+                allowed_origin: None,
+                proof_public_key: None,
+                grant_id: Some(Uuid::now_v7()),
+                application_declaration_id: None,
+                application_declaration_digest: None,
+                token: application_token.clone(),
+                token_ttl_seconds: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    let mut cursor = None::<String>;
+    let mut paths = Vec::new();
+    let mut final_request = None;
+    for page in 0..70 {
+        let mut input = json!({
+            "pagination": "cursor",
+            "limit": 1,
+            "order_by": [{"field": "file.path", "direction": "asc"}],
+        });
+        if let Some(cursor) = cursor.as_ref() {
+            input["cursor"] = json!(cursor);
+        }
+        let request_id = Uuid::new_v4();
+        let result = fixture
+            .provider
+            .operation(
+                fixture.collection_id,
+                &application_token,
+                "query",
+                request_id,
+                input.clone(),
+                None,
+            )
+            .await
+            .unwrap();
+        paths.push(
+            result["result"]["results"][0]["path"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+        );
+        cursor = result["result"]["meta"]["cursor"]
+            .as_str()
+            .map(str::to_string);
+        if page == 69 {
+            final_request = Some((request_id, input, result));
+        }
+    }
+    assert!(cursor.is_none());
+    assert_eq!(paths.first().unwrap(), "receipts/000.md");
+    assert_eq!(paths.last().unwrap(), "receipts/069.md");
+    let receipt_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_query_page_receipts WHERE replica_id = $1",
+    )
+    .bind(application_replica_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(receipt_count, 64);
+
+    let (request_id, input, expected) = final_request.unwrap();
+    let replay = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            request_id,
+            input,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        replay, expected,
+        "the newest lost response remains replayable"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_query_cursor_proof_is_encrypted_bound_and_tamper_evident() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let mirror = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let mirror_id: Uuid = mirror.get("id");
+    let scope_epoch = u64::try_from(mirror.get::<i64, _>("scope_epoch")).unwrap();
+    for (path, title) in [("proof/a.md", "Proof A"), ("proof/b.md", "Proof B")] {
+        put(
+            &fixture,
+            mirror_id,
+            scope_epoch,
+            Uuid::now_v7(),
+            None,
+            path,
+            &format!("---\ntitle: {title}\n---\nEncrypted authority.\n"),
+        )
+        .await;
+    }
+    complete_generation(&fixture).await;
+    let (application_replica_id, application_token) =
+        register_query_application(&fixture, Vec::new()).await;
+    let first = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "pagination": "cursor",
+                "limit": 1,
+                "order_by": [{"field": "file.path", "direction": "asc"}],
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    let cursor = first["result"]["meta"]["cursor"].as_str().unwrap();
+    let proof = sqlx::query(
+        r#"SELECT cursor_id, execution_proof_version, execution_proof_ciphertext,
+                  execution_proof_bytes, snapshot_record_count, scan_budget_records,
+                  projection_integrity_epoch
+           FROM hosted_provider_query_cursors
+           WHERE replica_id = $1
+           ORDER BY created_at DESC, cursor_id DESC
+           LIMIT 1"#,
+    )
+    .bind(application_replica_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(proof.get::<i32, _>("execution_proof_version"), 1);
+    let ciphertext: Vec<u8> = proof.get("execution_proof_ciphertext");
+    assert_eq!(
+        i64::try_from(ciphertext.len()).unwrap(),
+        proof.get::<i64, _>("execution_proof_bytes")
+    );
+    assert_eq!(proof.get::<i64, _>("snapshot_record_count"), 2);
+    assert_eq!(proof.get::<i64, _>("scan_budget_records"), 100_000);
+    assert!(proof
+        .get::<Option<i64>, _>("projection_integrity_epoch")
+        .is_some());
+    assert!(!ciphertext.starts_with(b"{"));
+
+    let cursor_id: Uuid = proof.get("cursor_id");
+    sqlx::query(
+        r#"UPDATE hosted_provider_query_cursors
+           SET execution_proof_ciphertext = set_byte(
+                 execution_proof_ciphertext, 0,
+                 (get_byte(execution_proof_ciphertext, 0) # 1)
+               )
+           WHERE cursor_id = $1"#,
+    )
+    .bind(cursor_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let error = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "cursor": cursor,
+                "limit": 1,
+                "order_by": [{"field": "file.path", "direction": "asc"}],
+            }),
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, "query_cursor_invalidated");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_query_cursor_rechecks_projection_integrity_after_epoch_change() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let mirror = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let mirror_id: Uuid = mirror.get("id");
+    let scope_epoch = u64::try_from(mirror.get::<i64, _>("scope_epoch")).unwrap();
+    for (path, title) in [("epoch/a.md", "Epoch A"), ("epoch/b.md", "Epoch B")] {
+        put(
+            &fixture,
+            mirror_id,
+            scope_epoch,
+            Uuid::now_v7(),
+            None,
+            path,
+            &format!("---\ntitle: {title}\n---\nEncrypted authority.\n"),
+        )
+        .await;
+    }
+    let generation_id = complete_generation(&fixture).await;
+    let (_, application_token) = register_query_application(&fixture, Vec::new()).await;
+    let first = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "pagination": "cursor",
+                "limit": 1,
+                "order_by": [{"field": "file.path", "direction": "asc"}],
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    let cursor = first["result"]["meta"]["cursor"].as_str().unwrap();
+    sqlx::query(
+        r#"UPDATE hosted_provider_record_projections
+           SET semantic_projection = jsonb_set(
+                 semantic_projection, '{path}', '"tampered.md"'::jsonb
+               )
+           WHERE collection_id = $1 AND generation_id = $2
+             AND canonical_path = 'epoch/b.md' AND valid_to_sequence IS NULL"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let error = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "cursor": cursor,
+                "limit": 1,
+                "order_by": [{"field": "file.path", "direction": "asc"}],
+            }),
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, "query_projection_changed");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_query_rejects_an_unentitled_collection_scan_before_execution() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let mirror = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    put(
+        &fixture,
+        mirror.get("id"),
+        u64::try_from(mirror.get::<i64, _>("scope_epoch")).unwrap(),
+        Uuid::now_v7(),
+        None,
+        "budget/one.md",
+        "---\ntitle: One\n---\nBudget fixture.\n",
+    )
+    .await;
+    complete_generation(&fixture).await;
+    let (_, application_token) = register_query_application(&fixture, Vec::new()).await;
+    sqlx::query("UPDATE hosted_provider_collections SET record_count = 100001 WHERE id = $1")
+        .bind(fixture.collection_id)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+    let error = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({"limit": 1}),
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, "hosted_scan_budget_exceeded");
+    let details = error.details.unwrap();
+    assert_eq!(details["budget"], "scanned_records");
+    assert_eq!(details["limit"], 100_000);
+    assert_eq!(details["observed"], 100_001);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_projection_digest_binds_and_refreshes_the_temporal_end() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let mirror = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let replica_id: Uuid = mirror.get("id");
+    let scope_epoch = u64::try_from(mirror.get::<i64, _>("scope_epoch")).unwrap();
+    let record_id = Uuid::now_v7();
+    let first = put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        record_id,
+        None,
+        "temporal.md",
+        "---\ntitle: Before\n---\nFirst.\n",
+    )
+    .await;
+    let generation_id = complete_generation(&fixture).await;
+    put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        record_id,
+        Some(first.revision),
+        "temporal.md",
+        "---\ntitle: After\n---\nSecond.\n",
+    )
+    .await;
+
+    let old = sqlx::query(
+        r#"SELECT valid_from_sequence, valid_to_sequence,
+                  hosted_provider_projection_digest_valid(
+                    projection_digest, projection_observed_digest
+                  ) AS digest_valid
+           FROM hosted_provider_record_projections
+           WHERE collection_id = $1 AND generation_id = $2 AND record_id = $3
+             AND valid_to_sequence IS NOT NULL"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .bind(record_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert!(old.get::<bool, _>("digest_valid"));
+    let valid_to: i64 = old.get("valid_to_sequence");
+    sqlx::query(
+        r#"UPDATE hosted_provider_record_projections
+           SET valid_to_sequence = $4
+           WHERE collection_id = $1 AND generation_id = $2 AND record_id = $3
+             AND valid_to_sequence = $5"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .bind(record_id)
+    .bind(valid_to + 1)
+    .bind(valid_to)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let digest_valid: bool = sqlx::query_scalar(
+        r#"SELECT hosted_provider_projection_digest_valid(
+                    projection_digest, projection_observed_digest
+                  )
+           FROM hosted_provider_record_projections
+           WHERE collection_id = $1 AND generation_id = $2 AND record_id = $3
+             AND valid_from_sequence = $4"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .bind(record_id)
+    .bind(old.get::<i64, _>("valid_from_sequence"))
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert!(
+        !digest_valid,
+        "a temporal-boundary substitution is detected"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_rollback_fence_drains_inflight_queries_and_allows_cursor_release() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let mirror = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let replica_id: Uuid = mirror.get("id");
+    let scope_epoch = u64::try_from(mirror.get::<i64, _>("scope_epoch")).unwrap();
+    for path in ["fence/a.md", "fence/b.md"] {
+        put(
+            &fixture,
+            replica_id,
+            scope_epoch,
+            Uuid::now_v7(),
+            None,
+            path,
+            "---\ntitle: Fence\n---\nBounded.\n",
+        )
+        .await;
+    }
+    complete_generation(&fixture).await;
+    let (_, application_token) = register_query_application(&fixture, Vec::new()).await;
+    let first = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({"limit": 1, "order_by": [{"field": "file.path"}]}),
+            None,
+        )
+        .await
+        .unwrap();
+    let cursor = first["result"]["meta"]["cursor"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let mut in_flight = fixture.pool.begin().await.unwrap();
+    sqlx::query(
+        "SELECT pg_advisory_xact_lock_shared(hashtextextended('mdbase-hosted-query-admission-v1', 0))",
+    )
+    .execute(&mut *in_flight)
+    .await
+    .unwrap();
+    let fence_pool = fixture.pool.clone();
+    let suspend = tokio::spawn(async move {
+        let mut transaction = fence_pool.begin().await.unwrap();
+        sqlx::query(
+            "SELECT pg_advisory_xact_lock(hashtextextended('mdbase-hosted-query-admission-v1', 0))",
+        )
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"UPDATE hosted_provider_runtime_control
+               SET query_admission_suspended = true,
+                   suspension_reason = 'integration_test', updated_at = now()
+               WHERE singleton = true"#,
+        )
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(
+        !suspend.is_finished(),
+        "exclusive rollback fence waits for queries"
+    );
+    in_flight.commit().await.unwrap();
+    suspend.await.unwrap();
+
+    let blocked = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({"limit": 1}),
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(blocked.code, "hosted_query_admission_suspended");
+    let released = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({"release_cursor": cursor}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(released["valid"], true);
+
+    let mut transaction = fixture.pool.begin().await.unwrap();
+    sqlx::query(
+        "SELECT pg_advisory_xact_lock(hashtextextended('mdbase-hosted-query-admission-v1', 0))",
+    )
+    .execute(&mut *transaction)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"UPDATE hosted_provider_runtime_control
+           SET query_admission_suspended = false, suspension_reason = NULL,
+               updated_at = now()
+           WHERE singleton = true"#,
+    )
+    .execute(&mut *transaction)
+    .await
+    .unwrap();
+    transaction.commit().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
 async fn candidate_b_recovery_rebuilds_pre_digest_active_projection_rows() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
@@ -3854,6 +4514,43 @@ views:
         .await
         .unwrap_err();
     assert_eq!(deleted_context.code, "hosted_base_context_unavailable");
+}
+
+async fn register_query_application(
+    fixture: &FileLifecycleFixture,
+    allowed_types: Vec<String>,
+) -> (Uuid, String) {
+    let replica_id = Uuid::now_v7();
+    let token = format!("candidate-b-query-application-{}", Uuid::new_v4());
+    let full_collection = allowed_types.is_empty();
+    fixture
+        .provider
+        .register_replica(
+            fixture.collection_id,
+            RegisterReplica {
+                replica_id,
+                name: "Candidate B query application".to_string(),
+                purpose: ReplicaPurpose::Application,
+                mode: SyncReplicaMode::ReadOnly,
+                allowed_types,
+                contract_scope: Vec::new(),
+                full_collection,
+                allowed_operations: vec!["query".to_string()],
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: Vec::new(),
+                file_capability: None,
+                allowed_origin: None,
+                proof_public_key: None,
+                grant_id: Some(Uuid::now_v7()),
+                application_declaration_id: None,
+                application_declaration_digest: None,
+                token: token.clone(),
+                token_ttl_seconds: None,
+            },
+        )
+        .await
+        .unwrap();
+    (replica_id, token)
 }
 
 async fn complete_generation(fixture: &FileLifecycleFixture) -> Uuid {

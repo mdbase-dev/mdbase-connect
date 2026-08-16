@@ -12,7 +12,12 @@ const MAX_LIVE_QUERY_CURSORS_PER_REPLICA: i64 = 64;
 // budget for the result envelope, diagnostics, and AEAD overhead.
 const MAX_QUERY_PAGE_RECEIPTS_PER_REPLICA: i64 = 64;
 const MAX_QUERY_PAGE_RECEIPT_CIPHERTEXT_BYTES: u64 = 72 * 1024 * 1024;
+const MAX_QUERY_PAGE_RECEIPT_BYTES_PER_REPLICA: u64 = 128 * 1024 * 1024;
+const MAX_QUERY_PAGE_RECEIPT_BYTES_PER_COLLECTION: u64 = 512 * 1024 * 1024;
+const MAX_QUERY_PAGE_RECEIPT_BYTES_PER_ACCOUNT: u64 = 2 * 1024 * 1024 * 1024;
+const MAX_QUERY_PAGE_RECEIPT_BYTES_GLOBAL: u64 = 64 * 1024 * 1024 * 1024;
 const MAX_HOSTED_BASE_RELATIONSHIP_PAIRS: u64 = 65_536;
+const HOSTED_QUERY_EXECUTION_PROOF_VERSION: u32 = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HostedQueryRequestKind {
@@ -33,7 +38,10 @@ impl HostedQueryRequestKind {
 
 struct HostedQueryState {
     snapshot_head: u64,
+    snapshot_record_count: u64,
+    scan_budget_records: u64,
     generation_id: Option<Uuid>,
+    projection_integrity_epoch: Option<u64>,
     catalog_revision: String,
     projection_format_version: u32,
     semantic_engine_version: String,
@@ -53,6 +61,40 @@ struct HostedQueryState {
     base_invocation_id: Option<Uuid>,
     base_context: Option<mdbase::runtime::SemanticProjection>,
     base_operation_clock: Option<String>,
+    execution_proof: Option<HostedQueryExecutionProofV1>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct HostedQueryExecutionProofV1 {
+    version: u32,
+    plan_digest: String,
+    request_digest: String,
+    request_kind: String,
+    scope_epoch: u64,
+    snapshot_head: u64,
+    snapshot_record_count: u64,
+    scan_budget_records: u64,
+    generation_id: Option<Uuid>,
+    catalog_revision: String,
+    projection_format_version: u32,
+    semantic_engine_version: String,
+    projection_integrity_epoch: Option<u64>,
+    execution: HostedQueryExecutionModeV1,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+enum HostedQueryExecutionModeV1 {
+    ProjectedExact {
+        total_count: u64,
+        groups: Option<Vec<Value>>,
+    },
+    BoundedResidual {
+        force_exact_residual: bool,
+    },
+    Base {
+        projection_fallback: bool,
+    },
 }
 
 struct ProjectedQueryRow {
