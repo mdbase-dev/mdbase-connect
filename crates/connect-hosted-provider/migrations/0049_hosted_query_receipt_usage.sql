@@ -5,6 +5,13 @@
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '30s';
 
+-- Every query transaction holds the shared side from admission through page
+-- receipt commit. Taking the exclusive side makes the drain check and trigger
+-- installation atomic with respect to both in-flight and new receipts.
+SELECT pg_advisory_xact_lock(
+  hashtextextended('mdbase-hosted-query-admission-v1', 0)
+);
+
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM hosted_provider_query_page_receipts LIMIT 1) THEN
@@ -96,7 +103,22 @@ DECLARE
   receipt hosted_provider_query_page_receipts%ROWTYPE;
   direction bigint;
 BEGIN
-  IF TG_OP = 'INSERT' THEN
+  IF TG_OP = 'UPDATE' THEN
+    IF OLD.account_id IS NOT DISTINCT FROM NEW.account_id THEN
+      RETURN NEW;
+    END IF;
+    IF OLD.account_id IS NOT NULL THEN
+      PERFORM hosted_provider_adjust_query_receipt_usage(
+        'account', OLD.account_id, -1, -OLD.response_ciphertext_bytes
+      );
+    END IF;
+    IF NEW.account_id IS NOT NULL THEN
+      PERFORM hosted_provider_adjust_query_receipt_usage(
+        'account', NEW.account_id, 1, NEW.response_ciphertext_bytes
+      );
+    END IF;
+    RETURN NEW;
+  ELSIF TG_OP = 'INSERT' THEN
     receipt := NEW;
     direction := 1;
   ELSE
@@ -131,5 +153,5 @@ BEFORE INSERT ON hosted_provider_query_page_receipts
 FOR EACH ROW EXECUTE FUNCTION hosted_provider_bind_query_receipt_account();
 
 CREATE TRIGGER hosted_provider_query_receipt_usage_tracking
-AFTER INSERT OR DELETE ON hosted_provider_query_page_receipts
+AFTER INSERT OR DELETE OR UPDATE OF account_id ON hosted_provider_query_page_receipts
 FOR EACH ROW EXECUTE FUNCTION hosted_provider_track_query_receipt_usage();

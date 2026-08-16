@@ -195,7 +195,9 @@ impl HostedProvider {
                      AND terminal.status = 'abandoned'
                      AND terminal.last_error_code IN (
                        'projection_record_too_large',
-                       'projection_authority_invalid'
+                       'projection_authority_invalid',
+                       'projection_semantic_failure',
+                       'projection_state_invalid'
                      )
                      AND terminal.source_head = collection.head
                      AND terminal.source_resource_revision = collection.resource_revision
@@ -279,7 +281,10 @@ impl HostedProvider {
                 Err(error)
                     if matches!(
                         error.code.as_str(),
-                        "projection_record_too_large" | "projection_authority_invalid"
+                        "projection_record_too_large"
+                            | "projection_authority_invalid"
+                            | "projection_semantic_failure"
+                            | "projection_state_invalid"
                     ) =>
                 {
                     tracing::warn!(
@@ -488,25 +493,50 @@ impl HostedProvider {
                 return Err(projection_authority_invalid());
             }
             let document_size = record.document.len() as u64;
-            let prepared = catalog
-                .project_record(&mdbase::runtime::CanonicalRecordInput {
-                    stable_id: Some(record_id.to_string()),
-                    path: record.path,
-                    document: record.document,
-                    file_size: document_size,
-                    file_mtime: Some(file_modified_at.to_rfc3339_opts(SecondsFormat::Micros, true)),
-                })
-                .map_err(|error| {
-                    ApiError::new(
-                        StatusCode::UNPROCESSABLE_ENTITY,
+            let prepared = match catalog.project_record(&mdbase::runtime::CanonicalRecordInput {
+                stable_id: Some(record_id.to_string()),
+                path: record.path,
+                document: record.document,
+                file_size: document_size,
+                file_mtime: Some(file_modified_at.to_rfc3339_opts(SecondsFormat::Micros, true)),
+            }) {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    let error = projection_generation_semantic_error(error);
+                    abandon_projection_generation_for_terminal_error(
+                        &mut transaction,
+                        collection_id,
+                        generation_id,
+                        self.process_epoch,
+                        fence,
+                        &catalog_revision,
                         "projection_semantic_failure",
-                        "The exact record could not produce a semantic projection.",
                     )
-                    .with_details(json!({"semantic_code": error.code}))
-                })?;
-            let bytes = serde_jcs::to_vec(&prepared).map_err(|error| {
-                ApiError::internal(format!("Semantic projection could not serialize: {error}"))
-            })?;
+                    .await?;
+                    transaction.commit().await?;
+                    return Err(error);
+                }
+            };
+            let bytes = match serde_jcs::to_vec(&prepared) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    let error = projection_generation_state_invalid(format!(
+                        "Semantic projection could not serialize: {error}"
+                    ));
+                    abandon_projection_generation_for_terminal_error(
+                        &mut transaction,
+                        collection_id,
+                        generation_id,
+                        self.process_epoch,
+                        fence,
+                        &catalog_revision,
+                        "projection_state_invalid",
+                    )
+                    .await?;
+                    transaction.commit().await?;
+                    return Err(error);
+                }
+            };
             let bytes_len = bytes.len() as u64;
             if bytes_len > 262_144 {
                 abandon_projection_generation_for_terminal_error(
@@ -825,28 +855,104 @@ impl HostedProvider {
             )?;
             let record_revision: String = row.get("record_revision");
             let prepared: mdbase::runtime::PreparedSemanticProjection =
-                serde_json::from_value(row.get("semantic_projection")).map_err(|error| {
-                    ApiError::internal(format!(
-                        "Prepared semantic projection could not decode: {error}"
-                    ))
-                })?;
-            let plan = catalog
-                .plan_record_resolution(&prepared.structure)
-                .map_err(projection_semantic_error)?;
+                match serde_json::from_value(row.get("semantic_projection")) {
+                    Ok(prepared) => prepared,
+                    Err(error) => {
+                        let error = projection_generation_state_invalid(format!(
+                            "Prepared semantic projection could not decode: {error}"
+                        ));
+                        abandon_projection_generation_for_terminal_error(
+                            &mut transaction,
+                            collection_id,
+                            generation_id,
+                            self.process_epoch,
+                            fence,
+                            &catalog_revision,
+                            "projection_state_invalid",
+                        )
+                        .await?;
+                        transaction.commit().await?;
+                        return Err(error);
+                    }
+                };
+            let plan = match catalog.plan_record_resolution(&prepared.structure) {
+                Ok(plan) => plan,
+                Err(error) => {
+                    let error = projection_generation_semantic_error(error);
+                    abandon_projection_generation_for_terminal_error(
+                        &mut transaction,
+                        collection_id,
+                        generation_id,
+                        self.process_epoch,
+                        fence,
+                        &catalog_revision,
+                        "projection_semantic_failure",
+                    )
+                    .await?;
+                    transaction.commit().await?;
+                    return Err(error);
+                }
+            };
             let candidates =
                 load_resolution_candidates(&mut transaction, collection_id, generation_id, &plan)
                     .await?;
-            let resolved = catalog
-                .resolve_record_structure(&prepared.structure, &plan, &candidates)
-                .map_err(projection_semantic_error)?;
-            let final_projection = catalog
-                .finalize_projection(prepared, resolved)
-                .map_err(projection_semantic_error)?;
-            let bytes = final_projection.canonical_json().map_err(|error| {
-                ApiError::internal(format!(
-                    "Final semantic projection could not serialize: {error}"
-                ))
-            })?;
+            let resolved =
+                match catalog.resolve_record_structure(&prepared.structure, &plan, &candidates) {
+                    Ok(resolved) => resolved,
+                    Err(error) => {
+                        let error = projection_generation_semantic_error(error);
+                        abandon_projection_generation_for_terminal_error(
+                            &mut transaction,
+                            collection_id,
+                            generation_id,
+                            self.process_epoch,
+                            fence,
+                            &catalog_revision,
+                            "projection_semantic_failure",
+                        )
+                        .await?;
+                        transaction.commit().await?;
+                        return Err(error);
+                    }
+                };
+            let final_projection = match catalog.finalize_projection(prepared, resolved) {
+                Ok(projection) => projection,
+                Err(error) => {
+                    let error = projection_generation_semantic_error(error);
+                    abandon_projection_generation_for_terminal_error(
+                        &mut transaction,
+                        collection_id,
+                        generation_id,
+                        self.process_epoch,
+                        fence,
+                        &catalog_revision,
+                        "projection_semantic_failure",
+                    )
+                    .await?;
+                    transaction.commit().await?;
+                    return Err(error);
+                }
+            };
+            let bytes = match final_projection.canonical_json() {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    let error = projection_generation_state_invalid(format!(
+                        "Final semantic projection could not serialize: {error}"
+                    ));
+                    abandon_projection_generation_for_terminal_error(
+                        &mut transaction,
+                        collection_id,
+                        generation_id,
+                        self.process_epoch,
+                        fence,
+                        &catalog_revision,
+                        "projection_state_invalid",
+                    )
+                    .await?;
+                    transaction.commit().await?;
+                    return Err(error);
+                }
+            };
             if bytes.len() > 262_144 {
                 let observed = bytes.len() as u64;
                 abandon_projection_generation_for_terminal_error(

@@ -542,3 +542,17 @@ fn projection_semantic_error(error: mdbase::runtime::CatalogError) -> ApiError {
     )
     .with_details(json!({"semantic_code": error.code}))
 }
+
+fn projection_generation_semantic_error(error: mdbase::runtime::CatalogError) -> ApiError {
+    ApiError::new(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "projection_semantic_failure",
+        "The exact record could not produce a canonical semantic projection.",
+    )
+    .with_details(json!({"semantic_code": error.code, "terminal": true}))
+}
+
+fn projection_generation_state_invalid(message: impl Into<String>) -> ApiError {
+    ApiError::new(StatusCode::CONFLICT, "projection_state_invalid", message)
+        .with_details(json!({"terminal": true}))
+}

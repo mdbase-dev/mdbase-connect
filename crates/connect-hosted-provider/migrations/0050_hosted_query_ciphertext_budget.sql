@@ -15,7 +15,7 @@ $$;
 ALTER TABLE hosted_provider_query_cursors
   DROP CONSTRAINT hosted_provider_query_cursors_execution_proof_version_check,
   DROP CONSTRAINT hosted_provider_query_cursors_execution_proof_check,
-  ADD COLUMN scan_budget_ciphertext_bytes bigint NOT NULL
+  ADD COLUMN scan_budget_ciphertext_bytes bigint NOT NULL DEFAULT 1073741824
     CHECK (scan_budget_ciphertext_bytes > 0),
   ADD CONSTRAINT hosted_provider_query_cursors_execution_proof_version_check
     CHECK (execution_proof_version IN (0, 1, 2)),

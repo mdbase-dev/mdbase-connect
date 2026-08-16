@@ -139,6 +139,13 @@ impl HostedProvider {
         collection_id: Uuid,
     ) -> ApiResult<()> {
         let mut transaction = self.pool.begin().await?;
+        // Serialize against receipt admission/eviction so every live receipt
+        // moves into the reconciled account's quota counter atomically.
+        sqlx::query(
+            "SELECT pg_advisory_xact_lock(hashtextextended('mdbase-hosted-query-receipt-quota-v1', 0))",
+        )
+        .execute(&mut *transaction)
+        .await?;
         sqlx::query("SET LOCAL mdbase.quota_reconciliation = 'on'")
             .execute(&mut *transaction)
             .await?;
@@ -193,6 +200,15 @@ impl HostedProvider {
                 "The hosted collection is missing or belongs to another account.",
             ));
         }
+        sqlx::query(
+            r#"UPDATE hosted_provider_query_page_receipts
+               SET account_id = $2
+               WHERE collection_id = $1 AND account_id IS DISTINCT FROM $2"#,
+        )
+        .bind(collection_id)
+        .bind(account_id)
+        .execute(&mut *transaction)
+        .await?;
         transaction.commit().await?;
         Ok(())
     }

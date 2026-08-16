@@ -66,14 +66,26 @@ fn receipt_retention_index_migration_is_quiescent_and_time_bounded() {
 fn receipt_usage_and_ciphertext_budget_migrations_require_drained_ephemeral_state() {
     let usage = include_str!("../../migrations/0049_hosted_query_receipt_usage.sql");
     assert!(usage.contains("hosted_provider_query_page_receipts to be drained"));
+    assert!(usage.contains("pg_advisory_xact_lock"));
+    assert!(usage.contains("mdbase-hosted-query-admission-v1"));
     assert!(usage.contains("hosted_provider_query_receipt_usage"));
-    assert!(usage.contains("AFTER INSERT OR DELETE"));
+    assert!(usage.contains("AFTER INSERT OR DELETE OR UPDATE OF account_id"));
     assert!(!usage.contains("sum(octet_length(response_ciphertext)"));
 
     let ciphertext = include_str!("../../migrations/0050_hosted_query_ciphertext_budget.sql");
     assert!(ciphertext.contains("hosted_provider_query_cursors to be drained"));
-    assert!(ciphertext.contains("scan_budget_ciphertext_bytes"));
+    assert!(ciphertext.contains("scan_budget_ciphertext_bytes bigint NOT NULL DEFAULT 1073741824"));
     assert!(ciphertext.contains("execution_proof_version IN (0, 1, 2)"));
+}
+
+#[test]
+fn projection_source_revision_constraint_is_time_bounded() {
+    let migration =
+        include_str!("../../migrations/0048_hosted_projection_generation_source_resource.sql");
+    assert!(migration.contains("SET LOCAL lock_timeout = '5s'"));
+    assert!(migration.contains("SET LOCAL statement_timeout = '30s'"));
+    assert!(migration.contains("NOT VALID"));
+    assert!(migration.contains("VALIDATE CONSTRAINT"));
 }
 
 #[test]
