@@ -217,6 +217,12 @@ CAS. A concurrent edit makes that rebuild write retry or skip; it cannot overwri
 newer projection. Checkpoints and leases make interruption, restart, and abandoned
 generation recovery explicit.
 
+Hosted file modification time is the record-version commit timestamp, not a
+provider-read clock sampled later. Ordinary writes bind that same timestamp to the
+encrypted version and its derived projection; rebuild and exact fallback recover it
+from the selected version. A projection format bump prevents older null-time rows
+from being treated as current.
+
 Queries pin a repeatable-read semantic/catalog snapshot. Candidate selection unions
 current indexed matches with records whose projection is stale or absent. Those
 records receive bounded canonical evaluation. Completion is marked only by a

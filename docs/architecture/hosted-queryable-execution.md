@@ -23,6 +23,10 @@ persisted and effective frontmatter, diagnostics, outgoing relationships, and
 structurally significant body-derived facts. It never contains exact Markdown or
 body prose. Exact records are decrypted only for exact/body output, body predicates,
 mutation, rebuild, stale fallback, or fail-closed authorization classification.
+Hosted file modification time is the authoritative record-version commit time. The
+same transaction stamps the encrypted version, current record, and version-4
+projection input; exact reads and snapshot fallback recover that revision-scoped
+time rather than synthesizing or omitting it.
 
 ## Semantic and persistence ownership
 

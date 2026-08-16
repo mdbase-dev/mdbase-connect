@@ -440,7 +440,7 @@ impl HostedProvider {
             )
             .await?
             {
-                Some((record, ciphertext_bytes)) => {
+                Some((record, ciphertext_bytes, modified_at)) => {
                     if path.is_some_and(|path| record.path != path) {
                         return Err(ApiError::internal(
                             "The hosted encrypted record path does not match the requested identity.",
@@ -451,7 +451,7 @@ impl HostedProvider {
                         path: record.path.clone(),
                         document: record.document.clone(),
                         file_size: record.document.len() as u64,
-                        file_mtime: None,
+                        file_mtime: Some(modified_at.to_rfc3339_opts(SecondsFormat::Micros, true)),
                     };
                     (
                         catalog.read_record(input, &canonical),
@@ -497,11 +497,11 @@ pub(super) async fn load_direct_record(
     data_key: &[u8; 32],
     collection_id: Uuid,
     identity: DirectRecordIdentity,
-) -> ApiResult<Option<(PersistedRecord, u64)>> {
+) -> ApiResult<Option<(PersistedRecord, u64, DateTime<Utc>)>> {
     let row = match identity {
         DirectRecordIdentity::StableId(record_id) => {
             sqlx::query(
-                r#"SELECT record_id, sequence, payload_ciphertext
+                r#"SELECT record_id, sequence, payload_ciphertext, updated_at
                    FROM hosted_provider_records
                    WHERE collection_id = $1 AND record_id = $2"#,
             )
@@ -512,7 +512,7 @@ pub(super) async fn load_direct_record(
         }
         DirectRecordIdentity::PathToken(token) => {
             sqlx::query(
-                r#"SELECT record_id, sequence, payload_ciphertext
+                r#"SELECT record_id, sequence, payload_ciphertext, updated_at
                    FROM hosted_provider_records
                    WHERE collection_id = $1 AND path_token = $2"#,
             )
@@ -539,7 +539,11 @@ pub(super) async fn load_direct_record(
             "The hosted encrypted record identity does not match its metadata.",
         ));
     }
-    Ok(Some((record, ciphertext_bytes)))
+    Ok(Some((
+        record,
+        ciphertext_bytes,
+        row.get::<DateTime<Utc>, _>("updated_at"),
+    )))
 }
 
 pub(super) fn compile_point_catalog(

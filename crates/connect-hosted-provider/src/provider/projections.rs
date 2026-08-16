@@ -39,6 +39,7 @@ pub(super) struct ActiveProjectionChange {
     pub sequence: u64,
     pub was_present: bool,
     pub force_relationship_resolution: bool,
+    pub file_mtime: Option<String>,
     pub record: Option<PersistedRecord>,
 }
 
@@ -333,18 +334,19 @@ impl HostedProvider {
         let rows = sqlx::query(
             r#"WITH snapshot AS (
                  SELECT DISTINCT ON (record_id)
-                   record_id, sequence, revision, payload_ciphertext, deleted
+                   record_id, sequence, revision, payload_ciphertext, deleted, created_at
                  FROM hosted_provider_record_versions
                  WHERE collection_id = $1 AND sequence <= $4
                  ORDER BY record_id, sequence DESC
                ), eligible AS (
-                 SELECT record_id, sequence, revision, payload_ciphertext,
+                 SELECT record_id, sequence, revision, payload_ciphertext, created_at,
                         sum(octet_length(payload_ciphertext)) OVER (ORDER BY record_id) AS batch_bytes
                  FROM snapshot
                  WHERE deleted = false
                    AND ($2::uuid IS NULL OR record_id > $2)
                )
                SELECT record_id, sequence, revision, payload_ciphertext
+                      , created_at
                FROM eligible
                WHERE batch_bytes <= $5
                ORDER BY record_id
@@ -368,6 +370,7 @@ impl HostedProvider {
             let record_id: Uuid = row.get("record_id");
             let sequence = number(row.get::<i64, _>("sequence"), "record sequence")?;
             let revision: String = row.get("revision");
+            let file_modified_at: DateTime<Utc> = row.get("created_at");
             let ciphertext: Vec<u8> = row.get("payload_ciphertext");
             ciphertext_bytes = ciphertext_bytes.saturating_add(ciphertext.len() as u64);
             let record: PersistedRecord = self.crypto.decrypt_json(
@@ -380,13 +383,14 @@ impl HostedProvider {
                     "The exact record does not match its projection CAS metadata.",
                 ));
             }
+            let document_size = record.document.len() as u64;
             let prepared = catalog
                 .project_record(&mdbase::runtime::CanonicalRecordInput {
                     stable_id: Some(record_id.to_string()),
                     path: record.path,
                     document: record.document,
-                    file_size: 0,
-                    file_mtime: None,
+                    file_size: document_size,
+                    file_mtime: Some(file_modified_at.to_rfc3339_opts(SecondsFormat::Micros, true)),
                 })
                 .map_err(|error| {
                     ApiError::new(
@@ -1149,7 +1153,7 @@ impl HostedProvider {
             if !source_ids.is_empty() {
                 let source_records = sqlx::query(
                     r#"SELECT r.record_id, r.sequence, r.revision, r.content_bytes,
-                              r.payload_ciphertext
+                              r.payload_ciphertext, r.updated_at
                        FROM hosted_provider_records r
                        JOIN hosted_provider_record_projections p
                          ON p.collection_id = r.collection_id
@@ -1198,6 +1202,10 @@ impl HostedProvider {
                         sequence: final_sequence,
                         was_present: true,
                         force_relationship_resolution: true,
+                        file_mtime: Some(
+                            row.get::<DateTime<Utc>, _>("updated_at")
+                                .to_rfc3339_opts(SecondsFormat::Micros, true),
+                        ),
                         record: Some(record),
                     });
                 }
@@ -1238,8 +1246,8 @@ impl HostedProvider {
                     stable_id: Some(change.record_id.to_string()),
                     path: record.path.clone(),
                     document: record.document.clone(),
-                    file_size: 0,
-                    file_mtime: None,
+                    file_size: record.document.len() as u64,
+                    file_mtime: change.file_mtime.clone(),
                 })
                 .map_err(projection_semantic_error)?;
             let structural_digest = decode_sha256(&prepared.structure.structural_digest)?;
@@ -1440,6 +1448,7 @@ async fn insert_active_projection_version(
             "Semantic projection JSON could not decode: {error}"
         ))
     })?;
+    let file_modified_at = projected_file_modified_at(facts)?;
     sqlx::query(
         r#"INSERT INTO hosted_provider_record_projections
              (collection_id, record_id, record_sequence, valid_from_sequence, record_revision,
@@ -1447,8 +1456,8 @@ async fn insert_active_projection_version(
               generation_id, canonical_path, matched_types, file_size_bytes,
               file_modified_at, semantic_complete, resolution_complete,
               semantic_projection, projection_digest, structural_digest, projection_bytes)
-           VALUES ($1, $2, $3, $18, $4, $5, $6, $7, $8, $9, $10, $11, NULL,
-                   $12, $13, $14, $15, $16, $17)"#,
+           VALUES ($1, $2, $3, $19, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                   $13, $14, $15, $16, $17, $18)"#,
     )
     .bind(collection_id)
     .bind(change.record_id)
@@ -1461,6 +1470,7 @@ async fn insert_active_projection_version(
     .bind(&facts.path)
     .bind(&facts.types)
     .bind(to_i64(facts.file.size, "projected file size")?)
+    .bind(file_modified_at)
     .bind(resolution_complete && facts.semantic_complete)
     .bind(resolution_complete)
     .bind(projection_value)
@@ -1706,6 +1716,7 @@ async fn persist_prepared_projection(
     })?;
     let projection_digest = Sha256::digest(canonical_bytes).to_vec();
     let structural_digest = decode_sha256(&prepared.structure.structural_digest)?;
+    let file_modified_at = projected_file_modified_at(&prepared.facts)?;
     sqlx::query(
         r#"INSERT INTO hosted_provider_record_projections
              (collection_id, record_id, record_sequence, valid_from_sequence, record_revision,
@@ -1713,8 +1724,8 @@ async fn persist_prepared_projection(
               generation_id, canonical_path, matched_types, file_size_bytes,
               file_modified_at, semantic_complete, resolution_complete,
               semantic_projection, projection_digest, structural_digest, projection_bytes)
-           VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL,
-                   false, false, $12, $13, $14, $15)"#,
+           VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                   false, false, $13, $14, $15, $16)"#,
     )
     .bind(collection_id)
     .bind(record_id)
@@ -1727,6 +1738,7 @@ async fn persist_prepared_projection(
     .bind(&prepared.facts.path)
     .bind(&prepared.facts.types)
     .bind(to_i64(prepared.facts.file.size, "projected file size")?)
+    .bind(file_modified_at)
     .bind(projection_value)
     .bind(projection_digest)
     .bind(structural_digest)
@@ -2052,6 +2064,19 @@ fn decode_sha256(value: &str) -> ApiResult<Vec<u8>> {
                 .map_err(|_| ApiError::internal("Semantic structural digest is not hexadecimal."))
         })
         .collect()
+}
+
+fn projected_file_modified_at(
+    facts: &mdbase::runtime::SemanticProjectionFacts,
+) -> ApiResult<Option<DateTime<Utc>>> {
+    facts
+        .file
+        .mtime
+        .as_deref()
+        .map(DateTime::parse_from_rfc3339)
+        .transpose()
+        .map_err(|_| ApiError::internal("Projected file mtime is not valid RFC 3339."))
+        .map(|value| value.map(|value| value.with_timezone(&Utc)))
 }
 
 fn projection_lease_unavailable() -> ApiError {

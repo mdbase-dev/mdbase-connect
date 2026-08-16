@@ -2,6 +2,7 @@
 
 mod support;
 
+use chrono::{DateTime, SecondsFormat, Utc};
 use mdbase_connect_hosted_provider::{RegisterReplica, ReplicaPurpose};
 use mdbase_connect_protocol::{
     SyncMutation, SyncMutationOperation, SyncMutationReceipt, SyncReplicaMode,
@@ -161,6 +162,31 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
     assert_eq!(initial_execution_model, "legacy");
 
     let first_generation = complete_generation(&fixture).await;
+    let projected_file_fact = sqlx::query(
+        r#"SELECT p.file_modified_at,
+                  p.semantic_projection #>> '{file,mtime}' AS projection_mtime,
+                  v.created_at AS version_created_at
+           FROM hosted_provider_record_projections p
+           JOIN hosted_provider_record_versions v
+             ON v.collection_id = p.collection_id
+            AND v.record_id = p.record_id
+            AND v.sequence = p.record_sequence
+           WHERE p.collection_id = $1 AND p.generation_id = $2
+             AND p.record_id = $3 AND p.valid_to_sequence IS NULL"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(first_generation)
+    .bind(source_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .expect("projection is revision-bound to the authoritative file time");
+    let file_modified_at: DateTime<Utc> = projected_file_fact.get("file_modified_at");
+    let version_created_at: DateTime<Utc> = projected_file_fact.get("version_created_at");
+    assert_eq!(file_modified_at, version_created_at);
+    assert_eq!(
+        projected_file_fact.get::<String, _>("projection_mtime"),
+        version_created_at.to_rfc3339_opts(SecondsFormat::Micros, true)
+    );
     let relationship_before = sqlx::query(
         r#"SELECT valid_from_sequence, target_record_id, resolution_state
            FROM hosted_provider_record_relationships
@@ -1068,6 +1094,12 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
         .as_str()
         .unwrap()
         .contains("app-renamed"));
+    DateTime::parse_from_rfc3339(
+        exact_reference["result"]["file"]["mtime"]
+            .as_str()
+            .expect("exact hosted reads expose revision-scoped file mtime"),
+    )
+    .expect("hosted file mtime is RFC 3339");
 
     let deleted = fixture
         .provider

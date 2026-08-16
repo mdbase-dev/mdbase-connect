@@ -327,7 +327,7 @@ pub(super) async fn persist_live_record(
     collection_id: Uuid,
     sequence: u64,
     record: &SyncRecord,
-) -> ApiResult<()> {
+) -> ApiResult<DateTime<Utc>> {
     let payload = record.clone();
     let current_ciphertext = crypto.encrypt_json(
         data_key,
@@ -340,10 +340,12 @@ pub(super) async fn persist_live_record(
         &record_version_aad(collection_id, record.record_id, sequence),
     )?;
     let sequence_number = to_i64(sequence, "record sequence")?;
+    let modified_at = Utc::now();
     sqlx::query(
         r#"INSERT INTO hosted_provider_records
-             (collection_id, record_id, path_token, revision, types, content_bytes, payload_ciphertext, sequence)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             (collection_id, record_id, path_token, revision, types, content_bytes,
+              payload_ciphertext, sequence, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
            ON CONFLICT (collection_id, record_id) DO UPDATE SET
              path_token = EXCLUDED.path_token,
              revision = EXCLUDED.revision,
@@ -351,7 +353,7 @@ pub(super) async fn persist_live_record(
              content_bytes = EXCLUDED.content_bytes,
              payload_ciphertext = EXCLUDED.payload_ciphertext,
              sequence = EXCLUDED.sequence,
-             updated_at = now()"#,
+             updated_at = EXCLUDED.updated_at"#,
     )
     .bind(collection_id)
     .bind(record.record_id)
@@ -361,12 +363,14 @@ pub(super) async fn persist_live_record(
     .bind(to_i64(record.document.len() as u64, "document size")?)
     .bind(current_ciphertext)
     .bind(sequence_number)
+    .bind(modified_at)
     .execute(&mut **transaction)
     .await?;
     sqlx::query(
         r#"INSERT INTO hosted_provider_record_versions
-             (collection_id, record_id, sequence, revision, types, payload_ciphertext, deleted)
-           VALUES ($1, $2, $3, $4, $5, $6, false)"#,
+             (collection_id, record_id, sequence, revision, types, payload_ciphertext,
+              deleted, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, false, $7)"#,
     )
     .bind(collection_id)
     .bind(record.record_id)
@@ -374,9 +378,10 @@ pub(super) async fn persist_live_record(
     .bind(&record.revision)
     .bind(&record.types)
     .bind(version_ciphertext)
+    .bind(modified_at)
     .execute(&mut **transaction)
     .await?;
-    Ok(())
+    Ok(modified_at)
 }
 
 pub(super) async fn persist_deleted_record(

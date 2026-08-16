@@ -115,7 +115,7 @@ impl HostedProvider {
             });
         }
         let path = path.expect("non-collection validation path was checked above");
-        let Some((target, _)) = load_direct_record(
+        let Some((target, _, target_modified_at)) = load_direct_record(
             &mut transaction,
             &self.crypto,
             &data_key,
@@ -136,7 +136,7 @@ impl HostedProvider {
                 "The hosted encrypted record path does not match its lookup token.",
             ));
         }
-        let target = canonical_validation_record(target);
+        let target = canonical_validation_record(target, target_modified_at);
         let plan = catalog
             .plan_hosted_validation(input, &target)
             .map_err(|error| ApiError::bad_request(error.code, error.message))?;
@@ -279,7 +279,7 @@ impl HostedProvider {
                             fallback_bytes,
                         ));
                     }
-                    let canonical = canonical_validation_record(loaded.0);
+                    let canonical = canonical_validation_record(loaded.0, loaded.2);
                     let prepared = catalog.project_record(&canonical).map_err(|error| {
                         ApiError::internal(format!(
                             "Canonical validation fallback failed ({}): {}",
@@ -303,8 +303,7 @@ impl HostedProvider {
                     Some(record) => record,
                     None => {
                         exact_documents = exact_documents.saturating_add(1);
-                        canonical_validation_record(
-                            load_direct_record(
+                        let loaded = load_direct_record(
                                 &mut transaction,
                                 &self.crypto,
                                 &data_key,
@@ -317,9 +316,8 @@ impl HostedProvider {
                                     "hosted_validation_snapshot_changed",
                                     "A validation candidate disappeared from its repeatable-read snapshot.",
                                 )
-                            })?
-                            .0,
-                        )
+                            })?;
+                        canonical_validation_record(loaded.0, loaded.2)
                     }
                 };
                 context_bytes = context_bytes.saturating_add(canonical.document.len() as u64);
@@ -365,13 +363,17 @@ impl HostedProvider {
     }
 }
 
-fn canonical_validation_record(record: PersistedRecord) -> mdbase::runtime::CanonicalRecordInput {
+fn canonical_validation_record(
+    record: PersistedRecord,
+    modified_at: DateTime<Utc>,
+) -> mdbase::runtime::CanonicalRecordInput {
+    let document_size = record.document.len() as u64;
     mdbase::runtime::CanonicalRecordInput {
         stable_id: Some(record.record_id.to_string()),
         path: record.path,
-        file_size: record.document.len() as u64,
+        file_size: document_size,
         document: record.document,
-        file_mtime: None,
+        file_mtime: Some(modified_at.to_rfc3339_opts(SecondsFormat::Micros, true)),
     }
 }
 

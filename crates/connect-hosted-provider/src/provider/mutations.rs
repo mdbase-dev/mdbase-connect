@@ -174,7 +174,7 @@ impl HostedProvider {
             DirectRecordIdentity::StableId(mutation.record_id),
         )
         .await?
-        .map(|(record, _)| record);
+        .map(|(record, _, _)| record);
         let (execution, before_records) = execute_direct_semantic(
             &mut transaction,
             self,
@@ -349,7 +349,7 @@ impl HostedProvider {
             DirectRecordIdentity::StableId(mutation.record_id),
         )
         .await?
-        .map_or((None, 0), |(record, bytes)| (Some(record), bytes));
+        .map_or((None, 0), |(record, bytes, _)| (Some(record), bytes));
         let semantic_requested = execution.semantic.is_some();
 
         if mutation.operation == SyncMutationOperation::Put
@@ -625,8 +625,8 @@ impl HostedProvider {
             let before = before_records.get(&record_id).cloned();
             let notification_event = notification_runtime_active
                 .then(|| application_change(before.as_ref(), after.as_ref()));
-            let revision = if let Some(record) = &after {
-                persist_live_record(
+            let (revision, file_mtime) = if let Some(record) = &after {
+                let modified_at = persist_live_record(
                     &mut transaction,
                     &self.crypto,
                     &data_key,
@@ -638,7 +638,10 @@ impl HostedProvider {
                 if record_id == execution.primary_record_id {
                     primary = Some(record.clone());
                 }
-                record.revision.clone()
+                (
+                    record.revision.clone(),
+                    Some(modified_at.to_rfc3339_opts(SecondsFormat::Micros, true)),
+                )
             } else {
                 let before = before.as_ref().ok_or_else(|| {
                     ApiError::internal("The hosted write set deleted an unknown record.")
@@ -646,7 +649,7 @@ impl HostedProvider {
                 let revision = format!("hosted:1:{head}:tombstone");
                 persist_deleted_record(&mut transaction, collection_id, head, before, &revision)
                     .await?;
-                revision
+                (revision, None)
             };
             projection_changes.push(ActiveProjectionChange {
                 record_id,
@@ -654,6 +657,7 @@ impl HostedProvider {
                 sequence: head,
                 was_present: before.is_some(),
                 force_relationship_resolution: false,
+                file_mtime,
                 record: after.clone(),
             });
             let before_ciphertext = before
@@ -882,7 +886,7 @@ async fn execute_direct_semantic(
             {
                 continue;
             }
-            let (record, _) = load_direct_record(
+            let (record, _, _) = load_direct_record(
                 transaction,
                 &provider.crypto,
                 data_key,

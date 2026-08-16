@@ -1164,7 +1164,7 @@ async fn load_exact_context_by_path(
         DirectRecordIdentity::PathToken(path_token(data_key, path)),
     )
     .await?;
-    let Some((record, _)) = record else {
+    let Some((record, _, modified_at)) = record else {
         return Ok(None);
     };
     if record.path != path {
@@ -1177,7 +1177,7 @@ async fn load_exact_context_by_path(
         path: record.path,
         file_size: record.document.len() as u64,
         document: record.document,
-        file_mtime: None,
+        file_mtime: Some(modified_at.to_rfc3339_opts(SecondsFormat::Micros, true)),
     }))
 }
 
@@ -3015,7 +3015,8 @@ async fn load_exact_query_records(
         return Ok(HashMap::new());
     }
     let rows = sqlx::query(
-        r#"SELECT DISTINCT ON (record_id) record_id, sequence, payload_ciphertext, deleted
+        r#"SELECT DISTINCT ON (record_id) record_id, sequence, payload_ciphertext,
+                  deleted, created_at
            FROM hosted_provider_record_versions
            WHERE collection_id = $1 AND record_id = ANY($2::uuid[]) AND sequence <= $3
            ORDER BY record_id, sequence DESC"#,
@@ -3045,14 +3046,16 @@ async fn load_exact_query_records(
                 "An exact query record does not match its stored identity.",
             ));
         }
+        let modified_at: DateTime<Utc> = row.get("created_at");
+        let document_size = record.document.len() as u64;
         records.insert(
             record_id,
             mdbase::runtime::CanonicalRecordInput {
                 stable_id: Some(record_id.to_string()),
                 path: record.path,
-                file_size: record.document.len() as u64,
+                file_size: document_size,
                 document: record.document,
-                file_mtime: None,
+                file_mtime: Some(modified_at.to_rfc3339_opts(SecondsFormat::Micros, true)),
             },
         );
     }

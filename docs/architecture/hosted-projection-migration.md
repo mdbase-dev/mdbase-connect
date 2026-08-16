@@ -78,6 +78,14 @@ Markdown `.md` path alternative is always present in addition to configured extr
 record extensions. A format-2 generation must be rebuilt; it cannot be relabelled,
 because extensionless wikilinks may have persisted an incorrect `missing` outcome.
 
+Projection format 4 makes hosted file modification time a required
+revision-scoped fact. The authoritative timestamp is the exact record-version
+commit time and is copied into both the semantic projection and the indexed
+`file_modified_at` column. Format-3 rows may contain a null time, so they must be
+rebuilt and cannot be relabelled as format 4. The JSON schema identifier remains v3
+because this tightens the binding of an existing nullable field rather than adding
+a new projection member.
+
 `hosted_provider_record_resolution_keys` stores the complete closed lookup-key set
 emitted by mdbase-rs for each record version: exact path plus normalized basename,
 configured ID, and title keys. Connect performs exact indexed lookup only; it does
