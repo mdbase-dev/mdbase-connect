@@ -86,17 +86,22 @@ counting, and count grouping into PostgreSQL. It does not use the prototype's
 repeat-to-completion top-K operator. Page bodies are decrypted only after the
 bounded page of identities has been selected.
 
-Two ignored PostgreSQL missions were run after removing redundant reconstruction
-of the live-version set from each validation/count/page pass:
+Two ignored PostgreSQL missions were rerun at Connect `5caee699` after removing
+redundant reconstruction of the live-version set and adding fixed-width
+expected/observed row-digest verification before candidate selection:
 
 | Mission | Exact filtered page | Count grouping | Setup-inclusive test |
 | --- | ---: | ---: | ---: |
-| 100,001 decoys | 1,162 ms | 1,175 ms | 19.27 s |
-| 230,128 decoys | 2,079 ms | 2,375 ms | 48.31 s |
+| 100,001 decoys | 1,956 ms | 1,615 ms | 50.97 s |
+| 230,128 decoys | 3,052 ms | 4,633 ms | 144.26 s |
 
 Both missions passed canonical output, orphan exclusion, malformed-projection
 fail-closed fallback, and the 15-second operation time budget in an unoptimized
-Rust test build. The selected result cardinality was two. These single local
-observations prove bounded production execution at the target sizes; they are not
-percentile latency evidence. The machine-readable record is
+Rust test build. The selected result cardinality was two. The setup duration now
+also includes trigger-side digest construction for every directly inserted
+synthetic projection; it is conservative write-pressure evidence and is not a
+production rebuild or ciphertext import measurement. Read-time SQL compares two
+stored 32-byte digests and does not detoast/re-hash semantic JSON. These single
+local observations prove bounded production execution at the target sizes; they
+are not percentile latency evidence. The machine-readable record is
 [`raw/scalar-filter-group-timings.json`](./raw/scalar-filter-group-timings.json).

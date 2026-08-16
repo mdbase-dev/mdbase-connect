@@ -1,6 +1,6 @@
 {
-  "captured_at": "2026-08-16T21:43:52+10:00",
-  "connect_revision": "2fd66c08ee0e8b55750dffe9949f51c26bb82420",
+  "captured_at": "2026-08-16T22:49:48+10:00",
+  "connect_revision": "5caee699c6dc0993a359b0239c2523f1a4363920",
   "mdbase_rs_revision": "5f2e1101ae0da6340d5315cd76ad36f424ee360f",
   "postgresql": {
     "version": "18.4",
@@ -14,17 +14,17 @@
     {
       "test": "candidate_b_exact_projected_filter_and_group_100k",
       "decoy_rows": 100001,
-      "exact_filter_page_ms": 1162,
-      "group_count_ms": 1175,
-      "setup_inclusive_test_ms": 19270,
+      "exact_filter_page_ms": 1956,
+      "group_count_ms": 1615,
+      "setup_inclusive_test_ms": 50970,
       "result": "pass"
     },
     {
       "test": "candidate_b_exact_projected_filter_and_group_230k",
       "decoy_rows": 230128,
-      "exact_filter_page_ms": 2079,
-      "group_count_ms": 2375,
-      "setup_inclusive_test_ms": 48310,
+      "exact_filter_page_ms": 3052,
+      "group_count_ms": 4633,
+      "setup_inclusive_test_ms": 144260,
       "result": "pass"
     }
   ],
@@ -34,12 +34,15 @@
     "malformed projected scalar values trigger canonical fail-closed evaluation",
     "exact body output decrypts only the selected page",
     "candidate-matching orphan projections are excluded",
+    "expected/observed row-binding digests are compared before candidate selection",
+    "valid JSON, path, type and cross-record projection substitution enters exact fail-closed fallback",
+    "contract-scoped candidate-row overflow reports observed = limit + 1",
     "typed wall-time budget remains 15000 ms per operation"
   ],
   "index_policy": "B-no-GIN; mandatory identity/path/cursor indexes only; no general JSONB GIN or automatic field indexes",
   "limitations": [
     "Single observations are correctness and scale evidence, not latency distributions.",
-    "The fixture duplicates projection rows directly to isolate executor scaling; it is not an import, write-pressure, or ciphertext-throughput measurement.",
+    "The fixture duplicates projection rows directly to isolate executor scaling; its setup-inclusive duration includes the per-row observed-digest trigger and is conservative write-pressure evidence, not an import or ciphertext-throughput measurement.",
     "The selected predicate matches two rows, so the mission does not establish a high-cardinality result-transfer entitlement."
   ]
 }
