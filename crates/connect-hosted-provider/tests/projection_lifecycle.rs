@@ -1526,6 +1526,94 @@ views:
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_projection_bytes_are_preflighted_before_json_transfer() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let replica_id: Uuid = replica.get("id");
+    let scope_epoch = u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap();
+    let mut oversized_projection_ids = Vec::new();
+    for index in 0..65_u64 {
+        let record_id = Uuid::now_v7();
+        put(
+            &fixture,
+            replica_id,
+            scope_epoch,
+            record_id,
+            None,
+            &format!("budget/record-{index:03}.md"),
+            &format!("---\ntitle: Budget {index}\n---\nBounded projection preflight.\n"),
+        )
+        .await;
+        oversized_projection_ids.push(record_id);
+    }
+    let generation_id = complete_generation(&fixture).await;
+    sqlx::query(
+        r#"UPDATE hosted_provider_record_projections
+           SET semantic_projection = '{}'::jsonb, projection_bytes = 262144
+           WHERE collection_id = $1 AND generation_id = $2
+             AND record_id = ANY($3::uuid[]) AND valid_to_sequence IS NULL"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .bind(&oversized_projection_ids)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+
+    let token = format!("candidate-b-budget-reader-{}", Uuid::new_v4());
+    fixture
+        .provider
+        .register_replica(
+            fixture.collection_id,
+            RegisterReplica {
+                replica_id: Uuid::now_v7(),
+                name: "Candidate B budget reader".to_string(),
+                purpose: ReplicaPurpose::Application,
+                mode: SyncReplicaMode::ReadOnly,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
+                allowed_operations: vec!["query".to_string()],
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: Vec::new(),
+                file_capability: None,
+                allowed_origin: None,
+                proof_public_key: None,
+                grant_id: Some(Uuid::now_v7()),
+                application_declaration_id: None,
+                application_declaration_digest: None,
+                token: token.clone(),
+                token_ttl_seconds: None,
+            },
+        )
+        .await
+        .unwrap();
+    let error = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "query",
+            Uuid::new_v4(),
+            json!({"limit": 100, "order_by": [{"field": "file.path"}]}),
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, "hosted_byte_budget_exceeded");
+    assert_eq!(error.details.as_ref().unwrap()["budget"], "candidate_bytes");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
 async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");

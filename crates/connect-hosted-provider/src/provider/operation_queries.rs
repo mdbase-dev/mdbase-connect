@@ -4,6 +4,7 @@ use super::*;
 const QUERY_CURSOR_IDLE_SECONDS: i64 = 60;
 const QUERY_CURSOR_HARD_SECONDS: i64 = 300;
 const MAX_LIVE_QUERY_CURSORS_PER_REPLICA: i64 = 64;
+const MAX_HOSTED_BASE_RELATIONSHIP_PAIRS: u64 = 65_536;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HostedQueryRequestKind {
@@ -49,6 +50,12 @@ struct ProjectedQueryRow {
     record_id: Uuid,
     canonical_path: String,
     projection: mdbase::runtime::SemanticProjection,
+}
+
+struct ProjectedQueryMetadata {
+    record_id: Uuid,
+    canonical_path: String,
+    projection_bytes: u64,
 }
 
 struct ExecutedQueryPage {
@@ -1886,7 +1893,8 @@ async fn load_base_projected_snapshot(
     state: &HostedQueryState,
     plan: &mdbase::runtime::HostedBasePlan,
 ) -> ApiResult<BaseExecutionSnapshot> {
-    let rows = load_base_candidate_projections(transaction, collection_id, state, plan).await?;
+    let (rows, candidate_projection_bytes) =
+        load_base_candidate_projections(transaction, collection_id, state, plan).await?;
     let candidate_ids = rows.iter().map(|row| row.record_id).collect::<Vec<_>>();
     let mut adjacency = HashMap::<Uuid, BTreeSet<Uuid>>::new();
     let relationship_rows = if plan.requirements.backlinks
@@ -1900,7 +1908,7 @@ async fn load_base_projected_snapshot(
                  WHERE collection_id = $1 AND sequence <= $3
                  ORDER BY record_id, sequence DESC
                )
-               SELECT relationship.source_record_id, relationship.target_record_id
+               SELECT DISTINCT relationship.source_record_id, relationship.target_record_id
                FROM hosted_provider_record_relationships relationship
                JOIN live source ON source.record_id = relationship.source_record_id
                  AND NOT source.deleted
@@ -1918,8 +1926,7 @@ async fn load_base_projected_snapshot(
                  AND (relationship.source_record_id = ANY($4::uuid[])
                       OR relationship.target_record_id = ANY($4::uuid[]))
                ORDER BY relationship.source_record_id,
-                        relationship.target_record_id,
-                        relationship.occurrence_key
+                        relationship.target_record_id
                LIMIT $8"#,
         )
         .bind(collection_id)
@@ -1930,17 +1937,27 @@ async fn load_base_projected_snapshot(
         .bind(i64::from(state.projection_format_version))
         .bind(&state.semantic_engine_version)
         .bind(to_i64(
-            state.plan.budgets.max_operator_steps.saturating_add(1),
+            state
+                .plan
+                .budgets
+                .max_operator_steps
+                .min(MAX_HOSTED_BASE_RELATIONSHIP_PAIRS)
+                .saturating_add(1),
             "relationship operator budget",
         )?)
         .fetch_all(&mut **transaction)
         .await?;
-        if relationship_rows.len() as u64 > state.plan.budgets.max_operator_steps {
+        let relationship_pair_budget = state
+            .plan
+            .budgets
+            .max_operator_steps
+            .min(MAX_HOSTED_BASE_RELATIONSHIP_PAIRS);
+        if relationship_rows.len() as u64 > relationship_pair_budget {
             return Err(query_budget_error(
                 "hosted_operator_budget_exceeded",
-                "The Obsidian Base exceeded its relationship-edge budget.",
-                "relationship_edges",
-                state.plan.budgets.max_operator_steps,
+                "The Obsidian Base exceeded its relationship-pair budget.",
+                "relationship_pairs",
+                relationship_pair_budget,
                 relationship_rows.len() as u64,
             ));
         }
@@ -1965,14 +1982,36 @@ async fn load_base_projected_snapshot(
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect::<Vec<_>>();
-    let related =
-        load_base_related_projections(transaction, collection_id, state, &related_ids).await?;
+    let (related, related_projection_bytes) = load_base_related_projections(
+        transaction,
+        collection_id,
+        state,
+        &related_ids,
+        state
+            .plan
+            .budgets
+            .max_candidate_bytes
+            .saturating_sub(candidate_projection_bytes),
+    )
+    .await?;
     let projections = rows
         .iter()
         .map(|row| (row.record_id, row.projection.clone()))
         .chain(related)
         .collect::<HashMap<_, _>>();
-    let projection_bytes = serialized_projection_bytes(&projections)?;
+    let stored_projection_bytes =
+        candidate_projection_bytes.saturating_add(related_projection_bytes);
+    let serialized_bytes = serialized_projection_bytes(&projections)?;
+    if serialized_bytes > state.plan.budgets.max_candidate_bytes {
+        return Err(query_budget_error(
+            "hosted_byte_budget_exceeded",
+            "The Obsidian Base exceeded its serialized projection-byte budget.",
+            "candidate_bytes",
+            state.plan.budgets.max_candidate_bytes,
+            serialized_bytes,
+        ));
+    }
+    let projection_bytes = stored_projection_bytes.max(serialized_bytes);
     Ok(BaseExecutionSnapshot {
         rows,
         projections,
@@ -2005,7 +2044,8 @@ async fn load_base_hybrid_snapshot(
         .push_bind(to_i64(state.snapshot_head, "query snapshot head")?)
         .push(
             " ORDER BY record_id, sequence DESC), joined AS (SELECT l.record_id, l.deleted, \
-             p.matched_types, p.canonical_path, p.semantic_projection, p.record_id IS NOT NULL \
+             p.matched_types, p.canonical_path, p.projection_bytes,
+             p.semantic_projection, p.record_id IS NOT NULL \
              AND p.record_sequence = l.sequence AND p.record_revision = l.revision \
              AND p.catalog_revision = ",
         )
@@ -2026,9 +2066,10 @@ async fn load_base_hybrid_snapshot(
         .push(" AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > ")
         .push_bind(to_i64(state.snapshot_head, "query snapshot head")?)
         .push(
-            ")) SELECT record_id, CASE WHEN projection_current THEN canonical_path END AS \
-             canonical_path, CASE WHEN projection_current THEN semantic_projection END AS \
-             semantic_projection FROM joined WHERE NOT deleted AND (NOT projection_current OR \
+            ")) SELECT record_id, projection_current,
+             CASE WHEN projection_current THEN canonical_path END AS canonical_path,
+             CASE WHEN projection_current THEN projection_bytes ELSE 0 END AS projection_bytes
+             FROM joined WHERE NOT deleted AND (NOT projection_current OR \
              ((cardinality(",
         )
         .push_bind(&plan.allowed_types)
@@ -2058,20 +2099,43 @@ async fn load_base_hybrid_snapshot(
         ));
     }
 
+    let current_projection_bytes = rows.iter().try_fold(0_u64, |total, row| {
+        Ok::<_, ApiError>(total.saturating_add(number(
+            i64::from(row.get::<i32, _>("projection_bytes")),
+            "candidate projection bytes",
+        )?))
+    })?;
+    if current_projection_bytes > state.plan.budgets.max_candidate_bytes {
+        let observed = scoped_budget_observed(
+            &plan.allowed_types,
+            state.plan.budgets.max_candidate_bytes,
+            current_projection_bytes,
+        );
+        return Err(query_budget_error(
+            "hosted_byte_budget_exceeded",
+            "The stale Obsidian Base union exceeded its candidate-byte budget.",
+            "candidate_bytes",
+            state.plan.budgets.max_candidate_bytes,
+            observed,
+        ));
+    }
+    let current_ids = rows
+        .iter()
+        .filter(|row| row.get::<bool, _>("projection_current"))
+        .map(|row| row.get::<Uuid, _>("record_id"))
+        .collect::<Vec<_>>();
+    let mut current_projections =
+        load_current_projection_rows_by_ids(transaction, collection_id, state, &current_ids)
+            .await?;
+
     let mut candidates = Vec::with_capacity(rows.len());
     let mut projections = HashMap::with_capacity(rows.len());
     let mut exact_ids = Vec::new();
     for row in rows {
         let record_id: Uuid = row.get("record_id");
-        match row.get::<Option<Value>, _>("semantic_projection") {
-            Some(value) => {
-                let projection: mdbase::runtime::SemanticProjection = serde_json::from_value(value)
-                    .map_err(|error| {
-                        ApiError::conflict(
-                            "hosted_projection_inconsistent",
-                            format!("A current Obsidian Base projection could not decode: {error}"),
-                        )
-                    })?;
+        match current_projections.remove(&record_id) {
+            Some(projected) => {
+                let projection = projected.projection;
                 let canonical_path =
                     row.get::<Option<String>, _>("canonical_path")
                         .ok_or_else(|| {
@@ -2382,12 +2446,76 @@ fn serialized_projection_bytes(
     })
 }
 
+async fn load_current_projection_rows_by_ids(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    state: &HostedQueryState,
+    record_ids: &[Uuid],
+) -> ApiResult<HashMap<Uuid, ProjectedQueryRow>> {
+    if record_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = sqlx::query(
+        r#"SELECT record_id, canonical_path, semantic_projection
+           FROM hosted_provider_record_projections
+           WHERE collection_id = $1 AND generation_id = $2
+             AND record_id = ANY($3::uuid[])
+             AND valid_from_sequence <= $4
+             AND (valid_to_sequence IS NULL OR valid_to_sequence > $4)
+             AND catalog_revision = $5 AND projection_format_version = $6
+             AND semantic_engine_version = $7
+             AND semantic_complete AND resolution_complete
+           ORDER BY record_id"#,
+    )
+    .bind(collection_id)
+    .bind(state.generation_id)
+    .bind(record_ids)
+    .bind(to_i64(state.snapshot_head, "query snapshot head")?)
+    .bind(&state.catalog_revision)
+    .bind(i64::from(state.projection_format_version))
+    .bind(&state.semantic_engine_version)
+    .fetch_all(&mut **transaction)
+    .await?;
+    if rows.len() != record_ids.len() {
+        return Err(ApiError::conflict(
+            "hosted_projection_inconsistent",
+            "A preflighted current projection changed within its query snapshot.",
+        ));
+    }
+    rows.into_iter()
+        .map(|row| {
+            let record_id: Uuid = row.get("record_id");
+            let projection =
+                serde_json::from_value(row.get("semantic_projection")).map_err(|error| {
+                    ApiError::conflict(
+                        "hosted_projection_inconsistent",
+                        format!("A current semantic projection could not decode: {error}"),
+                    )
+                })?;
+            Ok((
+                record_id,
+                ProjectedQueryRow {
+                    record_id,
+                    canonical_path: row.get("canonical_path"),
+                    projection,
+                },
+            ))
+        })
+        .collect()
+}
+
+fn projected_metadata_bytes(rows: &[ProjectedQueryMetadata]) -> u64 {
+    rows.iter().fold(0_u64, |total, row| {
+        total.saturating_add(row.projection_bytes)
+    })
+}
+
 async fn load_base_candidate_projections(
     transaction: &mut Transaction<'_, Postgres>,
     collection_id: Uuid,
     state: &HostedQueryState,
     plan: &mdbase::runtime::HostedBasePlan,
-) -> ApiResult<Vec<ProjectedQueryRow>> {
+) -> ApiResult<(Vec<ProjectedQueryRow>, u64)> {
     let mut query = QueryBuilder::<Postgres>::new(
         "WITH live AS (\
            SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted \
@@ -2399,7 +2527,7 @@ async fn load_base_candidate_projections(
         .push_bind(to_i64(state.snapshot_head, "query snapshot head")?)
         .push(
             " ORDER BY record_id, sequence DESC\
-         ) SELECT p.record_id, p.canonical_path, p.semantic_projection \
+         ) SELECT p.record_id, p.canonical_path, p.projection_bytes \
          FROM hosted_provider_record_projections p JOIN live l \
            ON l.record_id = p.record_id AND NOT l.deleted \
           AND l.sequence = p.record_sequence AND l.revision = p.record_revision \
@@ -2434,22 +2562,60 @@ async fn load_base_candidate_projections(
             "candidate row budget",
         )?);
     let rows = query.build().fetch_all(&mut **transaction).await?;
-    rows.into_iter()
+    if rows.len() as u64 > state.plan.budgets.max_candidate_rows {
+        return Err(query_budget_error(
+            "hosted_scan_budget_exceeded",
+            "The Obsidian Base exceeded its candidate-row budget.",
+            "candidate_rows",
+            state.plan.budgets.max_candidate_rows,
+            rows.len() as u64,
+        ));
+    }
+    let metadata = rows
+        .into_iter()
         .map(|row| {
-            Ok(ProjectedQueryRow {
+            Ok(ProjectedQueryMetadata {
                 record_id: row.get("record_id"),
                 canonical_path: row.get("canonical_path"),
-                projection: serde_json::from_value(row.get("semantic_projection")).map_err(
-                    |error| {
-                        ApiError::conflict(
-                            "hosted_projection_inconsistent",
-                            format!("An Obsidian Base projection could not decode: {error}"),
-                        )
-                    },
+                projection_bytes: number(
+                    i64::from(row.get::<i32, _>("projection_bytes")),
+                    "candidate projection bytes",
                 )?,
             })
         })
-        .collect()
+        .collect::<ApiResult<Vec<_>>>()?;
+    let projection_bytes = projected_metadata_bytes(&metadata);
+    if projection_bytes > state.plan.budgets.max_candidate_bytes {
+        return Err(query_budget_error(
+            "hosted_byte_budget_exceeded",
+            "The Obsidian Base exceeded its transferred projection-byte budget.",
+            "candidate_bytes",
+            state.plan.budgets.max_candidate_bytes,
+            projection_bytes,
+        ));
+    }
+    let record_ids = metadata.iter().map(|row| row.record_id).collect::<Vec<_>>();
+    let mut loaded =
+        load_current_projection_rows_by_ids(transaction, collection_id, state, &record_ids).await?;
+    let rows = metadata
+        .into_iter()
+        .map(|metadata| {
+            let row = loaded.remove(&metadata.record_id).ok_or_else(|| {
+                ApiError::conflict(
+                    "hosted_projection_inconsistent",
+                    "A preflighted Base projection disappeared from its query snapshot.",
+                )
+            })?;
+            if row.canonical_path != metadata.canonical_path {
+                return Err(ApiError::conflict(
+                    "hosted_projection_inconsistent",
+                    "A preflighted Base projection changed path within its query snapshot.",
+                ));
+            }
+            Ok(row)
+        })
+        .collect::<ApiResult<Vec<_>>>()?;
+    Ok((rows, projection_bytes))
 }
 
 async fn load_base_related_projections(
@@ -2457,9 +2623,19 @@ async fn load_base_related_projections(
     collection_id: Uuid,
     state: &HostedQueryState,
     record_ids: &[Uuid],
-) -> ApiResult<Vec<(Uuid, mdbase::runtime::SemanticProjection)>> {
+    remaining_projection_bytes: u64,
+) -> ApiResult<(Vec<(Uuid, mdbase::runtime::SemanticProjection)>, u64)> {
     if record_ids.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), 0));
+    }
+    if record_ids.len() > mdbase::runtime::MAX_HOSTED_BASE_RELATED_RECORDS {
+        return Err(query_budget_error(
+            "hosted_base_relationship_budget_exceeded",
+            "The Obsidian Base exceeded its related-record budget.",
+            "related_records",
+            mdbase::runtime::MAX_HOSTED_BASE_RELATED_RECORDS as u64,
+            record_ids.len() as u64,
+        ));
     }
     let rows = sqlx::query(
         r#"WITH live AS (
@@ -2468,7 +2644,7 @@ async fn load_base_related_projections(
              WHERE collection_id = $1 AND sequence <= $4
              ORDER BY record_id, sequence DESC
            )
-           SELECT p.record_id, p.semantic_projection
+           SELECT p.record_id, p.canonical_path, p.projection_bytes
            FROM hosted_provider_record_projections p
            JOIN live l ON l.record_id = p.record_id AND NOT l.deleted
              AND l.sequence = p.record_sequence AND l.revision = p.record_revision
@@ -2490,19 +2666,55 @@ async fn load_base_related_projections(
     .bind(&state.semantic_engine_version)
     .fetch_all(&mut **transaction)
     .await?;
-    rows.into_iter()
+    if rows.len() != record_ids.len() {
+        return Err(ApiError::conflict(
+            "hosted_projection_inconsistent",
+            "A related Base projection is absent or stale at the query snapshot.",
+        ));
+    }
+    let metadata = rows
+        .into_iter()
         .map(|row| {
-            let record_id = row.get("record_id");
-            let projection =
-                serde_json::from_value(row.get("semantic_projection")).map_err(|error| {
-                    ApiError::conflict(
-                        "hosted_projection_inconsistent",
-                        format!("A related Obsidian Base projection could not decode: {error}"),
-                    )
-                })?;
-            Ok((record_id, projection))
+            Ok(ProjectedQueryMetadata {
+                record_id: row.get("record_id"),
+                canonical_path: row.get("canonical_path"),
+                projection_bytes: number(
+                    i64::from(row.get::<i32, _>("projection_bytes")),
+                    "related projection bytes",
+                )?,
+            })
         })
-        .collect()
+        .collect::<ApiResult<Vec<_>>>()?;
+    let projection_bytes = projected_metadata_bytes(&metadata);
+    if projection_bytes > remaining_projection_bytes {
+        return Err(query_budget_error(
+            "hosted_byte_budget_exceeded",
+            "The Obsidian Base exceeded its transferred projection-byte budget.",
+            "candidate_bytes",
+            state.plan.budgets.max_candidate_bytes,
+            state
+                .plan
+                .budgets
+                .max_candidate_bytes
+                .saturating_sub(remaining_projection_bytes)
+                .saturating_add(projection_bytes),
+        ));
+    }
+    let mut loaded =
+        load_current_projection_rows_by_ids(transaction, collection_id, state, record_ids).await?;
+    let projections = metadata
+        .into_iter()
+        .map(|metadata| {
+            let row = loaded.remove(&metadata.record_id).ok_or_else(|| {
+                ApiError::conflict(
+                    "hosted_projection_inconsistent",
+                    "A preflighted related projection disappeared from its query snapshot.",
+                )
+            })?;
+            Ok((metadata.record_id, row.projection))
+        })
+        .collect::<ApiResult<Vec<_>>>()?;
+    Ok((projections, projection_bytes))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2526,7 +2738,8 @@ async fn execute_bounded_residual_page(
         .push_bind(to_i64(state.snapshot_head, "query snapshot head")?)
         .push(
             " ORDER BY record_id, sequence DESC), joined AS (SELECT l.record_id, l.deleted, \
-               p.matched_types, p.canonical_path, p.semantic_projection, p.record_id IS NOT NULL \
+               p.matched_types, p.projection_bytes, p.semantic_projection,
+               p.record_id IS NOT NULL \
                AND p.record_sequence = l.sequence AND p.record_revision = l.revision \
                AND p.catalog_revision = ",
         )
@@ -2547,9 +2760,8 @@ async fn execute_bounded_residual_page(
         .push(" AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > ")
         .push_bind(to_i64(state.snapshot_head, "query snapshot head")?)
         .push(
-            ")) SELECT record_id, CASE WHEN projection_current THEN semantic_projection END AS \
-                semantic_projection, CASE WHEN projection_current THEN \
-                pg_column_size(semantic_projection) ELSE 0 END AS projection_bytes FROM joined \
+            ")) SELECT record_id, projection_current, CASE WHEN projection_current THEN \
+                projection_bytes ELSE 0 END AS projection_bytes FROM joined \
                 WHERE NOT deleted AND (NOT projection_current OR (",
         );
     if state.plan.requirements.diagnostic_type_matchers {
@@ -2598,17 +2810,25 @@ async fn execute_bounded_residual_page(
     }
 
     let candidate_count = rows.len() as u64;
+    let current_ids = rows
+        .iter()
+        .filter(|row| row.get::<bool, _>("projection_current"))
+        .map(|row| row.get::<Uuid, _>("record_id"))
+        .collect::<Vec<_>>();
+    let current_projections =
+        load_current_projection_rows_by_ids(transaction, collection_id, state, &current_ids)
+            .await?;
     let mut candidates = Vec::with_capacity(rows.len());
     let mut exact_ids = Vec::new();
     let mut projected_evaluations = HashMap::new();
     for row in rows {
         let record_id: Uuid = row.get("record_id");
-        let projection = row
-            .get::<Option<Value>, _>("semantic_projection")
-            .and_then(|value| serde_json::from_value(value).ok());
+        let projection = current_projections
+            .get(&record_id)
+            .map(|row| &row.projection);
         if state.plan.requirements.exact_document || projection.is_none() {
             exact_ids.push(record_id);
-        } else if let Some(projection) = projection.as_ref() {
+        } else if let Some(projection) = projection {
             match catalog.evaluate_hosted_projection_residual(&state.plan, projection) {
                 Ok(evaluation) => {
                     projected_evaluations.insert(record_id, evaluation);
@@ -2929,7 +3149,7 @@ async fn load_projected_page(
              WHERE collection_id = $1 AND sequence <= $3
              ORDER BY record_id, sequence DESC
            )
-           SELECT p.record_id, p.canonical_path, p.semantic_projection
+           SELECT p.record_id, p.canonical_path, p.projection_bytes
            FROM hosted_provider_record_projections p
            JOIN live l ON l.record_id = p.record_id AND NOT l.deleted
              AND l.sequence = p.record_sequence AND l.revision = p.record_revision
@@ -2951,7 +3171,7 @@ async fn load_projected_page(
              WHERE collection_id = $1 AND sequence <= $3
              ORDER BY record_id, sequence DESC
            )
-           SELECT p.record_id, p.canonical_path, p.semantic_projection
+           SELECT p.record_id, p.canonical_path, p.projection_bytes
            FROM hosted_provider_record_projections p
            JOIN live l ON l.record_id = p.record_id AND NOT l.deleted
              AND l.sequence = p.record_sequence AND l.revision = p.record_revision
@@ -2985,20 +3205,48 @@ async fn load_projected_page(
         .bind(to_i64(page_size, "query page size")?)
         .fetch_all(&mut **transaction)
         .await?;
-    rows.into_iter()
+    let metadata = rows
+        .into_iter()
         .map(|row| {
-            let projection =
-                serde_json::from_value(row.get("semantic_projection")).map_err(|error| {
-                    ApiError::conflict(
-                        "hosted_projection_inconsistent",
-                        format!("A hosted semantic projection could not decode: {error}"),
-                    )
-                })?;
-            Ok(ProjectedQueryRow {
+            Ok(ProjectedQueryMetadata {
                 record_id: row.get("record_id"),
                 canonical_path: row.get("canonical_path"),
-                projection,
+                projection_bytes: number(
+                    i64::from(row.get::<i32, _>("projection_bytes")),
+                    "page projection bytes",
+                )?,
             })
+        })
+        .collect::<ApiResult<Vec<_>>>()?;
+    let projection_bytes = projected_metadata_bytes(&metadata);
+    if projection_bytes > state.plan.budgets.max_candidate_bytes {
+        return Err(query_budget_error(
+            "hosted_byte_budget_exceeded",
+            "The hosted query page exceeded its transferred projection-byte budget.",
+            "candidate_bytes",
+            state.plan.budgets.max_candidate_bytes,
+            projection_bytes,
+        ));
+    }
+    let record_ids = metadata.iter().map(|row| row.record_id).collect::<Vec<_>>();
+    let mut loaded =
+        load_current_projection_rows_by_ids(transaction, collection_id, state, &record_ids).await?;
+    metadata
+        .into_iter()
+        .map(|metadata| {
+            let row = loaded.remove(&metadata.record_id).ok_or_else(|| {
+                ApiError::conflict(
+                    "hosted_projection_inconsistent",
+                    "A preflighted query-page projection disappeared from its snapshot.",
+                )
+            })?;
+            if row.canonical_path != metadata.canonical_path {
+                return Err(ApiError::conflict(
+                    "hosted_projection_inconsistent",
+                    "A preflighted query-page projection changed path within its snapshot.",
+                ));
+            }
+            Ok(row)
         })
         .collect()
 }

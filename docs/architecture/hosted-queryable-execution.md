@@ -150,6 +150,15 @@ pinned snapshot, so a stale, deleted, or orphan projection cannot become a resul
 Complex TaskNotes relationship expressions remain bounded residual work. Unsupported
 predicates never become ad-hoc SQL and never narrow candidates.
 
+Projection transfer is two-stage. SQL first returns only record identity, canonical
+path, currentness, and the persisted canonical projection-byte count. Connect
+rejects row or byte exhaustion before selecting any projection JSON, then fetches
+only the preflighted identities inside the same repeatable-read transaction. It
+rechecks serialized size after decoding as an integrity guard. Relationship SQL
+deduplicates source/target pairs and has a 65,536-pair provider ceiling in addition
+to the plan's operator budget; the exported 4,096-related-record semantic ceiling is
+enforced before related projections are fetched.
+
 The disposable PostgreSQL regression corpus includes 10,001 nonmatching live
 version/projection pairs—one more than the transfer ceiling—one matching TaskNotes
 row with a hierarchical tag, and one candidate-matching orphan projection. The
