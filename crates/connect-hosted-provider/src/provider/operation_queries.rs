@@ -170,6 +170,28 @@ impl HostedProvider {
         let mut activity = HostedQueryActivityGuard::begin(self.query_activity.clone());
         let connection_wait_ms =
             mdbase::runtime::HostedQueryBudgets::default().max_connection_wait_ms;
+        let _scan_permit = match tokio::time::timeout(
+            Duration::from_millis(connection_wait_ms),
+            self.query_scan_permits.clone().acquire_owned(),
+        )
+        .await
+        {
+            Ok(Ok(permit)) => HostedScanPermitGuard::new(permit, self.query_activity.clone()),
+            Ok(Err(_)) => {
+                return Err(ApiError::internal(
+                    "The hosted query scan-permit gate is unavailable.",
+                ));
+            }
+            Err(_) => {
+                return Err(query_budget_error(
+                    "hosted_scan_permit_budget_exceeded",
+                    "The hosted query exceeded its scan-permit wait budget.",
+                    "scan_permit_wait_ms",
+                    connection_wait_ms,
+                    started.elapsed().as_millis() as u64,
+                ));
+            }
+        };
         let mut connection = match tokio::time::timeout(
             Duration::from_millis(connection_wait_ms),
             self.pool.acquire(),
@@ -3957,5 +3979,40 @@ mod tests {
                 },
             }
         ));
+    }
+
+    #[tokio::test]
+    async fn scan_permit_gate_is_bounded_and_releases_independently() {
+        let semaphore = Arc::new(Semaphore::new(2));
+        let counters = Arc::new(HostedQueryActivityCounters::default());
+        let first = HostedScanPermitGuard::new(
+            semaphore.clone().acquire_owned().await.unwrap(),
+            counters.clone(),
+        );
+        let second = HostedScanPermitGuard::new(
+            semaphore.clone().acquire_owned().await.unwrap(),
+            counters.clone(),
+        );
+        assert_eq!(
+            counters.active_scan_permits.load(AtomicOrdering::Relaxed),
+            2
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), semaphore.clone().acquire_owned())
+                .await
+                .is_err()
+        );
+        drop(first);
+        let replacement = HostedScanPermitGuard::new(
+            semaphore.clone().acquire_owned().await.unwrap(),
+            counters.clone(),
+        );
+        drop(second);
+        drop(replacement);
+        assert_eq!(
+            counters.active_scan_permits.load(AtomicOrdering::Relaxed),
+            0
+        );
+        assert_eq!(semaphore.available_permits(), 2);
     }
 }

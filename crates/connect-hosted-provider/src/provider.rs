@@ -36,7 +36,7 @@ use sqlx::{
     Acquire, PgPool, Postgres, QueryBuilder, Row, Transaction,
 };
 use subtle::ConstantTimeEq;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, OwnedSemaphorePermit, RwLock, Semaphore};
 use uuid::Uuid;
 
 use crate::{
@@ -203,23 +203,31 @@ pub struct HostedProvider {
     notification_recovery: Arc<RwLock<NotificationRecoveryStatus>>,
     blob_store: Arc<dyn BlobStore>,
     query_activity: Arc<HostedQueryActivityCounters>,
+    query_scan_permits: Arc<Semaphore>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 pub struct HostedQueryActivity {
     pub active_queries: u64,
     pub plaintext_scopes: u64,
+    pub active_scan_permits: u64,
 }
 
 #[derive(Default)]
 struct HostedQueryActivityCounters {
     active_queries: AtomicU64,
     plaintext_scopes: AtomicU64,
+    active_scan_permits: AtomicU64,
 }
 
 struct HostedQueryActivityGuard {
     counters: Arc<HostedQueryActivityCounters>,
     plaintext: bool,
+}
+
+struct HostedScanPermitGuard {
+    _permit: OwnedSemaphorePermit,
+    counters: Arc<HostedQueryActivityCounters>,
 }
 
 struct PostgresQueryCancellationGuard {
@@ -298,6 +306,26 @@ impl Drop for HostedQueryActivityGuard {
         }
         self.counters
             .active_queries
+            .fetch_sub(1, AtomicOrdering::Relaxed);
+    }
+}
+
+impl HostedScanPermitGuard {
+    fn new(permit: OwnedSemaphorePermit, counters: Arc<HostedQueryActivityCounters>) -> Self {
+        counters
+            .active_scan_permits
+            .fetch_add(1, AtomicOrdering::Relaxed);
+        Self {
+            _permit: permit,
+            counters,
+        }
+    }
+}
+
+impl Drop for HostedScanPermitGuard {
+    fn drop(&mut self) {
+        self.counters
+            .active_scan_permits
             .fetch_sub(1, AtomicOrdering::Relaxed);
     }
 }

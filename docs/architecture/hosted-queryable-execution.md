@@ -217,6 +217,13 @@ pool permit and connection, and drops decrypted plaintext before returning. Test
 must observe those resources independently after cancellation rather than trusting
 in-process flags.
 
+Before acquiring a database connection, collection-scan query surfaces acquire one
+of the published process-wide scan permits (two by default). Permit wait uses the
+same bounded acquisition clock as the database pool and returns a typed
+`scan_permit_wait_ms` outcome. Activity probes
+track scan permits separately from active requests and plaintext scopes so
+cancellation tests prove each resource is released.
+
 Projection rebuild leases, per-page checkpoints, generation fencing, idempotent
 edge replacement, and record-revision CAS make restart safe. Rebuild failure affects
 optimization only: exact authority remains available, subject to the same bounded

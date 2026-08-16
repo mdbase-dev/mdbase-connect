@@ -50,6 +50,14 @@ impl HostedProvider {
                                 )),
                                 blob_store,
                                 query_activity: Arc::new(HostedQueryActivityCounters::default()),
+                                query_scan_permits: Arc::new(Semaphore::new(
+                                    usize::try_from(
+                                        crate::HostedExecutionBudgetManifest::published()
+                                            .defaults
+                                            .active_scan_permits_per_process,
+                                    )
+                                    .expect("published scan-permit budget fits usize"),
+                                )),
                             };
                             provider.migrate_legacy_sync_receipts().await?;
                             if let Some(notifications) = &provider.notifications {
@@ -255,6 +263,10 @@ impl HostedProvider {
             plaintext_scopes: self
                 .query_activity
                 .plaintext_scopes
+                .load(AtomicOrdering::Relaxed),
+            active_scan_permits: self
+                .query_activity
+                .active_scan_permits
                 .load(AtomicOrdering::Relaxed),
         }
     }

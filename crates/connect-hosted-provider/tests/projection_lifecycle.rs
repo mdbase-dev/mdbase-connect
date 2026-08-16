@@ -738,6 +738,7 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
             .unwrap();
             if activity.active_queries == 1
                 && activity.plaintext_scopes == 1
+                && activity.active_scan_permits == 1
                 && blocked_sessions == 1
             {
                 break;
@@ -763,6 +764,7 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
             .unwrap();
             if activity.active_queries == 0
                 && activity.plaintext_scopes == 0
+                && activity.active_scan_permits == 0
                 && blocked_sessions == 0
             {
                 break;
@@ -823,6 +825,7 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
             .unwrap();
             if activity.active_queries == 1
                 && activity.plaintext_scopes == 1
+                && activity.active_scan_permits == 0
                 && blocked_sessions == 1
             {
                 break;
@@ -848,6 +851,7 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
             .unwrap();
             if activity.active_queries == 0
                 && activity.plaintext_scopes == 0
+                && activity.active_scan_permits == 0
                 && blocked_sessions == 0
             {
                 break;
