@@ -218,6 +218,11 @@ impl HostedProvider {
         {
             return self.execute_direct_validation(collection_id, input).await;
         }
+        if matches!(operation, "read_type" | "list_views" | "read_view_source") {
+            return self
+                .execute_direct_resource_read(collection_id, operation, input)
+                .await;
+        }
         let snapshot_started = Instant::now();
         let mut transaction = self.pool.begin().await?;
         let collection = sqlx::query(
@@ -288,6 +293,79 @@ impl HostedProvider {
     ) -> ApiResult<OperationResult> {
         self.execute_direct_point_read_for_identity(collection_id, input, None)
             .await
+    }
+
+    async fn execute_direct_resource_read(
+        &self,
+        collection_id: Uuid,
+        operation: &str,
+        input: &Value,
+    ) -> ApiResult<OperationResult> {
+        let started = Instant::now();
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query("SET LOCAL statement_timeout = 15000")
+            .execute(&mut *transaction)
+            .await?;
+        let collection = sqlx::query(
+            r#"SELECT resource_revision, wrapped_data_key, resources_ciphertext
+               FROM hosted_provider_collections
+               WHERE id = $1 AND state = 'active'"#,
+        )
+        .bind(collection_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                "hosted_collection_not_found",
+                "Hosted collection not found.",
+            )
+        })?;
+        let data_key = self
+            .collection_key(collection_id, collection.get("wrapped_data_key"))
+            .await?;
+        let resources: SyncCollectionResources = self.crypto.decrypt_json(
+            &data_key,
+            collection.get("resources_ciphertext"),
+            &resources_aad(collection_id),
+        )?;
+        if resources.revision != collection.get::<String, _>("resource_revision") {
+            return Err(ApiError::internal(
+                "The encrypted resource catalog revision does not match collection metadata.",
+            ));
+        }
+        let resource_documents =
+            load_resource_documents(&mut transaction, &self.crypto, &data_key, collection_id)
+                .await?;
+        let catalog = compile_point_catalog(resources, resource_documents.clone())?;
+        let result = catalog
+            .execute_hosted_resource_read(operation, input, &resource_documents)
+            .map_err(|error| {
+                if error.code.contains("budget_exceeded") {
+                    ApiError::quota(error.code, error.message)
+                } else {
+                    ApiError::internal(format!(
+                        "Canonical hosted resource read failed ({}): {}",
+                        error.code, error.message
+                    ))
+                }
+            })?;
+        transaction.commit().await?;
+        tracing::info!(
+            target: "mdbase_connect::metrics",
+            metric = "hosted_direct_resource_read",
+            operation,
+            resource_documents = resource_documents.len() as u64,
+            resource_bytes = resource_documents
+                .iter()
+                .map(|(_, document)| document.len() as u64)
+                .sum::<u64>(),
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "privacy-safe hosted provider metric"
+        );
+        Ok(result)
     }
 
     pub(super) async fn execute_direct_point_read_by_id(

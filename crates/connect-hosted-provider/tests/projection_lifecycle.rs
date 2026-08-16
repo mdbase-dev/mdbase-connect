@@ -235,7 +235,13 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
                 allowed_types: Vec::new(),
                 contract_scope: Vec::new(),
                 full_collection: true,
-                allowed_operations: vec!["query".to_string(), "validate".to_string()],
+                allowed_operations: vec![
+                    "query".to_string(),
+                    "validate".to_string(),
+                    "read_type".to_string(),
+                    "list_views".to_string(),
+                    "read_view_source".to_string(),
+                ],
                 operation_transport_protocol: Some(3),
                 operation_transport_recovery_protocols: Vec::new(),
                 file_capability: None,
@@ -250,6 +256,34 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
         )
         .await
         .unwrap();
+    let views = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "list_views",
+            Uuid::new_v4(),
+            json!({}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(views["valid"], true);
+    assert!(views["result"]["views"].as_array().unwrap().is_empty());
+    let missing_type = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "read_type",
+            Uuid::new_v4(),
+            json!({"name": "absent"}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing_type["valid"], false);
+    assert_eq!(missing_type["diagnostics"][0]["code"], "unknown_type");
     let query = json!({
         "pagination": "cursor",
         "limit": 1,
