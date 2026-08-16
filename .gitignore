@@ -10,5 +10,6 @@
 !.env.example
 /deploy/self-host/.env
 *.log
+!docs/benchmarks/hosted-storage-model/results/**/commands.log
 *.sock
 .DS_Store
