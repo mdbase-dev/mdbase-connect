@@ -87,10 +87,14 @@ benchmark records this behavior but does not invent a new cursor protocol.
 
 ## MCP and generic SDK
 
-`mdbase-connect/services/mcp/src/mcp.ts:71-166` exposes `query_records` with types,
-where, order, limit, offset, and include-body; limit is capped at 200. It does not
-expose selection, grouping, summaries, contract/frontmatter mode, cursor, or
-snapshot. The gateway is stateless per request with a 40-second timeout.
+The benchmark-freeze revision exposed only offset/limit MCP queries. The selected
+production implementation now exposes selection, grouping, summaries,
+contract/frontmatter mode, cursor pagination, snapshot input, explicit cursor
+release, abort propagation, exact body opt-in, mutation IDs, and retry receipts in
+`mdbase-connect/services/mcp/src/mcp.ts`. The frozen benchmark measurements retain
+the earlier shape for historical comparability; staging acceptance uses the current
+advertised schema and must not infer a missing production capability from that
+prototype inventory.
 
 The public SDK query surface includes selective metadata, broad type pagination,
 body predicates without returning bodies, body-bearing pages, bounded order/top-K,

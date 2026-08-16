@@ -104,6 +104,7 @@ impl Drop for BaseEvaluationCancellationGuard {
 }
 
 include!("operation_queries/provider_impl.rs");
+include!("operation_queries/entrypoints.rs");
 include!("operation_queries/bindings.rs");
 include!("operation_queries/query_top_k.rs");
 include!("operation_queries/base_sources.rs");

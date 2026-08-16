@@ -38,8 +38,11 @@ pnpm check:architecture
 pnpm check:operations
 pnpm check:problems
 pnpm typecheck
-pnpm test:consumer-spikes
-pnpm test:public-api
+pnpm test:fast
+pnpm test:integration
+pnpm --filter @mdbase-dev/connect test:consumer-spikes
+pnpm --filter @mdbase-dev/connect test:public-api
+pnpm e2e:provider
 pnpm check:consumer-artifacts
 ```
 
@@ -60,7 +63,9 @@ recovery.
 ## mdbase-reader
 
 Run `pnpm check`, `pnpm check:architecture`, `pnpm check:spec`, and `pnpm test`, then
-deploy with `MDBASE_READER_DEPLOY_TARGET=staging pnpm deploy:dev`. Validate
+deploy with `MDBASE_READER_DEPLOY_TARGET=staging pnpm deploy:dev`. The staging
+deployment must resolve to the dedicated `mdbase-reader-staging` Pages project and
+`staging` branch; the public Reader project is not an acceptable staging target. Validate
 `queryPages`, exact/body search, delete preflight, body/link rendering, typed limits,
 and no production fallback. Review create/update calls that currently omit mutation
 options before declaring write compatibility.
@@ -75,11 +80,10 @@ behavior before the mission can pass.
 
 ## Pickle
 
-Run Rust format, test, and smoke commands. Validate request/response links, inbox
-queries, point hydration, state transitions, and reconnect through the hosted MCP
-surface. Pickle has no direct hosted SDK path, so its pass condition includes the
-MCP relationship/link representation rather than assuming local filesystem
-semantics.
+Run the package verification, Connect end-to-end, and Android smoke commands.
+Validate request/response links, inbox queries, point hydration, state transitions,
+and reconnect through Pickle's hosted SDK wrapper. Test MCP relationship/link
+representation separately rather than assuming local filesystem semantics.
 
 ## MCP
 
@@ -91,7 +95,7 @@ shape.
 
 ## Cloud operations and recovery
 
-Run cloud-ops read-only tests and `bin/verify-staging deployed` before mutations.
+Run cloud-ops read-only tests and `bin/verify-staging candidate` before mutations.
 Deploy only the isolated Candidate B stack. Exercise provider restart during each
 rebuild phase, expired/stolen leases, fencing loss, cursor cleanup, database
 cancellation, outbox/notification recovery, backup inventory, and rollback to a
