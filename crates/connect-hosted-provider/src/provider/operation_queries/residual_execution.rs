@@ -105,6 +105,13 @@ async fn load_projected_groups(
     if state.plan.groups.is_empty() && state.plan.aggregates.is_empty() {
         return Ok((None, None));
     }
+    preflight_projected_group_key_bytes(
+        transaction,
+        collection_id,
+        state,
+        candidate_types,
+    )
+    .await?;
     let snapshot_head = to_i64(state.snapshot_head, "query snapshot head")?;
     let mut query = QueryBuilder::<Postgres>::new("SELECT ");
     for (index, group) in state.plan.groups.iter().enumerate() {
@@ -230,6 +237,91 @@ async fn load_projected_groups(
         .finish()
         .map(|reduction| (reduction.groups, Some(total_count)))
         .map_err(|error| reduction_error(error, &state.plan.budgets))
+}
+
+async fn preflight_projected_group_key_bytes(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    state: &HostedQueryState,
+    candidate_types: &[String],
+) -> ApiResult<()> {
+    if state.plan.groups.is_empty() {
+        return Ok(());
+    }
+    // PostgreSQL must form grouping keys before the provider can stream result
+    // groups into the canonical reducer. Bound every database-side key first so
+    // max_groups distinct keys cannot retain an unbounded hash/sort state. Half
+    // the reducer budget is reserved for keys and half for map/summary state.
+    let max_group_key_bytes = state
+        .plan
+        .budgets
+        .max_aggregation_bytes
+        .checked_div(state.plan.budgets.max_groups.max(1))
+        .unwrap_or(0)
+        .checked_div(2)
+        .unwrap_or(0)
+        .max(1);
+    let snapshot_head = to_i64(state.snapshot_head, "query snapshot head")?;
+    let mut query = QueryBuilder::<Postgres>::new(
+        "SELECT COALESCE(max(octet_length(jsonb_build_array(",
+    );
+    for (index, group) in state.plan.groups.iter().enumerate() {
+        if index > 0 {
+            query.push(", ");
+        }
+        query.push("COALESCE(");
+        push_candidate_field(&mut query, &group.field);
+        query.push(", 'null'::jsonb)");
+    }
+    query.push(")::text)), 0)::bigint FROM hosted_provider_record_projections p \
+         JOIN hosted_provider_record_versions v ON v.collection_id = p.collection_id \
+          AND v.record_id = p.record_id AND v.sequence = p.record_sequence \
+          AND v.revision = p.record_revision AND NOT v.deleted AND v.sequence <= ");
+    query
+        .push_bind(snapshot_head)
+        .push(" WHERE p.collection_id = ")
+        .push_bind(collection_id)
+        .push(" AND p.generation_id = ")
+        .push_bind(state.generation_id)
+        .push(" AND p.valid_from_sequence <= ")
+        .push_bind(snapshot_head)
+        .push(" AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > ")
+        .push_bind(snapshot_head)
+        .push(") AND p.catalog_revision = ")
+        .push_bind(state.catalog_revision.clone())
+        .push(" AND p.projection_format_version = ")
+        .push_bind(i64::from(state.projection_format_version))
+        .push(" AND p.semantic_engine_version = ")
+        .push_bind(state.semantic_engine_version.clone())
+        .push(
+            " AND hosted_provider_projection_digest_valid( \
+              p.projection_digest, p.projection_observed_digest) \
+              AND p.semantic_complete AND p.resolution_complete \
+              AND (cardinality(",
+        )
+        .push_bind(candidate_types.to_vec())
+        .push("::text[]) = 0 OR p.matched_types && ")
+        .push_bind(candidate_types.to_vec())
+        .push("::text[]) AND (");
+    push_exact_candidate_predicate(&mut query, &state.plan.candidate);
+    query.push(")");
+    let observed = number(
+        query
+            .build_query_scalar::<i64>()
+            .fetch_one(&mut **transaction)
+            .await?,
+        "maximum projected group key bytes",
+    )?;
+    if observed > max_group_key_bytes {
+        return Err(query_budget_error(
+            "hosted_aggregation_state_budget_exceeded",
+            "A hosted grouping key exceeded its database-side aggregation-state budget.",
+            "aggregation_state_bytes",
+            max_group_key_bytes,
+            observed,
+        ));
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]

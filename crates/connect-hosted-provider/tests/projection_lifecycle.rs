@@ -360,7 +360,7 @@ async fn candidate_b_projection_resolution_quarantines_an_oversized_final_projec
     )
     .await;
     let source_id = Uuid::now_v7();
-    let source_document = format!("# Source\n{}", "[[target]]\n".repeat(900));
+    let source_document = format!("# Source\n{}", "[[target]]\n".repeat(905));
     put(
         &fixture,
         replica_id,
@@ -4432,7 +4432,7 @@ async fn candidate_b_projection_bytes_are_preflighted_before_json_transfer() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
-async fn candidate_b_grouping_streams_large_distinct_keys_into_aggregation_budget() {
+async fn candidate_b_grouping_preflights_large_keys_before_database_aggregation() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
     let fixture = FileLifecycleFixture::new(&database_url).await;
@@ -4516,6 +4516,12 @@ schema:
         .await;
     }
     complete_generation(&fixture).await;
+    let temp_bytes_before: i64 = sqlx::query_scalar(
+        "SELECT temp_bytes FROM pg_stat_database WHERE datname = current_database()",
+    )
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
     let error = fixture
         .provider
         .operation(
@@ -4543,6 +4549,16 @@ schema:
     assert_eq!(
         error.details.as_ref().unwrap()["budget"],
         "aggregation_state_bytes"
+    );
+    let temp_bytes_after: i64 = sqlx::query_scalar(
+        "SELECT temp_bytes FROM pg_stat_database WHERE datname = current_database()",
+    )
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        temp_bytes_after, temp_bytes_before,
+        "oversized grouping keys must be rejected before PostgreSQL spills aggregate state"
     );
 }
 
