@@ -713,16 +713,56 @@ async fn load_exact_query_records(
     crypto: &ProviderCrypto,
     data_key: &[u8; 32],
     collection_id: Uuid,
-    snapshot_head: u64,
+    state: &HostedQueryState,
     record_ids: &[Uuid],
+    reserved_plaintext_bytes: u64,
 ) -> ApiResult<LoadedExactQueryRecords> {
+    if reserved_plaintext_bytes > state.plan.budgets.max_exact_bytes {
+        return Err(query_budget_error(
+            "hosted_exact_byte_budget_exceeded",
+            "The hosted query exceeded its exact-plaintext byte budget.",
+            "exact_bytes",
+            state.plan.budgets.max_exact_bytes,
+            scoped_budget_observed(
+                &state.allowed_types,
+                state.plan.budgets.max_exact_bytes,
+                reserved_plaintext_bytes,
+            ),
+        ));
+    }
     if record_ids.is_empty() {
         return Ok(LoadedExactQueryRecords {
             records: HashMap::new(),
             ciphertext_bytes: 0,
+            plaintext_bytes: reserved_plaintext_bytes,
         });
     }
-    let rows = sqlx::query(
+    let snapshot_head = to_i64(state.snapshot_head, "query snapshot head")?;
+    // Reject an oversized selected ciphertext set before decrypting any record.
+    // The second query is streamed so provider memory stays bounded by the
+    // already-enforced ciphertext cap plus the exact-plaintext cap.
+    let ciphertext_bytes = number(
+        sqlx::query_scalar::<_, i64>(
+            r#"SELECT COALESCE(sum(octet_length(payload_ciphertext)), 0)::bigint
+               FROM (
+                   SELECT DISTINCT ON (record_id) payload_ciphertext, deleted
+                   FROM hosted_provider_record_versions
+                   WHERE collection_id = $1 AND record_id = ANY($2::uuid[])
+                     AND sequence <= $3
+                   ORDER BY record_id, sequence DESC
+               ) selected
+               WHERE NOT deleted"#,
+        )
+        .bind(collection_id)
+        .bind(record_ids)
+        .bind(snapshot_head)
+        .fetch_one(&mut **transaction)
+        .await?,
+        "selected exact ciphertext bytes",
+    )?;
+    enforce_exact_ciphertext_scan_budget(state, ciphertext_bytes)?;
+
+    let mut rows = sqlx::query(
         r#"SELECT DISTINCT ON (record_id) record_id, sequence, payload_ciphertext,
                   deleted, created_at
            FROM hosted_provider_record_versions
@@ -731,12 +771,11 @@ async fn load_exact_query_records(
     )
     .bind(collection_id)
     .bind(record_ids)
-    .bind(to_i64(snapshot_head, "query snapshot head")?)
-    .fetch_all(&mut **transaction)
-    .await?;
-    let mut records = HashMap::with_capacity(rows.len());
-    let mut ciphertext_bytes = 0_u64;
-    for row in rows {
+    .bind(snapshot_head)
+    .fetch(&mut **transaction);
+    let mut records = HashMap::with_capacity(record_ids.len());
+    let mut plaintext_bytes = reserved_plaintext_bytes;
+    while let Some(row) = rows.try_next().await? {
         if row.get::<bool, _>("deleted") {
             continue;
         }
@@ -745,7 +784,6 @@ async fn load_exact_query_records(
         let ciphertext = row
             .get::<Option<Vec<u8>>, _>("payload_ciphertext")
             .ok_or_else(|| ApiError::internal("A live exact record version has no ciphertext."))?;
-        ciphertext_bytes = ciphertext_bytes.saturating_add(ciphertext.len() as u64);
         let record: PersistedRecord = crypto.decrypt_json(
             data_key,
             &ciphertext,
@@ -758,6 +796,20 @@ async fn load_exact_query_records(
         }
         let modified_at: DateTime<Utc> = row.get("created_at");
         let document_size = record.document.len() as u64;
+        plaintext_bytes = plaintext_bytes.saturating_add(document_size);
+        if plaintext_bytes > state.plan.budgets.max_exact_bytes {
+            return Err(query_budget_error(
+                "hosted_exact_byte_budget_exceeded",
+                "The hosted query exceeded its exact-plaintext byte budget.",
+                "exact_bytes",
+                state.plan.budgets.max_exact_bytes,
+                scoped_budget_observed(
+                    &state.allowed_types,
+                    state.plan.budgets.max_exact_bytes,
+                    plaintext_bytes,
+                ),
+            ));
+        }
         records.insert(
             record_id,
             mdbase::runtime::CanonicalRecordInput {
@@ -772,6 +824,7 @@ async fn load_exact_query_records(
     Ok(LoadedExactQueryRecords {
         records,
         ciphertext_bytes,
+        plaintext_bytes,
     })
 }
 
@@ -860,14 +913,6 @@ async fn insert_query_cursor(
         )
         .saturating_add(state.catalog_revision.len() as u64)
         .saturating_add(state.semantic_engine_version.len() as u64);
-    admit_query_cursor(
-        transaction,
-        collection_id,
-        replica,
-        cursor_bytes,
-    )
-    .await?;
-
     let base_invocation_id = if let Some(base_plan) = base_plan {
         let invocation_id = state.base_invocation_id.unwrap_or_else(Uuid::new_v4);
         if state.base_invocation_id.is_none() {
@@ -894,6 +939,14 @@ async fn insert_query_cursor(
     } else {
         None
     };
+    admit_query_cursor(
+        transaction,
+        collection_id,
+        replica,
+        cursor_bytes,
+        base_invocation_id,
+    )
+    .await?;
     sqlx::query(
         r#"INSERT INTO hosted_provider_query_cursors
              (cursor_id, collection_id, replica_id, scope_epoch, snapshot_head,
@@ -964,6 +1017,7 @@ async fn admit_query_cursor(
     collection_id: Uuid,
     replica: &Replica,
     cursor_bytes: u64,
+    protected_base_invocation_id: Option<Uuid>,
 ) -> ApiResult<()> {
     let budgets = &HostedExecutionBudgetManifest::published().defaults;
     if cursor_bytes > budgets.cursor_bytes {
@@ -990,7 +1044,12 @@ async fn admit_query_cursor(
     )
     .execute(&mut **transaction)
     .await?;
-    cleanup_base_query_invocations(&mut **transaction, collection_id).await?;
+    cleanup_base_query_invocations(
+        &mut **transaction,
+        collection_id,
+        protected_base_invocation_id,
+    )
+    .await?;
 
     let account_id: Option<Uuid> = sqlx::query_scalar(
         "SELECT account_id FROM hosted_provider_collections WHERE id = $1 FOR SHARE",

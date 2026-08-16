@@ -1,16 +1,22 @@
-async fn cleanup_base_query_invocations<'e, E>(executor: E, collection_id: Uuid) -> ApiResult<()>
+async fn cleanup_base_query_invocations<'e, E>(
+    executor: E,
+    collection_id: Uuid,
+    protected_invocation_id: Option<Uuid>,
+) -> ApiResult<()>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     sqlx::query(
         r#"DELETE FROM hosted_provider_base_query_invocations i
            WHERE i.collection_id = $1
+             AND ($2::uuid IS NULL OR i.invocation_id <> $2)
              AND (i.hard_expires_at <= now() OR NOT EXISTS (
                SELECT 1 FROM hosted_provider_query_cursors c
                WHERE c.base_invocation_id = i.invocation_id
              ))"#,
     )
     .bind(collection_id)
+    .bind(protected_invocation_id)
     .execute(executor)
     .await?;
     Ok(())
@@ -865,7 +871,11 @@ async fn execute_projected_page(
             "The hosted query page exceeded its transferred projection-byte budget.",
             "candidate_bytes",
             state.plan.budgets.max_candidate_bytes,
-            projection_bytes,
+            scoped_budget_observed(
+                &state.allowed_types,
+                state.plan.budgets.max_candidate_bytes,
+                projection_bytes,
+            ),
         ));
     }
     let loaded_exact = if state.plan.requirements.exact_document {
@@ -874,18 +884,26 @@ async fn execute_projected_page(
             crypto,
             data_key,
             collection_id,
-            state.snapshot_head,
+            state,
             &rows.iter().map(|row| row.record_id).collect::<Vec<_>>(),
+            state
+                .exact_context
+                .as_ref()
+                .map_or(0, |context| context.document.len() as u64),
         )
         .await?
     } else {
         LoadedExactQueryRecords {
             records: HashMap::new(),
             ciphertext_bytes: 0,
+            plaintext_bytes: state
+                .exact_context
+                .as_ref()
+                .map_or(0, |context| context.document.len() as u64),
         }
     };
-    enforce_exact_ciphertext_scan_budget(state, loaded_exact.ciphertext_bytes)?;
     let exact_ciphertext_bytes = loaded_exact.ciphertext_bytes;
+    let exact_bytes = loaded_exact.plaintext_bytes;
     let exact_records = loaded_exact.records;
     let context_documents = u64::from(state.exact_context.is_some());
     if (exact_records.len() as u64).saturating_add(context_documents)
@@ -897,26 +915,6 @@ async fn execute_projected_page(
             "exact_documents",
             state.plan.budgets.max_exact_documents,
             (exact_records.len() as u64).saturating_add(context_documents),
-        ));
-    }
-    let exact_bytes = exact_records
-        .values()
-        .fold(0_u64, |total, record| {
-            total.saturating_add(record.document.len() as u64)
-        })
-        .saturating_add(
-            state
-                .exact_context
-                .as_ref()
-                .map_or(0, |context| context.document.len() as u64),
-        );
-    if exact_bytes > state.plan.budgets.max_exact_bytes {
-        return Err(query_budget_error(
-            "hosted_exact_byte_budget_exceeded",
-            "The hosted query page exceeded its exact-plaintext byte budget.",
-            "exact_bytes",
-            state.plan.budgets.max_exact_bytes,
-            exact_bytes,
         ));
     }
     let mut results = Vec::with_capacity(rows.len());
@@ -971,7 +969,11 @@ async fn execute_projected_page(
             "The hosted query page exceeded its bounded resident-memory budget.",
             "memory_bytes",
             state.plan.budgets.max_memory_bytes,
-            resident_bytes,
+            scoped_budget_observed(
+                &state.allowed_types,
+                state.plan.budgets.max_memory_bytes,
+                resident_bytes,
+            ),
         ));
     }
     if started.elapsed().as_millis() as u64 > state.plan.budgets.max_wall_time_ms {
@@ -996,5 +998,6 @@ async fn execute_projected_page(
         candidate_rows: rows.len() as u64,
         exact_documents: (exact_records.len() as u64).saturating_add(context_documents),
         exact_ciphertext_bytes,
+        base_path_keyset: false,
     })
 }

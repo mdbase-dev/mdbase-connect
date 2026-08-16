@@ -197,6 +197,127 @@ struct BaseExecutionSnapshot {
     query_context: Option<mdbase::runtime::SemanticProjection>,
 }
 
+async fn execute_path_keyset_base_page(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    state: &HostedQueryState,
+    plan: &mdbase::runtime::HostedBasePlan,
+    page_size: u64,
+    started: Instant,
+    cached_total_count: Option<u64>,
+) -> ApiResult<Option<ExecutedQueryPage>> {
+    let Some(page) = load_path_keyset_base_page(
+        transaction,
+        collection_id,
+        state,
+        plan,
+        page_size,
+        cached_total_count,
+    )
+    .await?
+    else {
+        return Ok(None);
+    };
+    if page.projection_bytes > state.plan.budgets.max_candidate_bytes {
+        return Err(query_budget_error(
+            "hosted_byte_budget_exceeded",
+            "The Obsidian Base page exceeded its transferred projection-byte budget.",
+            "candidate_bytes",
+            state.plan.budgets.max_candidate_bytes,
+            scoped_budget_observed(
+                &plan.allowed_types,
+                state.plan.budgets.max_candidate_bytes,
+                page.projection_bytes,
+            ),
+        ));
+    }
+    let operation_clock = state.base_operation_clock.as_ref().ok_or_else(|| {
+        ApiError::internal("Obsidian Base execution has no snapshot operation clock.")
+    })?;
+    let max_expression_steps = state
+        .plan
+        .budgets
+        .max_operator_steps
+        .checked_div(page.rows.len().max(1) as u64)
+        .unwrap_or(0);
+    let mut results = Vec::with_capacity(page.rows.len());
+    let mut last_boundary = None;
+    for row in &page.rows {
+        let evaluation = plan
+            .evaluate_record(&mdbase::runtime::HostedBaseRecordContext {
+                projection: row.projection.clone(),
+                related: Vec::new(),
+                relationship_neighborhood_complete: true,
+                query_context: None,
+                operation_clock: operation_clock.clone(),
+                max_expression_steps,
+            })
+            .map_err(projection_inconsistent)?;
+        let mdbase::runtime::HostedBaseEvaluation::Included { row: result } = evaluation else {
+            return Err(ApiError::conflict(
+                "hosted_projection_inconsistent",
+                "A path-keyset Base plan excluded a provider-selected current projection.",
+            ));
+        };
+        if result.path != row.canonical_path {
+            return Err(ApiError::conflict(
+                "hosted_projection_inconsistent",
+                "A path-keyset Base projection disagreed with its indexed canonical path.",
+            ));
+        }
+        last_boundary = Some(QueryPageBoundary {
+            order_values: plan.row_order_values(&result),
+            path: result.path.clone(),
+            record_id: row.record_id,
+        });
+        results.push(json!({
+            "path": result.path,
+            "file": result.file,
+            "effective_frontmatter": result.effective_frontmatter,
+            "types": result.types,
+            "values": result.values,
+        }));
+    }
+    let result_bytes = serialized_value_bytes(&Value::Array(results.clone()));
+    let resident_bytes = page
+        .projection_bytes
+        .saturating_mul(2)
+        .saturating_add(result_bytes);
+    if resident_bytes > state.plan.budgets.max_memory_bytes {
+        return Err(query_budget_error(
+            "hosted_memory_budget_exceeded",
+            "The Obsidian Base page exceeded its bounded resident-memory budget.",
+            "memory_bytes",
+            state.plan.budgets.max_memory_bytes,
+            scoped_budget_observed(
+                &plan.allowed_types,
+                state.plan.budgets.max_memory_bytes,
+                resident_bytes,
+            ),
+        ));
+    }
+    if started.elapsed().as_millis() as u64 > state.plan.budgets.max_wall_time_ms {
+        return Err(query_budget_error(
+            "hosted_time_budget_exceeded",
+            "The Obsidian Base page exceeded its wall-time budget.",
+            "wall_time_ms",
+            state.plan.budgets.max_wall_time_ms,
+            started.elapsed().as_millis() as u64,
+        ));
+    }
+    Ok(Some(ExecutedQueryPage {
+        candidate_rows: page.rows.len() as u64,
+        exact_documents: 0,
+        exact_ciphertext_bytes: 0,
+        base_path_keyset: true,
+        results,
+        diagnostics: Vec::new(),
+        groups: None,
+        total_count: page.total_count,
+        last_boundary,
+    }))
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn execute_bounded_base_page(
     transaction: &mut Transaction<'_, Postgres>,
@@ -208,11 +329,28 @@ async fn execute_bounded_base_page(
     page_size: u64,
     started: Instant,
     projection_fallback: bool,
+    allow_path_keyset: bool,
+    cached_total_count: Option<u64>,
 ) -> ApiResult<ExecutedQueryPage> {
     let plan = state
         .base_plan
         .as_ref()
         .ok_or_else(|| ApiError::internal("Obsidian Base execution has no semantic plan."))?;
+    if allow_path_keyset && plan.supports_path_keyset_paging() && state.generation_id.is_some() {
+        if let Some(page) = execute_path_keyset_base_page(
+            transaction,
+            collection_id,
+            state,
+            plan,
+            page_size,
+            started,
+            cached_total_count,
+        )
+        .await?
+        {
+            return Ok(page);
+        }
+    }
     let snapshot = if state.generation_id.is_some() && !base_requires_relationships(plan) {
         load_base_hybrid_snapshot(
             transaction,
@@ -520,5 +658,6 @@ async fn execute_bounded_base_page(
         candidate_rows,
         exact_documents,
         exact_ciphertext_bytes,
+        base_path_keyset: false,
     })
 }

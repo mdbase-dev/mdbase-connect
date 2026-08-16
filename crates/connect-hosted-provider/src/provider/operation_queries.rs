@@ -1,6 +1,7 @@
 use super::operation_reads::{compile_point_catalog, load_direct_record, DirectRecordIdentity};
 use super::*;
 use crate::HostedExecutionBudgetManifest;
+use futures_util::TryStreamExt;
 use std::cmp::Ordering;
 
 const QUERY_CURSOR_IDLE_SECONDS: i64 = 60;
@@ -86,6 +87,8 @@ enum HostedQueryExecutionModeV1 {
     },
     Base {
         projection_fallback: bool,
+        path_keyset: bool,
+        total_count: Option<u64>,
     },
 }
 
@@ -110,11 +113,13 @@ struct ExecutedQueryPage {
     candidate_rows: u64,
     exact_documents: u64,
     exact_ciphertext_bytes: u64,
+    base_path_keyset: bool,
 }
 
 struct LoadedExactQueryRecords {
     records: HashMap<Uuid, mdbase::runtime::CanonicalRecordInput>,
     ciphertext_bytes: u64,
+    plaintext_bytes: u64,
 }
 
 struct QueryPageBoundary {

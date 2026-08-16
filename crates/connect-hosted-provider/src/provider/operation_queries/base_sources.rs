@@ -4,6 +4,145 @@ fn base_requires_relationships(plan: &mdbase::runtime::HostedBasePlan) -> bool {
         || plan.requirements.link_resolution
 }
 
+struct PathKeysetBasePage {
+    rows: Vec<ProjectedQueryRow>,
+    total_count: u64,
+    projection_bytes: u64,
+}
+
+async fn load_path_keyset_base_page(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    state: &HostedQueryState,
+    plan: &mdbase::runtime::HostedBasePlan,
+    page_size: u64,
+    cached_total_count: Option<u64>,
+) -> ApiResult<Option<PathKeysetBasePage>> {
+    let snapshot_head = to_i64(state.snapshot_head, "query snapshot head")?;
+    let binding = r#"p.record_id IS NOT NULL
+             AND p.record_sequence = live.sequence
+             AND p.record_revision = live.revision
+             AND p.catalog_revision = $3
+             AND p.projection_format_version = $4
+             AND p.semantic_engine_version = $5
+             AND p.semantic_complete AND p.resolution_complete
+             AND hosted_provider_projection_digest_valid(
+                   p.projection_digest, p.projection_observed_digest)"#;
+    let summary_sql = format!(
+        r#"WITH live AS (
+             SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted
+             FROM hosted_provider_record_versions
+             WHERE collection_id = $1 AND sequence <= $2
+             ORDER BY record_id, sequence DESC
+           ), classified AS (
+             SELECT live.deleted, p.matched_types, ({binding}) AS projection_current
+             FROM live
+             LEFT JOIN hosted_provider_record_projections p
+               ON p.collection_id = $1 AND p.generation_id = $6
+              AND p.record_id = live.record_id
+              AND p.valid_from_sequence <= $2
+              AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > $2)
+           )
+           SELECT count(*) FILTER (WHERE NOT deleted AND NOT projection_current)::bigint,
+                  count(*) FILTER (
+                    WHERE NOT deleted AND projection_current
+                      AND (cardinality($7::text[]) = 0 OR matched_types && $7::text[])
+                  )::bigint
+           FROM classified"#
+    );
+    // Both strings are assembled exclusively from the closed predicate above;
+    // all request and persisted values remain bind parameters.
+    let total_count = match cached_total_count {
+        Some(total_count) => total_count,
+        None => {
+            let (stale_count, total_count): (i64, i64) =
+                sqlx::query_as(AssertSqlSafe(summary_sql))
+                    .bind(collection_id)
+                    .bind(snapshot_head)
+                    .bind(&state.catalog_revision)
+                    .bind(i64::from(state.projection_format_version))
+                    .bind(&state.semantic_engine_version)
+                    .bind(state.generation_id)
+                    .bind(&plan.allowed_types)
+                    .fetch_one(&mut **transaction)
+                    .await?;
+            if stale_count > 0 {
+                return Ok(None);
+            }
+            number(total_count, "Base total count")?
+        }
+    };
+
+    let page_sql = format!(
+        r#"WITH live AS (
+             SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted
+             FROM hosted_provider_record_versions
+             WHERE collection_id = $1 AND sequence <= $2
+             ORDER BY record_id, sequence DESC
+           )
+           SELECT p.record_id, p.canonical_path, p.projection_bytes,
+                  p.semantic_projection
+           FROM live
+           JOIN hosted_provider_record_projections p
+             ON p.collection_id = $1 AND p.generation_id = $6
+            AND p.record_id = live.record_id
+            AND p.valid_from_sequence <= $2
+            AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > $2)
+           WHERE NOT live.deleted AND ({binding})
+             AND (cardinality($7::text[]) = 0 OR p.matched_types && $7::text[])
+             AND ($8::text IS NULL OR p.canonical_path > $8
+                  OR (p.canonical_path = $8 AND p.record_id > $9::uuid))
+           ORDER BY p.canonical_path, p.record_id
+           OFFSET $10 LIMIT $11"#
+    );
+    let database_rows = sqlx::query(AssertSqlSafe(page_sql))
+        .bind(collection_id)
+        .bind(snapshot_head)
+        .bind(&state.catalog_revision)
+        .bind(i64::from(state.projection_format_version))
+        .bind(&state.semantic_engine_version)
+        .bind(state.generation_id)
+        .bind(&plan.allowed_types)
+        .bind(state.last_path.as_deref())
+        .bind(state.last_record_id)
+        .bind(to_i64(
+            if state.last_path.is_none() { plan.offset } else { 0 },
+            "Base page offset",
+        )?)
+        .bind(to_i64(page_size, "Base page size")?)
+        .fetch_all(&mut **transaction)
+        .await?;
+    let mut rows = Vec::with_capacity(database_rows.len());
+    let mut stored_projection_bytes = 0_u64;
+    for row in database_rows {
+        let projection: mdbase::runtime::SemanticProjection =
+            serde_json::from_value(row.get("semantic_projection")).map_err(|error| {
+                ApiError::internal(format!("Hosted Base projection could not decode: {error}"))
+            })?;
+        stored_projection_bytes = stored_projection_bytes.saturating_add(number(
+            i64::from(row.get::<i32, _>("projection_bytes")),
+            "Base page projection bytes",
+        )?);
+        rows.push(ProjectedQueryRow {
+            record_id: row.get("record_id"),
+            canonical_path: row.get("canonical_path"),
+            projection,
+        });
+    }
+    let serialized_projection_bytes = rows.iter().try_fold(0_u64, |total, row| {
+        serde_json::to_vec(&row.projection)
+            .map(|bytes| total.saturating_add(bytes.len() as u64))
+            .map_err(|error| {
+                ApiError::internal(format!("Hosted Base projection could not serialize: {error}"))
+            })
+    })?;
+    Ok(Some(PathKeysetBasePage {
+        rows,
+        total_count,
+        projection_bytes: stored_projection_bytes.max(serialized_projection_bytes),
+    }))
+}
+
 async fn load_base_projected_snapshot(
     transaction: &mut Transaction<'_, Postgres>,
     collection_id: Uuid,
@@ -305,34 +444,18 @@ async fn load_base_hybrid_snapshot(
         crypto,
         data_key,
         collection_id,
-        state.snapshot_head,
+        state,
         &exact_ids,
+        0,
     )
     .await?;
-    enforce_exact_ciphertext_scan_budget(state, loaded_exact.ciphertext_bytes)?;
     let exact_ciphertext_bytes = loaded_exact.ciphertext_bytes;
+    let exact_bytes = loaded_exact.plaintext_bytes;
     let exact_records = loaded_exact.records;
     if exact_records.len() != exact_ids.len() {
         return Err(ApiError::conflict(
             "hosted_exact_snapshot_inconsistent",
             "The stale Obsidian Base union could not load every exact authority record.",
-        ));
-    }
-    let exact_bytes = exact_records.values().fold(0_u64, |total, record| {
-        total.saturating_add(record.document.len() as u64)
-    });
-    if exact_bytes > state.plan.budgets.max_exact_bytes {
-        let observed = scoped_budget_observed(
-            &plan.allowed_types,
-            state.plan.budgets.max_exact_bytes,
-            exact_bytes,
-        );
-        return Err(query_budget_error(
-            "hosted_exact_byte_budget_exceeded",
-            "The stale Obsidian Base union exceeded its exact-plaintext byte budget.",
-            "exact_bytes",
-            state.plan.budgets.max_exact_bytes,
-            observed,
         ));
     }
     let prepared = exact_ids
@@ -436,33 +559,18 @@ async fn load_base_exact_fallback_snapshot(
         crypto,
         data_key,
         collection_id,
-        state.snapshot_head,
+        state,
         &live_ids,
+        0,
     )
     .await?;
-    enforce_exact_ciphertext_scan_budget(state, loaded_exact.ciphertext_bytes)?;
     let exact_ciphertext_bytes = loaded_exact.ciphertext_bytes;
+    let exact_bytes = loaded_exact.plaintext_bytes;
     let exact_records = loaded_exact.records;
     if exact_records.len() != live_ids.len() {
         return Err(ApiError::conflict(
             "hosted_exact_snapshot_inconsistent",
             "The stale Obsidian Base fallback could not load its complete exact snapshot.",
-        ));
-    }
-    let exact_bytes = exact_records.values().fold(0_u64, |total, record| {
-        total.saturating_add(record.document.len() as u64)
-    });
-    if exact_bytes > state.plan.budgets.max_exact_bytes {
-        return Err(query_budget_error(
-            "hosted_exact_byte_budget_exceeded",
-            "The stale Obsidian Base fallback exceeded its exact-plaintext byte budget.",
-            "exact_bytes",
-            state.plan.budgets.max_exact_bytes,
-            scoped_budget_observed(
-                &plan.allowed_types,
-                state.plan.budgets.max_exact_bytes,
-                exact_bytes,
-            ),
         ));
     }
 

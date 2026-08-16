@@ -450,37 +450,17 @@ async fn execute_bounded_residual_page(
         crypto,
         data_key,
         collection_id,
-        state.snapshot_head,
+        state,
         &exact_ids,
+        state
+            .exact_context
+            .as_ref()
+            .map_or(0, |context| context.document.len() as u64),
     )
     .await?;
-    enforce_exact_ciphertext_scan_budget(state, loaded_exact.ciphertext_bytes)?;
     let exact_ciphertext_bytes = loaded_exact.ciphertext_bytes;
+    let exact_bytes = loaded_exact.plaintext_bytes;
     let exact_records = loaded_exact.records;
-    let exact_bytes = exact_records
-        .values()
-        .fold(0_u64, |total, record| {
-            total.saturating_add(record.document.len() as u64)
-        })
-        .saturating_add(
-            state
-                .exact_context
-                .as_ref()
-                .map_or(0, |context| context.document.len() as u64),
-        );
-    if exact_bytes > state.plan.budgets.max_exact_bytes {
-        return Err(query_budget_error(
-            "hosted_exact_byte_budget_exceeded",
-            "The hosted query exceeded its exact-plaintext byte budget.",
-            "exact_bytes",
-            state.plan.budgets.max_exact_bytes,
-            scoped_budget_observed(
-                &state.allowed_types,
-                state.plan.budgets.max_exact_bytes,
-                exact_bytes,
-            ),
-        ));
-    }
 
     let mut diagnostics = Vec::new();
     let offset = if state.last_path.is_none() {
@@ -649,5 +629,6 @@ async fn execute_bounded_residual_page(
         candidate_rows: candidate_count,
         exact_documents: (exact_records.len() as u64).saturating_add(context_documents),
         exact_ciphertext_bytes,
+        base_path_keyset: false,
     })
 }

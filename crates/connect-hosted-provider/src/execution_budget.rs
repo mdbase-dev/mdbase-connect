@@ -204,6 +204,10 @@ impl HostedExecutionBudgetManifest {
             || large.scanned_ciphertext_bytes > self.hard_maxima.scanned_ciphertext_bytes
             || large.snapshot_lifetime_ms > self.hard_maxima.snapshot_lifetime_ms
             || large.operation_deadline_ms > self.hard_maxima.operation_deadline_ms
+            || large.active_scan_permits_per_process
+                > self.hard_maxima.active_scan_permits_per_process
+            || large.accounted_execution_bytes_per_process
+                > self.hard_maxima.accounted_execution_bytes_per_process
         {
             return Err("large fixture entitlement exceeds a hard maximum".to_string());
         }
@@ -304,6 +308,29 @@ mod tests {
         let mut manifest: HostedExecutionBudgetManifest =
             serde_json::from_str(PUBLISHED_MANIFEST).unwrap();
         manifest.defaults.result_bytes = manifest.hard_maxima.result_bytes + 1;
+        assert!(manifest.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_large_fixture_process_limits_above_hard_maxima() {
+        let mut manifest: HostedExecutionBudgetManifest =
+            serde_json::from_str(PUBLISHED_MANIFEST).unwrap();
+        manifest
+            .entitlements
+            .get_mut("large_fixture_v1")
+            .unwrap()
+            .accounted_execution_bytes_per_process =
+            manifest.hard_maxima.accounted_execution_bytes_per_process + 1;
+        assert!(manifest.validate().is_err());
+
+        let mut manifest: HostedExecutionBudgetManifest =
+            serde_json::from_str(PUBLISHED_MANIFEST).unwrap();
+        manifest
+            .entitlements
+            .get_mut("large_fixture_v1")
+            .unwrap()
+            .active_scan_permits_per_process =
+            manifest.hard_maxima.active_scan_permits_per_process + 1;
         assert!(manifest.validate().is_err());
     }
 

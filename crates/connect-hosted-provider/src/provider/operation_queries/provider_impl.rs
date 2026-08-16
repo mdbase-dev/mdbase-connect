@@ -78,7 +78,7 @@ impl HostedProvider {
             .bind(request_kind.as_str())
             .execute(&self.pool)
             .await?;
-            cleanup_base_query_invocations(&self.pool, collection_id).await?;
+            cleanup_base_query_invocations(&self.pool, collection_id, None).await?;
             return Ok(empty_query_result());
         }
         let page_input_digest = query_page_input_digest(request_kind, input)?;
@@ -397,7 +397,14 @@ impl HostedProvider {
             .as_ref()
             .map(|proof| proof.execution.clone());
         let (page, execution) = match (state.base_plan.as_ref(), prior_execution) {
-            (Some(_), Some(HostedQueryExecutionModeV1::Base { projection_fallback })) => (
+            (
+                Some(_),
+                Some(HostedQueryExecutionModeV1::Base {
+                    projection_fallback,
+                    path_keyset,
+                    total_count,
+                }),
+            ) => (
                 execute_bounded_base_page(
                     &mut transaction,
                     &self.crypto,
@@ -408,10 +415,14 @@ impl HostedProvider {
                     requested_page_size,
                     started,
                     projection_fallback,
+                    path_keyset,
+                    total_count,
                 )
                 .await?,
                 HostedQueryExecutionModeV1::Base {
                     projection_fallback,
+                    path_keyset,
+                    total_count,
                 },
             ),
             (Some(base_plan), None) => {
@@ -422,8 +433,7 @@ impl HostedProvider {
                 } else {
                     base_projection_fallback_exists(&mut transaction, collection_id, &state).await?
                 };
-                (
-                    execute_bounded_base_page(
+                let page = execute_bounded_base_page(
                         &mut transaction,
                         &self.crypto,
                         &data_key,
@@ -433,10 +443,18 @@ impl HostedProvider {
                         requested_page_size,
                         started,
                         projection_fallback,
+                        true,
+                        None,
                     )
-                    .await?,
+                    .await?;
+                let path_keyset = page.base_path_keyset;
+                let total_count = path_keyset.then_some(page.total_count);
+                (
+                    page,
                     HostedQueryExecutionModeV1::Base {
                         projection_fallback,
+                        path_keyset,
+                        total_count,
                     },
                 )
             }
@@ -636,7 +654,7 @@ impl HostedProvider {
         } else {
             None
         };
-        cleanup_base_query_invocations(&mut *transaction, collection_id).await?;
+        cleanup_base_query_invocations(&mut *transaction, collection_id, None).await?;
         let serialized_diagnostics =
             serde_json::to_value(&page.diagnostics).unwrap_or_else(|_| json!([]));
         let mut meta = json!({
