@@ -51,6 +51,18 @@ impl HostedProvider {
         &self,
         collection_id: Uuid,
     ) -> ApiResult<HostedProjectionGeneration> {
+        self.start_projection_generation_in(collection_id, true)
+            .await?
+            .ok_or_else(|| {
+                ApiError::internal("An explicit projection generation start was suppressed.")
+            })
+    }
+
+    async fn start_projection_generation_in(
+        &self,
+        collection_id: Uuid,
+        supersede_building: bool,
+    ) -> ApiResult<Option<HostedProjectionGeneration>> {
         let generation_id = Uuid::new_v4();
         let mut transaction = self.pool.begin().await?;
         let row = sqlx::query(
@@ -68,6 +80,24 @@ impl HostedProvider {
                 "Hosted collection not found.",
             )
         })?;
+        if !supersede_building {
+            // Recovery selects missing work without locking every candidate.
+            // Recheck after taking the collection lock so a stale selection
+            // cannot supersede an explicit start that won the race.
+            let building_exists: bool = sqlx::query_scalar(
+                r#"SELECT EXISTS (
+                     SELECT 1 FROM hosted_provider_projection_generations
+                     WHERE collection_id = $1 AND status = 'building'
+                   )"#,
+            )
+            .bind(collection_id)
+            .fetch_one(&mut *transaction)
+            .await?;
+            if building_exists {
+                transaction.rollback().await?;
+                return Ok(None);
+            }
+        }
         let source_head = number(row.get::<i64, _>("head"), "collection head")?;
         let source_resource_revision: String = row.get("resource_revision");
         let data_key = self
@@ -145,7 +175,7 @@ impl HostedProvider {
         .execute(&mut *transaction)
         .await?;
         transaction.commit().await?;
-        Ok(HostedProjectionGeneration {
+        Ok(Some(HostedProjectionGeneration {
             collection_id,
             generation_id,
             catalog_revision,
@@ -155,7 +185,7 @@ impl HostedProvider {
             phase: "projection".to_string(),
             status: "building".to_string(),
             lease_fencing_generation: 1,
-        })
+        }))
     }
 
     /// Advance a bounded number of opted-in projection rebuilds. A missing
@@ -217,7 +247,10 @@ impl HostedProvider {
         .await?;
         for row in missing {
             let collection_id: Uuid = row.get("id");
-            match self.start_projection_generation(collection_id).await {
+            match self
+                .start_projection_generation_in(collection_id, false)
+                .await
+            {
                 Ok(_) => {}
                 Err(error) if error.code == "projection_generation_retention_exceeded" => {
                     tracing::warn!(

@@ -50,17 +50,17 @@ try {
     "--skip", "candidate_b_exact_projected_filter_and_group_100k",
     "--skip", "candidate_b_exact_projected_filter_and_group_230k"
   ], { MDBASE_PROJECTION_DATABASE_URL: databaseUrl });
-  const largeDatabase = "mdbase_projection_large";
-  await execute(
-    "docker",
-    ["exec", container, "createdb", "-U", "mdbase", largeDatabase],
-    { cwd: root }
-  );
-  for (const testName of [
+  for (const [index, testName] of [
     "candidate_b_base_candidate_prunes_100k_live_rows",
     "candidate_b_exact_projected_filter_and_group_100k",
     "candidate_b_exact_projected_filter_and_group_230k"
-  ]) {
+  ].entries()) {
+    const largeDatabase = `mdbase_projection_large_${index}`;
+    await execute(
+      "docker",
+      ["exec", container, "createdb", "-U", "mdbase", largeDatabase],
+      { cwd: root }
+    );
     await run("cargo", [
       "test", "-p", "mdbase-connect-hosted-provider",
       "--test", "projection_lifecycle", testName,

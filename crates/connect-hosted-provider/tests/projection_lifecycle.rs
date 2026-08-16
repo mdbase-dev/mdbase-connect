@@ -11,7 +11,7 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::Row;
 use std::time::{Duration, Instant};
-use support::{wait_for_query_blocked, FileLifecycleFixture};
+use support::{wait_for_database_condition, wait_for_query_blocked, FileLifecycleFixture};
 use uuid::Uuid;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2145,6 +2145,86 @@ async fn assert_scoped_public_query(fixture: &FileLifecycleFixture, token: &str)
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
 async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
+    // Keep this unusually broad lifecycle scenario on the heap. Its many
+    // suspension points otherwise make the generated test future larger than
+    // Tokio's default worker stack in debug builds.
+    Box::pin(exercise_candidate_b_projection_lifecycle()).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_recovery_does_not_supersede_a_concurrent_explicit_generation_start() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    sqlx::query(
+        "UPDATE hosted_provider_collections SET hosted_execution_model = 'candidate_b' WHERE id = $1",
+    )
+    .bind(fixture.collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+
+    let mut collection_lock = fixture.pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM hosted_provider_collections WHERE id = $1 FOR UPDATE")
+        .bind(fixture.collection_id)
+        .fetch_one(&mut *collection_lock)
+        .await
+        .unwrap();
+
+    let explicit_provider = fixture.provider.clone();
+    let collection_id = fixture.collection_id;
+    let explicit_start = tokio::spawn(async move {
+        explicit_provider
+            .start_projection_generation(collection_id)
+            .await
+    });
+    wait_for_query_blocked(&fixture.pool, "SELECT head, resource_revision").await;
+
+    let recovery_provider = fixture.provider.clone();
+    let recovery =
+        tokio::spawn(async move { recovery_provider.recover_projection_generations(1).await });
+    wait_for_database_condition(&fixture.pool, || {
+        let pool = fixture.pool.clone();
+        async move {
+            let blocked: i64 = sqlx::query_scalar(
+                r#"SELECT count(*) FROM pg_stat_activity
+                   WHERE datname = current_database()
+                     AND pid <> pg_backend_pid()
+                     AND wait_event_type = 'Lock'
+                     AND query LIKE '%SELECT head, resource_revision%'"#,
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            blocked >= 2
+        }
+    })
+    .await;
+    collection_lock.rollback().await.unwrap();
+
+    let explicit_generation = explicit_start.await.unwrap().unwrap();
+    recovery.await.unwrap().unwrap();
+    let generations: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_projection_generations WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(generations, 1);
+    let explicit_status: String = sqlx::query_scalar(
+        "SELECT status FROM hosted_provider_projection_generations WHERE collection_id = $1 AND generation_id = $2",
+    )
+    .bind(fixture.collection_id)
+    .bind(explicit_generation.generation_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_ne!(explicit_status, "abandoned");
+}
+
+async fn exercise_candidate_b_projection_lifecycle() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
     let fixture = FileLifecycleFixture::new(&database_url).await;
