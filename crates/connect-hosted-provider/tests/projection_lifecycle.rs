@@ -4956,7 +4956,31 @@ async fn candidate_b_exact_projected_filter_fixture(
                 .unwrap()
                 .to_string();
         }
+        let released = fixture
+            .provider
+            .operation(
+                fixture.collection_id,
+                &token,
+                "query",
+                Uuid::new_v4(),
+                json!({"release_cursor": projected_cursor}),
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(released["valid"], true);
     }
+    let retained_cursors: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_query_cursors WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        retained_cursors, 0,
+        "the sustained page mission releases every abandoned cursor"
+    );
     for repetition in 1..=repetitions {
         let grouped_started = Instant::now();
         let grouped = fixture
