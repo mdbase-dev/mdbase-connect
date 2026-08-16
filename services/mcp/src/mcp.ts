@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { randomUUID } from "node:crypto";
 import type { CollectionOperation } from "@mdbase-dev/connect-protocol";
 import { z } from "zod";
 import { ConnectGateway, GatewayOperationError } from "./connect.js";
@@ -7,6 +8,7 @@ import { OAuthService, type McpAuthContext } from "./oauth.js";
 const connectionId = z.uuid().describe("Opaque connection ID returned by list_connections");
 const path = z.string().min(1).max(1_024).describe("Collection-relative record path");
 const revision = z.string().min(1).max(500);
+const queryCursor = z.string().min(1).max(10_000).describe("Opaque hosted query cursor");
 const object = z.record(z.string(), z.unknown());
 
 export function createMcpServer(
@@ -55,7 +57,7 @@ export function createMcpServer(
     description: "Return collection metadata, supported operations, types and contracts.",
     inputSchema: { connection_id: connectionId },
     annotations: { readOnlyHint: true, openWorldHint: false }
-  }, ({ connection_id }) => operationTool(gateway, context, connection_id, "describe", {}));
+  }, ({ connection_id }, { signal }) => operationTool(gateway, context, connection_id, "describe", {}, { signal }));
 
   server.registerTool("list_changes", {
     title: "List collection changes",
@@ -66,7 +68,7 @@ export function createMcpServer(
       limit: z.number().int().min(1).max(200).optional()
     },
     annotations: { readOnlyHint: true, openWorldHint: false }
-  }, ({ connection_id, ...input }) => operationTool(gateway, context, connection_id, "changes", input));
+  }, ({ connection_id, ...input }, { signal }) => operationTool(gateway, context, connection_id, "changes", input, { signal }));
 
   server.registerTool("query_records", {
     title: "Query mdbase records",
@@ -74,28 +76,54 @@ export function createMcpServer(
     inputSchema: {
       connection_id: connectionId,
       types: z.array(z.string().min(1).max(200)).max(50).optional(),
+      timezone: z.string().min(1).max(100).optional(),
+      context: z.unknown().optional(),
+      projections: z.unknown().optional(),
       where: z.unknown().optional(),
+      select: z.unknown().optional(),
       order_by: z.unknown().optional(),
-      limit: z.number().int().min(1).max(200).optional(),
+      group_by: z.unknown().optional(),
+      summary_functions: z.unknown().optional(),
+      summaries: z.unknown().optional(),
+      limit: z.number().int().min(1).max(1_000).optional(),
       offset: z.number().int().nonnegative().optional(),
-      include_body: z.boolean().optional()
+      pagination: z.literal("cursor").optional(),
+      cursor: queryCursor.optional(),
+      snapshot: z.string().min(1).max(10_000).optional(),
+      include_body: z.boolean().optional(),
+      frontmatter_mode: z.enum(["effective", "persisted", "both"]).optional(),
+      contract: z.unknown().optional()
     },
     annotations: { readOnlyHint: true, openWorldHint: false }
-  }, ({ connection_id, ...input }) => operationTool(gateway, context, connection_id, "query", input));
+  }, ({ connection_id, ...input }, { signal }) => operationTool(gateway, context, connection_id, "query", input, { signal }));
+
+  server.registerTool("release_query_cursor", {
+    title: "Release an mdbase query cursor",
+    description: "Release an unfinished hosted query cursor promptly instead of waiting for bounded expiry.",
+    inputSchema: { connection_id: connectionId, cursor: queryCursor },
+    annotations: { readOnlyHint: true, openWorldHint: false }
+  }, ({ connection_id, cursor }, { signal }) => operationTool(
+    gateway,
+    context,
+    connection_id,
+    "query",
+    { release_cursor: cursor },
+    { signal }
+  ));
 
   server.registerTool("read_record", {
     title: "Read an mdbase record",
     description: "Read one record by its collection-relative path.",
     inputSchema: { connection_id: connectionId, path },
     annotations: { readOnlyHint: true, openWorldHint: false }
-  }, ({ connection_id, path }) => operationTool(gateway, context, connection_id, "read", { path }));
+  }, ({ connection_id, path }, { signal }) => operationTool(gateway, context, connection_id, "read", { path }, { signal }));
 
   server.registerTool("validate_collection", {
     title: "Validate an mdbase collection",
     description: "Run collection validation. Optional input is passed to the collection's validation operation.",
     inputSchema: { connection_id: connectionId, input: object.optional() },
     annotations: { readOnlyHint: true, openWorldHint: false }
-  }, ({ connection_id, input }) => operationTool(gateway, context, connection_id, "validate", input ?? {}));
+  }, ({ connection_id, input }, { signal }) => operationTool(gateway, context, connection_id, "validate", input ?? {}, { signal }));
 
   server.registerTool("read_type", {
     title: "Read an mdbase type",
@@ -106,7 +134,7 @@ export function createMcpServer(
       path: path.optional()
     },
     annotations: { readOnlyHint: true, openWorldHint: false }
-  }, ({ connection_id, ...input }) => operationTool(gateway, context, connection_id, "read_type", input));
+  }, ({ connection_id, ...input }, { signal }) => operationTool(gateway, context, connection_id, "read_type", input, { signal }));
 
   if (context.scopes.includes("mdbase:write")) registerWriteTools(server, context, gateway);
   return server;
@@ -122,10 +150,13 @@ function registerWriteTools(server: McpServer, context: McpAuthContext, gateway:
       type: z.string().min(1).max(200).optional(),
       frontmatter: object.optional(),
       body: z.string().max(2_000_000).optional(),
-      if_revision: revision.optional()
+      if_revision: revision.optional(),
+      mutation_id: z.uuid().optional()
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
-  }, ({ connection_id, ...input }) => operationTool(gateway, context, connection_id, "create", input));
+  }, ({ connection_id, mutation_id, ...input }, { signal }) => mutationOperationTool(
+    gateway, context, connection_id, "create", input, mutation_id, signal
+  ));
 
   server.registerTool("update_record", {
     title: "Update an mdbase record",
@@ -135,10 +166,14 @@ function registerWriteTools(server: McpServer, context: McpAuthContext, gateway:
       path,
       patch: object,
       body: z.string().max(2_000_000).optional(),
-      if_revision: revision.optional()
+      document: z.string().max(2_000_000).optional(),
+      if_revision: revision.optional(),
+      mutation_id: z.uuid().optional()
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
-  }, ({ connection_id, ...input }) => operationTool(gateway, context, connection_id, "update", input));
+  }, ({ connection_id, mutation_id, ...input }, { signal }) => mutationOperationTool(
+    gateway, context, connection_id, "update", input, mutation_id, signal
+  ));
 
   server.registerTool("delete_record", {
     title: "Delete an mdbase record",
@@ -147,10 +182,13 @@ function registerWriteTools(server: McpServer, context: McpAuthContext, gateway:
       connection_id: connectionId,
       path,
       check_backlinks: z.boolean().optional(),
-      if_revision: revision.optional()
+      if_revision: revision.optional(),
+      mutation_id: z.uuid().optional()
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
-  }, ({ connection_id, ...input }) => operationTool(gateway, context, connection_id, "delete", input));
+  }, ({ connection_id, mutation_id, ...input }, { signal }) => mutationOperationTool(
+    gateway, context, connection_id, "delete", input, mutation_id, signal
+  ));
 
   server.registerTool("rename_record", {
     title: "Rename an mdbase record",
@@ -160,10 +198,13 @@ function registerWriteTools(server: McpServer, context: McpAuthContext, gateway:
       from: path,
       to: path,
       update_refs: z.boolean().optional(),
-      if_revision: revision.optional()
+      if_revision: revision.optional(),
+      mutation_id: z.uuid().optional()
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
-  }, ({ connection_id, ...input }) => operationTool(gateway, context, connection_id, "rename", input));
+  }, ({ connection_id, mutation_id, ...input }, { signal }) => mutationOperationTool(
+    gateway, context, connection_id, "rename", input, mutation_id, signal
+  ));
 
   server.registerTool("create_type", {
     title: "Create an mdbase type",
@@ -174,7 +215,7 @@ function registerWriteTools(server: McpServer, context: McpAuthContext, gateway:
       path: path.optional()
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
-  }, ({ connection_id, ...input }) => operationTool(gateway, context, connection_id, "create_type", input));
+  }, ({ connection_id, ...input }, { signal }) => operationTool(gateway, context, connection_id, "create_type", input, { signal }));
 
   server.registerTool("update_type", {
     title: "Update an mdbase type",
@@ -187,7 +228,24 @@ function registerWriteTools(server: McpServer, context: McpAuthContext, gateway:
       if_revision: revision
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
-  }, ({ connection_id, ...input }) => operationTool(gateway, context, connection_id, "update_type", input));
+  }, ({ connection_id, ...input }, { signal }) => operationTool(gateway, context, connection_id, "update_type", input, { signal }));
+}
+
+function mutationOperationTool(
+  gateway: ConnectGateway,
+  context: McpAuthContext,
+  connectionId: string,
+  operation: CollectionOperation,
+  input: unknown,
+  mutationId: string | undefined,
+  signal: AbortSignal
+) {
+  const requestId = mutationId ?? randomUUID();
+  return operationTool(gateway, context, connectionId, operation, input, {
+    signal,
+    requestId,
+    mutationReceipt: true
+  });
 }
 
 async function operationTool(
@@ -195,14 +253,41 @@ async function operationTool(
   context: McpAuthContext,
   connectionId: string,
   operation: CollectionOperation,
-  input: unknown
+  input: unknown,
+  options: { signal?: AbortSignal; requestId?: string; mutationReceipt?: boolean } = {}
 ) {
   try {
-    return toolResult(await gateway.operation(context.connectionSetId, connectionId, operation, input));
+    const value = await gateway.operation(
+      context.connectionSetId,
+      connectionId,
+      operation,
+      input,
+      { signal: options.signal, requestId: options.requestId }
+    );
+    return toolResult(options.mutationReceipt ? {
+      mutation_receipt: {
+        request_id: options.requestId,
+        retry: "Reuse this request_id as mutation_id when retrying the exact mutation."
+      },
+      outcome: value
+    } : value);
   } catch (error) {
     const value = error instanceof GatewayOperationError
-      ? { error: { code: error.code, message: error.message } }
-      : { error: { code: "operation_failed", message: "The collection operation failed." } };
+      ? {
+          error: {
+            code: error.code,
+            message: error.message,
+            ...(error.details ? { details: error.details } : {}),
+            ...(options.mutationReceipt ? { request_id: options.requestId } : {})
+          }
+        }
+      : {
+          error: {
+            code: "operation_failed",
+            message: "The collection operation failed.",
+            ...(options.mutationReceipt ? { request_id: options.requestId } : {})
+          }
+        };
     return {
       ...toolResult(value),
       isError: true

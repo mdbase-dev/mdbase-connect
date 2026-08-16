@@ -234,13 +234,19 @@ describe("mdbase MCP gateway", () => {
     expect(tools.tools.map((tool) => tool.name)).toContain("add_connection");
     expect(tools.tools.map((tool) => tool.name)).toContain("reconnect_collection");
     expect(tools.tools.map((tool) => tool.name)).toContain("create_record");
+    expect(tools.tools.map((tool) => tool.name)).toContain("release_query_cursor");
     const createRecord = tools.tools.find((tool) => tool.name === "create_record")!;
     expect((createRecord.inputSchema.required as string[])).not.toContain("frontmatter");
     const listed = await client.callTool({ name: "list_connections", arguments: {} });
     expect((listed.structuredContent as any).connections).toHaveLength(2);
     const queried = await client.callTool({
       name: "query_records",
-      arguments: { connection_id: connections[1].id, types: ["note"], limit: 10 }
+      arguments: {
+        connection_id: connections[1].id,
+        types: ["note"],
+        limit: 10,
+        pagination: "cursor"
+      }
     });
     expect(queried.structuredContent).toMatchObject({
       valid: true,
@@ -269,6 +275,54 @@ describe("mdbase MCP gateway", () => {
       "https://mcp.example",
       "https://mcp.example"
     ]);
+
+    const released = await client.callTool({
+      name: "release_query_cursor",
+      arguments: { connection_id: connections[1].id, cursor: "query-cursor-two" }
+    });
+    expect(released.isError).not.toBe(true);
+    expect(upstream.hostedInputs).toContainEqual({ release_cursor: "query-cursor-two" });
+
+    const mutationId = "01977777-7777-7777-8777-777777777777";
+    const created = await client.callTool({
+      name: "create_record",
+      arguments: {
+        connection_id: connections[1].id,
+        path: "notes/created.md",
+        body: "Created through MCP.",
+        mutation_id: mutationId
+      }
+    });
+    expect(created.structuredContent).toMatchObject({
+      mutation_receipt: { request_id: mutationId },
+      outcome: { valid: true, result: { path: "notes/created.md" } }
+    });
+    await client.callTool({
+      name: "create_record",
+      arguments: {
+        connection_id: connections[1].id,
+        path: "notes/created.md",
+        body: "Created through MCP.",
+        mutation_id: mutationId
+      }
+    });
+    expect(upstream.hostedRequestIds.slice(-2)).toEqual([mutationId, mutationId]);
+
+    await expect(gateway.operation(
+      context!.connectionSetId,
+      connections[1].id,
+      "query",
+      { where: "__mismatched_response__" }
+    )).rejects.toMatchObject({ code: "invalid_operation_response" });
+    const cancellation = new AbortController();
+    cancellation.abort(new DOMException("Cancelled by MCP host", "AbortError"));
+    await expect(gateway.operation(
+      context!.connectionSetId,
+      connections[1].id,
+      "query",
+      {},
+      { signal: cancellation.signal }
+    )).rejects.toMatchObject({ name: "AbortError" });
 
     await client.close();
     await app.close();
@@ -306,6 +360,8 @@ async function fakeUpstream(realFetch: typeof fetch) {
   const refreshProofs: AuthorityProofHeaders[] = [];
   const operationProofs: AuthorityProofHeaders[] = [];
   const localInputs: unknown[] = [];
+  const hostedInputs: unknown[] = [];
+  const hostedRequestIds: string[] = [];
   const connectorKeys = await crypto.subtle.generateKey(
     { name: "ECDH", namedCurve: "P-256" },
     true,
@@ -397,17 +453,45 @@ async function fakeUpstream(realFetch: typeof fetch) {
       });
       return Response.json({ envelope: responseEnvelope });
     }
-    if (url.origin === "https://sync.example" && url.pathname.endsWith("/operations/query")) {
+    if (url.origin === "https://sync.example" && url.pathname.includes("/operations/")) {
       const headers = new Headers(init?.headers);
       operationAuthorizations.push(headers.get("authorization")!);
       operationOrigins.push(headers.get("origin")!);
       operationProofs.push(proofHeaders(init));
+      const request = JSON.parse(String(init?.body));
+      if (init?.signal?.aborted) throw init.signal.reason;
+      hostedInputs.push(request.input);
+      hostedRequestIds.push(request.request_id);
+      const operation = url.pathname.split("/").at(-1);
+      const result = operation === "create"
+        ? {
+            valid: true,
+            result: {
+              path: request.input.path,
+              revision: "created-revision",
+              frontmatter: {},
+              body: request.input.body,
+              types: []
+            },
+            diagnostics: []
+          }
+        : operation === "query" && request.input.release_cursor
+          ? { valid: true, result: { results: [], meta: { total_count: 0, has_more: false } }, diagnostics: [] }
+          : {
+              valid: true,
+              result: {
+                results: [{ path: "notes/second.md", frontmatter: { title: "Second" }, types: ["note"] }],
+                meta: { total_count: 1, has_more: false }
+              },
+              diagnostics: []
+            };
       return Response.json({
-        result: {
-          valid: true,
-          result: { results: [{ path: "notes/second.md", frontmatter: { title: "Second" }, types: ["note"] }] },
-          diagnostics: []
-        }
+        protocol_version: request.protocol_version,
+        request_id: request.input.where === "__mismatched_response__"
+          ? "01988888-8888-7888-8888-888888888888"
+          : request.request_id,
+        ok: true,
+        result
       });
     }
     if (url.hostname === "127.0.0.1") return realFetch(input, init);
@@ -422,7 +506,9 @@ async function fakeUpstream(realFetch: typeof fetch) {
     operationOrigins,
     refreshProofs,
     operationProofs,
-    localInputs
+    localInputs,
+    hostedInputs,
+    hostedRequestIds
   };
 }
 

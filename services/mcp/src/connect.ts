@@ -10,11 +10,13 @@ import {
 } from "@mdbase-dev/connect/crypto";
 import {
   APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
+  OPERATION_TRANSPORT_PROTOCOL_VERSION,
   authorizationContractRequirements,
   type CollectionOperation,
   type EncryptedRelayOperationResponse,
   type GrantEncryption,
   type GrantScope,
+  type MdbaseOperationRequest,
   type MdbaseAppManifest
 } from "@mdbase-dev/connect-protocol";
 import { z } from "zod";
@@ -241,22 +243,37 @@ export class ConnectGateway {
     connectionSetId: string,
     connectionId: string,
     operation: CollectionOperation,
-    input: unknown
+    input: unknown,
+    options: { requestId?: string; signal?: AbortSignal } = {}
   ): Promise<Result> {
-    let connection = await this.freshConnection(connectionSetId, connectionId, false);
+    const requestId = options.requestId ?? randomUUID();
+    let connection = await this.freshConnection(connectionSetId, connectionId, false, options.signal);
     if (!connection.operations.includes(operation)) {
       throw new GatewayOperationError(
         "insufficient_collection_access",
         `${connection.display_name} was not approved for ${operation}. Reconnect it with broader access.`
       );
     }
-    let attempt = await this.sendOperation<Result>(connection, operation, input);
+    let attempt = await this.sendOperation<Result>(connection, operation, input, requestId, options.signal);
     if (attempt.status === 401) {
-      connection = await this.freshConnection(connectionSetId, connectionId, true);
-      attempt = await this.sendOperation<Result>(connection, operation, input);
+      connection = await this.freshConnection(connectionSetId, connectionId, true, options.signal);
+      attempt = await this.sendOperation<Result>(connection, operation, input, requestId, options.signal);
     }
     if (!attempt.ok) throw upstreamError(attempt.body, `The ${operation} operation failed.`);
-    if (!attempt.request) return attempt.body?.result as Result;
+    if (!attempt.request) {
+      if (
+        attempt.body?.protocol_version !== OPERATION_TRANSPORT_PROTOCOL_VERSION
+        || attempt.body?.request_id !== requestId
+        || attempt.body?.ok !== true
+        || !("result" in attempt.body)
+      ) {
+        throw new GatewayOperationError(
+          "invalid_operation_response",
+          "The hosted authority returned an invalid or mismatched operation response."
+        );
+      }
+      return attempt.body.result as Result;
+    }
     if (!connection.encryption || !connection.key_handle) {
       throw new GatewayOperationError("missing_grant_key", "The encrypted collection grant is incomplete.");
     }
@@ -287,7 +304,9 @@ export class ConnectGateway {
   private async sendOperation<Result>(
     connection: ConnectionRow,
     operation: CollectionOperation,
-    input: unknown
+    input: unknown,
+    requestId: string,
+    signal?: AbortSignal
   ): Promise<{
     ok: boolean;
     status: number;
@@ -302,6 +321,12 @@ export class ConnectGateway {
     if (credentials.authority) {
       url = `${credentials.authority.operationsUrl}/${operation}`;
       bearer = credentials.authority.accessToken;
+      const operationRequest: MdbaseOperationRequest = {
+        protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION,
+        request_id: requestId,
+        input
+      };
+      body = operationRequest;
     } else {
       if (!connection.encryption || !connection.key_handle) {
         throw new GatewayOperationError("encryption_required", "Local collection access requires an encrypted grant.");
@@ -315,7 +340,8 @@ export class ConnectGateway {
           encryption: connection.encryption
         },
         operation,
-        input
+        input,
+        requestId
       );
       body = request;
       url = `${connection.upstream_url}/v1/authorities/${encodeURIComponent(connection.collection_id)}/operations/${operation}`;
@@ -340,7 +366,8 @@ export class ConnectGateway {
         origin: this.applicationOrigin,
         ...proof
       },
-      body: serializedBody
+      body: serializedBody,
+      signal
     });
     return {
       ok: response.ok,
@@ -350,7 +377,12 @@ export class ConnectGateway {
     };
   }
 
-  private async freshConnection(setId: string, connectionId: string, force: boolean): Promise<ConnectionRow> {
+  private async freshConnection(
+    setId: string,
+    connectionId: string,
+    force: boolean,
+    signal?: AbortSignal
+  ): Promise<ConnectionRow> {
     const client = await this.db.connect();
     try {
       await client.query("BEGIN");
@@ -393,7 +425,8 @@ export class ConnectGateway {
           "content-type": "application/x-www-form-urlencoded",
           ...proof
         },
-        body: refreshBody
+        body: refreshBody,
+        signal
       });
       const raw = await response.json().catch(() => null);
       if (!response.ok) throw upstreamError(raw, `Reconnect ${connection.display_name} to continue.`);
@@ -559,7 +592,11 @@ export class ConnectGateway {
 }
 
 export class GatewayOperationError extends Error {
-  constructor(public readonly code: string, message: string) {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly details?: Record<string, unknown>
+  ) {
     super(message);
   }
 }
@@ -593,7 +630,10 @@ function summary(connection: ConnectionRow): ConnectionSummary {
 function upstreamError(body: any, fallback: string): GatewayOperationError {
   return new GatewayOperationError(
     typeof body?.error?.code === "string" ? body.error.code : "upstream_error",
-    typeof body?.error?.message === "string" ? body.error.message : fallback
+    typeof body?.error?.message === "string" ? body.error.message : fallback,
+    body?.error?.details && typeof body.error.details === "object" && !Array.isArray(body.error.details)
+      ? body.error.details as Record<string, unknown>
+      : undefined
   );
 }
 
