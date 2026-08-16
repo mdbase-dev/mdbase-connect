@@ -4965,6 +4965,23 @@ async fn candidate_b_exact_projected_filter_fixture(
     assert_eq!(exact_page["result"]["meta"]["total_count"], 2);
     assert!(exact_page["result"]["results"][0]["body"].is_string());
     assert!(exact_page["result"]["meta"]["cursor"].is_string());
+    let released = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "release_cursor": exact_page["result"]["meta"]["cursor"]
+                    .as_str()
+                    .unwrap()
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(released["valid"], true);
 
     let original_projection: serde_json::Value = sqlx::query_scalar(
         r#"SELECT semantic_projection FROM hosted_provider_record_projections
@@ -5096,6 +5113,28 @@ async fn candidate_b_exact_projected_filter_fixture(
         .and_then(|value| value.parse::<u32>().ok())
         .filter(|value| *value > 0)
         .unwrap_or(default_repetitions);
+    let ordering_budget = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "types": ["task"],
+                "order_by": [{"field": "record.status", "direction": "asc"}],
+                "limit": page_size,
+                "pagination": "cursor"
+            }),
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(ordering_budget.code, "hosted_ordering_budget_exceeded");
+    assert_eq!(
+        ordering_budget.details.as_ref().unwrap()["budget"],
+        "top_k_entries"
+    );
     for repetition in 1..=repetitions {
         let projected_started = Instant::now();
         let projected_page = fixture
@@ -5189,6 +5228,83 @@ async fn candidate_b_exact_projected_filter_fixture(
                 "query",
                 Uuid::new_v4(),
                 json!({"release_cursor": projected_cursor}),
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(released["valid"], true);
+
+        let mtime_started = Instant::now();
+        let mtime_page = fixture
+            .provider
+            .operation(
+                fixture.collection_id,
+                &token,
+                "query",
+                Uuid::new_v4(),
+                json!({
+                    "types": ["task"],
+                    "order_by": [{"field": "file.mtime", "direction": "desc"}],
+                    "limit": page_size,
+                    "pagination": "cursor"
+                }),
+                None,
+            )
+            .await
+            .unwrap();
+        eprintln!(
+            "candidate_b_mtime_page decoys={decoy_count} repetition={repetition} elapsed_ms={}",
+            mtime_started.elapsed().as_millis()
+        );
+        assert_eq!(
+            mtime_page["result"]["results"].as_array().unwrap().len(),
+            usize::try_from(page_size).unwrap()
+        );
+        let mtime_cursor = mtime_page["result"]["meta"]["cursor"]
+            .as_str()
+            .expect("the broad mtime page has a continuation cursor")
+            .to_string();
+        let mtime_page_two_started = Instant::now();
+        let mtime_page_two = fixture
+            .provider
+            .operation(
+                fixture.collection_id,
+                &token,
+                "query",
+                Uuid::new_v4(),
+                json!({
+                    "types": ["task"],
+                    "order_by": [{"field": "file.mtime", "direction": "desc"}],
+                    "limit": page_size,
+                    "pagination": "cursor",
+                    "cursor": mtime_cursor
+                }),
+                None,
+            )
+            .await
+            .unwrap();
+        eprintln!(
+            "candidate_b_mtime_page decoys={decoy_count} page=2 repetition={repetition} elapsed_ms={}",
+            mtime_page_two_started.elapsed().as_millis()
+        );
+        assert_eq!(
+            mtime_page_two["result"]["results"]
+                .as_array()
+                .unwrap()
+                .len(),
+            usize::try_from(page_size).unwrap()
+        );
+        let mtime_cursor = mtime_page_two["result"]["meta"]["cursor"]
+            .as_str()
+            .expect("the second broad mtime page has a continuation cursor");
+        let released = fixture
+            .provider
+            .operation(
+                fixture.collection_id,
+                &token,
+                "query",
+                Uuid::new_v4(),
+                json!({"release_cursor": mtime_cursor}),
                 None,
             )
             .await

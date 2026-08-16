@@ -12,6 +12,8 @@ Rollback admission fence: `crates/connect-hosted-provider/migrations/0047_hosted
 Verified integrity epoch: `crates/connect-hosted-provider/migrations/0052_projection_integrity_verification.sql`
 Snapshot path cursor index: `crates/connect-hosted-provider/migrations/0053_snapshot_path_cursor_index.sql`
 Single-write digest binding: `crates/connect-hosted-provider/migrations/0054_projection_digest_single_write.sql`
+Snapshot mtime cursor index: `crates/connect-hosted-provider/migrations/0055_snapshot_mtime_cursor_index.sql`
+Versioned query-receipt compression: `crates/connect-hosted-provider/migrations/0056_query_receipt_compression.sql`
 
 ## Compatibility strategy
 
@@ -121,6 +123,12 @@ supports the default deterministic `(path, record_id)` keyset while retaining
 closed rows required by an older pinned snapshot. It is an access-model index, not
 a general semantic projection index.
 
+Migration 0055 adds the one evidence-backed scalar cursor btree for the Editor's
+common descending file-mtime listing, followed by canonical path and record
+identity. Ascending mtime and arbitrary frontmatter ordering remain on the
+explicitly bounded top-K path; they do not gain unbounded SQL sorts or automatic
+property indexes.
+
 Projection format 3 corrects the closed link-resolution contract so the mandatory
 Markdown `.md` path alternative is always present in addition to configured extra
 record extensions. A format-2 generation must be rebuilt; it cannot be relabelled,
@@ -195,6 +203,14 @@ Migration 0051 makes the encrypted response payload immutable in PostgreSQL. Acc
 reconciliation may still rebind the receipt's account identifier, but no runtime or
 operator path may change its ciphertext footprint without deleting and recreating
 the ephemeral receipt through the ordinary admission path.
+Migration 0056 adds an explicit response encoding. Legacy and rollback writers keep
+the `json-v1` default; Candidate B writers serialize once, enforce the plaintext
+receipt ceiling, compress beneficial payloads as `zstd-json-v1`, and then encrypt.
+Replay authenticates and decrypts before bounded decompression. This preserves exact
+idempotent replay while preventing encrypted, non-TOAST-compressible page bodies
+from dominating WAL and grouping latency. A rollback after Candidate B traffic must
+first drain or wait out these five-minute ephemeral receipts; before collection
+activation, production cannot contain the new encoding.
 Background expiry removes no more than 1,000 rows and 256 MiB per maintenance pass.
 A retry outside the recent window must restart from a new snapshot if its consumed
 cursor is no longer present; recent responses replay the same operation result.
@@ -215,7 +231,10 @@ The baseline creates no projection GIN.
 - Projection settlement: `(collection_id, generation_id, valid_to_sequence,
   record_id)` for rebuild keysets and completion proof.
 - Deterministic temporal path cursor: `(collection_id, generation_id,
-  canonical_path COLLATE "C", valid_from_sequence, valid_to_sequence, record_id)`.
+  canonical_path COLLATE "C", record_id, valid_from_sequence, valid_to_sequence)`.
+- Measured Editor cursor: `(collection_id, generation_id, file_modified_at DESC
+  NULLS FIRST, canonical_path COLLATE "C", record_id, valid_from_sequence,
+  valid_to_sequence)`.
 - Link identity lookup: `(collection_id, generation_id, key_kind, lookup_key COLLATE "C",
   valid_from_sequence, valid_to_sequence, record_id)` over mdbase-rs-emitted
   path/basename/ID/title keys.

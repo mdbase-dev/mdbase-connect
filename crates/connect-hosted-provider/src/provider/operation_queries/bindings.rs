@@ -38,6 +38,73 @@ fn query_page_input_digest(
     Ok(Sha256::digest(canonical).to_vec())
 }
 
+const QUERY_RECEIPT_JSON_V1: &str = "json-v1";
+const QUERY_RECEIPT_ZSTD_JSON_V1: &str = "zstd-json-v1";
+const QUERY_RECEIPT_ZSTD_LEVEL: i32 = 3;
+
+fn encode_query_page_receipt_payload(
+    result: &OperationResult,
+    maximum_bytes: u64,
+) -> ApiResult<(&'static str, Vec<u8>)> {
+    let plaintext = serde_json::to_vec(result).map_err(|error| {
+        ApiError::internal(format!(
+            "Hosted query receipt could not serialize: {error}"
+        ))
+    })?;
+    if plaintext.len() as u64 > maximum_bytes {
+        return Err(query_budget_error(
+            "hosted_query_receipt_byte_budget_exceeded",
+            "The hosted query response exceeds the durable retry-receipt budget.",
+            "query_receipt_plaintext_bytes",
+            maximum_bytes,
+            plaintext.len() as u64,
+        ));
+    }
+    let compressed = zstd::bulk::compress(&plaintext, QUERY_RECEIPT_ZSTD_LEVEL).map_err(|error| {
+        ApiError::internal(format!(
+            "Hosted query receipt could not be compressed: {error}"
+        ))
+    })?;
+    if compressed.len() < plaintext.len() {
+        Ok((QUERY_RECEIPT_ZSTD_JSON_V1, compressed))
+    } else {
+        Ok((QUERY_RECEIPT_JSON_V1, plaintext))
+    }
+}
+
+fn decode_query_page_receipt_payload(
+    encoding: &str,
+    payload: &[u8],
+    maximum_bytes: u64,
+) -> ApiResult<OperationResult> {
+    let maximum_bytes = usize::try_from(maximum_bytes)
+        .map_err(|_| ApiError::internal("Hosted query receipt byte budget is unsupported."))?;
+    let plaintext = match encoding {
+        QUERY_RECEIPT_JSON_V1 => {
+            if payload.len() > maximum_bytes {
+                return Err(ApiError::internal(
+                    "Hosted query receipt plaintext exceeds its decode budget.",
+                ));
+            }
+            payload.to_vec()
+        }
+        QUERY_RECEIPT_ZSTD_JSON_V1 => zstd::bulk::decompress(payload, maximum_bytes).map_err(
+            |error| {
+                ApiError::internal(format!(
+                    "Hosted query receipt compressed payload is invalid or oversized: {error}"
+                ))
+            },
+        )?,
+        _ => {
+            return Err(ApiError::internal(
+                "Hosted query receipt has an unsupported response encoding.",
+            ))
+        }
+    };
+    serde_json::from_slice(&plaintext)
+        .map_err(|error| ApiError::internal(format!("Hosted query receipt is invalid: {error}")))
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn replay_query_page_receipt(
     transaction: &mut Transaction<'_, Postgres>,
@@ -59,7 +126,7 @@ async fn replay_query_page_receipt(
     .await?;
     let row = sqlx::query(
         r#"SELECT collection_id, scope_epoch, request_kind, input_digest,
-                  response_ciphertext
+                  response_ciphertext, response_encoding
            FROM hosted_provider_query_page_receipts
            WHERE replica_id = $1 AND request_id = $2
            FOR UPDATE"#,
@@ -83,10 +150,17 @@ async fn replay_query_page_receipt(
             "The hosted query request ID was already used for different input or authority.",
         ));
     }
-    let result = crypto.decrypt_json(
+    let payload = crypto.decrypt_bytes(
         data_key,
         row.get("response_ciphertext"),
         &query_page_receipt_aad(collection_id, replica.id, request_id),
+    )?;
+    let result = decode_query_page_receipt_payload(
+        row.get::<String, _>("response_encoding").as_str(),
+        &payload,
+        HostedExecutionBudgetManifest::published()
+            .defaults
+            .query_receipt_ciphertext_bytes,
     )?;
     Ok(Some(result))
 }
@@ -105,9 +179,13 @@ async fn store_query_page_receipt(
     expires_at: DateTime<Utc>,
 ) -> ApiResult<()> {
     let budgets = &HostedExecutionBudgetManifest::published().defaults;
-    let ciphertext = crypto.encrypt_json(
-        data_key,
+    let (response_encoding, payload) = encode_query_page_receipt_payload(
         result,
+        budgets.query_receipt_ciphertext_bytes,
+    )?;
+    let ciphertext = crypto.encrypt_bytes(
+        data_key,
+        &payload,
         &query_page_receipt_aad(collection_id, replica.id, request_id),
     )?;
     let ciphertext_bytes = ciphertext.len() as u64;
@@ -266,8 +344,8 @@ async fn store_query_page_receipt(
     sqlx::query(
         r#"INSERT INTO hosted_provider_query_page_receipts
              (replica_id, request_id, collection_id, scope_epoch, request_kind,
-              input_digest, response_ciphertext, expires_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
+              input_digest, response_ciphertext, response_encoding, expires_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
     )
     .bind(replica.id)
     .bind(request_id)
@@ -276,6 +354,7 @@ async fn store_query_page_receipt(
     .bind(request_kind.as_str())
     .bind(input_digest)
     .bind(ciphertext)
+    .bind(response_encoding)
     .bind(expires_at)
     .execute(&mut **transaction)
     .await?;

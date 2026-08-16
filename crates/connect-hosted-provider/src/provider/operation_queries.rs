@@ -84,6 +84,8 @@ enum HostedQueryExecutionModeV1 {
     },
     BoundedResidual {
         force_exact_residual: bool,
+        #[serde(default)]
+        bounded_ordering: bool,
     },
     Base {
         projection_fallback: bool,

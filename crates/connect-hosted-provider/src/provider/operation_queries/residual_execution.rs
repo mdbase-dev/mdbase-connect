@@ -366,13 +366,16 @@ async fn load_projected_page(
             " ASC, "
         });
         push_scalar_order_expression(&mut query, order, false);
+        if !scalar_order_is_file_mtime(order) {
+            query.push(" COLLATE \"C\"");
+        }
         query.push(if matches!(
             order.direction,
             mdbase::runtime::HostedOrderDirection::Descending
         ) {
-            " COLLATE \"C\" DESC, "
+            " DESC, "
         } else {
-            " COLLATE \"C\" ASC, "
+            " ASC, "
         });
     }
     query
@@ -492,11 +495,25 @@ async fn projected_scalar_order_values_are_valid(
         if index > 0 {
             query.push(" OR ");
         }
-        query.push("(jsonb_typeof(");
-        push_scalar_order_expression(&mut query, order, true);
-        query.push(") IS NOT NULL AND jsonb_typeof(");
-        push_scalar_order_expression(&mut query, order, true);
-        query.push(") NOT IN ('string', 'null'))");
+        if scalar_order_is_file_mtime(order) {
+            query.push("(jsonb_typeof(");
+            push_scalar_order_expression(&mut query, order, true);
+            query.push(") IS DISTINCT FROM 'string' OR ");
+            push_scalar_order_expression(&mut query, order, false);
+            query.push(" IS NULL OR ");
+            push_scalar_order_expression(&mut query, order, true);
+            query.push(
+                " #>> '{}' IS DISTINCT FROM to_char(\
+                 p.file_modified_at AT TIME ZONE 'UTC', \
+                 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'))",
+            );
+        } else {
+            query.push("(jsonb_typeof(");
+            push_scalar_order_expression(&mut query, order, true);
+            query.push(") IS NOT NULL AND jsonb_typeof(");
+            push_scalar_order_expression(&mut query, order, true);
+            query.push(") NOT IN ('string', 'null'))");
+        }
     }
     query.push(") LIMIT 1)");
     query
@@ -685,12 +702,36 @@ fn push_scalar_order_expression(
     order: &mdbase::runtime::HostedOrder,
     json_value: bool,
 ) {
+    if scalar_order_is_file_mtime(order) && !json_value {
+        query.push("p.file_modified_at");
+        return;
+    }
     if let Some(path) = scalar_order_json_path(&order.field) {
         query.push("p.semantic_projection #");
         query.push(if json_value { "> " } else { ">> " });
         query.push_bind(path);
     } else {
         query.push("p.canonical_path");
+    }
+}
+
+fn scalar_order_is_file_mtime(order: &mdbase::runtime::HostedOrder) -> bool {
+    matches!(&order.field, mdbase::runtime::CandidateField::File(name) if name == "mtime")
+}
+
+fn push_scalar_order_cursor_bind(
+    query: &mut QueryBuilder<Postgres>,
+    order: &mdbase::runtime::HostedOrder,
+    value: &Value,
+) {
+    query.push_bind(
+        value
+            .as_str()
+            .expect("scalar cursor values were validated above")
+            .to_string(),
+    );
+    if scalar_order_is_file_mtime(order) {
+        query.push("::timestamptz");
     }
 }
 
@@ -708,12 +749,11 @@ fn push_scalar_order_prefix_equal(
             query.push(" IS NULL");
         } else {
             push_scalar_order_expression(query, order, false);
-            query.push(" COLLATE \"C\" = ").push_bind(
-                value
-                    .as_str()
-                    .expect("scalar cursor values were validated above")
-                    .to_string(),
-            );
+            if !scalar_order_is_file_mtime(order) {
+                query.push(" COLLATE \"C\"");
+            }
+            query.push(" = ");
+            push_scalar_order_cursor_bind(query, order, value);
         }
     }
 }
@@ -742,18 +782,11 @@ fn push_scalar_order_after(
         query.push(" IS NULL OR ");
     }
     push_scalar_order_expression(query, order, false);
-    query
-        .push(if descending {
-            " COLLATE \"C\" < "
-        } else {
-            " COLLATE \"C\" > "
-        })
-        .push_bind(
-            value
-                .as_str()
-                .expect("scalar cursor values were validated above")
-                .to_string(),
-        );
+    if !scalar_order_is_file_mtime(order) {
+        query.push(" COLLATE \"C\"");
+    }
+    query.push(if descending { " < " } else { " > " });
+    push_scalar_order_cursor_bind(query, order, value);
     if !descending {
         query.push(")");
     }

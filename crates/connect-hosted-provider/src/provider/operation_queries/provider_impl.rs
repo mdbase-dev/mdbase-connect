@@ -548,6 +548,7 @@ impl HostedProvider {
                 None,
                 Some(HostedQueryExecutionModeV1::BoundedResidual {
                     force_exact_residual,
+                    bounded_ordering,
                 }),
             ) => (
                 execute_bounded_residual_page(
@@ -560,10 +561,12 @@ impl HostedProvider {
                     requested_page_size,
                     started,
                     force_exact_residual,
+                    bounded_ordering,
                 )
                 .await?,
                 HostedQueryExecutionModeV1::BoundedResidual {
                     force_exact_residual,
+                    bounded_ordering,
                 },
             ),
             (None, Some(HostedQueryExecutionModeV1::Base { .. })) => {
@@ -599,6 +602,7 @@ impl HostedProvider {
                     )
                 })?;
                 let scalar_order_plan = projected_scalar_order_supported(&state.plan);
+                let direct_order_plan = projected_direct_order_supported(&state.plan);
                 let scalar_order_values_valid = scalar_order_plan
                     && (state.projection_integrity_verified
                         || projected_scalar_order_values_are_valid(
@@ -635,6 +639,7 @@ impl HostedProvider {
                     && exact_candidate_values_valid
                     && !projection_fallback
                     && scalar_order_values_valid
+                    && direct_order_plan
                 {
                     let page = execute_projected_page(
                         &mut transaction,
@@ -659,6 +664,7 @@ impl HostedProvider {
                         (exact_candidate_plan && !exact_candidate_values_valid)
                             || (scalar_order_plan && !scalar_order_values_valid)
                             || (grouping_plan && !grouping_values_valid);
+                    let bounded_ordering = !direct_order_plan && !state.plan.order.is_empty();
                     (
                         execute_bounded_residual_page(
                             &mut transaction,
@@ -670,10 +676,12 @@ impl HostedProvider {
                             requested_page_size,
                             started,
                             force_exact_residual,
+                            bounded_ordering,
                         )
                         .await?,
                         HostedQueryExecutionModeV1::BoundedResidual {
                             force_exact_residual,
+                            bounded_ordering,
                         },
                     )
                 }

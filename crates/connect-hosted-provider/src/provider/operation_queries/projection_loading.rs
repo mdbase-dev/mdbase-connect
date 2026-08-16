@@ -307,6 +307,7 @@ async fn execute_bounded_residual_page(
     page_size: u64,
     started: Instant,
     force_exact_residual: bool,
+    bounded_ordering: bool,
 ) -> ApiResult<ExecutedQueryPage> {
     let mut query = QueryBuilder::<Postgres>::new(
         "WITH live AS (SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted \
@@ -357,6 +358,19 @@ async fn execute_bounded_residual_page(
     )?);
     let rows = query.build().fetch_all(&mut **transaction).await?;
     if rows.len() as u64 > state.plan.budgets.max_candidate_rows {
+        if bounded_ordering {
+            return Err(query_budget_error(
+                "hosted_ordering_budget_exceeded",
+                "The hosted query exceeded its bounded top-K ordering budget.",
+                "top_k_entries",
+                state.plan.budgets.max_candidate_rows,
+                scoped_budget_observed(
+                    &state.allowed_types,
+                    state.plan.budgets.max_candidate_rows,
+                    rows.len() as u64,
+                ),
+            ));
+        }
         return Err(query_budget_error(
             "hosted_scan_budget_exceeded",
             "The hosted query exceeded its candidate-row budget.",

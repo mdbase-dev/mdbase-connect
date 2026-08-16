@@ -137,6 +137,14 @@ context. They do not reveal exact `.base` formatting, exact record Markdown, or
 body prose. Cursor ownership, scope epoch, operation kind, semantic-plan digest,
 single-use rotation, and hard expiry prevent cross-capability or cross-surface use.
 
+Lost-response query receipts remain application-encrypted because their result may
+contain exact Markdown or body prose. Their visible metadata includes request and
+replica identity, lifetime, encoding, and ciphertext length. Beneficial payloads are
+bounded-compressed before encryption to limit WAL and transaction lifetime; this
+leaks compressed length in place of uncompressed length but does not mix an
+unauthorized caller-controlled reflection with secrets. AEAD verification precedes
+bounded decompression, and legacy `json-v1` remains readable during rollout.
+
 Projection rows are non-authoritative and revision-, semantic-catalog-, engine-,
 format-, and generation-bound. A current projection may narrow candidate selection and
 authorization classification. A stale, absent, ambiguous, corrupt, or unverifiable

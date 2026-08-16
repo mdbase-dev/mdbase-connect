@@ -312,6 +312,14 @@ types, persisted and effective frontmatter, diagnostics, relationships, structur
 body facts such as links/embeds/tags, and equality or frequency of those values to
 database, replica, snapshot, and backup readers.
 
+Candidate B query-page replay receipts may contain exact/body output, so they remain
+encrypted with the collection data key. Migration 0056 version-tags their plaintext
+encoding: new writers apply bounded zstd compression before encryption when it is
+smaller, while rollback writers retain the `json-v1` default. Compression changes
+observable ciphertext length but does not expose receipt plaintext; exact documents
+already disclose bounded ciphertext length. Replay authenticates before bounded
+decompression, and unsupported or oversized encodings fail closed.
+
 Readable body relationship facts exclude visible link labels, destination titles,
 malformed source tails, and complete Markdown spellings. Computed fields that
 transitively read `file.body` are also excluded and make the projection unusable

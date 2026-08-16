@@ -478,6 +478,18 @@ fn projected_scalar_order_supported(plan: &mdbase::runtime::HostedQueryPlan) -> 
     })
 }
 
+fn projected_direct_order_supported(plan: &mdbase::runtime::HostedQueryPlan) -> bool {
+    plan.order.iter().all(|order| match &order.field {
+        mdbase::runtime::CandidateField::Path => true,
+        mdbase::runtime::CandidateField::File(name) if name == "path" => true,
+        mdbase::runtime::CandidateField::File(name) if name == "mtime" => matches!(
+            order.direction,
+            mdbase::runtime::HostedOrderDirection::Descending
+        ),
+        _ => false,
+    })
+}
+
 fn projected_grouping_supported(plan: &mdbase::runtime::HostedQueryPlan) -> bool {
     !plan.groups.is_empty()
         && plan.groups.iter().all(|group| {

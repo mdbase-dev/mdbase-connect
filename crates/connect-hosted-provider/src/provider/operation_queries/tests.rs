@@ -79,6 +79,28 @@ mod tests {
     }
 
     #[test]
+    fn query_receipt_compression_round_trips_with_a_decode_ceiling() {
+        let result = OperationResult {
+            valid: true,
+            result: json!({
+                "results": (0..1000)
+                    .map(|index| json!({"path": format!("tasks/{index}.md"), "status": "open"}))
+                    .collect::<Vec<_>>(),
+                "meta": {"total_count": 1000}
+            }),
+            diagnostics: Vec::new(),
+        };
+        let maximum = 16 * 1024 * 1024;
+        let (encoding, payload) = encode_query_page_receipt_payload(&result, maximum).unwrap();
+        assert_eq!(encoding, QUERY_RECEIPT_ZSTD_JSON_V1);
+        assert_eq!(
+            decode_query_page_receipt_payload(encoding, &payload, maximum).unwrap(),
+            result
+        );
+        assert!(decode_query_page_receipt_payload(encoding, &payload, 16).is_err());
+    }
+
+    #[test]
     fn projected_fast_path_requires_an_exact_sql_candidate() {
         use mdbase::runtime::{
             CandidateComparison, CandidateComparisonOperator, CandidateComparisonPruning,
@@ -143,6 +165,21 @@ mod tests {
             descending_after_null.sql(),
             "p.semantic_projection #>> $1 IS NOT NULL"
         );
+
+        let descending_mtime = HostedOrder {
+            field: CandidateField::File("mtime".to_string()),
+            direction: HostedOrderDirection::Descending,
+            canonical_path_tiebreak: true,
+            semantics: HostedSortSemantics::CanonicalV03,
+            value_kind: Some(HostedScalarKind::String),
+        };
+        let mut after_mtime = QueryBuilder::<Postgres>::new("");
+        push_scalar_order_after(
+            &mut after_mtime,
+            &descending_mtime,
+            &json!("2026-01-01T00:00:00.000000Z"),
+        );
+        assert_eq!(after_mtime.sql(), "p.file_modified_at < $1::timestamptz");
     }
 
     #[tokio::test]

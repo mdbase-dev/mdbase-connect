@@ -195,11 +195,12 @@ mdbase-rs catalog proofs for scalar candidate, order, and group keys. Connect ac
 closed string proof for canonical path, file mtime, and schema-declared projected
 frontmatter fields (plus boolean equality/membership predicates), verifies actual
 current values at the pinned snapshot, and then uses strict SQL filtering, canonical
-null placement, deterministic keyset ordering, and count-only SQL grouping. Exact
+null placement, deterministic path/descending-mtime keyset ordering, and count-only SQL grouping. Exact
 body hydration happens only after the page identities are selected. A malformed
 value fails the fast-path proof and forces fail-closed exact residual work; it is
-never silently dropped. Unsupported ordering uses an
-explicitly bounded top-K operator; grouping and summaries retain only bounded
+never silently dropped. Other scalar ordering uses an explicitly bounded 10,000-entry
+top-K operator and returns `hosted_ordering_budget_exceeded` rather than asking
+PostgreSQL for an unbounded sort; grouping and summaries retain only bounded
 state. Scan rows, transferred bytes, decrypted documents, plaintext bytes, result
 bytes, operator state, wall time, statement time, connections, and memory are
 accounted separately. Exhaustion returns a typed budget outcome. No request silently

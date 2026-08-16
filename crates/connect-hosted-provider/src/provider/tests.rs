@@ -131,6 +131,26 @@ fn snapshot_cursor_index_keeps_path_and_identity_adjacent() {
 }
 
 #[test]
+fn snapshot_mtime_cursor_index_matches_the_only_direct_scalar_order() {
+    let migration = include_str!("../../migrations/0055_snapshot_mtime_cursor_index.sql");
+    let mtime = migration.find("file_modified_at DESC NULLS FIRST").unwrap();
+    let path = migration.find("canonical_path COLLATE \"C\" ASC").unwrap();
+    let identity = migration.find("record_id ASC").unwrap();
+    let temporal = migration.find("valid_from_sequence").unwrap();
+    assert!(mtime < path && path < identity && identity < temporal);
+    assert!(!migration.contains("USING gin"));
+}
+
+#[test]
+fn query_receipt_compression_is_additive_and_legacy_writers_keep_json() {
+    let migration = include_str!("../../migrations/0056_query_receipt_compression.sql");
+    assert!(migration.contains("ADD COLUMN response_encoding"));
+    assert!(migration.contains("DEFAULT 'json-v1'"));
+    assert!(migration.contains("'zstd-json-v1'"));
+    assert!(!migration.contains("DROP COLUMN"));
+}
+
+#[test]
 fn hosted_transport_expansion_is_bounded_to_mutation_recovery() {
     let temporarily_unbound = AuthorizedRequest {
         operation_transport_protocol: None,
