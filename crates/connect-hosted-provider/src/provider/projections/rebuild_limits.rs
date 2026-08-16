@@ -1,5 +1,10 @@
+enum ProjectionCandidateTerminalIssue {
+    Oversized(u64),
+    InvalidAuthority,
+}
+
 #[allow(clippy::too_many_arguments)]
-async fn abandon_oversized_projection_candidate(
+async fn abandon_invalid_projection_candidate(
     transaction: &mut Transaction<'_, Postgres>,
     collection_id: Uuid,
     generation_id: Uuid,
@@ -8,11 +13,11 @@ async fn abandon_oversized_projection_candidate(
     process_epoch: Uuid,
     fence: u64,
     catalog_revision: &str,
-) -> ApiResult<Option<u64>> {
+) -> ApiResult<Option<ProjectionCandidateTerminalIssue>> {
     // The batch byte window excludes a live first record whose ciphertext alone
     // exceeds its ceiling. Detect that state before the ordinary stale-proof
     // restart so the UUID checkpoint cannot reset forever.
-    let oversized_ciphertext_bytes: Option<i64> = sqlx::query_scalar(
+    let candidate = sqlx::query(
         r#"WITH candidate_ids AS MATERIALIZED (
              SELECT record_id
              FROM hosted_provider_record_versions
@@ -22,8 +27,10 @@ async fn abandon_oversized_projection_candidate(
              ORDER BY record_id
              LIMIT 1
            )
-           SELECT CASE WHEN version.deleted THEN 0
-                       ELSE octet_length(version.payload_ciphertext)::bigint END
+           SELECT version.deleted,
+                  version.payload_ciphertext IS NULL AS ciphertext_missing,
+                  COALESCE(octet_length(version.payload_ciphertext), 0)::bigint
+                    AS ciphertext_bytes
            FROM candidate_ids
            CROSS JOIN LATERAL (
              SELECT payload_ciphertext, deleted
@@ -40,39 +47,57 @@ async fn abandon_oversized_projection_candidate(
     .bind(to_i64(source_head, "source head")?)
     .fetch_optional(&mut **transaction)
     .await?;
-    let Some(observed) = oversized_ciphertext_bytes
-        .filter(|bytes| *bytes > MAX_PROJECTION_BATCH_CIPHERTEXT_BYTES as i64)
-    else {
+    let Some(candidate) = candidate else {
         return Ok(None);
     };
-    let observed = number(observed, "oversized projection ciphertext")?;
-    abandon_projection_generation_for_oversized_record(
+    if candidate.get::<bool, _>("deleted") {
+        return Ok(None);
+    }
+    let issue = if candidate.get::<bool, _>("ciphertext_missing") {
+        ProjectionCandidateTerminalIssue::InvalidAuthority
+    } else {
+        let observed = number(
+            candidate.get::<i64, _>("ciphertext_bytes"),
+            "projection ciphertext bytes",
+        )?;
+        if observed <= MAX_PROJECTION_BATCH_CIPHERTEXT_BYTES {
+            return Ok(None);
+        }
+        ProjectionCandidateTerminalIssue::Oversized(observed)
+    };
+    let error_code = match issue {
+        ProjectionCandidateTerminalIssue::Oversized(_) => "projection_record_too_large",
+        ProjectionCandidateTerminalIssue::InvalidAuthority => "projection_authority_invalid",
+    };
+    abandon_projection_generation_for_terminal_error(
         transaction,
         collection_id,
         generation_id,
         process_epoch,
         fence,
         catalog_revision,
+        error_code,
     )
     .await?;
-    Ok(Some(observed))
+    Ok(Some(issue))
 }
 
-async fn abandon_projection_generation_for_oversized_record(
+async fn abandon_projection_generation_for_terminal_error(
     transaction: &mut Transaction<'_, Postgres>,
     collection_id: Uuid,
     generation_id: Uuid,
     process_epoch: Uuid,
     fence: u64,
     catalog_revision: &str,
+    error_code: &str,
 ) -> ApiResult<()> {
     let abandoned = sqlx::query(
         r#"UPDATE hosted_provider_projection_generations
            SET status = 'abandoned', abandoned_at = now(), updated_at = now(),
                lease_owner = NULL, lease_expires_at = NULL,
-               last_error_code = 'projection_record_too_large'
+               last_error_code = $6
            WHERE collection_id = $1 AND generation_id = $2
-             AND status = 'building' AND phase = 'projection'
+             AND status = 'building'
              AND lease_owner = $3 AND lease_fencing_generation = $4
              AND lease_expires_at > now()
              AND target_catalog_revision = $5"#,
@@ -82,6 +107,7 @@ async fn abandon_projection_generation_for_oversized_record(
     .bind(process_epoch)
     .bind(to_i64(fence, "projection lease fence")?)
     .bind(catalog_revision)
+    .bind(error_code)
     .execute(&mut **transaction)
     .await?;
     if abandoned.rows_affected() != 1 {

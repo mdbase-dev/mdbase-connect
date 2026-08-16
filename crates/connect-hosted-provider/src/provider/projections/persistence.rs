@@ -525,6 +525,15 @@ fn projection_record_too_large(budget: &str, limit: u64, observed: u64) -> ApiEr
     }))
 }
 
+fn projection_authority_invalid() -> ApiError {
+    ApiError::new(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "projection_authority_invalid",
+        "A live exact-authority record is missing, corrupt, or does not match its revision binding.",
+    )
+    .with_details(json!({"terminal": true}))
+}
+
 fn projection_semantic_error(error: mdbase::runtime::CatalogError) -> ApiError {
     ApiError::new(
         StatusCode::UNPROCESSABLE_ENTITY,

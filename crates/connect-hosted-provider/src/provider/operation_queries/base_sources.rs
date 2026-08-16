@@ -29,8 +29,23 @@ async fn load_base_projected_snapshot(
                FROM hosted_provider_record_relationships relationship
                JOIN live source ON source.record_id = relationship.source_record_id
                  AND NOT source.deleted
-                 AND source.sequence = relationship.source_record_sequence
-                 AND source.revision = relationship.source_record_revision
+               JOIN hosted_provider_record_projections source_projection
+                 ON source_projection.collection_id = relationship.collection_id
+                AND source_projection.generation_id = relationship.generation_id
+                AND source_projection.record_id = source.record_id
+                AND source_projection.record_sequence = source.sequence
+                AND source_projection.record_revision = source.revision
+                AND source_projection.valid_from_sequence <= $3
+                AND (source_projection.valid_to_sequence IS NULL
+                     OR source_projection.valid_to_sequence > $3)
+                AND source_projection.catalog_revision = $5
+                AND source_projection.projection_format_version = $6
+                AND source_projection.semantic_engine_version = $7
+                AND source_projection.semantic_complete
+                AND source_projection.resolution_complete
+                AND hosted_provider_projection_digest_valid(
+                      source_projection.projection_digest,
+                      source_projection.projection_observed_digest)
                WHERE relationship.collection_id = $1
                  AND relationship.generation_id = $2
                  AND relationship.valid_from_sequence <= $3

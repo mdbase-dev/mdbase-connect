@@ -69,6 +69,7 @@ impl HostedProvider {
             )
         })?;
         let source_head = number(row.get::<i64, _>("head"), "collection head")?;
+        let source_resource_revision: String = row.get("resource_revision");
         let data_key = self
             .collection_key(collection_id, row.get("wrapped_data_key"))
             .await?;
@@ -121,9 +122,10 @@ impl HostedProvider {
             r#"INSERT INTO hosted_provider_projection_generations
                  (collection_id, generation_id, target_catalog_revision,
                   projection_format_version, semantic_engine_version, source_head,
+                  source_resource_revision,
                   lease_owner, lease_expires_at, lease_fencing_generation)
-               VALUES ($1, $2, $3, $4, $5, $6, $7,
-                       now() + make_interval(secs => $8), 1)"#,
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+                       now() + make_interval(secs => $9), 1)"#,
         )
         .bind(collection_id)
         .bind(generation_id)
@@ -131,6 +133,7 @@ impl HostedProvider {
         .bind(i64::from(format_version))
         .bind(engine_version)
         .bind(to_i64(source_head, "collection head")?)
+        .bind(&source_resource_revision)
         .bind(self.process_epoch)
         .bind(PROJECTION_LEASE_SECONDS)
         .execute(&mut *transaction)
@@ -190,9 +193,12 @@ impl HostedProvider {
                    SELECT 1 FROM hosted_provider_projection_generations terminal
                    WHERE terminal.collection_id = collection.id
                      AND terminal.status = 'abandoned'
-                     AND terminal.last_error_code = 'projection_record_too_large'
+                     AND terminal.last_error_code IN (
+                       'projection_record_too_large',
+                       'projection_authority_invalid'
+                     )
                      AND terminal.source_head = collection.head
-                     AND terminal.target_catalog_revision = collection.resource_revision
+                     AND terminal.source_resource_revision = collection.resource_revision
                      AND terminal.projection_format_version = $2
                      AND terminal.semantic_engine_version = $3
                  )
@@ -270,7 +276,12 @@ impl HostedProvider {
                         "projection rebuild yielded to a fence or newer source"
                     );
                 }
-                Err(error) if error.code == "projection_record_too_large" => {
+                Err(error)
+                    if matches!(
+                        error.code.as_str(),
+                        "projection_record_too_large" | "projection_authority_invalid"
+                    ) =>
+                {
                     tracing::warn!(
                         %collection_id,
                         %generation_id,
@@ -426,17 +437,55 @@ impl HostedProvider {
             let sequence = number(row.get::<i64, _>("sequence"), "record sequence")?;
             let revision: String = row.get("revision");
             let file_modified_at: DateTime<Utc> = row.get("created_at");
-            let ciphertext: Vec<u8> = row.get("payload_ciphertext");
+            let Some(ciphertext) = row.get::<Option<Vec<u8>>, _>("payload_ciphertext") else {
+                abandon_projection_generation_for_terminal_error(
+                    &mut transaction,
+                    collection_id,
+                    generation_id,
+                    self.process_epoch,
+                    fence,
+                    &catalog_revision,
+                    "projection_authority_invalid",
+                )
+                .await?;
+                transaction.commit().await?;
+                return Err(projection_authority_invalid());
+            };
             ciphertext_bytes = ciphertext_bytes.saturating_add(ciphertext.len() as u64);
-            let record: PersistedRecord = self.crypto.decrypt_json(
+            let record: PersistedRecord = match self.crypto.decrypt_json(
                 &data_key,
                 &ciphertext,
                 &record_version_aad(collection_id, record_id, sequence),
-            )?;
+            ) {
+                Ok(record) => record,
+                Err(_) => {
+                    abandon_projection_generation_for_terminal_error(
+                        &mut transaction,
+                        collection_id,
+                        generation_id,
+                        self.process_epoch,
+                        fence,
+                        &catalog_revision,
+                        "projection_authority_invalid",
+                    )
+                    .await?;
+                    transaction.commit().await?;
+                    return Err(projection_authority_invalid());
+                }
+            };
             if record.record_id != record_id || record.revision != revision {
-                return Err(ApiError::internal(
-                    "The exact record does not match its projection CAS metadata.",
-                ));
+                abandon_projection_generation_for_terminal_error(
+                    &mut transaction,
+                    collection_id,
+                    generation_id,
+                    self.process_epoch,
+                    fence,
+                    &catalog_revision,
+                    "projection_authority_invalid",
+                )
+                .await?;
+                transaction.commit().await?;
+                return Err(projection_authority_invalid());
             }
             let document_size = record.document.len() as u64;
             let prepared = catalog
@@ -460,13 +509,14 @@ impl HostedProvider {
             })?;
             let bytes_len = bytes.len() as u64;
             if bytes_len > 262_144 {
-                abandon_projection_generation_for_oversized_record(
+                abandon_projection_generation_for_terminal_error(
                     &mut transaction,
                     collection_id,
                     generation_id,
                     self.process_epoch,
                     fence,
                     &catalog_revision,
+                    "projection_record_too_large",
                 )
                 .await?;
                 transaction.commit().await?;
@@ -496,7 +546,7 @@ impl HostedProvider {
 
         let mut phase_advanced = false;
         if rows.is_empty() {
-            if let Some(observed) = abandon_oversized_projection_candidate(
+            if let Some(issue) = abandon_invalid_projection_candidate(
                 &mut transaction,
                 collection_id,
                 generation_id,
@@ -509,11 +559,18 @@ impl HostedProvider {
             .await?
             {
                 transaction.commit().await?;
-                return Err(projection_record_too_large(
-                    "projection_batch_ciphertext_bytes",
-                    MAX_PROJECTION_BATCH_CIPHERTEXT_BYTES,
-                    observed,
-                ));
+                return Err(match issue {
+                    ProjectionCandidateTerminalIssue::Oversized(observed) => {
+                        projection_record_too_large(
+                            "projection_batch_ciphertext_bytes",
+                            MAX_PROJECTION_BATCH_CIPHERTEXT_BYTES,
+                            observed,
+                        )
+                    }
+                    ProjectionCandidateTerminalIssue::InvalidAuthority => {
+                        projection_authority_invalid()
+                    }
+                });
             }
             let stale_exists: bool = sqlx::query_scalar(
                 r#"WITH snapshot AS (
@@ -792,13 +849,14 @@ impl HostedProvider {
             })?;
             if bytes.len() > 262_144 {
                 let observed = bytes.len() as u64;
-                abandon_projection_generation_for_oversized_record(
+                abandon_projection_generation_for_terminal_error(
                     &mut transaction,
                     collection_id,
                     generation_id,
                     self.process_epoch,
                     fence,
                     &catalog_revision,
+                    "projection_record_too_large",
                 )
                 .await?;
                 transaction.commit().await?;
