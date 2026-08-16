@@ -67,8 +67,9 @@ deploy with `MDBASE_READER_DEPLOY_TARGET=staging pnpm deploy:dev`. The staging
 deployment must resolve to the dedicated `mdbase-reader-staging` Pages project and
 `staging` branch; the public Reader project is not an acceptable staging target. Validate
 `queryPages`, exact/body search, delete preflight, body/link rendering, typed limits,
-and no production fallback. Review create/update calls that currently omit mutation
-options before declaring write compatibility.
+and no production fallback. Mutation, asset, saved-view, and delete-preflight calls
+must propagate cancellation and explicit request budgets, and pending durable
+mutation receipts must recover successfully before canonical state is loaded.
 
 ## mdbase-editor
 
