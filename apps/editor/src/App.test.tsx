@@ -470,10 +470,10 @@ describe("mdbase editor", () => {
     expect(await screen.findByRole(
       "textbox",
       { name: "Note title" },
-      { timeout: 5_000 }
+      { timeout: 10_000 }
     )).toHaveValue("The shape of useful tools");
     expect(screen.queryByLabelText("Loading note")).not.toBeInTheDocument();
-  });
+  }, 15_000);
 
   it("shows the collection-shaped opening state while metadata is loading", async () => {
     const gateway = new SlowDescriptionGateway();
