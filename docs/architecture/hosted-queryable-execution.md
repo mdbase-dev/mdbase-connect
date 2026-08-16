@@ -132,6 +132,12 @@ translates only that allow-listed IR into parameterized SQL.
 Queries operate one page at a time under a pinned semantic generation and logical
 collection-head snapshot. Temporal projection/key/edge rows make that snapshot
 durable without retaining a PostgreSQL transaction between requests.
+For collections above the 10,000-row eager-summary ceiling, an ordinary page does
+not add an unbounded exact-count pass: `total_count` is null and
+`total_count_outcome` reports the typed `eager_summary_rows` deferral. `has_more`
+comes from the single `page_size + 1` lookahead row. A caller that consumes
+`queryAll` learns the exact returned length at completion; explicit count/group
+requests use their separately budgeted SQL reduction plan.
 Deterministic keyset cursors bind collection, grant/scope epoch, catalog and
 generation revisions, plan version/digest, ordering keys, snapshot/checkpoint, and
 expiry. They are authenticated and rejected when their binding is stale or invalid.

@@ -493,6 +493,12 @@ the Connect server does not store the change feed.
 `queryAll()` treats `timeoutMs` as one deadline for the complete paginated
 query. The caller-driven `queryPages()` iterator instead accepts
 `pageTimeoutMs`, an independent budget for each page, plus a lifetime `signal`.
+Large hosted pages may omit `meta.totalCount` and return
+`meta.totalCountOutcome: { status: "deferred", budget: "eager_summary_rows", ... }`
+so page latency is not coupled to a collection-wide count. `meta.hasMore` and the
+opaque cursor remain authoritative for paging. `queryAll()` reports the exact
+number of returned records after it has intentionally consumed the complete
+sequence.
 `preflightRename()` and `preflightDelete()` run the canonical collection
 operation without changing records or advancing the change cursor, so an app
 can show authoritative reference impact before asking for confirmation.
