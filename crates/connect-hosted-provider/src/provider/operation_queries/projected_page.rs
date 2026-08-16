@@ -9,16 +9,23 @@ async fn execute_projected_page(
     candidate_types: &[String],
     page_size: u64,
     started: Instant,
-    cached_summary: Option<(u64, Option<Vec<Value>>)>,
+    cached_summary: Option<(Option<u64>, Option<Vec<Value>>)>,
 ) -> ApiResult<ExecutedQueryPage> {
-    let (total_count, cached_groups) = match cached_summary {
+    let (mut total_count, cached_groups) = match cached_summary {
         Some((total_count, groups)) => (total_count, Some(groups)),
-        None => (
-            count_projected_candidates(transaction, collection_id, state, candidate_types).await?,
-            None,
-        ),
+        None => (None, None),
     };
-    let rows = load_projected_page(
+    if total_count.is_none()
+        && state.snapshot_record_count
+            <= crate::HostedExecutionBudgetManifest::published()
+                .defaults
+                .eager_summary_rows
+    {
+        total_count = Some(
+            count_projected_candidates(transaction, collection_id, state, candidate_types).await?,
+        );
+    }
+    let (rows, has_more) = load_projected_page(
         transaction,
         collection_id,
         state,
@@ -122,7 +129,12 @@ async fn execute_projected_page(
     let groups = match cached_groups {
         Some(groups) => groups,
         None => {
-            load_projected_groups(transaction, collection_id, state, candidate_types).await?
+            let (groups, grouped_count) =
+                load_projected_groups(transaction, collection_id, state, candidate_types).await?;
+            if total_count.is_none() {
+                total_count = grouped_count;
+            }
+            groups
         }
     };
     let group_bytes = groups.as_ref().map_or(0, |groups| {
@@ -159,6 +171,7 @@ async fn execute_projected_page(
         diagnostics,
         groups,
         total_count,
+        has_more,
         last_boundary: rows.last().map(|row| QueryPageBoundary {
             order_values: last_order_values.unwrap_or_default(),
             path: row.canonical_path.clone(),
@@ -170,4 +183,3 @@ async fn execute_projected_page(
         base_path_keyset: false,
     })
 }
-

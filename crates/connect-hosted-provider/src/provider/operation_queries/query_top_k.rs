@@ -310,10 +310,14 @@ async fn execute_path_keyset_base_page(
         exact_documents: 0,
         exact_ciphertext_bytes: 0,
         base_path_keyset: true,
+        has_more: plan.offset
+            .saturating_add(state.emitted_rows)
+            .saturating_add(results.len() as u64)
+            < page.total_count,
         results,
         diagnostics: Vec::new(),
         groups: None,
-        total_count: page.total_count,
+        total_count: Some(page.total_count),
         last_boundary,
     }))
 }
@@ -650,10 +654,15 @@ async fn execute_bounded_base_page(
         ));
     }
     Ok(ExecutedQueryPage {
+        has_more: plan
+            .offset
+            .saturating_add(state.emitted_rows)
+            .saturating_add(results.len() as u64)
+            < total_count,
         results,
         diagnostics,
         groups,
-        total_count,
+        total_count: Some(total_count),
         last_boundary,
         candidate_rows,
         exact_documents,

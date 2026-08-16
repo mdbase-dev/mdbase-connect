@@ -191,7 +191,14 @@ export interface QueryInput {
 export interface QueryResult<Record extends JsonObject = JsonObject> {
   results: Array<QueryRecord<Record>>;
   meta?: {
-    totalCount: number;
+    /** Exact total when it is available within the page summary budget. */
+    totalCount?: number;
+    /** Typed successful outcome when exact counting is deferred for paging. */
+    totalCountOutcome?: {
+      status: "deferred";
+      budget: "eager_summary_rows";
+      limit: number;
+    };
     hasMore: boolean;
     cursor?: string;
     snapshot?: string;

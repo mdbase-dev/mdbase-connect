@@ -375,6 +375,15 @@ fn collection_projection_integrity_epoch(collection: &PgRow) -> ApiResult<Option
         .transpose()
 }
 
+fn collection_projection_integrity_verified(collection: &PgRow) -> ApiResult<bool> {
+    let epoch = collection_projection_integrity_epoch(collection)?;
+    let verified = collection
+        .get::<Option<i64>, _>("projection_integrity_verified_epoch")
+        .map(|value| number(value, "verified projection integrity epoch"))
+        .transpose()?;
+    Ok(epoch.is_some() && epoch == verified)
+}
+
 fn enforce_hosted_query_scan_budget(state: &HostedQueryState) -> ApiResult<()> {
     if state.snapshot_record_count <= state.scan_budget_records {
         return Ok(());
@@ -689,8 +698,8 @@ async fn validate_generation_binding(
             ))
         };
     }
-    let integrity_epoch: Option<i64> = sqlx::query_scalar(
-        r#"SELECT integrity_epoch
+    let integrity: Option<(i64, i64)> = sqlx::query_as(
+        r#"SELECT integrity_epoch, integrity_verified_epoch
            FROM hosted_provider_projection_generations
            WHERE collection_id = $1 AND generation_id = $2 AND status = 'complete'
              AND target_catalog_revision = $3 AND projection_format_version = $4
@@ -704,30 +713,70 @@ async fn validate_generation_binding(
     .bind(to_i64(state.snapshot_head, "query snapshot head")?)
     .fetch_optional(&mut **transaction)
     .await?;
-    let Some(integrity_epoch) = integrity_epoch else {
+    let Some((integrity_epoch, integrity_verified_epoch)) = integrity else {
         return Err(query_cursor_conflict(
             "query_generation_unavailable",
             "The semantic generation pinned by this hosted query is unavailable.",
         ));
     };
     let integrity_epoch = number(integrity_epoch, "projection integrity epoch")?;
+    let integrity_verified_epoch = number(
+        integrity_verified_epoch,
+        "verified projection integrity epoch",
+    )?;
     if state.projection_integrity_epoch != Some(integrity_epoch) {
         // Ordinary writes append a new exact version and retain the projection
         // row visible at this cursor's snapshot. Only reuse the frozen mode,
         // count, and groups after proving that every exact row still visible at
         // the snapshot has a matching, digest-valid projection row. This scan
         // happens only when the generation epoch advances, not on every page.
-        if Box::pin(projection_fallback_exists(transaction, collection_id, state)).await? {
-            return Err(query_cursor_conflict(
-                "query_projection_changed",
-                "The semantic projection changed while this hosted query was being paged.",
-            ));
+        if integrity_verified_epoch != integrity_epoch {
+            if Box::pin(projection_fallback_exists(transaction, collection_id, state)).await? {
+                return Err(query_cursor_conflict(
+                    "query_projection_changed",
+                    "The semantic projection changed while this hosted query was being paged.",
+                ));
+            }
+            state.projection_integrity_epoch = Some(integrity_epoch);
+            mark_projection_integrity_verified(transaction, collection_id, state).await?;
         }
         state.projection_integrity_epoch = Some(integrity_epoch);
+        state.projection_integrity_verified = true;
         if let Some(proof) = state.execution_proof.as_mut() {
             proof.projection_integrity_epoch = Some(integrity_epoch);
         }
     }
+    Ok(())
+}
+
+async fn mark_projection_integrity_verified(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    state: &mut HostedQueryState,
+) -> ApiResult<()> {
+    let updated = sqlx::query(
+        r#"UPDATE hosted_provider_projection_generations
+           SET integrity_verified_epoch = integrity_epoch, updated_at = now()
+           WHERE collection_id = $1 AND generation_id = $2 AND status = 'complete'
+             AND integrity_epoch = $3"#,
+    )
+    .bind(collection_id)
+    .bind(state.generation_id)
+    .bind(
+        state
+            .projection_integrity_epoch
+            .map(|epoch| to_i64(epoch, "projection integrity epoch"))
+            .transpose()?,
+    )
+    .execute(&mut **transaction)
+    .await?;
+    if updated.rows_affected() != 1 {
+        return Err(query_cursor_conflict(
+            "query_projection_changed",
+            "The semantic projection integrity epoch changed during verification.",
+        ));
+    }
+    state.projection_integrity_verified = true;
     Ok(())
 }
 

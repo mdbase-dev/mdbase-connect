@@ -621,10 +621,16 @@ async fn execute_bounded_residual_page(
         ));
     }
     Ok(ExecutedQueryPage {
+        has_more: state
+            .plan
+            .offset
+            .saturating_add(state.emitted_rows)
+            .saturating_add(results.len() as u64)
+            < total_count,
         results,
         diagnostics,
         groups: reduction.groups,
-        total_count,
+        total_count: Some(total_count),
         last_boundary,
         candidate_rows: candidate_count,
         exact_documents: (exact_records.len() as u64).saturating_add(context_documents),

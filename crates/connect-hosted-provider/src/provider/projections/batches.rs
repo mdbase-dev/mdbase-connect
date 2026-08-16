@@ -824,6 +824,7 @@ impl HostedProvider {
                SET checkpoint_record_id = $6,
                    resolved_records = resolved_records + $7,
                    status = CASE WHEN $8 THEN 'complete' ELSE status END,
+                   integrity_verified_epoch = CASE WHEN $8 THEN integrity_epoch ELSE integrity_verified_epoch END,
                    completed_at = CASE WHEN $8 THEN now() ELSE completed_at END,
                    lease_owner = CASE WHEN $8 THEN NULL ELSE lease_owner END,
                    lease_expires_at = CASE WHEN $8 THEN NULL ELSE lease_expires_at END,
@@ -882,4 +883,3 @@ impl HostedProvider {
         })
     }
 }
-

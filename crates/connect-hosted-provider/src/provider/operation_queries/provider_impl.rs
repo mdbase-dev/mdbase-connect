@@ -11,6 +11,7 @@ impl HostedProvider {
         let deadline_ms = budgets
             .operation_deadline_ms
             .min(budgets.snapshot_lifetime_ms);
+        let (cleanup_complete, cleanup_observed) = tokio::sync::oneshot::channel();
         match tokio::time::timeout(
             Duration::from_millis(deadline_ms),
             Box::pin(self.execute_hosted_query_request_inner(
@@ -19,6 +20,7 @@ impl HostedProvider {
                 request_id,
                 input,
                 request_kind,
+                Some(cleanup_complete),
             )),
         )
         .await
@@ -31,6 +33,26 @@ impl HostedProvider {
                         .and_then(|details| details["timeout_class"].as_str())
                         == Some("statement") =>
             {
+                let cleanup_ms = budgets.cancellation_cleanup_ms;
+                let cleaned = matches!(
+                    tokio::time::timeout(
+                        Duration::from_millis(cleanup_ms),
+                        cleanup_observed,
+                    )
+                    .await,
+                    Ok(Ok(true)) | Ok(Err(_))
+                );
+                if !cleaned {
+                    return Err(ApiError::new(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "hosted_cancellation_cleanup_failed",
+                        "The hosted query timed out and its database cleanup could not be confirmed.",
+                    )
+                    .with_details(json!({
+                        "budget": "cancellation_cleanup_ms",
+                        "limit": cleanup_ms,
+                    })));
+                }
                 Err(query_budget_error(
                     "hosted_time_budget_exceeded",
                     "The hosted query exceeded its database statement-time budget.",
@@ -40,13 +62,35 @@ impl HostedProvider {
                 ))
             }
             Ok(result) => result,
-            Err(_) => Err(query_budget_error(
-                "hosted_time_budget_exceeded",
-                "The hosted query exceeded its operation or snapshot-lifetime budget.",
-                "wall_time_ms",
-                deadline_ms,
-                deadline_ms.saturating_add(1),
-            )),
+            Err(_) => {
+                let cleanup_ms = budgets.cancellation_cleanup_ms;
+                let cleaned = matches!(
+                    tokio::time::timeout(
+                        Duration::from_millis(cleanup_ms),
+                        cleanup_observed,
+                    )
+                    .await,
+                    Ok(Ok(true)) | Ok(Err(_))
+                );
+                if !cleaned {
+                    return Err(ApiError::new(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "hosted_cancellation_cleanup_failed",
+                        "The hosted query timed out and its database cleanup could not be confirmed.",
+                    )
+                    .with_details(json!({
+                        "budget": "cancellation_cleanup_ms",
+                        "limit": cleanup_ms,
+                    })));
+                }
+                Err(query_budget_error(
+                    "hosted_time_budget_exceeded",
+                    "The hosted query exceeded its operation or snapshot-lifetime budget.",
+                    "wall_time_ms",
+                    deadline_ms,
+                    deadline_ms.saturating_add(1),
+                ))
+            }
         }
     }
 
@@ -57,6 +101,7 @@ impl HostedProvider {
         request_id: Uuid,
         input: &Value,
         request_kind: HostedQueryRequestKind,
+        cancellation_cleanup: Option<tokio::sync::oneshot::Sender<bool>>,
     ) -> ApiResult<OperationResult> {
         if let Some(release) = input.get("release_cursor") {
             let cursor = release.as_str().ok_or_else(|| {
@@ -145,7 +190,7 @@ impl HostedProvider {
         };
         let mut connection = match tokio::time::timeout(
             Duration::from_millis(connection_wait_ms),
-            self.pool.acquire(),
+            self.query_pool.acquire(),
         )
         .await
         {
@@ -212,6 +257,7 @@ impl HostedProvider {
             self.query_cancellation_pool.clone(),
             backend_pid,
             session_fence,
+            cancellation_cleanup,
         );
 
         let collection = sqlx::query(
@@ -220,7 +266,8 @@ impl HostedProvider {
                       collection.resources_ciphertext,
                       active_catalog_revision, active_projection_format_version,
                       active_semantic_engine_version, active_projection_generation_id,
-                      generation.integrity_epoch AS projection_integrity_epoch
+                      generation.integrity_epoch AS projection_integrity_epoch,
+                      generation.integrity_verified_epoch AS projection_integrity_verified_epoch
                FROM hosted_provider_collections collection
                LEFT JOIN hosted_provider_projection_generations generation
                  ON generation.collection_id = collection.id
@@ -448,7 +495,7 @@ impl HostedProvider {
                     )
                     .await?;
                 let path_keyset = page.base_path_keyset;
-                let total_count = path_keyset.then_some(page.total_count);
+                let total_count = if path_keyset { page.total_count } else { None };
                 (
                     page,
                     HostedQueryExecutionModeV1::Base {
@@ -526,8 +573,25 @@ impl HostedProvider {
                 ));
             }
             (None, None) => {
-                let projection_fallback =
-                    projection_fallback_exists(&mut transaction, collection_id, &state).await?;
+                let projection_fallback = if state.projection_integrity_verified {
+                    false
+                } else {
+                    let fallback = projection_fallback_exists(
+                        &mut transaction,
+                        collection_id,
+                        &state,
+                    )
+                    .await?;
+                    if !fallback {
+                        mark_projection_integrity_verified(
+                            &mut transaction,
+                            collection_id,
+                            &mut state,
+                        )
+                        .await?;
+                    }
+                    fallback
+                };
                 let candidate_types = candidate_type_union(&state.plan.candidate).ok_or_else(|| {
                     ApiError::bad_request(
                         "unsupported_hosted_candidate",
@@ -624,7 +688,7 @@ impl HostedProvider {
         let consumed = semantic_offset
             .saturating_add(state.emitted_rows)
             .saturating_add(page_count);
-        let has_more = consumed < page.total_count;
+        let has_more = page.has_more;
         if let Some(consumed_cursor_id) = state.consumed_cursor_id.take() {
             sqlx::query("DELETE FROM hosted_provider_query_cursors WHERE cursor_id = $1")
                 .bind(consumed_cursor_id)
@@ -658,10 +722,21 @@ impl HostedProvider {
         let serialized_diagnostics =
             serde_json::to_value(&page.diagnostics).unwrap_or_else(|_| json!([]));
         let mut meta = json!({
-            "total_count": page.total_count,
             "has_more": has_more,
             "cursor": next_cursor,
         });
+        let final_total_count = page.total_count.or((!has_more).then_some(consumed));
+        if let Some(total_count) = final_total_count {
+            meta["total_count"] = json!(total_count);
+        } else {
+            meta["total_count_outcome"] = json!({
+                "status": "deferred",
+                "budget": "eager_summary_rows",
+                "limit": crate::HostedExecutionBudgetManifest::published()
+                    .defaults
+                    .eager_summary_rows,
+            });
+        }
         if let Some(groups) = page.groups {
             meta["groups"] = Value::Array(groups);
         }
@@ -705,8 +780,8 @@ impl HostedProvider {
             exact_documents = page.exact_documents,
             exact_ciphertext_bytes = page.exact_ciphertext_bytes,
             elapsed_ms = started.elapsed().as_millis() as u64,
-            database_pool_size = self.pool.size(),
-            database_pool_idle = self.pool.num_idle(),
+            database_pool_size = self.query_pool.size(),
+            database_pool_idle = self.query_pool.num_idle(),
             rss_bytes = memory.rss_bytes.unwrap_or(0),
             pss_bytes = memory.pss_bytes.unwrap_or(0),
             cgroup_current_bytes = memory.cgroup_current_bytes.unwrap_or(0),

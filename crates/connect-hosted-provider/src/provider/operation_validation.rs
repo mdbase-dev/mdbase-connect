@@ -68,6 +68,7 @@ impl HostedProvider {
             self.query_cancellation_pool.clone(),
             backend_pid,
             session_fence,
+            None,
         );
         let collection = sqlx::query(
             r#"SELECT record_count, resource_revision, wrapped_data_key, resources_ciphertext,

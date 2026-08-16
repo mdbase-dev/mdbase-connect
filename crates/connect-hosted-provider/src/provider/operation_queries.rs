@@ -34,6 +34,7 @@ struct HostedQueryState {
     scan_budget_ciphertext_bytes: u64,
     generation_id: Option<Uuid>,
     projection_integrity_epoch: Option<u64>,
+    projection_integrity_verified: bool,
     catalog_revision: String,
     projection_format_version: u32,
     semantic_engine_version: String,
@@ -79,7 +80,7 @@ struct HostedQueryExecutionProofV1 {
 #[serde(tag = "mode", rename_all = "snake_case")]
 enum HostedQueryExecutionModeV1 {
     ProjectedExact {
-        total_count: u64,
+        total_count: Option<u64>,
         groups: Option<Vec<Value>>,
     },
     BoundedResidual {
@@ -108,7 +109,8 @@ struct ExecutedQueryPage {
     results: Vec<Value>,
     diagnostics: Vec<Diagnostic>,
     groups: Option<Vec<Value>>,
-    total_count: u64,
+    total_count: Option<u64>,
+    has_more: bool,
     last_boundary: Option<QueryPageBoundary>,
     candidate_rows: u64,
     exact_documents: u64,

@@ -40,6 +40,7 @@ impl HostedProvider {
             scan_budget_ciphertext_bytes,
             generation_id,
             projection_integrity_epoch: collection_projection_integrity_epoch(collection)?,
+            projection_integrity_verified: collection_projection_integrity_verified(collection)?,
             catalog_revision,
             projection_format_version,
             semantic_engine_version,
@@ -160,6 +161,7 @@ impl HostedProvider {
             scan_budget_ciphertext_bytes,
             generation_id: Some(generation_id),
             projection_integrity_epoch: collection_projection_integrity_epoch(collection)?,
+            projection_integrity_verified: collection_projection_integrity_verified(collection)?,
             catalog_revision,
             projection_format_version,
             semantic_engine_version,
@@ -293,6 +295,7 @@ impl HostedProvider {
             scan_budget_ciphertext_bytes,
             generation_id,
             projection_integrity_epoch: collection_projection_integrity_epoch(collection)?,
+            projection_integrity_verified: collection_projection_integrity_verified(collection)?,
             catalog_revision,
             projection_format_version,
             semantic_engine_version,
@@ -525,6 +528,7 @@ impl HostedProvider {
                 .get::<Option<i64>, _>("projection_integrity_epoch")
                 .map(|epoch| number(epoch, "projection integrity epoch"))
                 .transpose()?,
+            projection_integrity_verified: true,
             catalog_revision: row.get("catalog_revision"),
             projection_format_version: number(
                 i64::from(row.get::<i32, _>("projection_format_version")),
@@ -554,4 +558,3 @@ impl HostedProvider {
         Ok(state)
     }
 }
-

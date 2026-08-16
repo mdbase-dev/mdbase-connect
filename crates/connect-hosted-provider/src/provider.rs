@@ -39,7 +39,7 @@ use sqlx::{
     Acquire, AssertSqlSafe, PgPool, Postgres, QueryBuilder, Row, Transaction,
 };
 use subtle::ConstantTimeEq;
-use tokio::sync::{Mutex, OwnedSemaphorePermit, RwLock, Semaphore};
+use tokio::sync::{oneshot, Mutex, OwnedSemaphorePermit, RwLock, Semaphore};
 use uuid::Uuid;
 
 use crate::{
@@ -109,7 +109,9 @@ pub use projections::{HostedProjectionBatch, HostedProjectionGeneration};
 
 const SNAPSHOT_PAGE_SIZE: i64 = 200;
 const DATABASE_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
-const DATABASE_POOL_CONNECTIONS: u32 = 20;
+const DATABASE_CONNECTION_BUDGET: u32 = 20;
+const QUERY_POOL_CONNECTIONS: u32 = 2;
+const PRIMARY_POOL_CONNECTIONS: u32 = DATABASE_CONNECTION_BUDGET - QUERY_POOL_CONNECTIONS;
 const DATABASE_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(5);
 const KEY_READINESS_SUCCESS_TTL: Duration = Duration::from_secs(60);
 const KEY_READINESS_FAILURE_TTL: Duration = Duration::from_secs(5);
@@ -198,6 +200,9 @@ impl Default for ProviderLimits {
 #[derive(Clone)]
 pub struct HostedProvider {
     pool: PgPool,
+    /// Dedicated bounded lane for collection-scale SQL. Point reads and
+    /// mutations retain the primary pool even while every scan slot is busy.
+    query_pool: PgPool,
     query_cancellation_pool: PgPool,
     process_epoch: Uuid,
     crypto: ProviderCrypto,
@@ -250,20 +255,28 @@ struct PostgresQueryCancellationGuard {
     backend_pid: i32,
     session_fence: String,
     armed: bool,
+    cleanup_complete: Option<oneshot::Sender<bool>>,
 }
 
 impl PostgresQueryCancellationGuard {
-    fn new(pool: PgPool, backend_pid: i32, session_fence: String) -> Self {
+    fn new(
+        pool: PgPool,
+        backend_pid: i32,
+        session_fence: String,
+        cleanup_complete: Option<oneshot::Sender<bool>>,
+    ) -> Self {
         Self {
             pool,
             backend_pid,
             session_fence,
             armed: true,
+            cleanup_complete,
         }
     }
 
     fn disarm(&mut self) {
         self.armed = false;
+        self.cleanup_complete.take();
     }
 }
 
@@ -275,6 +288,7 @@ impl Drop for PostgresQueryCancellationGuard {
         let pool = self.pool.clone();
         let backend_pid = self.backend_pid;
         let session_fence = self.session_fence.clone();
+        let cleanup_complete = self.cleanup_complete.take();
         tokio::spawn(async move {
             let cancelled = tokio::time::timeout(
                 Duration::from_secs(2),
@@ -286,16 +300,37 @@ impl Drop for PostgresQueryCancellationGuard {
                        ), false)"#,
                 )
                 .bind(backend_pid)
-                .bind(session_fence)
+                .bind(&session_fence)
                 .fetch_one(&pool),
             )
             .await;
-            if !matches!(cancelled, Ok(Ok(true))) {
+            let cancel_sent = matches!(cancelled, Ok(Ok(true)));
+            if !cancel_sent {
                 tracing::warn!(
                     target: "mdbase_connect::metrics",
                     metric = "hosted_query_cancel_failed",
                     "privacy-safe hosted provider metric"
                 );
+            }
+            let cleanup_deadline = Instant::now().checked_add(Duration::from_secs(5));
+            let cleaned = loop {
+                let still_present = sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE pid = $1 AND application_name = $2)",
+                )
+                .bind(backend_pid)
+                .bind(&session_fence)
+                .fetch_one(&pool)
+                .await;
+                if matches!(still_present, Ok(false)) {
+                    break true;
+                }
+                if cleanup_deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                    break false;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            };
+            if let Some(cleanup_complete) = cleanup_complete {
+                let _ = cleanup_complete.send(cleaned);
             }
         });
     }

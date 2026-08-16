@@ -2598,6 +2598,7 @@ async fn exercise_candidate_b_projection_lifecycle() {
                 contract_scope: Vec::new(),
                 full_collection: true,
                 allowed_operations: vec![
+                    "read".to_string(),
                     "query".to_string(),
                     "validate".to_string(),
                     "read_type".to_string(),
@@ -3981,29 +3982,32 @@ async fn assert_projected_group_cancellation(fixture: &FileLifecycleFixture, tok
         .execute(&mut *projected_group_lock)
         .await
         .unwrap();
-    let provider = fixture.provider.clone();
-    let blocked_token = token.to_string();
-    let collection_id = fixture.collection_id;
-    let blocked = tokio::spawn(async move {
-        provider
-            .operation(
-                collection_id,
-                &blocked_token,
-                "query",
-                Uuid::new_v4(),
-                json!({
-                    "where": "record.title == 'Source'",
-                    "limit": 10,
-                    "group_by": [{"field": "record.title"}],
-                    "summaries": [
-                        {"field": "record.title", "function": "count", "name": "records"}
-                    ],
-                    "order_by": [{"field": "file.path"}],
-                }),
-                None,
-            )
-            .await
-    });
+    let mut blocked = Vec::new();
+    for _ in 0..2 {
+        let provider = fixture.provider.clone();
+        let blocked_token = token.to_string();
+        let collection_id = fixture.collection_id;
+        blocked.push(tokio::spawn(async move {
+            provider
+                .operation(
+                    collection_id,
+                    &blocked_token,
+                    "query",
+                    Uuid::new_v4(),
+                    json!({
+                        "where": "record.title == 'Source'",
+                        "limit": 10,
+                        "group_by": [{"field": "record.title"}],
+                        "summaries": [
+                            {"field": "record.title", "function": "count", "name": "records"}
+                        ],
+                        "order_by": [{"field": "file.path"}],
+                    }),
+                    None,
+                )
+                .await
+        }));
+    }
     tokio::time::timeout(Duration::from_secs(2), async {
         loop {
             let activity = fixture.provider.hosted_query_activity();
@@ -4015,10 +4019,10 @@ async fn assert_projected_group_cancellation(fixture: &FileLifecycleFixture, tok
             .fetch_one(&fixture.pool)
             .await
             .unwrap();
-            if activity.active_queries == 1
-                && activity.plaintext_scopes == 1
-                && activity.active_scan_permits == 1
-                && blocked_sessions == 1
+            if activity.active_queries == 2
+                && activity.plaintext_scopes == 2
+                && activity.active_scan_permits == 2
+                && blocked_sessions == 2
             {
                 break;
             }
@@ -4027,8 +4031,28 @@ async fn assert_projected_group_cancellation(fixture: &FileLifecycleFixture, tok
     })
     .await
     .expect("the projected grouping query reaches its cancellable PostgreSQL wait");
-    blocked.abort();
-    assert!(blocked.await.unwrap_err().is_cancelled());
+    let point_started = Instant::now();
+    let point = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            token,
+            "read",
+            Uuid::new_v4(),
+            json!({"path": "notes/source.md"}),
+            None,
+        )
+        .await
+        .expect("the reserved point-read pool remains available during two scans");
+    assert_eq!(point["result"]["path"], "notes/source.md");
+    assert!(
+        point_started.elapsed() <= Duration::from_millis(250),
+        "point-read p95 gate must remain possible while every scan lane is occupied"
+    );
+    for task in blocked {
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+    }
     tokio::time::timeout(Duration::from_secs(2), async {
         loop {
             let activity = fixture.provider.hosted_query_activity();
@@ -4839,6 +4863,19 @@ async fn candidate_b_exact_projected_filter_fixture(
         .execute(&fixture.pool)
         .await
         .unwrap();
+    // The synthetic bulk loader above stands in for one transactional import.
+    // Production rebuild completion and ordinary writes advance this proof in
+    // their own transaction; keep the timing sample focused on query work.
+    sqlx::query(
+        r#"UPDATE hosted_provider_projection_generations
+           SET integrity_verified_epoch = integrity_epoch
+           WHERE collection_id = $1 AND generation_id = $2"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
     let repetitions = if decoy_count > 100_000 { 5 } else { 7 };
     for repetition in 1..=repetitions {
         let projected_started = Instant::now();
@@ -4865,10 +4902,18 @@ async fn candidate_b_exact_projected_filter_fixture(
             projected_elapsed.as_millis()
         );
         assert!(projected_elapsed < Duration::from_secs(15));
-        assert_eq!(
-            projected_page["result"]["meta"]["total_count"],
-            decoy_count + 2
-        );
+        if decoy_count + 3 > 10_000 {
+            assert!(projected_page["result"]["meta"]["total_count"].is_null());
+            assert_eq!(
+                projected_page["result"]["meta"]["total_count_outcome"]["status"],
+                "deferred"
+            );
+        } else {
+            assert_eq!(
+                projected_page["result"]["meta"]["total_count"],
+                decoy_count + 2
+            );
+        }
         assert_eq!(
             projected_page["result"]["results"]
                 .as_array()

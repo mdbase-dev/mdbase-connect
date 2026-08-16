@@ -14,6 +14,9 @@ impl HostedProvider {
                 Ok(pool) => match hosted_migrator().run(&pool).await {
                     Ok(()) => match verify_database_key(&pool, &crypto).await {
                         Ok(()) => {
+                            let query_pool = hosted_query_pool_options()
+                                .connect_lazy(database_url)
+                                .map_err(ApiError::from)?;
                             let query_cancellation_pool = hosted_cancellation_pool_options()
                                 .connect_lazy(database_url)
                                 .map_err(ApiError::from)?;
@@ -23,6 +26,7 @@ impl HostedProvider {
                                 .transpose()?;
                             let provider = Self {
                                 pool,
+                                query_pool,
                                 query_cancellation_pool,
                                 process_epoch: Uuid::new_v4(),
                                 crypto,
@@ -292,8 +296,31 @@ fn key_readiness_unavailable() -> ApiError {
 
 fn hosted_pool_options() -> PgPoolOptions {
     PgPoolOptions::new()
-        .max_connections(DATABASE_POOL_CONNECTIONS)
+        .max_connections(PRIMARY_POOL_CONNECTIONS)
         .min_connections(1)
+        .acquire_timeout(DATABASE_ACQUIRE_TIMEOUT)
+        .idle_timeout(Duration::from_secs(10 * 60))
+        .max_lifetime(Duration::from_secs(30 * 60))
+        .after_connect(|connection, _metadata| {
+            Box::pin(async move {
+                sqlx::query("SET statement_timeout = 15000")
+                    .execute(&mut *connection)
+                    .await?;
+                sqlx::query("SET lock_timeout = 5000")
+                    .execute(&mut *connection)
+                    .await?;
+                sqlx::query("SET idle_in_transaction_session_timeout = 10000")
+                    .execute(&mut *connection)
+                    .await?;
+                Ok(())
+            })
+        })
+}
+
+fn hosted_query_pool_options() -> PgPoolOptions {
+    PgPoolOptions::new()
+        .max_connections(QUERY_POOL_CONNECTIONS)
+        .min_connections(0)
         .acquire_timeout(DATABASE_ACQUIRE_TIMEOUT)
         .idle_timeout(Duration::from_secs(10 * 60))
         .max_lifetime(Duration::from_secs(30 * 60))
@@ -370,8 +397,8 @@ mod database_bounds_tests {
             .await
             .expect("database bounds pool connects");
 
-        let mut held = Vec::with_capacity(DATABASE_POOL_CONNECTIONS as usize);
-        for _ in 0..DATABASE_POOL_CONNECTIONS {
+        let mut held = Vec::with_capacity(PRIMARY_POOL_CONNECTIONS as usize);
+        for _ in 0..PRIMARY_POOL_CONNECTIONS {
             held.push(pool.acquire().await.expect("pool slot is acquired"));
         }
         let started = Instant::now();

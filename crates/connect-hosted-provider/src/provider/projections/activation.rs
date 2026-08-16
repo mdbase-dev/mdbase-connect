@@ -72,6 +72,17 @@ impl HostedProvider {
         {
             return Err(projection_binding_changed());
         }
+        let integrity: (i64, i64) = sqlx::query_as(
+            r#"SELECT integrity_epoch, integrity_verified_epoch
+               FROM hosted_provider_projection_generations
+               WHERE collection_id = $1 AND generation_id = $2 AND status = 'complete'
+               FOR UPDATE"#,
+        )
+        .bind(collection_id)
+        .bind(generation_id)
+        .fetch_one(&mut **transaction)
+        .await?;
+        let prior_integrity_verified = integrity.0 == integrity.1;
         if format_version != u64::from(mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION)
             || engine_version != mdbase::VERSION
         {
@@ -429,6 +440,20 @@ impl HostedProvider {
                 &bytes,
             )
             .await?;
+        }
+        if prior_integrity_verified {
+            let verified = sqlx::query(
+                r#"UPDATE hosted_provider_projection_generations
+                   SET integrity_verified_epoch = integrity_epoch, updated_at = now()
+                   WHERE collection_id = $1 AND generation_id = $2 AND status = 'complete'"#,
+            )
+            .bind(collection_id)
+            .bind(generation_id)
+            .execute(&mut **transaction)
+            .await?;
+            if verified.rows_affected() != 1 {
+                return Err(projection_binding_changed());
+            }
         }
         Ok(())
     }

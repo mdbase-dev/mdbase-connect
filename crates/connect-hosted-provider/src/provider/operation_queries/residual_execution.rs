@@ -85,9 +85,9 @@ async fn load_projected_groups(
     collection_id: Uuid,
     state: &HostedQueryState,
     candidate_types: &[String],
-) -> ApiResult<Option<Vec<Value>>> {
+) -> ApiResult<(Option<Vec<Value>>, Option<u64>)> {
     if state.plan.groups.is_empty() && state.plan.aggregates.is_empty() {
-        return Ok(None);
+        return Ok((None, None));
     }
     let snapshot_head = to_i64(state.snapshot_head, "query snapshot head")?;
     let mut query = QueryBuilder::<Postgres>::new("SELECT ");
@@ -163,11 +163,21 @@ async fn load_projected_groups(
     }
     let mut reduction = state.plan.start_reduction();
     let mut operator_steps = 0_u64;
+    let mut total_count = 0_u64;
+    let count_only = state
+        .plan
+        .aggregates
+        .iter()
+        .all(|aggregate| aggregate.function == "count");
     for row in rows {
         let count = number(row.get::<i64, _>("row_count"), "group row count")?;
-        operator_steps = operator_steps.saturating_add(count.saturating_mul(
-            (state.plan.groups.len() + state.plan.aggregates.len()).max(1) as u64,
-        ));
+        total_count = total_count.saturating_add(count);
+        let row_steps = (state.plan.groups.len() + state.plan.aggregates.len()).max(1) as u64;
+        operator_steps = operator_steps.saturating_add(if count_only {
+            row_steps
+        } else {
+            count.saturating_mul(row_steps)
+        });
         if operator_steps > state.plan.budgets.max_operator_steps {
             return Err(query_budget_error(
                 "hosted_operator_budget_exceeded",
@@ -184,13 +194,19 @@ async fn load_projected_groups(
             group_values,
             aggregate_values: vec![Value::Null; state.plan.aggregates.len()],
         };
-        for _ in 0..count {
-            reduction.push(&input).map_err(projection_inconsistent)?;
+        if count_only {
+            reduction
+                .push_repeated(&input, count)
+                .map_err(projection_inconsistent)?;
+        } else {
+            for _ in 0..count {
+                reduction.push(&input).map_err(projection_inconsistent)?;
+            }
         }
     }
     reduction
         .finish()
-        .map(|reduction| reduction.groups)
+        .map(|reduction| (reduction.groups, Some(total_count)))
         .map_err(projection_inconsistent)
 }
 
@@ -201,7 +217,7 @@ async fn load_projected_page(
     state: &HostedQueryState,
     candidate_types: &[String],
     page_size: u64,
-) -> ApiResult<Vec<ProjectedQueryRow>> {
+) -> ApiResult<(Vec<ProjectedQueryRow>, bool)> {
     let snapshot_head = to_i64(state.snapshot_head, "query snapshot head")?;
     let mut query = QueryBuilder::<Postgres>::new(
         "SELECT p.record_id, p.canonical_path, p.projection_bytes \
@@ -340,9 +356,9 @@ async fn load_projected_page(
             0
         })
         .push(" LIMIT ")
-        .push_bind(to_i64(page_size, "query page size")?);
+        .push_bind(to_i64(page_size.saturating_add(1), "query page lookahead size")?);
     let rows = query.build().fetch_all(&mut **transaction).await?;
-    let metadata = rows
+    let mut metadata = rows
         .into_iter()
         .map(|row| {
             Ok(ProjectedQueryMetadata {
@@ -355,6 +371,10 @@ async fn load_projected_page(
             })
         })
         .collect::<ApiResult<Vec<_>>>()?;
+    let has_more = metadata.len() as u64 > page_size;
+    if has_more {
+        metadata.pop();
+    }
     let projection_bytes = projected_metadata_bytes(&metadata);
     if projection_bytes > state.plan.budgets.max_candidate_bytes {
         return Err(query_budget_error(
@@ -368,7 +388,7 @@ async fn load_projected_page(
     let record_ids = metadata.iter().map(|row| row.record_id).collect::<Vec<_>>();
     let mut loaded =
         load_current_projection_rows_by_ids(transaction, collection_id, state, &record_ids).await?;
-    metadata
+    let rows = metadata
         .into_iter()
         .map(|metadata| {
             let row = loaded.remove(&metadata.record_id).ok_or_else(|| {
@@ -385,7 +405,8 @@ async fn load_projected_page(
             }
             Ok(row)
         })
-        .collect()
+        .collect::<ApiResult<Vec<_>>>()?;
+    Ok((rows, has_more))
 }
 
 async fn projected_scalar_order_values_are_valid(

@@ -164,7 +164,10 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
       results: results.map(wireQueryRecord),
       ...(meta ? {
         meta: {
-          totalCount: meta.total_count,
+          ...(meta.total_count === undefined ? {} : { totalCount: meta.total_count }),
+          ...(meta.total_count_outcome === undefined
+            ? {}
+            : { totalCountOutcome: meta.total_count_outcome }),
           hasMore: meta.has_more,
           ...(meta.cursor ? { cursor: meta.cursor } : {}),
           ...(meta.snapshot ? { snapshot: meta.snapshot } : {})
@@ -497,7 +500,17 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
 
 interface WireQueryResult<Frontmatter extends JsonObject> {
   results: Array<import("@mdbase-dev/connect-protocol").QueryRecord<Frontmatter>>;
-  meta?: { total_count: number; has_more: boolean; cursor?: string; snapshot?: string };
+  meta?: {
+    total_count?: number;
+    total_count_outcome?: {
+      status: "deferred";
+      budget: "eager_summary_rows";
+      limit: number;
+    };
+    has_more: boolean;
+    cursor?: string;
+    snapshot?: string;
+  };
 }
 
 interface WireDeleteResult {

@@ -40,6 +40,10 @@ pub struct HostedExecutionBudgets {
     pub scanned_records: u64,
     pub scanned_ciphertext_bytes: u64,
     pub top_k_entries: u64,
+    /// Maximum snapshot cardinality for which a page may eagerly perform a
+    /// collection-wide exact count. Larger queries page by a lookahead row and
+    /// report a typed deferred-count outcome until the final page.
+    pub eager_summary_rows: u64,
     pub maximum_offset: u64,
     pub groups: u64,
     pub aggregation_state_bytes: u64,
