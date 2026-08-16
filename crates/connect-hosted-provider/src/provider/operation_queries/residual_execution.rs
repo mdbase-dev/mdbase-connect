@@ -16,6 +16,22 @@ fn query_budget_error(
     }))
 }
 
+fn reduction_error(
+    error: mdbase::runtime::CatalogError,
+    budgets: &mdbase::runtime::HostedQueryBudgets,
+) -> ApiError {
+    if error.code == "hosted_aggregation_state_budget_exceeded" {
+        return query_budget_error(
+            "hosted_aggregation_state_budget_exceeded",
+            "The hosted query exceeded its retained aggregation-state budget.",
+            "aggregation_state_bytes",
+            budgets.max_aggregation_bytes,
+            budgets.max_aggregation_bytes.saturating_add(1),
+        );
+    }
+    projection_inconsistent(error)
+}
+
 fn scoped_budget_observed(allowed_types: &[String], limit: u64, observed: u64) -> u64 {
     if allowed_types.is_empty() {
         observed
@@ -197,17 +213,19 @@ async fn load_projected_groups(
         if count_only {
             reduction
                 .push_repeated(&input, count)
-                .map_err(projection_inconsistent)?;
+                .map_err(|error| reduction_error(error, &state.plan.budgets))?;
         } else {
             for _ in 0..count {
-                reduction.push(&input).map_err(projection_inconsistent)?;
+                reduction
+                    .push(&input)
+                    .map_err(|error| reduction_error(error, &state.plan.budgets))?;
             }
         }
     }
     reduction
         .finish()
         .map(|reduction| (reduction.groups, Some(total_count)))
-        .map_err(projection_inconsistent)
+        .map_err(|error| reduction_error(error, &state.plan.budgets))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -690,7 +708,7 @@ fn push_scalar_order_prefix_equal(
             query.push(" IS NULL");
         } else {
             push_scalar_order_expression(query, order, false);
-            query.push(" = ").push_bind(
+            query.push(" COLLATE \"C\" = ").push_bind(
                 value
                     .as_str()
                     .expect("scalar cursor values were validated above")
@@ -725,7 +743,11 @@ fn push_scalar_order_after(
     }
     push_scalar_order_expression(query, order, false);
     query
-        .push(if descending { " < " } else { " > " })
+        .push(if descending {
+            " COLLATE \"C\" < "
+        } else {
+            " COLLATE \"C\" > "
+        })
         .push_bind(
             value
                 .as_str()

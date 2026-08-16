@@ -71,6 +71,7 @@ pub struct HostedExecutionBudgets {
     pub cancellation_cleanup_ms: u64,
     pub cursor_cleanup_interval_ms: u64,
     pub cursor_deletion_bound_ms: u64,
+    pub cursor_cleanup_rows: u64,
     pub query_receipt_ciphertext_bytes: u64,
     pub query_receipts_per_replica: u64,
     pub query_receipt_bytes_per_replica: u64,
@@ -297,7 +298,7 @@ mod tests {
     #[test]
     fn published_manifest_is_valid_and_sized_for_the_large_fixture() {
         let manifest = HostedExecutionBudgetManifest::published();
-        assert_eq!(manifest.revision, "hosted-execution-v2");
+        assert_eq!(manifest.revision, "hosted-execution-v3");
         assert_eq!(manifest.defaults.scanned_records, 100_000);
         assert_eq!(manifest.hard_maxima.scanned_records, 1_000_000);
         assert_eq!(

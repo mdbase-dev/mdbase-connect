@@ -57,6 +57,28 @@ mod tests {
     }
 
     #[test]
+    fn aggregation_state_overflow_is_a_typed_budget_outcome() {
+        let budgets = mdbase::runtime::HostedQueryBudgets::default();
+        let error = reduction_error(
+            mdbase::runtime::CatalogError {
+                code: "hosted_aggregation_state_budget_exceeded".to_string(),
+                message: "retained state is too large".to_string(),
+            },
+            &budgets,
+        );
+        assert_eq!(error.status, StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(error.code, "hosted_aggregation_state_budget_exceeded");
+        assert_eq!(
+            error.details.as_ref().unwrap()["budget"],
+            "aggregation_state_bytes"
+        );
+        assert_eq!(
+            error.details.as_ref().unwrap()["limit"],
+            budgets.max_aggregation_bytes
+        );
+    }
+
+    #[test]
     fn projected_fast_path_requires_an_exact_sql_candidate() {
         use mdbase::runtime::{
             CandidateComparison, CandidateComparisonOperator, CandidateComparisonPruning,
@@ -95,7 +117,17 @@ mod tests {
         push_scalar_order_after(&mut after_value, &ascending, &json!("2026-01-01"));
         assert_eq!(
             after_value.sql(),
-            "(p.semantic_projection #>> $1 IS NULL OR p.semantic_projection #>> $2 > $3)"
+            "(p.semantic_projection #>> $1 IS NULL OR p.semantic_projection #>> $2 COLLATE \"C\" > $3)"
+        );
+        let mut equal_value = QueryBuilder::<Postgres>::new("");
+        push_scalar_order_prefix_equal(
+            &mut equal_value,
+            std::slice::from_ref(&ascending),
+            &[json!("ä")],
+        );
+        assert_eq!(
+            equal_value.sql(),
+            "p.semantic_projection #>> $1 COLLATE \"C\" = $2"
         );
         let mut after_null = QueryBuilder::<Postgres>::new("");
         push_scalar_order_after(&mut after_null, &ascending, &Value::Null);

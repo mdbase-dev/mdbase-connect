@@ -250,7 +250,7 @@ async fn insert_query_cursor(
               scan_budget_ciphertext_bytes, projection_integrity_epoch, cursor_bytes)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
                    $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
-                   LEAST(now() + make_interval(secs => $24), $25), $25,
+                   LEAST(now() + ($24::bigint * interval '1 millisecond'), $25), $25,
                    $26, $27, $28, $29, $30, $31, $32, $33)"#,
     )
     .bind(cursor_id)
@@ -276,7 +276,10 @@ async fn insert_query_cursor(
     .bind(sqlx::types::Json(keyset))
     .bind(last_record_id)
     .bind(to_i64(emitted_rows, "emitted query rows")?)
-    .bind(QUERY_CURSOR_IDLE_SECONDS)
+    .bind(to_i64(
+        hosted_execution_budgets().cursor_idle_ttl_ms,
+        "query cursor idle TTL",
+    )?)
     .bind(state.hard_expires_at)
     .bind(i64::from(HOSTED_QUERY_EXECUTION_PROOF_VERSION))
     .bind(execution_proof_ciphertext)
@@ -329,9 +332,22 @@ async fn admit_query_cursor(
         .execute(&mut **transaction)
         .await?;
     sqlx::query(
-        "DELETE FROM hosted_provider_query_cursors \
-         WHERE expires_at <= now() OR hard_expires_at <= now()",
+        r#"WITH expired AS (
+             SELECT cursor_id
+             FROM hosted_provider_query_cursors
+             WHERE expires_at <= now() OR hard_expires_at <= now()
+             ORDER BY LEAST(expires_at, hard_expires_at), cursor_id
+             LIMIT $1
+             FOR UPDATE SKIP LOCKED
+           )
+           DELETE FROM hosted_provider_query_cursors cursor
+           USING expired
+           WHERE cursor.cursor_id = expired.cursor_id"#,
     )
+    .bind(to_i64(
+        budgets.cursor_cleanup_rows,
+        "query cursor cleanup row budget",
+    )?)
     .execute(&mut **transaction)
     .await?;
     cleanup_base_query_invocations(
@@ -348,7 +364,8 @@ async fn admit_query_cursor(
     .fetch_one(&mut **transaction)
     .await?;
     let replica_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM hosted_provider_query_cursors WHERE replica_id = $1",
+        "SELECT count(*) FROM hosted_provider_query_cursors \
+         WHERE replica_id = $1 AND expires_at > now() AND hard_expires_at > now()",
     )
     .bind(replica.id)
     .fetch_one(&mut **transaction)
@@ -362,7 +379,8 @@ async fn admit_query_cursor(
         r#"SELECT count(*),
                   COALESCE(sum(GREATEST(cursor_bytes, pg_column_size(cursor_row)::bigint))::bigint, 0)
            FROM hosted_provider_query_cursors cursor_row
-           WHERE collection_id = $1"#,
+           WHERE collection_id = $1
+             AND expires_at > now() AND hard_expires_at > now()"#,
     )
     .bind(collection_id)
     .fetch_one(&mut **transaction)
@@ -386,7 +404,8 @@ async fn admit_query_cursor(
                FROM hosted_provider_query_cursors cursor
                JOIN hosted_provider_collections collection
                  ON collection.id = cursor.collection_id
-               WHERE collection.account_id = $1"#,
+               WHERE collection.account_id = $1
+                 AND cursor.expires_at > now() AND cursor.hard_expires_at > now()"#,
         )
         .bind(account_id)
         .fetch_one(&mut **transaction)
@@ -406,7 +425,8 @@ async fn admit_query_cursor(
     let (global_count, global_bytes): (i64, i64) = sqlx::query_as(
         r#"SELECT count(*),
                   COALESCE(sum(GREATEST(cursor_bytes, pg_column_size(cursor_row)::bigint))::bigint, 0)
-           FROM hosted_provider_query_cursors cursor_row"#,
+           FROM hosted_provider_query_cursors cursor_row
+           WHERE expires_at > now() AND hard_expires_at > now()"#,
     )
     .fetch_one(&mut **transaction)
     .await?;
@@ -456,4 +476,3 @@ fn ensure_cursor_byte_quota(
         limit.saturating_add(1),
     ))
 }
-

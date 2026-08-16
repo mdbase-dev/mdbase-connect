@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": "hosted-execution-v2",
+  "revision": "hosted-execution-v3",
   "publishedAt": "2026-08-17T00:00:00+10:00",
   "capacityBasis": {
     "providerMemoryMiB": 512,
@@ -45,6 +45,7 @@
     "cancellationCleanupMs": 5000,
     "cursorCleanupIntervalMs": 60000,
     "cursorDeletionBoundMs": 300000,
+    "cursorCleanupRows": 1000,
     "queryReceiptCiphertextBytes": 75497472,
     "queryReceiptsPerReplica": 64,
     "queryReceiptBytesPerReplica": 134217728,
@@ -92,6 +93,7 @@
     "cancellationCleanupMs": 5000,
     "cursorCleanupIntervalMs": 60000,
     "cursorDeletionBoundMs": 300000,
+    "cursorCleanupRows": 1000,
     "queryReceiptCiphertextBytes": 75497472,
     "queryReceiptsPerReplica": 64,
     "queryReceiptBytesPerReplica": 134217728,

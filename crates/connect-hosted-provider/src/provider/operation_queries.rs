@@ -1,11 +1,10 @@
 use super::operation_reads::{compile_point_catalog, load_direct_record, DirectRecordIdentity};
 use super::*;
+use crate::execution_budget::hosted_execution_budgets;
 use crate::HostedExecutionBudgetManifest;
 use futures_util::TryStreamExt;
 use std::cmp::Ordering;
 
-const QUERY_CURSOR_IDLE_SECONDS: i64 = 60;
-const QUERY_CURSOR_HARD_SECONDS: i64 = 300;
 const MAX_LIVE_QUERY_CURSORS_PER_REPLICA: i64 = 64;
 const MAX_HOSTED_BASE_RELATIONSHIP_PAIRS: u64 = 65_536;
 const HOSTED_QUERY_EXECUTION_PROOF_VERSION: u32 = 2;
@@ -128,6 +127,14 @@ struct QueryPageBoundary {
     order_values: Vec<Value>,
     path: String,
     record_id: Uuid,
+}
+
+fn query_cursor_hard_expires_at() -> ApiResult<DateTime<Utc>> {
+    let hard_ttl_ms = to_i64(
+        hosted_execution_budgets().cursor_hard_ttl_ms,
+        "query cursor hard TTL",
+    )?;
+    Ok(Utc::now() + chrono::Duration::milliseconds(hard_ttl_ms))
 }
 
 struct BaseEvaluationCancellationGuard {

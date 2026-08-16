@@ -190,7 +190,7 @@ closed normalized tag candidate returns only the canonical live result without
 triggering the scan budget, proving pruning occurs before projection transfer and
 residual work while orphan state is excluded.
 
-SQL applies safe ordering and limiting before transfer. Query-plan version 10 carries
+SQL applies safe ordering and limiting before transfer. Query-plan version 11 carries
 mdbase-rs catalog proofs for scalar candidate, order, and group keys. Connect accepts only the
 closed string proof for canonical path, file mtime, and schema-declared projected
 frontmatter fields (plus boolean equality/membership predicates), verifies actual

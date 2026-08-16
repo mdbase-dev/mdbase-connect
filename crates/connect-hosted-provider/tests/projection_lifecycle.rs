@@ -7,7 +7,7 @@ use mdbase_connect_hosted_provider::{RegisterReplica, ReplicaPurpose};
 use mdbase_connect_protocol::{
     SyncMutation, SyncMutationOperation, SyncMutationReceipt, SyncReplicaMode,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::Row;
 use std::time::{Duration, Instant};
@@ -1073,6 +1073,231 @@ async fn candidate_b_query_cursor_proof_is_encrypted_bound_and_tamper_evident() 
         .await
         .unwrap_err();
     assert_eq!(error.code, "query_cursor_invalidated");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_cursor_admission_bounds_expiry_cleanup_and_uses_manifest_ttls() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let primary = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    put(
+        &fixture,
+        primary.get("id"),
+        u64::try_from(primary.get::<i64, _>("scope_epoch")).unwrap(),
+        Uuid::now_v7(),
+        None,
+        "notes/one.md",
+        "---\ntitle: One\n---\nFirst note.\n",
+    )
+    .await;
+    put(
+        &fixture,
+        primary.get("id"),
+        u64::try_from(primary.get::<i64, _>("scope_epoch")).unwrap(),
+        Uuid::now_v7(),
+        None,
+        "notes/two.md",
+        "---\ntitle: Two\n---\nSecond note.\n",
+    )
+    .await;
+    complete_generation(&fixture).await;
+    let (application_replica_id, application_token) =
+        register_query_application(&fixture, Vec::new()).await;
+    let first = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({"pagination": "cursor", "limit": 1}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(first["result"]["meta"]["cursor"].is_string());
+    let template_cursor_id: Uuid = sqlx::query_scalar(
+        "SELECT cursor_id FROM hosted_provider_query_cursors WHERE replica_id = $1",
+    )
+    .bind(application_replica_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+
+    let inserted = sqlx::query(
+        r#"INSERT INTO hosted_provider_query_cursors
+             (cursor_id, collection_id, replica_id, scope_epoch, snapshot_head,
+              generation_id, catalog_revision, projection_format_version,
+              semantic_engine_version, query_plan_version, query_digest, query_plan,
+              last_order_values, last_record_id, emitted_rows, remaining_rows,
+              expires_at, hard_expires_at, created_at, last_used_at, request_kind,
+              request_digest, result_meta, exact_context_ciphertext, base_plan,
+              base_context, base_operation_clock, base_invocation_id,
+              execution_proof_version, execution_proof_ciphertext,
+              execution_proof_bytes, snapshot_record_count, scan_budget_records,
+              projection_integrity_epoch, cursor_bytes, scan_budget_ciphertext_bytes)
+           SELECT md5('expired-query-cursor-' || series::text)::uuid,
+                  cursor.collection_id, cursor.replica_id, cursor.scope_epoch,
+                  cursor.snapshot_head, cursor.generation_id, cursor.catalog_revision,
+                  cursor.projection_format_version, cursor.semantic_engine_version,
+                  cursor.query_plan_version, cursor.query_digest, cursor.query_plan,
+                  cursor.last_order_values, cursor.last_record_id, cursor.emitted_rows,
+                  cursor.remaining_rows, now() - interval '2 hours',
+                  now() - interval '1 hour', now() - interval '3 hours',
+                  now() - interval '2 hours', cursor.request_kind,
+                  cursor.request_digest, cursor.result_meta,
+                  cursor.exact_context_ciphertext, cursor.base_plan,
+                  cursor.base_context, cursor.base_operation_clock,
+                  cursor.base_invocation_id, cursor.execution_proof_version,
+                  cursor.execution_proof_ciphertext, cursor.execution_proof_bytes,
+                  cursor.snapshot_record_count, cursor.scan_budget_records,
+                  cursor.projection_integrity_epoch, cursor.cursor_bytes,
+                  cursor.scan_budget_ciphertext_bytes
+           FROM hosted_provider_query_cursors cursor
+           CROSS JOIN generate_series(1, 1005) AS series
+           WHERE cursor.cursor_id = $1"#,
+    )
+    .bind(template_cursor_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap()
+    .rows_affected();
+    assert_eq!(inserted, 1005);
+
+    let second = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({"pagination": "cursor", "limit": 1}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(second["result"]["meta"]["cursor"].is_string());
+    let expired_remaining: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_query_cursors \
+         WHERE collection_id = $1 AND (expires_at <= now() OR hard_expires_at <= now())",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        expired_remaining, 5,
+        "one admission deletes at most 1000 rows"
+    );
+    let (idle_seconds, hard_seconds): (f64, f64) = sqlx::query_as(
+        r#"SELECT EXTRACT(epoch FROM expires_at - now())::double precision,
+                  EXTRACT(epoch FROM hard_expires_at - now())::double precision
+           FROM hosted_provider_query_cursors
+           WHERE collection_id = $1 AND expires_at > now()
+           ORDER BY created_at DESC, cursor_id DESC
+           LIMIT 1"#,
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert!(
+        (850.0..=905.0).contains(&idle_seconds),
+        "idle TTL: {idle_seconds}"
+    );
+    assert!(
+        (3550.0..=3605.0).contains(&hard_seconds),
+        "hard TTL: {hard_seconds}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires a clean ICU-collated MDBASE_PROJECTION_DATABASE_URL PostgreSQL database"]
+async fn candidate_b_scalar_cursor_uses_canonical_collation_in_an_icu_database() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let is_icu: bool = sqlx::query_scalar(
+        "SELECT datlocprovider = 'i' \
+         FROM pg_database WHERE datname = current_database()",
+    )
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert!(
+        is_icu,
+        "this regression must run under a non-C ICU collation"
+    );
+    let primary = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let replica_id = primary.get("id");
+    let scope_epoch = u64::try_from(primary.get::<i64, _>("scope_epoch")).unwrap();
+    for (path, title) in [
+        ("notes/a.md", "a"),
+        ("notes/z.md", "z"),
+        ("notes/umlaut.md", "ä"),
+    ] {
+        put(
+            &fixture,
+            replica_id,
+            scope_epoch,
+            Uuid::now_v7(),
+            None,
+            path,
+            &format!("---\ntitle: {title}\n---\nCanonical collation.\n"),
+        )
+        .await;
+    }
+    complete_generation(&fixture).await;
+    let (_, application_token) = register_query_application(&fixture, Vec::new()).await;
+    let mut cursor = None;
+    let mut paths = Vec::new();
+    for _ in 0..3 {
+        let mut input = json!({
+            "pagination": "cursor",
+            "limit": 1,
+            "order_by": [{"field": "record.title", "direction": "asc"}],
+        });
+        if let Some(cursor) = cursor.take() {
+            input["cursor"] = Value::String(cursor);
+        }
+        let page = fixture
+            .provider
+            .operation(
+                fixture.collection_id,
+                &application_token,
+                "query",
+                Uuid::new_v4(),
+                input,
+                None,
+            )
+            .await
+            .unwrap();
+        paths.push(
+            page["result"]["results"][0]["path"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+        );
+        cursor = page["result"]["meta"]["cursor"]
+            .as_str()
+            .map(ToString::to_string);
+    }
+    assert_eq!(paths, ["notes/a.md", "notes/z.md", "notes/umlaut.md"]);
+    assert!(cursor.is_none());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

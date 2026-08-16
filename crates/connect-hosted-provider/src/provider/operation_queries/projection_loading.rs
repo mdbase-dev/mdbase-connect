@@ -511,7 +511,7 @@ async fn execute_bounded_residual_page(
             total_count = total_count.saturating_add(1);
             reduction
                 .push(&item.reduction)
-                .map_err(projection_inconsistent)?;
+                .map_err(|error| reduction_error(error, &state.plan.budgets))?;
             let after_keyset = state.last_path.as_deref().is_none_or(|last_path| {
                 let ordering = state.plan.compare_order_values(
                     &item.order_values,
@@ -581,7 +581,9 @@ async fn execute_bounded_residual_page(
             ),
         ));
     }
-    let reduction = reduction.finish().map_err(projection_inconsistent)?;
+    let reduction = reduction
+        .finish()
+        .map_err(|error| reduction_error(error, &state.plan.budgets))?;
     diagnostics.extend(reduction.diagnostics);
     let groups_bytes = reduction.groups.as_ref().map_or(0, |groups| {
         serialized_value_bytes(&Value::Array(groups.clone()))
