@@ -206,6 +206,13 @@ bytes, operator state, wall time, statement time, connections, and memory are
 accounted separately. Exhaustion returns a typed budget outcome. No request silently
 falls back to collection-wide `WorkingSet`.
 
+Each hosted query transaction uses PostgreSQL `force_custom_plan` locally. Candidate
+and generation selectivity varies per collection, and the prepared-statement generic
+plan selected after five executions was measured to double sustained 100k grouping
+latency. This setting does not alter other provider or control-plane transactions;
+statement, snapshot, connection, and cancellation bounds still enclose planning and
+execution together.
+
 The production regression corpus also executes two consecutive 1,000-row
 file-mtime keyset pages over 100,002 live identities (plus an orphan projection),
 and a 100,003-match typed filter plus two-group count over a 100,004-row typed

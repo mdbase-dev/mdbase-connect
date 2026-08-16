@@ -224,6 +224,15 @@ impl HostedProvider {
         sqlx::query("SET LOCAL idle_in_transaction_session_timeout = 10000")
             .execute(&mut *transaction)
             .await?;
+        // Candidate predicates and generation bindings have collection-specific
+        // selectivity. PostgreSQL otherwise switches a cached prepared statement
+        // to its generic plan after five executions; the sustained 100k group
+        // mission proves that generic plan doubles page latency. Keep the choice
+        // local to this bounded transaction so every page is costed with its
+        // actual candidate/type/generation values.
+        sqlx::query("SET LOCAL plan_cache_mode = force_custom_plan")
+            .execute(&mut *transaction)
+            .await?;
         // Every query transaction holds the shared side until commit. Rollback
         // tooling takes the exclusive side, waits for in-flight pages, persists
         // the suspension flag, and can then inspect/drain without a new-admission
