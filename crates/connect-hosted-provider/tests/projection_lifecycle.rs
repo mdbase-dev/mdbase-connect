@@ -1337,6 +1337,26 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
         "---\nstatus: todo\ntags: [task]\nprojects: ['[[projects/mobile]]']\n---\nShip mobile\n",
     )
     .await;
+    put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        Uuid::now_v7(),
+        None,
+        "projects/web.md",
+        "---\ntitle: Web roadmap\n---\nProject notes\n",
+    )
+    .await;
+    put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        Uuid::now_v7(),
+        None,
+        "tasks/web-task.md",
+        "---\nstatus: todo\ntags: [task]\nprojects: ['[[projects/web]]']\n---\nShip web\n",
+    )
+    .await;
     complete_generation(&fixture).await;
 
     let token = format!("candidate-b-base-{}-{}", Uuid::new_v4(), Uuid::new_v4());
@@ -1399,13 +1419,17 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
             &token,
             "execute_view",
             Uuid::new_v4(),
-            json!({"path": "views/projects.base", "view": "projects"}),
+            json!({
+                "path": "views/projects.base",
+                "view": "projects",
+                "context": {"path": "projects/mobile.md"}
+            }),
             None,
         )
         .await
         .unwrap();
     assert_eq!(projects["valid"], true);
-    assert_eq!(projects["result"]["meta"]["total_count"], 1);
+    assert_eq!(projects["result"]["meta"]["total_count"], 2);
     assert_eq!(
         projects["result"]["results"][0]["path"],
         "projects/mobile.md"
@@ -1433,10 +1457,72 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
         .await
         .unwrap();
     assert_eq!(exact_fallback["valid"], true);
-    assert_eq!(exact_fallback["result"]["meta"]["total_count"], 1);
+    assert_eq!(exact_fallback["result"]["meta"]["total_count"], 2);
     assert_eq!(
         exact_fallback["result"]["results"][0]["path"],
         "projects/mobile.md"
+    );
+
+    sqlx::query(
+        r#"UPDATE hosted_provider_collections
+           SET active_projection_generation_id = NULL,
+               active_catalog_revision = NULL,
+               active_projection_format_version = NULL,
+               active_semantic_engine_version = NULL
+           WHERE id = $1"#,
+    )
+    .bind(fixture.collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let absent_binding_fallback = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "execute_view",
+            Uuid::new_v4(),
+            json!({
+                "path": "views/projects.base",
+                "view": "projects",
+                "context": {"path": "projects/mobile.md"},
+                "limit": 1
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(absent_binding_fallback["valid"], true);
+    assert_eq!(absent_binding_fallback["result"]["meta"]["has_more"], true);
+    assert_eq!(
+        absent_binding_fallback["result"]["results"][0]["path"],
+        "projects/mobile.md"
+    );
+    let cursor = absent_binding_fallback["result"]["meta"]["cursor"]
+        .as_str()
+        .unwrap();
+    let absent_binding_page_two = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "execute_view",
+            Uuid::new_v4(),
+            json!({
+                "path": "views/projects.base",
+                "view": "projects",
+                "context": {"path": "projects/mobile.md"},
+                "limit": 1,
+                "cursor": cursor
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(absent_binding_page_two["valid"], true);
+    assert_eq!(
+        absent_binding_page_two["result"]["results"][0]["path"],
+        "projects/web.md"
     );
 }
 

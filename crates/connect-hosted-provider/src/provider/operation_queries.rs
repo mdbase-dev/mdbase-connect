@@ -24,7 +24,7 @@ impl HostedQueryRequestKind {
 
 struct HostedQueryState {
     snapshot_head: u64,
-    generation_id: Uuid,
+    generation_id: Option<Uuid>,
     catalog_revision: String,
     projection_format_version: u32,
     semantic_engine_version: String,
@@ -553,7 +553,7 @@ impl HostedProvider {
         let request_digest = plan.canonical_query_digest.clone();
         Ok(HostedQueryState {
             snapshot_head: number(collection.get::<i64, _>("head"), "collection head")?,
-            generation_id,
+            generation_id: Some(generation_id),
             catalog_revision,
             projection_format_version,
             semantic_engine_version,
@@ -662,7 +662,7 @@ impl HostedProvider {
         );
         Ok(Ok(HostedQueryState {
             snapshot_head: number(collection.get::<i64, _>("head"), "collection head")?,
-            generation_id,
+            generation_id: Some(generation_id),
             catalog_revision,
             projection_format_version,
             semantic_engine_version,
@@ -726,10 +726,10 @@ impl HostedProvider {
             mdbase::runtime::HostedBasePlanning::Invalid { result } => return Ok(Err(result)),
         };
         let (generation_id, catalog_revision, projection_format_version, semantic_engine_version) =
-            active_query_binding(collection, catalog)?;
+            base_query_binding(collection, catalog);
         let snapshot_head = number(collection.get::<i64, _>("head"), "collection head")?;
-        let base_context = match base_plan.context_path.as_deref() {
-            Some(path) => Some(
+        let base_context = match (base_plan.context_path.as_deref(), generation_id) {
+            (Some(path), Some(generation_id)) => Some(
                 load_base_context_projection(
                     transaction,
                     collection_id,
@@ -748,7 +748,7 @@ impl HostedProvider {
                     )
                 })?,
             ),
-            None => None,
+            _ => None,
         };
         if let Some(context) = &base_context {
             if !replica.allowed_types.is_empty()
@@ -1018,6 +1018,29 @@ fn active_query_binding(
     ))
 }
 
+fn base_query_binding(
+    collection: &PgRow,
+    catalog: &mdbase::runtime::CompiledCatalog,
+) -> (Option<Uuid>, String, u32, String) {
+    let generation_id = collection.get::<Option<Uuid>, _>("active_projection_generation_id");
+    let catalog_revision = collection.get::<Option<String>, _>("active_catalog_revision");
+    let projection_format_version = collection
+        .get::<Option<i32>, _>("active_projection_format_version")
+        .and_then(|value| u32::try_from(value).ok());
+    let semantic_engine_version =
+        collection.get::<Option<String>, _>("active_semantic_engine_version");
+    let current = generation_id.is_some()
+        && catalog_revision.as_deref() == Some(catalog.resource_revision())
+        && projection_format_version == Some(mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION)
+        && semantic_engine_version.as_deref() == Some(mdbase::VERSION);
+    (
+        current.then_some(generation_id).flatten(),
+        catalog.resource_revision().to_string(),
+        mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION,
+        mdbase::VERSION.to_string(),
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn load_base_context_projection(
     transaction: &mut Transaction<'_, Postgres>,
@@ -1196,6 +1219,16 @@ async fn validate_generation_binding(
     collection_id: Uuid,
     state: &HostedQueryState,
 ) -> ApiResult<()> {
+    if state.generation_id.is_none() {
+        return if state.request_kind == HostedQueryRequestKind::ObsidianBase {
+            Ok(())
+        } else {
+            Err(query_cursor_conflict(
+                "query_generation_unavailable",
+                "A non-Base hosted query has no pinned semantic generation.",
+            ))
+        };
+    }
     let valid: bool = sqlx::query_scalar(
         r#"SELECT EXISTS (
              SELECT 1 FROM hosted_provider_projection_generations
@@ -1265,6 +1298,9 @@ async fn base_projection_fallback_exists(
     collection_id: Uuid,
     state: &HostedQueryState,
 ) -> ApiResult<bool> {
+    if state.generation_id.is_none() {
+        return Ok(true);
+    }
     let relationships_required = state.base_plan.as_ref().is_some_and(|plan| {
         plan.requirements.backlinks
             || plan.requirements.outgoing_relationships
@@ -1477,6 +1513,7 @@ struct BaseExecutionSnapshot {
     projection_bytes: u64,
     exact_documents: u64,
     exact_bytes: u64,
+    query_context: Option<mdbase::runtime::SemanticProjection>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1517,6 +1554,7 @@ async fn execute_bounded_base_page(
         projection_bytes,
         exact_documents,
         exact_bytes,
+        query_context,
     } = snapshot;
     if rows.len() as u64 > state.plan.budgets.max_candidate_rows {
         return Err(query_budget_error(
@@ -1582,7 +1620,7 @@ async fn execute_bounded_base_page(
                 projection: row.projection.clone(),
                 related,
                 relationship_neighborhood_complete: true,
-                query_context: state.base_context.clone(),
+                query_context: query_context.clone(),
                 operation_clock: operation_clock.clone(),
                 max_expression_steps: expression_steps_per_record,
             },
@@ -1841,6 +1879,7 @@ async fn load_base_projected_snapshot(
         projection_bytes,
         exact_documents: 0,
         exact_bytes: 0,
+        query_context: state.base_context.clone(),
     })
 }
 
@@ -1999,6 +2038,21 @@ async fn load_base_exact_fallback_snapshot(
         }
     }
     let projection_bytes = serialized_projection_bytes(&projections)?;
+    let query_context = match plan.context_path.as_deref() {
+        Some(path) => Some(
+            projections
+                .values()
+                .find(|projection| projection.facts.path == path)
+                .cloned()
+                .ok_or_else(|| {
+                    ApiError::conflict(
+                        "hosted_base_context_unavailable",
+                        "The exact Base fallback snapshot has no requested context record.",
+                    )
+                })?,
+        ),
+        None => None,
+    };
     Ok(BaseExecutionSnapshot {
         rows,
         projections,
@@ -2007,6 +2061,7 @@ async fn load_base_exact_fallback_snapshot(
         projection_bytes,
         exact_documents: live_ids.len() as u64,
         exact_bytes,
+        query_context,
     })
 }
 

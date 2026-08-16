@@ -144,6 +144,12 @@ same closed Base plan. A snapshot above those ceilings returns the corresponding
 typed exact-document, byte, relationship, memory, or time budget outcome; it never
 silently omits a candidate or falls back to `WorkingSet`.
 
+If the collection has no globally usable projection binding, Base planning pins
+the current catalog/engine contract and exact record-version head directly. The
+same bounded exact reconstruction supplies candidates, relationships, and optional
+`this.file` context. Its cursor carries no generation ID and cannot be replayed as
+another query kind; pagination remains deterministic over the pinned temporal head.
+
 ## Mutation transaction
 
 The existing durable journal remains the mutation coordinator. A prepared semantic

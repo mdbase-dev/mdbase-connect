@@ -164,6 +164,12 @@ vacuum/bloat evidence.
    throughout building and after completion; canonical fallback remains bounded and
    fail-closed for authorization.
 
+Migration `0039_exact_base_query_cursors.sql` permits a null generation binding
+only for Obsidian Base cursors. This lets an exact-fallback cursor pin the temporal
+record head, catalog/engine contract, invocation, and keyset when no usable
+projection generation exists. Generic queries and canonical Markdown views remain
+generation-required. The foreign key continues to bind every non-null generation.
+
 Ordinary writes after activation always generate against the active catalog. They
 close prior temporal rows and commit ciphertext, revision, current projection
 binding, relationship state, versions/changes, quotas, journal settlement, receipt,
