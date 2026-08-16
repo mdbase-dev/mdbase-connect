@@ -308,6 +308,61 @@ describe("mdbase MCP gateway", () => {
     });
     expect(upstream.hostedRequestIds.slice(-2)).toEqual([mutationId, mutationId]);
 
+    const documentMutationId = "01977777-7777-7777-8777-777777777778";
+    const documentOnly = await client.callTool({
+      name: "update_record",
+      arguments: {
+        connection_id: connections[1].id,
+        path: "notes/created.md",
+        document: "---\ntitle: Replaced\n---\nReplacement body.\n",
+        mutation_id: documentMutationId
+      }
+    });
+    expect(documentOnly.structuredContent).toMatchObject({
+      mutation_receipt: { request_id: documentMutationId },
+      outcome: { valid: true }
+    });
+    expect(upstream.hostedInputs).toContainEqual({
+      path: "notes/created.md",
+      document: "---\ntitle: Replaced\n---\nReplacement body.\n"
+    });
+    const emptyUpdate = await client.callTool({
+      name: "update_record",
+      arguments: { connection_id: connections[1].id, path: "notes/created.md" }
+    });
+    expect(emptyUpdate.isError).toBe(true);
+
+    for (const [name, typeMutationId, arguments_] of [
+      [
+        "create_type",
+        "01977777-7777-7777-8777-777777777779",
+        { document: "---\nkind: mdbase.type\nname: note\n---\n" }
+      ],
+      [
+        "update_type",
+        "01977777-7777-7777-8777-777777777780",
+        {
+          name: "note",
+          document: "---\nkind: mdbase.type\nname: note\n---\n",
+          if_revision: "sha256:type-one"
+        }
+      ]
+    ] as const) {
+      const mutation = await client.callTool({
+        name,
+        arguments: {
+          connection_id: connections[1].id,
+          ...arguments_,
+          mutation_id: typeMutationId
+        }
+      });
+      expect(mutation.structuredContent).toMatchObject({
+        mutation_receipt: { request_id: typeMutationId },
+        outcome: { valid: true }
+      });
+      expect(upstream.hostedRequestIds).toContain(typeMutationId);
+    }
+
     await expect(gateway.operation(
       context!.connectionSetId,
       connections[1].id,

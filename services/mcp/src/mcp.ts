@@ -141,6 +141,18 @@ export function createMcpServer(
 }
 
 function registerWriteTools(server: McpServer, context: McpAuthContext, gateway: ConnectGateway): void {
+  const updateRecordInput = z.object({
+    connection_id: connectionId,
+    path,
+    patch: object.optional(),
+    body: z.string().max(2_000_000).optional(),
+    document: z.string().max(2_000_000).optional(),
+    if_revision: revision.optional(),
+    mutation_id: z.uuid().optional()
+  }).refine(
+    ({ patch, body, document }) => patch !== undefined || body !== undefined || document !== undefined,
+    { message: "Supply at least one of patch, body, or document." }
+  );
   server.registerTool("create_record", {
     title: "Create an mdbase record",
     description: "Create a record in one approved collection.",
@@ -161,15 +173,7 @@ function registerWriteTools(server: McpServer, context: McpAuthContext, gateway:
   server.registerTool("update_record", {
     title: "Update an mdbase record",
     description: "Partially update a record. Supply if_revision when available to prevent overwriting a concurrent edit.",
-    inputSchema: {
-      connection_id: connectionId,
-      path,
-      patch: object,
-      body: z.string().max(2_000_000).optional(),
-      document: z.string().max(2_000_000).optional(),
-      if_revision: revision.optional(),
-      mutation_id: z.uuid().optional()
-    },
+    inputSchema: updateRecordInput,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   }, ({ connection_id, mutation_id, ...input }, { signal }) => mutationOperationTool(
     gateway, context, connection_id, "update", input, mutation_id, signal
@@ -212,10 +216,13 @@ function registerWriteTools(server: McpServer, context: McpAuthContext, gateway:
     inputSchema: {
       connection_id: connectionId,
       document: z.string().min(1).max(1_000_000),
-      path: path.optional()
+      path: path.optional(),
+      mutation_id: z.uuid().optional()
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
-  }, ({ connection_id, ...input }, { signal }) => operationTool(gateway, context, connection_id, "create_type", input, { signal }));
+  }, ({ connection_id, mutation_id, ...input }, { signal }) => mutationOperationTool(
+    gateway, context, connection_id, "create_type", input, mutation_id, signal
+  ));
 
   server.registerTool("update_type", {
     title: "Update an mdbase type",
@@ -225,10 +232,13 @@ function registerWriteTools(server: McpServer, context: McpAuthContext, gateway:
       name: z.string().min(1).max(200).optional(),
       path: path.optional(),
       document: z.string().min(1).max(1_000_000),
-      if_revision: revision
+      if_revision: revision,
+      mutation_id: z.uuid().optional()
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
-  }, ({ connection_id, ...input }, { signal }) => operationTool(gateway, context, connection_id, "update_type", input, { signal }));
+  }, ({ connection_id, mutation_id, ...input }, { signal }) => mutationOperationTool(
+    gateway, context, connection_id, "update_type", input, mutation_id, signal
+  ));
 }
 
 function mutationOperationTool(
