@@ -100,6 +100,35 @@ pub(super) async fn reauthorize_full_collection_mutation_in(
     Ok(())
 }
 
+/// Recheck sync authorization while locking the replica through the mutation
+/// commit. Journal admission deliberately occurs before this check, so a
+/// revoked or expired request is durably rejected without applying its effect.
+pub(super) async fn reauthorize_sync_mutation_in(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    expected_replica_id: Uuid,
+    required_operation: &str,
+    request_origin: Option<&str>,
+) -> ApiResult<Replica> {
+    let row = sqlx::query(
+        r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection,
+                  allowed_operations, operation_transport_protocol,
+                  operation_transport_recovery_protocols, file_capability,
+                  allowed_origin, proof_public_key, grant_id, scope_epoch
+           FROM hosted_provider_replicas
+           WHERE collection_id = $1 AND id = $2
+             AND revoked_at IS NULL AND token_expires_at > now()
+           FOR UPDATE"#,
+    )
+    .bind(collection_id)
+    .bind(expected_replica_id)
+    .fetch_optional(&mut **transaction)
+    .await?;
+    let replica = replica_from_row(row)?;
+    authorize_sync_access(&replica, required_operation, request_origin)?;
+    Ok(replica)
+}
+
 pub(super) fn replica_from_row(row: Option<sqlx::postgres::PgRow>) -> ApiResult<Replica> {
     let row = row.ok_or_else(|| {
         ApiError::unauthorized(

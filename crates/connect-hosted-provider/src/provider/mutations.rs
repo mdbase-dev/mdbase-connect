@@ -68,21 +68,33 @@ impl HostedProvider {
             }
             HostedMutationClaim::Owned { lease, .. } => lease,
         };
-        let transaction = self.pool.begin().await?;
-        let result = self
-            .mutate_in_transaction(
-                transaction,
-                collection_id,
-                mutation,
-                replica,
-                MutationExecution {
-                    journal_lease: Some(&lease),
-                    journal_result_is_public: true,
-                    semantic: None,
-                    semantic_result: None,
-                },
-            )
-            .await;
+        let mut transaction = self.pool.begin().await?;
+        let reauthorized = reauthorize_sync_mutation_in(
+            &mut transaction,
+            collection_id,
+            replica.id,
+            required_operation,
+            request_origin,
+        )
+        .await;
+        let result = match reauthorized {
+            Ok(replica) => {
+                self.mutate_in_transaction(
+                    transaction,
+                    collection_id,
+                    mutation,
+                    replica,
+                    MutationExecution {
+                        journal_lease: Some(&lease),
+                        journal_result_is_public: true,
+                        semantic: None,
+                        semantic_result: None,
+                    },
+                )
+                .await
+            }
+            Err(error) => Err(error),
+        };
         let value_result = result
             .as_ref()
             .map_err(|error| ApiError::new(error.status, error.code.clone(), error.message.clone()))
@@ -223,6 +235,9 @@ impl HostedProvider {
         // Serialize a replica's mutation stream before consulting its receipt
         // table. A concurrent retry must observe the first transaction's
         // committed receipt instead of executing the same effect twice.
+        // The sync path already holds this row FOR UPDATE from its commit-time
+        // authorization check. Application operations hold a current FOR SHARE
+        // authorization and upgrade it here to serialize their mutation stream.
         sqlx::query("SELECT id FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE")
             .bind(replica.id)
             .fetch_one(&mut *transaction)
