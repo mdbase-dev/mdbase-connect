@@ -35,17 +35,28 @@ relationships, and diagnostics. The optional GIN covers only that JSONB column.
 Thus a body-only update advances record revision, binding, file size/mtime, and
 digest while leaving semantic JSON unchanged. Candidate A has no projection row.
 
-`projection_digest` is the lowercase SHA-256 of RFC 8785/JCS canonical JSON for:
+Production persists an expected `projection_digest` and a separately observed
+`projection_observed_digest`. The observed value is the SHA-256 of UTF-8
+PostgreSQL canonical `jsonb_build_array(...)::text` for:
 
 ```text
-["mdbase/hosted-benchmark-projection/v1", collection_id, record_id,
- record_revision, catalog_revision, projection_format_version, generation_id,
- path, types, file_size, file_mtime, semantic_projection]
+["mdbase/hosted-projection-row/v1", collection_id, record_id,
+ record_sequence, valid_from_sequence, record_revision, catalog_revision,
+ projection_format_version, semantic_engine_version, generation_id,
+ canonical_path, matched_types, file_size_bytes, file_modified_at,
+ semantic_complete, resolution_complete, semantic_projection,
+ hex(structural_digest), projection_bytes]
 ```
 
-It is an unkeyed integrity/substitution check, not a confidentiality or authenticity
-boundary. Tests swap projection payloads and bindings across records, collections,
-catalogues, and generations and require verification failure.
+The database trigger recomputes only the observed side whenever a row changes; the
+application sets the expected side only after canonical persistence in the same
+transaction. Candidate SQL compares the two stored 32-byte values, avoiding a
+per-query JSON/TOAST rehash. It is an unkeyed integrity/substitution check, not a
+confidentiality or authenticity boundary. Tests swap valid JSON, frontmatter,
+paths, types, and whole payloads across records and require bounded canonical
+fallback, including authorization widening and narrowing under a contract scope.
+Rows written before this envelope have a null observed value and remain invalid
+until rebuilt rather than being rewritten by the migration.
 
 ## Resource/catalog transition
 

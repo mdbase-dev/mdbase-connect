@@ -258,6 +258,8 @@ async fn load_base_context_projection(
              AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > $4)
              AND p.catalog_revision = $5 AND p.projection_format_version = $6
              AND p.semantic_engine_version = $7
+             AND hosted_provider_projection_digest_valid(
+                   p.projection_digest, p.projection_observed_digest)
              AND p.semantic_complete AND p.resolution_complete
            ORDER BY p.valid_from_sequence DESC
            LIMIT 1"#,
@@ -478,6 +480,8 @@ async fn projection_fallback_exists(
                p.record_id IS NULL OR p.record_sequence <> l.sequence
                OR p.record_revision <> l.revision OR p.catalog_revision <> $4
                OR p.projection_format_version <> $5 OR p.semantic_engine_version <> $6
+               OR NOT hosted_provider_projection_digest_valid(
+                 p.projection_digest, p.projection_observed_digest)
                OR NOT p.semantic_complete OR NOT p.resolution_complete
              )
            )"#,
@@ -532,6 +536,8 @@ async fn base_projection_fallback_exists(
                p.record_id IS NULL OR p.record_sequence <> l.sequence
                OR p.record_revision <> l.revision OR p.catalog_revision <> $4
                OR p.projection_format_version <> $5 OR p.semantic_engine_version <> $6
+               OR NOT hosted_provider_projection_digest_valid(
+                 p.projection_digest, p.projection_observed_digest)
                OR NOT p.semantic_complete OR ($7 AND NOT p.resolution_complete)
              )
            )"#,

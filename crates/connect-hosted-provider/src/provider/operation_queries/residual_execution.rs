@@ -63,7 +63,9 @@ async fn count_projected_candidates(
         .push(" AND p.semantic_engine_version = ")
         .push_bind(state.semantic_engine_version.clone())
         .push(
-            " AND p.semantic_complete AND p.resolution_complete \
+            " AND hosted_provider_projection_digest_valid( \
+              p.projection_digest, p.projection_observed_digest) \
+              AND p.semantic_complete AND p.resolution_complete \
               AND (cardinality(",
         )
         .push_bind(candidate_types.to_vec())
@@ -126,7 +128,9 @@ async fn load_projected_groups(
         .push(" AND p.semantic_engine_version = ")
         .push_bind(state.semantic_engine_version.clone())
         .push(
-            " AND p.semantic_complete AND p.resolution_complete \
+            " AND hosted_provider_projection_digest_valid( \
+              p.projection_digest, p.projection_observed_digest) \
+              AND p.semantic_complete AND p.resolution_complete \
               AND (cardinality(",
         )
         .push_bind(candidate_types.to_vec())
@@ -224,7 +228,9 @@ async fn load_projected_page(
         .push(" AND p.semantic_engine_version = ")
         .push_bind(state.semantic_engine_version.clone())
         .push(
-            " AND p.semantic_complete AND p.resolution_complete \
+            " AND hosted_provider_projection_digest_valid( \
+              p.projection_digest, p.projection_observed_digest) \
+              AND p.semantic_complete AND p.resolution_complete \
               AND (cardinality(",
         )
         .push_bind(candidate_types.to_vec())
@@ -426,7 +432,9 @@ async fn projected_scalar_order_values_are_valid(
         .push(" AND p.semantic_engine_version = ")
         .push_bind(state.semantic_engine_version.clone())
         .push(
-            " AND p.semantic_complete AND p.resolution_complete \
+            " AND hosted_provider_projection_digest_valid( \
+              p.projection_digest, p.projection_observed_digest) \
+              AND p.semantic_complete AND p.resolution_complete \
               AND (cardinality(",
         )
         .push_bind(candidate_types.to_vec())
@@ -488,7 +496,9 @@ async fn projected_exact_candidate_values_are_valid(
         .push(" AND p.semantic_engine_version = ")
         .push_bind(state.semantic_engine_version.clone())
         .push(
-            " AND p.semantic_complete AND p.resolution_complete \
+            " AND hosted_provider_projection_digest_valid( \
+              p.projection_digest, p.projection_observed_digest) \
+              AND p.semantic_complete AND p.resolution_complete \
               AND (cardinality(",
         )
         .push_bind(candidate_types.to_vec())
@@ -549,7 +559,9 @@ async fn projected_scalar_group_values_are_valid(
         .push(" AND p.semantic_engine_version = ")
         .push_bind(state.semantic_engine_version.clone())
         .push(
-            " AND p.semantic_complete AND p.resolution_complete \
+            " AND hosted_provider_projection_digest_valid( \
+              p.projection_digest, p.projection_observed_digest) \
+              AND p.semantic_complete AND p.resolution_complete \
               AND (cardinality(",
         )
         .push_bind(candidate_types.to_vec())

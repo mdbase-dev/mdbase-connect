@@ -172,7 +172,9 @@ async fn load_base_hybrid_snapshot(
         .push(" AND p.semantic_engine_version = ")
         .push_bind(&state.semantic_engine_version)
         .push(
-            " AND p.semantic_complete AND p.resolution_complete AS projection_current \
+            " AND hosted_provider_projection_digest_valid( \
+             p.projection_digest, p.projection_observed_digest) \
+             AND p.semantic_complete AND p.resolution_complete AS projection_current \
              FROM live l LEFT JOIN hosted_provider_record_projections p ON p.collection_id = ",
         )
         .push_bind(collection_id)

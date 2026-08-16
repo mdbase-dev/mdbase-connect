@@ -64,7 +64,8 @@ permit one open version per record and canonical path:
 - exact record revision and full catalog/format/engine/generation binding;
 - readable canonical path, matched types, and selected file facts;
 - completeness flag, semantic JSON object, and exact serialized-byte count;
-- 32-byte projection and structural digests; and
+- separate 32-byte expected/observed projection digests plus the structural
+  digest; and
 - an application-enforced 256 KiB projection limit backed by a database check.
 
 Projection history cascades only with the collection, not the current exact-record
@@ -72,6 +73,14 @@ row, so a logical snapshot may still query a record deleted after its pinned hea
 A rename/swap transaction closes every affected open path before inserting new
 versions. A projection digest detects accidental substitution or corruption; it is
 not a MAC and never replaces exact authorization or canonical classification.
+Migration 0044 adds a nullable observed digest and a row trigger without rewriting
+existing projection rows. New persistence first writes the row, then sets the
+expected digest to the trigger-maintained observation in the same transaction.
+Every SQL currentness predicate compares those two 32-byte values before candidate
+filtering or authorization. Any older row or changed path, type set, file fact,
+semantic payload, structural digest, completeness flag, or binding therefore enters
+the bounded stale/absent exact fallback. Pre-0044 generations must rebuild; the
+migration does not produce projection-table-sized WAL or hold a rewrite lock.
 
 Projection format 3 corrects the closed link-resolution contract so the mandatory
 Markdown `.md` path alternative is always present in addition to configured extra

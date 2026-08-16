@@ -369,6 +369,362 @@ async fn candidate_b_query_receipts_have_a_typed_per_replica_count_budget() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_corrupt_projection_envelopes_fall_back_for_scoped_authorization() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let writer_token = format!("candidate-b-integrity-writer-{}", Uuid::new_v4());
+    fixture
+        .provider
+        .register_replica(
+            fixture.collection_id,
+            RegisterReplica {
+                replica_id: Uuid::now_v7(),
+                name: "Candidate B integrity writer".to_string(),
+                purpose: ReplicaPurpose::Application,
+                mode: SyncReplicaMode::ReadWrite,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
+                allowed_operations: vec![
+                    "assess_type_pack".to_string(),
+                    "apply_type_pack".to_string(),
+                    "create_type".to_string(),
+                ],
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: Vec::new(),
+                file_capability: None,
+                allowed_origin: None,
+                proof_public_key: None,
+                grant_id: Some(Uuid::now_v7()),
+                application_declaration_id: None,
+                application_declaration_digest: None,
+                token: writer_token.clone(),
+                token_ttl_seconds: None,
+            },
+        )
+        .await
+        .unwrap();
+    let contract_document = r#"---
+kind: mdbase.contract
+contract_type: record
+id: test.public-note
+version: 1.0.0
+record_schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    properties:
+      title: {type: string}
+---
+"#;
+    let public_type_document = r#"---
+kind: mdbase.type
+name: public_note
+version: 1
+match:
+  path_glob: 'public/*.md'
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    properties:
+      title: {type: string}
+implements:
+  - contract: test.public-note
+    version: 1.0.0
+    fields:
+      title: title
+---
+"#;
+    let pack = json!({
+        "provision": {
+            "manifest": {
+                "kind": "mdbase.type-pack",
+                "id": "test.candidate-b-integrity",
+                "version": "1.0.0",
+                "resources": [
+                    {
+                        "kind": "contract",
+                        "mode": "managed",
+                        "source": "contracts/public-note.md",
+                        "target": "_contracts/public-note.md",
+                        "digest": format!("sha256:{:x}", Sha256::digest(contract_document.as_bytes()))
+                    },
+                    {
+                        "kind": "type",
+                        "mode": "managed",
+                        "source": "types/public-note.md",
+                        "target": "_types/public_note.md",
+                        "digest": format!("sha256:{:x}", Sha256::digest(public_type_document.as_bytes()))
+                    }
+                ]
+            },
+            "resources": [
+                {"source": "contracts/public-note.md", "document": contract_document},
+                {"source": "types/public-note.md", "document": public_type_document}
+            ],
+            "provides": [{
+                "id": "test.public-note",
+                "version": "1.0.0",
+                "digest": format!("sha256:{:x}", Sha256::digest(contract_document.as_bytes()))
+            }]
+        },
+        "installed_by": "test.candidate-b-integrity",
+        "adopt_resources": {},
+        "preserve_seed_targets": [],
+        "target_overrides": {},
+        "contract_setups": []
+    });
+    let assessment = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &writer_token,
+            "assess_type_pack",
+            Uuid::new_v4(),
+            pack.clone(),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(assessment["valid"], true);
+    let mut apply = pack;
+    apply["expected_assessment_digest"] = assessment["result"]["assessment_digest"].clone();
+    apply["allow_downgrade"] = json!(false);
+    fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &writer_token,
+            "apply_type_pack",
+            Uuid::new_v4(),
+            apply,
+            None,
+        )
+        .await
+        .unwrap();
+    let secret_type_document = r#"---
+kind: mdbase.type
+name: secret_note
+version: 1
+match:
+  path_glob: 'secret/*.md'
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    properties:
+      title: {type: string}
+---
+"#;
+    fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &writer_token,
+            "create_type",
+            Uuid::new_v4(),
+            json!({"document": secret_type_document}),
+            None,
+        )
+        .await
+        .unwrap();
+    let mirror = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1 AND purpose = 'mirror'",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let public_id = Uuid::now_v7();
+    let secret_id = Uuid::now_v7();
+    put(
+        &fixture,
+        mirror.get("id"),
+        u64::try_from(mirror.get::<i64, _>("scope_epoch")).unwrap(),
+        public_id,
+        None,
+        "public/note.md",
+        "---\ntitle: Public exact\n---\nPublic prose.\n",
+    )
+    .await;
+    put(
+        &fixture,
+        mirror.get("id"),
+        u64::try_from(mirror.get::<i64, _>("scope_epoch")).unwrap(),
+        secret_id,
+        None,
+        "secret/note.md",
+        "---\ntitle: Secret exact\n---\nSecret prose.\n",
+    )
+    .await;
+    let generation_id = complete_generation(&fixture).await;
+    let resources_row = sqlx::query(
+        "SELECT wrapped_data_key, resources_ciphertext FROM hosted_provider_collections WHERE id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let data_key = fixture
+        .crypto
+        .unwrap_data_key(resources_row.get("wrapped_data_key"), fixture.collection_id)
+        .await
+        .unwrap();
+    let resources: mdbase_connect_protocol::SyncCollectionResources = fixture
+        .crypto
+        .decrypt_json(
+            &data_key,
+            resources_row.get("resources_ciphertext"),
+            &serde_json::to_vec(&("resources", fixture.collection_id)).unwrap(),
+        )
+        .unwrap();
+    assert_eq!(resources.contracts.len(), 1);
+    let reader_token = format!("candidate-b-integrity-reader-{}", Uuid::new_v4());
+    fixture
+        .provider
+        .register_replica(
+            fixture.collection_id,
+            RegisterReplica {
+                replica_id: Uuid::now_v7(),
+                name: "Candidate B integrity scoped reader".to_string(),
+                purpose: ReplicaPurpose::Application,
+                mode: SyncReplicaMode::ReadOnly,
+                allowed_types: vec!["public_note".to_string()],
+                contract_scope: resources.contracts,
+                full_collection: false,
+                allowed_operations: vec!["query".to_string()],
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: Vec::new(),
+                file_capability: None,
+                allowed_origin: None,
+                proof_public_key: None,
+                grant_id: Some(Uuid::now_v7()),
+                application_declaration_id: None,
+                application_declaration_digest: None,
+                token: reader_token.clone(),
+                token_ttl_seconds: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_scoped_public_query(&fixture, &reader_token).await;
+    sqlx::query(
+        r#"WITH originals AS MATERIALIZED (
+             SELECT record_id, semantic_projection
+             FROM hosted_provider_record_projections
+             WHERE collection_id = $1 AND generation_id = $2
+               AND record_id = ANY($3::uuid[]) AND valid_to_sequence IS NULL
+           )
+           UPDATE hosted_provider_record_projections projection
+           SET canonical_path = CASE WHEN projection.record_id = $4
+                                     THEN 'secret/substituted-public.md'
+                                     ELSE 'public/substituted-secret.md' END,
+               matched_types = CASE WHEN projection.record_id = $4
+                                    THEN ARRAY['secret_note']::text[]
+                                    ELSE ARRAY['public_note']::text[] END,
+               semantic_projection = (
+                 SELECT semantic_projection FROM originals
+                 WHERE record_id <> projection.record_id
+                 ORDER BY record_id LIMIT 1
+               )
+           WHERE projection.collection_id = $1 AND projection.generation_id = $2
+             AND projection.record_id = ANY($3::uuid[])
+             AND projection.valid_to_sequence IS NULL"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .bind(vec![public_id, secret_id])
+    .bind(public_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let invalid_rows: i64 = sqlx::query_scalar(
+        r#"SELECT count(*) FROM hosted_provider_record_projections projection
+           WHERE collection_id = $1 AND generation_id = $2
+             AND record_id = ANY($3::uuid[]) AND valid_to_sequence IS NULL
+             AND NOT hosted_provider_projection_digest_valid(
+               projection.projection_digest,
+               projection.projection_observed_digest)"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .bind(vec![public_id, secret_id])
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(invalid_rows, 2);
+
+    // Both widening (secret labelled public) and narrowing (public labelled
+    // secret), plus path/frontmatter cross-record substitution, resolve from
+    // exact authority. The scoped caller sees only the canonical public record.
+    assert_scoped_public_query(&fixture, &reader_token).await;
+
+    let head: i64 =
+        sqlx::query_scalar("SELECT head FROM hosted_provider_collections WHERE id = $1")
+            .bind(fixture.collection_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_record_versions
+             (collection_id, record_id, sequence, revision, types,
+              payload_ciphertext, deleted)
+           SELECT $1, md5('scoped-integrity-budget-' || g::text)::uuid, $2,
+                  'scoped-integrity-budget:' || g::text,
+                  ARRAY['secret_note']::text[], NULL, false
+           FROM generate_series(1, 10001) AS g"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(head)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let budget = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &reader_token,
+            "query",
+            Uuid::new_v4(),
+            json!({"limit": 10}),
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(budget.code, "hosted_scan_budget_exceeded");
+    let details = budget.details.unwrap();
+    assert_eq!(details["budget"], "candidate_rows");
+    assert_eq!(details["limit"], 10_000);
+    assert_eq!(details["observed"], 10_001);
+}
+
+async fn assert_scoped_public_query(fixture: &FileLifecycleFixture, token: &str) {
+    let result = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            token,
+            "query",
+            Uuid::new_v4(),
+            json!({"limit": 10}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(result["valid"], true);
+    assert_eq!(result["result"]["meta"]["total_count"], 1);
+    assert_eq!(result["result"]["results"][0]["path"], "public/note.md");
+    assert_eq!(
+        result["result"]["results"][0]["effective_frontmatter"]["title"],
+        "Public exact"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
 async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
@@ -1948,6 +2304,18 @@ async fn candidate_b_projection_bytes_are_preflighted_before_json_transfer() {
     .execute(&fixture.pool)
     .await
     .unwrap();
+    sqlx::query(
+        r#"UPDATE hosted_provider_record_projections
+           SET projection_digest = projection_observed_digest
+           WHERE collection_id = $1 AND generation_id = $2
+             AND record_id = ANY($3::uuid[]) AND valid_to_sequence IS NULL"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .bind(&oversized_projection_ids)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
 
     let token = format!("candidate-b-budget-reader-{}", Uuid::new_v4());
     fixture
@@ -2757,6 +3125,17 @@ async fn candidate_b_exact_projected_filter_fixture(database_url: &str, decoy_co
     .rows_affected();
     assert_eq!(inserted, u64::try_from(decoy_count).unwrap());
     sqlx::query(
+        r#"UPDATE hosted_provider_record_projections
+           SET projection_digest = projection_observed_digest
+           WHERE collection_id = $1 AND generation_id = $2
+             AND canonical_path LIKE 'tasks/scale-%'"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query(
         r#"INSERT INTO hosted_provider_record_versions
              (collection_id, record_id, sequence, revision, types, payload_ciphertext, deleted)
            SELECT collection_id, record_id, record_sequence, record_revision,
@@ -3071,6 +3450,17 @@ async fn candidate_b_base_candidate_prunes_fixture(database_url: &str, decoy_cou
     .unwrap()
     .rows_affected();
     assert_eq!(inserted, u64::try_from(decoy_count).unwrap());
+    sqlx::query(
+        r#"UPDATE hosted_provider_record_projections
+           SET projection_digest = projection_observed_digest
+           WHERE collection_id = $1 AND generation_id = $2
+             AND canonical_path LIKE 'decoys/%'"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
     let inserted_versions = sqlx::query(
         r#"INSERT INTO hosted_provider_record_versions
              (collection_id, record_id, sequence, revision, types,
@@ -3122,6 +3512,17 @@ async fn candidate_b_base_candidate_prunes_fixture(database_url: &str, decoy_cou
     .unwrap()
     .rows_affected();
     assert_eq!(orphan_inserted, 1);
+    sqlx::query(
+        r#"UPDATE hosted_provider_record_projections
+           SET projection_digest = projection_observed_digest
+           WHERE collection_id = $1 AND generation_id = $2
+             AND canonical_path = 'tasks/orphan.md'"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
     sqlx::query("ANALYZE hosted_provider_record_versions, hosted_provider_record_projections")
         .execute(&fixture.pool)
         .await

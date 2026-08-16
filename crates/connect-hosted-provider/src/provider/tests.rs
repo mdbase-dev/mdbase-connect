@@ -37,6 +37,16 @@ fn pre_0040_rollback_preflight_fails_closed_on_live_invocation_cursors() {
 }
 
 #[test]
+fn projection_digest_migration_is_expand_only_and_observes_row_changes() {
+    let migration = include_str!("../../migrations/0044_hosted_projection_row_digest.sql");
+    assert!(migration.contains("ADD COLUMN projection_observed_digest"));
+    assert!(migration.contains("BEFORE INSERT OR UPDATE"));
+    assert!(migration.contains("NEW.projection_observed_digest"));
+    assert!(migration.contains("expected_digest = observed_digest"));
+    assert!(!migration.contains("UPDATE hosted_provider_record_projections"));
+}
+
+#[test]
 fn hosted_transport_expansion_is_bounded_to_mutation_recovery() {
     let temporarily_unbound = AuthorizedRequest {
         operation_transport_protocol: None,

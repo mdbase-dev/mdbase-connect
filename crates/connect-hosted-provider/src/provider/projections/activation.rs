@@ -523,11 +523,19 @@ async fn insert_active_projection_version(
     .bind(resolution_complete && facts.semantic_complete)
     .bind(resolution_complete)
     .bind(projection_value)
-    .bind(Sha256::digest(canonical_bytes).to_vec())
+    .bind(vec![0_u8; 32])
     .bind(decode_sha256(structural_digest)?)
     .bind(to_i64(canonical_bytes.len() as u64, "projection size")?)
     .bind(to_i64(change.sequence, "projection sequence")?)
     .execute(&mut **transaction)
+    .await?;
+    refresh_projection_digest(
+        transaction,
+        collection_id,
+        generation_id,
+        change.record_id,
+        change.sequence,
+    )
     .await?;
     for key in &facts.resolution_keys {
         sqlx::query(
@@ -602,7 +610,7 @@ async fn persist_active_resolved_projection(
     .bind(&projection.facts.semantic_engine_version)
     .bind(projection.facts.semantic_complete)
     .bind(projection_value)
-    .bind(Sha256::digest(canonical_bytes).to_vec())
+    .bind(vec![0_u8; 32])
     .bind(to_i64(canonical_bytes.len() as u64, "projection size")?)
     .execute(&mut **transaction)
     .await?;
@@ -612,6 +620,14 @@ async fn persist_active_resolved_projection(
             "The exact record or active projection binding changed during relationship resolution.",
         ));
     }
+    refresh_projection_digest(
+        transaction,
+        collection_id,
+        generation_id,
+        record_id,
+        sequence,
+    )
+    .await?;
     insert_relationships(
         transaction,
         collection_id,

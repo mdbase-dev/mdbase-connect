@@ -143,6 +143,13 @@ authorization classification. A stale, absent, ambiguous, corrupt, or unverifiab
 projection forces bounded canonical mdbase-rs classification and fails closed if
 that cannot complete. Queries union current projection matches with stale/absent
 records so optimization cannot create false negatives.
+Currentness also requires equality between the application-set expected row digest
+and the trigger-maintained observed digest. The envelope binds record/collection
+identity, exact revision and sequence, temporal start, catalog/engine/format and
+generation, path, types, file facts, completeness, semantic JSON, structure, and
+byte accounting. Candidate SQL compares only the stored digests; it does not detoast
+and rehash every projection at read time. This is a corruption/substitution guard
+inside the trusted database model, not a MAC against a malicious database operator.
 For scoped queries, that safety union can contain records later excluded by
 canonical classification. Client-visible budget errors therefore disclose only
 that the configured threshold was crossed (`observed = limit + 1`), never the raw

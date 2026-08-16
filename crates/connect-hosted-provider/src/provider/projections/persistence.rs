@@ -58,7 +58,6 @@ async fn persist_prepared_projection(
             "Semantic projection JSON could not decode: {error}"
         ))
     })?;
-    let projection_digest = Sha256::digest(canonical_bytes).to_vec();
     let structural_digest = decode_sha256(&prepared.structure.structural_digest)?;
     let file_modified_at = projected_file_modified_at(&prepared.facts)?;
     sqlx::query(
@@ -84,10 +83,18 @@ async fn persist_prepared_projection(
     .bind(to_i64(prepared.facts.file.size, "projected file size")?)
     .bind(file_modified_at)
     .bind(projection_value)
-    .bind(projection_digest)
+    .bind(vec![0_u8; 32])
     .bind(structural_digest)
     .bind(to_i64(canonical_bytes.len() as u64, "projection size")?)
     .execute(&mut **transaction)
+    .await?;
+    refresh_projection_digest(
+        transaction,
+        collection_id,
+        generation_id,
+        record_id,
+        sequence,
+    )
     .await?;
     for key in &prepared.facts.resolution_keys {
         sqlx::query(
@@ -132,7 +139,6 @@ async fn persist_resolved_projection(
             "Final semantic projection JSON could not decode: {error}"
         ))
     })?;
-    let projection_digest = Sha256::digest(canonical_bytes).to_vec();
     let updated = sqlx::query(
         r#"UPDATE hosted_provider_record_projections p
            SET semantic_complete = $8, resolution_complete = true,
@@ -164,7 +170,7 @@ async fn persist_resolved_projection(
     .bind(to_i64(fence, "projection lease fence")?)
     .bind(projection.facts.semantic_complete)
     .bind(projection_value)
-    .bind(projection_digest)
+    .bind(vec![0_u8; 32])
     .bind(to_i64(canonical_bytes.len() as u64, "projection size")?)
     .bind(catalog_revision)
     .execute(&mut **transaction)
@@ -175,6 +181,14 @@ async fn persist_resolved_projection(
             "The record or generation changed during relationship resolution.",
         ));
     }
+    refresh_projection_digest(
+        transaction,
+        collection_id,
+        generation_id,
+        record_id,
+        valid_from,
+    )
+    .await?;
 
     insert_relationships(
         transaction,
@@ -188,6 +202,34 @@ async fn persist_resolved_projection(
         projection,
     )
     .await
+}
+
+async fn refresh_projection_digest(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    generation_id: Uuid,
+    record_id: Uuid,
+    valid_from: u64,
+) -> ApiResult<()> {
+    let updated = sqlx::query(
+        r#"UPDATE hosted_provider_record_projections projection
+           SET projection_digest = hosted_provider_projection_digest(projection)
+           WHERE collection_id = $1 AND generation_id = $2 AND record_id = $3
+             AND valid_from_sequence = $4"#,
+    )
+    .bind(collection_id)
+    .bind(generation_id)
+    .bind(record_id)
+    .bind(to_i64(valid_from, "projection sequence")?)
+    .execute(&mut **transaction)
+    .await?;
+    if updated.rows_affected() != 1 {
+        return Err(ApiError::conflict(
+            "projection_cas_lost",
+            "The projection digest row binding changed before commit.",
+        ));
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]

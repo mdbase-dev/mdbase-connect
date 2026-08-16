@@ -29,6 +29,8 @@ async fn load_current_projection_rows_by_ids(
              AND (valid_to_sequence IS NULL OR valid_to_sequence > $4)
              AND catalog_revision = $5 AND projection_format_version = $6
              AND semantic_engine_version = $7
+             AND hosted_provider_projection_digest_valid(
+                   projection_digest, projection_observed_digest)
              AND semantic_complete AND resolution_complete
            ORDER BY record_id"#,
     )
@@ -112,7 +114,9 @@ async fn load_base_candidate_projections(
         .push(" AND p.semantic_engine_version = ")
         .push_bind(&state.semantic_engine_version)
         .push(
-            " AND p.semantic_complete AND p.resolution_complete \
+            " AND hosted_provider_projection_digest_valid( \
+                p.projection_digest, p.projection_observed_digest) \
+                AND p.semantic_complete AND p.resolution_complete \
                 AND (cardinality(",
         )
         .push_bind(&plan.allowed_types)
@@ -227,6 +231,8 @@ async fn load_base_related_projections(
              AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > $4)
              AND p.catalog_revision = $5 AND p.projection_format_version = $6
              AND p.semantic_engine_version = $7
+             AND hosted_provider_projection_digest_valid(
+                   p.projection_digest, p.projection_observed_digest)
              AND p.semantic_complete AND p.resolution_complete
            ORDER BY p.record_id"#,
     )
@@ -323,7 +329,9 @@ async fn execute_bounded_residual_page(
         .push(" AND p.semantic_engine_version = ")
         .push_bind(&state.semantic_engine_version)
         .push(
-            " AND p.semantic_complete AND p.resolution_complete AS projection_current \
+            " AND hosted_provider_projection_digest_valid( \
+               p.projection_digest, p.projection_observed_digest) \
+               AND p.semantic_complete AND p.resolution_complete AS projection_current \
                FROM live l LEFT JOIN hosted_provider_record_projections p ON p.collection_id = ",
         )
         .push_bind(collection_id)
@@ -356,7 +364,7 @@ async fn execute_bounded_residual_page(
             state.plan.budgets.max_candidate_rows,
             scoped_budget_observed(
                 &state.allowed_types,
-                state.plan.budgets.max_operator_steps,
+                state.plan.budgets.max_candidate_rows,
                 rows.len() as u64,
             ),
         ));

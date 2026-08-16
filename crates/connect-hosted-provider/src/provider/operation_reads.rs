@@ -662,6 +662,8 @@ async fn load_exact_view_documents(
                         AND p.catalog_revision = $3
                         AND p.projection_format_version = $4
                         AND p.semantic_engine_version = $5
+                        AND hosted_provider_projection_digest_valid(
+                          p.projection_digest, p.projection_observed_digest)
                         AND p.semantic_complete AND p.resolution_complete
                           AS projection_current
                  FROM hosted_provider_records r

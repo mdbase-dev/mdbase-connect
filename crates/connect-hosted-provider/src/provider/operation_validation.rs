@@ -188,6 +188,9 @@ impl HostedProvider {
                           p.catalog_revision AS projection_catalog_revision,
                           p.projection_format_version,
                           p.semantic_engine_version,
+                          hosted_provider_projection_digest_valid(
+                            p.projection_digest, p.projection_observed_digest)
+                            AS projection_digest_valid,
                           p.semantic_complete, p.resolution_complete,
                           p.semantic_projection, p.projection_bytes
                    FROM hosted_provider_records r
@@ -247,6 +250,7 @@ impl HostedProvider {
                     && row.get::<Option<i32>, _>("projection_format_version")
                         == active_format.and_then(|value| i32::try_from(value).ok())
                     && row.get::<Option<String>, _>("semantic_engine_version") == active_engine
+                    && row.get::<Option<bool>, _>("projection_digest_valid") == Some(true)
                     && row.get::<Option<bool>, _>("semantic_complete") == Some(true)
                     && row.get::<Option<bool>, _>("resolution_complete") == Some(true);
 
