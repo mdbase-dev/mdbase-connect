@@ -402,12 +402,12 @@ impl HostedProvider {
     }
 }
 
-enum DirectRecordIdentity {
+pub(super) enum DirectRecordIdentity {
     StableId(Uuid),
     PathToken(Vec<u8>),
 }
 
-async fn load_direct_record(
+pub(super) async fn load_direct_record(
     transaction: &mut Transaction<'_, Postgres>,
     crypto: &ProviderCrypto,
     data_key: &[u8; 32],

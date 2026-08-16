@@ -187,6 +187,7 @@ impl WorkingSet {
     }
 
     /// Apply a replication write as exact storage, without semantic reference rewrites.
+    #[allow(dead_code)]
     pub fn execute_sync(&mut self, mutation: &SyncMutation) -> ApiResult<Execution> {
         let current_path = self.paths_by_record_id.get(&mutation.record_id).cloned();
         let mut changed = Vec::new();

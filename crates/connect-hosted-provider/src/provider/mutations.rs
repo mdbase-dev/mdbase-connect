@@ -1,4 +1,5 @@
 use super::mutation_journal::{HostedMutationClaim, HostedMutationLease};
+use super::operation_reads::{compile_point_catalog, load_direct_record, DirectRecordIdentity};
 use super::projections::ActiveProjectionChange;
 use super::*;
 
@@ -126,6 +127,7 @@ impl HostedProvider {
         replica: Replica,
         execution: MutationExecution<'_>,
     ) -> ApiResult<SyncMutationReceipt> {
+        let mutation_started = Instant::now();
         if mutation.replica_id != replica.id {
             return Err(ApiError::forbidden(
                 "replica_scope_denied",
@@ -224,7 +226,8 @@ impl HostedProvider {
 
         let collection = sqlx::query(
             r#"SELECT head, record_count, content_bytes, max_records,
-                      max_content_bytes, max_document_bytes
+                      max_content_bytes, max_document_bytes, resource_revision,
+                      resources_ciphertext
                FROM hosted_provider_collections
                WHERE id = $1 AND state = 'active' FOR UPDATE"#,
         )
@@ -252,31 +255,15 @@ impl HostedProvider {
             collection.get::<i64, _>("max_document_bytes"),
             "document byte quota",
         )?;
-        let working_set = self.working_set(collection_id).await?;
-        let mut cached = working_set.lock().await;
-        if cached
-            .as_ref()
-            .is_none_or(|working_set| working_set.head != Some(head))
-        {
-            let resources =
-                load_resource_documents(&mut transaction, &self.crypto, &data_key, collection_id)
-                    .await?;
-            let records =
-                load_records(&mut transaction, &self.crypto, &data_key, collection_id).await?;
-            let workspace = WorkingSet::materialize(
-                resources,
-                records.values().map(|record| StoredDocument {
-                    record_id: record.record_id,
-                    path: record.path.clone(),
-                    document: record.document.clone(),
-                }),
-            )?;
-            *cached = Some(CachedCollection::new(Some(head), workspace, records));
-        }
-        let cached = cached
-            .as_mut()
-            .expect("hosted working set was initialized above");
-        let current = cached.records.get(&mutation.record_id).cloned();
+        let (current, current_ciphertext_bytes) = load_direct_record(
+            &mut transaction,
+            &self.crypto,
+            &data_key,
+            collection_id,
+            DirectRecordIdentity::StableId(mutation.record_id),
+        )
+        .await?
+        .map_or((None, 0), |(record, bytes)| (Some(record), bytes));
 
         if mutation.operation == SyncMutationOperation::Put
             && mutation.base_revision.is_none()
@@ -355,13 +342,118 @@ impl HostedProvider {
             }
         }
 
-        cached.head = None;
-        let execution = if let Some((operation, input)) = execution.semantic {
-            cached
-                .workspace
-                .execute_semantic(mutation.record_id, &operation, &input)?
+        let semantic = execution.semantic;
+        let direct_sync = semantic.is_none();
+        let working_set = if direct_sync {
+            None
         } else {
-            match cached.workspace.execute_sync(&mutation) {
+            Some(self.working_set(collection_id).await?)
+        };
+        let (execution, before_records, mut cached_guard) = if let Some((operation, input)) =
+            semantic
+        {
+            let mut cached_guard = working_set
+                .as_ref()
+                .expect("semantic mutations retain their working-set slot")
+                .lock()
+                .await;
+            if cached_guard
+                .as_ref()
+                .is_none_or(|working_set| working_set.head != Some(head))
+            {
+                let resources = load_resource_documents(
+                    &mut transaction,
+                    &self.crypto,
+                    &data_key,
+                    collection_id,
+                )
+                .await?;
+                let records =
+                    load_records(&mut transaction, &self.crypto, &data_key, collection_id).await?;
+                let workspace = WorkingSet::materialize(
+                    resources,
+                    records.values().map(|record| StoredDocument {
+                        record_id: record.record_id,
+                        path: record.path.clone(),
+                        document: record.document.clone(),
+                    }),
+                )?;
+                *cached_guard = Some(CachedCollection::new(Some(head), workspace, records));
+            }
+            let cached = cached_guard
+                .as_mut()
+                .expect("hosted working set was initialized above");
+            cached.head = None;
+            let execution =
+                cached
+                    .workspace
+                    .execute_semantic(mutation.record_id, &operation, &input)?;
+            let before_records = execution
+                .changed
+                .iter()
+                .filter_map(|(record_id, _, _)| {
+                    cached
+                        .records
+                        .get(record_id)
+                        .cloned()
+                        .map(|record| (*record_id, record))
+                })
+                .collect::<BTreeMap<_, _>>();
+            (execution, before_records, Some(cached_guard))
+        } else {
+            let destination_owner = if matches!(
+                mutation.operation,
+                SyncMutationOperation::Put | SyncMutationOperation::Move
+            ) {
+                let path = mutation.path.as_deref().ok_or_else(|| {
+                    ApiError::bad_request(
+                        "invalid_mutation",
+                        "Put and move mutations require a path.",
+                    )
+                })?;
+                sqlx::query_scalar::<_, Uuid>(
+                    "SELECT record_id FROM hosted_provider_records
+                     WHERE collection_id = $1 AND path_token = $2",
+                )
+                .bind(collection_id)
+                .bind(path_token(&data_key, path))
+                .fetch_optional(&mut *transaction)
+                .await?
+            } else {
+                None
+            };
+            let catalog = if matches!(
+                mutation.operation,
+                SyncMutationOperation::Put | SyncMutationOperation::Move
+            ) {
+                let resources: SyncCollectionResources = self.crypto.decrypt_json(
+                    &data_key,
+                    collection.get("resources_ciphertext"),
+                    &resources_aad(collection_id),
+                )?;
+                let resource_revision: String = collection.get("resource_revision");
+                if resources.revision != resource_revision {
+                    return Err(ApiError::internal(
+                        "The encrypted resource catalog revision does not match collection metadata.",
+                    ));
+                }
+                let resource_documents = load_resource_documents(
+                    &mut transaction,
+                    &self.crypto,
+                    &data_key,
+                    collection_id,
+                )
+                .await?;
+                Some(compile_point_catalog(resources, resource_documents)?)
+            } else {
+                None
+            };
+            let execution = match execute_direct_sync(
+                catalog.as_ref(),
+                &mutation,
+                current.as_ref(),
+                destination_owner,
+            ) {
                 Ok(execution) => execution,
                 Err(error) if error.status.is_client_error() => {
                     return store_rejection(
@@ -376,7 +468,12 @@ impl HostedProvider {
                     .await;
                 }
                 Err(error) => return Err(error),
-            }
+            };
+            let before_records = current
+                .clone()
+                .map(|record| BTreeMap::from([(record.record_id, record)]))
+                .unwrap_or_default();
+            (execution, before_records, None)
         };
         if !execution.envelope.valid {
             let (code, message) = operation_error(&execution.envelope);
@@ -397,7 +494,7 @@ impl HostedProvider {
             ));
         }
         for (record_id, after, _) in &execution.changed {
-            let before = cached.records.get(record_id);
+            let before = before_records.get(record_id);
             if before.is_some_and(|record| !visible(record, &replica.allowed_types))
                 || after
                     .as_ref()
@@ -418,7 +515,7 @@ impl HostedProvider {
         let mut next_record_count = i128::from(record_count);
         let mut next_content_bytes = i128::from(content_bytes);
         for (record_id, after, document) in &execution.changed {
-            let before = cached.records.get(record_id);
+            let before = before_records.get(record_id);
             let before_bytes = before
                 .map(|record| record.document.len() as i128)
                 .unwrap_or_default();
@@ -483,7 +580,7 @@ impl HostedProvider {
             head = head.checked_add(1).ok_or_else(|| {
                 ApiError::internal("The hosted collection sequence is exhausted.")
             })?;
-            let before = cached.records.get(&record_id).cloned();
+            let before = before_records.get(&record_id).cloned();
             let notification_event = notification_runtime_active
                 .then(|| application_change(before.as_ref(), after.as_ref()));
             let revision = if let Some(record) = &after {
@@ -588,9 +685,17 @@ impl HostedProvider {
                         "The hosted write set disagrees with its exact document.",
                     ));
                 }
-                cached.replace_record(record_id, Some(record));
-            } else {
-                cached.replace_record(record_id, None);
+                if let Some(cached) = cached_guard.as_mut() {
+                    cached
+                        .as_mut()
+                        .expect("hosted working set remains initialized")
+                        .replace_record(record_id, Some(record));
+                }
+            } else if let Some(cached) = cached_guard.as_mut() {
+                cached
+                    .as_mut()
+                    .expect("hosted working set remains initialized")
+                    .replace_record(record_id, None);
             }
         }
         self.maintain_active_projection_changes(
@@ -631,7 +736,30 @@ impl HostedProvider {
         )
         .await?;
         transaction.commit().await?;
-        cached.head = Some(head);
+        if let Some(cached) = cached_guard.as_mut() {
+            cached
+                .as_mut()
+                .expect("hosted working set remains initialized")
+                .head = Some(head);
+        }
+        if direct_sync {
+            let memory = crate::HostedProcessMemory::capture();
+            tracing::info!(
+                target: "mdbase_connect::metrics",
+                metric = "hosted_direct_sync_mutation",
+                operation = ?mutation.operation,
+                records_decrypted = u64::from(current.is_some()),
+                ciphertext_bytes = current_ciphertext_bytes,
+                elapsed_ms = mutation_started.elapsed().as_millis() as u64,
+                database_pool_size = self.pool.size(),
+                database_pool_idle = self.pool.num_idle(),
+                rss_bytes = memory.rss_bytes.unwrap_or(0),
+                pss_bytes = memory.pss_bytes.unwrap_or(0),
+                cgroup_current_bytes = memory.cgroup_current_bytes.unwrap_or(0),
+                cgroup_peak_bytes = memory.cgroup_peak_bytes.unwrap_or(0),
+                "privacy-safe hosted provider metric"
+            );
+        }
         if notification_runtime_active {
             let provider = self.clone();
             tokio::spawn(async move {
@@ -645,6 +773,114 @@ impl HostedProvider {
         }
         Ok(receipt)
     }
+}
+
+fn execute_direct_sync(
+    catalog: Option<&mdbase::runtime::CompiledCatalog>,
+    mutation: &SyncMutation,
+    current: Option<&SyncRecord>,
+    destination_owner: Option<Uuid>,
+) -> ApiResult<crate::workspace::Execution> {
+    let changed = match mutation.operation {
+        SyncMutationOperation::Put => {
+            let path = mutation.path.as_deref().ok_or_else(|| {
+                ApiError::bad_request("invalid_mutation", "Put mutation path is required.")
+            })?;
+            let document = mutation.document.as_deref().ok_or_else(|| {
+                ApiError::bad_request("invalid_mutation", "Put mutation document is required.")
+            })?;
+            if current.is_some_and(|record| record.path != path) {
+                return Err(ApiError::bad_request(
+                    "put_path_mismatch",
+                    "Move a record separately before replacing its document.",
+                ));
+            }
+            ensure_destination_available(destination_owner, mutation.record_id)?;
+            let classified =
+                classify_exact_sync_record(catalog, mutation.record_id, path, document)?;
+            vec![(
+                mutation.record_id,
+                Some(classified),
+                Some(document.to_string()),
+            )]
+        }
+        SyncMutationOperation::Move => {
+            let current = current.ok_or_else(|| {
+                ApiError::not_found("record_not_found", "The hosted record does not exist.")
+            })?;
+            let path = mutation.path.as_deref().ok_or_else(|| {
+                ApiError::bad_request("invalid_mutation", "Move mutation path is required.")
+            })?;
+            ensure_destination_available(destination_owner, mutation.record_id)?;
+            let classified =
+                classify_exact_sync_record(catalog, mutation.record_id, path, &current.document)?;
+            vec![(
+                mutation.record_id,
+                Some(classified),
+                Some(current.document.clone()),
+            )]
+        }
+        SyncMutationOperation::Delete => {
+            let current = current.ok_or_else(|| {
+                ApiError::not_found("record_not_found", "The hosted record does not exist.")
+            })?;
+            vec![(mutation.record_id, None, Some(current.path.clone()))]
+        }
+    };
+    Ok(crate::workspace::Execution {
+        envelope: OperationResult {
+            valid: true,
+            result: json!({}),
+            diagnostics: Vec::new(),
+        },
+        primary_record_id: mutation.record_id,
+        changed,
+    })
+}
+
+fn ensure_destination_available(owner: Option<Uuid>, record_id: Uuid) -> ApiResult<()> {
+    if owner.is_some_and(|owner| owner != record_id) {
+        return Err(ApiError::conflict(
+            "record_path_conflict",
+            "Another hosted record already uses the destination path.",
+        ));
+    }
+    Ok(())
+}
+
+fn classify_exact_sync_record(
+    catalog: Option<&mdbase::runtime::CompiledCatalog>,
+    record_id: Uuid,
+    path: &str,
+    document: &str,
+) -> ApiResult<SyncRecord> {
+    let catalog = catalog.ok_or_else(|| {
+        ApiError::internal("Exact sync classification requires the pinned resource catalog.")
+    })?;
+    let classified = catalog
+        .classify_record(&mdbase::runtime::CanonicalRecordInput {
+            stable_id: Some(record_id.to_string()),
+            path: path.to_string(),
+            document: document.to_string(),
+            file_size: document.len() as u64,
+            file_mtime: None,
+        })
+        .map_err(|error| ApiError::bad_request(error.code, error.message))?;
+    if classified.path != path {
+        return Err(ApiError::bad_request(
+            "invalid_path",
+            "Hosted record paths must use their canonical forward-slash representation.",
+        ));
+    }
+    Ok(SyncRecord {
+        record_id,
+        path: classified.path,
+        revision: classified.revision,
+        frontmatter: classified.frontmatter,
+        body: classified.body,
+        types: classified.types,
+        document: classified.document,
+    })
 }
 
 fn sync_receipt_from_value(value: Value) -> ApiResult<SyncMutationReceipt> {
