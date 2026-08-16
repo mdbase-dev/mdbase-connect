@@ -34,6 +34,40 @@ fn pre_0040_rollback_preflight_fails_closed_on_live_invocation_cursors() {
     assert!(preflight.contains("hard_expires_at > now()"));
     assert!(preflight.contains("RAISE EXCEPTION"));
     assert!(preflight.contains("candidate_b_pre_0040_rollback_blocked"));
+    assert!(preflight.contains("query_admission_suspended = true"));
+}
+
+#[test]
+fn rollback_fence_and_pre_0044_preflight_are_fail_closed() {
+    let migration = include_str!("../../migrations/0047_hosted_runtime_rollback_fence.sql");
+    let suspend =
+        include_str!("../../../../deploy/postgres/suspend-hosted-query-admission-for-rollback.sql");
+    let resume = include_str!("../../../../deploy/postgres/resume-hosted-query-admission.sql");
+    let preflight =
+        include_str!("../../../../deploy/postgres/preflight-hosted-provider-pre-0044-rollback.sql");
+    assert!(migration.contains("query_admission_suspended boolean NOT NULL DEFAULT false"));
+    assert!(suspend.contains("pg_advisory_xact_lock"));
+    assert!(suspend.contains("query_admission_suspended = true"));
+    assert!(resume.contains("query_admission_suspended = false"));
+    assert!(preflight.contains("hosted_execution_model = 'candidate_b'"));
+    assert!(preflight.contains("status = 'building'"));
+    assert!(preflight.contains("RAISE EXCEPTION"));
+}
+
+#[test]
+fn receipt_retention_index_migration_is_quiescent_and_time_bounded() {
+    let migration = include_str!("../../migrations/0043_hosted_query_page_receipt_retention.sql");
+    assert!(migration.contains("SET LOCAL lock_timeout = '5s'"));
+    assert!(migration.contains("SET LOCAL statement_timeout = '30s'"));
+    assert!(migration.contains("hosted_provider_query_page_receipts_global_expiry_idx"));
+}
+
+#[test]
+fn temporal_projection_digest_upgrade_refuses_weaker_existing_rows() {
+    let migration = include_str!("../../migrations/0046_hosted_projection_temporal_digest.sql");
+    assert!(migration.contains("candidate_b_projection_rows_require_rebuild"));
+    assert!(migration.contains("(projection_row).valid_to_sequence"));
+    assert!(migration.contains("mdbase/hosted-projection-row/v2"));
 }
 
 #[test]

@@ -6,6 +6,9 @@ Migration: `crates/connect-hosted-provider/migrations/0035_hosted_semantic_proje
 Activation gate: `crates/connect-hosted-provider/migrations/0036_hosted_execution_model.sql`
 Cursor invocation binding: `crates/connect-hosted-provider/migrations/0037_hosted_query_invocations.sql`
 Obsidian Base cursor state: `crates/connect-hosted-provider/migrations/0038_hosted_obsidian_base_cursors.sql`
+Bounded execution proofs: `crates/connect-hosted-provider/migrations/0045_hosted_query_execution_proofs.sql`
+Temporal digest correction: `crates/connect-hosted-provider/migrations/0046_hosted_projection_temporal_digest.sql`
+Rollback admission fence: `crates/connect-hosted-provider/migrations/0047_hosted_runtime_rollback_fence.sql`
 
 ## Compatibility strategy
 
@@ -82,6 +85,16 @@ semantic payload, structural digest, completeness flag, or binding therefore ent
 the bounded stale/absent exact fallback. Pre-0044 generations must rebuild; the
 migration does not produce projection-table-sized WAL or hold a rewrite lock.
 
+Migration 0046 replaces that envelope with v2, which also binds the exclusive
+`valid_to_sequence`. Ordinary write-through closes a row first and then refreshes
+its expected digest in the same transaction, so append-only snapshot history stays
+valid while an out-of-band temporal-boundary change fails closed. Because a v1 row
+cannot prove that boundary, 0046 refuses to run while any prototype projection row
+exists. Candidate B is not production-active before this migration: operators must
+remove only disposable staging generations, apply 0046, and rebuild them from the
+encrypted exact authority. The migration never relabels or bulk-rewrites a weaker
+row.
+
 Projection format 3 corrects the closed link-resolution contract so the mandatory
 Markdown `.md` path alternative is always present in addition to configured extra
 record extensions. A format-2 generation must be rebuilt; it cannot be relabelled,
@@ -124,6 +137,26 @@ exact-byte budget; it is decrypted for one page and dropped with that request.
 Each page consumes its presented cursor row transactionally and emits a fresh
 single-use cursor when more results remain. Per-replica live cursor counts, release,
 and idle/hard expiry bound retained state.
+
+Migration 0045 adds an encrypted v1 execution proof bound by AEAD associated data
+to cursor identity, replica, scope epoch, request/plan digest, snapshot head and
+record count, scan budget, generation/catalog/format/engine binding, projection
+integrity epoch, and the selected execution mode. Projected-exact mode freezes its
+total and bounded group summary, so later pages execute one keyset page rather than
+repeating candidate-validity, count, and grouping scans. An ordinary append-only
+write advances the generation integrity epoch; the next page performs one bounded
+snapshot-currentness proof, then rebinds its successor cursor. Corruption or a
+missing/stale snapshot projection invalidates the cursor. A default collection scan
+is rejected before execution above 100,000 pinned records; the larger fixture
+entitlement exists only in debug/test processes.
+
+Every page response has an encrypted request-ID receipt for lost-response replay.
+The newest 64 receipts per replica form a sliding window: page 65 evicts the oldest
+instead of failing a valid traversal. Per-receipt, replica, collection, account, and
+global ciphertext-byte quotas are serialized by an advisory transaction lock.
+Background expiry removes no more than 1,000 rows and 256 MiB per maintenance pass.
+A retry outside the recent window must restart from a new snapshot if its consumed
+cursor is no longer present; recent responses replay the same operation result.
 
 Migration 0038 extends the same cursor state machine with a distinct
 `obsidian_base` request kind, a bounded digest-checked mdbase-rs Base plan, an
@@ -170,6 +203,10 @@ vacuum/bloat evidence.
    the immutable source head by UUID keyset. Bound every short transaction by both
    row count and ciphertext bytes. Persist prepared facts and resolution keys only
    when exact version, generation, unexpired lease fence, and catalog still match.
+   If one prepared or final semantic projection exceeds 256 KiB, atomically mark
+   the generation `abandoned` with terminal `projection_record_too_large` evidence.
+   Recovery does not retry that authority-head/catalog/engine tuple until the exact
+   record or semantic catalog changes.
 5. After a transactional `NOT EXISTS` proof for prepared projections and keys,
    switch to `resolution`, reset the UUID checkpoint, and resolve every structural
    occurrence against the frozen key snapshot through mdbase-rs.
@@ -213,6 +250,12 @@ with ad-hoc SQL is not an accepted rollback step. Cleanup removes an invocation
 after its last cursor is consumed/released and removes expired orphans during
 compaction and projection pruning.
 
+Migration 0043 builds its global receipt-expiry index in the same quiescent schema
+job that creates the receipt table. The migration has a five-second lock timeout
+and 30-second statement timeout. Production preflight must prove the provider is
+drained and the table is new/empty; an unexpected populated deployment fails for
+operator review instead of waiting indefinitely on a blocking `CREATE INDEX`.
+
 Ordinary writes after activation always generate against the active catalog. They
 close prior temporal rows and commit ciphertext, revision, current projection
 binding, relationship state, versions/changes, quotas, journal settlement, receipt,
@@ -253,10 +296,28 @@ test, an operator may invalidate query cursors and atomically null all four
 collection binding fields to return traffic to the encrypted exact path while
 retaining generation-scoped projection rows for diagnosis.
 
-The statement above applies to the immediately preceding Candidate B binary. A
-deeper rollback to a build predating migration 0040 is blocked until
-`preflight-hosted-provider-pre-0040-rollback.sql` succeeds. Deployment automation
-must treat that preflight as a required gate, not an advisory diagnostic.
+Migration 0047 closes rollback/preflight races with a durable query-admission flag.
+Every query page holds the shared advisory transaction lock; the suspension script
+takes the exclusive lock, waits for in-flight pages, and persists the flag. New
+pages then return typed `hosted_query_admission_suspended`, while `release_cursor`
+remains available for draining. The rollback sequence is:
+
+1. run `deploy/postgres/suspend-hosted-query-admission-for-rollback.sql`;
+2. drain or release live cursors and wait for active hosted-query sessions to end;
+3. before a pre-0044 binary, return every activated collection to encrypted-exact
+   legacy execution with
+   `deactivate-candidate-b-collection-for-rollback.sql`, then run
+   `preflight-hosted-provider-pre-0044-rollback.sql`;
+4. before a pre-0040 binary, additionally run
+   `preflight-hosted-provider-pre-0040-rollback.sql`;
+5. switch and verify the selected binary; then run
+   `resume-hosted-query-admission.sql` only when it is safe to accept traffic.
+
+The pre-0044 gate is mandatory because that older writer places a semantic digest
+where the row-integrity digest is required; it must never write an activated v2
+generation. The durable flag remains set if any preflight fails, so a failed
+rollback cannot reopen the admission race. Deployment automation must treat these
+scripts as required gates, not advisory diagnostics.
 
 Dropping projection rows or schema is unnecessary for code rollback and should not
 be coupled to it. Provider-readable projection values may already exist in database
