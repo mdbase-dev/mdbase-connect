@@ -673,6 +673,11 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
                     "update".to_string(),
                     "delete".to_string(),
                     "rename".to_string(),
+                    "create_type".to_string(),
+                    "read_type".to_string(),
+                    "create_view_source".to_string(),
+                    "read_view_source".to_string(),
+                    "list_views".to_string(),
                 ],
                 operation_transport_protocol: Some(3),
                 operation_transport_recovery_protocols: Vec::new(),
@@ -837,6 +842,99 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
         deleted["result"]["broken_links"][0]["path"],
         "notes/app-reference.md"
     );
+
+    let stable_view_document = "---\ntype: view\nid: stable.views\nversion: 1\nname: Stable\nquery: {}\nviews:\n  - id: all\n    name: All\n---\n";
+    let stable_view = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &writer_token,
+            "create_view_source",
+            Uuid::new_v4(),
+            json!({"path": "views/stable.md", "document": stable_view_document}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(stable_view["valid"], true);
+    let active_after_view: Option<Uuid> = sqlx::query_scalar(
+        "SELECT active_projection_generation_id FROM hosted_provider_collections WHERE id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(active_after_view, Some(second_generation));
+    let query_after_view = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({"limit": 1, "order_by": [{"field": "file.path"}]}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(query_after_view["valid"], true);
+
+    let type_document = "---\nkind: mdbase.type\nname: note\nversion: 1\nmatch:\n  path_glob: 'notes/*.md'\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    properties:\n      title: {type: string}\n---\n";
+    let created_type = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &writer_token,
+            "create_type",
+            Uuid::new_v4(),
+            json!({"document": type_document}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(created_type["valid"], true);
+    assert_eq!(created_type["result"]["name"], "note");
+    let read_type = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &writer_token,
+            "read_type",
+            Uuid::new_v4(),
+            json!({"name": "note"}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(read_type["result"]["document"], type_document);
+
+    let view_document = "---\ntype: view\nid: hosted.views\nversion: 1\nname: Hosted\nquery: {}\nviews:\n  - id: all\n    name: All\n---\n";
+    let created_view = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &writer_token,
+            "create_view_source",
+            Uuid::new_v4(),
+            json!({"path": "views/hosted.md", "document": view_document}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(created_view["valid"], true);
+    let read_view = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &writer_token,
+            "read_view_source",
+            Uuid::new_v4(),
+            json!({"path": "views/hosted.md"}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(read_view["result"]["document"], view_document);
 
     // Keep the compiler honest that the updated source remains a real exact
     // authority record throughout relationship-only revalidation.

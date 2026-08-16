@@ -146,6 +146,52 @@ pub(super) async fn load_resource_documents(
         .collect()
 }
 
+pub(super) async fn load_hosted_resource_documents(
+    transaction: &mut Transaction<'_, Postgres>,
+    crypto: &ProviderCrypto,
+    data_key: &[u8; 32],
+    collection_id: Uuid,
+) -> ApiResult<Vec<mdbase::runtime::HostedResourceDocument>> {
+    let rows = sqlx::query(
+        "SELECT path, kind, revision, document_ciphertext FROM hosted_provider_resources WHERE collection_id = $1 ORDER BY path",
+    )
+    .bind(collection_id)
+    .fetch_all(&mut **transaction)
+    .await?;
+    rows.into_iter()
+        .map(|row| {
+            let path: String = row.get("path");
+            let plaintext = crypto.decrypt_bytes(
+                data_key,
+                row.get("document_ciphertext"),
+                &resource_document_aad(collection_id, &path),
+            )?;
+            let document = String::from_utf8(plaintext).map_err(|_| {
+                ApiError::internal("The hosted resource document is not valid UTF-8.")
+            })?;
+            let kind = match row.get::<String, _>("kind").as_str() {
+                "configuration" => mdbase::runtime::HostedResourceKind::Configuration,
+                "lock" => mdbase::runtime::HostedResourceKind::Lock,
+                "contract" => mdbase::runtime::HostedResourceKind::Contract,
+                "schema" => mdbase::runtime::HostedResourceKind::Schema,
+                "type" => mdbase::runtime::HostedResourceKind::Type,
+                "view" => mdbase::runtime::HostedResourceKind::View,
+                _ => {
+                    return Err(ApiError::internal(
+                        "The hosted resource has an unsupported stored kind.",
+                    ))
+                }
+            };
+            Ok(mdbase::runtime::HostedResourceDocument {
+                path,
+                kind,
+                revision: row.get("revision"),
+                document,
+            })
+        })
+        .collect()
+}
+
 pub(super) async fn load_sync_resource_documents(
     pool: &PgPool,
     crypto: &ProviderCrypto,

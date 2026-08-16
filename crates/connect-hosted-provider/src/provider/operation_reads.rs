@@ -551,6 +551,21 @@ pub(super) fn compile_point_catalog(
         .find(|(path, _)| path == "mdbase.yaml")
         .map(|(_, document)| document.clone())
         .ok_or_else(|| ApiError::internal("The hosted resource catalog has no mdbase.yaml."))?;
+    let semantic_catalog_bytes = serde_jcs::to_vec(&json!({
+        "configuration_document": &configuration_document,
+        "types": &resources.types,
+        "record_contracts": resources
+            .contracts
+            .iter()
+            .filter(|contract| contract.contract_type == "record")
+            .collect::<Vec<_>>(),
+    }))
+    .map_err(|error| {
+        ApiError::internal(format!(
+            "The hosted semantic catalog could not canonicalize: {error}"
+        ))
+    })?;
+    let semantic_catalog_revision = format!("sha256:{:x}", Sha256::digest(semantic_catalog_bytes));
     let types = resources
         .types
         .into_iter()
@@ -599,7 +614,7 @@ pub(super) fn compile_point_catalog(
         })
         .collect();
     mdbase::runtime::CompiledCatalog::compile(mdbase::runtime::CatalogInput {
-        resource_revision: resources.revision,
+        resource_revision: semantic_catalog_revision,
         configuration_document,
         types,
         contracts,

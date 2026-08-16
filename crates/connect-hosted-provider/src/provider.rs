@@ -16,14 +16,15 @@ use mdbase_connect_protocol::{
     ApplicationProvisions, ApplicationRequirements, ApplyCollectionSetupInput, ApplyTypePackInput,
     AssessCollectionSetupInput, AssessTypePackInput, AuthorityImportManifest,
     AuthorityImportRecord, AuthorityImportRecordPage, AuthoritySnapshotRecord, CollectionChange,
-    CollectionChangesPage, CollectionContractDescriptor, CollectionDescription,
-    CollectionTypeDescriptor, ContractRequirement, ContractSetupChoice, ContractSetupMode,
-    FileAction, FileCapability, FileScope, GrantSummary, SyncChange, SyncChangesPage,
-    SyncCollectionResources, SyncConflict, SyncFileSnapshotPage, SyncFileSnapshotPageKind,
-    SyncMutation, SyncMutationError, SyncMutationOperation, SyncMutationReceipt, SyncRecord,
-    SyncReplicaMode, SyncResourceDocument, SyncSession, SyncSnapshotPage, SyncSnapshotRecord,
-    TypePackProvision, AUTHORITY_PROOF_DOMAIN, AUTHORITY_PROOF_VERSION, CONTROL_PROTOCOL_VERSION,
-    FILE_PROTOCOL_VERSION, SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS, SYNC_PROTOCOL_VERSION,
+    CollectionChangesPage, CollectionContractDescriptor,
+    CollectionContractImplementationDescriptor, CollectionDescription, CollectionTypeDescriptor,
+    ContractRequirement, ContractSetupChoice, ContractSetupMode, FileAction, FileCapability,
+    FileScope, GrantSummary, SyncChange, SyncChangesPage, SyncCollectionResources, SyncConflict,
+    SyncFileSnapshotPage, SyncFileSnapshotPageKind, SyncMutation, SyncMutationError,
+    SyncMutationOperation, SyncMutationReceipt, SyncRecord, SyncReplicaMode, SyncResourceDocument,
+    SyncSession, SyncSnapshotPage, SyncSnapshotRecord, TypePackProvision, AUTHORITY_PROOF_DOMAIN,
+    AUTHORITY_PROOF_VERSION, CONTROL_PROTOCOL_VERSION, FILE_PROTOCOL_VERSION,
+    SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS, SYNC_PROTOCOL_VERSION,
 };
 use mdbase_connect_runtime::contract_scope::{ContractScope, ContractSelector};
 use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
@@ -74,9 +75,9 @@ mod operation_dispatch;
 mod operation_queries;
 mod operation_reads;
 mod operation_records;
+mod operation_resource_mutations;
 mod operation_types;
 mod operation_validation;
-mod operation_views;
 mod persistence;
 mod policy;
 mod projections;

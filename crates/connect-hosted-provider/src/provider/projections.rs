@@ -53,7 +53,7 @@ impl HostedProvider {
         let generation_id = Uuid::new_v4();
         let mut transaction = self.pool.begin().await?;
         let row = sqlx::query(
-            r#"SELECT head, resource_revision
+            r#"SELECT head, resource_revision, wrapped_data_key, resources_ciphertext
                FROM hosted_provider_collections
                WHERE id = $1 AND state = 'active'
                FOR UPDATE"#,
@@ -68,7 +68,22 @@ impl HostedProvider {
             )
         })?;
         let source_head = number(row.get::<i64, _>("head"), "collection head")?;
-        let catalog_revision: String = row.get("resource_revision");
+        let data_key = self
+            .collection_key(collection_id, row.get("wrapped_data_key"))
+            .await?;
+        let resources: SyncCollectionResources = self.crypto.decrypt_json(
+            &data_key,
+            row.get("resources_ciphertext"),
+            &resources_aad(collection_id),
+        )?;
+        if resources.revision != row.get::<String, _>("resource_revision") {
+            return Err(projection_binding_changed());
+        }
+        let resource_documents =
+            load_resource_documents(&mut transaction, &self.crypto, &data_key, collection_id)
+                .await?;
+        let catalog = compile_point_catalog(resources, resource_documents)?;
+        let catalog_revision = catalog.resource_revision().to_string();
         let format_version = mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION;
         let engine_version = mdbase::VERSION;
 
@@ -192,16 +207,12 @@ impl HostedProvider {
         let collection = sqlx::query(
             r#"SELECT resource_revision, wrapped_data_key, resources_ciphertext
                FROM hosted_provider_collections
-               WHERE id = $1 AND state = 'active' AND resource_revision = $2"#,
+               WHERE id = $1 AND state = 'active'"#,
         )
         .bind(collection_id)
-        .bind(&catalog_revision)
         .fetch_optional(&mut *transaction)
         .await?
         .ok_or_else(projection_binding_changed)?;
-        if collection.get::<String, _>("resource_revision") != catalog_revision {
-            return Err(projection_binding_changed());
-        }
         let data_key = self
             .collection_key(collection_id, collection.get("wrapped_data_key"))
             .await?;
@@ -210,6 +221,9 @@ impl HostedProvider {
             collection.get("resources_ciphertext"),
             &resources_aad(collection_id),
         )?;
+        if resources.revision != collection.get::<String, _>("resource_revision") {
+            return Err(projection_binding_changed());
+        }
         let resource_documents =
             load_resource_documents(&mut transaction, &self.crypto, &data_key, collection_id)
                 .await?;
@@ -491,16 +505,12 @@ impl HostedProvider {
         let collection = sqlx::query(
             r#"SELECT resource_revision, wrapped_data_key, resources_ciphertext
                FROM hosted_provider_collections
-               WHERE id = $1 AND state = 'active' AND resource_revision = $2"#,
+               WHERE id = $1 AND state = 'active'"#,
         )
         .bind(collection_id)
-        .bind(&catalog_revision)
         .fetch_optional(&mut *transaction)
         .await?
         .ok_or_else(projection_binding_changed)?;
-        if collection.get::<String, _>("resource_revision") != catalog_revision {
-            return Err(projection_binding_changed());
-        }
         let data_key = self
             .collection_key(collection_id, collection.get("wrapped_data_key"))
             .await?;
@@ -509,6 +519,9 @@ impl HostedProvider {
             collection.get("resources_ciphertext"),
             &resources_aad(collection_id),
         )?;
+        if resources.revision != collection.get::<String, _>("resource_revision") {
+            return Err(projection_binding_changed());
+        }
         let resource_documents =
             load_resource_documents(&mut transaction, &self.crypto, &data_key, collection_id)
                 .await?;
@@ -683,7 +696,7 @@ impl HostedProvider {
                        active_projection_generation_id = $2,
                        updated_at = now()
                    WHERE id = $1 AND state = 'active' AND head = $6
-                     AND resource_revision = $3"#,
+                   "#,
             )
             .bind(collection_id)
             .bind(generation_id)
@@ -1553,7 +1566,6 @@ async fn persist_prepared_projection(
                AND g.lease_expires_at > now()
                AND g.target_catalog_revision = $7
                AND c.state = 'active'
-               AND c.resource_revision = g.target_catalog_revision
            )"#,
     )
     .bind(collection_id)
@@ -1676,7 +1688,6 @@ async fn persist_resolved_projection(
              AND g.target_catalog_revision = $12
              AND c.id = p.collection_id
              AND c.state = 'active'
-             AND c.resource_revision = g.target_catalog_revision
              AND r.collection_id = p.collection_id AND r.record_id = p.record_id
              AND r.sequence = p.record_sequence AND r.revision = p.record_revision
              AND r.deleted = false"#,
@@ -2048,21 +2059,20 @@ pub(super) async fn canonical_record_scope_types(
             "Hosted collection not found.",
         )
     })?;
-    let catalog_revision: String = collection.get("resource_revision");
     let resources: SyncCollectionResources = provider.crypto.decrypt_json(
         data_key,
         collection.get("resources_ciphertext"),
         &resources_aad(collection_id),
     )?;
+    if resources.revision != collection.get::<String, _>("resource_revision") {
+        return Err(ApiError::forbidden(
+            "scope_classification_unavailable",
+            "The resource catalog could not be bound during authorization.",
+        ));
+    }
     let documents =
         load_resource_documents(transaction, &provider.crypto, data_key, collection_id).await?;
     let catalog = compile_point_catalog(resources, documents)?;
-    if catalog.resource_revision() != catalog_revision {
-        return Err(ApiError::forbidden(
-            "scope_classification_unavailable",
-            "The semantic catalog changed during authorization.",
-        ));
-    }
     let projection = catalog
         .project_record(&mdbase::runtime::CanonicalRecordInput {
             stable_id: Some(record_id.to_string()),

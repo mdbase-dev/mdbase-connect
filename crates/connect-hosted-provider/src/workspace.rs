@@ -392,6 +392,7 @@ impl WorkingSet {
         }
     }
 
+    #[cfg(test)]
     pub fn view_source_operation(
         &self,
         operation: &str,
@@ -419,6 +420,7 @@ impl WorkingSet {
         }
     }
 
+    #[cfg(test)]
     pub fn type_operation(&self, operation: &str, input: &Value) -> ApiResult<OperationResult> {
         let collection = Collection::open(self.directory.path()).map_err(|error| {
             ApiError::internal(format!(

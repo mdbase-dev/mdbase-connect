@@ -284,7 +284,7 @@ impl HostedProvider {
                 }
             }
             "create_type" | "update_type" => {
-                self.write_type_operation(collection_id, operation, input, mutation_lease)
+                self.write_hosted_resource_mutation(collection_id, operation, input, mutation_lease)
                     .await
             }
             "apply_type_pack" => {
@@ -313,7 +313,7 @@ impl HostedProvider {
                     .await
             }
             "create_view_source" | "update_view_source" | "delete_view_source" => {
-                self.write_view_source_operation(collection_id, operation, input, mutation_lease)
+                self.write_hosted_resource_mutation(collection_id, operation, input, mutation_lease)
                     .await
             }
             _ => Err(ApiError::bad_request(
