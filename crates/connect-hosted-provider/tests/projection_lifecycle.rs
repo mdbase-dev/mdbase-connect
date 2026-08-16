@@ -5021,12 +5021,38 @@ async fn candidate_b_exact_projected_filter_fixture(
                 && group["count"] == 1
                 && group["summaries"]["records"] == 1
         }));
+        if let Some(cursor) = grouped["result"]["meta"]["cursor"].as_str() {
+            let released = fixture
+                .provider
+                .operation(
+                    fixture.collection_id,
+                    &token,
+                    "query",
+                    Uuid::new_v4(),
+                    json!({"release_cursor": cursor}),
+                    None,
+                )
+                .await
+                .unwrap();
+            assert_eq!(released["valid"], true);
+        }
         if repetition == repetitions {
             eprintln!(
                 "candidate_b_exact_filter_samples_complete decoys={decoy_count} repetitions={repetitions}"
             );
         }
     }
+    let retained_cursors: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_query_cursors WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        retained_cursors, 0,
+        "the sustained grouping mission releases every abandoned cursor"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
