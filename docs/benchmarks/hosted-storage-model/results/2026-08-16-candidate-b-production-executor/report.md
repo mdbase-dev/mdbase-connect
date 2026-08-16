@@ -134,7 +134,7 @@ and point-read coexistence remain separate rollout gates.
 
 ## Final sustained local rollout gates
 
-The exact-head 100-repetition production-executor run at Connect `d89007a0` with
+The exact-head 100-repetition production-executor run at Connect `ca520290` with
 mdbase-rs `d453de9` supersedes the seven-sample latency table above and the earlier
 `0a8c683a` sustained run. It includes the metadata-first Base projection transfer
 guard, streaming provider reducer, and database-side group-key preflight added after
@@ -143,12 +143,12 @@ gate:
 
 | Workload | p50 | p95 | p99 | Maximum |
 | --- | ---: | ---: | ---: | ---: |
-| Path page 1 | 27 ms | 36 ms | 44 ms | 255 ms |
-| Path page 2 | 27 ms | 34 ms | 41 ms | 47 ms |
-| Path page 10 | 28 ms | 35 ms | 266 ms | 534 ms |
-| Mtime page 1 | 26 ms | 34 ms | 44 ms | 47 ms |
-| Mtime page 2 | 28 ms | 32 ms | 38 ms | 52 ms |
-| Count grouping | 215 ms | 242 ms | 299 ms | 352 ms |
+| Path page 1 | 26 ms | 33 ms | 36 ms | 38 ms |
+| Path page 2 | 27 ms | 36 ms | 42 ms | 682 ms |
+| Path page 10 | 28 ms | 34 ms | 36 ms | 37 ms |
+| Mtime page 1 | 26 ms | 35 ms | 37 ms | 37 ms |
+| Mtime page 2 | 27 ms | 37 ms | 59 ms | 154 ms |
+| Count grouping | 211 ms | 223 ms | 346 ms | 393 ms |
 
 These are one-operation-per-page measurements with a 200-row page. They are not a
 repeat-to-completion top-K timing. The page plans select 201 identities through the
@@ -156,13 +156,16 @@ path or mtime cursor indexes, prove the live record revisions, and transfer only
 bounded page. Representative `EXPLAIN (ANALYZE, BUFFERS)` observations completed in
 1.688 ms for path and 1.842 ms for mtime without an explicit sort. Count grouping
 scans the authorized 100k snapshot by design. Its current group-key width preflight
-completed in 77.972 ms with no temporary blocks; the subsequent two-group plan
-completed in 78.944 ms with a 3,073 KiB in-memory sort, no temporary blocks, and
-10,976 KiB peak parallel live-version hash memory. A separate 128-record fixture
+completed in 69.913 ms with no temporary blocks; the subsequent two-group plan
+completed in 81.572 ms with a 3,073 KiB in-memory sort, no temporary blocks, and
+10,464 KiB peak parallel live-version hash memory. A separate 128-record fixture
 with approximately 67 KiB distinct keys returned the typed
 `hosted_aggregation_state_budget_exceeded` outcome before aggregate execution and
+increased PostgreSQL temp bytes by zero. The 100k fixture was then rewritten to
+contain at least 2,501 distinct short grouping keys. It returned
+`hosted_group_budget_exceeded` after observing the bounded 2,001st group and
 increased PostgreSQL temp bytes by zero. The sustained application-level group p95
-was 242 ms. Above 100k records, the production manifest rejects this
+was 223 ms. Above 100k records, the production manifest rejects this
 collection-wide operator with typed
 `hosted_scan_budget_exceeded`; the debug-only entitlement run is retained solely as
 correctness, cancellation, and resource-release evidence.
@@ -172,9 +175,12 @@ transaction, query-pool checkout, scan permit, accounted execution bytes, and
 plaintext scope. Cancellation released every observation within five seconds, and
 both an exact point read and a group query succeeded on the reused pool afterward.
 
-The exact-head fresh-server run ended at 308,483,775 database bytes, 353,833,475
-WAL bytes from server start through fixture import and sustained execution,
-266,747,904 projection relation bytes, and 29,057,024 record-version relation bytes.
+After the exact-head fresh-server run and the adversarial 2,500-record cardinality
+rewrite/probe, PostgreSQL reported 319,887,039 database bytes, 367,470,263 WAL bytes
+from server start, 277,266,432 projection relation bytes, and 29,057,024
+record-version relation bytes. The preceding clean 100k run at `d89007a0` remains
+separately recorded as 308,483,775 database bytes, 353,833,475 WAL bytes, and
+266,747,904 projection relation bytes.
 The frozen B-no-GIN storage benchmark remains the authority for the true
 approximately-1-GiB content tier: 230,128 records and 1,073,743,117 exact Markdown
 bytes produced a 4,290,655,935-byte database and 6.82 GB WAL during import. These
