@@ -438,6 +438,31 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
         .unwrap();
     assert_eq!(projected_only["valid"], true);
     assert_eq!(projected_only["result"]["meta"]["total_count"], 2);
+    let projected_selective_filter = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "where": "record.title == 'Source'",
+                "limit": 10,
+                "order_by": [{"field": "file.path"}],
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(projected_selective_filter["valid"], true);
+    assert_eq!(
+        projected_selective_filter["result"]["meta"]["total_count"],
+        1
+    );
+    assert_eq!(
+        projected_selective_filter["result"]["results"][0]["path"],
+        "notes/source.md"
+    );
     let query = json!({
         "pagination": "cursor",
         "limit": 1,

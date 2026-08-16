@@ -380,6 +380,7 @@ impl HostedProvider {
             if state.plan.residual.filter_fully_projected
                 && !state.plan.requirements.diagnostic_type_matchers
                 && !state.plan.requirements.bounded_grouping
+                && candidate_predicate_is_total(&state.plan.candidate)
                 && !projection_fallback
                 && path_order_descending.is_some()
             {
@@ -3684,5 +3685,26 @@ mod tests {
     fn scoped_budget_details_reveal_only_the_threshold_breach() {
         assert_eq!(scoped_budget_observed(&[], 100, 173), 173);
         assert_eq!(scoped_budget_observed(&["task".to_string()], 100, 173), 101);
+    }
+
+    #[test]
+    fn projected_fast_path_requires_an_exact_sql_candidate() {
+        use mdbase::runtime::{
+            CandidateComparison, CandidateComparisonOperator, CandidateComparisonPruning,
+            CandidateField, CandidatePredicate,
+        };
+        assert!(candidate_predicate_is_total(&CandidatePredicate::HasType {
+            type_name: "task".to_string(),
+        }));
+        assert!(!candidate_predicate_is_total(
+            &CandidatePredicate::Compare {
+                comparison: CandidateComparison {
+                    field: CandidateField::EffectiveFrontmatter(vec!["status".to_string()]),
+                    operator: CandidateComparisonOperator::Equal,
+                    value: Value::String("open".to_string()),
+                    pruning: CandidateComparisonPruning::ExactJson,
+                },
+            }
+        ));
     }
 }
