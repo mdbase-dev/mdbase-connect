@@ -899,6 +899,15 @@ pub(super) async fn prune_unpinned_projection_generations_in(
     sqlx::query("DELETE FROM hosted_provider_query_cursors WHERE hard_expires_at <= now()")
         .execute(&mut **transaction)
         .await?;
+    sqlx::query(
+        r#"DELETE FROM hosted_provider_base_query_invocations i
+           WHERE i.hard_expires_at <= now() OR NOT EXISTS (
+             SELECT 1 FROM hosted_provider_query_cursors c
+             WHERE c.base_invocation_id = i.invocation_id
+           )"#,
+    )
+    .execute(&mut **transaction)
+    .await?;
     let removable = sqlx::query_scalar::<_, Uuid>(
         r#"SELECT generation_id
            FROM hosted_provider_projection_generations generation
@@ -2100,6 +2109,10 @@ pub(super) async fn invalidate_projection_catalog_binding(
     .execute(&mut **transaction)
     .await?;
     sqlx::query("DELETE FROM hosted_provider_query_cursors WHERE collection_id = $1")
+        .bind(collection_id)
+        .execute(&mut **transaction)
+        .await?;
+    sqlx::query("DELETE FROM hosted_provider_base_query_invocations WHERE collection_id = $1")
         .bind(collection_id)
         .execute(&mut **transaction)
         .await?;

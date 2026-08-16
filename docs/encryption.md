@@ -330,7 +330,9 @@ operation clock, and optional semantic context projection. A database or backup
 reader can therefore learn Base formulas, filters, referenced property names,
 renderer options, ordering/grouping choices, and the projected context facts. The
 exact `.base` resource formatting, exact record Markdown, and body prose remain
-encrypted. Base cursors are separately operation-bound and cannot be replayed as a
+encrypted. That readable immutable state is stored once per Base invocation; its
+rotating single-use page cursors contain only a foreign key plus narrow keyset
+state. Base cursors are separately operation-bound and cannot be replayed as a
 direct query or canonical Markdown view cursor.
 
 No general projection GIN or automatic per-field index is part of the selected

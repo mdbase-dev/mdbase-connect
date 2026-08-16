@@ -40,6 +40,7 @@ struct HostedQueryState {
     result_meta: serde_json::Map<String, Value>,
     exact_context: Option<mdbase::runtime::CanonicalRecordInput>,
     base_plan: Option<mdbase::runtime::HostedBasePlan>,
+    base_invocation_id: Option<Uuid>,
     base_context: Option<mdbase::runtime::SemanticProjection>,
     base_operation_clock: Option<String>,
 }
@@ -154,6 +155,7 @@ impl HostedProvider {
             .bind(request_kind.as_str())
             .execute(&self.pool)
             .await?;
+            cleanup_base_query_invocations(&self.pool, collection_id).await?;
             return Ok(empty_query_result());
         }
 
@@ -442,6 +444,7 @@ impl HostedProvider {
         } else {
             None
         };
+        cleanup_base_query_invocations(&mut *transaction, collection_id).await?;
         transaction.commit().await?;
         database_cancellation.disarm();
 
@@ -569,6 +572,7 @@ impl HostedProvider {
             result_meta: serde_json::Map::new(),
             exact_context,
             base_plan: None,
+            base_invocation_id: None,
             base_context: None,
             base_operation_clock: None,
         })
@@ -678,6 +682,7 @@ impl HostedProvider {
             result_meta,
             exact_context,
             base_plan: None,
+            base_invocation_id: None,
             base_context: None,
             base_operation_clock: None,
         }))
@@ -806,6 +811,7 @@ impl HostedProvider {
             result_meta,
             exact_context: None,
             base_plan: Some(base_plan),
+            base_invocation_id: None,
             base_context,
             base_operation_clock: Some(Utc::now().to_rfc3339()),
         }))
@@ -823,15 +829,26 @@ impl HostedProvider {
         data_key: &[u8; 32],
     ) -> ApiResult<HostedQueryState> {
         let row = sqlx::query(
-            r#"SELECT snapshot_head, generation_id, catalog_revision,
-                      projection_format_version, semantic_engine_version,
-                      query_plan, query_digest, request_kind, request_digest,
-                      result_meta, exact_context_ciphertext, base_plan, base_context,
-                      base_operation_clock, last_order_values,
-                      last_record_id, emitted_rows, hard_expires_at
-               FROM hosted_provider_query_cursors
-               WHERE cursor_id = $1 AND collection_id = $2 AND replica_id = $3
-                 AND scope_epoch = $4 AND expires_at > now() AND hard_expires_at > now()
+            r#"SELECT c.snapshot_head, c.generation_id, c.catalog_revision,
+                      c.projection_format_version, c.semantic_engine_version,
+                      c.query_plan, c.query_digest, c.request_kind, c.request_digest,
+                      c.result_meta, c.exact_context_ciphertext,
+                      COALESCE(i.base_plan, c.base_plan) AS base_plan,
+                      COALESCE(i.base_context, c.base_context) AS base_context,
+                      COALESCE(i.base_operation_clock, c.base_operation_clock)
+                        AS base_operation_clock,
+                      c.base_invocation_id, c.last_order_values,
+                      c.last_record_id, c.emitted_rows, c.hard_expires_at
+               FROM hosted_provider_query_cursors c
+               LEFT JOIN hosted_provider_base_query_invocations i
+                 ON i.invocation_id = c.base_invocation_id
+                AND i.collection_id = c.collection_id
+                AND i.replica_id = c.replica_id
+                AND i.scope_epoch = c.scope_epoch
+                AND i.hard_expires_at > now()
+               WHERE c.cursor_id = $1 AND c.collection_id = $2 AND c.replica_id = $3
+                 AND c.scope_epoch = $4 AND c.expires_at > now()
+                 AND c.hard_expires_at > now()
                FOR UPDATE"#,
         )
         .bind(cursor_id)
@@ -968,10 +985,29 @@ impl HostedProvider {
             result_meta,
             exact_context,
             base_plan,
+            base_invocation_id: row.get("base_invocation_id"),
             base_context,
             base_operation_clock,
         })
     }
+}
+
+async fn cleanup_base_query_invocations<'e, E>(executor: E, collection_id: Uuid) -> ApiResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    sqlx::query(
+        r#"DELETE FROM hosted_provider_base_query_invocations i
+           WHERE i.collection_id = $1
+             AND (i.hard_expires_at <= now() OR NOT EXISTS (
+               SELECT 1 FROM hosted_provider_query_cursors c
+               WHERE c.base_invocation_id = i.invocation_id
+             ))"#,
+    )
+    .bind(collection_id)
+    .execute(executor)
+    .await?;
+    Ok(())
 }
 
 fn active_query_binding(
@@ -2761,17 +2797,43 @@ async fn insert_query_cursor(
                 "Obsidian Base context projection could not serialize: {error}"
             ))
         })?;
+    let base_invocation_id = if let Some(base_plan) = base_plan {
+        let invocation_id = state.base_invocation_id.unwrap_or_else(Uuid::new_v4);
+        if state.base_invocation_id.is_none() {
+            sqlx::query(
+                r#"INSERT INTO hosted_provider_base_query_invocations
+                     (invocation_id, collection_id, replica_id, scope_epoch,
+                      base_plan, base_context, base_operation_clock, hard_expires_at)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
+            )
+            .bind(invocation_id)
+            .bind(collection_id)
+            .bind(replica.id)
+            .bind(to_i64(replica.scope_epoch, "scope epoch")?)
+            .bind(base_plan)
+            .bind(base_context)
+            .bind(state.base_operation_clock.as_deref().ok_or_else(|| {
+                ApiError::internal("Obsidian Base cursor has no operation clock.")
+            })?)
+            .bind(state.hard_expires_at)
+            .execute(&mut **transaction)
+            .await?;
+        }
+        Some(invocation_id)
+    } else {
+        None
+    };
     sqlx::query(
         r#"INSERT INTO hosted_provider_query_cursors
              (cursor_id, collection_id, replica_id, scope_epoch, snapshot_head,
               generation_id, catalog_revision, projection_format_version,
               semantic_engine_version, query_plan_version, query_digest, query_plan,
               request_kind, request_digest, result_meta, exact_context_ciphertext,
-              base_plan, base_context, base_operation_clock,
+              base_plan, base_context, base_operation_clock, base_invocation_id,
               last_order_values, last_record_id, emitted_rows, expires_at, hard_expires_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                   $13, $14, $15, $16, $17, $18, $19, $20, $21, $22,
-                   LEAST(now() + make_interval(secs => $23), $24), $24)"#,
+                   $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
+                   LEAST(now() + make_interval(secs => $24), $25), $25)"#,
     )
     .bind(cursor_id)
     .bind(collection_id)
@@ -2789,9 +2851,10 @@ async fn insert_query_cursor(
     .bind(decode_sha256_digest(&state.request_digest)?)
     .bind(sqlx::types::Json(&state.result_meta))
     .bind(exact_context_ciphertext)
-    .bind(base_plan)
-    .bind(base_context)
-    .bind(state.base_operation_clock.as_deref())
+    .bind(None::<Value>)
+    .bind(None::<Value>)
+    .bind(None::<String>)
+    .bind(base_invocation_id)
     .bind(sqlx::types::Json(keyset))
     .bind(last_record_id)
     .bind(to_i64(emitted_rows, "emitted query rows")?)

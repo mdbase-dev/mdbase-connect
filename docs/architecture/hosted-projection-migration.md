@@ -170,6 +170,17 @@ record head, catalog/engine contract, invocation, and keyset when no usable
 projection generation exists. Generic queries and canonical Markdown views remain
 generation-required. The foreign key continues to bind every non-null generation.
 
+Migration `0040_hosted_base_query_invocations.sql` moves immutable Base plan,
+semantic context, and operation-clock state into a separately expiring invocation
+row. Rotating single-use cursor rows retain only the keyset and an invocation
+foreign key, so later pages do not rewrite the same large JSON state. The migration
+backfills live inline Base cursors and keeps the inline form valid for old writers
+during rollback. A binary rolled back before 0040 cannot consume already-migrated
+invocation-backed cursors; those cursors have a five-minute hard lifetime and may
+be explicitly released or allowed to expire before rollback. Cleanup removes an
+invocation after its last cursor is consumed/released and removes expired orphans
+during compaction and projection pruning.
+
 Ordinary writes after activation always generate against the active catalog. They
 close prior temporal rows and commit ciphertext, revision, current projection
 binding, relationship state, versions/changes, quotas, journal settlement, receipt,

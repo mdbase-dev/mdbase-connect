@@ -1004,7 +1004,8 @@ views:
         .as_str()
         .expect("TaskNotes Base has another page");
     let base_cursor_state = sqlx::query(
-        "SELECT base_plan, exact_context_ciphertext FROM hosted_provider_query_cursors
+        "SELECT base_plan, base_context, base_operation_clock, base_invocation_id,
+                exact_context_ciphertext FROM hosted_provider_query_cursors
          WHERE collection_id = $1 AND request_kind = 'obsidian_base'
          ORDER BY created_at DESC LIMIT 1",
     )
@@ -1013,8 +1014,25 @@ views:
     .await
     .unwrap();
     assert!(base_cursor_state
-        .get::<serde_json::Value, _>("base_plan")
-        .is_object());
+        .get::<Option<serde_json::Value>, _>("base_plan")
+        .is_none());
+    assert!(base_cursor_state
+        .get::<Option<serde_json::Value>, _>("base_context")
+        .is_none());
+    assert!(base_cursor_state
+        .get::<Option<String>, _>("base_operation_clock")
+        .is_none());
+    let base_invocation_id: Uuid = base_cursor_state.get("base_invocation_id");
+    let invocation_plan: serde_json::Value = sqlx::query_scalar(
+        "SELECT base_plan FROM hosted_provider_base_query_invocations
+         WHERE invocation_id = $1 AND collection_id = $2",
+    )
+    .bind(base_invocation_id)
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert!(invocation_plan.is_object());
     assert!(base_cursor_state
         .get::<Option<Vec<u8>>, _>("exact_context_ciphertext")
         .is_none());
@@ -1062,6 +1080,15 @@ views:
         "tasks/low.md"
     );
     assert_eq!(second_base_page["result"]["meta"]["has_more"], false);
+    let remaining_invocations: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_base_query_invocations
+         WHERE invocation_id = $1",
+    )
+    .bind(base_invocation_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(remaining_invocations, 0);
 
     let stable_view_document = "---\ntype: view\nid: stable.views\nversion: 1\nname: Stable\nquery:\n  where: this.id == 'stable.views'\nviews:\n  - id: all\n    name: All\n---\n";
     let stable_view = fixture

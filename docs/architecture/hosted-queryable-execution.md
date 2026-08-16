@@ -121,6 +121,10 @@ projections plus a bounded one-hop relationship neighborhood. Its operation cloc
 optional projected `this.file` context, semantic plan, and keyset are pinned across
 pages. Expression AST work, candidate rows, relationship edges, groups, transferred
 projection bytes, retained rows, and resident copies all consume explicit budgets.
+The immutable Base plan, semantic context, and operation clock live in one
+invocation row for the cursor's hard lifetime. Each page rotates only the narrow
+single-use keyset cursor that references that invocation, avoiding repeated
+TOAST/WAL writes of the same potentially large semantic state.
 The readable cursor plan exposes Base formulas and referenced property names, but
 not the exact `.base` formatting, exact record Markdown, or body prose.
 
