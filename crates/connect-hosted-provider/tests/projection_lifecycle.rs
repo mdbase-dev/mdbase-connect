@@ -1526,6 +1526,144 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
     );
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_base_candidate_prunes_over_scan_budget() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    fixture
+        .enable_obsidian_base_pattern("views/**/*.base")
+        .await;
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    put(
+        &fixture,
+        replica.get("id"),
+        u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap(),
+        Uuid::now_v7(),
+        None,
+        "tasks/selected.md",
+        "---\nstatus: todo\ntags: [task]\n---\nSelected task\n",
+    )
+    .await;
+    let generation_id = complete_generation(&fixture).await;
+
+    // These rows are deliberately outside the exact authority and exist only
+    // to prove the SQL candidate plan prunes before the 10,000-row transfer
+    // ceiling. They are isolated in this disposable test collection.
+    let inserted = sqlx::query(
+        r#"WITH template AS (
+             SELECT * FROM hosted_provider_record_projections
+             WHERE collection_id = $1 AND generation_id = $2
+             ORDER BY record_id LIMIT 1
+           ), decoys AS (
+             SELECT g,
+                    format('decoys/%s.md', g) AS path,
+                    jsonb_set(
+                      jsonb_set(t.semantic_projection,
+                        '{effective_frontmatter,tags}', '[]'::jsonb, true),
+                      '{structure,body_tags}', '[]'::jsonb, true
+                    ) AS projection,
+                    t.*
+             FROM template t CROSS JOIN generate_series(1, 10001) AS g
+           )
+           INSERT INTO hosted_provider_record_projections
+             (collection_id, record_id, record_sequence, valid_from_sequence,
+              record_revision, catalog_revision, projection_format_version,
+              semantic_engine_version, generation_id, canonical_path, matched_types,
+              file_size_bytes, semantic_complete, resolution_complete,
+              semantic_projection, projection_digest, structural_digest,
+              projection_bytes)
+           SELECT collection_id, md5('candidate-decoy-' || g::text)::uuid,
+                  record_sequence, valid_from_sequence,
+                  'decoy:' || g::text, catalog_revision, projection_format_version,
+                  semantic_engine_version, generation_id, path, '{}'::text[], 0,
+                  true, true, projection, decode(repeat('00', 32), 'hex'),
+                  decode(repeat('01', 32), 'hex'), 0
+           FROM decoys"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap()
+    .rows_affected();
+    assert_eq!(inserted, 10_001);
+
+    let token = format!("candidate-b-scale-{}-{}", Uuid::new_v4(), Uuid::new_v4());
+    fixture
+        .provider
+        .register_replica(
+            fixture.collection_id,
+            RegisterReplica {
+                replica_id: Uuid::now_v7(),
+                name: "Candidate B Base candidate scale mission".to_string(),
+                purpose: ReplicaPurpose::Application,
+                mode: SyncReplicaMode::ReadWrite,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
+                allowed_operations: vec![
+                    "create_view_source".to_string(),
+                    "execute_view".to_string(),
+                ],
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: Vec::new(),
+                file_capability: None,
+                allowed_origin: None,
+                proof_public_key: None,
+                grant_id: Some(Uuid::now_v7()),
+                application_declaration_id: None,
+                application_declaration_digest: None,
+                token: token.clone(),
+                token_ttl_seconds: None,
+            },
+        )
+        .await
+        .unwrap();
+    let source = r#"filters:
+  and:
+    - 'file.hasTag("task")'
+views:
+  - type: table
+    name: Tasks
+    order: [file.name]
+"#;
+    fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "create_view_source",
+            Uuid::new_v4(),
+            json!({"path": "views/tasks.base", "document": source}),
+            None,
+        )
+        .await
+        .unwrap();
+    let result = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "execute_view",
+            Uuid::new_v4(),
+            json!({"path": "views/tasks.base", "view": "tasks"}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(result["valid"], true);
+    assert_eq!(result["result"]["meta"]["total_count"], 1);
+    assert_eq!(result["result"]["results"][0]["path"], "tasks/selected.md");
+}
+
 async fn complete_generation(fixture: &FileLifecycleFixture) -> Uuid {
     let generation = fixture
         .provider

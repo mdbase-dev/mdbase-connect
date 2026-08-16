@@ -135,6 +135,11 @@ body tag membership; every selected row still runs through mdbase-rs. Complex
 TaskNotes relationship expressions remain bounded residual work. Unsupported
 predicates never become ad-hoc SQL and never narrow candidates.
 
+The disposable PostgreSQL regression corpus includes 10,001 nonmatching readable
+projection rows—one more than the transfer ceiling—plus one matching TaskNotes row.
+The closed tag candidate returns the canonical single result without triggering the
+scan budget, proving pruning occurs before projection transfer and residual work.
+
 SQL applies safe ordering and limiting before transfer. Unsupported ordering uses
 an explicitly bounded top-K operator; grouping and summaries retain only bounded
 state. Scan rows, transferred bytes, decrypted documents, plaintext bytes, result
