@@ -4530,6 +4530,13 @@ async fn candidate_b_relationship_revalidation_preflights_plaintext_bytes() {
 }
 
 async fn candidate_b_base_candidate_prunes_fixture(database_url: &str, decoy_count: i64) {
+    if decoy_count > 100_000 {
+        assert_eq!(
+            std::env::var("MDBASE_HOSTED_EXECUTION_TEST_ENTITLEMENT").as_deref(),
+            Ok("large_fixture_v1"),
+            "fixtures above the default scan budget require the explicit test entitlement"
+        );
+    }
     let fixture = FileLifecycleFixture::new(database_url).await;
     fixture
         .enable_obsidian_base_pattern("views/**/*.base")
@@ -4624,6 +4631,16 @@ async fn candidate_b_base_candidate_prunes_fixture(database_url: &str, decoy_cou
     .unwrap()
     .rows_affected();
     assert_eq!(inserted_versions, u64::try_from(decoy_count).unwrap());
+    sqlx::query(
+        r#"UPDATE hosted_provider_collections
+           SET record_count = record_count + $2
+           WHERE id = $1"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(decoy_count)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
 
     // A candidate-matching projection with no live authority version must not
     // leak into results even when its semantic JSON is otherwise complete.
