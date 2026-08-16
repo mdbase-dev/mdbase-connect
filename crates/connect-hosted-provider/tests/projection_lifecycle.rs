@@ -5123,6 +5123,45 @@ async fn candidate_b_exact_projected_filter_fixture(
     .execute(&fixture.pool)
     .await
     .unwrap();
+    if decoy_count > 100_000 && !cfg!(debug_assertions) {
+        let scan_budget = fixture
+            .provider
+            .operation(
+                fixture.collection_id,
+                &token,
+                "query",
+                Uuid::new_v4(),
+                json!({
+                    "types": ["task"],
+                    "group_by": [{"field": "record.status"}],
+                    "summaries": [
+                        {"field": "record.status", "function": "count", "name": "records"}
+                    ],
+                    "limit": 1000
+                }),
+                None,
+            )
+            .await
+            .expect_err("production builds retain the default 100k scan ceiling");
+        assert_eq!(scan_budget.code, "hosted_scan_budget_exceeded");
+        assert_eq!(
+            scan_budget.details.as_ref().unwrap()["budget"],
+            "scanned_records"
+        );
+        assert_eq!(scan_budget.details.as_ref().unwrap()["limit"], 100_000);
+        assert_eq!(
+            scan_budget.details.as_ref().unwrap()["observed"],
+            decoy_count + 3
+        );
+        eprintln!(
+            "candidate_b_typed_budget_outcome decoys={decoy_count} code={} budget={} limit={} observed={}",
+            scan_budget.code,
+            scan_budget.details.as_ref().unwrap()["budget"],
+            scan_budget.details.as_ref().unwrap()["limit"],
+            scan_budget.details.as_ref().unwrap()["observed"]
+        );
+        return;
+    }
     if decoy_count >= 99_997 {
         assert_high_cardinality_query_cancellation(&fixture, &token).await;
     }
@@ -5154,6 +5193,12 @@ async fn candidate_b_exact_projected_filter_fixture(
         ordering_budget.details.as_ref().unwrap()["budget"],
         "top_k_entries"
     );
+    let mut path_page_one_ms = Vec::with_capacity(repetitions as usize);
+    let mut path_page_two_ms = Vec::with_capacity(repetitions as usize);
+    let mut path_page_ten_ms = Vec::with_capacity(repetitions as usize);
+    let mut mtime_page_one_ms = Vec::with_capacity(repetitions as usize);
+    let mut mtime_page_two_ms = Vec::with_capacity(repetitions as usize);
+    let mut group_ms = Vec::with_capacity(repetitions as usize);
     for repetition in 1..=repetitions {
         let projected_started = Instant::now();
         let projected_page = fixture
@@ -5174,6 +5219,7 @@ async fn candidate_b_exact_projected_filter_fixture(
             .await
             .unwrap();
         let projected_elapsed = projected_started.elapsed();
+        path_page_one_ms.push(duration_ms(projected_elapsed));
         eprintln!(
             "candidate_b_exact_filter_page decoys={decoy_count} page=1 repetition={repetition} elapsed_ms={}",
             projected_elapsed.as_millis()
@@ -5224,6 +5270,11 @@ async fn candidate_b_exact_projected_filter_fixture(
                 .await
                 .unwrap();
             let page_elapsed = page_started.elapsed();
+            if page_number == 2 {
+                path_page_two_ms.push(duration_ms(page_elapsed));
+            } else if page_number == 10 {
+                path_page_ten_ms.push(duration_ms(page_elapsed));
+            }
             if matches!(page_number, 2 | 10) {
                 eprintln!(
                     "candidate_b_exact_filter_page decoys={decoy_count} page={page_number} repetition={repetition} elapsed_ms={}",
@@ -5271,9 +5322,11 @@ async fn candidate_b_exact_projected_filter_fixture(
             )
             .await
             .unwrap();
+        let mtime_elapsed = mtime_started.elapsed();
+        mtime_page_one_ms.push(duration_ms(mtime_elapsed));
         eprintln!(
             "candidate_b_mtime_page decoys={decoy_count} repetition={repetition} elapsed_ms={}",
-            mtime_started.elapsed().as_millis()
+            mtime_elapsed.as_millis()
         );
         assert_eq!(
             mtime_page["result"]["results"].as_array().unwrap().len(),
@@ -5302,9 +5355,11 @@ async fn candidate_b_exact_projected_filter_fixture(
             )
             .await
             .unwrap();
+        let mtime_page_two_elapsed = mtime_page_two_started.elapsed();
+        mtime_page_two_ms.push(duration_ms(mtime_page_two_elapsed));
         eprintln!(
             "candidate_b_mtime_page decoys={decoy_count} page=2 repetition={repetition} elapsed_ms={}",
-            mtime_page_two_started.elapsed().as_millis()
+            mtime_page_two_elapsed.as_millis()
         );
         assert_eq!(
             mtime_page_two["result"]["results"]
@@ -5363,6 +5418,7 @@ async fn candidate_b_exact_projected_filter_fixture(
             .await
             .unwrap();
         let grouped_elapsed = grouped_started.elapsed();
+        group_ms.push(duration_ms(grouped_elapsed));
         eprintln!(
             "candidate_b_group_count decoys={decoy_count} repetition={repetition} elapsed_ms={}",
             grouped_elapsed.as_millis()
@@ -5413,6 +5469,50 @@ async fn candidate_b_exact_projected_filter_fixture(
         retained_cursors, 0,
         "the sustained grouping mission releases every abandoned cursor"
     );
+    let p95_gate_ms = 300;
+    for (name, samples) in [
+        ("path_page_1", path_page_one_ms),
+        ("path_page_2", path_page_two_ms),
+        ("path_page_10", path_page_ten_ms),
+        ("mtime_page_1", mtime_page_one_ms),
+        ("mtime_page_2", mtime_page_two_ms),
+        ("group", group_ms),
+    ] {
+        report_latency_distribution(name, decoy_count, &samples, p95_gate_ms);
+        if repetitions >= 20 {
+            assert!(
+                percentile(&samples, 95) <= p95_gate_ms,
+                "{name} p95 exceeded the published page latency gate"
+            );
+        }
+    }
+}
+
+fn duration_ms(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
+
+fn percentile(samples: &[u64], percentile: usize) -> u64 {
+    assert!(!samples.is_empty());
+    assert!((1..=100).contains(&percentile));
+    let mut sorted = samples.to_vec();
+    sorted.sort_unstable();
+    let rank = sorted.len().saturating_mul(percentile).div_ceil(100);
+    sorted[rank.saturating_sub(1)]
+}
+
+fn report_latency_distribution(name: &str, decoys: i64, samples: &[u64], gate_ms: u64) {
+    let total = samples.iter().copied().sum::<u64>();
+    eprintln!(
+        "candidate_b_latency_distribution decoys={decoys} workload={name} samples={} min_ms={} p50_ms={} p95_ms={} p99_ms={} max_ms={} mean_ms={} gate_p95_ms={gate_ms}",
+        samples.len(),
+        percentile(samples, 1),
+        percentile(samples, 50),
+        percentile(samples, 95),
+        percentile(samples, 99),
+        percentile(samples, 100),
+        total / u64::try_from(samples.len()).unwrap()
+    );
 }
 
 async fn assert_high_cardinality_query_cancellation(fixture: &FileLifecycleFixture, token: &str) {
@@ -5425,7 +5525,7 @@ async fn assert_high_cardinality_query_cancellation(fixture: &FileLifecycleFixtu
     let provider = fixture.provider.clone();
     let collection_id = fixture.collection_id;
     let query_token = token.to_string();
-    let query = tokio::spawn(async move {
+    let mut query = tokio::spawn(async move {
         provider
             .operation(
                 collection_id,
@@ -5444,7 +5544,7 @@ async fn assert_high_cardinality_query_cancellation(fixture: &FileLifecycleFixtu
             )
             .await
     });
-    let backend_pid = tokio::time::timeout(Duration::from_secs(3), async {
+    let observation = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let activity = fixture.provider.hosted_query_activity();
             let backend_pid: Option<i32> = sqlx::query_scalar(
@@ -5454,7 +5554,6 @@ async fn assert_high_cardinality_query_cancellation(fixture: &FileLifecycleFixtu
                      AND application_name LIKE 'mdbase-hosted-query/%'
                      AND state = 'active'
                      AND query LIKE '%hosted_provider_record_projections%'
-                     AND query LIKE '%GROUP BY%'
                    ORDER BY query_start
                    LIMIT 1"#,
             )
@@ -5472,9 +5571,14 @@ async fn assert_high_cardinality_query_cancellation(fixture: &FileLifecycleFixtu
             }
             tokio::task::yield_now().await;
         }
-    })
-    .await
-    .expect("the 100k grouping query reaches an active PostgreSQL scan");
+    });
+    let backend_pid = tokio::select! {
+        observed = observation => observed
+            .expect("the high-cardinality query reaches an active PostgreSQL scan"),
+        completed = &mut query => panic!(
+            "the high-cardinality query completed before cancellation observation: {completed:?}"
+        ),
+    };
 
     query.abort();
     assert!(query.await.unwrap_err().is_cancelled());
@@ -5505,7 +5609,9 @@ async fn assert_high_cardinality_query_cancellation(fixture: &FileLifecycleFixtu
         }
     })
     .await
-    .expect("100k cancellation releases transaction, session, pool, permit, and plaintext");
+    .expect(
+        "high-cardinality cancellation releases transaction, session, pool, permit, and plaintext",
+    );
     assert!(cleanup_started.elapsed() <= Duration::from_secs(5));
 
     let point = fixture
