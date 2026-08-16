@@ -347,8 +347,12 @@ impl HostedProvider {
         }
         validate_generation_binding(&mut transaction, collection_id, &state).await?;
 
-        let projection_fallback = if state.base_plan.is_some() {
-            base_projection_fallback_exists(&mut transaction, collection_id, &state).await?
+        let projection_fallback = if let Some(base_plan) = state.base_plan.as_ref() {
+            if state.generation_id.is_some() && !base_requires_relationships(base_plan) {
+                false
+            } else {
+                base_projection_fallback_exists(&mut transaction, collection_id, &state).await?
+            }
         } else {
             projection_fallback_exists(&mut transaction, collection_id, &state).await?
         };
@@ -1083,16 +1087,24 @@ async fn load_base_context_projection(
     path: &str,
 ) -> ApiResult<Option<mdbase::runtime::SemanticProjection>> {
     let row = sqlx::query(
-        r#"SELECT semantic_projection
-           FROM hosted_provider_record_projections
-           WHERE collection_id = $1 AND generation_id = $2
-             AND canonical_path = $3
-             AND valid_from_sequence <= $4
-             AND (valid_to_sequence IS NULL OR valid_to_sequence > $4)
-             AND catalog_revision = $5 AND projection_format_version = $6
-             AND semantic_engine_version = $7
-             AND semantic_complete AND resolution_complete
-           ORDER BY valid_from_sequence DESC
+        r#"WITH live AS (
+             SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted
+             FROM hosted_provider_record_versions
+             WHERE collection_id = $1 AND sequence <= $4
+             ORDER BY record_id, sequence DESC
+           )
+           SELECT p.semantic_projection
+           FROM hosted_provider_record_projections p
+           JOIN live l ON l.record_id = p.record_id AND NOT l.deleted
+             AND l.sequence = p.record_sequence AND l.revision = p.record_revision
+           WHERE p.collection_id = $1 AND p.generation_id = $2
+             AND p.canonical_path = $3
+             AND p.valid_from_sequence <= $4
+             AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > $4)
+             AND p.catalog_revision = $5 AND p.projection_format_version = $6
+             AND p.semantic_engine_version = $7
+             AND p.semantic_complete AND p.resolution_complete
+           ORDER BY p.valid_from_sequence DESC
            LIMIT 1"#,
     )
     .bind(collection_id)
@@ -1570,7 +1582,18 @@ async fn execute_bounded_base_page(
         .base_plan
         .as_ref()
         .ok_or_else(|| ApiError::internal("Obsidian Base execution has no semantic plan."))?;
-    let snapshot = if projection_fallback {
+    let snapshot = if state.generation_id.is_some() && !base_requires_relationships(plan) {
+        load_base_hybrid_snapshot(
+            transaction,
+            crypto,
+            data_key,
+            collection_id,
+            state,
+            catalog,
+            plan,
+        )
+        .await?
+    } else if projection_fallback {
         load_base_exact_fallback_snapshot(
             transaction,
             crypto,
@@ -1850,6 +1873,12 @@ async fn execute_bounded_base_page(
     })
 }
 
+fn base_requires_relationships(plan: &mdbase::runtime::HostedBasePlan) -> bool {
+    plan.requirements.backlinks
+        || plan.requirements.outgoing_relationships
+        || plan.requirements.link_resolution
+}
+
 async fn load_base_projected_snapshot(
     transaction: &mut Transaction<'_, Postgres>,
     collection_id: Uuid,
@@ -1864,21 +1893,41 @@ async fn load_base_projected_snapshot(
         || plan.requirements.link_resolution
     {
         let relationship_rows = sqlx::query(
-            r#"SELECT source_record_id, target_record_id
-               FROM hosted_provider_record_relationships
-               WHERE collection_id = $1 AND generation_id = $2
-                 AND valid_from_sequence <= $3
-                 AND (valid_to_sequence IS NULL OR valid_to_sequence > $3)
-                 AND resolution_state = 'resolved'
-                 AND (source_record_id = ANY($4::uuid[])
-                      OR target_record_id = ANY($4::uuid[]))
-               ORDER BY source_record_id, target_record_id, occurrence_key
-               LIMIT $5"#,
+            r#"WITH live AS (
+                 SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted
+                 FROM hosted_provider_record_versions
+                 WHERE collection_id = $1 AND sequence <= $3
+                 ORDER BY record_id, sequence DESC
+               )
+               SELECT relationship.source_record_id, relationship.target_record_id
+               FROM hosted_provider_record_relationships relationship
+               JOIN live source ON source.record_id = relationship.source_record_id
+                 AND NOT source.deleted
+                 AND source.sequence = relationship.source_record_sequence
+                 AND source.revision = relationship.source_record_revision
+               WHERE relationship.collection_id = $1
+                 AND relationship.generation_id = $2
+                 AND relationship.valid_from_sequence <= $3
+                 AND (relationship.valid_to_sequence IS NULL
+                      OR relationship.valid_to_sequence > $3)
+                 AND relationship.catalog_revision = $5
+                 AND relationship.projection_format_version = $6
+                 AND relationship.semantic_engine_version = $7
+                 AND relationship.resolution_state = 'resolved'
+                 AND (relationship.source_record_id = ANY($4::uuid[])
+                      OR relationship.target_record_id = ANY($4::uuid[]))
+               ORDER BY relationship.source_record_id,
+                        relationship.target_record_id,
+                        relationship.occurrence_key
+               LIMIT $8"#,
         )
         .bind(collection_id)
         .bind(state.generation_id)
         .bind(to_i64(state.snapshot_head, "query snapshot head")?)
         .bind(&candidate_ids)
+        .bind(&state.catalog_revision)
+        .bind(i64::from(state.projection_format_version))
+        .bind(&state.semantic_engine_version)
         .bind(to_i64(
             state.plan.budgets.max_operator_steps.saturating_add(1),
             "relationship operator budget",
@@ -1932,6 +1981,193 @@ async fn load_base_projected_snapshot(
         exact_documents: 0,
         exact_bytes: 0,
         query_context: state.base_context.clone(),
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn load_base_hybrid_snapshot(
+    transaction: &mut Transaction<'_, Postgres>,
+    crypto: &ProviderCrypto,
+    data_key: &[u8; 32],
+    collection_id: Uuid,
+    state: &HostedQueryState,
+    catalog: &mdbase::runtime::CompiledCatalog,
+    plan: &mdbase::runtime::HostedBasePlan,
+) -> ApiResult<BaseExecutionSnapshot> {
+    let mut query = QueryBuilder::<Postgres>::new(
+        "WITH live AS (SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted \
+         FROM hosted_provider_record_versions WHERE collection_id = ",
+    );
+    query
+        .push_bind(collection_id)
+        .push(" AND sequence <= ")
+        .push_bind(to_i64(state.snapshot_head, "query snapshot head")?)
+        .push(
+            " ORDER BY record_id, sequence DESC), joined AS (SELECT l.record_id, l.deleted, \
+             p.matched_types, p.canonical_path, p.semantic_projection, p.record_id IS NOT NULL \
+             AND p.record_sequence = l.sequence AND p.record_revision = l.revision \
+             AND p.catalog_revision = ",
+        )
+        .push_bind(&state.catalog_revision)
+        .push(" AND p.projection_format_version = ")
+        .push_bind(i64::from(state.projection_format_version))
+        .push(" AND p.semantic_engine_version = ")
+        .push_bind(&state.semantic_engine_version)
+        .push(
+            " AND p.semantic_complete AND p.resolution_complete AS projection_current \
+             FROM live l LEFT JOIN hosted_provider_record_projections p ON p.collection_id = ",
+        )
+        .push_bind(collection_id)
+        .push(" AND p.generation_id = ")
+        .push_bind(state.generation_id)
+        .push(" AND p.record_id = l.record_id AND p.valid_from_sequence <= ")
+        .push_bind(to_i64(state.snapshot_head, "query snapshot head")?)
+        .push(" AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > ")
+        .push_bind(to_i64(state.snapshot_head, "query snapshot head")?)
+        .push(
+            ")) SELECT record_id, CASE WHEN projection_current THEN canonical_path END AS \
+             canonical_path, CASE WHEN projection_current THEN semantic_projection END AS \
+             semantic_projection FROM joined WHERE NOT deleted AND (NOT projection_current OR \
+             ((cardinality(",
+        )
+        .push_bind(&plan.allowed_types)
+        .push("::text[]) = 0 OR matched_types && ")
+        .push_bind(&plan.allowed_types)
+        .push("::text[]) AND (");
+    push_candidate_predicate(&mut query, &plan.candidate);
+    query
+        .push("))) ORDER BY record_id LIMIT ")
+        .push_bind(to_i64(
+            state.plan.budgets.max_candidate_rows.saturating_add(1),
+            "candidate row budget",
+        )?);
+    let rows = query.build().fetch_all(&mut **transaction).await?;
+    if rows.len() as u64 > state.plan.budgets.max_candidate_rows {
+        return Err(query_budget_error(
+            "hosted_scan_budget_exceeded",
+            "The stale Obsidian Base union exceeded its candidate-row budget.",
+            "candidate_rows",
+            state.plan.budgets.max_candidate_rows,
+            rows.len() as u64,
+        ));
+    }
+
+    let mut candidates = Vec::with_capacity(rows.len());
+    let mut projections = HashMap::with_capacity(rows.len());
+    let mut exact_ids = Vec::new();
+    for row in rows {
+        let record_id: Uuid = row.get("record_id");
+        match row.get::<Option<Value>, _>("semantic_projection") {
+            Some(value) => {
+                let projection: mdbase::runtime::SemanticProjection = serde_json::from_value(value)
+                    .map_err(|error| {
+                        ApiError::conflict(
+                            "hosted_projection_inconsistent",
+                            format!("A current Obsidian Base projection could not decode: {error}"),
+                        )
+                    })?;
+                let canonical_path =
+                    row.get::<Option<String>, _>("canonical_path")
+                        .ok_or_else(|| {
+                            ApiError::internal("A current Base projection has no canonical path.")
+                        })?;
+                candidates.push(ProjectedQueryRow {
+                    record_id,
+                    canonical_path,
+                    projection: projection.clone(),
+                });
+                projections.insert(record_id, projection);
+            }
+            None => exact_ids.push(record_id),
+        }
+    }
+    if exact_ids.len() as u64 > state.plan.budgets.max_exact_documents {
+        return Err(query_budget_error(
+            "hosted_exact_document_budget_exceeded",
+            "The stale Obsidian Base union exceeded its exact-document budget.",
+            "exact_documents",
+            state.plan.budgets.max_exact_documents,
+            exact_ids.len() as u64,
+        ));
+    }
+    let exact_records = load_exact_query_records(
+        transaction,
+        crypto,
+        data_key,
+        collection_id,
+        state.snapshot_head,
+        &exact_ids,
+    )
+    .await?;
+    if exact_records.len() != exact_ids.len() {
+        return Err(ApiError::conflict(
+            "hosted_exact_snapshot_inconsistent",
+            "The stale Obsidian Base union could not load every exact authority record.",
+        ));
+    }
+    let exact_bytes = exact_records.values().fold(0_u64, |total, record| {
+        total.saturating_add(record.document.len() as u64)
+    });
+    if exact_bytes > state.plan.budgets.max_exact_bytes {
+        return Err(query_budget_error(
+            "hosted_exact_byte_budget_exceeded",
+            "The stale Obsidian Base union exceeded its exact-plaintext byte budget.",
+            "exact_bytes",
+            state.plan.budgets.max_exact_bytes,
+            exact_bytes,
+        ));
+    }
+    let prepared = exact_ids
+        .iter()
+        .map(|record_id| {
+            let record = exact_records.get(record_id).ok_or_else(|| {
+                ApiError::internal("A stale Base authority record disappeared before projection.")
+            })?;
+            let prepared = catalog
+                .project_record(record)
+                .map_err(projection_inconsistent)?;
+            Ok((record_id.to_string(), prepared))
+        })
+        .collect::<ApiResult<Vec<_>>>()?;
+    let finalized = catalog
+        .finalize_projection_batch(prepared)
+        .map_err(projection_inconsistent)?;
+    for (record_id, projection) in finalized {
+        let record_id = Uuid::parse_str(&record_id).map_err(|_| {
+            ApiError::internal("A stale Base projection lost its exact record identity.")
+        })?;
+        candidates.push(ProjectedQueryRow {
+            record_id,
+            canonical_path: projection.facts.path.clone(),
+            projection: projection.clone(),
+        });
+        projections.insert(record_id, projection);
+    }
+    let query_context = match plan.context_path.as_deref() {
+        Some(path) => state.base_context.clone().or_else(|| {
+            projections
+                .values()
+                .find(|projection| projection.facts.path == path)
+                .cloned()
+        }),
+        None => None,
+    };
+    if plan.context_path.is_some() && query_context.is_none() {
+        return Err(ApiError::conflict(
+            "hosted_base_context_unavailable",
+            "The stale Base union has no requested context record.",
+        ));
+    }
+    let projection_bytes = serialized_projection_bytes(&projections)?;
+    Ok(BaseExecutionSnapshot {
+        rows: candidates,
+        projections,
+        adjacency: HashMap::new(),
+        relationship_rows: 0,
+        projection_bytes,
+        exact_documents: exact_ids.len() as u64,
+        exact_bytes,
+        query_context,
     })
 }
 
@@ -2210,16 +2446,24 @@ async fn load_base_related_projections(
         return Ok(Vec::new());
     }
     let rows = sqlx::query(
-        r#"SELECT record_id, semantic_projection
-           FROM hosted_provider_record_projections
-           WHERE collection_id = $1 AND generation_id = $2
-             AND record_id = ANY($3::uuid[])
-             AND valid_from_sequence <= $4
-             AND (valid_to_sequence IS NULL OR valid_to_sequence > $4)
-             AND catalog_revision = $5 AND projection_format_version = $6
-             AND semantic_engine_version = $7
-             AND semantic_complete AND resolution_complete
-           ORDER BY record_id"#,
+        r#"WITH live AS (
+             SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted
+             FROM hosted_provider_record_versions
+             WHERE collection_id = $1 AND sequence <= $4
+             ORDER BY record_id, sequence DESC
+           )
+           SELECT p.record_id, p.semantic_projection
+           FROM hosted_provider_record_projections p
+           JOIN live l ON l.record_id = p.record_id AND NOT l.deleted
+             AND l.sequence = p.record_sequence AND l.revision = p.record_revision
+           WHERE p.collection_id = $1 AND p.generation_id = $2
+             AND p.record_id = ANY($3::uuid[])
+             AND p.valid_from_sequence <= $4
+             AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > $4)
+             AND p.catalog_revision = $5 AND p.projection_format_version = $6
+             AND p.semantic_engine_version = $7
+             AND p.semantic_complete AND p.resolution_complete
+           ORDER BY p.record_id"#,
     )
     .bind(collection_id)
     .bind(state.generation_id)
@@ -3391,5 +3635,21 @@ mod tests {
         })
         .unwrap()
         .is_empty());
+    }
+
+    #[test]
+    fn base_scope_and_candidate_are_separate_sql_predicates() {
+        let mut query = QueryBuilder::<Postgres>::new("WHERE (cardinality(");
+        query
+            .push_bind(Vec::<String>::new())
+            .push("::text[]) = 0 OR matched_types && ")
+            .push_bind(Vec::<String>::new())
+            .push("::text[]) AND (");
+        push_candidate_predicate(&mut query, &mdbase::runtime::CandidatePredicate::All);
+        query.push(")");
+        assert_eq!(
+            query.sql(),
+            "WHERE (cardinality($1::text[]) = 0 OR matched_types && $2::text[]) AND (TRUE)"
+        );
     }
 }

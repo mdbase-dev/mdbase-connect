@@ -297,6 +297,50 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
         .unwrap();
     assert_eq!(missing_type["valid"], false);
     assert_eq!(missing_type["diagnostics"][0]["code"], "unknown_type");
+    sqlx::query(
+        r#"WITH template AS (
+             SELECT * FROM hosted_provider_record_projections
+             WHERE collection_id = $1 AND generation_id = $2
+             ORDER BY record_id LIMIT 1
+           )
+           INSERT INTO hosted_provider_record_projections
+             (collection_id, record_id, record_sequence, valid_from_sequence,
+              record_revision, catalog_revision, projection_format_version,
+              semantic_engine_version, generation_id, canonical_path, matched_types,
+              file_size_bytes, semantic_complete, resolution_complete,
+              semantic_projection, projection_digest, structural_digest,
+              projection_bytes)
+           SELECT collection_id, md5('generic-query-orphan')::uuid,
+                  record_sequence, valid_from_sequence, 'orphan:generic',
+                  catalog_revision, projection_format_version,
+                  semantic_engine_version, generation_id, 'notes/orphan.md',
+                  matched_types, 0, true, true, semantic_projection,
+                  decode(repeat('04', 32), 'hex'),
+                  decode(repeat('05', 32), 'hex'), 0
+           FROM template"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(second_generation)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let projected_only = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "limit": 1,
+                "order_by": [{"field": "file.path", "direction": "asc"}]
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(projected_only["valid"], true);
+    assert_eq!(projected_only["result"]["meta"]["total_count"], 2);
     let query = json!({
         "pagination": "cursor",
         "limit": 1,
@@ -1354,11 +1398,12 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
         "---\ntitle: Mobile roadmap\n---\nProject notes\n",
     )
     .await;
+    let mobile_task_id = Uuid::now_v7();
     put(
         &fixture,
         replica_id,
         scope_epoch,
-        Uuid::now_v7(),
+        mobile_task_id,
         None,
         "tasks/project-task.md",
         "---\nstatus: todo\ntags: [task]\nprojects: ['[[projects/mobile]]']\n---\nShip mobile\n",
@@ -1504,6 +1549,66 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
     .await
     .unwrap();
 
+    let relationship_fault_head: i64 =
+        sqlx::query_scalar("SELECT head FROM hosted_provider_collections WHERE id = $1")
+            .bind(fixture.collection_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    let relationship_fault_sequence = relationship_fault_head + 1;
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_record_versions
+             (collection_id, record_id, sequence, revision, types,
+              payload_ciphertext, deleted)
+           VALUES ($1, $2, $3, 'fault:deleted-related', '{}', NULL, true)"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(mobile_task_id)
+    .bind(relationship_fault_sequence)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE hosted_provider_collections SET head = $2 WHERE id = $1")
+        .bind(fixture.collection_id)
+        .bind(relationship_fault_sequence)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+    let deleted_related = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "execute_view",
+            Uuid::new_v4(),
+            json!({"path": "views/projects.base", "view": "projects"}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(deleted_related["valid"], true);
+    assert_eq!(deleted_related["result"]["meta"]["total_count"], 1);
+    assert_eq!(
+        deleted_related["result"]["results"][0]["path"],
+        "projects/web.md"
+    );
+    sqlx::query(
+        "DELETE FROM hosted_provider_record_versions
+         WHERE collection_id = $1 AND record_id = $2 AND sequence = $3",
+    )
+    .bind(fixture.collection_id)
+    .bind(mobile_task_id)
+    .bind(relationship_fault_sequence)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE hosted_provider_collections SET head = $2 WHERE id = $1")
+        .bind(fixture.collection_id)
+        .bind(relationship_fault_head)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+
     sqlx::query(
         r#"UPDATE hosted_provider_record_projections
            SET semantic_complete = false
@@ -1611,11 +1716,12 @@ async fn candidate_b_base_candidate_prunes_over_scan_budget() {
     .fetch_one(&fixture.pool)
     .await
     .unwrap();
+    let selected_id = Uuid::now_v7();
     put(
         &fixture,
         replica.get("id"),
         u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap(),
-        Uuid::now_v7(),
+        selected_id,
         None,
         "tasks/selected.md",
         "---\nstatus: todo\ntags: [task/subtag]\n---\nSelected task\n",
@@ -1732,7 +1838,6 @@ async fn candidate_b_base_candidate_prunes_over_scan_budget() {
                 allowed_operations: vec![
                     "create_view_source".to_string(),
                     "execute_view".to_string(),
-                    "query".to_string(),
                 ],
                 operation_transport_protocol: Some(3),
                 operation_transport_recovery_protocols: Vec::new(),
@@ -1784,23 +1889,79 @@ views:
     assert_eq!(result["result"]["meta"]["total_count"], 1);
     assert_eq!(result["result"]["results"][0]["path"], "tasks/selected.md");
 
-    let all_live = fixture
+    sqlx::query(
+        r#"UPDATE hosted_provider_record_projections
+           SET semantic_complete = false
+           WHERE collection_id = $1 AND generation_id = $2
+             AND canonical_path = 'tasks/selected.md'
+             AND valid_to_sequence IS NULL"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let stale_union = fixture
         .provider
         .operation(
             fixture.collection_id,
             &token,
-            "query",
+            "execute_view",
             Uuid::new_v4(),
-            json!({
-                "limit": 1,
-                "order_by": [{"field": "file.path", "direction": "asc"}]
-            }),
+            json!({"path": "views/tasks.base", "view": "tasks"}),
             None,
         )
         .await
         .unwrap();
-    assert_eq!(all_live["valid"], true);
-    assert_eq!(all_live["result"]["meta"]["total_count"], 10_002);
+    assert_eq!(stale_union["valid"], true);
+    assert_eq!(stale_union["result"]["meta"]["total_count"], 1);
+    assert_eq!(
+        stale_union["result"]["results"][0]["path"],
+        "tasks/selected.md"
+    );
+
+    let deleted_sequence: i64 = sqlx::query_scalar::<_, i64>(
+        "SELECT head + 1 FROM hosted_provider_collections WHERE id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_record_versions
+             (collection_id, record_id, sequence, revision, types,
+              payload_ciphertext, deleted)
+           VALUES ($1, $2, $3, 'fault:deleted-context', '{}', NULL, true)"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(selected_id)
+    .bind(deleted_sequence)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE hosted_provider_collections SET head = $2 WHERE id = $1")
+        .bind(fixture.collection_id)
+        .bind(deleted_sequence)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+    let deleted_context = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "execute_view",
+            Uuid::new_v4(),
+            json!({
+                "path": "views/tasks.base",
+                "view": "tasks",
+                "context": {"path": "tasks/selected.md"}
+            }),
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(deleted_context.code, "hosted_base_context_unavailable");
 }
 
 async fn complete_generation(fixture: &FileLifecycleFixture) -> Uuid {

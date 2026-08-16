@@ -155,13 +155,20 @@ bytes, operator state, wall time, statement time, connections, and memory are
 accounted separately. Exhaustion returns a typed budget outcome. No request silently
 falls back to collection-wide `WorkingSet`.
 
-If any live Base projection is absent, stale, or relationship-incomplete, Connect
-does not trust a mixed projection graph. It loads a complete snapshot only within
-the exact-document and plaintext-byte ceilings, decrypts those exact authorities,
-regenerates and resolves the full bounded graph through mdbase-rs, and evaluates the
-same closed Base plan. A snapshot above those ceilings returns the corresponding
-typed exact-document, byte, relationship, memory, or time budget outcome; it never
-silently omits a candidate or falls back to `WorkingSet`.
+For a Base that does not require relationship semantics, Connect executes a safe
+snapshot union: SQL returns candidate-matching current projections plus every stale
+or absent live identity, and only that stale subset is decrypted and canonically
+projected before the shared residual/order/reduction step. Deleted and orphan
+projections never enter the union. This keeps a one-record projection lag bounded
+even in the 10,001-decoy regression corpus.
+
+If a relationship-dependent Base has any absent, stale, or relationship-incomplete
+projection, Connect does not trust a mixed graph. It loads a complete snapshot only
+within the exact-document and plaintext-byte ceilings, decrypts those exact
+authorities, regenerates and resolves the full bounded graph through mdbase-rs, and
+evaluates the same closed Base plan. A snapshot above those ceilings returns the
+corresponding typed exact-document, byte, relationship, memory, or time budget
+outcome; it never silently omits a candidate or falls back to `WorkingSet`.
 
 If the collection has no globally usable projection binding, Base planning pins
 the current catalog/engine contract and exact record-version head directly. The
