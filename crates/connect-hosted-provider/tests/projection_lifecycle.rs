@@ -5163,7 +5163,7 @@ async fn candidate_b_exact_projected_filter_fixture(
         return;
     }
     if decoy_count >= 99_997 {
-        assert_high_cardinality_query_cancellation(&fixture, &token).await;
+        assert_high_cardinality_query_cancellation(&fixture, &token, decoy_count + 3).await;
     }
     let default_repetitions = if decoy_count > 100_000 { 5 } else { 7 };
     let repetitions = std::env::var("MDBASE_PERF_REPETITIONS")
@@ -5515,7 +5515,11 @@ fn report_latency_distribution(name: &str, decoys: i64, samples: &[u64], gate_ms
     );
 }
 
-async fn assert_high_cardinality_query_cancellation(fixture: &FileLifecycleFixture, token: &str) {
+async fn assert_high_cardinality_query_cancellation(
+    fixture: &FileLifecycleFixture,
+    token: &str,
+    expected_record_count: i64,
+) {
     let initial = fixture.provider.hosted_query_activity();
     assert_eq!(initial.active_queries, 0);
     assert_eq!(initial.plaintext_scopes, 0);
@@ -5646,7 +5650,10 @@ async fn assert_high_cardinality_query_cancellation(fixture: &FileLifecycleFixtu
         )
         .await
         .expect("the query lane is reusable after cancellation");
-    assert_eq!(grouped["result"]["meta"]["total_count"], 100_000);
+    assert_eq!(
+        grouped["result"]["meta"]["total_count"],
+        expected_record_count
+    );
     if let Some(cursor) = grouped["result"]["meta"]["cursor"].as_str() {
         fixture
             .provider
