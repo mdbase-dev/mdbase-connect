@@ -277,7 +277,7 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
         post_snapshot_id,
         None,
         "notes/post-snapshot.md",
-        "This record must not enter the pinned query.\n",
+        "---\ntitle: Post snapshot\ntags: [hosted]\ndue: 2026-05-01\n---\nThis record must not enter the pinned query.\n",
     )
     .await;
     let second = fixture
@@ -361,6 +361,28 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
         "notes/source.md"
     );
     assert!(body_filter["result"]["results"][0].get("body").is_none());
+
+    let date_filter = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "where": "record.tags.contains('hosted') && record.due < '2026-06-01'",
+                "limit": 10,
+                "order_by": [{"field": "file.path"}],
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(date_filter["result"]["meta"]["total_count"], 1);
+    assert_eq!(
+        date_filter["result"]["results"][0]["path"],
+        "notes/post-snapshot.md"
+    );
 
     sqlx::query(
         r#"UPDATE hosted_provider_record_projections

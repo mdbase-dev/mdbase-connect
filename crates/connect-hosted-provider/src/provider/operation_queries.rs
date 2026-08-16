@@ -186,7 +186,6 @@ impl HostedProvider {
                 collection_id,
                 &state,
                 &catalog,
-                &candidate_types,
                 order_descending,
                 requested_page_size,
                 started,
@@ -605,61 +604,56 @@ async fn execute_bounded_residual_page(
     collection_id: Uuid,
     state: &HostedQueryState,
     catalog: &mdbase::runtime::CompiledCatalog,
-    candidate_types: &[String],
     descending: bool,
     page_size: u64,
     started: Instant,
 ) -> ApiResult<ExecutedQueryPage> {
-    let type_filter = if state.plan.requirements.diagnostic_type_matchers {
-        &[][..]
+    let mut query = QueryBuilder::<Postgres>::new(
+        "WITH live AS (SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted \
+         FROM hosted_provider_record_versions WHERE collection_id = ",
+    );
+    query
+        .push_bind(collection_id)
+        .push(" AND sequence <= ")
+        .push_bind(to_i64(state.snapshot_head, "query snapshot head")?)
+        .push(
+            " ORDER BY record_id, sequence DESC), joined AS (SELECT l.record_id, l.deleted, \
+               p.matched_types, p.canonical_path, p.semantic_projection, p.record_id IS NOT NULL \
+               AND p.record_sequence = l.sequence AND p.record_revision = l.revision \
+               AND p.catalog_revision = ",
+        )
+        .push_bind(&state.catalog_revision)
+        .push(" AND p.projection_format_version = ")
+        .push_bind(i64::from(state.projection_format_version))
+        .push(" AND p.semantic_engine_version = ")
+        .push_bind(&state.semantic_engine_version)
+        .push(
+            " AND p.semantic_complete AND p.resolution_complete AS projection_current \
+               FROM live l LEFT JOIN hosted_provider_record_projections p ON p.collection_id = ",
+        )
+        .push_bind(collection_id)
+        .push(" AND p.generation_id = ")
+        .push_bind(state.generation_id)
+        .push(" AND p.record_id = l.record_id AND p.valid_from_sequence <= ")
+        .push_bind(to_i64(state.snapshot_head, "query snapshot head")?)
+        .push(" AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > ")
+        .push_bind(to_i64(state.snapshot_head, "query snapshot head")?)
+        .push(
+            ")) SELECT record_id, CASE WHEN projection_current THEN semantic_projection END AS \
+                semantic_projection, CASE WHEN projection_current THEN \
+                pg_column_size(semantic_projection) ELSE 0 END AS projection_bytes FROM joined \
+                WHERE NOT deleted AND (NOT projection_current OR (",
+        );
+    if state.plan.requirements.diagnostic_type_matchers {
+        query.push("TRUE");
     } else {
-        candidate_types
-    };
-    let rows = sqlx::query(
-        r#"WITH live AS (
-             SELECT DISTINCT ON (record_id) record_id, sequence, revision, deleted
-             FROM hosted_provider_record_versions
-             WHERE collection_id = $1 AND sequence <= $2
-             ORDER BY record_id, sequence DESC
-           ), joined AS (
-             SELECT l.record_id, l.deleted, p.matched_types, p.semantic_projection,
-                    p.record_id IS NOT NULL
-                    AND p.record_sequence = l.sequence
-                    AND p.record_revision = l.revision
-                    AND p.catalog_revision = $4
-                    AND p.projection_format_version = $5
-                    AND p.semantic_engine_version = $6
-                    AND p.semantic_complete AND p.resolution_complete AS projection_current
-             FROM live l
-             LEFT JOIN hosted_provider_record_projections p
-               ON p.collection_id = $1 AND p.generation_id = $3
-              AND p.record_id = l.record_id
-              AND p.valid_from_sequence <= $2
-              AND (p.valid_to_sequence IS NULL OR p.valid_to_sequence > $2)
-           )
-           SELECT record_id,
-                  CASE WHEN projection_current THEN semantic_projection END AS semantic_projection,
-                  CASE WHEN projection_current THEN pg_column_size(semantic_projection) ELSE 0 END AS projection_bytes
-           FROM joined
-           WHERE NOT deleted
-             AND (NOT projection_current OR cardinality($7::text[]) = 0
-                  OR matched_types && $7::text[])
-           ORDER BY record_id
-           LIMIT $8"#,
-    )
-    .bind(collection_id)
-    .bind(to_i64(state.snapshot_head, "query snapshot head")?)
-    .bind(state.generation_id)
-    .bind(&state.catalog_revision)
-    .bind(i64::from(state.projection_format_version))
-    .bind(&state.semantic_engine_version)
-    .bind(type_filter)
-    .bind(to_i64(
+        push_candidate_predicate(&mut query, &state.plan.candidate);
+    }
+    query.push(")) ORDER BY record_id LIMIT ").push_bind(to_i64(
         state.plan.budgets.max_candidate_rows.saturating_add(1),
         "candidate row budget",
-    )?)
-    .fetch_all(&mut **transaction)
-    .await?;
+    )?);
+    let rows = query.build().fetch_all(&mut **transaction).await?;
     if rows.len() as u64 > state.plan.budgets.max_candidate_rows {
         return Err(query_budget_error(
             "hosted_scan_budget_exceeded",
@@ -1073,6 +1067,267 @@ async fn insert_query_cursor(
     Ok(())
 }
 
+fn push_candidate_predicate(
+    query: &mut QueryBuilder<Postgres>,
+    predicate: &mdbase::runtime::CandidatePredicate,
+) {
+    use mdbase::runtime::CandidatePredicate;
+    match predicate {
+        CandidatePredicate::All => {
+            query.push("TRUE");
+        }
+        CandidatePredicate::None => {
+            query.push("FALSE");
+        }
+        CandidatePredicate::HasType { type_name } => {
+            query
+                .push("matched_types @> ARRAY[")
+                .push_bind(type_name.clone())
+                .push("]::text[]");
+        }
+        CandidatePredicate::And { terms } | CandidatePredicate::Or { terms } => {
+            let separator = if matches!(predicate, CandidatePredicate::And { .. }) {
+                " AND "
+            } else {
+                " OR "
+            };
+            query.push("(");
+            for (index, term) in terms.iter().enumerate() {
+                if index > 0 {
+                    query.push(separator);
+                }
+                push_candidate_predicate(query, term);
+            }
+            query.push(")");
+        }
+        CandidatePredicate::Not { term } if candidate_predicate_is_total(term) => {
+            query.push("NOT (");
+            push_candidate_predicate(query, term);
+            query.push(")");
+        }
+        CandidatePredicate::Not { .. } => {
+            query.push("TRUE");
+        }
+        CandidatePredicate::Compare { comparison }
+            if comparison.pruning == mdbase::runtime::CandidateComparisonPruning::ExactJson
+                && candidate_field_supported(&comparison.field) =>
+        {
+            push_candidate_comparison(query, comparison);
+        }
+        CandidatePredicate::Compare { comparison }
+            if comparison.pruning
+                == mdbase::runtime::CandidateComparisonPruning::IsoDateOnlyString
+                && candidate_field_supported(&comparison.field) =>
+        {
+            push_iso_date_candidate_comparison(query, comparison);
+        }
+        CandidatePredicate::Compare { .. } => {
+            query.push("TRUE");
+        }
+    }
+}
+
+fn candidate_predicate_is_total(predicate: &mdbase::runtime::CandidatePredicate) -> bool {
+    use mdbase::runtime::CandidatePredicate;
+    match predicate {
+        CandidatePredicate::All | CandidatePredicate::None | CandidatePredicate::HasType { .. } => {
+            true
+        }
+        CandidatePredicate::And { terms } | CandidatePredicate::Or { terms } => {
+            terms.iter().all(candidate_predicate_is_total)
+        }
+        CandidatePredicate::Not { term } => candidate_predicate_is_total(term),
+        CandidatePredicate::Compare { .. } => false,
+    }
+}
+
+fn candidate_field_supported(field: &mdbase::runtime::CandidateField) -> bool {
+    use mdbase::runtime::CandidateField;
+    match field {
+        CandidateField::Path
+        | CandidateField::Types
+        | CandidateField::PersistedFrontmatter(_)
+        | CandidateField::EffectiveFrontmatter(_)
+        | CandidateField::BodyTags => true,
+        CandidateField::File(name) => {
+            matches!(
+                name.as_str(),
+                "path" | "name" | "basename" | "ext" | "size" | "mtime"
+            )
+        }
+    }
+}
+
+fn push_iso_date_candidate_comparison(
+    query: &mut QueryBuilder<Postgres>,
+    comparison: &mdbase::runtime::CandidateComparison,
+) {
+    use mdbase::runtime::CandidateComparisonOperator as Op;
+    let operator = match comparison.operator {
+        Op::Equal => " = ",
+        Op::NotEqual => " <> ",
+        Op::LessThan => " < ",
+        Op::LessThanOrEqual => " <= ",
+        Op::GreaterThan => " > ",
+        Op::GreaterThanOrEqual => " >= ",
+        Op::In | Op::Contains => unreachable!("date-only proof is a scalar comparison"),
+    };
+    let literal = comparison
+        .value
+        .as_str()
+        .expect("date-only pruning proof has a string literal");
+    query.push("(");
+    push_candidate_field(query, &comparison.field);
+    query.push(" IS NULL OR jsonb_typeof(");
+    push_candidate_field(query, &comparison.field);
+    query.push(") <> 'string' OR (");
+    push_candidate_field(query, &comparison.field);
+    query.push(" #>> '{}') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' OR (");
+    push_candidate_field(query, &comparison.field);
+    query
+        .push(" #>> '{}') COLLATE \"C\"")
+        .push(operator)
+        .push_bind(literal.to_string())
+        .push(")");
+}
+
+fn push_candidate_comparison(
+    query: &mut QueryBuilder<Postgres>,
+    comparison: &mdbase::runtime::CandidateComparison,
+) {
+    use mdbase::runtime::CandidateComparisonOperator as Op;
+    match comparison.operator {
+        Op::Equal | Op::NotEqual => {
+            query.push("(");
+            push_candidate_field(query, &comparison.field);
+            query.push(" IS NULL OR ");
+            push_candidate_field(query, &comparison.field);
+            query.push(if comparison.operator == Op::Equal {
+                " = "
+            } else {
+                " <> "
+            });
+            query
+                .push_bind(sqlx::types::Json(comparison.value.clone()))
+                .push(")");
+        }
+        Op::LessThan | Op::LessThanOrEqual | Op::GreaterThan | Op::GreaterThanOrEqual => {
+            let operator = match comparison.operator {
+                Op::LessThan => " < ",
+                Op::LessThanOrEqual => " <= ",
+                Op::GreaterThan => " > ",
+                Op::GreaterThanOrEqual => " >= ",
+                _ => unreachable!(),
+            };
+            query.push("(");
+            push_candidate_field(query, &comparison.field);
+            query.push(" IS NULL OR (");
+            if let Some(value) = comparison.value.as_str() {
+                query.push("jsonb_typeof(");
+                push_candidate_field(query, &comparison.field);
+                query.push(") = 'string' AND (");
+                push_candidate_field(query, &comparison.field);
+                query
+                    .push(" #>> '{}') COLLATE \"C\"")
+                    .push(operator)
+                    .push_bind(value.to_string());
+            } else {
+                query.push("jsonb_typeof(");
+                push_candidate_field(query, &comparison.field);
+                query.push(") = 'number' AND ");
+                push_candidate_field(query, &comparison.field);
+                query
+                    .push(operator)
+                    .push_bind(sqlx::types::Json(comparison.value.clone()));
+            }
+            query.push("))");
+        }
+        Op::In => {
+            query.push("(");
+            push_candidate_field(query, &comparison.field);
+            query.push(" IS NULL OR ");
+            let values = comparison
+                .value
+                .as_array()
+                .expect("exact membership pruning always has an array literal");
+            query.push("(");
+            for (index, value) in values.iter().enumerate() {
+                if index > 0 {
+                    query.push(" OR ");
+                }
+                push_candidate_field(query, &comparison.field);
+                query
+                    .push(" = ")
+                    .push_bind(sqlx::types::Json(value.clone()));
+            }
+            if values.is_empty() {
+                query.push("FALSE");
+            }
+            query.push("))");
+        }
+        Op::Contains => {
+            query.push("(");
+            push_candidate_field(query, &comparison.field);
+            query.push(" IS NULL OR (jsonb_typeof(");
+            push_candidate_field(query, &comparison.field);
+            query.push(") = 'array' AND ");
+            push_candidate_field(query, &comparison.field);
+            query
+                .push(" @> ")
+                .push_bind(sqlx::types::Json(Value::Array(vec![comparison
+                    .value
+                    .clone()])));
+            if let Some(value) = comparison.value.as_str() {
+                query.push(" OR (jsonb_typeof(");
+                push_candidate_field(query, &comparison.field);
+                query.push(") = 'string' AND strpos(");
+                push_candidate_field(query, &comparison.field);
+                query
+                    .push(" #>> '{}', ")
+                    .push_bind(value.to_string())
+                    .push(") > 0)");
+            }
+            query.push("))");
+        }
+    }
+}
+
+fn push_candidate_field(
+    query: &mut QueryBuilder<Postgres>,
+    field: &mdbase::runtime::CandidateField,
+) {
+    use mdbase::runtime::CandidateField;
+    match field {
+        CandidateField::Path => {
+            query.push("to_jsonb(canonical_path)");
+        }
+        CandidateField::Types => {
+            query.push("to_jsonb(matched_types)");
+        }
+        CandidateField::PersistedFrontmatter(path) => {
+            let mut full = vec!["persisted_frontmatter".to_string()];
+            full.extend(path.iter().cloned());
+            query.push("semantic_projection #> ").push_bind(full);
+        }
+        CandidateField::EffectiveFrontmatter(path) => {
+            let mut full = vec!["effective_frontmatter".to_string()];
+            full.extend(path.iter().cloned());
+            query.push("semantic_projection #> ").push_bind(full);
+        }
+        CandidateField::BodyTags => {
+            query
+                .push("semantic_projection #> ")
+                .push_bind(vec!["structure".to_string(), "body_tags".to_string()]);
+        }
+        CandidateField::File(name) => {
+            let projected_name = if name == "ext" { "extension" } else { name };
+            query
+                .push("semantic_projection #> ")
+                .push_bind(vec!["file".to_string(), projected_name.to_string()]);
+        }
+    }
+}
+
 fn candidate_type_union(predicate: &mdbase::runtime::CandidatePredicate) -> Option<Vec<String>> {
     use mdbase::runtime::CandidatePredicate;
     match predicate {
@@ -1082,19 +1337,29 @@ fn candidate_type_union(predicate: &mdbase::runtime::CandidatePredicate) -> Opti
         CandidatePredicate::Or { terms } => {
             let mut types = Vec::new();
             for term in terms {
-                let CandidatePredicate::HasType { type_name } = term else {
-                    return None;
-                };
-                types.push(type_name.clone());
+                let term_types = candidate_type_union(term)?;
+                if term_types.is_empty() {
+                    return Some(Vec::new());
+                }
+                types.extend(term_types);
             }
             types.sort();
             types.dedup();
             Some(types)
         }
-        CandidatePredicate::And { terms } if terms.len() == 1 => candidate_type_union(&terms[0]),
-        CandidatePredicate::And { .. }
-        | CandidatePredicate::Not { .. }
-        | CandidatePredicate::Compare { .. } => None,
+        CandidatePredicate::And { terms } => {
+            let mut narrowest = Vec::new();
+            for term in terms {
+                let term_types = candidate_type_union(term)?;
+                if !term_types.is_empty()
+                    && (narrowest.is_empty() || term_types.len() < narrowest.len())
+                {
+                    narrowest = term_types;
+                }
+            }
+            Some(narrowest)
+        }
+        CandidatePredicate::Not { .. } | CandidatePredicate::Compare { .. } => Some(Vec::new()),
     }
 }
 
@@ -1228,6 +1493,7 @@ mod tests {
         assert!(candidate_type_union(&CandidatePredicate::Not {
             term: Box::new(candidate)
         })
-        .is_none());
+        .unwrap()
+        .is_empty());
     }
 }

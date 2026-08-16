@@ -29,7 +29,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::{
     postgres::{PgPoolOptions, PgRow},
-    PgPool, Postgres, Row, Transaction,
+    PgPool, Postgres, QueryBuilder, Row, Transaction,
 };
 use subtle::ConstantTimeEq;
 use tokio::sync::{Mutex, RwLock};
