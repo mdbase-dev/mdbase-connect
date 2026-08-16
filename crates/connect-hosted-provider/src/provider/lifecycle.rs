@@ -282,6 +282,9 @@ impl HostedProvider {
                 .query_activity
                 .accounted_execution_bytes
                 .load(AtomicOrdering::Relaxed),
+            query_pool_connections: u64::from(self.query_pool.size()),
+            query_pool_idle_connections: u64::try_from(self.query_pool.num_idle())
+                .unwrap_or(u64::MAX),
         }
     }
 }

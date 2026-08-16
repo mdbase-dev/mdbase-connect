@@ -239,14 +239,9 @@ async fn load_projected_page(
     let snapshot_head = to_i64(state.snapshot_head, "query snapshot head")?;
     let mut query = QueryBuilder::<Postgres>::new(
         "SELECT p.record_id, p.canonical_path, p.projection_bytes \
-         FROM hosted_provider_record_projections p \
-         JOIN hosted_provider_record_versions v ON v.collection_id = p.collection_id \
-          AND v.record_id = p.record_id AND v.sequence = p.record_sequence \
-          AND v.revision = p.record_revision AND NOT v.deleted AND v.sequence <= ",
+         FROM hosted_provider_record_projections p WHERE p.collection_id = ",
     );
     query
-        .push_bind(snapshot_head)
-        .push(" WHERE p.collection_id = ")
         .push_bind(collection_id)
         .push(" AND p.generation_id = ")
         .push_bind(state.generation_id)
@@ -264,8 +259,19 @@ async fn load_projected_page(
             " AND hosted_provider_projection_digest_valid( \
               p.projection_digest, p.projection_observed_digest) \
               AND p.semantic_complete AND p.resolution_complete \
-              AND (cardinality(",
+              AND EXISTS ( \
+                SELECT 1 FROM hosted_provider_record_versions v \
+                WHERE v.collection_id = p.collection_id \
+                  AND v.record_id = p.record_id \
+                  AND v.sequence = p.record_sequence \
+                  AND v.revision = p.record_revision \
+                  AND NOT v.deleted AND v.sequence <= ",
         )
+        .push_bind(snapshot_head)
+        // Keep this as a correlated identity proof. Without OFFSET 0,
+        // PostgreSQL flattens EXISTS into a full-snapshot hash semi-join and
+        // defeats both direct cursor indexes.
+        .push(" OFFSET 0) AND (cardinality(")
         .push_bind(candidate_types.to_vec())
         .push("::text[]) = 0 OR p.matched_types && ")
         .push_bind(candidate_types.to_vec())
@@ -355,6 +361,18 @@ async fn load_projected_page(
 
     query.push(" ORDER BY ");
     for order in &state.plan.order {
+        if scalar_order_is_file_mtime(order) {
+            push_scalar_order_expression(&mut query, order, false);
+            query.push(if matches!(
+                order.direction,
+                mdbase::runtime::HostedOrderDirection::Descending
+            ) {
+                " DESC NULLS FIRST, "
+            } else {
+                " ASC NULLS LAST, "
+            });
+            continue;
+        }
         push_scalar_order_expression(&mut query, order, false);
         query.push(" IS NULL");
         query.push(if matches!(
@@ -387,7 +405,22 @@ async fn load_projected_page(
         })
         .push(" LIMIT ")
         .push_bind(to_i64(page_size.saturating_add(1), "query page lookahead size")?);
-    let rows = query.build().fetch_all(&mut **transaction).await?;
+    // This executor only admits the two direct orders backed by mandatory
+    // cursor indexes. JSON predicate selectivity is intentionally not indexed,
+    // so PostgreSQL can otherwise underestimate a broad match, scan the entire
+    // snapshot, and top-N sort it. Discourage that plan for this one statement;
+    // PostgreSQL may still sort if no ordered path exists. Restore the planner
+    // setting before any later statement in the transaction.
+    sqlx::query("SET LOCAL enable_sort = off")
+        .execute(&mut **transaction)
+        .await?;
+    let rows = match query.build().fetch_all(&mut **transaction).await {
+        Ok(rows) => rows,
+        Err(error) => return Err(error.into()),
+    };
+    sqlx::query("SET LOCAL enable_sort = on")
+        .execute(&mut **transaction)
+        .await?;
     let mut metadata = rows
         .into_iter()
         .map(|row| {

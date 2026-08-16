@@ -233,6 +233,12 @@ impl HostedProvider {
         sqlx::query("SET LOCAL plan_cache_mode = force_custom_plan")
             .execute(&mut *transaction)
             .await?;
+        // Bounded page queries are deliberately small and short lived. JIT's
+        // compilation floor is larger than their latency budget, especially
+        // when a planner guard discourages a full-snapshot sort.
+        sqlx::query("SET LOCAL jit = off")
+            .execute(&mut *transaction)
+            .await?;
         // Every query transaction holds the shared side until commit. Rollback
         // tooling takes the exclusive side, waits for in-flight pages, persists
         // the suspension flag, and can then inspect/drain without a new-admission

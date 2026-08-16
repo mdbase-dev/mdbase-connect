@@ -4889,7 +4889,11 @@ async fn candidate_b_exact_projected_filter_fixture(
                 allowed_types: Vec::new(),
                 contract_scope: Vec::new(),
                 full_collection: true,
-                allowed_operations: vec!["create_type".to_string(), "query".to_string()],
+                allowed_operations: vec![
+                    "create_type".to_string(),
+                    "query".to_string(),
+                    "read".to_string(),
+                ],
                 operation_transport_protocol: Some(3),
                 operation_transport_recovery_protocols: Vec::new(),
                 file_capability: None,
@@ -5041,7 +5045,10 @@ async fn candidate_b_exact_projected_filter_fixture(
              WHERE collection_id = $1 AND generation_id = $2
                AND canonical_path = 'tasks/open-a.md'
            ), decoys AS (
-             SELECT g, format('tasks/scale-%s.md', g) AS path, t.*
+             SELECT g, format('tasks/scale-%s.md', g) AS path,
+                    timestamptz '2025-01-01 00:00:00+00'
+                      + ((g % 86400) * interval '1 second') AS synthetic_mtime,
+                    t.*
              FROM template t CROSS JOIN generate_series(1, $3::bigint) AS g
            )
            INSERT INTO hosted_provider_record_projections
@@ -5053,8 +5060,16 @@ async fn candidate_b_exact_projected_filter_fixture(
            SELECT collection_id, md5('exact-filter-decoy-' || g::text)::uuid,
                   record_sequence, valid_from_sequence, 'filter-decoy:' || g::text,
                   catalog_revision, projection_format_version, semantic_engine_version,
-                  generation_id, path, matched_types, file_size_bytes, file_modified_at,
-                  true, true, semantic_projection, decode(repeat('00', 32), 'hex'),
+                  generation_id, path, matched_types, file_size_bytes, synthetic_mtime,
+                  true, true,
+                  jsonb_set(
+                    semantic_projection,
+                    '{file,mtime}',
+                    to_jsonb(to_char(
+                      synthetic_mtime AT TIME ZONE 'UTC',
+                      'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')),
+                    true),
+                  decode(repeat('00', 32), 'hex'),
                   decode(repeat('07', 32), 'hex'), projection_bytes
            FROM decoys"#,
     )
@@ -5078,9 +5093,10 @@ async fn candidate_b_exact_projected_filter_fixture(
     .unwrap();
     sqlx::query(
         r#"INSERT INTO hosted_provider_record_versions
-             (collection_id, record_id, sequence, revision, types, payload_ciphertext, deleted)
+             (collection_id, record_id, sequence, revision, types, payload_ciphertext,
+              deleted, created_at)
            SELECT collection_id, record_id, record_sequence, record_revision,
-                  matched_types, NULL, false
+                  matched_types, NULL, false, file_modified_at
            FROM hosted_provider_record_projections
            WHERE collection_id = $1 AND generation_id = $2
              AND canonical_path LIKE 'tasks/scale-%'"#,
@@ -5107,6 +5123,9 @@ async fn candidate_b_exact_projected_filter_fixture(
     .execute(&fixture.pool)
     .await
     .unwrap();
+    if decoy_count >= 99_997 {
+        assert_high_cardinality_query_cancellation(&fixture, &token).await;
+    }
     let default_repetitions = if decoy_count > 100_000 { 5 } else { 7 };
     let repetitions = std::env::var("MDBASE_PERF_REPETITIONS")
         .ok()
@@ -5394,6 +5413,148 @@ async fn candidate_b_exact_projected_filter_fixture(
         retained_cursors, 0,
         "the sustained grouping mission releases every abandoned cursor"
     );
+}
+
+async fn assert_high_cardinality_query_cancellation(fixture: &FileLifecycleFixture, token: &str) {
+    let initial = fixture.provider.hosted_query_activity();
+    assert_eq!(initial.active_queries, 0);
+    assert_eq!(initial.plaintext_scopes, 0);
+    assert_eq!(initial.active_scan_permits, 0);
+    assert_eq!(initial.accounted_execution_bytes, 0);
+
+    let provider = fixture.provider.clone();
+    let collection_id = fixture.collection_id;
+    let query_token = token.to_string();
+    let query = tokio::spawn(async move {
+        provider
+            .operation(
+                collection_id,
+                &query_token,
+                "query",
+                Uuid::new_v4(),
+                json!({
+                    "types": ["task"],
+                    "group_by": [{"field": "record.status"}],
+                    "summaries": [
+                        {"field": "record.status", "function": "count", "name": "records"}
+                    ],
+                    "limit": 1000
+                }),
+                None,
+            )
+            .await
+    });
+    let backend_pid = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let activity = fixture.provider.hosted_query_activity();
+            let backend_pid: Option<i32> = sqlx::query_scalar(
+                r#"SELECT pid
+                   FROM pg_stat_activity
+                   WHERE datname = current_database()
+                     AND application_name LIKE 'mdbase-hosted-query/%'
+                     AND state = 'active'
+                     AND query LIKE '%hosted_provider_record_projections%'
+                     AND query LIKE '%GROUP BY%'
+                   ORDER BY query_start
+                   LIMIT 1"#,
+            )
+            .fetch_optional(&fixture.pool)
+            .await
+            .unwrap();
+            if let Some(backend_pid) = backend_pid.filter(|_| {
+                activity.active_queries == 1
+                    && activity.plaintext_scopes == 1
+                    && activity.active_scan_permits == 1
+                    && activity.accounted_execution_bytes > 0
+                    && activity.query_pool_connections > activity.query_pool_idle_connections
+            }) {
+                break backend_pid;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the 100k grouping query reaches an active PostgreSQL scan");
+
+    query.abort();
+    assert!(query.await.unwrap_err().is_cancelled());
+    let cleanup_started = Instant::now();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let activity = fixture.provider.hosted_query_activity();
+            let unsafe_session_count: i64 = sqlx::query_scalar(
+                r#"SELECT count(*)
+                   FROM pg_stat_activity
+                   WHERE pid = $1
+                     AND (state <> 'idle' OR xact_start IS NOT NULL)"#,
+            )
+            .bind(backend_pid)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+            if activity.active_queries == 0
+                && activity.plaintext_scopes == 0
+                && activity.active_scan_permits == 0
+                && activity.accounted_execution_bytes == 0
+                && activity.query_pool_connections == activity.query_pool_idle_connections
+                && unsafe_session_count == 0
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("100k cancellation releases transaction, session, pool, permit, and plaintext");
+    assert!(cleanup_started.elapsed() <= Duration::from_secs(5));
+
+    let point = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            token,
+            "read",
+            Uuid::new_v4(),
+            json!({"path": "tasks/open-a.md"}),
+            None,
+        )
+        .await
+        .expect("the exact point-read lane remains usable after scan cancellation");
+    assert_eq!(point["result"]["path"], "tasks/open-a.md");
+    let grouped = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "types": ["task"],
+                "group_by": [{"field": "record.status"}],
+                "summaries": [
+                    {"field": "record.status", "function": "count", "name": "records"}
+                ],
+                "limit": 10
+            }),
+            None,
+        )
+        .await
+        .expect("the query lane is reusable after cancellation");
+    assert_eq!(grouped["result"]["meta"]["total_count"], 100_000);
+    if let Some(cursor) = grouped["result"]["meta"]["cursor"].as_str() {
+        fixture
+            .provider
+            .operation(
+                fixture.collection_id,
+                token,
+                "query",
+                Uuid::new_v4(),
+                json!({"release_cursor": cursor}),
+                None,
+            )
+            .await
+            .unwrap();
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

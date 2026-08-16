@@ -224,6 +224,8 @@ pub struct HostedQueryActivity {
     pub plaintext_scopes: u64,
     pub active_scan_permits: u64,
     pub accounted_execution_bytes: u64,
+    pub query_pool_connections: u64,
+    pub query_pool_idle_connections: u64,
 }
 
 #[derive(Default)]

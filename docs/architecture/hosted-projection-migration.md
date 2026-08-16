@@ -129,6 +129,18 @@ identity. Ascending mtime and arbitrary frontmatter ordering remain on the
 explicitly bounded top-K path; they do not gain unbounded SQL sorts or automatic
 property indexes.
 
+The direct page executor preserves those ordered access paths with three local,
+transaction-scoped planner controls. Candidate/type/generation parameters use a
+custom plan on every page; JIT is disabled because its compilation floor exceeds
+the bounded interactive-page budget; and only the direct ordered statement
+discourages an explicit sort. Its version-currentness check is a correlated,
+indexed existence proof rather than a flattened hash join. PostgreSQL can still
+sort if an ordered path is unavailable, but the closed direct-plan admission rule
+means that condition is an implementation error rather than an automatic
+collection scan. Grouping and bounded top-K statements run with normal sort
+planning. Deterministic 100k evidence must show both cursor indexes being used and
+must separately report successful pages and typed budget outcomes.
+
 Projection format 3 corrects the closed link-resolution contract so the mandatory
 Markdown `.md` path alternative is always present in addition to configured extra
 record extensions. A format-2 generation must be rebuilt; it cannot be relabelled,
