@@ -793,6 +793,7 @@ impl HostedProvider {
 }
 
 const MAX_HOSTED_MUTATION_CONTEXT_RECORDS: usize = 2_000;
+const MAX_HOSTED_MUTATION_CONTEXT_BYTES: u64 = 32 * 1024 * 1024;
 
 #[allow(clippy::too_many_arguments)]
 async fn execute_direct_semantic(
@@ -824,6 +825,12 @@ async fn execute_direct_semantic(
     let mut before_records = current
         .map(|record| BTreeMap::from([(record.record_id, record)]))
         .unwrap_or_default();
+    let mut exact_context_bytes = before_records.values().try_fold(0_u64, |total, record| {
+        total.checked_add(record.document.len() as u64)
+    });
+    if exact_context_bytes.is_none_or(|bytes| bytes > MAX_HOSTED_MUTATION_CONTEXT_BYTES) {
+        return Err(hosted_mutation_context_byte_budget());
+    }
     let needs_incoming_context = operation == "rename"
         || (operation == "delete"
             && input
@@ -886,6 +893,11 @@ async fn execute_direct_semantic(
                     "A projected incoming relationship has no current exact source record.",
                 )
             })?;
+            exact_context_bytes = exact_context_bytes
+                .and_then(|total| total.checked_add(record.document.len() as u64));
+            if exact_context_bytes.is_none_or(|bytes| bytes > MAX_HOSTED_MUTATION_CONTEXT_BYTES) {
+                return Err(hosted_mutation_context_byte_budget());
+            }
             before_records.insert(source_record_id, record);
         }
     }
@@ -972,12 +984,26 @@ async fn execute_direct_semantic(
 
 fn hosted_mutation_semantic_error(error: mdbase::runtime::CatalogError) -> ApiError {
     match error.code.as_str() {
-        "hosted_mutation_context_budget_exceeded" => ApiError::quota(error.code, error.message),
+        "hosted_mutation_context_budget_exceeded"
+        | "hosted_mutation_context_byte_budget_exceeded" => {
+            ApiError::quota(error.code, error.message)
+        }
         "hosted_mutation_stage_failed" | "hosted_mutation_plan_incomplete" => {
             ApiError::internal(error.message)
         }
         _ => ApiError::bad_request(error.code, error.message),
     }
+}
+
+fn hosted_mutation_context_byte_budget() -> ApiError {
+    ApiError::quota(
+        "hosted_mutation_context_byte_budget_exceeded",
+        "Reference-aware mutation context exceeds its exact-byte budget.",
+    )
+    .with_details(json!({
+        "budget": "exact_context_bytes",
+        "limit": MAX_HOSTED_MUTATION_CONTEXT_BYTES,
+    }))
 }
 
 fn execute_direct_sync(
