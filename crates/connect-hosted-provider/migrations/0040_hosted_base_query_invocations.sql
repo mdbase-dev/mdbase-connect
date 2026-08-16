@@ -25,6 +25,11 @@ CREATE TABLE hosted_provider_base_query_invocations (
 CREATE INDEX hosted_provider_base_query_invocations_expiry_idx
   ON hosted_provider_base_query_invocations (hard_expires_at, invocation_id);
 
+CREATE INDEX hosted_provider_base_query_invocations_collection_expiry_idx
+  ON hosted_provider_base_query_invocations (
+    collection_id, hard_expires_at, invocation_id
+  );
+
 ALTER TABLE hosted_provider_query_cursors
   ADD COLUMN base_invocation_id uuid
     REFERENCES hosted_provider_base_query_invocations(invocation_id);

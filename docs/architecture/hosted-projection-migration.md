@@ -136,6 +136,9 @@ The baseline creates no projection GIN.
   source_record_id)` for missing or ambiguous targets.
 - Cursor expiry and ownership: `(expires_at, cursor_id)` and
   `(replica_id, collection_id, cursor_id)`.
+- Base invocation cleanup: `(hard_expires_at, invocation_id)` globally and
+  `(collection_id, hard_expires_at, invocation_id)` for per-page/per-collection
+  orphan cleanup.
 
 Any additional index requires measured plan benefit and write/WAL/HOT/rebuild/
 vacuum/bloat evidence.
