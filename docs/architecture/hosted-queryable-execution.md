@@ -61,6 +61,11 @@ Current projected matches are unioned with every live stale or absent projection
 Stale/absent records are decrypted and canonically evaluated within explicit
 budgets. Corrupt, ambiguous, or unverifiable state never narrows authorization; it
 falls back to canonical classification and fails closed when that cannot complete.
+Because the safety union precedes canonical type classification, a scoped request's
+public budget details report only `limit + 1` when that union exceeds a row,
+document, or plaintext-byte ceiling. Operators may observe exact aggregate metrics,
+but a restricted caller cannot infer the number or size of out-of-scope stale
+records from an error response.
 Record mutation scope checks no longer trust the unversioned `types` cache on the
 exact-record row: they canonically classify current ciphertext against the current
 resource catalog until an equivalently bound complete projection is proven.

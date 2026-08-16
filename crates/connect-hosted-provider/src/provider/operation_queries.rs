@@ -2043,12 +2043,17 @@ async fn load_base_hybrid_snapshot(
         )?);
     let rows = query.build().fetch_all(&mut **transaction).await?;
     if rows.len() as u64 > state.plan.budgets.max_candidate_rows {
+        let observed = scoped_budget_observed(
+            &plan.allowed_types,
+            state.plan.budgets.max_candidate_rows,
+            rows.len() as u64,
+        );
         return Err(query_budget_error(
             "hosted_scan_budget_exceeded",
             "The stale Obsidian Base union exceeded its candidate-row budget.",
             "candidate_rows",
             state.plan.budgets.max_candidate_rows,
-            rows.len() as u64,
+            observed,
         ));
     }
 
@@ -2082,12 +2087,17 @@ async fn load_base_hybrid_snapshot(
         }
     }
     if exact_ids.len() as u64 > state.plan.budgets.max_exact_documents {
+        let observed = scoped_budget_observed(
+            &plan.allowed_types,
+            state.plan.budgets.max_exact_documents,
+            exact_ids.len() as u64,
+        );
         return Err(query_budget_error(
             "hosted_exact_document_budget_exceeded",
             "The stale Obsidian Base union exceeded its exact-document budget.",
             "exact_documents",
             state.plan.budgets.max_exact_documents,
-            exact_ids.len() as u64,
+            observed,
         ));
     }
     let exact_records = load_exact_query_records(
@@ -2109,12 +2119,17 @@ async fn load_base_hybrid_snapshot(
         total.saturating_add(record.document.len() as u64)
     });
     if exact_bytes > state.plan.budgets.max_exact_bytes {
+        let observed = scoped_budget_observed(
+            &plan.allowed_types,
+            state.plan.budgets.max_exact_bytes,
+            exact_bytes,
+        );
         return Err(query_budget_error(
             "hosted_exact_byte_budget_exceeded",
             "The stale Obsidian Base union exceeded its exact-plaintext byte budget.",
             "exact_bytes",
             state.plan.budgets.max_exact_bytes,
-            exact_bytes,
+            observed,
         ));
     }
     let prepared = exact_ids
@@ -2842,6 +2857,18 @@ fn query_budget_error(
         "limit": limit,
         "observed": observed,
     }))
+}
+
+fn scoped_budget_observed(allowed_types: &[String], limit: u64, observed: u64) -> u64 {
+    if allowed_types.is_empty() {
+        observed
+    } else {
+        // The stale/absent safety union must include identities whose canonical
+        // type is not yet known. A scoped caller may learn that the public
+        // threshold was crossed, but not the aggregate count or plaintext size
+        // of records that canonical evaluation would later exclude.
+        limit.saturating_add(1)
+    }
 }
 
 fn serialized_value_bytes(value: &Value) -> u64 {
@@ -3651,5 +3678,11 @@ mod tests {
             query.sql(),
             "WHERE (cardinality($1::text[]) = 0 OR matched_types && $2::text[]) AND (TRUE)"
         );
+    }
+
+    #[test]
+    fn scoped_budget_details_reveal_only_the_threshold_breach() {
+        assert_eq!(scoped_budget_observed(&[], 100, 173), 173);
+        assert_eq!(scoped_budget_observed(&["task".to_string()], 100, 173), 101);
     }
 }

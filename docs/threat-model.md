@@ -143,6 +143,11 @@ authorization classification. A stale, absent, ambiguous, corrupt, or unverifiab
 projection forces bounded canonical mdbase-rs classification and fails closed if
 that cannot complete. Queries union current projection matches with stale/absent
 records so optimization cannot create false negatives.
+For scoped queries, that safety union can contain records later excluded by
+canonical classification. Client-visible budget errors therefore disclose only
+that the configured threshold was crossed (`observed = limit + 1`), never the raw
+aggregate row, exact-document, or plaintext-byte count. Exact counts remain
+operator-only telemetry.
 
 Outgoing relationship edges are readable derived state. mdbase-rs owns link,
 embed, tag, anchor, alias, relative-target, and ambiguity semantics; the provider
