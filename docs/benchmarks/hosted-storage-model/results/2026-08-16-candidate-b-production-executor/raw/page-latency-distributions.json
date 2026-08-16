@@ -1,0 +1,71 @@
+{
+  "captured_at": "2026-08-17T02:17:45+10:00",
+  "connect_revision": "026ae2ac7b8db7f986f09e897a88324b64a3d715",
+  "mdbase_rs_revision": "6185e6a397fb8e5e1e17a942d9c88a883dbeafec",
+  "postgresql": {
+    "version": "18.4",
+    "container": "mdbase-candidate-b-stack-debug",
+    "database": "fresh disposable database per fixture size"
+  },
+  "command_template": "MDBASE_PROJECTION_DATABASE_URL=<owned-disposable-postgres-url> cargo test --release -p mdbase-connect-hosted-provider --test projection_lifecycle <test-name> -- --ignored --nocapture",
+  "percentile_method": "nearest-rank; p95 and p99 equal the maximum for five- and seven-sample missions",
+  "missions": [
+    {
+      "test": "candidate_b_exact_projected_filter_pages_over_10k",
+      "live_records": 10004,
+      "page_size": 1000,
+      "repetitions": 7,
+      "build_profile": "release",
+      "setup_inclusive_test_ms": 9970,
+      "page_1_ms": [144, 143, 158, 128, 136, 134, 128],
+      "page_2_ms": [88, 92, 91, 88, 87, 88, 95],
+      "page_10_ms": [78, 72, 67, 59, 61, 72, 69],
+      "group_count_ms": [125, 119, 119, 121, 119, 142, 155],
+      "median_ms": {"page_1": 136, "page_2": 88, "page_10": 69, "group_count": 121},
+      "p95_ms": {"page_1": 158, "page_2": 95, "page_10": 78, "group_count": 155},
+      "result": "pass"
+    },
+    {
+      "test": "candidate_b_exact_projected_filter_and_group_100k",
+      "live_records": 100000,
+      "page_size": 200,
+      "repetitions": 7,
+      "build_profile": "release",
+      "setup_inclusive_test_ms": 85900,
+      "page_1_ms": [1098, 947, 984, 966, 1003, 959, 2927],
+      "page_2_ms": [214, 311, 342, 331, 341, 333, 361],
+      "page_10_ms": [308, 335, 322, 342, 314, 560, 327],
+      "group_count_ms": [1074, 968, 808, 791, 772, 1075, 1066],
+      "median_ms": {"page_1": 984, "page_2": 333, "page_10": 327, "group_count": 968},
+      "p95_ms": {"page_1": 2927, "page_2": 361, "page_10": 560, "group_count": 1075},
+      "result": "pass"
+    },
+    {
+      "test": "candidate_b_exact_projected_filter_and_group_230k",
+      "live_records": 230131,
+      "page_size": 200,
+      "repetitions": 5,
+      "build_profile": "release with debug assertions and explicit large_fixture_v1 test entitlement",
+      "setup_inclusive_test_ms": 177110,
+      "page_1_ms": [2733, 2255, 4137, 2327, 1812],
+      "page_2_ms": [337, 948, 1025, 840, 803],
+      "page_10_ms": [807, 878, 840, 769, 1154],
+      "group_count_ms": [2119, 1649, 1651, 1635, 1667],
+      "median_ms": {"page_1": 2327, "page_2": 840, "page_10": 840, "group_count": 1651},
+      "p95_ms": {"page_1": 4137, "page_2": 1025, "page_10": 1154, "group_count": 2119},
+      "result": "pass"
+    }
+  ],
+  "gates": {
+    "typed_operation_wall_time_ms": 15000,
+    "all_observed_page_and_group_samples_within_gate": true,
+    "collection_wide_working_set_materialized": false,
+    "pagination_mode": "single-use deterministic keyset cursor, one page per operation"
+  },
+  "limitations": [
+    "These are local executor distributions, not shared-staging contention distributions.",
+    "The same deterministic fixture is reused across repetitions after one fresh import; page requests and encrypted receipts are new for every sample.",
+    "The 230k mission uses a debug-only explicit test entitlement and does not change production scan ceilings.",
+    "Provider RSS/PSS, PostgreSQL CPU/IO, point-read contention, and cancellation are recorded by separate current-head missions rather than inferred from these latency samples."
+  ]
+}

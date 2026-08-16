@@ -105,3 +105,29 @@ stored 32-byte digests and does not detoast/re-hash semantic JSON. These single
 local observations prove bounded production execution at the target sizes; they
 are not percentile latency evidence. The machine-readable record is
 [`raw/scalar-filter-group-timings.json`](./raw/scalar-filter-group-timings.json).
+
+## Current-head page latency distributions
+
+The corrected production fixture at Connect `026ae2ac` and mdbase-rs `6185e6a`
+runs a true page-at-a-time keyset traversal. The 100k fixture now contains exactly
+100,000 live records rather than 100,004, and the high-cardinality missions use a
+200-record page so repeated pagination cannot be mistaken for one unbounded top-K
+operation. Each page uses a new request ID and encrypted replay receipt.
+
+| Live records | Samples | Page 1 median / p95 | Page 2 median / p95 | Page 10 median / p95 | Group median / p95 |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 10,004 | 7 | 136 / 158 ms | 88 / 95 ms | 69 / 78 ms | 121 / 155 ms |
+| 100,000 | 7 | 984 / 2,927 ms | 333 / 361 ms | 327 / 560 ms | 968 / 1,075 ms |
+| 230,131 | 5 | 2,327 / 4,137 ms | 840 / 1,025 ms | 840 / 1,154 ms | 1,651 / 2,119 ms |
+
+Every observed page and grouping sample passed the 15-second typed operation-time
+gate. The 230k mission used the explicit `large_fixture_v1` entitlement in a
+release-optimized build with debug assertions; that test-only mechanism does not
+raise the production 100k scan ceiling. Full samples, setup-inclusive durations,
+commands, revisions, and percentile rules are in
+[`raw/page-latency-distributions.json`](./raw/page-latency-distributions.json).
+
+These distributions supersede the earlier single observations for query latency.
+They do not supersede the earlier plan, write-pressure, storage, WAL, rebuild, or
+cross-candidate evidence. Shared-staging contention, process memory, cancellation,
+and point-read coexistence remain separate rollout gates.
