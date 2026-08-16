@@ -187,6 +187,18 @@ impl HostedProvider {
         }
         transaction.commit().await?;
         self.remove_working_set(collection_id).await;
+        if is_type {
+            let provider = self.clone();
+            tokio::spawn(async move {
+                if let Err(error) = provider.recover_projection_generations(1).await {
+                    tracing::warn!(
+                        %collection_id,
+                        error_code = %error.code,
+                        "semantic projection rebuild recovery deferred"
+                    );
+                }
+            });
+        }
         Ok(result)
     }
 }

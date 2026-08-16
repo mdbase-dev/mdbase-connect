@@ -168,7 +168,9 @@ impl HostedProvider {
                         None,
                     ),
                 };
-                let result = if operation == "query" {
+                let result = if operation == "query"
+                    && self.candidate_b_execution_enabled(collection_id).await?
+                {
                     self.execute_hosted_query(collection_id, replica, &scoped_input)
                         .await?
                 } else {
@@ -321,6 +323,21 @@ impl HostedProvider {
                 "The hosted provider does not support that collection operation.",
             )),
         }
+    }
+
+    async fn candidate_b_execution_enabled(&self, collection_id: Uuid) -> ApiResult<bool> {
+        sqlx::query_scalar(
+            "SELECT hosted_execution_model = 'candidate_b' FROM hosted_provider_collections WHERE id = $1 AND state = 'active'",
+        )
+        .bind(collection_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                "hosted_collection_not_found",
+                "Hosted collection not found.",
+            )
+        })
     }
 
     async fn authorize_collection_setup_declaration(

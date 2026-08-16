@@ -3,6 +3,7 @@
 Status: additive schema drafted; isolated validation only; no existing-data migration authorized
 
 Migration: `crates/connect-hosted-provider/migrations/0035_hosted_semantic_projections.sql`
+Activation gate: `crates/connect-hosted-provider/migrations/0036_hosted_execution_model.sql`
 
 ## Compatibility strategy
 
@@ -17,6 +18,12 @@ building generation is not active: the previous complete generation remains boun
 while an immutable source-head snapshot is prepared and resolved. The new binding
 is installed only if the collection head and catalog still equal that source
 snapshot at completion. Otherwise the generation is abandoned and retried.
+Migration 0036 adds an explicit `legacy | candidate_b` execution-model gate with a
+`legacy` default. Existing collections therefore keep their recoverable path when
+the additive schema and dual-capable binary deploy. Starting the first explicitly
+authorized generation opts only that collection into Candidate B. Maintenance
+recreates missing generations and advances one bounded fenced batch at a time only
+for opted-in collections.
 
 ## Physical state
 

@@ -51,6 +51,15 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
     )
     .await;
 
+    let initial_execution_model: String = sqlx::query_scalar(
+        "SELECT hosted_execution_model FROM hosted_provider_collections WHERE id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(initial_execution_model, "legacy");
+
     let first_generation = complete_generation(&fixture).await;
     let relationship_before = sqlx::query(
         r#"SELECT valid_from_sequence, target_record_id, resolution_state
@@ -963,6 +972,49 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
         .unwrap();
     assert_eq!(created_type["valid"], true);
     assert_eq!(created_type["result"]["name"], "note");
+    let mut rebuilt_generation = None;
+    for _ in 0..100 {
+        fixture
+            .provider
+            .recover_projection_generations(10)
+            .await
+            .unwrap();
+        let active: Option<Uuid> = sqlx::query_scalar(
+            "SELECT active_projection_generation_id FROM hosted_provider_collections WHERE id = $1",
+        )
+        .bind(fixture.collection_id)
+        .fetch_one(&fixture.pool)
+        .await
+        .unwrap();
+        if let Some(active) = active {
+            rebuilt_generation = Some(active);
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    let rebuilt_generation = rebuilt_generation.expect("semantic generation rebuilt");
+    assert_ne!(rebuilt_generation, second_generation);
+    let execution_model: String = sqlx::query_scalar(
+        "SELECT hosted_execution_model FROM hosted_provider_collections WHERE id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(execution_model, "candidate_b");
+    let query_after_rebuild = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({"limit": 1, "order_by": [{"field": "file.path"}]}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(query_after_rebuild["valid"], true);
     let read_type = fixture
         .provider
         .operation(
@@ -991,6 +1043,14 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
         .await
         .unwrap();
     assert_eq!(created_view["valid"], true);
+    let active_after_second_view: Option<Uuid> = sqlx::query_scalar(
+        "SELECT active_projection_generation_id FROM hosted_provider_collections WHERE id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(active_after_second_view, Some(rebuilt_generation));
     let read_view = fixture
         .provider
         .operation(

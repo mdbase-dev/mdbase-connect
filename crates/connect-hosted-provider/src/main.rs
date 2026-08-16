@@ -379,6 +379,13 @@ async fn maintain_history(provider: HostedProvider, retain_changes: u64, period:
             Ok(blobs) => tracing::info!(blobs, "deleted deferred hosted file objects"),
             Err(error) => tracing::error!(%error, "deferred hosted file deletion failed"),
         }
+        match provider.recover_projection_generations(20).await {
+            Ok(0) => {}
+            Ok(generations) => {
+                tracing::info!(generations, "advanced hosted semantic projection rebuilds")
+            }
+            Err(error) => tracing::error!(%error, "semantic projection recovery failed"),
+        }
     }
 }
 

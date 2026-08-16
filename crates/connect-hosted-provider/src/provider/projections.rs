@@ -134,6 +134,12 @@ impl HostedProvider {
         .bind(PROJECTION_LEASE_SECONDS)
         .execute(&mut *transaction)
         .await?;
+        sqlx::query(
+            "UPDATE hosted_provider_collections SET hosted_execution_model = 'candidate_b' WHERE id = $1",
+        )
+        .bind(collection_id)
+        .execute(&mut *transaction)
+        .await?;
         transaction.commit().await?;
         Ok(HostedProjectionGeneration {
             collection_id,
@@ -146,6 +152,98 @@ impl HostedProvider {
             status: "building".to_string(),
             lease_fencing_generation: 1,
         })
+    }
+
+    /// Advance a bounded number of opted-in projection rebuilds. A missing
+    /// generation is recreated from exact authority, while live leases remain
+    /// fenced to their current owner. One call performs at most one bounded
+    /// projection or resolution batch per selected collection.
+    pub async fn recover_projection_generations(&self, limit: u32) -> ApiResult<usize> {
+        let limit = i64::from(limit.clamp(1, 100));
+        let missing = sqlx::query(
+            r#"SELECT collection.id
+               FROM hosted_provider_collections collection
+               WHERE collection.state = 'active'
+                 AND collection.hosted_execution_model = 'candidate_b'
+                 AND collection.active_projection_generation_id IS NULL
+                 AND NOT EXISTS (
+                   SELECT 1 FROM hosted_provider_projection_generations generation
+                   WHERE generation.collection_id = collection.id
+                     AND generation.status = 'building'
+                 )
+               ORDER BY collection.updated_at, collection.id
+               LIMIT $1"#,
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        for row in missing {
+            let collection_id: Uuid = row.get("id");
+            match self.start_projection_generation(collection_id).await {
+                Ok(_) => {}
+                Err(error) if error.code == "projection_generation_retention_exceeded" => {
+                    tracing::warn!(
+                        %collection_id,
+                        error_code = %error.code,
+                        "projection rebuild could not start"
+                    );
+                }
+                Err(error) => return Err(error),
+            }
+        }
+
+        let generations = sqlx::query(
+            r#"SELECT generation.collection_id, generation.generation_id, generation.phase
+               FROM hosted_provider_projection_generations generation
+               JOIN hosted_provider_collections collection
+                 ON collection.id = generation.collection_id
+               WHERE collection.state = 'active'
+                 AND collection.hosted_execution_model = 'candidate_b'
+                 AND generation.status = 'building'
+                 AND (
+                   generation.lease_owner IS NULL
+                   OR generation.lease_owner = $1
+                   OR generation.lease_expires_at <= now()
+                 )
+               ORDER BY generation.updated_at, generation.collection_id,
+                        generation.generation_id
+               LIMIT $2"#,
+        )
+        .bind(self.process_epoch)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut advanced = 0_usize;
+        for generation in generations {
+            let collection_id: Uuid = generation.get("collection_id");
+            let generation_id: Uuid = generation.get("generation_id");
+            let phase: String = generation.get("phase");
+            let outcome = if phase == "projection" {
+                self.project_generation_batch(collection_id, generation_id, MAX_PROJECTION_BATCH)
+                    .await
+            } else {
+                self.resolve_generation_batch(collection_id, generation_id, MAX_PROJECTION_BATCH)
+                    .await
+            };
+            match outcome {
+                Ok(_) => advanced += 1,
+                Err(error)
+                    if matches!(
+                        error.code.as_str(),
+                        "projection_lease_unavailable" | "projection_source_head_changed"
+                    ) =>
+                {
+                    tracing::debug!(
+                        %collection_id,
+                        %generation_id,
+                        error_code = %error.code,
+                        "projection rebuild yielded to a fence or newer source"
+                    );
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(advanced)
     }
 
     /// Project at most one bounded UUID-keyset batch. The lease CAS is renewed
