@@ -155,11 +155,14 @@ impl Drop for BaseEvaluationCancellationGuard {
 }
 
 include!("operation_queries/provider_impl.rs");
+include!("operation_queries/query_state.rs");
 include!("operation_queries/entrypoints.rs");
 include!("operation_queries/bindings.rs");
+include!("operation_queries/projected_page.rs");
 include!("operation_queries/query_top_k.rs");
 include!("operation_queries/base_sources.rs");
 include!("operation_queries/projection_loading.rs");
 include!("operation_queries/residual_execution.rs");
+include!("operation_queries/exact_loading.rs");
 include!("operation_queries/sql_plan.rs");
 include!("operation_queries/tests.rs");
