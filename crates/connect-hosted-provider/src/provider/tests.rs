@@ -114,6 +114,23 @@ fn projection_digest_migration_is_expand_only_and_observes_row_changes() {
 }
 
 #[test]
+fn projection_digest_application_writes_do_not_create_a_second_tuple_version() {
+    let migration = include_str!("../../migrations/0054_projection_digest_single_write.sql");
+    assert!(migration.contains("NEW.projection_digest = decode(repeat('00', 32), 'hex')"));
+    assert!(migration.contains("NEW.projection_digest := NEW.projection_observed_digest"));
+    assert!(!migration.contains("UPDATE hosted_provider_record_projections"));
+}
+
+#[test]
+fn snapshot_cursor_index_keeps_path_and_identity_adjacent() {
+    let migration = include_str!("../../migrations/0053_snapshot_path_cursor_index.sql");
+    let path = migration.find("canonical_path COLLATE \"C\"").unwrap();
+    let identity = migration.find("record_id").unwrap();
+    let temporal = migration.find("valid_from_sequence").unwrap();
+    assert!(path < identity && identity < temporal);
+}
+
+#[test]
 fn hosted_transport_expansion_is_bounded_to_mutation_recovery() {
     let temporarily_unbound = AuthorizedRequest {
         operation_transport_protocol: None,

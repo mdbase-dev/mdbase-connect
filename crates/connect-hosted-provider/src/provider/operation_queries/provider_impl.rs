@@ -600,32 +600,35 @@ impl HostedProvider {
                 })?;
                 let scalar_order_plan = projected_scalar_order_supported(&state.plan);
                 let scalar_order_values_valid = scalar_order_plan
-                    && projected_scalar_order_values_are_valid(
-                        &mut transaction,
-                        collection_id,
-                        &state,
-                        &candidate_types,
-                    )
-                    .await?;
+                    && (state.projection_integrity_verified
+                        || projected_scalar_order_values_are_valid(
+                            &mut transaction,
+                            collection_id,
+                            &state,
+                            &candidate_types,
+                        )
+                        .await?);
                 let exact_candidate_plan =
                     candidate_predicate_is_projection_exact(&state.plan.candidate);
                 let exact_candidate_values_valid = exact_candidate_plan
-                    && projected_exact_candidate_values_are_valid(
-                        &mut transaction,
-                        collection_id,
-                        &state,
-                        &candidate_types,
-                    )
-                    .await?;
+                    && (state.projection_integrity_verified
+                        || projected_exact_candidate_values_are_valid(
+                            &mut transaction,
+                            collection_id,
+                            &state,
+                            &candidate_types,
+                        )
+                        .await?);
                 let grouping_plan = projected_grouping_supported(&state.plan);
                 let grouping_values_valid = grouping_plan
-                    && projected_scalar_group_values_are_valid(
-                        &mut transaction,
-                        collection_id,
-                        &state,
-                        &candidate_types,
-                    )
-                    .await?;
+                    && (state.projection_integrity_verified
+                        || projected_scalar_group_values_are_valid(
+                            &mut transaction,
+                            collection_id,
+                            &state,
+                            &candidate_types,
+                        )
+                        .await?);
                 if state.plan.residual.projection_filter_safe
                     && !state.plan.requirements.diagnostic_type_matchers
                     && (!state.plan.requirements.bounded_grouping || grouping_values_valid)

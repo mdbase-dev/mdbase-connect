@@ -273,6 +273,14 @@ async fn load_projected_page(
                 "The hosted query cursor does not match its scalar order proof.",
             ));
         }
+        if state.plan.order.is_empty() {
+            query
+                .push(" AND (p.canonical_path COLLATE \"C\", p.record_id) > (")
+                .push_bind(last_path.to_string())
+                .push(", ")
+                .push_bind(last_record_id)
+                .push(")");
+        } else {
         query.push(" AND (");
         for index in 0..state.plan.order.len() {
             if index > 0 {
@@ -324,6 +332,7 @@ async fn load_projected_page(
             .push(" AND p.record_id > ")
             .push_bind(last_record_id)
             .push("))");
+        }
     }
 
     query.push(" ORDER BY ");

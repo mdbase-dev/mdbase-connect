@@ -88,14 +88,6 @@ async fn persist_prepared_projection(
     .bind(to_i64(canonical_bytes.len() as u64, "projection size")?)
     .execute(&mut **transaction)
     .await?;
-    refresh_projection_digest(
-        transaction,
-        collection_id,
-        generation_id,
-        record_id,
-        sequence,
-    )
-    .await?;
     for key in &prepared.facts.resolution_keys {
         sqlx::query(
             r#"INSERT INTO hosted_provider_record_resolution_keys
@@ -181,15 +173,6 @@ async fn persist_resolved_projection(
             "The record or generation changed during relationship resolution.",
         ));
     }
-    refresh_projection_digest(
-        transaction,
-        collection_id,
-        generation_id,
-        record_id,
-        valid_from,
-    )
-    .await?;
-
     insert_relationships(
         transaction,
         collection_id,
@@ -202,34 +185,6 @@ async fn persist_resolved_projection(
         projection,
     )
     .await
-}
-
-async fn refresh_projection_digest(
-    transaction: &mut Transaction<'_, Postgres>,
-    collection_id: Uuid,
-    generation_id: Uuid,
-    record_id: Uuid,
-    valid_from: u64,
-) -> ApiResult<()> {
-    let updated = sqlx::query(
-        r#"UPDATE hosted_provider_record_projections projection
-           SET projection_digest = hosted_provider_projection_digest(projection)
-           WHERE collection_id = $1 AND generation_id = $2 AND record_id = $3
-             AND valid_from_sequence = $4"#,
-    )
-    .bind(collection_id)
-    .bind(generation_id)
-    .bind(record_id)
-    .bind(to_i64(valid_from, "projection sequence")?)
-    .execute(&mut **transaction)
-    .await?;
-    if updated.rows_affected() != 1 {
-        return Err(ApiError::conflict(
-            "projection_cas_lost",
-            "The projection digest row binding changed before commit.",
-        ));
-    }
-    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]

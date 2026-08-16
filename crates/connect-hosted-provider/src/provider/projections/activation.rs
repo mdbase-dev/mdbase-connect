@@ -554,14 +554,6 @@ async fn insert_active_projection_version(
     .bind(to_i64(change.sequence, "projection sequence")?)
     .execute(&mut **transaction)
     .await?;
-    refresh_projection_digest(
-        transaction,
-        collection_id,
-        generation_id,
-        change.record_id,
-        change.sequence,
-    )
-    .await?;
     for key in &facts.resolution_keys {
         sqlx::query(
             r#"INSERT INTO hosted_provider_record_resolution_keys
@@ -645,14 +637,6 @@ async fn persist_active_resolved_projection(
             "The exact record or active projection binding changed during relationship resolution.",
         ));
     }
-    refresh_projection_digest(
-        transaction,
-        collection_id,
-        generation_id,
-        record_id,
-        sequence,
-    )
-    .await?;
     insert_relationships(
         transaction,
         collection_id,

@@ -4812,7 +4812,7 @@ async fn candidate_b_exact_projected_filter_fixture(
                   record_sequence, valid_from_sequence, 'filter-decoy:' || g::text,
                   catalog_revision, projection_format_version, semantic_engine_version,
                   generation_id, path, matched_types, file_size_bytes, file_modified_at,
-                  true, true, semantic_projection, decode(repeat('06', 32), 'hex'),
+                  true, true, semantic_projection, decode(repeat('00', 32), 'hex'),
                   decode(repeat('07', 32), 'hex'), projection_bytes
            FROM decoys"#,
     )
@@ -4831,17 +4831,6 @@ async fn candidate_b_exact_projected_filter_fixture(
     )
     .bind(fixture.collection_id)
     .bind(decoy_count)
-    .execute(&fixture.pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        r#"UPDATE hosted_provider_record_projections
-           SET projection_digest = projection_observed_digest
-           WHERE collection_id = $1 AND generation_id = $2
-             AND canonical_path LIKE 'tasks/scale-%'"#,
-    )
-    .bind(fixture.collection_id)
-    .bind(generation_id)
     .execute(&fixture.pool)
     .await
     .unwrap();
