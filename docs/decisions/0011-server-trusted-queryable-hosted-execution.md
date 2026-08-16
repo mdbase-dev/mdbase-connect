@@ -193,10 +193,14 @@ Record projection binding:
   projection payload and digest
 ```
 
-A projection is current only when its record revision, pinned catalog revision,
-projection format/semantic-engine version, and generation binding match the query
-snapshot. Resource changes atomically advance the active semantic catalog and open
-a rebuilding generation; they do not claim that all projections are current.
+A projection is current only when its record revision, pinned semantic catalog
+revision, projection format/semantic-engine version, and generation binding match
+the query snapshot. The semantic catalog revision is a canonical digest of the
+exact configuration, resolved type resources, and record contracts that can change
+record classification or projection output. It is deliberately distinct from the
+broader resource revision: saved-view source changes do not invalidate record
+projections. Semantic resource changes atomically advance the active catalog and
+open a rebuilding generation; they do not claim that all projections are current.
 
 Writes after a catalog change evaluate against the active catalog and persist a
 current projection transactionally with the record mutation. A rebuild worker reads
@@ -233,8 +237,8 @@ The required safety rules are:
    type scope; they must not exclude it using stale type hints.
 6. The provider revalidates record revision, catalog revision, grant/scope epoch,
    destination, and quota inside the existing short journal transaction.
-7. Resource changes, projection rebuilds, record edits, and concurrent mutations
-   receive adversarial race and restart tests.
+7. Semantic resource changes, projection rebuilds, record edits, and concurrent
+   mutations receive adversarial race and restart tests.
 
 Existing grant contract digests and type scope bind to the pinned catalog. The
 current pre-mutation authorization path based on unversioned persisted types must be

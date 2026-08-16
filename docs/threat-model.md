@@ -130,8 +130,8 @@ frontmatter, diagnostics, relationship edges, structural body facts, and value
 frequency. They must not receive exact Markdown or body prose from the projection.
 Logs and telemetry may record bounded counts and timing, never projection payloads.
 
-Projection rows are non-authoritative and revision-, catalog-, engine-, format-,
-and generation-bound. A current projection may narrow candidate selection and
+Projection rows are non-authoritative and revision-, semantic-catalog-, engine-,
+format-, and generation-bound. A current projection may narrow candidate selection and
 authorization classification. A stale, absent, ambiguous, corrupt, or unverifiable
 projection forces bounded canonical mdbase-rs classification and fails closed if
 that cannot complete. Queries union current projection matches with stale/absent

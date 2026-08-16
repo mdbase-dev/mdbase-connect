@@ -32,7 +32,8 @@ unchanged and authoritative.
 
 `hosted_provider_projection_generations` stores one collection-scoped generation:
 
-- target catalog, projection format, semantic-engine version, and source head;
+- target semantic catalog, projection format, semantic-engine version, and source
+  head;
 - `projection | resolution` phase and `building | complete | abandoned` status;
 - UUID keyset checkpoint plus separate projected/resolved counts;
 - lease owner/expiry plus a monotonic fencing generation;
@@ -146,9 +147,12 @@ revalidates affected resolved, missing, and ambiguous incoming sources under
 explicit record and plaintext-byte budgets; exceeding either is a typed failure and
 rolls back the exact write.
 
-Catalog mutations atomically clear the active binding, abandon unfinished rebuilds,
-and expire catalog-bound query cursors. Exact authority remains available while a
-new generation is built.
+Semantic catalog mutations atomically clear the active binding, abandon unfinished
+rebuilds, and expire catalog-bound query cursors. The semantic revision is a
+canonical digest of exact configuration, resolved types, and record contracts.
+View-only resource mutations advance the encrypted resource revision but retain the
+active projection generation because they cannot change a record projection. Exact
+authority remains available while a new semantic generation is built.
 
 ## Cursor and retention state machines
 

@@ -52,7 +52,8 @@ Connect owns:
 A projection is usable only when all of these match the request snapshot:
 
 - record identity and exact record revision;
-- active catalog/resource revision;
+- active semantic catalog revision, computed from exact configuration, resolved
+  types, and record contracts (not the broader resource revision);
 - semantic engine and projection format versions; and
 - current complete generation binding.
 
@@ -64,11 +65,19 @@ Record mutation scope checks no longer trust the unversioned `types` cache on th
 exact-record row: they canonically classify current ciphertext against the current
 resource catalog until an equivalently bound complete projection is proven.
 
-Resource changes advance the active catalog and open a rebuilding generation.
-Ordinary writes immediately target that catalog. Rebuild workers read exact record
-revisions, generate through mdbase-rs, and persist with record-revision and
-generation CAS. A transactional completion proof, not a checkpoint alone, marks a
-generation complete.
+Semantic resource changes advance the active catalog and open a rebuilding
+generation. Ordinary writes immediately target that catalog. Rebuild workers read
+exact record revisions, generate through mdbase-rs, and persist with record-revision
+and generation CAS. A transactional completion proof, not a checkpoint alone, marks
+a generation complete.
+
+The collection resource revision still binds the exact encrypted resource snapshot
+and resource mutation CAS. It includes non-semantic resources such as saved views.
+Changing a view therefore advances the resource revision without abandoning the
+active projection generation; changing configuration, a type, or a record contract
+changes the semantic digest and invalidates the binding. Authorization and query
+currentness never compare the broader resource revision as a substitute for this
+semantic digest.
 
 ## Structural relationship graph
 
