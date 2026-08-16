@@ -201,6 +201,138 @@ async fn candidate_b_projection_rebuild_abandons_an_oversized_first_record() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_recovery_rebuilds_pre_digest_active_projection_rows() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    put(
+        &fixture,
+        replica.get("id"),
+        u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap(),
+        Uuid::now_v7(),
+        None,
+        "recovered.md",
+        "---\ntype: note\n---\n# Recovered\n",
+    )
+    .await;
+    let legacy_generation = complete_generation(&fixture).await;
+
+    // Simulate rows written by a pre-0044 binary. The production migration
+    // deliberately leaves their new observed digest NULL so recovery must
+    // rebuild from encrypted exact authority instead of serving them forever
+    // through canonical fallback.
+    sqlx::query(
+        "ALTER TABLE hosted_provider_record_projections DISABLE TRIGGER \
+         hosted_provider_record_projection_digest_observer",
+    )
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"UPDATE hosted_provider_record_projections
+           SET projection_observed_digest = NULL
+           WHERE collection_id = $1 AND generation_id = $2
+             AND valid_to_sequence IS NULL"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(legacy_generation)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "ALTER TABLE hosted_provider_record_projections ENABLE TRIGGER \
+         hosted_provider_record_projection_digest_observer",
+    )
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+
+    let rebuilt_generation = loop {
+        fixture
+            .provider
+            .recover_projection_generations(10)
+            .await
+            .unwrap();
+        let active: Uuid = sqlx::query_scalar(
+            "SELECT active_projection_generation_id FROM hosted_provider_collections WHERE id = $1",
+        )
+        .bind(fixture.collection_id)
+        .fetch_one(&fixture.pool)
+        .await
+        .unwrap();
+        if active != legacy_generation {
+            break active;
+        }
+        tokio::task::yield_now().await;
+    };
+    let invalid_rows: i64 = sqlx::query_scalar(
+        r#"SELECT count(*)
+           FROM hosted_provider_record_projections
+           WHERE collection_id = $1 AND generation_id = $2
+             AND valid_to_sequence IS NULL
+             AND NOT hosted_provider_projection_digest_valid(
+               projection_digest, projection_observed_digest)"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(rebuilt_generation)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(invalid_rows, 0);
+
+    let application_token = format!("digest-recovery-{}-{}", Uuid::new_v4(), Uuid::new_v4());
+    fixture
+        .provider
+        .register_replica(
+            fixture.collection_id,
+            RegisterReplica {
+                replica_id: Uuid::now_v7(),
+                name: "Digest recovery reader".to_string(),
+                purpose: ReplicaPurpose::Application,
+                mode: SyncReplicaMode::ReadOnly,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
+                allowed_operations: vec!["query".to_string()],
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: Vec::new(),
+                file_capability: None,
+                allowed_origin: None,
+                proof_public_key: None,
+                grant_id: Some(Uuid::now_v7()),
+                application_declaration_id: None,
+                application_declaration_digest: None,
+                token: application_token.clone(),
+                token_ttl_seconds: None,
+            },
+        )
+        .await
+        .unwrap();
+    let query = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({"select": ["path"], "limit": 10}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(query["valid"], true);
+    assert_eq!(query["result"]["results"][0]["path"], "recovered.md");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
 async fn candidate_b_query_receipt_maintenance_is_global_and_bounded() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");

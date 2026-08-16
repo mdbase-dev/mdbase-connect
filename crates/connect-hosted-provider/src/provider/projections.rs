@@ -166,7 +166,21 @@ impl HostedProvider {
                FROM hosted_provider_collections collection
                WHERE collection.state = 'active'
                  AND collection.hosted_execution_model = 'candidate_b'
-                 AND collection.active_projection_generation_id IS NULL
+                 AND (
+                   collection.active_projection_generation_id IS NULL
+                   OR EXISTS (
+                     SELECT 1
+                     FROM hosted_provider_record_projections projection
+                     WHERE projection.collection_id = collection.id
+                       AND projection.generation_id =
+                           collection.active_projection_generation_id
+                       AND projection.valid_to_sequence IS NULL
+                       AND NOT hosted_provider_projection_digest_valid(
+                         projection.projection_digest,
+                         projection.projection_observed_digest
+                       )
+                   )
+                 )
                  AND NOT EXISTS (
                    SELECT 1 FROM hosted_provider_projection_generations generation
                    WHERE generation.collection_id = collection.id
@@ -501,6 +515,11 @@ impl HostedProvider {
                       AND p.generation_id = $2
                      WHERE p.record_id IS NULL OR p.record_revision <> r.revision
                         OR p.record_sequence <> r.sequence
+                        OR p.catalog_revision <> $4
+                        OR p.projection_format_version <> $5
+                        OR p.semantic_engine_version <> $6
+                        OR NOT hosted_provider_projection_digest_valid(
+                          p.projection_digest, p.projection_observed_digest)
                      UNION ALL
                      SELECT 1 FROM hosted_provider_record_projections p
                      LEFT JOIN live r ON r.record_id = p.record_id
@@ -511,6 +530,9 @@ impl HostedProvider {
             .bind(collection_id)
             .bind(generation_id)
             .bind(to_i64(source_head, "source head")?)
+            .bind(&catalog_revision)
+            .bind(to_i64(format_version, "projection format version")?)
+            .bind(&engine_version)
             .fetch_one(&mut *transaction)
             .await?;
             if stale_exists {
@@ -792,7 +814,13 @@ impl HostedProvider {
                       AND p.generation_id = $2
                      WHERE p.record_id IS NULL OR p.record_revision <> r.revision
                         OR p.record_sequence <> r.sequence
-                        OR p.resolution_complete = false
+                        OR p.catalog_revision <> $4
+                        OR p.projection_format_version <> $5
+                        OR p.semantic_engine_version <> $6
+                        OR NOT hosted_provider_projection_digest_valid(
+                          p.projection_digest, p.projection_observed_digest)
+                        OR NOT p.semantic_complete
+                        OR NOT p.resolution_complete
                      UNION ALL
                      SELECT 1 FROM hosted_provider_record_projections p
                      LEFT JOIN live r ON r.record_id = p.record_id
@@ -803,6 +831,9 @@ impl HostedProvider {
             .bind(collection_id)
             .bind(generation_id)
             .bind(to_i64(source_head, "source head")?)
+            .bind(&catalog_revision)
+            .bind(to_i64(format_version, "projection format version")?)
+            .bind(&engine_version)
             .fetch_one(&mut *transaction)
             .await?;
             if unsettled {
