@@ -12,6 +12,7 @@ impl HostedProvider {
         if changes.is_empty() {
             return Ok(());
         }
+        enable_projection_digest_write(transaction).await?;
         let binding = sqlx::query(
             r#"SELECT c.active_projection_generation_id AS generation_id,
                       c.active_catalog_revision AS catalog_revision,

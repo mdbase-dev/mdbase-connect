@@ -2200,6 +2200,22 @@ async fn candidate_b_query_receipt_maintenance_is_global_and_bounded() {
     assert!(payload_update
         .as_database_error()
         .is_some_and(|error| error.message().contains("response ciphertext is immutable")));
+    let replica_identity_update = sqlx::query(
+        r#"UPDATE hosted_provider_query_page_receipts
+           SET replica_id = gen_random_uuid()
+           WHERE collection_id = $1"#,
+    )
+    .bind(fixture.collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap_err();
+    assert!(replica_identity_update
+        .as_database_error()
+        .is_some_and(|error| {
+            error
+                .message()
+                .contains("replica and collection identities are immutable")
+        }));
     let (usage_count_after, usage_bytes_after, receipt_bytes_after): (i64, i64, i64) =
         sqlx::query_as(
             r#"SELECT usage.receipt_count, usage.ciphertext_bytes,
@@ -2521,6 +2537,20 @@ schema:
     )
     .await;
     let generation_id = complete_generation(&fixture).await;
+    let unguarded_digest_marker = sqlx::query(
+        r#"UPDATE hosted_provider_record_projections
+           SET projection_digest = decode(repeat('00', 32), 'hex')
+           WHERE collection_id = $1 AND generation_id = $2
+             AND valid_to_sequence IS NULL"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap_err();
+    assert!(unguarded_digest_marker
+        .as_database_error()
+        .is_some_and(|error| error.message().contains("trusted projection write path")));
     let resources_row = sqlx::query(
         "SELECT wrapped_data_key, resources_ciphertext FROM hosted_provider_collections WHERE id = $1",
     )

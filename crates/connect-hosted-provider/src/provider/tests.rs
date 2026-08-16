@@ -137,6 +137,28 @@ fn projection_digest_application_writes_do_not_create_a_second_tuple_version() {
 }
 
 #[test]
+fn query_receipt_identity_migration_preserves_usage_counter_ownership() {
+    let migration = include_str!("../../migrations/0057_query_receipt_identity_immutability.sql");
+    assert!(migration.contains("UPDATE OF replica_id, collection_id"));
+    assert!(migration.contains("replica and collection identities are immutable"));
+    assert!(!migration.contains("UPDATE OF account_id"));
+}
+
+#[test]
+fn projection_digest_marker_requires_transaction_local_writer_authority() {
+    let migration = include_str!("../../migrations/0058_projection_digest_write_guard.sql");
+    assert!(migration.contains("current_setting('mdbase.projection_digest_write', true)"));
+    assert!(migration.contains("ERRCODE = '42501'"));
+    let projections = include_str!("projections.rs");
+    assert!(projections.contains("SET LOCAL mdbase.projection_digest_write = 'on'"));
+    let rollback =
+        include_str!("../../../../deploy/postgres/preflight-hosted-provider-pre-0058-rollback.sql");
+    assert!(rollback.contains("query_admission_suspended = true"));
+    assert!(rollback.contains("hosted_execution_model = 'candidate_b'"));
+    assert!(rollback.contains("hosted_provider_record_projections"));
+}
+
+#[test]
 fn snapshot_cursor_index_keeps_path_and_identity_adjacent() {
     let migration = include_str!("../../migrations/0053_snapshot_path_cursor_index.sql");
     assert!(migration.starts_with("-- no-transaction"));

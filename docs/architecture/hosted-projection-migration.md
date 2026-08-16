@@ -14,6 +14,8 @@ Snapshot path cursor index: `crates/connect-hosted-provider/migrations/0053_snap
 Single-write digest binding: `crates/connect-hosted-provider/migrations/0054_projection_digest_single_write.sql`
 Snapshot mtime cursor index: `crates/connect-hosted-provider/migrations/0055_snapshot_mtime_cursor_index.sql`
 Versioned query-receipt compression: `crates/connect-hosted-provider/migrations/0056_query_receipt_compression.sql`
+Immutable receipt ownership: `crates/connect-hosted-provider/migrations/0057_query_receipt_identity_immutability.sql`
+Guarded digest binding: `crates/connect-hosted-provider/migrations/0058_projection_digest_write_guard.sql`
 
 ## Compatibility strategy
 
@@ -85,12 +87,15 @@ Migration 0044 adds a nullable observed digest and a row trigger without rewriti
 existing projection rows. Migration 0054 later removes the second application
 `UPDATE`: a Candidate B writer inserts an all-zero 32-byte expected digest as a
 trusted-application marker, and the `BEFORE` trigger replaces that marker with the
-database-canonical observed digest in the same tuple version. This marker is not a
-credential or a MAC; an actor already able to issue arbitrary trusted-database SQL
-can forge it. Unmarked SQL changes continue to advance only the observed side and
-therefore fail closed. Older dual-capable binaries retain their insert-then-refresh
-behavior across 0054, so schema-first code rollback remains possible before
-activation.
+database-canonical observed digest in the same tuple version. Migration 0058
+requires that marker to arrive through a transaction that explicitly enables the
+projection-writer capability. The capability is not a credential or a MAC—an actor
+already trusted to issue arbitrary database SQL can still calculate the unkeyed
+digest—but it prevents incidental SQL and future generic maintenance paths from
+silently blessing changed readable state. Unmarked SQL changes continue to advance
+only the observed side and therefore fail closed. A pre-0058 binary is compatible
+only before Candidate B activation and before any projection rows exist; the
+rollback preflight enforces that boundary.
 Every SQL currentness predicate compares those two 32-byte values before candidate
 filtering or authorization. Any older row or changed path, type set, file fact,
 semantic payload, structural digest, completeness flag, or binding therefore enters
@@ -215,6 +220,12 @@ Migration 0051 makes the encrypted response payload immutable in PostgreSQL. Acc
 reconciliation may still rebind the receipt's account identifier, but no runtime or
 operator path may change its ciphertext footprint without deleting and recreating
 the ephemeral receipt through the ordinary admission path.
+Migration 0057 also makes the receipt's replica and collection identities immutable.
+Those identities determine the transactionally maintained usage-counter keys;
+rejecting rebinding prevents a maintenance update from leaving replica or collection
+counters attached to the wrong durable receipt. Account identity remains the sole
+mutable ownership field because reconciliation moves its counter in the same
+transaction.
 Migration 0056 adds an explicit response encoding. Legacy and rollback writers keep
 the `json-v1` default; Candidate B writers serialize once, enforce the plaintext
 receipt ceiling, compress beneficial payloads as `zstd-json-v1`, and then encrypt.
@@ -346,6 +357,12 @@ pre-0056 gate runs before the existing pre-0044 and pre-0040 compatibility
 checks, so lost-response replay is never handed to a binary that cannot decode
 its durable receipt.
 
+Rollback to a provider predating migration 0058 additionally requires zero
+Candidate B collections and zero projection rows. The image-bundled pre-0058 gate
+runs while query admission is fenced. Once readable projection state exists,
+rollback must use a digest-guard-aware image; dropping projection rows to force an
+older binary through the gate is not an accepted recovery action.
+
 Ordinary writes after activation always generate against the active catalog. They
 close prior temporal rows and commit ciphertext, revision, current projection
 binding, relationship state, versions/changes, quotas, journal settlement, receipt,
@@ -394,13 +411,18 @@ remains available for draining. The rollback sequence is:
 
 1. run `deploy/postgres/suspend-hosted-query-admission-for-rollback.sql`;
 2. drain or release live cursors and wait for active hosted-query sessions to end;
-3. before a pre-0044 binary, return every activated collection to encrypted-exact
+3. before a pre-0058 binary, run
+   `preflight-hosted-provider-pre-0058-rollback.sql`; it succeeds only when no
+   Candidate B collection or projection row exists;
+4. before a pre-0056 binary, additionally drain compressed receipts and run
+   `preflight-hosted-provider-pre-0056-rollback.sql`;
+5. before a pre-0044 binary, return every activated collection to encrypted-exact
    legacy execution with
    `deactivate-candidate-b-collection-for-rollback.sql`, then run
    `preflight-hosted-provider-pre-0044-rollback.sql`;
-4. before a pre-0040 binary, additionally run
+6. before a pre-0040 binary, additionally run
    `preflight-hosted-provider-pre-0040-rollback.sql`;
-5. switch and verify the selected binary; then run
+7. switch and verify the selected binary; then run
    `resume-hosted-query-admission.sql` only when it is safe to accept traffic.
 
 The pre-0044 gate is mandatory because that older writer places a semantic digest

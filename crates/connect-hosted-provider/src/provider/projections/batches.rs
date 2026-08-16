@@ -13,6 +13,7 @@ impl HostedProvider {
         sqlx::query("SET LOCAL statement_timeout = 15000")
             .execute(&mut *transaction)
             .await?;
+        enable_projection_digest_write(&mut transaction).await?;
         let generation = sqlx::query(
             r#"UPDATE hosted_provider_projection_generations
                SET lease_owner = $3,
@@ -421,6 +422,7 @@ impl HostedProvider {
         sqlx::query("SET LOCAL statement_timeout = 15000")
             .execute(&mut *transaction)
             .await?;
+        enable_projection_digest_write(&mut transaction).await?;
         let may_complete: bool = sqlx::query_scalar(
             r#"SELECT NOT EXISTS (
                  SELECT 1 FROM hosted_provider_record_projections

@@ -9,6 +9,15 @@ const MAX_RELATIONSHIP_REVALIDATION_RECORDS: usize = 200;
 const MAX_RELATIONSHIP_REVALIDATION_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_RETAINED_PROJECTION_GENERATIONS: i64 = 4;
 
+async fn enable_projection_digest_write(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> ApiResult<()> {
+    sqlx::query("SET LOCAL mdbase.projection_digest_write = 'on'")
+        .execute(&mut **transaction)
+        .await?;
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct HostedProjectionGeneration {
     pub collection_id: Uuid,
