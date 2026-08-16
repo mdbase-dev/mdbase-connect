@@ -141,7 +141,16 @@ fn collection_identity_survives_a_folder_move() {
         created.id.to_string()
     );
 
+    // Windows does not permit renaming a directory while the filesystem runtime's
+    // watcher still has an open handle beneath it. A real folder move therefore
+    // happens while Connect is stopped; reopen the durable registry afterwards to
+    // exercise the same identity/path repair contract without relying on Unix
+    // rename semantics.
+    #[cfg(windows)]
+    drop(registry);
     fs::rename(&original, &moved).unwrap();
+    #[cfg(windows)]
+    let registry = CollectionRegistry::open(state.path()).unwrap();
     let registered_after_move = registry.add(&moved).unwrap();
 
     assert_eq!(registered_after_move.id, created.id);
