@@ -188,9 +188,21 @@ foreign key, so later pages do not rewrite the same large JSON state. The migrat
 backfills live inline Base cursors and keeps the inline form valid for old writers
 during rollback. A binary rolled back before 0040 cannot consume already-migrated
 invocation-backed cursors; those cursors have a five-minute hard lifetime and may
-be explicitly released or allowed to expire before rollback. Cleanup removes an
-invocation after its last cursor is consumed/released and removes expired orphans
-during compaction and projection pruning.
+be explicitly released or allowed to expire before rollback. A rollback to any
+provider binary predating 0040 **must** run the fail-closed executable preflight
+before changing the binary:
+
+```sh
+psql "$DATABASE_URL" --single-transaction \
+  --file deploy/postgres/preflight-hosted-provider-pre-0040-rollback.sql
+```
+
+The command exits non-zero while any live invocation-backed Base cursor remains.
+Clients should send the ordinary `release_cursor` query control, or operators must
+wait for the five-minute hard lifetime and maintenance cleanup; deleting live rows
+with ad-hoc SQL is not an accepted rollback step. Cleanup removes an invocation
+after its last cursor is consumed/released and removes expired orphans during
+compaction and projection pruning.
 
 Ordinary writes after activation always generate against the active catalog. They
 close prior temporal rows and commit ciphertext, revision, current projection
@@ -231,6 +243,11 @@ remain unused and no canonical state changed. During an isolated activated stagi
 test, an operator may invalidate query cursors and atomically null all four
 collection binding fields to return traffic to the encrypted exact path while
 retaining generation-scoped projection rows for diagnosis.
+
+The statement above applies to the immediately preceding Candidate B binary. A
+deeper rollback to a build predating migration 0040 is blocked until
+`preflight-hosted-provider-pre-0040-rollback.sql` succeeds. Deployment automation
+must treat that preflight as a required gate, not an advisory diagnostic.
 
 Dropping projection rows or schema is unnecessary for code rollback and should not
 be coupled to it. Provider-readable projection values may already exist in database

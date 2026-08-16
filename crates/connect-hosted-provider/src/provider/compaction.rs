@@ -1,6 +1,8 @@
 use super::projections::prune_unpinned_projection_generations_in;
 use super::*;
 
+const MAX_EXPIRED_QUERY_PAGE_RECEIPTS_PER_MAINTENANCE: i64 = 1_000;
+
 impl HostedProvider {
     pub async fn compact_through(&self, collection_id: Uuid, through: u64) -> ApiResult<()> {
         let mut transaction = self.pool.begin().await?;
@@ -224,6 +226,8 @@ impl HostedProvider {
     /// snapshot-reset path on their next pull.
     pub async fn compact_stale_history(&self, retain_changes: u64) -> ApiResult<usize> {
         self.compact_operation_mutations().await?;
+        self.compact_expired_query_page_receipts(MAX_EXPIRED_QUERY_PAGE_RECEIPTS_PER_MAINTENANCE)
+            .await?;
         let rows = sqlx::query(
             r#"SELECT id, head
                FROM hosted_provider_collections
@@ -242,6 +246,33 @@ impl HostedProvider {
             compacted += 1;
         }
         Ok(compacted)
+    }
+
+    /// Delete a deterministic, bounded expiry window. This runs on every
+    /// maintenance tick even when no collection has enough change history to
+    /// trigger ordinary compaction, so retry receipts cannot become a durable
+    /// encrypted-response archive.
+    pub async fn compact_expired_query_page_receipts(&self, limit: i64) -> ApiResult<usize> {
+        let limit = limit.clamp(1, MAX_EXPIRED_QUERY_PAGE_RECEIPTS_PER_MAINTENANCE);
+        let deleted = sqlx::query(
+            r#"WITH expired AS MATERIALIZED (
+                 SELECT replica_id, request_id
+                 FROM hosted_provider_query_page_receipts
+                 WHERE expires_at <= now()
+                 ORDER BY expires_at, collection_id, replica_id, request_id
+                 LIMIT $1
+               )
+               DELETE FROM hosted_provider_query_page_receipts receipt
+               USING expired
+               WHERE receipt.replica_id = expired.replica_id
+                 AND receipt.request_id = expired.request_id"#,
+        )
+        .bind(limit)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        usize::try_from(deleted)
+            .map_err(|_| ApiError::internal("Expired query receipt count overflowed."))
     }
 
     pub async fn delete_pending_blobs(&self, limit: u32) -> ApiResult<usize> {

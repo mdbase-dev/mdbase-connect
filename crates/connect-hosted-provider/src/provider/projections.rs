@@ -172,10 +172,25 @@ impl HostedProvider {
                    WHERE generation.collection_id = collection.id
                      AND generation.status = 'building'
                  )
+                 AND NOT EXISTS (
+                   SELECT 1 FROM hosted_provider_projection_generations terminal
+                   WHERE terminal.collection_id = collection.id
+                     AND terminal.status = 'abandoned'
+                     AND terminal.last_error_code = 'projection_record_too_large'
+                     AND terminal.source_head = collection.head
+                     AND terminal.target_catalog_revision = collection.resource_revision
+                     AND terminal.projection_format_version = $2
+                     AND terminal.semantic_engine_version = $3
+                 )
                ORDER BY collection.updated_at, collection.id
                LIMIT $1"#,
         )
         .bind(limit)
+        .bind(to_i64(
+            u64::from(mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION),
+            "projection format version",
+        )?)
+        .bind(mdbase::VERSION)
         .fetch_all(&self.pool)
         .await?;
         for row in missing {
@@ -239,6 +254,14 @@ impl HostedProvider {
                         %generation_id,
                         error_code = %error.code,
                         "projection rebuild yielded to a fence or newer source"
+                    );
+                }
+                Err(error) if error.code == "projection_record_too_large" => {
+                    tracing::warn!(
+                        %collection_id,
+                        %generation_id,
+                        error_code = %error.code,
+                        "projection rebuild was quarantined until exact authority or catalog changes"
                     );
                 }
                 Err(error) => return Err(error),
@@ -445,6 +468,21 @@ impl HostedProvider {
 
         let mut phase_advanced = false;
         if rows.is_empty() {
+            if let Some(observed) = abandon_oversized_projection_candidate(
+                &mut transaction,
+                collection_id,
+                generation_id,
+                checkpoint,
+                source_head,
+                self.process_epoch,
+                fence,
+                &catalog_revision,
+            )
+            .await?
+            {
+                transaction.commit().await?;
+                return Err(projection_record_too_large(observed));
+            }
             let stale_exists: bool = sqlx::query_scalar(
                 r#"WITH snapshot AS (
                      SELECT DISTINCT ON (record_id)
@@ -919,6 +957,7 @@ impl HostedProvider {
 }
 
 include!("projections/pruning.rs");
+include!("projections/rebuild_limits.rs");
 include!("projections/activation.rs");
 include!("projections/persistence.rs");
 include!("projections/catalog_binding.rs");

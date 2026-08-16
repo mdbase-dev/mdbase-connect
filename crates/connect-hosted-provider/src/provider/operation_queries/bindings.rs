@@ -104,6 +104,46 @@ async fn store_query_page_receipt(
         result,
         &query_page_receipt_aad(collection_id, replica.id, request_id),
     )?;
+    let ciphertext_bytes = ciphertext.len() as u64;
+    if ciphertext_bytes > MAX_QUERY_PAGE_RECEIPT_CIPHERTEXT_BYTES {
+        return Err(query_budget_error(
+            "hosted_query_receipt_byte_budget_exceeded",
+            "The encrypted hosted query response exceeds the durable retry-receipt budget.",
+            "query_receipt_ciphertext_bytes",
+            MAX_QUERY_PAGE_RECEIPT_CIPHERTEXT_BYTES,
+            ciphertext_bytes,
+        ));
+    }
+    // Serialize receipt admission for one replica. A request that reached this
+    // point did not replay an existing receipt, so every admitted row consumes
+    // one slot until its short hard expiry or explicit maintenance cleanup.
+    sqlx::query("SELECT id FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE")
+        .bind(replica.id)
+        .execute(&mut **transaction)
+        .await?;
+    sqlx::query(
+        r#"DELETE FROM hosted_provider_query_page_receipts
+           WHERE replica_id = $1 AND expires_at <= now()"#,
+    )
+    .bind(replica.id)
+    .execute(&mut **transaction)
+    .await?;
+    let live_receipts: i64 = sqlx::query_scalar(
+        r#"SELECT count(*) FROM hosted_provider_query_page_receipts
+           WHERE replica_id = $1 AND expires_at > now()"#,
+    )
+    .bind(replica.id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    if live_receipts >= MAX_QUERY_PAGE_RECEIPTS_PER_REPLICA {
+        return Err(query_budget_error(
+            "hosted_query_receipt_count_budget_exceeded",
+            "The application replica has too many live hosted query retry receipts.",
+            "live_query_receipts",
+            MAX_QUERY_PAGE_RECEIPTS_PER_REPLICA as u64,
+            live_receipts as u64,
+        ));
+    }
     sqlx::query(
         r#"INSERT INTO hosted_provider_query_page_receipts
              (replica_id, request_id, collection_id, scope_epoch, request_kind,

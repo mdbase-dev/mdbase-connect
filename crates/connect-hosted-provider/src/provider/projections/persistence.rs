@@ -454,6 +454,19 @@ fn projection_budget(kind: &str) -> ApiError {
     .with_details(json!({"budget_kind": kind}))
 }
 
+fn projection_record_too_large(observed: u64) -> ApiError {
+    ApiError::quota(
+        "projection_record_too_large",
+        "One encrypted exact record exceeds the bounded projection rebuild window.",
+    )
+    .with_details(json!({
+        "budget": "projection_batch_ciphertext_bytes",
+        "limit": MAX_PROJECTION_BATCH_CIPHERTEXT_BYTES,
+        "observed": observed,
+        "terminal": true,
+    }))
+}
+
 fn projection_semantic_error(error: mdbase::runtime::CatalogError) -> ApiError {
     ApiError::new(
         StatusCode::UNPROCESSABLE_ENTITY,

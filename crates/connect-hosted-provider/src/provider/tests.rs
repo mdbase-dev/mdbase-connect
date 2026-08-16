@@ -25,6 +25,18 @@ fn base_invocation_migration_releases_the_legacy_constraint_before_backfill() {
 }
 
 #[test]
+fn pre_0040_rollback_preflight_fails_closed_on_live_invocation_cursors() {
+    let preflight =
+        include_str!("../../../../deploy/postgres/preflight-hosted-provider-pre-0040-rollback.sql");
+    assert!(preflight.contains("\\set ON_ERROR_STOP on"));
+    assert!(preflight.contains("base_invocation_id IS NOT NULL"));
+    assert!(preflight.contains("expires_at > now()"));
+    assert!(preflight.contains("hard_expires_at > now()"));
+    assert!(preflight.contains("RAISE EXCEPTION"));
+    assert!(preflight.contains("candidate_b_pre_0040_rollback_blocked"));
+}
+
+#[test]
 fn hosted_transport_expansion_is_bounded_to_mutation_recovery() {
     let temporarily_unbound = AuthorizedRequest {
         operation_transport_protocol: None,

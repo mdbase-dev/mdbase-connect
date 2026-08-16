@@ -113,6 +113,262 @@ async fn candidate_b_migration_0040_upgrades_a_live_legacy_base_cursor() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_projection_rebuild_abandons_an_oversized_first_record() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let record_id = Uuid::now_v7();
+    put(
+        &fixture,
+        replica.get("id"),
+        u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap(),
+        record_id,
+        None,
+        "oversized.md",
+        "Small canonical record before the corruption fixture.\n",
+    )
+    .await;
+    sqlx::query(
+        r#"UPDATE hosted_provider_record_versions
+           SET payload_ciphertext = decode(repeat('00', 16777217), 'hex')
+           WHERE collection_id = $1 AND record_id = $2 AND deleted = false"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(record_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+
+    let generation = fixture
+        .provider
+        .start_projection_generation(fixture.collection_id)
+        .await
+        .unwrap();
+    let error = fixture
+        .provider
+        .project_generation_batch(fixture.collection_id, generation.generation_id, 1)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, "projection_record_too_large");
+    assert_eq!(error.details.as_ref().unwrap()["terminal"], true);
+    let state = sqlx::query(
+        r#"SELECT status, last_error_code, lease_owner, abandoned_at
+           FROM hosted_provider_projection_generations
+           WHERE collection_id = $1 AND generation_id = $2"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation.generation_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(state.get::<String, _>("status"), "abandoned");
+    assert_eq!(
+        state.get::<Option<String>, _>("last_error_code").as_deref(),
+        Some("projection_record_too_large")
+    );
+    assert!(state.get::<Option<Uuid>, _>("lease_owner").is_none());
+    assert!(state
+        .get::<Option<DateTime<Utc>>, _>("abandoned_at")
+        .is_some());
+    let generation_count_before: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_projection_generations WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    fixture
+        .provider
+        .recover_projection_generations(100)
+        .await
+        .unwrap();
+    let generation_count_after: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_projection_generations WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(generation_count_after, generation_count_before);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_query_receipt_maintenance_is_global_and_bounded() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let replica_id: Uuid =
+        sqlx::query_scalar("SELECT id FROM hosted_provider_replicas WHERE collection_id = $1")
+            .bind(fixture.collection_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_query_page_receipts
+             (replica_id, request_id, collection_id, scope_epoch, request_kind,
+              input_digest, response_ciphertext, expires_at)
+           SELECT $1, md5('expired-query-receipt-' || g::text)::uuid, $2, 1,
+                  'query', decode(repeat('11', 32), 'hex'), decode('00', 'hex'),
+                  now() - interval '100 years'
+           FROM generate_series(1, 1001) AS g"#,
+    )
+    .bind(replica_id)
+    .bind(fixture.collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_query_page_receipts
+             (replica_id, request_id, collection_id, scope_epoch, request_kind,
+              input_digest, response_ciphertext, expires_at)
+           VALUES ($1, md5('live-query-receipt')::uuid, $2, 1, 'query',
+                   decode(repeat('22', 32), 'hex'), decode('00', 'hex'),
+                   now() + interval '5 minutes')"#,
+    )
+    .bind(replica_id)
+    .bind(fixture.collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        fixture
+            .provider
+            .compact_expired_query_page_receipts(i64::MAX)
+            .await
+            .unwrap(),
+        1_000
+    );
+    let remaining_expired: i64 = sqlx::query_scalar(
+        r#"SELECT count(*) FROM hosted_provider_query_page_receipts
+           WHERE collection_id = $1 AND expires_at <= now()"#,
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(remaining_expired, 1);
+    let second_window = fixture
+        .provider
+        .compact_expired_query_page_receipts(i64::MAX)
+        .await
+        .unwrap();
+    assert!((1..=1_000).contains(&second_window));
+    let final_expired: i64 = sqlx::query_scalar(
+        r#"SELECT count(*) FROM hosted_provider_query_page_receipts
+           WHERE collection_id = $1 AND expires_at <= now()"#,
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(final_expired, 0);
+    let remaining_live: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_query_page_receipts WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(remaining_live, 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_query_receipts_have_a_typed_per_replica_count_budget() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let mirror = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    put(
+        &fixture,
+        mirror.get("id"),
+        u64::try_from(mirror.get::<i64, _>("scope_epoch")).unwrap(),
+        Uuid::now_v7(),
+        None,
+        "receipt-budget.md",
+        "Receipt budget fixture.\n",
+    )
+    .await;
+    complete_generation(&fixture).await;
+    let replica_id = Uuid::now_v7();
+    let token = format!("candidate-b-receipt-budget-{}", Uuid::new_v4());
+    fixture
+        .provider
+        .register_replica(
+            fixture.collection_id,
+            RegisterReplica {
+                replica_id,
+                name: "Candidate B receipt budget reader".to_string(),
+                purpose: ReplicaPurpose::Application,
+                mode: SyncReplicaMode::ReadOnly,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
+                allowed_operations: vec!["query".to_string()],
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: Vec::new(),
+                file_capability: None,
+                allowed_origin: None,
+                proof_public_key: None,
+                grant_id: Some(Uuid::now_v7()),
+                application_declaration_id: None,
+                application_declaration_digest: None,
+                token: token.clone(),
+                token_ttl_seconds: None,
+            },
+        )
+        .await
+        .unwrap();
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_query_page_receipts
+             (replica_id, request_id, collection_id, scope_epoch, request_kind,
+              input_digest, response_ciphertext, expires_at)
+           SELECT $1, md5('live-query-budget-' || g::text)::uuid, $2, 1,
+                  'query', decode(repeat('33', 32), 'hex'), decode('00', 'hex'),
+                  now() + interval '5 minutes'
+           FROM generate_series(1, 64) AS g"#,
+    )
+    .bind(replica_id)
+    .bind(fixture.collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let error = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "query",
+            Uuid::new_v4(),
+            json!({"limit": 1, "order_by": [{"field": "file.path"}]}),
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, "hosted_query_receipt_count_budget_exceeded");
+    assert_eq!(
+        error.details.as_ref().unwrap()["budget"],
+        "live_query_receipts"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
 async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
@@ -1247,6 +1503,7 @@ views:
     assert!(base_cursor_state
         .get::<Option<Vec<u8>>, _>("exact_context_ciphertext")
         .is_none());
+    Box::pin(assert_pre_0040_rollback_preflight(&fixture, true)).await;
     let changed_base = tasknotes_base.replace(
         "if(priority == \"high\", 2, 1)",
         "if(priority == \"high\", 0, 3)",
@@ -1300,6 +1557,7 @@ views:
     .await
     .unwrap();
     assert_eq!(remaining_invocations, 0);
+    Box::pin(assert_pre_0040_rollback_preflight(&fixture, false)).await;
 
     let stable_view_document = "---\ntype: view\nid: stable.views\nversion: 1\nname: Stable\nquery:\n  where: this.id == 'stable.views'\nviews:\n  - id: all\n    name: All\n---\n";
     let stable_view = fixture
@@ -3091,6 +3349,26 @@ async fn complete_generation(fixture: &FileLifecycleFixture) -> Uuid {
             return generation.generation_id;
         }
     }
+}
+
+async fn assert_pre_0040_rollback_preflight(
+    fixture: &FileLifecycleFixture,
+    expected_blocked: bool,
+) {
+    let blocked: bool = sqlx::query_scalar(
+        r#"SELECT EXISTS (
+             SELECT 1
+             FROM hosted_provider_query_cursors
+             WHERE request_kind = 'obsidian_base'
+               AND base_invocation_id IS NOT NULL
+               AND expires_at > now()
+               AND hard_expires_at > now()
+           )"#,
+    )
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(blocked, expected_blocked);
 }
 
 async fn put(
