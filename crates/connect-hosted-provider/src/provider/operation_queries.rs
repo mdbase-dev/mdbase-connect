@@ -1,5 +1,6 @@
 use super::operation_reads::{compile_point_catalog, load_direct_record, DirectRecordIdentity};
 use super::*;
+use crate::HostedExecutionBudgetManifest;
 
 const QUERY_CURSOR_IDLE_SECONDS: i64 = 60;
 const QUERY_CURSOR_HARD_SECONDS: i64 = 300;
@@ -142,6 +143,50 @@ impl HostedProvider {
         input: &Value,
         request_kind: HostedQueryRequestKind,
     ) -> ApiResult<OperationResult> {
+        let budgets = &HostedExecutionBudgetManifest::published().defaults;
+        let deadline_ms = budgets
+            .operation_deadline_ms
+            .min(budgets.snapshot_lifetime_ms);
+        match tokio::time::timeout(
+            Duration::from_millis(deadline_ms),
+            self.execute_hosted_query_request_inner(collection_id, replica, input, request_kind),
+        )
+        .await
+        {
+            Ok(Err(error))
+                if error.code == "provider_database_timeout"
+                    && error
+                        .details
+                        .as_ref()
+                        .and_then(|details| details["timeout_class"].as_str())
+                        == Some("statement") =>
+            {
+                Err(query_budget_error(
+                    "hosted_time_budget_exceeded",
+                    "The hosted query exceeded its database statement-time budget.",
+                    "wall_time_ms",
+                    deadline_ms,
+                    deadline_ms,
+                ))
+            }
+            Ok(result) => result,
+            Err(_) => Err(query_budget_error(
+                "hosted_time_budget_exceeded",
+                "The hosted query exceeded its operation or snapshot-lifetime budget.",
+                "wall_time_ms",
+                deadline_ms,
+                deadline_ms.saturating_add(1),
+            )),
+        }
+    }
+
+    async fn execute_hosted_query_request_inner(
+        &self,
+        collection_id: Uuid,
+        replica: &Replica,
+        input: &Value,
+        request_kind: HostedQueryRequestKind,
+    ) -> ApiResult<OperationResult> {
         if let Some(release) = input.get("release_cursor") {
             let cursor = release.as_str().ok_or_else(|| {
                 ApiError::bad_request(
@@ -213,7 +258,14 @@ impl HostedProvider {
         sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             .execute(&mut *transaction)
             .await?;
-        sqlx::query("SET LOCAL statement_timeout = 15000")
+        let budgets = &HostedExecutionBudgetManifest::published().defaults;
+        let statement_timeout_ms = budgets
+            .operation_deadline_ms
+            .min(budgets.snapshot_lifetime_ms)
+            .saturating_sub(budgets.cancellation_cleanup_ms)
+            .max(1);
+        sqlx::query("SELECT set_config('statement_timeout', $1, true)")
+            .bind(format!("{statement_timeout_ms}ms"))
             .execute(&mut *transaction)
             .await?;
         sqlx::query("SET LOCAL lock_timeout = 5000")
