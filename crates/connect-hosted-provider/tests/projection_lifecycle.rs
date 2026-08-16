@@ -5320,6 +5320,11 @@ async fn candidate_b_base_candidate_prunes_fixture(database_url: &str, decoy_cou
   - type: table
     name: All
     order: [file.name]
+  - type: table
+    name: Created
+    sort:
+      - property: file.ctime
+        direction: ASC
 "##;
     fixture
         .provider
@@ -5333,6 +5338,54 @@ async fn candidate_b_base_candidate_prunes_fixture(database_url: &str, decoy_cou
         )
         .await
         .unwrap();
+    for view in ["tasks", "all"] {
+        let oversized_offset = fixture
+            .provider
+            .operation(
+                fixture.collection_id,
+                &token,
+                "execute_view",
+                Uuid::new_v4(),
+                json!({
+                    "path": "views/tasks.base",
+                    "view": view,
+                    "offset": 10_001,
+                }),
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(oversized_offset["valid"], false);
+        assert_eq!(
+            oversized_offset["diagnostics"][0]["code"],
+            "hosted_offset_budget_exceeded"
+        );
+    }
+    let ctime = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "execute_view",
+            Uuid::new_v4(),
+            json!({"path": "views/tasks.base", "view": "created"}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(ctime["valid"], false);
+    assert_eq!(
+        ctime["diagnostics"][0]["code"],
+        "hosted_base_file_ctime_unavailable"
+    );
+    let invalid_cursor_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_query_cursors WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(invalid_cursor_count, 0);
     let result = fixture
         .provider
         .operation(
