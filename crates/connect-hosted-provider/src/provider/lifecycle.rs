@@ -14,12 +14,16 @@ impl HostedProvider {
                 Ok(pool) => match hosted_migrator().run(&pool).await {
                     Ok(()) => match verify_database_key(&pool, &crypto).await {
                         Ok(()) => {
+                            let query_cancellation_pool = hosted_cancellation_pool_options()
+                                .connect_lazy(database_url)
+                                .map_err(ApiError::from)?;
                             let notifications = notification_config
                                 .clone()
                                 .map(|config| HostedNotificationRuntime::new(pool.clone(), config))
                                 .transpose()?;
                             let provider = Self {
                                 pool,
+                                query_cancellation_pool,
                                 process_epoch: Uuid::new_v4(),
                                 crypto,
                                 key_readiness: Arc::new(Mutex::new(KeyReadinessState {
@@ -45,6 +49,7 @@ impl HostedProvider {
                                     },
                                 )),
                                 blob_store,
+                                query_activity: Arc::new(HostedQueryActivityCounters::default()),
                             };
                             provider.migrate_legacy_sync_receipts().await?;
                             if let Some(notifications) = &provider.notifications {
@@ -238,6 +243,23 @@ impl HostedProvider {
     }
 }
 
+impl HostedProvider {
+    /// Privacy-safe live resource gauges used by cancellation and leak
+    /// monitoring. They contain no collection, query, or plaintext content.
+    pub fn hosted_query_activity(&self) -> HostedQueryActivity {
+        HostedQueryActivity {
+            active_queries: self
+                .query_activity
+                .active_queries
+                .load(AtomicOrdering::Relaxed),
+            plaintext_scopes: self
+                .query_activity
+                .plaintext_scopes
+                .load(AtomicOrdering::Relaxed),
+        }
+    }
+}
+
 fn key_readiness_unavailable() -> ApiError {
     ApiError::new(
         StatusCode::SERVICE_UNAVAILABLE,
@@ -267,6 +289,15 @@ fn hosted_pool_options() -> PgPoolOptions {
                 Ok(())
             })
         })
+}
+
+fn hosted_cancellation_pool_options() -> PgPoolOptions {
+    PgPoolOptions::new()
+        .max_connections(2)
+        .min_connections(0)
+        .acquire_timeout(Duration::from_secs(1))
+        .idle_timeout(Duration::from_secs(60))
+        .max_lifetime(Duration::from_secs(5 * 60))
 }
 
 #[cfg(test)]

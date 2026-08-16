@@ -34,8 +34,8 @@ pub use key_wrapping::{
 pub use notifications::{HostedNotificationConfig, HostedNotificationRuntime};
 pub use provider::{
     HostedMutationJournalDiagnostics, HostedProjectionBatch, HostedProjectionGeneration,
-    HostedProvider, NotificationRecoveryState, NotificationRecoveryStatus, PrepareAuthorityImport,
-    PrepareAuthorityTransfer, ProviderAccountLimits, ProviderAccountUsage, ProviderAuthorityImport,
-    ProviderAuthorityImportState, ProviderAuthorityTransfer, ProviderAuthorityTransferState,
-    ProviderLimits, RegisterReplica, ReplicaPurpose,
+    HostedProvider, HostedQueryActivity, NotificationRecoveryState, NotificationRecoveryStatus,
+    PrepareAuthorityImport, PrepareAuthorityTransfer, ProviderAccountLimits, ProviderAccountUsage,
+    ProviderAuthorityImport, ProviderAuthorityImportState, ProviderAuthorityTransfer,
+    ProviderAuthorityTransferState, ProviderLimits, RegisterReplica, ReplicaPurpose,
 };

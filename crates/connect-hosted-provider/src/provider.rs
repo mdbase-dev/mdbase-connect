@@ -1,5 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicU64, Ordering as AtomicOrdering},
+    Arc,
+};
 use std::time::{Duration, Instant};
 
 use axum::http::StatusCode;
@@ -29,7 +32,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::{
     postgres::{PgPoolOptions, PgRow},
-    PgPool, Postgres, QueryBuilder, Row, Transaction,
+    Acquire, PgPool, Postgres, QueryBuilder, Row, Transaction,
 };
 use subtle::ConstantTimeEq;
 use tokio::sync::{Mutex, RwLock};
@@ -187,6 +190,7 @@ impl Default for ProviderLimits {
 #[derive(Clone)]
 pub struct HostedProvider {
     pool: PgPool,
+    query_cancellation_pool: PgPool,
     process_epoch: Uuid,
     crypto: ProviderCrypto,
     key_readiness: Arc<Mutex<KeyReadinessState>>,
@@ -196,6 +200,104 @@ pub struct HostedProvider {
     notification_recovery_guard: Arc<Mutex<()>>,
     notification_recovery: Arc<RwLock<NotificationRecoveryStatus>>,
     blob_store: Arc<dyn BlobStore>,
+    query_activity: Arc<HostedQueryActivityCounters>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+pub struct HostedQueryActivity {
+    pub active_queries: u64,
+    pub plaintext_scopes: u64,
+}
+
+#[derive(Default)]
+struct HostedQueryActivityCounters {
+    active_queries: AtomicU64,
+    plaintext_scopes: AtomicU64,
+}
+
+struct HostedQueryActivityGuard {
+    counters: Arc<HostedQueryActivityCounters>,
+    plaintext: bool,
+}
+
+struct PostgresQueryCancellationGuard {
+    pool: PgPool,
+    backend_pid: i32,
+    armed: bool,
+}
+
+impl PostgresQueryCancellationGuard {
+    fn new(pool: PgPool, backend_pid: i32) -> Self {
+        Self {
+            pool,
+            backend_pid,
+            armed: true,
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for PostgresQueryCancellationGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let pool = self.pool.clone();
+        let backend_pid = self.backend_pid;
+        tokio::spawn(async move {
+            let cancelled = tokio::time::timeout(
+                Duration::from_secs(2),
+                sqlx::query_scalar::<_, bool>("SELECT pg_cancel_backend($1)")
+                    .bind(backend_pid)
+                    .fetch_one(&pool),
+            )
+            .await;
+            if !matches!(cancelled, Ok(Ok(true))) {
+                tracing::warn!(
+                    target: "mdbase_connect::metrics",
+                    metric = "hosted_query_cancel_failed",
+                    "privacy-safe hosted provider metric"
+                );
+            }
+        });
+    }
+}
+
+impl HostedQueryActivityGuard {
+    fn begin(counters: Arc<HostedQueryActivityCounters>) -> Self {
+        counters
+            .active_queries
+            .fetch_add(1, AtomicOrdering::Relaxed);
+        Self {
+            counters,
+            plaintext: false,
+        }
+    }
+
+    fn acquire_plaintext(&mut self) {
+        if !self.plaintext {
+            self.counters
+                .plaintext_scopes
+                .fetch_add(1, AtomicOrdering::Relaxed);
+            self.plaintext = true;
+        }
+    }
+}
+
+impl Drop for HostedQueryActivityGuard {
+    fn drop(&mut self) {
+        if self.plaintext {
+            self.counters
+                .plaintext_scopes
+                .fetch_sub(1, AtomicOrdering::Relaxed);
+        }
+        self.counters
+            .active_queries
+            .fetch_sub(1, AtomicOrdering::Relaxed);
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

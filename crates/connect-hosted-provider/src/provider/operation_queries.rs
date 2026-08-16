@@ -71,7 +71,27 @@ impl HostedProvider {
         }
 
         let started = Instant::now();
-        let mut transaction = self.pool.begin().await?;
+        let mut activity = HostedQueryActivityGuard::begin(self.query_activity.clone());
+        let connection_wait_ms =
+            mdbase::runtime::HostedQueryBudgets::default().max_connection_wait_ms;
+        let mut connection = match tokio::time::timeout(
+            Duration::from_millis(connection_wait_ms),
+            self.pool.acquire(),
+        )
+        .await
+        {
+            Ok(connection) => connection?,
+            Err(_) => {
+                return Err(query_budget_error(
+                    "hosted_connection_budget_exceeded",
+                    "The hosted query exceeded its database-connection wait budget.",
+                    "connection_wait_ms",
+                    connection_wait_ms,
+                    started.elapsed().as_millis() as u64,
+                ));
+            }
+        };
+        let mut transaction = connection.begin().await?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             .execute(&mut *transaction)
             .await?;
@@ -84,6 +104,11 @@ impl HostedProvider {
         sqlx::query("SET LOCAL idle_in_transaction_session_timeout = 10000")
             .execute(&mut *transaction)
             .await?;
+        let backend_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *transaction)
+            .await?;
+        let mut database_cancellation =
+            PostgresQueryCancellationGuard::new(self.query_cancellation_pool.clone(), backend_pid);
 
         let collection = sqlx::query(
             r#"SELECT head, resource_revision, wrapped_data_key, resources_ciphertext,
@@ -104,6 +129,7 @@ impl HostedProvider {
         let data_key = self
             .collection_key(collection_id, collection.get("wrapped_data_key"))
             .await?;
+        activity.acquire_plaintext();
         let resources: SyncCollectionResources = self.crypto.decrypt_json(
             &data_key,
             collection.get("resources_ciphertext"),
@@ -232,6 +258,7 @@ impl HostedProvider {
                 .await?;
         }
         transaction.commit().await?;
+        database_cancellation.disarm();
 
         let memory = crate::HostedProcessMemory::capture();
         tracing::info!(

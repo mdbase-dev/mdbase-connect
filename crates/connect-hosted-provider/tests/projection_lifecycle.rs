@@ -8,6 +8,7 @@ use mdbase_connect_protocol::{
 };
 use serde_json::json;
 use sqlx::Row;
+use std::time::Duration;
 use support::FileLifecycleFixture;
 use uuid::Uuid;
 
@@ -450,6 +451,95 @@ async fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
     assert!(groups
         .iter()
         .all(|group| group["count"] == 1 && group["summaries"]["records"] == 1));
+
+    let mut lock_owner = fixture.pool.begin().await.unwrap();
+    sqlx::query("LOCK TABLE hosted_provider_record_versions IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *lock_owner)
+        .await
+        .unwrap();
+    let blocked_provider = fixture.provider.clone();
+    let blocked_token = application_token.clone();
+    let blocked_collection = fixture.collection_id;
+    let blocked_query = tokio::spawn(async move {
+        blocked_provider
+            .operation(
+                blocked_collection,
+                &blocked_token,
+                "query",
+                Uuid::new_v4(),
+                json!({
+                    "where": "file.body.contains('Changed prose')",
+                    "limit": 10,
+                    "order_by": [{"field": "file.path"}],
+                }),
+                None,
+            )
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let activity = fixture.provider.hosted_query_activity();
+            let blocked_sessions: i64 = sqlx::query_scalar(
+                r#"SELECT count(*) FROM pg_stat_activity
+                   WHERE datname = current_database() AND wait_event_type = 'Lock'
+                     AND query LIKE 'WITH live AS (%'"#,
+            )
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+            if activity.active_queries == 1
+                && activity.plaintext_scopes == 1
+                && blocked_sessions == 1
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the query reaches its cancellable PostgreSQL wait");
+    blocked_query.abort();
+    assert!(blocked_query.await.unwrap_err().is_cancelled());
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let activity = fixture.provider.hosted_query_activity();
+            let blocked_sessions: i64 = sqlx::query_scalar(
+                r#"SELECT count(*) FROM pg_stat_activity
+                   WHERE datname = current_database()
+                     AND (wait_event_type = 'Lock' OR state = 'idle in transaction')
+                     AND query LIKE 'WITH live AS (%'"#,
+            )
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+            if activity.active_queries == 0
+                && activity.plaintext_scopes == 0
+                && blocked_sessions == 0
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("cancellation releases query, transaction, session, and plaintext state");
+    lock_owner.rollback().await.unwrap();
+    let after_cancel = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({"limit": 1, "order_by": [{"field": "file.path"}]}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        after_cancel["result"]["results"].as_array().unwrap().len(),
+        1
+    );
 
     sqlx::query(
         r#"UPDATE hosted_provider_record_projections
