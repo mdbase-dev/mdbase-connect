@@ -90,6 +90,7 @@ mod projections;
 mod protocol_usage;
 mod provider_state;
 mod replicas;
+mod snapshot_leases;
 mod sync_reads;
 
 use account_quotas::*;

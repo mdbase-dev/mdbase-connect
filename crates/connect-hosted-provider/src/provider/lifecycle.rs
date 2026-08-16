@@ -11,7 +11,7 @@ impl HostedProvider {
         let mut retry_delay = Duration::from_millis(100);
         loop {
             match hosted_pool_options().connect(database_url).await {
-                Ok(pool) => match hosted_migrator().run(&pool).await {
+                Ok(pool) => match run_hosted_migrations(&pool).await {
                     Ok(()) => match verify_database_key(&pool, &crypto).await {
                         Ok(()) => {
                             let query_pool = hosted_query_pool_options()
@@ -259,6 +259,72 @@ impl HostedProvider {
             "privacy-safe hosted provider metric"
         );
     }
+}
+
+pub(super) const CONCURRENT_MIGRATION_INDEXES: [&str; 2] = [
+    "hosted_provider_record_projections_snapshot_path_cursor_idx",
+    "hosted_provider_record_projections_snapshot_mtime_cursor_idx",
+];
+
+async fn run_hosted_migrations(pool: &PgPool) -> Result<(), String> {
+    let mut connection = pool.acquire().await.map_err(|error| error.to_string())?;
+    sqlx::query("SET lock_timeout = '5s'")
+        .execute(&mut *connection)
+        .await
+        .map_err(|error| error.to_string())?;
+    sqlx::query("SET statement_timeout = '30min'")
+        .execute(&mut *connection)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    for index in CONCURRENT_MIGRATION_INDEXES {
+        let invalid: bool = sqlx::query_scalar(
+            r#"SELECT EXISTS (
+                 SELECT 1
+                 FROM pg_index i
+                 JOIN pg_class c ON c.oid = i.indexrelid
+                 JOIN pg_namespace n ON n.oid = c.relnamespace
+                 WHERE n.nspname = current_schema()
+                   AND c.relname = $1 AND NOT i.indisvalid
+               )"#,
+        )
+        .bind(index)
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(|error| error.to_string())?;
+        if invalid {
+            let statement = match index {
+                "hosted_provider_record_projections_snapshot_path_cursor_idx" => {
+                    "DROP INDEX CONCURRENTLY IF EXISTS hosted_provider_record_projections_snapshot_path_cursor_idx"
+                }
+                "hosted_provider_record_projections_snapshot_mtime_cursor_idx" => {
+                    "DROP INDEX CONCURRENTLY IF EXISTS hosted_provider_record_projections_snapshot_mtime_cursor_idx"
+                }
+                _ => unreachable!("concurrent migration index allowlist is exhaustive"),
+            };
+            sqlx::query(statement)
+                .execute(&mut *connection)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+    }
+
+    let migration = hosted_migrator()
+        .run(&mut *connection)
+        .await
+        .map_err(|error| error.to_string());
+    let reset = async {
+        sqlx::query("RESET statement_timeout")
+            .execute(&mut *connection)
+            .await?;
+        sqlx::query("RESET lock_timeout")
+            .execute(&mut *connection)
+            .await?;
+        Ok::<(), sqlx::Error>(())
+    }
+    .await
+    .map_err(|error| error.to_string());
+    migration.and(reset)
 }
 
 impl HostedProvider {

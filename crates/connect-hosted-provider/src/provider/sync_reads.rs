@@ -1,4 +1,5 @@
 use super::files::{descriptor, HostedFilePayload};
+use super::snapshot_leases::cleanup_expired_snapshot_leases;
 use super::*;
 
 impl HostedProvider {
@@ -54,9 +55,7 @@ impl HostedProvider {
                 .await?;
         let snapshot_id = Uuid::new_v4();
         let mut transaction = self.pool.begin().await?;
-        sqlx::query("DELETE FROM hosted_provider_snapshot_leases WHERE expires_at <= now()")
-            .execute(&mut *transaction)
-            .await?;
+        cleanup_expired_snapshot_leases(&mut *transaction, None).await?;
         sqlx::query(
             r#"INSERT INTO hosted_provider_snapshot_leases
                  (id, collection_id, replica_id, scope_epoch, cursor, resource_revision, expires_at)

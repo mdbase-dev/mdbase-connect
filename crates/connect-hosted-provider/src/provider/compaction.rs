@@ -1,12 +1,11 @@
 use super::projections::prune_unpinned_projection_generations_in;
+use super::snapshot_leases::cleanup_expired_snapshot_leases;
 use super::*;
 
 impl HostedProvider {
     pub async fn compact_through(&self, collection_id: Uuid, through: u64) -> ApiResult<()> {
         let mut transaction = self.pool.begin().await?;
-        sqlx::query("DELETE FROM hosted_provider_snapshot_leases WHERE expires_at <= now()")
-            .execute(&mut *transaction)
-            .await?;
+        cleanup_expired_snapshot_leases(&mut *transaction, Some(collection_id)).await?;
         let row = sqlx::query(
             "SELECT head, retained_after FROM hosted_provider_collections WHERE id = $1 FOR UPDATE",
         )

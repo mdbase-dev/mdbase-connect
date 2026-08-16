@@ -215,11 +215,12 @@ impl HostedProvider {
         if operation == "read" {
             return self.execute_direct_point_read(collection_id, input).await;
         }
-        if operation == "validate"
-            && (input.get("path").and_then(Value::as_str).is_some()
-                || input.get("collection_only").and_then(Value::as_bool) == Some(true))
-        {
-            return self.execute_direct_validation(collection_id, input).await;
+        if operation == "validate" {
+            let bounded_shape = input.get("path").and_then(Value::as_str).is_some()
+                || input.get("collection_only").and_then(Value::as_bool) == Some(true);
+            if bounded_shape || self.candidate_b_execution_enabled(collection_id).await? {
+                return self.execute_direct_validation(collection_id, input).await;
+            }
         }
         if matches!(operation, "read_type" | "list_views" | "read_view_source") {
             return self

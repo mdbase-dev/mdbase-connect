@@ -124,6 +124,8 @@ fn projection_digest_application_writes_do_not_create_a_second_tuple_version() {
 #[test]
 fn snapshot_cursor_index_keeps_path_and_identity_adjacent() {
     let migration = include_str!("../../migrations/0053_snapshot_path_cursor_index.sql");
+    assert!(migration.starts_with("-- no-transaction"));
+    assert!(migration.contains("CREATE INDEX CONCURRENTLY IF NOT EXISTS"));
     let path = migration.find("canonical_path COLLATE \"C\"").unwrap();
     let identity = migration.find("record_id").unwrap();
     let temporal = migration.find("valid_from_sequence").unwrap();
@@ -133,12 +135,24 @@ fn snapshot_cursor_index_keeps_path_and_identity_adjacent() {
 #[test]
 fn snapshot_mtime_cursor_index_matches_the_only_direct_scalar_order() {
     let migration = include_str!("../../migrations/0055_snapshot_mtime_cursor_index.sql");
+    assert!(migration.starts_with("-- no-transaction"));
+    assert!(migration.contains("CREATE INDEX CONCURRENTLY IF NOT EXISTS"));
     let mtime = migration.find("file_modified_at DESC NULLS FIRST").unwrap();
     let path = migration.find("canonical_path COLLATE \"C\" ASC").unwrap();
     let identity = migration.find("record_id ASC").unwrap();
     let temporal = migration.find("valid_from_sequence").unwrap();
     assert!(mtime < path && path < identity && identity < temporal);
     assert!(!migration.contains("USING gin"));
+}
+
+#[test]
+fn concurrent_index_migrations_have_bounded_retry_cleanup() {
+    assert_eq!(super::lifecycle::CONCURRENT_MIGRATION_INDEXES.len(), 2);
+    let lifecycle = include_str!("lifecycle.rs");
+    assert!(lifecycle.contains("SET lock_timeout = '5s'"));
+    assert!(lifecycle.contains("SET statement_timeout = '30min'"));
+    assert!(lifecycle.contains("NOT i.indisvalid"));
+    assert!(lifecycle.contains("DROP INDEX CONCURRENTLY IF EXISTS"));
 }
 
 #[test]

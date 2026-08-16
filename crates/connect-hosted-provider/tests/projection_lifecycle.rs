@@ -1232,6 +1232,13 @@ async fn candidate_b_cursor_admission_bounds_expiry_cleanup_and_uses_manifest_tt
         1005,
     )
     .await;
+    seed_expired_snapshot_leases(
+        &fixture,
+        primary.get("id"),
+        "compaction-expired-snapshot-lease-",
+        1005,
+    )
+    .await;
     fixture
         .provider
         .compact_through(fixture.collection_id, 0)
@@ -1239,6 +1246,25 @@ async fn candidate_b_cursor_admission_bounds_expiry_cleanup_and_uses_manifest_tt
         .unwrap();
     assert_eq!(expired_query_cursor_count(&fixture).await, 10);
     assert_eq!(expired_base_invocation_count(&fixture).await, 5);
+    assert_eq!(expired_snapshot_lease_count(&fixture).await, 5);
+
+    seed_expired_snapshot_leases(
+        &fixture,
+        primary.get("id"),
+        "session-expired-snapshot-lease-",
+        1005,
+    )
+    .await;
+    fixture
+        .provider
+        .open_session(fixture.collection_id, &fixture.token, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        expired_snapshot_lease_count(&fixture).await,
+        10,
+        "session admission cleans one bounded batch and leaves its new live lease"
+    );
 
     seed_expired_query_cursors(
         &fixture,
@@ -1355,6 +1381,47 @@ async fn expired_base_invocation_count(fixture: &FileLifecycleFixture) -> i64 {
     sqlx::query_scalar(
         "SELECT count(*) FROM hosted_provider_base_query_invocations \
          WHERE collection_id = $1 AND hard_expires_at <= now()",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap()
+}
+
+async fn seed_expired_snapshot_leases(
+    fixture: &FileLifecycleFixture,
+    replica_id: Uuid,
+    identity_prefix: &str,
+    count: i64,
+) {
+    let inserted = sqlx::query(
+        r#"INSERT INTO hosted_provider_snapshot_leases
+             (id, collection_id, replica_id, scope_epoch, cursor,
+              resource_revision, expires_at, created_at)
+           SELECT md5($3 || series::text)::uuid, collection.id, replica.id,
+                  replica.scope_epoch, collection.head, collection.resource_revision,
+                  now() - interval '1 hour', now() - interval '2 hours'
+           FROM hosted_provider_collections collection
+           JOIN hosted_provider_replicas replica
+             ON replica.collection_id = collection.id AND replica.id = $2
+           CROSS JOIN generate_series(1, $4::bigint) AS series
+           WHERE collection.id = $1"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(replica_id)
+    .bind(identity_prefix)
+    .bind(count)
+    .execute(&fixture.pool)
+    .await
+    .unwrap()
+    .rows_affected();
+    assert_eq!(inserted, u64::try_from(count).unwrap());
+}
+
+async fn expired_snapshot_lease_count(fixture: &FileLifecycleFixture) -> i64 {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_snapshot_leases \
+         WHERE collection_id = $1 AND expires_at <= now()",
     )
     .bind(fixture.collection_id)
     .fetch_one(&fixture.pool)
@@ -3549,6 +3616,7 @@ async fn exercise_candidate_b_projection_lifecycle() {
                 full_collection: true,
                 allowed_operations: vec![
                     "read".to_string(),
+                    "validate".to_string(),
                     "create".to_string(),
                     "update".to_string(),
                     "delete".to_string(),
@@ -4219,6 +4287,19 @@ async fn exercise_candidate_b_definition_operations_without_record_decryption(
         .await
         .expect("Candidate B definition apply never decrypts record Markdown");
     assert_eq!(applied["valid"], true);
+    let malformed_validation = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            writer_token,
+            "validate",
+            Uuid::new_v4(),
+            json!({}),
+            None,
+        )
+        .await
+        .expect_err("Candidate B malformed validation fails before WorkingSet decryption");
+    assert_eq!(malformed_validation.code, "invalid_request");
     sqlx::query(
         "UPDATE hosted_provider_records SET payload_ciphertext = $3 WHERE collection_id = $1 AND record_id = $2",
     )
