@@ -5873,7 +5873,7 @@ fn percentile(samples: &[u64], percentile: usize) -> u64 {
 fn report_latency_distribution(name: &str, decoys: i64, samples: &[u64], gate_ms: u64) {
     let total = samples.iter().copied().sum::<u64>();
     eprintln!(
-        "candidate_b_latency_distribution decoys={decoys} workload={name} samples={} min_ms={} p50_ms={} p95_ms={} p99_ms={} max_ms={} mean_ms={} gate_p95_ms={gate_ms}",
+        "candidate_b_latency_distribution decoys={decoys} workload={name} samples={} min_ms={} p50_ms={} p95_ms={} p99_ms={} max_ms={} mean_ms={} gate_p95_ms={gate_ms} raw_ms={samples:?}",
         samples.len(),
         percentile(samples, 1),
         percentile(samples, 50),
