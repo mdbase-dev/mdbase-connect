@@ -5855,6 +5855,114 @@ async fn candidate_b_exact_projected_filter_fixture(
             );
         }
     }
+    if decoy_count == 99_997 {
+        assert_short_key_group_cardinality_budget(&fixture, &token, generation_id).await;
+    }
+}
+
+async fn assert_short_key_group_cardinality_budget(
+    fixture: &FileLifecycleFixture,
+    token: &str,
+    generation_id: Uuid,
+) {
+    let temp_bytes_before: i64 = sqlx::query_scalar(
+        "SELECT temp_bytes FROM pg_stat_database WHERE datname = current_database()",
+    )
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let updated = sqlx::query(
+        r#"WITH selected AS (
+             SELECT ctid
+             FROM hosted_provider_record_projections
+             WHERE collection_id = $1 AND generation_id = $2
+               AND canonical_path LIKE 'tasks/scale-%'
+             ORDER BY record_id
+             LIMIT 2500
+           ), rewritten AS (
+             SELECT p.ctid,
+                    jsonb_set(
+                      p.semantic_projection,
+                      '{effective_frontmatter,status}',
+                      to_jsonb(p.canonical_path), true
+                    ) AS semantic_projection
+             FROM hosted_provider_record_projections p
+             JOIN selected ON selected.ctid = p.ctid
+           )
+           UPDATE hosted_provider_record_projections p
+           SET semantic_projection = rewritten.semantic_projection,
+               projection_bytes = octet_length(rewritten.semantic_projection::text)
+           FROM rewritten
+           WHERE p.ctid = rewritten.ctid"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap()
+    .rows_affected();
+    assert_eq!(updated, 2500);
+    sqlx::query(
+        r#"UPDATE hosted_provider_record_projections
+           SET projection_digest = projection_observed_digest
+           WHERE collection_id = $1 AND generation_id = $2
+             AND semantic_projection #>> '{effective_frontmatter,status}'
+                   LIKE 'tasks/scale-%'
+           "#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"UPDATE hosted_provider_projection_generations
+           SET integrity_verified_epoch = integrity_epoch
+           WHERE collection_id = $1 AND generation_id = $2"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let error = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "types": ["task"],
+                "group_by": [{"field": "record.status"}],
+                "summaries": [
+                    {"field": "record.status", "function": "count", "name": "records"}
+                ],
+                "limit": 1000
+            }),
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, "hosted_group_budget_exceeded");
+    assert_eq!(error.details.as_ref().unwrap()["budget"], "groups");
+    assert_eq!(error.details.as_ref().unwrap()["limit"], 2_000);
+    assert_eq!(error.details.as_ref().unwrap()["observed"], 2_001);
+    let temp_bytes_after: i64 = sqlx::query_scalar(
+        "SELECT temp_bytes FROM pg_stat_database WHERE datname = current_database()",
+    )
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let temp_bytes_delta = temp_bytes_after.saturating_sub(temp_bytes_before);
+    assert!(
+        temp_bytes_delta <= 3 * 32 * 1024 * 1024,
+        "three bounded PostgreSQL executor lanes must not spill above their configured limits"
+    );
+    eprintln!(
+        "candidate_b_group_cardinality_budget at_least_distinct_groups=2501 outcome={} observed=2001 postgres_temp_bytes_delta={temp_bytes_delta}",
+        error.code
+    );
 }
 
 fn duration_ms(duration: Duration) -> u64 {

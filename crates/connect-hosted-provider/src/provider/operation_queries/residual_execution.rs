@@ -32,6 +32,21 @@ fn reduction_error(
     projection_inconsistent(error)
 }
 
+fn group_database_error(error: sqlx::Error, budgets: &mdbase::runtime::HostedQueryBudgets) -> ApiError {
+    if let sqlx::Error::Database(database) = &error {
+        if database.code().as_deref() == Some("53400") {
+            return query_budget_error(
+                "hosted_aggregation_state_budget_exceeded",
+                "PostgreSQL exceeded the hosted grouping work-state budget.",
+                "aggregation_state_bytes",
+                budgets.max_aggregation_bytes,
+                budgets.max_aggregation_bytes.saturating_add(1),
+            );
+        }
+    }
+    error.into()
+}
+
 fn scoped_budget_observed(allowed_types: &[String], limit: u64, observed: u64) -> u64 {
     if allowed_types.is_empty() {
         observed
@@ -104,6 +119,23 @@ async fn load_projected_groups(
 ) -> ApiResult<(Option<Vec<Value>>, Option<u64>)> {
     if state.plan.groups.is_empty() && state.plan.aggregates.is_empty() {
         return Ok((None, None));
+    }
+    // GROUP BY necessarily discovers cardinality inside PostgreSQL. Cap every
+    // executor lane before either the key-width preflight or aggregate runs:
+    // three processes at most, bounded work memory per plan node, hash memory
+    // equal to work_mem, and a bounded spill allowance. A spill-limit breach is
+    // mapped to the same typed aggregation-state outcome as the Rust reducer.
+    for (setting, value) in [
+        ("work_mem", "4096kB"),
+        ("hash_mem_multiplier", "1"),
+        ("temp_file_limit", "32768kB"),
+        ("max_parallel_workers_per_gather", "2"),
+    ] {
+        sqlx::query("SELECT set_config($1, $2, true)")
+            .bind(setting)
+            .bind(value)
+            .execute(&mut **transaction)
+            .await?;
     }
     preflight_projected_group_key_bytes(
         transaction,
@@ -185,7 +217,11 @@ async fn load_projected_groups(
         .all(|aggregate| aggregate.function == "count");
     let built_query = query.build();
     let mut rows = built_query.fetch(&mut **transaction);
-    while let Some(row) = rows.try_next().await? {
+    while let Some(row) = rows
+        .try_next()
+        .await
+        .map_err(|error| group_database_error(error, &state.plan.budgets))?
+    {
         group_count = group_count.saturating_add(1);
         if group_count > state.plan.budgets.max_groups {
             return Err(query_budget_error(
@@ -309,7 +345,8 @@ async fn preflight_projected_group_key_bytes(
         query
             .build_query_scalar::<i64>()
             .fetch_one(&mut **transaction)
-            .await?,
+            .await
+            .map_err(|error| group_database_error(error, &state.plan.budgets))?,
         "maximum projected group key bytes",
     )?;
     if observed > max_group_key_bytes {
