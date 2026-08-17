@@ -232,7 +232,11 @@ fn legacy_receipt_cutover_migration_is_page_bounded() {
     let migration = include_str!("mutation_journal_migration.rs");
     assert!(migration.contains("limit.clamp(1, 100)"));
     assert!(migration.contains("LIMIT $1"));
-    assert!(migration.contains("migrated_at IS NULL"));
+    assert!(migration.contains("started.elapsed() >= remaining"));
+    assert!(!migration.contains("SELECT NOT EXISTS"));
+    let fence = include_str!("../../migrations/0037_hosted_admission_fence.sql");
+    assert!(fence.contains("archived_hosted_mutation_receipts_unmigrated_idx"));
+    assert!(fence.contains("WHERE migrated_at IS NULL"));
 }
 
 #[test]

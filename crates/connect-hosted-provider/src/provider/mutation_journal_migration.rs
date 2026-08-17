@@ -5,7 +5,12 @@ use super::*;
 impl HostedProvider {
     /// Migrate one bounded legacy replay-receipt page. The cutover operator
     /// invokes this only while retaining both forms of ownership.
-    pub async fn migrate_legacy_sync_receipts_batch(&self, limit: u32) -> ApiResult<(u64, bool)> {
+    pub async fn migrate_legacy_sync_receipts_batch(
+        &self,
+        limit: u32,
+        remaining: Duration,
+    ) -> ApiResult<(u64, bool)> {
+        let started = Instant::now();
         let limit = i64::from(limit.clamp(1, 100));
         let rows = sqlx::query(
             r#"SELECT legacy.replica_id, legacy.mutation_id, legacy.mutation_hash,
@@ -22,8 +27,16 @@ impl HostedProvider {
         .bind(limit)
         .fetch_all(&self.pool)
         .await?;
+        let complete = rows.len() < usize::try_from(limit).expect("receipt batch limit fits usize");
         let mut migrated = 0_u64;
         for row in rows {
+            if started.elapsed() >= remaining {
+                return Err(ApiError::new(
+                    StatusCode::REQUEST_TIMEOUT,
+                    "legacy_receipt_migration_time_budget_exceeded",
+                    "Legacy mutation receipt migration exceeded its bounded operation window.",
+                ));
+            }
             let replica_id: Uuid = row.get("replica_id");
             let request_id: Uuid = row.get("mutation_id");
             let collection_id: Uuid = row.get("collection_id");
@@ -120,11 +133,6 @@ impl HostedProvider {
             transaction.commit().await?;
             migrated += 1;
         }
-        let complete: bool = sqlx::query_scalar(
-            "SELECT NOT EXISTS (SELECT 1 FROM archived_hosted_mutation_receipts WHERE migrated_at IS NULL)",
-        )
-        .fetch_one(&self.pool)
-        .await?;
         Ok((migrated, complete))
     }
 }

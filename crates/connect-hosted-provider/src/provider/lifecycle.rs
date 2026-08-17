@@ -121,8 +121,13 @@ impl HostedProvider {
                             };
                             if run_migrations {
                                 loop {
-                                    let (_, complete) =
-                                        provider.migrate_legacy_sync_receipts_batch(100).await?;
+                                    let (_, complete) = provider
+                                        .migrate_legacy_sync_receipts_batch(
+                                            100,
+                                            DATABASE_STARTUP_TIMEOUT
+                                                .saturating_sub(started.elapsed()),
+                                        )
+                                        .await?;
                                     if complete {
                                         break;
                                     }

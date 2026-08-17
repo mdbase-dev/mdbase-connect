@@ -301,15 +301,15 @@ async fn run(arguments: Arguments) -> ApiResult<Envelope> {
                 ));
             }
             Err(_) => {
-                if let Some(lock) = cutover_lock.take() {
-                    close_cutover_session(&database_url, lock).await;
-                }
-                return Ok(cutover_startup_failure(
+                let cleanup_complete = match cutover_lock.take() {
+                    Some(lock) => close_cutover_session(&database_url, lock).await,
+                    None => true,
+                };
+                return Ok(cutover_timeout_failure(
                     run_id,
                     recorded_at,
-                    "projection_cutover_time_budget_exceeded",
                     "migration",
-                    None,
+                    cleanup_complete,
                 ));
             }
         }
@@ -360,15 +360,15 @@ async fn run(arguments: Arguments) -> ApiResult<Envelope> {
                     ));
                 }
                 Err(_) => {
-                    if let Some(lock) = cutover_lock.take() {
-                        close_cutover_session(&database_url, lock).await;
-                    }
-                    return Ok(cutover_startup_failure(
+                    let cleanup_complete = match cutover_lock.take() {
+                        Some(lock) => close_cutover_session(&database_url, lock).await,
+                        None => true,
+                    };
+                    return Ok(cutover_timeout_failure(
                         run_id,
                         recorded_at,
-                        "projection_cutover_time_budget_exceeded",
-                        "migration",
-                        None,
+                        "provider_startup",
+                        cleanup_complete,
                     ));
                 }
             }
@@ -502,15 +502,15 @@ async fn run(arguments: Arguments) -> ApiResult<Envelope> {
                 }
                 Err(_) => {
                     provider.close_cutover_database_lanes().await;
-                    if let Some(lock) = cutover_lock.take() {
-                        close_cutover_session(&database_url, lock).await;
-                    }
-                    return Ok(cutover_startup_failure(
+                    let cleanup_complete = match cutover_lock.take() {
+                        Some(lock) => close_cutover_session(&database_url, lock).await,
+                        None => true,
+                    };
+                    return Ok(cutover_timeout_failure(
                         run_id,
                         recorded_at,
-                        "projection_cutover_time_budget_exceeded",
                         "projection_execution",
-                        None,
+                        cleanup_complete,
                     ));
                 }
             }
@@ -551,6 +551,34 @@ fn cutover_startup_failure(
             "next_after": null,
             "failure": failure,
         }),
+    }
+}
+
+fn cutover_timeout_failure(
+    run_id: Uuid,
+    recorded_at: String,
+    phase: &'static str,
+    cleanup_complete: bool,
+) -> Envelope {
+    if cleanup_complete {
+        cutover_startup_failure(
+            run_id,
+            recorded_at,
+            "projection_cutover_time_budget_exceeded",
+            phase,
+            None,
+        )
+    } else {
+        cutover_startup_failure(
+            run_id,
+            recorded_at,
+            "projection_cutover_cleanup_incomplete",
+            phase,
+            Some(
+                "Timed-out cutover database sessions could not be independently proven absent."
+                    .to_string(),
+            ),
+        )
     }
 }
 
@@ -664,7 +692,7 @@ async fn claim_cutover_owner(
     }
 }
 
-async fn close_cutover_session(database_url: &str, lock: CutoverLock) {
+async fn close_cutover_session(database_url: &str, lock: CutoverLock) -> bool {
     let backend_pid = lock.backend_pid;
     let application_name = lock.application_name;
     let projection_application_name = format!("mdbase-cb-projection/{}", lock.owner_token);
@@ -672,22 +700,46 @@ async fn close_cutover_session(database_url: &str, lock: CutoverLock) {
     let Ok(Ok(mut observer)) =
         tokio::time::timeout(Duration::from_secs(5), PgConnection::connect(database_url)).await
     else {
-        return;
+        return false;
     };
-    let _ = tokio::time::timeout(Duration::from_secs(5), async {
-        let _terminated: Result<Vec<bool>, sqlx::Error> = sqlx::query_scalar(
+    let termination = tokio::time::timeout(Duration::from_secs(5), async {
+        sqlx::query_scalar::<_, bool>(
             r#"SELECT pg_terminate_backend(pid)
                FROM pg_stat_activity
                WHERE (pid = $1 AND application_name = $2)
                   OR application_name = $3"#,
         )
         .bind(backend_pid)
-        .bind(application_name)
-        .bind(projection_application_name)
+        .bind(&application_name)
+        .bind(&projection_application_name)
         .fetch_all(&mut observer)
-        .await;
+        .await
     })
     .await;
+    if !matches!(termination, Ok(Ok(_))) {
+        return false;
+    }
+    for _ in 0..20 {
+        let observed = tokio::time::timeout(Duration::from_secs(1), async {
+            sqlx::query_scalar::<_, i64>(
+                r#"SELECT count(*)
+                   FROM pg_stat_activity
+                   WHERE (pid = $1 AND application_name = $2)
+                      OR application_name = $3"#,
+            )
+            .bind(backend_pid)
+            .bind(&application_name)
+            .bind(&projection_application_name)
+            .fetch_one(&mut observer)
+            .await
+        })
+        .await;
+        if matches!(observed, Ok(Ok(0))) {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    false
 }
 
 async fn cutover_lock_owned(connection: &mut PgConnection, owner_token: Uuid) -> ApiResult<bool> {
@@ -755,7 +807,9 @@ async fn run_cutover(
         provider
             .configure_cutover_statement_timeout(remaining_cutover_time(started, deadline))
             .await?;
-        let (_, complete) = provider.migrate_legacy_sync_receipts_batch(100).await?;
+        let (_, complete) = provider
+            .migrate_legacy_sync_receipts_batch(100, remaining_cutover_time(started, deadline))
+            .await?;
         if complete {
             break;
         }
@@ -1127,5 +1181,16 @@ mod tests {
         );
         assert_eq!(envelope.result["phase"], "migration");
         assert_eq!(envelope.result["complete_inventory"], false);
+
+        let cleanup = cutover_timeout_failure(
+            Uuid::nil(),
+            "2026-08-17T00:00:00Z".to_string(),
+            "provider_startup",
+            false,
+        );
+        assert_eq!(
+            cleanup.result["outcome"],
+            "projection_cutover_cleanup_incomplete"
+        );
     }
 }

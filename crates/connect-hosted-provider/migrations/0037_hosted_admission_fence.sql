@@ -36,3 +36,12 @@ ALTER TABLE hosted_provider_runtime_control
       AND admission_owner_expires_at IS NULL
     )
   );
+
+-- The archive is immutable after the beta69 baseline. This narrow partial
+-- index makes bounded receipt conversion advance without rescanning retired
+-- rows; it is not a projection/query index.
+CREATE INDEX archived_hosted_mutation_receipts_unmigrated_idx
+  ON archived_hosted_mutation_receipts (
+    created_at, replica_id, mutation_id
+  )
+  WHERE migrated_at IS NULL;

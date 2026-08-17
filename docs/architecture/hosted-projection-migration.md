@@ -79,9 +79,10 @@ The provider image contains `mdbase-hosted-projection-indexer`. It uses the same
   owner lease while admission is closed. Each page and batch rechecks both the
   session lock and durable owner. A same-token recovery renews the lease; a new
   token may claim only an expired owner whose admission is already closed.
-  Archived beta69 mutation receipts are converted in at most 100-row pages
-  under the same owner checks and shrinking deadline before projection inventory
-  begins; no cutover receipt migration uses an unbounded `fetch_all`.
+  Archived beta69 mutation receipts are converted in at most 100-row pages over
+  a narrow partial index, under the same owner checks and shrinking deadline,
+  before projection inventory begins. Retired rows leave that index, completion
+  needs no archive-wide scan, and the deadline is rechecked between receipts.
 
 Output is machine-readable JSON with run identity and timestamps but no exact Markdown, body prose, keys, or ciphertext. Repeated processes are idempotent. `verify` never treats a building or partially complete generation as success.
 
@@ -99,8 +100,10 @@ Normal reads, queries, validation, and mutations never materialize a collection-
    acquires a PostgreSQL-wide owner-token advisory lock before applying
    migrations 0035–0037 on that same lock-owning session. The one total deadline
    covers key setup, connection, migrations, rebuild and verification. Server-side
-   statement deadlines shrink with the remaining budget, and timeout closes the
-   cutover database lanes. Before releasing the session lock, the operator
+   statement deadlines shrink with the remaining budget, and timeout closes,
+   terminates, and independently polls the cutover database lanes. Failure to
+   prove both application-session identities absent is the typed
+   `projection_cutover_cleanup_incomplete` non-success. Before releasing the session lock, the operator
    persists the expiring durable owner and admission fence. Every page and batch
    rechecks both forms of ownership before continuing.
 5. Abort on a typed cutover budget result, any unverified collection, a changed
