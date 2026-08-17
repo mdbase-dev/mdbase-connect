@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
-import { promisify } from "node:util";
+import { isDeepStrictEqual, promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const STAGING_ORIGIN = "https://connect-staging.mdbase.dev";
@@ -172,11 +172,15 @@ async function main() {
       order_by: [{ field: "file.path", direction: "asc" }],
       pagination: "cursor",
       ...(existingCursor ? { cursor: existingCursor } : {}),
+      include_body: true,
       limit: 500
     })).value, "preflight query");
     for (const record of existingPage.results) {
       const expected = fixturesByPath.get(record.path);
-      if (!expected || record.effective_frontmatter?.title !== expected.frontmatter.title) {
+      if (!expected
+          || !isDeepStrictEqual(record.frontmatter, expected.frontmatter)
+          || !isDeepStrictEqual(record.types, expected.types)
+          || record.body !== expected.body) {
         fail(`The existing fixture record ${record.path} does not match this deterministic run.`);
       }
       existingPaths.add(record.path);
@@ -422,8 +426,7 @@ async function main() {
     grouping: { groups: grouped.meta.groups.length },
     cas: { stale_failure: diagnosticCodes(stale), create_update_rename_delete: true },
     changes_observed: changes.changes.length,
-    cancellation: { ...cancellation, post_cancel_query: "passed" },
-    production_fallback_detected: false
+    cancellation: { ...cancellation, post_cancel_query: "passed" }
   };
   await writeFile(options.output, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 });
   process.stdout.write(`${JSON.stringify({
