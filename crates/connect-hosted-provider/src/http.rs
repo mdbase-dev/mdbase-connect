@@ -255,6 +255,7 @@ pub fn app(state: AppState) -> Router {
             "/internal/v1/replicas/{replica_id}/policy",
             patch(update_replica_policy),
         )
+        .route("/internal/v1/query-activity", get(query_activity))
         .route("/internal/v1/replicas/{replica_id}", delete(revoke_replica))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -381,6 +382,12 @@ async fn ready(State(state): State<AppState>) -> ApiResult<Json<Value>> {
         },
         "notifications": notifications
     })))
+}
+
+async fn query_activity(State(state): State<AppState>) -> Json<Value> {
+    Json(json!({
+        "query_activity": state.provider.hosted_query_activity()
+    }))
 }
 
 async fn rename_collection(

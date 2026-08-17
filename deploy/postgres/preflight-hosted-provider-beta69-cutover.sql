@@ -4,6 +4,9 @@
 -- migrations are allowed to run. The service maintenance fence is external at
 -- this point because beta69 predates the durable query-admission control row.
 BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;
+SET LOCAL search_path = public, pg_catalog;
+SELECT set_config('mdbase.expected_migration_max', '34', true);
+\ir attest-hosted-provider-migration-ledger.sql
 
 DO $beta69_cutover_preflight$
 DECLARE
@@ -13,7 +16,7 @@ DECLARE
   failed_migrations bigint;
   missing_migrations bigint;
 BEGIN
-  IF to_regclass('_sqlx_migrations') IS NULL THEN
+  IF to_regclass('public._sqlx_migrations') IS NULL THEN
     RAISE EXCEPTION
       'beta69_cutover_blocked: SQLx migration ledger is absent';
   END IF;
@@ -21,12 +24,12 @@ BEGIN
   SELECT count(*), min(version), max(version),
          count(*) FILTER (WHERE NOT success)
     INTO migration_count, minimum_version, maximum_version, failed_migrations
-  FROM _sqlx_migrations;
+  FROM public._sqlx_migrations;
   SELECT count(*)
     INTO missing_migrations
   FROM generate_series(1, 34) AS required(version)
   WHERE NOT EXISTS (
-    SELECT 1 FROM _sqlx_migrations applied
+    SELECT 1 FROM public._sqlx_migrations applied
     WHERE applied.version = required.version AND applied.success
   );
   IF migration_count <> 34 OR minimum_version <> 1 OR maximum_version <> 34
@@ -35,18 +38,18 @@ BEGIN
       'beta69_cutover_blocked: expected exact successful migration ledger 1-34';
   END IF;
 
-  IF to_regclass('hosted_provider_projection_generations') IS NOT NULL
-     OR to_regclass('hosted_provider_record_projections') IS NOT NULL
-     OR to_regclass('hosted_provider_record_resolution_keys') IS NOT NULL
-     OR to_regclass('hosted_provider_record_relationships') IS NOT NULL
-     OR to_regclass('hosted_provider_query_cursors') IS NOT NULL
-     OR to_regclass('hosted_provider_base_query_invocations') IS NOT NULL
-     OR to_regclass('hosted_provider_query_page_receipts') IS NOT NULL
-     OR to_regclass('hosted_provider_query_receipt_usage') IS NOT NULL
-     OR to_regclass('hosted_provider_runtime_control') IS NOT NULL
+  IF to_regclass('public.hosted_provider_projection_generations') IS NOT NULL
+     OR to_regclass('public.hosted_provider_record_projections') IS NOT NULL
+     OR to_regclass('public.hosted_provider_record_resolution_keys') IS NOT NULL
+     OR to_regclass('public.hosted_provider_record_relationships') IS NOT NULL
+     OR to_regclass('public.hosted_provider_query_cursors') IS NOT NULL
+     OR to_regclass('public.hosted_provider_base_query_invocations') IS NOT NULL
+     OR to_regclass('public.hosted_provider_query_page_receipts') IS NOT NULL
+     OR to_regclass('public.hosted_provider_query_receipt_usage') IS NOT NULL
+     OR to_regclass('public.hosted_provider_runtime_control') IS NOT NULL
      OR EXISTS (
        SELECT 1 FROM information_schema.columns
-       WHERE table_schema = current_schema()
+       WHERE table_schema = 'public'
          AND table_name = 'hosted_provider_collections'
          AND (
            column_name LIKE 'active_projection_%'

@@ -5,6 +5,7 @@
 -- the rollback runner. This proves the exact migration ledger and the final
 -- runtime objects the target expects; it never alters canonical or derived data.
 BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;
+SET LOCAL search_path = public, pg_catalog;
 SELECT set_config('mdbase.admission_fence_token', :'fence_token', true);
 
 DO $final_rollback_preflight$
@@ -17,7 +18,10 @@ DECLARE
   runtime_rows bigint;
   invalid_states bigint;
   invalid_trigger_count bigint;
+  unexpected_trigger_count bigint;
+  invalid_function_count bigint;
   invalid_constraint_count bigint;
+  runtime_constraint_count bigint;
   checksum_mismatches bigint[];
   missing_objects text[];
   missing_columns text[];
@@ -126,7 +130,7 @@ BEGIN
     'hosted_provider_query_page_receipts_expiry_idx',
     'hosted_provider_query_page_receipts_global_expiry_idx'
   ]) AS required(object_name)
-  WHERE to_regclass(required.object_name) IS NULL;
+  WHERE to_regclass('public.' || required.object_name) IS NULL;
   IF missing_objects IS NOT NULL THEN
     RAISE EXCEPTION
       'final_rollback_blocked: required final relation/index objects are absent: %',
@@ -145,7 +149,7 @@ BEGIN
   WHERE NOT EXISTS (
     SELECT 1
     FROM information_schema.columns present
-    WHERE present.table_schema = current_schema()
+    WHERE present.table_schema = 'public'
       AND present.table_name = 'hosted_provider_collections'
       AND present.column_name = required.column_name
   );
@@ -164,7 +168,7 @@ BEGIN
   WHERE NOT EXISTS (
     SELECT 1
     FROM information_schema.columns present
-    WHERE present.table_schema = current_schema()
+    WHERE present.table_schema = 'public'
       AND present.table_name = 'hosted_provider_runtime_control'
       AND present.column_name = required.column_name
   );
@@ -219,7 +223,7 @@ BEGIN
     JOIN pg_proc function_row ON function_row.oid = trigger_row.tgfoid
     JOIN pg_namespace function_namespace
       ON function_namespace.oid = function_row.pronamespace
-    WHERE namespace.nspname = current_schema()
+    WHERE namespace.nspname = 'public'
       AND NOT trigger_row.tgisinternal
   )
   SELECT count(*)
@@ -229,13 +233,63 @@ BEGIN
   WHERE observed.trigger_name IS NULL
      OR observed.relation_name IS DISTINCT FROM expected.relation_name
      OR observed.function_name IS DISTINCT FROM expected.function_name
-     OR observed.function_schema IS DISTINCT FROM current_schema()
+     OR observed.function_schema IS DISTINCT FROM 'public'
      OR observed.tgenabled IS DISTINCT FROM 'O'
      OR observed.trigger_definition IS DISTINCT FROM expected.trigger_definition;
   IF invalid_trigger_count <> 0 THEN
     RAISE EXCEPTION
       'final_rollback_blocked: % final projection integrity trigger(s) differ from the exact contract',
       invalid_trigger_count;
+  END IF;
+
+  SELECT count(*)
+    INTO unexpected_trigger_count
+  FROM pg_trigger trigger_row
+  JOIN pg_class relation ON relation.oid = trigger_row.tgrelid
+  JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+  WHERE namespace.nspname = 'public'
+    AND relation.relname IN (
+      'hosted_provider_record_projections',
+      'hosted_provider_record_resolution_keys',
+      'hosted_provider_record_relationships'
+    )
+    AND NOT trigger_row.tgisinternal;
+  IF unexpected_trigger_count <> 10 THEN
+    RAISE EXCEPTION
+      'final_rollback_blocked: expected exactly ten non-internal projection integrity triggers, found %',
+      unexpected_trigger_count;
+  END IF;
+
+  WITH expected(function_name, definition_sha256) AS (
+    VALUES
+      ('hosted_provider_bump_projection_epoch_after_delete',
+       '8c490048878b2651f0bedf09ab0ebb923c0205afd7b1035fc37a7979be8664d3'),
+      ('hosted_provider_bump_projection_epoch_after_insert',
+       '83e9d899414d8e0b90dc291ede7da9596821a234785748249d8b267c95cc9d6a'),
+      ('hosted_provider_bump_projection_epoch_after_update',
+       '85a552d204eaaf2d37bf3dc14b386881fba82437f80e7f425ce6b7314dadd9e7'),
+      ('hosted_provider_observe_projection_digest',
+       'eb9eb156588bfe83a6a9577bb35b91b3a3439e6e9a89e037ee53e67fa14edb54')
+  ), observed AS (
+    SELECT function_row.proname AS function_name,
+           encode(
+             sha256(convert_to(pg_get_functiondef(function_row.oid), 'UTF8')),
+             'hex'
+           ) AS definition_sha256
+    FROM pg_proc function_row
+    JOIN pg_namespace namespace ON namespace.oid = function_row.pronamespace
+    WHERE namespace.nspname = 'public'
+  )
+  SELECT count(*)
+    INTO invalid_function_count
+  FROM expected
+  LEFT JOIN observed USING (function_name)
+  WHERE observed.function_name IS NULL
+     OR observed.definition_sha256 IS DISTINCT FROM expected.definition_sha256;
+  IF invalid_function_count <> 0 THEN
+    RAISE EXCEPTION
+      'final_rollback_blocked: % projection integrity function body/bodies differ from the exact contract',
+      invalid_function_count;
   END IF;
 
   WITH expected(
@@ -248,7 +302,28 @@ BEGIN
        'CHECK ((((active_catalog_revision IS NULL) AND (active_projection_format_version IS NULL) AND (active_semantic_engine_version IS NULL) AND (active_projection_generation_id IS NULL) AND (active_projection_head IS NULL)) OR ((active_catalog_revision IS NOT NULL) AND (active_projection_format_version > 0) AND (active_semantic_engine_version IS NOT NULL) AND (active_projection_generation_id IS NOT NULL) AND (active_projection_head IS NOT NULL))))'),
       ('hosted_provider_collections_active_projection_generation_fk',
        'hosted_provider_collections', 'f'::"char", true, true,
-       'FOREIGN KEY (id, active_projection_generation_id) REFERENCES hosted_provider_projection_generations(collection_id, generation_id) DEFERRABLE INITIALLY DEFERRED')
+       'FOREIGN KEY (id, active_projection_generation_id) REFERENCES hosted_provider_projection_generations(collection_id, generation_id) DEFERRABLE INITIALLY DEFERRED'),
+      ('hosted_provider_runtime_control_fence_kind_check',
+       'hosted_provider_runtime_control', 'c'::"char", false, false,
+       'CHECK (((admission_fence_kind IS NULL) OR (admission_fence_kind = ANY (ARRAY[''cutover''::text, ''rollback''::text]))))'),
+      ('hosted_provider_runtime_control_fence_pair_check',
+       'hosted_provider_runtime_control', 'c'::"char", false, false,
+       'CHECK (((admission_fence_token IS NULL) = (admission_fence_kind IS NULL)))'),
+      ('hosted_provider_runtime_control_fence_state_check',
+       'hosted_provider_runtime_control', 'c'::"char", false, false,
+       'CHECK ((query_admission_suspended OR ((admission_fence_token IS NULL) AND (admission_fence_kind IS NULL))))'),
+      ('hosted_provider_runtime_control_pkey',
+       'hosted_provider_runtime_control', 'p'::"char", false, false,
+       'PRIMARY KEY (singleton)'),
+      ('hosted_provider_runtime_control_singleton_check',
+       'hosted_provider_runtime_control', 'c'::"char", false, false,
+       'CHECK (singleton)'),
+      ('hosted_provider_runtime_control_suspension_reason_check',
+       'hosted_provider_runtime_control', 'c'::"char", false, false,
+       'CHECK (((suspension_reason IS NULL) OR ((length(suspension_reason) >= 1) AND (length(suspension_reason) <= 512))))'),
+      ('hosted_provider_runtime_control_check',
+       'hosted_provider_runtime_control', 'c'::"char", false, false,
+       'CHECK ((query_admission_suspended OR (suspension_reason IS NULL)))')
   ), observed AS (
     SELECT constraint_row.conname AS constraint_name,
            relation.relname AS relation_name,
@@ -260,7 +335,7 @@ BEGIN
     FROM pg_constraint constraint_row
     JOIN pg_class relation ON relation.oid = constraint_row.conrelid
     JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
-    WHERE namespace.nspname = current_schema()
+    WHERE namespace.nspname = 'public'
   )
   SELECT count(*)
     INTO invalid_constraint_count
@@ -277,6 +352,20 @@ BEGIN
     RAISE EXCEPTION
       'final_rollback_blocked: % final projection binding constraint(s) differ from the exact contract',
       invalid_constraint_count;
+  END IF;
+
+  SELECT count(*)
+    INTO runtime_constraint_count
+  FROM pg_constraint constraint_row
+  JOIN pg_class relation ON relation.oid = constraint_row.conrelid
+  JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+  WHERE namespace.nspname = 'public'
+    AND relation.relname = 'hosted_provider_runtime_control'
+    AND constraint_row.contype IN ('c', 'p');
+  IF runtime_constraint_count <> 7 THEN
+    RAISE EXCEPTION
+      'final_rollback_blocked: expected exactly seven runtime-control check/key constraints, found %',
+      runtime_constraint_count;
   END IF;
 
   SELECT count(*)

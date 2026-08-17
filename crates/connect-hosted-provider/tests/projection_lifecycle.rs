@@ -22,6 +22,27 @@ use uuid::Uuid;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires a clean MDBASE_PROJECTION_DATABASE_URL disposable PostgreSQL database"]
+async fn candidate_b_beta69_cutover_preflight_fixture() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+    let mut beta69 = sqlx::migrate!("./migrations");
+    beta69
+        .migrations
+        .to_mut()
+        .retain(|migration| migration.version <= 34);
+    beta69.run(&pool).await.unwrap();
+
+    let versions: Vec<i64> =
+        sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(versions, (1_i64..=34).collect::<Vec<_>>());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires a clean MDBASE_PROJECTION_DATABASE_URL disposable PostgreSQL database"]
 async fn candidate_b_consolidated_migrations_upgrade_the_beta69_schema() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");

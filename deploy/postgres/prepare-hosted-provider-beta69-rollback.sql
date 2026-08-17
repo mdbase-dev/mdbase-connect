@@ -5,6 +5,9 @@
 -- are untouched. Only ephemeral query state and incomplete derived generations
 -- are retired. External traffic must remain in maintenance throughout rollback.
 BEGIN;
+SET LOCAL search_path = public, pg_catalog;
+SELECT set_config('mdbase.expected_migration_max', '37', true);
+\ir attest-hosted-provider-migration-ledger.sql
 SELECT set_config('mdbase.admission_fence_token', :'fence_token', true);
 SELECT pg_advisory_xact_lock(
   hashtextextended('mdbase-hosted-query-admission-v1', 0)

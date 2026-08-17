@@ -29,6 +29,8 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
         include_str!("../../../../deploy/postgres/prepare-hosted-provider-beta69-rollback.sql");
     let final_preflight =
         include_str!("../../../../deploy/postgres/preflight-hosted-provider-final-rollback.sql");
+    let cutover_preflight =
+        include_str!("../../../../deploy/postgres/preflight-hosted-provider-final-cutover.sql");
     assert!(migration.contains("query_admission_suspended boolean NOT NULL DEFAULT false"));
     assert!(!migration.contains("admission_fence_token uuid"));
     assert!(fence_migration.contains("ADD COLUMN admission_fence_token uuid"));
@@ -44,6 +46,7 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
     assert!(resume.contains("GET DIAGNOSTICS affected_rows = ROW_COUNT"));
     assert!(resume.contains("affected_rows <> 1"));
     assert!(preflight.contains("expected exact successful final ledger 1-37"));
+    assert!(preflight.contains("attest-hosted-provider-migration-ledger.sql"));
     assert!(preflight.contains("admission_fence_token = requested_token"));
     assert!(preflight.contains("DELETE FROM hosted_provider_query_cursors"));
     assert!(preflight.contains("DELETE FROM hosted_provider_query_page_receipts"));
@@ -66,9 +69,15 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
     assert!(final_preflight.contains("differ from the exact contract"));
     assert!(final_preflight.contains("pg_get_triggerdef"));
     assert!(final_preflight.contains("pg_get_constraintdef"));
+    assert!(final_preflight.contains("pg_get_functiondef"));
+    assert!(final_preflight.contains("expected exactly ten non-internal"));
+    assert!(final_preflight.contains("expected exactly seven runtime-control"));
     assert!(final_preflight.contains("expected exactly one controlled suspended admission row"));
     assert!(!final_preflight.contains("DELETE FROM"));
     assert!(!final_preflight.contains("UPDATE hosted_provider_"));
+    assert!(cutover_preflight.contains("admission_fence_kind = 'cutover'"));
+    assert!(cutover_preflight.contains("generation.status IS DISTINCT FROM 'complete'"));
+    assert!(cutover_preflight.contains("attest-hosted-provider-migration-ledger.sql"));
 }
 
 #[test]
@@ -97,6 +106,8 @@ fn beta69_cutover_preflight_requires_the_exact_production_baseline() {
     assert!(preflight.contains("REPEATABLE READ READ ONLY"));
     assert!(preflight.contains("generate_series(1, 34)"));
     assert!(preflight.contains("expected exact successful migration ledger 1-34"));
+    assert!(preflight.contains("attest-hosted-provider-migration-ledger.sql"));
+    assert!(preflight.contains("mdbase.expected_migration_max', '34'"));
     assert!(preflight.contains("Candidate B schema already exists"));
     assert!(preflight.contains("largest_collection_records"));
 }

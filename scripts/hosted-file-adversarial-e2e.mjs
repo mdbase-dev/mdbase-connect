@@ -26,6 +26,22 @@ try {
     "test", "-p", "mdbase-connect-hosted-provider",
     "--test", "file_lifecycle_adversarial", "--", "--ignored", "--nocapture"
   ], { MDBASE_ADVERSARIAL_DATABASE_URL: databaseUrl });
+  const beta69Database = "mdbase_beta69_preflight";
+  await execute(
+    "docker",
+    ["exec", container, "createdb", "-U", "mdbase", beta69Database],
+    { cwd: root }
+  );
+  await run("cargo", [
+    "test", "-p", "mdbase-connect-hosted-provider",
+    "--test", "projection_lifecycle",
+    "candidate_b_beta69_cutover_preflight_fixture",
+    "--", "--ignored", "--nocapture"
+  ], {
+    MDBASE_PROJECTION_DATABASE_URL:
+      `postgres://mdbase:${password}@127.0.0.1:${port}/${beta69Database}`
+  });
+  await proveBeta69CutoverGate(beta69Database);
   const migrationDatabase = "mdbase_projection_migration";
   await execute(
     "docker",
@@ -46,6 +62,7 @@ try {
     "test", "-p", "mdbase-connect-hosted-provider",
     "--test", "projection_lifecycle", "--", "--ignored", "--nocapture",
     "--test-threads=1",
+    "--skip", "candidate_b_beta69_cutover_preflight_fixture",
     "--skip", "candidate_b_consolidated_migrations_upgrade_the_beta69_schema",
     "--skip", "candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through",
     "--skip", "candidate_b_recovery_does_not_supersede_a_concurrent_explicit_generation_start",
@@ -134,7 +151,10 @@ async function proveFinalAdmissionAndRollbackGates(database) {
     suspend: "deploy/postgres/suspend-hosted-query-admission.sql",
     resume: "deploy/postgres/resume-hosted-query-admission.sql",
     finalPreflight: "deploy/postgres/preflight-hosted-provider-final-rollback.sql",
-    beta69Rollback: "deploy/postgres/prepare-hosted-provider-beta69-rollback.sql"
+    finalCutover: "deploy/postgres/preflight-hosted-provider-final-cutover.sql",
+    beta69Rollback: "deploy/postgres/prepare-hosted-provider-beta69-rollback.sql",
+    "attest-hosted-provider-migration-ledger":
+      "deploy/postgres/attest-hosted-provider-migration-ledger.sql"
   };
   for (const [name, source] of Object.entries(scripts)) {
     await execute("docker", [
@@ -166,6 +186,26 @@ async function proveFinalAdmissionAndRollbackGates(database) {
   await psql(database,
     "ALTER TABLE hosted_provider_record_relationships ENABLE TRIGGER hosted_provider_relationship_epoch_after_insert");
   await psql(database,
+    "CREATE TRIGGER hosted_provider_unexpected_integrity_trigger AFTER INSERT ON hosted_provider_record_relationships REFERENCING NEW TABLE AS new_projection_rows FOR EACH STATEMENT EXECUTE FUNCTION hosted_provider_bump_projection_epoch_after_insert()");
+  await expectPsqlFailure(
+    database,
+    "finalPreflight",
+    { fence_token: token },
+    "the final preflight accepted an unexpected derived-state trigger"
+  );
+  await psql(database,
+    "DROP TRIGGER hosted_provider_unexpected_integrity_trigger ON hosted_provider_record_relationships");
+  await psql(database,
+    "CREATE TABLE hosted_attestation_function_backup (definition text NOT NULL); INSERT INTO hosted_attestation_function_backup SELECT pg_get_functiondef('hosted_provider_bump_projection_epoch_after_insert()'::regprocedure); CREATE OR REPLACE FUNCTION hosted_provider_bump_projection_epoch_after_insert() RETURNS trigger LANGUAGE plpgsql AS $altered$ BEGIN RETURN NULL; END $altered$");
+  await expectPsqlFailure(
+    database,
+    "finalPreflight",
+    { fence_token: token },
+    "the final preflight accepted an altered integrity function body"
+  );
+  await psql(database,
+    "DO $restore$ DECLARE saved_definition text; BEGIN SELECT definition INTO saved_definition FROM hosted_attestation_function_backup; EXECUTE saved_definition; END $restore$; DROP TABLE hosted_attestation_function_backup");
+  await psql(database,
     "ALTER TABLE hosted_provider_collections RENAME CONSTRAINT hosted_provider_collections_projection_binding_check TO hosted_provider_collections_projection_binding_check_wrong");
   await expectPsqlFailure(
     database,
@@ -175,8 +215,50 @@ async function proveFinalAdmissionAndRollbackGates(database) {
   );
   await psql(database,
     "ALTER TABLE hosted_provider_collections RENAME CONSTRAINT hosted_provider_collections_projection_binding_check_wrong TO hosted_provider_collections_projection_binding_check");
+  await psql(database,
+    "ALTER TABLE hosted_provider_runtime_control RENAME CONSTRAINT hosted_provider_runtime_control_fence_pair_check TO hosted_provider_runtime_control_fence_pair_check_wrong");
+  await expectPsqlFailure(
+    database,
+    "finalPreflight",
+    { fence_token: token },
+    "the final preflight accepted a renamed admission-fence constraint"
+  );
+  await psql(database,
+    "ALTER TABLE hosted_provider_runtime_control RENAME CONSTRAINT hosted_provider_runtime_control_fence_pair_check_wrong TO hosted_provider_runtime_control_fence_pair_check");
+  await psqlFile(database, "resume", { fence_token: token, fence_kind: "rollback" });
+  await psqlFile(database, "suspend", { fence_token: token, fence_kind: "cutover" });
+  await psqlFile(database, "finalCutover", { fence_token: token });
+  await expectPsqlFailure(
+    database,
+    "finalCutover",
+    { fence_token: wrongToken },
+    "the final cutover preflight accepted a stale fence token"
+  );
+  await psqlFile(database, "resume", { fence_token: token, fence_kind: "cutover" });
+  await psqlFile(database, "suspend", { fence_token: token, fence_kind: "rollback" });
   await psqlFile(database, "beta69Rollback", { fence_token: token });
   await psqlFile(database, "resume", { fence_token: token, fence_kind: "rollback" });
+}
+
+async function proveBeta69CutoverGate(database) {
+  for (const [name, source] of Object.entries({
+    beta69Preflight: "deploy/postgres/preflight-hosted-provider-beta69-cutover.sql",
+    "attest-hosted-provider-migration-ledger":
+      "deploy/postgres/attest-hosted-provider-migration-ledger.sql"
+  })) {
+    await execute("docker", [
+      "cp", resolve(root, source), `${container}:/tmp/${name}.sql`
+    ], { cwd: root });
+  }
+  await psqlFile(database, "beta69Preflight");
+  await psql(database,
+    "UPDATE _sqlx_migrations SET checksum = decode(repeat('00', 48), 'hex') WHERE version = 34");
+  await expectPsqlFailure(
+    database,
+    "beta69Preflight",
+    {},
+    "the beta69 cutover preflight accepted a corrupted migration checksum"
+  );
 }
 
 async function psqlFile(database, name, variables = {}) {

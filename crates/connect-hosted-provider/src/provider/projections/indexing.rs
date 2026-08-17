@@ -43,30 +43,55 @@ impl HostedProvider {
             && ledger.get::<i64, _>("final_migration_count") == 3
             && migration_checksums_valid;
         let schema_valid: bool = sqlx::query_scalar(
-            r#"SELECT to_regclass('hosted_provider_projection_generations') IS NOT NULL
-                    AND to_regclass('hosted_provider_record_projections') IS NOT NULL
-                    AND to_regclass('hosted_provider_record_resolution_keys') IS NOT NULL
-                    AND to_regclass('hosted_provider_record_relationships') IS NOT NULL
-                    AND to_regclass('hosted_provider_query_cursors') IS NOT NULL
-                    AND to_regclass('hosted_provider_query_page_receipts') IS NOT NULL
-                    AND to_regclass('hosted_provider_runtime_control') IS NOT NULL
+            r#"SELECT to_regclass('public.hosted_provider_projection_generations') IS NOT NULL
+                    AND to_regclass('public.hosted_provider_record_projections') IS NOT NULL
+                    AND to_regclass('public.hosted_provider_record_resolution_keys') IS NOT NULL
+                    AND to_regclass('public.hosted_provider_record_relationships') IS NOT NULL
+                    AND to_regclass('public.hosted_provider_query_cursors') IS NOT NULL
+                    AND to_regclass('public.hosted_provider_query_page_receipts') IS NOT NULL
+                    AND to_regclass('public.hosted_provider_runtime_control') IS NOT NULL
                     AND EXISTS (
                       SELECT 1
                       FROM information_schema.columns
-                      WHERE table_schema = current_schema()
+                      WHERE table_schema = 'public'
                         AND table_name = 'hosted_provider_runtime_control'
                         AND column_name = 'admission_fence_token'
                     )
                     AND EXISTS (
                       SELECT 1
                       FROM information_schema.columns
-                      WHERE table_schema = current_schema()
+                      WHERE table_schema = 'public'
                         AND table_name = 'hosted_provider_runtime_control'
                         AND column_name = 'admission_fence_kind'
                     )
+                    AND NOT EXISTS (
+                      SELECT 1
+                      FROM (VALUES
+                        ('hosted_provider_runtime_control_fence_kind_check',
+                         'CHECK (((admission_fence_kind IS NULL) OR (admission_fence_kind = ANY (ARRAY[''cutover''::text, ''rollback''::text]))))'),
+                        ('hosted_provider_runtime_control_fence_pair_check',
+                         'CHECK (((admission_fence_token IS NULL) = (admission_fence_kind IS NULL)))'),
+                        ('hosted_provider_runtime_control_fence_state_check',
+                         'CHECK ((query_admission_suspended OR ((admission_fence_token IS NULL) AND (admission_fence_kind IS NULL))))')
+                      ) AS expected(constraint_name, constraint_definition)
+                      WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM pg_constraint constraint_row
+                        JOIN pg_class relation
+                          ON relation.oid = constraint_row.conrelid
+                        JOIN pg_namespace namespace
+                          ON namespace.oid = relation.relnamespace
+                        WHERE namespace.nspname = 'public'
+                          AND relation.relname = 'hosted_provider_runtime_control'
+                          AND constraint_row.conname = expected.constraint_name
+                          AND constraint_row.convalidated
+                          AND pg_get_constraintdef(constraint_row.oid, false)
+                                = expected.constraint_definition
+                      )
+                    )
                     AND (
                       SELECT count(*) FROM pg_indexes
-                      WHERE schemaname = current_schema()
+                      WHERE schemaname = 'public'
                         AND indexname IN (
                           'hosted_provider_projection_generation_work_idx',
                           'hosted_provider_record_projections_snapshot_path_cursor_idx',
@@ -83,7 +108,7 @@ impl HostedProvider {
                       FROM pg_trigger trigger
                       JOIN pg_class relation ON relation.oid = trigger.tgrelid
                       JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
-                      WHERE namespace.nspname = current_schema()
+                      WHERE namespace.nspname = 'public'
                         AND NOT trigger.tgisinternal
                         AND trigger.tgname IN (
                           'hosted_provider_record_projection_digest_observer',
@@ -103,7 +128,7 @@ impl HostedProvider {
                       FROM pg_constraint constraint_row
                       JOIN pg_class relation ON relation.oid = constraint_row.conrelid
                       JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
-                      WHERE namespace.nspname = current_schema()
+                      WHERE namespace.nspname = 'public'
                         AND constraint_row.conname IN (
                         'hosted_provider_collections_projection_binding_check',
                         'hosted_provider_collections_active_projection_generation_fk'
@@ -111,7 +136,7 @@ impl HostedProvider {
                     ) = 2
                     AND NOT EXISTS (
                       SELECT 1 FROM information_schema.columns
-                      WHERE table_schema = current_schema()
+                      WHERE table_schema = 'public'
                         AND table_name = 'hosted_provider_collections'
                         AND column_name IN (
                           'hosted_execution_model',

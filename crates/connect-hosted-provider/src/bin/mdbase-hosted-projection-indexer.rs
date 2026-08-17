@@ -244,17 +244,15 @@ async fn run(arguments: Arguments) -> ApiResult<Envelope> {
                         .await?,
                 );
             }
-            let all_collections_verified = verifications.iter().all(|result| result.verified);
-            let ok = plan.migration_ledger_valid
-                && plan.schema_valid
-                && plan.next_after.is_none()
-                && all_collections_verified;
+            let page_verified = verifications.iter().all(|result| result.verified);
+            let ok = plan.migration_ledger_valid && plan.schema_valid && page_verified;
             (
                 ok,
                 "verify",
                 json!({
                     "migration_ledger_valid": plan.migration_ledger_valid,
                     "schema_valid": plan.schema_valid,
+                    "page_verified": page_verified,
                     "complete_inventory": plan.next_after.is_none(),
                     "next_after": plan.next_after,
                     "collections": verifications,
