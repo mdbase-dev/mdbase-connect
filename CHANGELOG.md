@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## 0.1.0-beta.73
+
+Beta.73 makes Candidate B activation safe for isolated staged rollout while
+leaving production and all existing collections on their prior execution model.
+
+- New hosted collections can opt into Candidate B only through a versioned,
+  capability-checked protocol. A durable pending intent leaves legacy routing
+  unchanged until a fully resolved generation is atomically bound to the exact
+  authority head and resource revision.
+- Projection work remains bounded to one fenced batch per provider call. Large
+  authority imports return an explicit resumable `202 activating` outcome after
+  each control-plane work allowance instead of exposing a partial collection or
+  turning expected continuation into a terminal failure.
+- Restart recovery resumes pending generations, exact lost responses reconcile
+  only the named generation, and terminal semantic or ciphertext failures are
+  quarantined against the same authority/catalog/engine binding.
+- Concurrent hosted mutations use deterministic collection-before-replica lock
+  ordering, closing the staging deadlock found by the live mutation mission.
+  Activation status is snapshot-consistent and reports only bounded operational
+  metadata; exact Markdown and body prose remain application-encrypted.
+
 ## 0.1.0-beta.72
 
 Beta.72 completes the Candidate B hosted execution architecture behind its
