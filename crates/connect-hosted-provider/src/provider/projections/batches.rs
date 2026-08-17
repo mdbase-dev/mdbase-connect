@@ -383,8 +383,17 @@ impl HostedProvider {
         let updated = sqlx::query(
             r#"UPDATE hosted_provider_projection_generations
                SET checkpoint_record_id = $6,
-                   projected_records = CASE WHEN $9 THEN 0
-                                              ELSE projected_records + $7 END,
+                   projected_records = CASE
+                     WHEN $8 THEN (
+                       SELECT count(*)
+                       FROM hosted_provider_record_projections projection
+                       WHERE projection.collection_id = $1
+                         AND projection.generation_id = $2
+                         AND projection.valid_to_sequence IS NULL
+                     )
+                     WHEN $9 THEN 0
+                     ELSE projected_records + $7
+                   END,
                    phase = CASE WHEN $8 THEN 'resolution' ELSE phase END,
                    resolved_records = CASE WHEN $8 OR $9 THEN 0
                                            ELSE resolved_records END,
@@ -867,7 +876,18 @@ impl HostedProvider {
         let updated = sqlx::query(
             r#"UPDATE hosted_provider_projection_generations
                SET checkpoint_record_id = $6,
-                   resolved_records = resolved_records + $7,
+                   resolved_records = CASE
+                     WHEN $8 THEN (
+                       SELECT count(*)
+                       FROM hosted_provider_record_projections projection
+                       WHERE projection.collection_id = $1
+                         AND projection.generation_id = $2
+                         AND projection.valid_to_sequence IS NULL
+                         AND projection.semantic_complete
+                         AND projection.resolution_complete
+                     )
+                     ELSE resolved_records + $7
+                   END,
                    status = CASE WHEN $8 THEN 'complete' ELSE status END,
                    integrity_verified_epoch = CASE WHEN $8 THEN integrity_epoch ELSE integrity_verified_epoch END,
                    completed_at = CASE WHEN $8 THEN now() ELSE completed_at END,
