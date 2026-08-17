@@ -23,6 +23,7 @@ UPGRADE_MUTATION_ID=66666666-6666-4666-8666-666666666666
 UPGRADE_NEXT_MUTATION_ID=88888888-8888-4888-8888-888888888888
 UPGRADE_RECORD_ID=77777777-7777-4777-8777-777777777777
 UPGRADE_REPLICA_TOKEN=previous-provider-upgrade-replica-token
+CUTOVER_OWNER_TOKEN=99999999-9999-4999-8999-999999999991
 UPGRADE_DATABASE_PORT=${UPGRADE_DATABASE_PORT:-5432}
 UPGRADE_PROVIDER_PORT=${UPGRADE_PROVIDER_PORT:-8790}
 UPGRADE_PROVIDER_URL="http://127.0.0.1:$UPGRADE_PROVIDER_PORT"
@@ -33,11 +34,26 @@ export MDBASE_CONNECT_ALLOW_INSECURE_R2
 upgrade_require DATABASE_URL MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE
 
 r2_pid=
-cutover_lock_pid=
+terminate_cutover_lock_holder() {
+  docker run --rm --network host \
+    --env PGPASSWORD=previous-provider-upgrade \
+    postgres:18-alpine \
+    psql --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT" \
+      --username mdbase --dbname mdbase_provider_upgrade \
+      --set ON_ERROR_STOP=1 \
+      --command "SELECT pg_terminate_backend(pid)
+                 FROM pg_stat_activity
+                 WHERE application_name = 'mdbase-provider-cutover-lock-holder'
+                   AND pid <> pg_backend_pid()" \
+    >/dev/null 2>&1 || true
+}
+
 cleanup() {
+  terminate_cutover_lock_holder
   for container in \
     mdbase-provider-previous \
     mdbase-provider-previous-migration \
+    mdbase-provider-cutover-lock \
     mdbase-provider-upgrade-candidate
   do
     docker logs "$container" >/dev/null 2>&1 || true
@@ -45,9 +61,6 @@ cleanup() {
   done
   if [[ -n $r2_pid ]]; then
     kill "$r2_pid" >/dev/null 2>&1 || true
-  fi
-  if [[ -n $cutover_lock_pid ]]; then
-    kill "$cutover_lock_pid" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
@@ -330,15 +343,15 @@ printf 'Previous release canonical authority inventory: sha256:%s\n' \
   "$canonical_inventory_before"
 
 upgrade_phase 'indexing the complete preserved authority with the bounded cutover operator'
-docker run --rm --network host \
+docker run --detach --name mdbase-provider-cutover-lock --network host \
   --env PGPASSWORD=previous-provider-upgrade \
+  --env PGAPPNAME=mdbase-provider-cutover-lock-holder \
   postgres:18-alpine \
   psql --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT" \
     --username mdbase --dbname mdbase_provider_upgrade \
     --set ON_ERROR_STOP=1 \
     --command "SELECT pg_advisory_lock(hashtextextended('mdbase-candidate-b-cutover-v1', 0)); SELECT pg_sleep(30)" \
-  >/dev/null &
-cutover_lock_pid=$!
+  >/dev/null
 for _ in {1..30}; do
   lock_count=$(docker run --rm --network host \
     --env PGPASSWORD=previous-provider-upgrade \
@@ -346,7 +359,13 @@ for _ in {1..30}; do
     psql --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT" \
       --username mdbase --dbname mdbase_provider_upgrade \
       --tuples-only --no-align \
-      --command "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted" | tr -d '[:space:]')
+      --command "SELECT count(*)
+                 FROM pg_locks
+                 JOIN pg_stat_activity USING (pid)
+                 WHERE locktype = 'advisory'
+                   AND granted
+                   AND application_name = 'mdbase-provider-cutover-lock-holder'" |
+    tr -d '[:space:]')
   [[ $lock_count != 0 ]] && break
   sleep 1
 done
@@ -364,12 +383,11 @@ jq -e '
   .result.outcome == "projection_cutover_lock_unavailable" and
   .result.phase == "global_lock"
 ' <<<"$lock_result" >/dev/null
-kill "$cutover_lock_pid" >/dev/null 2>&1 || true
-wait "$cutover_lock_pid" >/dev/null 2>&1 || true
-cutover_lock_pid=
+terminate_cutover_lock_holder
+upgrade_remove_container mdbase-provider-cutover-lock
 
 if bounded_result=$(run_projection_indexer cutover \
-  --owner-token 99999999-9999-4999-8999-999999999991 \
+  --owner-token "$CUTOVER_OWNER_TOKEN" \
   --page-limit 1 \
   --batches-per-collection 1 \
   --max-collections 10 \
@@ -390,7 +408,7 @@ jq -e '
   .result.blocked_collection_id == "33333333-3333-4333-8333-333333333333"
 ' <<<"$bounded_result" >/dev/null
 verify_result=$(run_projection_indexer cutover \
-  --owner-token 99999999-9999-4999-8999-999999999992 \
+  --owner-token "$CUTOVER_OWNER_TOKEN" \
   --page-limit 1 \
   --batches-per-collection 16 \
   --max-collections 10 \
@@ -446,6 +464,30 @@ if ! $recovered; then
   printf 'Candidate provider did not recover upgraded notification state.\n' >&2
   exit 1
 fi
+
+upgrade_phase 'finalizing candidate admission after recovery readiness'
+for admission_step in \
+  'open-hosted-query-admission-provisional.sql:lease_seconds=180' \
+  'finalize-hosted-query-admission.sql:'
+do
+  admission_file=${admission_step%%:*}
+  admission_variable=${admission_step#*:}
+  admission_arguments=(
+    --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT"
+    --username mdbase --dbname mdbase_provider_upgrade
+    --set ON_ERROR_STOP=1 --set "fence_token=$CUTOVER_OWNER_TOKEN"
+  )
+  if [[ -n $admission_variable ]]; then
+    admission_arguments+=(--set "$admission_variable")
+  fi
+  docker run --rm --network host \
+    --env PGPASSWORD=previous-provider-upgrade \
+    --entrypoint psql \
+    "$CANDIDATE_IMAGE" \
+    "${admission_arguments[@]}" \
+    --file "/usr/local/share/mdbase-connect/postgres/$admission_file" \
+    >/dev/null
+done
 
 contract=$(query_notification_contract true)
 printf 'Recovered notification contract: %s\n' "$contract"
