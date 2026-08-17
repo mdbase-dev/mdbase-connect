@@ -50,6 +50,8 @@ pub struct HostedProjectionStatus {
     pub resource_revision: String,
     pub active_generation_id: Option<Uuid>,
     pub building_generation: Option<HostedProjectionGeneration>,
+    pub latest_terminal_generation_id: Option<Uuid>,
+    pub latest_terminal_error_code: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -157,6 +159,40 @@ impl HostedProvider {
                 let generation = projection_generation_from_row(collection_id, &building)?;
                 transaction.rollback().await?;
                 return Ok(Some(generation));
+            }
+            let terminal_error: Option<String> = sqlx::query_scalar(
+                r#"SELECT last_error_code
+                   FROM hosted_provider_projection_generations
+                   WHERE collection_id = $1 AND status = 'abandoned'
+                     AND last_error_code IN (
+                       'projection_record_too_large',
+                       'projection_authority_invalid',
+                       'projection_semantic_failure',
+                       'projection_state_invalid'
+                     )
+                     AND source_head = $2
+                     AND source_resource_revision = $3
+                     AND projection_format_version = $4
+                     AND semantic_engine_version = $5
+                   ORDER BY updated_at DESC, generation_id DESC LIMIT 1"#,
+            )
+            .bind(collection_id)
+            .bind(row.get::<i64, _>("head"))
+            .bind(row.get::<String, _>("resource_revision"))
+            .bind(i64::from(
+                mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION,
+            ))
+            .bind(mdbase::VERSION)
+            .fetch_optional(&mut *transaction)
+            .await?
+            .flatten();
+            if let Some(error_code) = terminal_error {
+                return Err(ApiError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "projection_activation_quarantined",
+                    "Candidate B activation is quarantined until exact authority or the semantic catalog changes.",
+                )
+                .with_details(json!({ "generation_error_code": error_code })));
             }
         }
         if !supersede_building {
@@ -312,7 +348,9 @@ impl HostedProvider {
                       generation.projection_format_version,
                       generation.semantic_engine_version, generation.source_head,
                       generation.phase, generation.status,
-                      generation.lease_fencing_generation
+                      generation.lease_fencing_generation,
+                      terminal.generation_id AS terminal_generation_id,
+                      terminal.last_error_code AS terminal_error_code
                FROM hosted_provider_collections collection
                LEFT JOIN LATERAL (
                  SELECT generation_id, target_catalog_revision,
@@ -322,6 +360,12 @@ impl HostedProvider {
                  WHERE collection_id = collection.id AND status = 'building'
                  ORDER BY created_at DESC, generation_id DESC LIMIT 1
                ) generation ON true
+               LEFT JOIN LATERAL (
+                 SELECT generation_id, last_error_code
+                 FROM hosted_provider_projection_generations
+                 WHERE collection_id = collection.id AND status = 'abandoned'
+                 ORDER BY updated_at DESC, generation_id DESC LIMIT 1
+               ) terminal ON true
                WHERE collection.id = $1 AND collection.state = 'active'"#,
         )
         .bind(collection_id)
@@ -341,6 +385,8 @@ impl HostedProvider {
             resource_revision: row.get("resource_revision"),
             active_generation_id: row.get("active_projection_generation_id"),
             building_generation: projection_generation_from_joined_row(collection_id, &row)?,
+            latest_terminal_generation_id: row.get("terminal_generation_id"),
+            latest_terminal_error_code: row.get("terminal_error_code"),
         })
     }
 

@@ -112,6 +112,47 @@ describe("hosted provider control client", () => {
       .resolves.toEqual(active);
   });
 
+  it("does not return a completed authority import before Candidate B is active", async () => {
+    const completed = {
+      id: "transfer",
+      collection_id: "collection",
+      authority_epoch: 2,
+      state: "completed",
+      manifest_digest: "sha256:manifest",
+      source_revision: "source-v1",
+      source_head: 42,
+      contracts: [],
+      expires_at: "2026-08-18T00:00:00Z"
+    };
+    const active = {
+      collection_id: "collection",
+      execution_model: "candidate_b",
+      pending_execution_model: null,
+      head: 42,
+      resource_revision: "catalog-v1",
+      active_generation_id: "generation",
+      building_generation: null
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify(completed)))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ projection: active })));
+    const provider = new HostedProviderClient({
+      url: "https://provider.example",
+      internalToken: "internal-secret",
+      newCollectionExecutionModel: "candidate_b"
+    });
+
+    await expect(provider.completeAuthorityImport(
+      "transfer",
+      "sha256:manifest",
+      "source-v1"
+    )).resolves.toEqual(completed);
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, init?.method])).toEqual([
+      ["https://provider.example/internal/v1/authority-imports/transfer", "POST"],
+      ["https://provider.example/internal/v1/collections/collection/projection", "GET"]
+    ]);
+  });
+
   it("uses only the internal bearer credential and expected provider document", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(undefined, { status: 201 })

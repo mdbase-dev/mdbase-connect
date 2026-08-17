@@ -53,7 +53,10 @@ The control plane may set
 `MDBASE_CONNECT_NEW_HOSTED_EXECUTION_MODEL=candidate_b` for an isolated environment;
 the default is `legacy`. In Candidate B mode, a newly created provider collection
 must complete this bounded protocol before its control-plane catalogue row is
-inserted or returned to a consumer.
+inserted or returned to a consumer. Completed authority imports use the same gate:
+the provider import receipt remains replayable while Connect resumes bounded
+activation calls, and the control-plane transfer stays `activating` until the
+complete Candidate B generation is visible.
 
 ## Physical state
 

@@ -40,6 +40,8 @@ export interface HostedProjectionStatus {
   resource_revision: string;
   active_generation_id: string | null;
   building_generation: HostedProjectionGenerationStatus | null;
+  latest_terminal_generation_id?: string | null;
+  latest_terminal_error_code?: string | null;
 }
 
 export interface HostedReplicaEnrollment {
@@ -263,7 +265,7 @@ export class HostedProviderClient {
       timezone
     });
     if (this.newCollectionExecutionModel === "candidate_b") {
-      await this.activateNewCandidateBCollection(collectionId);
+      await this.activateCandidateBCollection(collectionId);
     }
   }
 
@@ -326,7 +328,7 @@ export class HostedProviderClient {
     }
   }
 
-  private async activateNewCandidateBCollection(collectionId: string): Promise<void> {
+  private async activateCandidateBCollection(collectionId: string): Promise<void> {
     let status = await this.projectionStatus(collectionId);
     if (status.execution_model === "candidate_b" && status.active_generation_id) return;
     status = await this.requestCandidateBActivation(collectionId, status);
@@ -633,11 +635,15 @@ export class HostedProviderClient {
     manifestDigest: string,
     sourceRevision: string
   ): Promise<AuthorityImport> {
-    return await this.request(
+    const completed = await this.request(
       "POST",
       `/internal/v1/authority-imports/${encodeURIComponent(transferId)}`,
       { manifest_digest: manifestDigest, source_revision: sourceRevision }
     ) as AuthorityImport;
+    if (this.newCollectionExecutionModel === "candidate_b") {
+      await this.activateCandidateBCollection(completed.collection_id);
+    }
+    return completed;
   }
 
   async abortAuthorityImport(transferId: string): Promise<AuthorityImport> {
