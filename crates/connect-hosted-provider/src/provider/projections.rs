@@ -105,7 +105,7 @@ impl HostedProvider {
         let mut transaction = self.pool.begin().await?;
         let row = sqlx::query(
             r#"SELECT head, resource_revision, wrapped_data_key, resources_ciphertext,
-                      hosted_execution_model, pending_hosted_execution_model
+                      active_projection_generation_id
                FROM hosted_provider_collections
                WHERE id = $1 AND state = 'active'
                FOR UPDATE"#,
@@ -119,8 +119,6 @@ impl HostedProvider {
                 "Hosted collection not found.",
             )
         })?;
-        let execution_model: String = row.get("hosted_execution_model");
-        let pending_execution_model: Option<String> = row.get("pending_hosted_execution_model");
         if let Some(expected) = activation.as_ref() {
             let current_head = number(row.get::<i64, _>("head"), "collection head")?;
             let current_resource_revision: String = row.get("resource_revision");
@@ -138,21 +136,52 @@ impl HostedProvider {
                     "actual_resource_revision": current_resource_revision,
                 })));
             }
-            if execution_model == "candidate_b" {
+            let active_is_current: bool = sqlx::query_scalar(
+                r#"SELECT EXISTS (
+                     SELECT 1
+                     FROM hosted_provider_projection_generations generation
+                     WHERE generation.collection_id = $1
+                       AND generation.generation_id = $2
+                       AND generation.status = 'complete'
+                       AND generation.source_head = $3
+                       AND generation.source_resource_revision = $4
+                       AND generation.projection_format_version = $5
+                       AND generation.semantic_engine_version = $6
+                   )"#,
+            )
+            .bind(collection_id)
+            .bind(row.get::<Option<Uuid>, _>("active_projection_generation_id"))
+            .bind(row.get::<i64, _>("head"))
+            .bind(row.get::<String, _>("resource_revision"))
+            .bind(i64::from(
+                mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION,
+            ))
+            .bind(mdbase::VERSION)
+            .fetch_one(&mut *transaction)
+            .await?;
+            if active_is_current {
                 transaction.rollback().await?;
                 return Ok(None);
             }
-        }
-        if activation.is_some() && pending_execution_model.as_deref() == Some("candidate_b") {
             let building = sqlx::query(
                 r#"SELECT generation_id, target_catalog_revision,
                           projection_format_version, semantic_engine_version,
                           source_head, phase, status, lease_fencing_generation
                    FROM hosted_provider_projection_generations
                    WHERE collection_id = $1 AND status = 'building'
+                     AND source_head = $2
+                     AND source_resource_revision = $3
+                     AND projection_format_version = $4
+                     AND semantic_engine_version = $5
                    ORDER BY created_at DESC, generation_id DESC LIMIT 1"#,
             )
             .bind(collection_id)
+            .bind(row.get::<i64, _>("head"))
+            .bind(row.get::<String, _>("resource_revision"))
+            .bind(i64::from(
+                mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION,
+            ))
+            .bind(mdbase::VERSION)
             .fetch_optional(&mut *transaction)
             .await?;
             if let Some(building) = building {
@@ -283,23 +312,6 @@ impl HostedProvider {
         .bind(PROJECTION_LEASE_SECONDS)
         .execute(&mut *transaction)
         .await?;
-        if activation.is_some() {
-            sqlx::query(
-                r#"UPDATE hosted_provider_collections
-                   SET pending_hosted_execution_model = 'candidate_b', updated_at = now()
-                   WHERE id = $1 AND hosted_execution_model = 'legacy'"#,
-            )
-            .bind(collection_id)
-            .execute(&mut *transaction)
-            .await?;
-        } else if pending_execution_model.as_deref() != Some("candidate_b") {
-            sqlx::query(
-                "UPDATE hosted_provider_collections SET hosted_execution_model = 'candidate_b' WHERE id = $1",
-            )
-            .bind(collection_id)
-            .execute(&mut *transaction)
-            .await?;
-        }
         transaction.commit().await?;
         Ok(Some(HostedProjectionGeneration {
             collection_id,
@@ -340,9 +352,7 @@ impl HostedProvider {
         collection_id: Uuid,
     ) -> ApiResult<HostedProjectionStatus> {
         let row = sqlx::query(
-            r#"SELECT collection.hosted_execution_model,
-                      collection.pending_hosted_execution_model,
-                      collection.head, collection.resource_revision,
+            r#"SELECT collection.head, collection.resource_revision,
                       collection.active_projection_generation_id,
                       generation.generation_id, generation.target_catalog_revision,
                       generation.projection_format_version,
@@ -379,8 +389,8 @@ impl HostedProvider {
         })?;
         Ok(HostedProjectionStatus {
             collection_id,
-            execution_model: row.get("hosted_execution_model"),
-            pending_execution_model: row.get("pending_hosted_execution_model"),
+            execution_model: "candidate_b".to_string(),
+            pending_execution_model: None,
             head: number(row.get::<i64, _>("head"), "collection head")?,
             resource_revision: row.get("resource_revision"),
             active_generation_id: row.get("active_projection_generation_id"),
@@ -405,11 +415,7 @@ impl HostedProvider {
                WHERE generation.collection_id = $1
                  AND generation.generation_id = $2
                  AND generation.status = 'building'
-                 AND collection.state = 'active'
-                 AND (
-                   collection.hosted_execution_model = 'candidate_b'
-                   OR collection.pending_hosted_execution_model = 'candidate_b'
-                 )"#,
+                 AND collection.state = 'active'"#,
         )
         .bind(collection_id)
         .bind(generation_id)
@@ -447,12 +453,7 @@ impl HostedProvider {
                FROM hosted_provider_collections collection
                WHERE collection.state = 'active'
                  AND (
-                   collection.hosted_execution_model = 'candidate_b'
-                   OR collection.pending_hosted_execution_model = 'candidate_b'
-                 )
-                 AND (
-                   collection.pending_hosted_execution_model = 'candidate_b'
-                   OR collection.active_projection_generation_id IS NULL
+                   collection.active_projection_generation_id IS NULL
                    OR EXISTS (
                      SELECT 1
                      FROM hosted_provider_record_projections projection
@@ -521,10 +522,6 @@ impl HostedProvider {
                JOIN hosted_provider_collections collection
                  ON collection.id = generation.collection_id
                WHERE collection.state = 'active'
-                 AND (
-                   collection.hosted_execution_model = 'candidate_b'
-                   OR collection.pending_hosted_execution_model = 'candidate_b'
-                 )
                  AND generation.status = 'building'
                  AND (
                    generation.lease_owner IS NULL

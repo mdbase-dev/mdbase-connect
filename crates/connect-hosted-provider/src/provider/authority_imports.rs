@@ -800,7 +800,6 @@ impl HostedProvider {
         let mut result = provider_authority_import(&saved)?;
         result.contracts = manifest.resources.contracts.clone();
         transaction.commit().await?;
-        self.remove_working_set(collection_id).await;
         Ok(result)
     }
 
@@ -914,32 +913,22 @@ impl HostedProvider {
         }
         transaction.commit().await?;
         self.abort_authority_import_multipart(abandoned_files).await;
-        self.remove_working_set(result.collection_id).await;
         Ok(result)
     }
 
     pub async fn recover_expired_authority_imports(&self) -> ApiResult<usize> {
         let mut transaction = self.pool.begin().await?;
-        let expired = sqlx::query(
+        sqlx::query(
             r#"SELECT collection_id FROM hosted_provider_authority_imports
                WHERE state IN ('receiving', 'uploaded') AND expires_at <= now()
                FOR UPDATE"#,
         )
         .fetch_all(&mut *transaction)
         .await?;
-        let collection_ids = expired
-            .iter()
-            .map(|row| row.get::<Uuid, _>("collection_id"))
-            .collect::<Vec<_>>();
         let abandoned_files = expired_authority_import_blob_cleanup(&mut transaction).await?;
         let recovered = recover_expired_authority_imports_in(&mut transaction).await?;
         transaction.commit().await?;
         self.abort_authority_import_multipart(abandoned_files).await;
-        if recovered > 0 {
-            for collection_id in collection_ids {
-                self.remove_working_set(collection_id).await;
-            }
-        }
         Ok(recovered)
     }
 }

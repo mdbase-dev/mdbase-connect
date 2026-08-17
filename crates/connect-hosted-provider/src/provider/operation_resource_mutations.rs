@@ -196,7 +196,6 @@ impl HostedProvider {
             .await?;
         }
         transaction.commit().await?;
-        self.remove_working_set(collection_id).await;
         if is_type {
             let provider = self.clone();
             tokio::spawn(async move {

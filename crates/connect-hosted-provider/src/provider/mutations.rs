@@ -788,7 +788,6 @@ impl HostedProvider {
         )
         .await?;
         transaction.commit().await?;
-        self.remove_working_set(collection_id).await;
         if direct_sync {
             let memory = crate::HostedProcessMemory::capture();
             tracing::info!(

@@ -20,151 +20,61 @@ use uuid::Uuid;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires a clean MDBASE_PROJECTION_DATABASE_URL disposable PostgreSQL database"]
-async fn candidate_b_migration_0040_upgrades_a_live_legacy_base_cursor() {
+async fn candidate_b_consolidated_migrations_upgrade_the_beta69_schema() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
     let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
-    let mut pre_invocation = sqlx::migrate!("./migrations");
-    pre_invocation
+    let mut beta69 = sqlx::migrate!("./migrations");
+    beta69
         .migrations
         .to_mut()
-        .retain(|migration| migration.version < 40);
-    pre_invocation.run(&pool).await.unwrap();
+        .retain(|migration| migration.version <= 34);
+    beta69.run(&pool).await.unwrap();
 
-    let collection_id = Uuid::now_v7();
-    let replica_id = Uuid::now_v7();
-    let cursor_id = Uuid::now_v7();
-    sqlx::query(
-        r#"INSERT INTO hosted_provider_collections
-             (id, template, spec_version, max_records, max_content_bytes,
-              max_document_bytes, max_mirror_replicas, resource_revision,
-              wrapped_data_key, resources_ciphertext, timezone,
-              max_application_replicas)
-           VALUES ($1, 'blank', '0.3', 10000, 1073741824, 16777216, 5,
-                   'legacy-catalog', '\x00', '\x00', 'UTC', 5)"#,
-    )
-    .bind(collection_id)
-    .execute(&pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        r#"INSERT INTO hosted_provider_replicas
-             (id, collection_id, name, purpose, mode, full_collection,
-              token_hash, token_expires_at)
-           VALUES ($1, $2, 'legacy Base cursor', 'application', 'read_only', true,
-                   decode(repeat('11', 32), 'hex'), now() + interval '1 day')"#,
-    )
-    .bind(replica_id)
-    .bind(collection_id)
-    .execute(&pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        r#"INSERT INTO hosted_provider_query_cursors
-             (cursor_id, collection_id, replica_id, scope_epoch, snapshot_head,
-              catalog_revision, projection_format_version,
-              semantic_engine_version, query_plan_version, query_digest,
-              query_plan, emitted_rows, expires_at, hard_expires_at,
-              request_kind, request_digest, result_meta, base_plan,
-              base_context, base_operation_clock)
-           VALUES ($1, $2, $3, 1, 0, 'legacy-catalog', 3, '0.4.0-rc.4', 1,
-                   decode(repeat('22', 32), 'hex'), '{}'::jsonb, 1,
-                   now() + interval '5 minutes', now() + interval '1 hour',
-                   'obsidian_base', decode(repeat('33', 32), 'hex'), '{}'::jsonb,
-                   '{"plan_version":3}'::jsonb, '{"path":"context.md"}'::jsonb,
-                   '2026-08-16T00:00:00Z')"#,
-    )
-    .bind(cursor_id)
-    .bind(collection_id)
-    .bind(replica_id)
-    .execute(&pool)
-    .await
-    .unwrap();
+    let baseline_versions: Vec<i64> =
+        sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(baseline_versions, (1_i64..=34).collect::<Vec<_>>());
+    let projection_table_before: Option<String> =
+        sqlx::query_scalar("SELECT to_regclass('hosted_provider_record_projections')::text")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(projection_table_before.is_none());
 
-    let mut pre_ciphertext_proof = sqlx::migrate!("./migrations");
-    pre_ciphertext_proof
-        .migrations
-        .to_mut()
-        .retain(|migration| migration.version < 50);
-    pre_ciphertext_proof.run(&pool).await.unwrap();
-    let migrated = sqlx::query(
-        r#"SELECT c.base_invocation_id, c.base_plan, c.base_context,
-                  c.base_operation_clock, i.base_plan AS invocation_plan,
-                  i.base_context AS invocation_context
-           FROM hosted_provider_query_cursors c
-           JOIN hosted_provider_base_query_invocations i
-             ON i.invocation_id = c.base_invocation_id
-           WHERE c.cursor_id = $1"#,
-    )
-    .bind(cursor_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(migrated.get::<Uuid, _>("base_invocation_id"), cursor_id);
-    assert!(migrated
-        .get::<Option<serde_json::Value>, _>("base_plan")
-        .is_none());
-    assert!(migrated
-        .get::<Option<serde_json::Value>, _>("base_context")
-        .is_none());
-    assert!(migrated
-        .get::<Option<String>, _>("base_operation_clock")
-        .is_none());
-    assert_eq!(
-        migrated.get::<serde_json::Value, _>("invocation_plan")["plan_version"],
-        3
-    );
-    assert_eq!(
-        migrated.get::<serde_json::Value, _>("invocation_context")["path"],
-        "context.md"
-    );
-    sqlx::query("DELETE FROM hosted_provider_query_cursors WHERE cursor_id = $1")
-        .bind(cursor_id)
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("DELETE FROM hosted_provider_base_query_invocations WHERE invocation_id = $1")
-        .bind(cursor_id)
-        .execute(&pool)
-        .await
-        .unwrap();
     sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-
-    // A pre-0050 rollback binary omits scan_budget_ciphertext_bytes. The
-    // expand migration must keep that writer operational until rollout ends.
-    let rollback_cursor_id = Uuid::now_v7();
-    sqlx::query(
-        r#"INSERT INTO hosted_provider_query_cursors
-             (cursor_id, collection_id, replica_id, scope_epoch, snapshot_head,
-              generation_id, catalog_revision, projection_format_version,
-              semantic_engine_version, query_plan_version, query_digest, query_plan,
-              request_kind, request_digest, result_meta, exact_context_ciphertext,
-              base_plan, base_context, base_operation_clock, base_invocation_id,
-              last_order_values, last_record_id, emitted_rows, expires_at, hard_expires_at,
-              execution_proof_version, execution_proof_ciphertext,
-              execution_proof_bytes, snapshot_record_count, scan_budget_records,
-              projection_integrity_epoch, cursor_bytes)
-           VALUES ($1, $2, $3, 1, 0, NULL, 'legacy-catalog', 3,
-                   '0.4.0-rc.4', 1, decode(repeat('44', 32), 'hex'), '{}'::jsonb,
-                   'query', decode(repeat('55', 32), 'hex'), '{}'::jsonb, NULL,
-                   NULL, NULL, NULL, NULL, NULL, NULL, 0,
-                   now() + interval '5 minutes', now() + interval '1 hour',
-                   1, decode('01', 'hex'), 1, 0, 100000, NULL, 1)"#,
+    let final_versions: Vec<i64> =
+        sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(final_versions, (1_i64..=36).collect::<Vec<_>>());
+    let runtime_columns: Vec<String> = sqlx::query_scalar(
+        r#"SELECT column_name
+           FROM information_schema.columns
+           WHERE table_schema = current_schema()
+             AND table_name = 'hosted_provider_collections'
+           ORDER BY column_name"#,
     )
-    .bind(rollback_cursor_id)
-    .bind(collection_id)
-    .bind(replica_id)
-    .execute(&pool)
+    .fetch_all(&pool)
     .await
     .unwrap();
-    let rollback_ciphertext_budget: i64 = sqlx::query_scalar(
-        "SELECT scan_budget_ciphertext_bytes FROM hosted_provider_query_cursors WHERE cursor_id = $1",
+    assert!(runtime_columns.contains(&"active_projection_generation_id".to_string()));
+    assert!(!runtime_columns.contains(&"hosted_execution_model".to_string()));
+    assert!(!runtime_columns.contains(&"pending_hosted_execution_model".to_string()));
+    let general_projection_indexes: i64 = sqlx::query_scalar(
+        r#"SELECT count(*)
+           FROM pg_indexes
+           WHERE schemaname = current_schema()
+             AND tablename = 'hosted_provider_record_projections'
+             AND indexdef ILIKE '% USING gin %'"#,
     )
-    .bind(rollback_cursor_id)
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(rollback_ciphertext_budget, 1_073_741_824);
+    assert_eq!(general_projection_indexes, 0);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1304,10 +1214,9 @@ async fn candidate_b_cursor_admission_bounds_expiry_cleanup_and_uses_manifest_tt
              (cursor_id, collection_id, replica_id, scope_epoch, snapshot_head,
               generation_id, catalog_revision, projection_format_version,
               semantic_engine_version, query_plan_version, query_digest, query_plan,
-              last_order_values, last_record_id, emitted_rows, remaining_rows,
+              last_order_values, last_record_id, emitted_rows,
               expires_at, hard_expires_at, created_at, last_used_at, request_kind,
-              request_digest, result_meta, exact_context_ciphertext, base_plan,
-              base_context, base_operation_clock, base_invocation_id,
+              request_digest, result_meta, exact_context_ciphertext, base_invocation_id,
               execution_proof_version, execution_proof_ciphertext,
               execution_proof_bytes, snapshot_record_count, scan_budget_records,
               projection_integrity_epoch, cursor_bytes, scan_budget_ciphertext_bytes)
@@ -1317,13 +1226,12 @@ async fn candidate_b_cursor_admission_bounds_expiry_cleanup_and_uses_manifest_tt
                   cursor.projection_format_version, cursor.semantic_engine_version,
                   cursor.query_plan_version, cursor.query_digest, cursor.query_plan,
                   cursor.last_order_values, cursor.last_record_id, cursor.emitted_rows,
-                  cursor.remaining_rows, now() - interval '2 hours',
+                  now() - interval '2 hours',
                   now() - interval '1 hour', now() - interval '3 hours',
                   now() - interval '2 hours', cursor.request_kind,
                   cursor.request_digest, cursor.result_meta,
-                  cursor.exact_context_ciphertext, cursor.base_plan,
-                  cursor.base_context, cursor.base_operation_clock,
-                  cursor.base_invocation_id, cursor.execution_proof_version,
+                  cursor.exact_context_ciphertext, cursor.base_invocation_id,
+                  cursor.execution_proof_version,
                   cursor.execution_proof_ciphertext, cursor.execution_proof_bytes,
                   cursor.snapshot_record_count, cursor.scan_budget_records,
                   cursor.projection_integrity_epoch, cursor.cursor_bytes,
@@ -1467,10 +1375,9 @@ async fn seed_expired_query_cursors(
              (cursor_id, collection_id, replica_id, scope_epoch, snapshot_head,
               generation_id, catalog_revision, projection_format_version,
               semantic_engine_version, query_plan_version, query_digest, query_plan,
-              last_order_values, last_record_id, emitted_rows, remaining_rows,
+              last_order_values, last_record_id, emitted_rows,
               expires_at, hard_expires_at, created_at, last_used_at, request_kind,
-              request_digest, result_meta, exact_context_ciphertext, base_plan,
-              base_context, base_operation_clock, base_invocation_id,
+              request_digest, result_meta, exact_context_ciphertext, base_invocation_id,
               execution_proof_version, execution_proof_ciphertext,
               execution_proof_bytes, snapshot_record_count, scan_budget_records,
               projection_integrity_epoch, cursor_bytes, scan_budget_ciphertext_bytes)
@@ -1480,13 +1387,12 @@ async fn seed_expired_query_cursors(
                   cursor.projection_format_version, cursor.semantic_engine_version,
                   cursor.query_plan_version, cursor.query_digest, cursor.query_plan,
                   cursor.last_order_values, cursor.last_record_id, cursor.emitted_rows,
-                  cursor.remaining_rows, now() - interval '2 hours',
+                  now() - interval '2 hours',
                   now() - interval '1 hour', now() - interval '3 hours',
                   now() - interval '2 hours', cursor.request_kind,
                   cursor.request_digest, cursor.result_meta,
-                  cursor.exact_context_ciphertext, cursor.base_plan,
-                  cursor.base_context, cursor.base_operation_clock,
-                  cursor.base_invocation_id, cursor.execution_proof_version,
+                  cursor.exact_context_ciphertext, cursor.base_invocation_id,
+                  cursor.execution_proof_version,
                   cursor.execution_proof_ciphertext, cursor.execution_proof_bytes,
                   cursor.snapshot_record_count, cursor.scan_budget_records,
                   cursor.projection_integrity_epoch, cursor.cursor_bytes,
@@ -2909,13 +2815,6 @@ async fn candidate_b_recovery_does_not_supersede_a_concurrent_explicit_generatio
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
     let fixture = FileLifecycleFixture::new(&database_url).await;
-    sqlx::query(
-        "UPDATE hosted_provider_collections SET hosted_execution_model = 'candidate_b' WHERE id = $1",
-    )
-    .bind(fixture.collection_id)
-    .execute(&fixture.pool)
-    .await
-    .unwrap();
 
     let mut collection_lock = fixture.pool.begin().await.unwrap();
     sqlx::query("SELECT id FROM hosted_provider_collections WHERE id = $1 FOR UPDATE")
@@ -3146,15 +3045,6 @@ async fn exercise_candidate_b_projection_lifecycle() {
         "---\ntitle: Source\n---\nSee [[target]].\n",
     )
     .await;
-
-    let initial_execution_model: String = sqlx::query_scalar(
-        "SELECT hosted_execution_model FROM hosted_provider_collections WHERE id = $1",
-    )
-    .bind(fixture.collection_id)
-    .fetch_one(&fixture.pool)
-    .await
-    .unwrap();
-    assert_eq!(initial_execution_model, "legacy");
 
     let first_generation = complete_generation(&fixture).await;
     let projected_file_fact = sqlx::query(
@@ -4211,8 +4101,8 @@ views:
         .as_str()
         .expect("TaskNotes Base has another page");
     let base_cursor_state = sqlx::query(
-        "SELECT base_plan, base_context, base_operation_clock, base_invocation_id,
-                exact_context_ciphertext FROM hosted_provider_query_cursors
+        "SELECT base_invocation_id, exact_context_ciphertext
+         FROM hosted_provider_query_cursors
          WHERE collection_id = $1 AND request_kind = 'obsidian_base'
          ORDER BY created_at DESC LIMIT 1",
     )
@@ -4220,15 +4110,6 @@ views:
     .fetch_one(&fixture.pool)
     .await
     .unwrap();
-    assert!(base_cursor_state
-        .get::<Option<serde_json::Value>, _>("base_plan")
-        .is_none());
-    assert!(base_cursor_state
-        .get::<Option<serde_json::Value>, _>("base_context")
-        .is_none());
-    assert!(base_cursor_state
-        .get::<Option<String>, _>("base_operation_clock")
-        .is_none());
     let base_invocation_id: Uuid = base_cursor_state.get("base_invocation_id");
     let invocation_plan: serde_json::Value = sqlx::query_scalar(
         "SELECT base_plan FROM hosted_provider_base_query_invocations
@@ -4459,14 +4340,6 @@ views:
     }
     let rebuilt_generation = rebuilt_generation.expect("semantic generation rebuilt");
     assert_ne!(rebuilt_generation, second_generation);
-    let execution_model: String = sqlx::query_scalar(
-        "SELECT hosted_execution_model FROM hosted_provider_collections WHERE id = $1",
-    )
-    .bind(fixture.collection_id)
-    .fetch_one(&fixture.pool)
-    .await
-    .unwrap();
-    assert_eq!(execution_model, "candidate_b");
     let query_after_rebuild = fixture
         .provider
         .operation(

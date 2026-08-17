@@ -335,10 +335,7 @@ impl HostedProvider {
                       c.projection_format_version, c.semantic_engine_version,
                       c.query_plan, c.query_digest, c.request_kind, c.request_digest,
                       c.result_meta, c.exact_context_ciphertext,
-                      COALESCE(i.base_plan, c.base_plan) AS base_plan,
-                      COALESCE(i.base_context, c.base_context) AS base_context,
-                      COALESCE(i.base_operation_clock, c.base_operation_clock)
-                        AS base_operation_clock,
+                      i.base_plan, i.base_context, i.base_operation_clock,
                       c.base_invocation_id, c.last_order_values,
                       c.last_record_id, c.emitted_rows, c.hard_expires_at,
                       c.execution_proof_version, c.execution_proof_ciphertext,

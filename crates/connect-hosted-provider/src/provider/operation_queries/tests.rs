@@ -123,6 +123,36 @@ mod tests {
     }
 
     #[test]
+    fn folder_candidates_use_segment_bounded_projection_sql() {
+        use mdbase::runtime::CandidatePredicate;
+
+        let nested = CandidatePredicate::PathInFolder {
+            folder: "tasks".to_string(),
+        };
+        assert!(candidate_predicate_is_total(&nested));
+        assert!(candidate_predicate_is_projection_exact(&nested));
+        assert_eq!(candidate_type_union(&nested), Some(Vec::new()));
+
+        let mut nested_sql = QueryBuilder::<Postgres>::new("");
+        push_candidate_predicate(&mut nested_sql, &nested);
+        assert_eq!(
+            nested_sql.sql(),
+            "left(canonical_path, char_length($1) + 1) = $2"
+        );
+
+        let mut exact_nested_sql = QueryBuilder::<Postgres>::new("");
+        push_exact_candidate_predicate(&mut exact_nested_sql, &nested);
+        assert_eq!(exact_nested_sql.sql(), nested_sql.sql());
+
+        let root = CandidatePredicate::PathInFolder {
+            folder: String::new(),
+        };
+        let mut root_sql = QueryBuilder::<Postgres>::new("");
+        push_candidate_predicate(&mut root_sql, &root);
+        assert_eq!(root_sql.sql(), "strpos(canonical_path, '/') = 0");
+    }
+
+    #[test]
     fn scalar_keyset_sql_preserves_canonical_null_direction() {
         use mdbase::runtime::{
             CandidateField, HostedOrder, HostedOrderDirection, HostedScalarKind,

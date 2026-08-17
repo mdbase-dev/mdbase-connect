@@ -216,85 +216,21 @@ impl HostedProvider {
             return self.execute_direct_point_read(collection_id, input).await;
         }
         if operation == "validate" {
-            let bounded_shape = input.get("path").and_then(Value::as_str).is_some()
-                || input.get("collection_only").and_then(Value::as_bool) == Some(true);
-            if bounded_shape || self.candidate_b_execution_enabled(collection_id).await? {
-                return self.execute_direct_validation(collection_id, input).await;
-            }
+            return self.execute_direct_validation(collection_id, input).await;
         }
         if matches!(operation, "read_type" | "list_views" | "read_view_source") {
             return self
                 .execute_direct_resource_read(collection_id, operation, input)
                 .await;
         }
-        if matches!(operation, "assess_type_pack" | "assess_collection_setup")
-            && self.candidate_b_execution_enabled(collection_id).await?
-        {
+        if matches!(operation, "assess_type_pack" | "assess_collection_setup") {
             return self
                 .execute_direct_definition_assessment(collection_id, operation, input)
                 .await;
         }
-        let snapshot_started = Instant::now();
-        let mut transaction = self.pool.begin().await?;
-        let collection = sqlx::query(
-            r#"SELECT head, wrapped_data_key FROM hosted_provider_collections
-               WHERE id = $1 AND state = 'active'"#,
-        )
-        .bind(collection_id)
-        .fetch_optional(&mut *transaction)
-        .await?
-        .ok_or_else(|| {
-            ApiError::not_found(
-                "hosted_collection_not_found",
-                "Hosted collection not found.",
-            )
-        })?;
-        let head = number(collection.get::<i64, _>("head"), "collection head")?;
-        let data_key = self
-            .collection_key(collection_id, collection.get("wrapped_data_key"))
-            .await?;
-        let working_set = self.working_set(collection_id).await?;
-        let mut cached = working_set.lock().await;
-        if cached
-            .as_ref()
-            .is_none_or(|working_set| working_set.head != Some(head))
-        {
-            let resources =
-                load_resource_documents(&mut transaction, &self.crypto, &data_key, collection_id)
-                    .await?;
-            let records =
-                load_records(&mut transaction, &self.crypto, &data_key, collection_id).await?;
-            let workspace = WorkingSet::materialize(
-                resources,
-                records.values().map(|record| StoredDocument {
-                    record_id: record.record_id,
-                    path: record.path.clone(),
-                    document: record.document.clone(),
-                }),
-            )?;
-            *cached = Some(CachedCollection::new(Some(head), workspace, records));
-        }
-        let cached = cached
-            .as_mut()
-            .expect("hosted working set was initialized above");
-        let result = cached.workspace.read_operation(operation, input)?;
-        transaction.commit().await?;
-        let memory = crate::HostedProcessMemory::capture();
-        tracing::info!(
-            target: "mdbase_connect::metrics",
-            metric = "hosted_legacy_read",
-            operation,
-            snapshot_ms = snapshot_started.elapsed().as_millis() as u64,
-            database_pool_size = self.pool.size(),
-            database_pool_idle = self.pool.num_idle(),
-            working_set_plaintext_bytes = cached.plaintext_bytes,
-            rss_bytes = memory.rss_bytes.unwrap_or(0),
-            pss_bytes = memory.pss_bytes.unwrap_or(0),
-            cgroup_current_bytes = memory.cgroup_current_bytes.unwrap_or(0),
-            cgroup_peak_bytes = memory.cgroup_peak_bytes.unwrap_or(0),
-            "privacy-safe hosted provider metric"
-        );
-        Ok(result)
+        Err(ApiError::internal(format!(
+            "Hosted read operation {operation} has no bounded execution path."
+        )))
     }
 
     async fn execute_direct_point_read(

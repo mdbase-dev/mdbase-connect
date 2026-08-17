@@ -1,5 +1,5 @@
-use std::collections::BTreeMap;
-
+use super::WorkingSet;
+use crate::error::{ApiError, ApiResult};
 use mdbase::Collection;
 use mdbase_connect_protocol::{
     CollectionContractDescriptor, CollectionContractImplementationDescriptor,
@@ -7,10 +7,6 @@ use mdbase_connect_protocol::{
 };
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
-use uuid::Uuid;
-
-use super::WorkingSet;
-use crate::error::{ApiError, ApiResult};
 
 impl WorkingSet {
     pub fn type_resources(
@@ -105,26 +101,5 @@ impl WorkingSet {
         contracts
             .sort_by(|left, right| (&left.id, &left.version).cmp(&(&right.id, &right.version)));
         Ok((types, contracts))
-    }
-
-    pub fn classify_records(
-        &self,
-        records: &[(Uuid, String, Map<String, Value>)],
-    ) -> ApiResult<BTreeMap<Uuid, Vec<String>>> {
-        let collection = Collection::open(self.directory.path()).map_err(|error| {
-            ApiError::internal(format!(
-                "The hosted collection working set is invalid: {error}"
-            ))
-        })?;
-        Ok(records
-            .iter()
-            .map(|(id, path, frontmatter)| {
-                (
-                    *id,
-                    collection
-                        .determine_types_for_path(&Value::Object(frontmatter.clone()), Some(path)),
-                )
-            })
-            .collect())
     }
 }

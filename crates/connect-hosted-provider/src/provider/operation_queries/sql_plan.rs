@@ -16,6 +16,9 @@ fn push_candidate_predicate(
                 .push_bind(type_name.clone())
                 .push("]::text[]");
         }
+        CandidatePredicate::PathInFolder { folder } => {
+            push_path_in_folder(query, folder);
+        }
         CandidatePredicate::And { terms } | CandidatePredicate::Or { terms } => {
             let separator = if matches!(predicate, CandidatePredicate::And { .. }) {
                 " AND "
@@ -89,9 +92,10 @@ fn push_tag_hierarchy_candidate_comparison(
 fn candidate_predicate_is_total(predicate: &mdbase::runtime::CandidatePredicate) -> bool {
     use mdbase::runtime::CandidatePredicate;
     match predicate {
-        CandidatePredicate::All | CandidatePredicate::None | CandidatePredicate::HasType { .. } => {
-            true
-        }
+        CandidatePredicate::All
+        | CandidatePredicate::None
+        | CandidatePredicate::HasType { .. }
+        | CandidatePredicate::PathInFolder { .. } => true,
         CandidatePredicate::And { terms } | CandidatePredicate::Or { terms } => {
             terms.iter().all(candidate_predicate_is_total)
         }
@@ -108,9 +112,10 @@ fn candidate_predicate_is_projection_exact(
         CandidatePredicate, HostedScalarKind,
     };
     match predicate {
-        CandidatePredicate::All | CandidatePredicate::None | CandidatePredicate::HasType { .. } => {
-            true
-        }
+        CandidatePredicate::All
+        | CandidatePredicate::None
+        | CandidatePredicate::HasType { .. }
+        | CandidatePredicate::PathInFolder { .. } => true,
         CandidatePredicate::And { terms } | CandidatePredicate::Or { terms } => {
             terms.iter().all(candidate_predicate_is_projection_exact)
         }
@@ -159,6 +164,9 @@ fn push_exact_candidate_predicate(
                 .push("matched_types @> ARRAY[")
                 .push_bind(type_name.clone())
                 .push("]::text[]");
+        }
+        CandidatePredicate::PathInFolder { folder } => {
+            push_path_in_folder(query, folder);
         }
         CandidatePredicate::And { terms } | CandidatePredicate::Or { terms } => {
             let separator = if matches!(predicate, CandidatePredicate::And { .. }) {
@@ -224,6 +232,18 @@ fn push_exact_candidate_predicate(
                 unreachable!("exact candidate support was checked before SQL translation")
             }
         },
+    }
+}
+
+fn push_path_in_folder(query: &mut QueryBuilder<Postgres>, folder: &str) {
+    if folder.is_empty() {
+        query.push("strpos(canonical_path, '/') = 0");
+    } else {
+        query
+            .push("left(canonical_path, char_length(")
+            .push_bind(folder.to_string())
+            .push(") + 1) = ")
+            .push_bind(format!("{folder}/"));
     }
 }
 
@@ -433,6 +453,7 @@ fn candidate_type_union(predicate: &mdbase::runtime::CandidatePredicate) -> Opti
         CandidatePredicate::All => Some(Vec::new()),
         CandidatePredicate::None => Some(vec!["__mdbase_no_such_type__".to_string()]),
         CandidatePredicate::HasType { type_name } => Some(vec![type_name.clone()]),
+        CandidatePredicate::PathInFolder { .. } => Some(Vec::new()),
         CandidatePredicate::Or { terms } => {
             let mut types = Vec::new();
             for term in terms {

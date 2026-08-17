@@ -4,10 +4,12 @@ use std::{collections::BTreeMap, fs};
 use std::collections::BTreeSet;
 
 use mdbase::{runtime::CollectionSnapshot, v03::OperationResult, Collection};
+#[cfg(test)]
 use mdbase_connect_protocol::{
     ApplyCollectionSetupInput, ApplyTypePackInput, AssessCollectionSetupInput, AssessTypePackInput,
-    SyncMutation, SyncMutationOperation, SyncRecord,
 };
+use mdbase_connect_protocol::{SyncMutation, SyncMutationOperation, SyncRecord};
+#[cfg(test)]
 use serde_json::Value;
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -341,6 +343,7 @@ impl WorkingSet {
             })
     }
 
+    #[cfg(test)]
     pub fn read_operation(&self, operation: &str, input: &Value) -> ApiResult<OperationResult> {
         let collection = Collection::open(self.directory.path()).map_err(|error| {
             ApiError::internal(format!(
@@ -445,6 +448,7 @@ impl WorkingSet {
         }
     }
 
+    #[cfg(test)]
     pub fn assess_type_pack(&self, input: &AssessTypePackInput) -> ApiResult<OperationResult> {
         let collection = Collection::open(self.directory.path()).map_err(|error| {
             ApiError::internal(format!(
@@ -469,6 +473,7 @@ impl WorkingSet {
         ))
     }
 
+    #[cfg(test)]
     pub fn apply_type_pack(&self, input: &ApplyTypePackInput) -> ApiResult<OperationResult> {
         let collection = Collection::open(self.directory.path()).map_err(|error| {
             ApiError::internal(format!(
@@ -495,6 +500,7 @@ impl WorkingSet {
         ))
     }
 
+    #[cfg(test)]
     pub fn assess_collection_setup(
         &self,
         input: &AssessCollectionSetupInput,
@@ -507,6 +513,7 @@ impl WorkingSet {
         Ok(collection.assess_collection_setup(&engine_collection_setup(input)?))
     }
 
+    #[cfg(test)]
     pub fn apply_collection_setup(
         &self,
         input: &ApplyCollectionSetupInput,
@@ -527,6 +534,7 @@ impl WorkingSet {
         ))
     }
 
+    #[cfg(test)]
     pub fn resource_document(&self, path: &str) -> ApiResult<String> {
         fs::read_to_string(safe_path(self.directory.path(), path)?).map_err(Into::into)
     }

@@ -1,6 +1,7 @@
--- Candidate B is additive and opt-in. Existing collections keep all semantic
--- fields NULL and continue to use the encrypted exact authority until an explicit
--- activation transaction creates and binds a projection generation.
+-- Final Candidate B projection/relationship model for the production beta.69
+-- cutover. Exact encrypted tables remain untouched. Existing active collections
+-- begin unbound and are indexed before the new runtime is admitted; there is no
+-- durable legacy execution mode.
 ALTER TABLE hosted_provider_collections
   ADD COLUMN active_catalog_revision text,
   ADD COLUMN active_projection_format_version integer,
@@ -28,6 +29,8 @@ CREATE TABLE hosted_provider_projection_generations (
   projection_format_version integer NOT NULL
     CHECK (projection_format_version > 0),
   semantic_engine_version text NOT NULL,
+  source_resource_revision text NOT NULL
+    CHECK (length(source_resource_revision) BETWEEN 1 AND 1024),
   source_head bigint NOT NULL CHECK (source_head >= 0),
   phase text NOT NULL DEFAULT 'projection'
     CHECK (phase IN ('projection', 'resolution')),
@@ -40,6 +43,10 @@ CREATE TABLE hosted_provider_projection_generations (
   lease_expires_at timestamptz,
   lease_fencing_generation bigint NOT NULL DEFAULT 0
     CHECK (lease_fencing_generation >= 0),
+  integrity_epoch bigint NOT NULL DEFAULT 1 CHECK (integrity_epoch > 0),
+  integrity_verified_epoch bigint NOT NULL DEFAULT 0
+    CHECK (integrity_verified_epoch >= 0)
+    CHECK (integrity_verified_epoch <= integrity_epoch),
   last_error_code text CHECK (
     last_error_code IS NULL OR (
       length(last_error_code) BETWEEN 1 AND 128
@@ -65,6 +72,10 @@ ALTER TABLE hosted_provider_collections
   FOREIGN KEY (id, active_projection_generation_id)
   REFERENCES hosted_provider_projection_generations (collection_id, generation_id)
   DEFERRABLE INITIALLY DEFERRED;
+
+CREATE INDEX hosted_provider_collections_projection_backfill_idx
+  ON hosted_provider_collections (updated_at, id)
+  WHERE state = 'active' AND active_projection_generation_id IS NULL;
 
 CREATE INDEX hosted_provider_projection_generation_work_idx
   ON hosted_provider_projection_generations (
@@ -99,6 +110,8 @@ CREATE TABLE hosted_provider_record_projections (
   semantic_projection jsonb NOT NULL
     CHECK (jsonb_typeof(semantic_projection) = 'object'),
   projection_digest bytea NOT NULL CHECK (octet_length(projection_digest) = 32),
+  projection_observed_digest bytea NOT NULL
+    CHECK (octet_length(projection_observed_digest) = 32),
   structural_digest bytea NOT NULL CHECK (octet_length(structural_digest) = 32),
   projection_bytes integer NOT NULL
     CHECK (projection_bytes >= 0 AND projection_bytes <= 262144),
@@ -132,14 +145,27 @@ CREATE INDEX hosted_provider_record_projections_generation_idx
     record_id
   );
 
-CREATE INDEX hosted_provider_record_projections_path_cursor_idx
+CREATE INDEX hosted_provider_record_projections_snapshot_path_cursor_idx
   ON hosted_provider_record_projections (
     collection_id,
     generation_id,
     canonical_path COLLATE "C",
+    record_id,
     valid_from_sequence,
-    valid_to_sequence,
-    record_id
+    valid_to_sequence
+  );
+
+-- The Editor's measured broad listing orders by mtime descending. This is the
+-- sole non-path projection ordering index in the initial physical design.
+CREATE INDEX hosted_provider_record_projections_snapshot_mtime_cursor_idx
+  ON hosted_provider_record_projections (
+    collection_id,
+    generation_id,
+    file_modified_at DESC NULLS FIRST,
+    canonical_path COLLATE "C" ASC,
+    record_id ASC,
+    valid_from_sequence,
+    valid_to_sequence
   );
 
 -- mdbase-rs emits the complete closed key set used by link resolution. SQL may
@@ -288,46 +314,141 @@ CREATE UNIQUE INDEX hosted_provider_record_relationships_current_idx
   )
   WHERE valid_to_sequence IS NULL;
 
--- Query cursors retain only a closed mdbase-rs plan and a keyset boundary.
--- Projection history pins the logical collection head, so no PostgreSQL
--- transaction or exported MVCC snapshot survives between page requests.
-CREATE TABLE hosted_provider_query_cursors (
-  cursor_id uuid PRIMARY KEY,
-  collection_id uuid NOT NULL
-    REFERENCES hosted_provider_collections(id) ON DELETE CASCADE,
-  replica_id uuid NOT NULL
-    REFERENCES hosted_provider_replicas(id) ON DELETE CASCADE,
-  scope_epoch bigint NOT NULL CHECK (scope_epoch > 0),
-  snapshot_head bigint NOT NULL CHECK (snapshot_head >= 0),
-  generation_id uuid NOT NULL,
-  catalog_revision text NOT NULL,
-  projection_format_version integer NOT NULL
-    CHECK (projection_format_version > 0),
-  semantic_engine_version text NOT NULL,
-  query_plan_version integer NOT NULL CHECK (query_plan_version > 0),
-  query_digest bytea NOT NULL CHECK (octet_length(query_digest) = 32),
-  query_plan jsonb NOT NULL CHECK (
-    jsonb_typeof(query_plan) = 'object'
-    AND pg_column_size(query_plan) <= 262144
-  ),
-  last_order_values jsonb CHECK (
-    last_order_values IS NULL OR jsonb_typeof(last_order_values) = 'array'
-  ),
-  last_record_id uuid,
-  emitted_rows bigint NOT NULL DEFAULT 0 CHECK (emitted_rows >= 0),
-  remaining_rows bigint CHECK (remaining_rows IS NULL OR remaining_rows >= 0),
-  expires_at timestamptz NOT NULL,
-  hard_expires_at timestamptz NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  last_used_at timestamptz NOT NULL DEFAULT now(),
-  FOREIGN KEY (collection_id, generation_id)
-    REFERENCES hosted_provider_projection_generations (collection_id, generation_id),
-  CHECK (expires_at <= hard_expires_at),
-  CHECK ((last_order_values IS NULL) = (last_record_id IS NULL))
-);
+-- Database-owned observed digests detect provider-readable row corruption. The
+-- expected digest is application-authored only through a transaction-local
+-- trusted marker. This is an unkeyed consistency envelope, not authenticity.
+CREATE FUNCTION hosted_provider_projection_digest(
+  projection_row hosted_provider_record_projections
+) RETURNS bytea
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+RETURN sha256(convert_to(jsonb_build_array(
+  'mdbase/hosted-projection-row/v2',
+  (projection_row).collection_id,
+  (projection_row).record_id,
+  (projection_row).record_sequence,
+  (projection_row).valid_from_sequence,
+  (projection_row).valid_to_sequence,
+  (projection_row).record_revision,
+  (projection_row).catalog_revision,
+  (projection_row).projection_format_version,
+  (projection_row).semantic_engine_version,
+  (projection_row).generation_id,
+  (projection_row).canonical_path,
+  (projection_row).matched_types,
+  (projection_row).file_size_bytes,
+  (projection_row).file_modified_at,
+  (projection_row).semantic_complete,
+  (projection_row).resolution_complete,
+  (projection_row).semantic_projection,
+  encode((projection_row).structural_digest, 'hex'),
+  (projection_row).projection_bytes
+)::text, 'UTF8'));
 
-CREATE INDEX hosted_provider_query_cursors_expiry_idx
-  ON hosted_provider_query_cursors (expires_at, cursor_id);
+CREATE FUNCTION hosted_provider_projection_digest_valid(
+  expected_digest bytea,
+  observed_digest bytea
+) RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+RETURN coalesce(expected_digest = observed_digest, false);
 
-CREATE INDEX hosted_provider_query_cursors_replica_idx
-  ON hosted_provider_query_cursors (replica_id, collection_id, cursor_id);
+CREATE FUNCTION hosted_provider_observe_projection_digest()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $hosted_provider_observe_projection_digest$
+BEGIN
+  NEW.projection_observed_digest := hosted_provider_projection_digest(NEW);
+  IF NEW.projection_digest = decode(repeat('00', 32), 'hex') THEN
+    IF COALESCE(
+         current_setting('mdbase.projection_digest_write', true), ''
+       ) <> 'on' THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '42501',
+        MESSAGE = 'projection digest marker requires the trusted projection write path';
+    END IF;
+    NEW.projection_digest := NEW.projection_observed_digest;
+  END IF;
+  RETURN NEW;
+END
+$hosted_provider_observe_projection_digest$;
+
+CREATE TRIGGER hosted_provider_record_projection_digest_observer
+BEFORE INSERT OR UPDATE ON hosted_provider_record_projections
+FOR EACH ROW
+EXECUTE FUNCTION hosted_provider_observe_projection_digest();
+
+-- Statement-level epochs invalidate projected reduction proofs if a complete
+-- generation changes outside its verified ordinary-write transaction.
+CREATE FUNCTION hosted_provider_bump_projection_epoch_after_insert()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $hosted_provider_bump_projection_epoch_after_insert$
+BEGIN
+  UPDATE hosted_provider_projection_generations generation
+  SET integrity_epoch = generation.integrity_epoch + 1
+  FROM (
+    SELECT DISTINCT collection_id, generation_id FROM new_projection_rows
+  ) changed
+  WHERE generation.collection_id = changed.collection_id
+    AND generation.generation_id = changed.generation_id
+    AND generation.status = 'complete';
+  RETURN NULL;
+END
+$hosted_provider_bump_projection_epoch_after_insert$;
+
+CREATE FUNCTION hosted_provider_bump_projection_epoch_after_update()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $hosted_provider_bump_projection_epoch_after_update$
+BEGIN
+  UPDATE hosted_provider_projection_generations generation
+  SET integrity_epoch = generation.integrity_epoch + 1
+  FROM (
+    SELECT collection_id, generation_id FROM old_projection_rows
+    UNION
+    SELECT collection_id, generation_id FROM new_projection_rows
+  ) changed
+  WHERE generation.collection_id = changed.collection_id
+    AND generation.generation_id = changed.generation_id
+    AND generation.status = 'complete';
+  RETURN NULL;
+END
+$hosted_provider_bump_projection_epoch_after_update$;
+
+CREATE FUNCTION hosted_provider_bump_projection_epoch_after_delete()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $hosted_provider_bump_projection_epoch_after_delete$
+BEGIN
+  UPDATE hosted_provider_projection_generations generation
+  SET integrity_epoch = generation.integrity_epoch + 1
+  FROM (
+    SELECT DISTINCT collection_id, generation_id FROM old_projection_rows
+  ) changed
+  WHERE generation.collection_id = changed.collection_id
+    AND generation.generation_id = changed.generation_id
+    AND generation.status = 'complete';
+  RETURN NULL;
+END
+$hosted_provider_bump_projection_epoch_after_delete$;
+
+CREATE TRIGGER hosted_provider_projection_epoch_after_insert
+AFTER INSERT ON hosted_provider_record_projections
+REFERENCING NEW TABLE AS new_projection_rows
+FOR EACH STATEMENT
+EXECUTE FUNCTION hosted_provider_bump_projection_epoch_after_insert();
+
+CREATE TRIGGER hosted_provider_projection_epoch_after_update
+AFTER UPDATE ON hosted_provider_record_projections
+REFERENCING OLD TABLE AS old_projection_rows NEW TABLE AS new_projection_rows
+FOR EACH STATEMENT
+EXECUTE FUNCTION hosted_provider_bump_projection_epoch_after_update();
+
+CREATE TRIGGER hosted_provider_projection_epoch_after_delete
+AFTER DELETE ON hosted_provider_record_projections
+REFERENCING OLD TABLE AS old_projection_rows
+FOR EACH STATEMENT
+EXECUTE FUNCTION hosted_provider_bump_projection_epoch_after_delete();

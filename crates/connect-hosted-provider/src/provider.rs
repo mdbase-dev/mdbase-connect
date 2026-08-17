@@ -116,19 +116,6 @@ const PRIMARY_POOL_CONNECTIONS: u32 = DATABASE_CONNECTION_BUDGET - QUERY_POOL_CO
 const DATABASE_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(5);
 const KEY_READINESS_SUCCESS_TTL: Duration = Duration::from_secs(60);
 const KEY_READINESS_FAILURE_TTL: Duration = Duration::from_secs(5);
-type WorkingSetSlot = Arc<Mutex<Option<CachedCollection>>>;
-type WorkingSetRegistry = Arc<Mutex<WorkingSetRegistryState>>;
-
-#[derive(Default)]
-struct WorkingSetRegistryState {
-    entries: HashMap<Uuid, WorkingSetRegistryEntry>,
-}
-
-struct WorkingSetRegistryEntry {
-    slot: WorkingSetSlot,
-    last_used: Instant,
-}
-
 struct KeyReadinessState {
     last_checked: Instant,
     healthy: bool,
@@ -209,7 +196,6 @@ pub struct HostedProvider {
     crypto: ProviderCrypto,
     key_readiness: Arc<Mutex<KeyReadinessState>>,
     limits: ProviderLimits,
-    working_sets: WorkingSetRegistry,
     notifications: Option<HostedNotificationRuntime>,
     notification_recovery_guard: Arc<Mutex<()>>,
     notification_recovery: Arc<RwLock<NotificationRecoveryStatus>>,
@@ -640,81 +626,6 @@ struct PreparedRecordOperation {
     semantic_input: serde_json::Map<String, Value>,
     previous_path: Option<String>,
     include_document: bool,
-}
-
-struct CachedCollection {
-    head: Option<u64>,
-    workspace: WorkingSet,
-    records: BTreeMap<Uuid, PersistedRecord>,
-    plaintext_bytes: u64,
-    created_at: Instant,
-}
-
-impl CachedCollection {
-    fn new(
-        head: Option<u64>,
-        workspace: WorkingSet,
-        records: BTreeMap<Uuid, PersistedRecord>,
-    ) -> Self {
-        let plaintext_bytes = Self::estimate_plaintext_bytes(&records);
-        Self::log_measurement(plaintext_bytes, records.len());
-        Self {
-            head,
-            workspace,
-            records,
-            plaintext_bytes,
-            created_at: Instant::now(),
-        }
-    }
-
-    fn refresh_plaintext_bytes(&mut self) {
-        let previous = self.plaintext_bytes;
-        self.plaintext_bytes = Self::estimate_plaintext_bytes(&self.records);
-        if self.plaintext_bytes.saturating_sub(previous) >= 1024 * 1024
-            || self.records.len().is_multiple_of(1_000)
-        {
-            Self::log_measurement(self.plaintext_bytes, self.records.len());
-        }
-    }
-
-    fn estimate_plaintext_bytes(records: &BTreeMap<Uuid, PersistedRecord>) -> u64 {
-        records.values().fold(0_u64, |total, record| {
-            total.saturating_add(Self::record_plaintext_bytes(record))
-        })
-    }
-
-    fn record_plaintext_bytes(record: &PersistedRecord) -> u64 {
-        let frontmatter = serde_json::to_vec(&record.frontmatter)
-            .map(|value| value.len() as u64)
-            .unwrap_or(u64::MAX);
-        (record.document.len() as u64)
-            .saturating_add(record.body.len() as u64)
-            .saturating_add(record.path.len() as u64 * 3)
-            .saturating_add(record.revision.len() as u64)
-            .saturating_add(
-                record
-                    .types
-                    .iter()
-                    .map(|value| value.len() as u64)
-                    .sum::<u64>(),
-            )
-            .saturating_add(frontmatter)
-    }
-
-    fn log_measurement(plaintext_bytes: u64, records: usize) {
-        let memory = crate::HostedProcessMemory::capture();
-        tracing::info!(
-            target: "mdbase_connect::metrics",
-            metric = "hosted_working_set_materialized",
-            plaintext_bytes,
-            records,
-            rss_bytes = memory.rss_bytes.unwrap_or(0),
-            pss_bytes = memory.pss_bytes.unwrap_or(0),
-            cgroup_current_bytes = memory.cgroup_current_bytes.unwrap_or(0),
-            cgroup_peak_bytes = memory.cgroup_peak_bytes.unwrap_or(0),
-            "privacy-safe hosted provider metric"
-        );
-    }
 }
 
 pub fn validate_limit(limit: Option<u32>) -> ApiResult<u32> {
