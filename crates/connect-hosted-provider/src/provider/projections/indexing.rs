@@ -1,5 +1,5 @@
 const PRODUCTION_MIGRATION_BASELINE: u64 = 34;
-const FINAL_PROJECTION_MIGRATION: u64 = 36;
+const FINAL_PROJECTION_MIGRATION: u64 = 37;
 const MAX_INDEX_INVENTORY_PAGE: u32 = 1_000;
 const MAX_DERIVED_VERIFICATION_PAGE: i64 = 16;
 
@@ -15,7 +15,7 @@ impl HostedProvider {
                       min(version) AS minimum_version,
                       max(version) AS maximum_version,
                       bool_and(success) AS all_successful,
-                      count(*) FILTER (WHERE version BETWEEN 35 AND 36)::bigint
+                      count(*) FILTER (WHERE version BETWEEN 35 AND 37)::bigint
                         AS final_migration_count
                FROM _sqlx_migrations"#,
         )
@@ -40,7 +40,7 @@ impl HostedProvider {
             && ledger.get::<Option<i64>, _>("maximum_version")
                 == Some(FINAL_PROJECTION_MIGRATION as i64)
             && ledger.get::<Option<bool>, _>("all_successful") == Some(true)
-            && ledger.get::<i64, _>("final_migration_count") == 2
+            && ledger.get::<i64, _>("final_migration_count") == 3
             && migration_checksums_valid;
         let schema_valid: bool = sqlx::query_scalar(
             r#"SELECT to_regclass('hosted_provider_projection_generations') IS NOT NULL
@@ -50,6 +50,20 @@ impl HostedProvider {
                     AND to_regclass('hosted_provider_query_cursors') IS NOT NULL
                     AND to_regclass('hosted_provider_query_page_receipts') IS NOT NULL
                     AND to_regclass('hosted_provider_runtime_control') IS NOT NULL
+                    AND EXISTS (
+                      SELECT 1
+                      FROM information_schema.columns
+                      WHERE table_schema = current_schema()
+                        AND table_name = 'hosted_provider_runtime_control'
+                        AND column_name = 'admission_fence_token'
+                    )
+                    AND EXISTS (
+                      SELECT 1
+                      FROM information_schema.columns
+                      WHERE table_schema = current_schema()
+                        AND table_name = 'hosted_provider_runtime_control'
+                        AND column_name = 'admission_fence_kind'
+                    )
                     AND (
                       SELECT count(*) FROM pg_indexes
                       WHERE schemaname = current_schema()

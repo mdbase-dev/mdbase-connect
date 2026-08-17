@@ -5,6 +5,7 @@
 -- are untouched. Only ephemeral query state and incomplete derived generations
 -- are retired. External traffic must remain in maintenance throughout rollback.
 BEGIN;
+SELECT set_config('mdbase.admission_fence_token', :'fence_token', true);
 SELECT pg_advisory_xact_lock(
   hashtextextended('mdbase-hosted-query-admission-v1', 0)
 );
@@ -17,13 +18,17 @@ DECLARE
   failed_migrations bigint;
   missing_migrations bigint;
   invalid_states bigint;
+  requested_token uuid := current_setting('mdbase.admission_fence_token')::uuid;
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM hosted_provider_runtime_control
-    WHERE singleton = true AND query_admission_suspended = true
+    WHERE singleton = true
+      AND query_admission_suspended = true
+      AND admission_fence_token = requested_token
+      AND admission_fence_kind = 'rollback'
   ) THEN
     RAISE EXCEPTION
-      'beta69_rollback_blocked: suspend hosted query admission first';
+      'beta69_rollback_blocked: matching rollback admission fence is absent';
   END IF;
 
   SELECT count(*), min(version), max(version),
@@ -32,15 +37,15 @@ BEGIN
   FROM _sqlx_migrations;
   SELECT count(*)
     INTO missing_migrations
-  FROM generate_series(1, 36) AS required(version)
+  FROM generate_series(1, 37) AS required(version)
   WHERE NOT EXISTS (
     SELECT 1 FROM _sqlx_migrations applied
     WHERE applied.version = required.version AND applied.success
   );
-  IF migration_count <> 36 OR minimum_version <> 1 OR maximum_version <> 36
+  IF migration_count <> 37 OR minimum_version <> 1 OR maximum_version <> 37
      OR failed_migrations <> 0 OR missing_migrations <> 0 THEN
     RAISE EXCEPTION
-      'beta69_rollback_blocked: expected exact successful final ledger 1-36';
+      'beta69_rollback_blocked: expected exact successful final ledger 1-37';
   END IF;
 
   SELECT count(*) INTO invalid_states

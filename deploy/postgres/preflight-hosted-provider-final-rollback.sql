@@ -5,6 +5,7 @@
 -- the rollback runner. This proves the exact migration ledger and the final
 -- runtime objects the target expects; it never alters canonical or derived data.
 BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;
+SELECT set_config('mdbase.admission_fence_token', :'fence_token', true);
 
 DO $final_rollback_preflight$
 DECLARE
@@ -20,6 +21,8 @@ DECLARE
   checksum_mismatches bigint[];
   missing_objects text[];
   missing_columns text[];
+  missing_runtime_columns text[];
+  requested_token uuid := current_setting('mdbase.admission_fence_token')::uuid;
 BEGIN
   IF to_regclass('_sqlx_migrations') IS NULL THEN
     RAISE EXCEPTION
@@ -32,15 +35,15 @@ BEGIN
   FROM _sqlx_migrations;
   SELECT count(*)
     INTO missing_migrations
-  FROM generate_series(1, 36) AS required(version)
+  FROM generate_series(1, 37) AS required(version)
   WHERE NOT EXISTS (
     SELECT 1 FROM _sqlx_migrations applied
     WHERE applied.version = required.version AND applied.success
   );
-  IF migration_count <> 36 OR minimum_version <> 1 OR maximum_version <> 36
+  IF migration_count <> 37 OR minimum_version <> 1 OR maximum_version <> 37
      OR failed_migrations <> 0 OR missing_migrations <> 0 THEN
     RAISE EXCEPTION
-      'final_rollback_blocked: expected exact successful final ledger 1-36';
+      'final_rollback_blocked: expected exact successful final ledger 1-37';
   END IF;
 
   SELECT array_agg(expected.version ORDER BY expected.version)
@@ -81,7 +84,8 @@ BEGIN
     (33, decode('0ef8b9088494f0c8caebccd2b9df863a5697afb07b02f356d2ac50cbff846a4498fc74eb71cdc972bbb8aec1cdc2edae', 'hex')),
     (34, decode('ab662bb7a71e9f742cb197e6842a26b4526b74394b41ba2cc153644d5496a360960b7b6c9e01924ab56e45e7052dab37', 'hex')),
     (35, decode('042632e2b1ee010fabe5c23ae0ddc6aa91720aceafe21a263ca08a6b117a0638d0166c93deaf9dd565ba8eba32de3950', 'hex')),
-    (36, decode('b3bf3e4d582211cf1df4a15806c5ae2715538aadd0fa6139aac580f4192ffa17668f4a07b34e0d9f34ca2a6a204f4bbb', 'hex'))
+    (36, decode('b3bf3e4d582211cf1df4a15806c5ae2715538aadd0fa6139aac580f4192ffa17668f4a07b34e0d9f34ca2a6a204f4bbb', 'hex')),
+    (37, decode('8a48b20adfaa3b9618647b0ca6bebc02dc0e8fb45a38788c5c025d39aec51345767c9ece850a8273b8f2c57bbb5c2d12', 'hex'))
   ) AS expected(version, checksum)
   LEFT JOIN _sqlx_migrations applied ON applied.version = expected.version
   WHERE applied.checksum IS DISTINCT FROM expected.checksum;
@@ -151,45 +155,128 @@ BEGIN
       array_to_string(missing_columns, ', ');
   END IF;
 
-  SELECT count(*)
-    INTO invalid_trigger_count
-  FROM pg_trigger trigger_row
-  JOIN pg_class relation ON relation.oid = trigger_row.tgrelid
-  JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
-  WHERE namespace.nspname = current_schema()
-    AND NOT trigger_row.tgisinternal
-    AND trigger_row.tgenabled = 'O'
-    AND trigger_row.tgname IN (
-      'hosted_provider_record_projection_digest_observer',
-      'hosted_provider_projection_epoch_after_insert',
-      'hosted_provider_projection_epoch_after_update',
-      'hosted_provider_projection_epoch_after_delete',
-      'hosted_provider_resolution_key_epoch_after_insert',
-      'hosted_provider_resolution_key_epoch_after_update',
-      'hosted_provider_resolution_key_epoch_after_delete',
-      'hosted_provider_relationship_epoch_after_insert',
-      'hosted_provider_relationship_epoch_after_update',
-      'hosted_provider_relationship_epoch_after_delete'
-    );
-  IF invalid_trigger_count <> 10 THEN
+  SELECT array_agg(required.column_name ORDER BY required.column_name)
+    INTO missing_runtime_columns
+  FROM unnest(ARRAY[
+    'admission_fence_token',
+    'admission_fence_kind'
+  ]) AS required(column_name)
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns present
+    WHERE present.table_schema = current_schema()
+      AND present.table_name = 'hosted_provider_runtime_control'
+      AND present.column_name = required.column_name
+  );
+  IF missing_runtime_columns IS NOT NULL THEN
     RAISE EXCEPTION
-      'final_rollback_blocked: expected ten enabled final projection integrity triggers';
+      'final_rollback_blocked: required runtime control columns are absent: %',
+      array_to_string(missing_runtime_columns, ', ');
   END IF;
 
+  WITH expected(trigger_name, relation_name, function_name, trigger_definition) AS (
+    VALUES
+      ('hosted_provider_record_projection_digest_observer',
+       'hosted_provider_record_projections', 'hosted_provider_observe_projection_digest',
+       'CREATE TRIGGER hosted_provider_record_projection_digest_observer BEFORE INSERT OR UPDATE ON public.hosted_provider_record_projections FOR EACH ROW EXECUTE FUNCTION hosted_provider_observe_projection_digest()'),
+      ('hosted_provider_projection_epoch_after_insert',
+       'hosted_provider_record_projections', 'hosted_provider_bump_projection_epoch_after_insert',
+       'CREATE TRIGGER hosted_provider_projection_epoch_after_insert AFTER INSERT ON public.hosted_provider_record_projections REFERENCING NEW TABLE AS new_projection_rows FOR EACH STATEMENT EXECUTE FUNCTION hosted_provider_bump_projection_epoch_after_insert()'),
+      ('hosted_provider_projection_epoch_after_update',
+       'hosted_provider_record_projections', 'hosted_provider_bump_projection_epoch_after_update',
+       'CREATE TRIGGER hosted_provider_projection_epoch_after_update AFTER UPDATE ON public.hosted_provider_record_projections REFERENCING OLD TABLE AS old_projection_rows NEW TABLE AS new_projection_rows FOR EACH STATEMENT EXECUTE FUNCTION hosted_provider_bump_projection_epoch_after_update()'),
+      ('hosted_provider_projection_epoch_after_delete',
+       'hosted_provider_record_projections', 'hosted_provider_bump_projection_epoch_after_delete',
+       'CREATE TRIGGER hosted_provider_projection_epoch_after_delete AFTER DELETE ON public.hosted_provider_record_projections REFERENCING OLD TABLE AS old_projection_rows FOR EACH STATEMENT EXECUTE FUNCTION hosted_provider_bump_projection_epoch_after_delete()'),
+      ('hosted_provider_resolution_key_epoch_after_insert',
+       'hosted_provider_record_resolution_keys', 'hosted_provider_bump_projection_epoch_after_insert',
+       'CREATE TRIGGER hosted_provider_resolution_key_epoch_after_insert AFTER INSERT ON public.hosted_provider_record_resolution_keys REFERENCING NEW TABLE AS new_projection_rows FOR EACH STATEMENT EXECUTE FUNCTION hosted_provider_bump_projection_epoch_after_insert()'),
+      ('hosted_provider_resolution_key_epoch_after_update',
+       'hosted_provider_record_resolution_keys', 'hosted_provider_bump_projection_epoch_after_update',
+       'CREATE TRIGGER hosted_provider_resolution_key_epoch_after_update AFTER UPDATE ON public.hosted_provider_record_resolution_keys REFERENCING OLD TABLE AS old_projection_rows NEW TABLE AS new_projection_rows FOR EACH STATEMENT EXECUTE FUNCTION hosted_provider_bump_projection_epoch_after_update()'),
+      ('hosted_provider_resolution_key_epoch_after_delete',
+       'hosted_provider_record_resolution_keys', 'hosted_provider_bump_projection_epoch_after_delete',
+       'CREATE TRIGGER hosted_provider_resolution_key_epoch_after_delete AFTER DELETE ON public.hosted_provider_record_resolution_keys REFERENCING OLD TABLE AS old_projection_rows FOR EACH STATEMENT EXECUTE FUNCTION hosted_provider_bump_projection_epoch_after_delete()'),
+      ('hosted_provider_relationship_epoch_after_insert',
+       'hosted_provider_record_relationships', 'hosted_provider_bump_projection_epoch_after_insert',
+       'CREATE TRIGGER hosted_provider_relationship_epoch_after_insert AFTER INSERT ON public.hosted_provider_record_relationships REFERENCING NEW TABLE AS new_projection_rows FOR EACH STATEMENT EXECUTE FUNCTION hosted_provider_bump_projection_epoch_after_insert()'),
+      ('hosted_provider_relationship_epoch_after_update',
+       'hosted_provider_record_relationships', 'hosted_provider_bump_projection_epoch_after_update',
+       'CREATE TRIGGER hosted_provider_relationship_epoch_after_update AFTER UPDATE ON public.hosted_provider_record_relationships REFERENCING OLD TABLE AS old_projection_rows NEW TABLE AS new_projection_rows FOR EACH STATEMENT EXECUTE FUNCTION hosted_provider_bump_projection_epoch_after_update()'),
+      ('hosted_provider_relationship_epoch_after_delete',
+       'hosted_provider_record_relationships', 'hosted_provider_bump_projection_epoch_after_delete',
+       'CREATE TRIGGER hosted_provider_relationship_epoch_after_delete AFTER DELETE ON public.hosted_provider_record_relationships REFERENCING OLD TABLE AS old_projection_rows FOR EACH STATEMENT EXECUTE FUNCTION hosted_provider_bump_projection_epoch_after_delete()')
+  ), observed AS (
+    SELECT trigger_row.tgname AS trigger_name,
+           relation.relname AS relation_name,
+           function_row.proname AS function_name,
+           function_namespace.nspname AS function_schema,
+           trigger_row.tgenabled,
+           pg_get_triggerdef(trigger_row.oid, false) AS trigger_definition
+    FROM pg_trigger trigger_row
+    JOIN pg_class relation ON relation.oid = trigger_row.tgrelid
+    JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+    JOIN pg_proc function_row ON function_row.oid = trigger_row.tgfoid
+    JOIN pg_namespace function_namespace
+      ON function_namespace.oid = function_row.pronamespace
+    WHERE namespace.nspname = current_schema()
+      AND NOT trigger_row.tgisinternal
+  )
+  SELECT count(*)
+    INTO invalid_trigger_count
+  FROM expected
+  LEFT JOIN observed USING (trigger_name)
+  WHERE observed.trigger_name IS NULL
+     OR observed.relation_name IS DISTINCT FROM expected.relation_name
+     OR observed.function_name IS DISTINCT FROM expected.function_name
+     OR observed.function_schema IS DISTINCT FROM current_schema()
+     OR observed.tgenabled IS DISTINCT FROM 'O'
+     OR observed.trigger_definition IS DISTINCT FROM expected.trigger_definition;
+  IF invalid_trigger_count <> 0 THEN
+    RAISE EXCEPTION
+      'final_rollback_blocked: % final projection integrity trigger(s) differ from the exact contract',
+      invalid_trigger_count;
+  END IF;
+
+  WITH expected(
+    constraint_name, relation_name, constraint_type, is_deferrable,
+    initially_deferred, constraint_definition
+  ) AS (
+    VALUES
+      ('hosted_provider_collections_projection_binding_check',
+       'hosted_provider_collections', 'c'::"char", false, false,
+       'CHECK ((((active_catalog_revision IS NULL) AND (active_projection_format_version IS NULL) AND (active_semantic_engine_version IS NULL) AND (active_projection_generation_id IS NULL) AND (active_projection_head IS NULL)) OR ((active_catalog_revision IS NOT NULL) AND (active_projection_format_version > 0) AND (active_semantic_engine_version IS NOT NULL) AND (active_projection_generation_id IS NOT NULL) AND (active_projection_head IS NOT NULL))))'),
+      ('hosted_provider_collections_active_projection_generation_fk',
+       'hosted_provider_collections', 'f'::"char", true, true,
+       'FOREIGN KEY (id, active_projection_generation_id) REFERENCES hosted_provider_projection_generations(collection_id, generation_id) DEFERRABLE INITIALLY DEFERRED')
+  ), observed AS (
+    SELECT constraint_row.conname AS constraint_name,
+           relation.relname AS relation_name,
+           constraint_row.contype AS constraint_type,
+           constraint_row.condeferrable AS is_deferrable,
+           constraint_row.condeferred AS initially_deferred,
+           constraint_row.convalidated,
+           pg_get_constraintdef(constraint_row.oid, false) AS constraint_definition
+    FROM pg_constraint constraint_row
+    JOIN pg_class relation ON relation.oid = constraint_row.conrelid
+    JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+    WHERE namespace.nspname = current_schema()
+  )
   SELECT count(*)
     INTO invalid_constraint_count
-  FROM pg_constraint constraint_row
-  JOIN pg_class relation ON relation.oid = constraint_row.conrelid
-  JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
-  WHERE namespace.nspname = current_schema()
-    AND constraint_row.convalidated
-    AND constraint_row.conname IN (
-      'hosted_provider_collections_projection_binding_check',
-      'hosted_provider_collections_active_projection_generation_fk'
-    );
-  IF invalid_constraint_count <> 2 THEN
+  FROM expected
+  LEFT JOIN observed USING (constraint_name)
+  WHERE observed.constraint_name IS NULL
+     OR observed.relation_name IS DISTINCT FROM expected.relation_name
+     OR observed.constraint_type IS DISTINCT FROM expected.constraint_type
+     OR observed.is_deferrable IS DISTINCT FROM expected.is_deferrable
+     OR observed.initially_deferred IS DISTINCT FROM expected.initially_deferred
+     OR observed.convalidated IS DISTINCT FROM true
+     OR observed.constraint_definition IS DISTINCT FROM expected.constraint_definition;
+  IF invalid_constraint_count <> 0 THEN
     RAISE EXCEPTION
-      'final_rollback_blocked: expected two validated final projection binding constraints';
+      'final_rollback_blocked: % final projection binding constraint(s) differ from the exact contract',
+      invalid_constraint_count;
   END IF;
 
   SELECT count(*)
@@ -197,7 +284,9 @@ BEGIN
   FROM hosted_provider_runtime_control
   WHERE singleton = true
     AND query_admission_suspended = true
-    AND suspension_reason = 'controlled_provider_rollback';
+    AND suspension_reason = 'controlled_provider_rollback'
+    AND admission_fence_token = requested_token
+    AND admission_fence_kind = 'rollback';
   IF runtime_rows <> 1 OR (SELECT count(*) FROM hosted_provider_runtime_control) <> 1 THEN
     RAISE EXCEPTION
       'final_rollback_blocked: expected exactly one controlled suspended admission row';

@@ -78,7 +78,7 @@ Normal reads, queries, validation, and mutations never materialize a collection-
 1. Enter the reviewed external maintenance window and stop new hosted operations on the exact beta69 service set.
 2. Run `preflight-hosted-provider-beta69-cutover.sql`. It requires the exact successful 1–34 ledger and absence of every Candidate B object.
 3. Reconfirm recovery artifacts, key reader, capacity, and privacy-safe canonical inventory.
-4. Apply final migrations 0035/0036. Suspend durable query admission before any candidate process accepts traffic.
+4. Apply final migrations 0035–0037. Migration 0037 adds the operation-bound admission fence without rewriting published migration 0036. Suspend durable query admission before any candidate process accepts traffic.
 5. Run indexer `plan`, bounded `apply` passes, `status`, and complete-inventory `verify`. Abort on any unverified collection or changed expected head/resource binding.
 6. Compare canonical tables/inventory with the pre-cutover evidence. Only derived projection/runtime rows and additive active bindings may differ.
 7. Deploy the immutable final provider/control/MCP set while external maintenance and durable admission remain closed.

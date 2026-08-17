@@ -11,7 +11,7 @@ The comparison uses two disposable PostgreSQL 17 databases:
 
 Both histories produce 41 public tables. The comparison normalizes columns through `information_schema.columns`, constraints through `pg_get_constraintdef`, and indexes through `pg_indexes`. It intentionally does not compare migration-ledger rows or formatting of equivalent trigger/function bodies.
 
-The executable upgrade contract is also covered by `candidate_b_consolidated_migrations_upgrade_the_beta69_schema`, which first applies exactly migrations 1–34, proves that no projection table exists, then applies the final migrations and requires the exact 1–36 ledger.
+The executable upgrade contract is also covered by `candidate_b_consolidated_migrations_upgrade_the_beta69_schema`, which first applies exactly migrations 1–34, proves that no projection table exists, then applies the final migrations and requires the exact 1–37 ledger. Migration 0037 is the additive, operation-bound admission fence; keeping it separate preserves the already-published 0036 checksum.
 
 ## Intentional differences
 

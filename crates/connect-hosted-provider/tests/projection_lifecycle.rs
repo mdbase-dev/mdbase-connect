@@ -52,7 +52,7 @@ async fn candidate_b_consolidated_migrations_upgrade_the_beta69_schema() {
             .fetch_all(&pool)
             .await
             .unwrap();
-    assert_eq!(final_versions, (1_i64..=36).collect::<Vec<_>>());
+    assert_eq!(final_versions, (1_i64..=37).collect::<Vec<_>>());
     let runtime_columns: Vec<String> = sqlx::query_scalar(
         r#"SELECT column_name
            FROM information_schema.columns
@@ -66,6 +66,18 @@ async fn candidate_b_consolidated_migrations_upgrade_the_beta69_schema() {
     assert!(runtime_columns.contains(&"active_projection_generation_id".to_string()));
     assert!(!runtime_columns.contains(&"hosted_execution_model".to_string()));
     assert!(!runtime_columns.contains(&"pending_hosted_execution_model".to_string()));
+    let admission_columns: Vec<String> = sqlx::query_scalar(
+        r#"SELECT column_name
+           FROM information_schema.columns
+           WHERE table_schema = current_schema()
+             AND table_name = 'hosted_provider_runtime_control'
+           ORDER BY column_name"#,
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert!(admission_columns.contains(&"admission_fence_token".to_string()));
+    assert!(admission_columns.contains(&"admission_fence_kind".to_string()));
     let general_projection_indexes: i64 = sqlx::query_scalar(
         r#"SELECT count(*)
            FROM pg_indexes

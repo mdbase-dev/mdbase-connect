@@ -41,6 +41,7 @@ try {
     MDBASE_PROJECTION_DATABASE_URL:
       `postgres://mdbase:${password}@127.0.0.1:${port}/${migrationDatabase}`
   });
+  await proveFinalAdmissionAndRollbackGates(migrationDatabase);
   await run("cargo", [
     "test", "-p", "mdbase-connect-hosted-provider",
     "--test", "projection_lifecycle", "--", "--ignored", "--nocapture",
@@ -124,6 +125,85 @@ async function waitForPostgres() {
     await new Promise(resolveDelay => setTimeout(resolveDelay, 250));
   }
   throw new Error("PostgreSQL did not become ready within 30 seconds");
+}
+
+async function proveFinalAdmissionAndRollbackGates(database) {
+  const token = "12345678-1234-4234-8234-123456789abc";
+  const wrongToken = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const scripts = {
+    suspend: "deploy/postgres/suspend-hosted-query-admission.sql",
+    resume: "deploy/postgres/resume-hosted-query-admission.sql",
+    finalPreflight: "deploy/postgres/preflight-hosted-provider-final-rollback.sql",
+    beta69Rollback: "deploy/postgres/prepare-hosted-provider-beta69-rollback.sql"
+  };
+  for (const [name, source] of Object.entries(scripts)) {
+    await execute("docker", [
+      "cp", resolve(root, source), `${container}:/tmp/${name}.sql`
+    ], { cwd: root });
+  }
+  await psqlFile(database, "suspend", { fence_token: token, fence_kind: "rollback" });
+  await psqlFile(database, "finalPreflight", { fence_token: token });
+  await expectPsqlFailure(
+    database,
+    "resume",
+    { fence_token: wrongToken, fence_kind: "rollback" },
+    "a stale fence token resumed hosted admission"
+  );
+  await expectPsqlFailure(
+    database,
+    "resume",
+    { fence_token: token, fence_kind: "cutover" },
+    "a mismatched fence kind resumed hosted admission"
+  );
+  await psql(database,
+    "ALTER TABLE hosted_provider_record_relationships DISABLE TRIGGER hosted_provider_relationship_epoch_after_insert");
+  await expectPsqlFailure(
+    database,
+    "finalPreflight",
+    { fence_token: token },
+    "the final preflight accepted a disabled integrity trigger"
+  );
+  await psql(database,
+    "ALTER TABLE hosted_provider_record_relationships ENABLE TRIGGER hosted_provider_relationship_epoch_after_insert");
+  await psql(database,
+    "ALTER TABLE hosted_provider_collections RENAME CONSTRAINT hosted_provider_collections_projection_binding_check TO hosted_provider_collections_projection_binding_check_wrong");
+  await expectPsqlFailure(
+    database,
+    "finalPreflight",
+    { fence_token: token },
+    "the final preflight accepted a renamed binding constraint"
+  );
+  await psql(database,
+    "ALTER TABLE hosted_provider_collections RENAME CONSTRAINT hosted_provider_collections_projection_binding_check_wrong TO hosted_provider_collections_projection_binding_check");
+  await psqlFile(database, "beta69Rollback", { fence_token: token });
+  await psqlFile(database, "resume", { fence_token: token, fence_kind: "rollback" });
+}
+
+async function psqlFile(database, name, variables = {}) {
+  const args = [
+    "exec", container, "psql", "-U", "mdbase", "-d", database,
+    "--no-psqlrc", "--set", "ON_ERROR_STOP=on"
+  ];
+  for (const [key, value] of Object.entries(variables)) {
+    args.push("--set", `${key}=${value}`);
+  }
+  args.push("--file", `/tmp/${name}.sql`);
+  await execute("docker", args, { cwd: root });
+}
+
+async function expectPsqlFailure(database, name, variables, message) {
+  const failed = await psqlFile(database, name, variables).then(
+    () => false,
+    () => true
+  );
+  if (!failed) throw new Error(message);
+}
+
+async function psql(database, statement) {
+  await execute("docker", [
+    "exec", container, "psql", "-U", "mdbase", "-d", database,
+    "--no-psqlrc", "--set", "ON_ERROR_STOP=on", "--command", statement
+  ], { cwd: root });
 }
 
 function run(command, args, extraEnvironment) {
