@@ -1,5 +1,11 @@
 \set ON_ERROR_STOP on
 
+-- Reuse the complete relation/index/column/trigger/function/constraint and
+-- lifecycle attestation used by rollback. The fence kind parameter makes the
+-- shared read-only contract verify this cutover's exact durable fence.
+\set fence_kind cutover
+\ir preflight-hosted-provider-final-rollback.sql
+
 -- Final read-only gate while external maintenance and the operation-bound
 -- cutover fence are both closed. Full record/edge verification is performed by
 -- the bounded projection indexer immediately before this database invariant.

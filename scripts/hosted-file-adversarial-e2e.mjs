@@ -152,6 +152,8 @@ async function proveFinalAdmissionAndRollbackGates(database) {
     resume: "deploy/postgres/resume-hosted-query-admission.sql",
     finalPreflight: "deploy/postgres/preflight-hosted-provider-final-rollback.sql",
     finalCutover: "deploy/postgres/preflight-hosted-provider-final-cutover.sql",
+    "preflight-hosted-provider-final-rollback":
+      "deploy/postgres/preflight-hosted-provider-final-rollback.sql",
     beta69Rollback: "deploy/postgres/prepare-hosted-provider-beta69-rollback.sql",
     "attest-hosted-provider-migration-ledger":
       "deploy/postgres/attest-hosted-provider-migration-ledger.sql"

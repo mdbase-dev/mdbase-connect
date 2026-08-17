@@ -1,5 +1,10 @@
 \set ON_ERROR_STOP on
 
+\if :{?fence_kind}
+\else
+\set fence_kind rollback
+\endif
+
 -- Read-only compatibility gate before selecting an image whose source tree ends
 -- at the consolidated Candidate B schema. Admission must already be suspended by
 -- the rollback runner. This proves the exact migration ledger and the final
@@ -7,6 +12,7 @@
 BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;
 SET LOCAL search_path = public, pg_catalog;
 SELECT set_config('mdbase.admission_fence_token', :'fence_token', true);
+SELECT set_config('mdbase.admission_fence_kind', :'fence_kind', true);
 
 DO $final_rollback_preflight$
 DECLARE
@@ -27,7 +33,12 @@ DECLARE
   missing_columns text[];
   missing_runtime_columns text[];
   requested_token uuid := current_setting('mdbase.admission_fence_token')::uuid;
+  requested_kind text := current_setting('mdbase.admission_fence_kind');
 BEGIN
+  IF requested_kind NOT IN ('cutover', 'rollback') THEN
+    RAISE EXCEPTION
+      'final_schema_preflight_blocked: unsupported fence kind %', requested_kind;
+  END IF;
   IF to_regclass('_sqlx_migrations') IS NULL THEN
     RAISE EXCEPTION
       'final_rollback_blocked: SQLx migration ledger is absent';
@@ -373,12 +384,12 @@ BEGIN
   FROM hosted_provider_runtime_control
   WHERE singleton = true
     AND query_admission_suspended = true
-    AND suspension_reason = 'controlled_provider_rollback'
+    AND suspension_reason = 'controlled_provider_' || requested_kind
     AND admission_fence_token = requested_token
-    AND admission_fence_kind = 'rollback';
+    AND admission_fence_kind = requested_kind;
   IF runtime_rows <> 1 OR (SELECT count(*) FROM hosted_provider_runtime_control) <> 1 THEN
     RAISE EXCEPTION
-      'final_rollback_blocked: expected exactly one controlled suspended admission row';
+      'final_schema_preflight_blocked: expected exactly one matching controlled suspended admission row';
   END IF;
 
   SELECT count(*) INTO invalid_states
