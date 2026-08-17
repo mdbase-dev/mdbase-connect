@@ -3,8 +3,8 @@ use std::{net::IpAddr, sync::Arc, time::Duration};
 use axum::{http::StatusCode, response::IntoResponse, routing::get, Json, Router};
 use clap::{Parser, ValueEnum};
 use mdbase_connect_hosted_provider::{
-    app, AppState, HostedNotificationConfig, HostedProvider, KeyWrappingBackend, KeyWrappingConfig,
-    ProviderCrypto, ProviderLimits, R2BlobStore, R2Config, R2InsecureHttpConfig,
+    app, ApiResult, AppState, HostedNotificationConfig, HostedProvider, KeyWrappingBackend,
+    KeyWrappingConfig, ProviderCrypto, ProviderLimits, R2BlobStore, R2Config, R2InsecureHttpConfig,
 };
 use tokio::{net::TcpListener, signal};
 use tracing_subscriber::EnvFilter;
@@ -131,6 +131,18 @@ struct Arguments {
     maintenance_interval_seconds: u64,
     #[arg(
         long,
+        env = "MDBASE_CONNECT_HOSTED_PROJECTION_RECOVERY_INTERVAL_SECONDS",
+        default_value_t = 1
+    )]
+    projection_recovery_interval_seconds: u64,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_PROJECTION_RECOVERY_ROUNDS",
+        default_value_t = 100
+    )]
+    projection_recovery_rounds: u32,
+    #[arg(
+        long,
         env = "MDBASE_CONNECT_HOSTED_NOTIFICATION_INTERVAL_SECONDS",
         default_value_t = 5
     )]
@@ -209,6 +221,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .into());
     }
+    if arguments.projection_recovery_interval_seconds == 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "projection recovery interval must be greater than zero",
+        )
+        .into());
+    }
+    if arguments.projection_recovery_rounds == 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "projection recovery rounds must be greater than zero",
+        )
+        .into());
+    }
     if arguments.notification_interval_seconds == 0 {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -278,10 +304,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         notification_config,
     )
     .await?;
-    let recovered_generations = provider.recover_projection_generations(20).await?;
-    if recovered_generations > 0 {
+    let startup_recovery = advance_projection_recovery(&provider, 4).await?;
+    if startup_recovery.advanced > 0 {
         tracing::info!(
-            recovered_generations,
+            recovered_generations = startup_recovery.advanced,
+            recovery_complete = startup_recovery.quiet,
             "advanced hosted semantic projection rebuilds before readiness"
         );
     }
@@ -290,6 +317,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         provider.clone(),
         arguments.retain_changes,
         Duration::from_secs(arguments.maintenance_interval_seconds),
+    ));
+    let projection_recovery = tokio::spawn(maintain_projections(
+        provider.clone(),
+        Duration::from_secs(arguments.projection_recovery_interval_seconds),
+        arguments.projection_recovery_rounds,
     ));
     let notification_recovery = tokio::spawn(maintain_notifications(
         provider,
@@ -305,6 +337,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await;
     maintenance.abort();
     let _ = maintenance.await;
+    projection_recovery.abort();
+    let _ = projection_recovery.await;
     notification_recovery.abort();
     let _ = notification_recovery.await;
     result?;
@@ -425,11 +459,49 @@ async fn maintain_history(provider: HostedProvider, retain_changes: u64, period:
             Ok(blobs) => tracing::info!(blobs, "deleted deferred hosted file objects"),
             Err(error) => tracing::error!(%error, "deferred hosted file deletion failed"),
         }
-        match provider.recover_projection_generations(20).await {
-            Ok(0) => {}
-            Ok(generations) => {
-                tracing::info!(generations, "advanced hosted semantic projection rebuilds")
-            }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ProjectionRecoveryCycle {
+    advanced: usize,
+    quiet: bool,
+}
+
+async fn advance_projection_recovery(
+    provider: &HostedProvider,
+    max_rounds: u32,
+) -> ApiResult<ProjectionRecoveryCycle> {
+    let mut advanced = 0_usize;
+    for _ in 0..max_rounds.max(1) {
+        let current = provider.recover_projection_generations(20).await?;
+        advanced = advanced.saturating_add(current);
+        if current == 0 {
+            return Ok(ProjectionRecoveryCycle {
+                advanced,
+                quiet: true,
+            });
+        }
+        tokio::task::yield_now().await;
+    }
+    Ok(ProjectionRecoveryCycle {
+        advanced,
+        quiet: false,
+    })
+}
+
+async fn maintain_projections(provider: HostedProvider, period: Duration, max_rounds: u32) {
+    let mut interval = tokio::time::interval(period);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        interval.tick().await;
+        match advance_projection_recovery(&provider, max_rounds).await {
+            Ok(ProjectionRecoveryCycle { advanced: 0, .. }) => {}
+            Ok(outcome) => tracing::info!(
+                generations = outcome.advanced,
+                recovery_complete = outcome.quiet,
+                "advanced hosted semantic projection rebuilds"
+            ),
             Err(error) => tracing::error!(%error, "semantic projection recovery failed"),
         }
     }

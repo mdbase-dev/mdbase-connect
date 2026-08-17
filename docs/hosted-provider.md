@@ -178,6 +178,16 @@ ordinary file transfers. It persists object-deletion intent before contacting
 R2, resumes interrupted multipart cleanup, and drains deletions only after
 rechecking that no durable file metadata references the object.
 
+Semantic projection recovery has its own prompt worker instead of sharing that
+slower retention interval. `MDBASE_CONNECT_HOSTED_PROJECTION_RECOVERY_INTERVAL_SECONDS`
+(one second by default) controls how quickly a catalogue change or interrupted
+generation is noticed, while `MDBASE_CONNECT_HOSTED_PROJECTION_RECOVERY_ROUNDS`
+(100 by default) bounds consecutive generation batches per wake-up. Each round
+remains leased and checkpointed in PostgreSQL; reaching the round bound yields
+back to the runtime and continues on the next interval. Readiness stays closed
+while any active collection lacks a complete current binding, but ordinary
+catalogue setup no longer waits for the five-minute history-maintenance pass.
+
 ## Consistent backup boundary
 
 The release image contains `mdbase-hosted-backup-admin` for coordinating a
