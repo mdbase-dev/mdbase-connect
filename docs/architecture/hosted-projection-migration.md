@@ -79,6 +79,9 @@ The provider image contains `mdbase-hosted-projection-indexer`. It uses the same
   owner lease while admission is closed. Each page and batch rechecks both the
   session lock and durable owner. A same-token recovery renews the lease; a new
   token may claim only an expired owner whose admission is already closed.
+  Archived beta69 mutation receipts are converted in at most 100-row pages
+  under the same owner checks and shrinking deadline before projection inventory
+  begins; no cutover receipt migration uses an unbounded `fetch_all`.
 
 Output is machine-readable JSON with run identity and timestamps but no exact Markdown, body prose, keys, or ciphertext. Repeated processes are idempotent. `verify` never treats a building or partially complete generation as success.
 

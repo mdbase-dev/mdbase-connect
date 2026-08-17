@@ -327,6 +327,10 @@ async fn run(arguments: Arguments) -> ApiResult<Envelope> {
                     started,
                     cutover_budget.expect("cutover connection has a budget"),
                 ),
+                arguments
+                    .command
+                    .cutover_owner_token()
+                    .expect("cutover connection has an owner"),
             )
             .await
         } else {
@@ -356,6 +360,9 @@ async fn run(arguments: Arguments) -> ApiResult<Envelope> {
                     ));
                 }
                 Err(_) => {
+                    if let Some(lock) = cutover_lock.take() {
+                        close_cutover_session(&database_url, lock).await;
+                    }
                     return Ok(cutover_startup_failure(
                         run_id,
                         recorded_at,
@@ -572,6 +579,7 @@ async fn acquire_cutover_lock(
         connection,
         backend_pid,
         application_name,
+        owner_token,
     }))
 }
 
@@ -579,6 +587,7 @@ struct CutoverLock {
     connection: PgConnection,
     backend_pid: i32,
     application_name: String,
+    owner_token: Uuid,
 }
 
 impl Command {
@@ -658,6 +667,7 @@ async fn claim_cutover_owner(
 async fn close_cutover_session(database_url: &str, lock: CutoverLock) {
     let backend_pid = lock.backend_pid;
     let application_name = lock.application_name;
+    let projection_application_name = format!("mdbase-cb-projection/{}", lock.owner_token);
     let _ = tokio::time::timeout(Duration::from_secs(5), lock.connection.close()).await;
     let Ok(Ok(mut observer)) =
         tokio::time::timeout(Duration::from_secs(5), PgConnection::connect(database_url)).await
@@ -665,15 +675,16 @@ async fn close_cutover_session(database_url: &str, lock: CutoverLock) {
         return;
     };
     let _ = tokio::time::timeout(Duration::from_secs(5), async {
-        let _terminated: Result<Option<bool>, sqlx::Error> = sqlx::query_scalar(
+        let _terminated: Result<Vec<bool>, sqlx::Error> = sqlx::query_scalar(
             r#"SELECT pg_terminate_backend(pid)
                FROM pg_stat_activity
-               WHERE pid = $1
-                 AND application_name = $2"#,
+               WHERE (pid = $1 AND application_name = $2)
+                  OR application_name = $3"#,
         )
         .bind(backend_pid)
         .bind(application_name)
-        .fetch_optional(&mut observer)
+        .bind(projection_application_name)
+        .fetch_all(&mut observer)
         .await;
     })
     .await;
@@ -724,6 +735,31 @@ async fn run_cutover(
     let mut pages_visited = 0_u32;
     let mut collections_verified = 0_u32;
     let mut batches_advanced = 0_u64;
+
+    loop {
+        if !cutover_lock_owned(cutover_lock, arguments.owner_token).await? {
+            return Ok((
+                false,
+                cutover_outcome(
+                    "projection_cutover_lock_lost",
+                    false,
+                    pages_visited,
+                    collections_verified,
+                    batches_advanced,
+                    after,
+                    None,
+                    &[],
+                ),
+            ));
+        }
+        provider
+            .configure_cutover_statement_timeout(remaining_cutover_time(started, deadline))
+            .await?;
+        let (_, complete) = provider.migrate_legacy_sync_receipts_batch(100).await?;
+        if complete {
+            break;
+        }
+    }
 
     loop {
         if !cutover_lock_owned(cutover_lock, arguments.owner_token).await? {

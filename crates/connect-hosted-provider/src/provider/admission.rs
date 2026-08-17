@@ -6,7 +6,10 @@ impl HostedProvider {
     /// its fence until every already-admitted request has finished.
     pub async fn acquire_runtime_admission(&self) -> ApiResult<Transaction<'static, Postgres>> {
         let mut transaction = self.pool.begin().await?;
-        sqlx::query("SET LOCAL idle_in_transaction_session_timeout = 30000")
+        // The session default is intentionally short, but this transaction is
+        // the operation-lifetime admission permit. It must never disappear
+        // while its HTTP handler can still mutate external or database state.
+        sqlx::query("SET LOCAL idle_in_transaction_session_timeout = 0")
             .execute(&mut *transaction)
             .await?;
         sqlx::query(

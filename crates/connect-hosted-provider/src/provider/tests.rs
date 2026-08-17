@@ -228,6 +228,14 @@ fn concurrent_index_migrations_have_bounded_retry_cleanup() {
 }
 
 #[test]
+fn legacy_receipt_cutover_migration_is_page_bounded() {
+    let migration = include_str!("mutation_journal_migration.rs");
+    assert!(migration.contains("limit.clamp(1, 100)"));
+    assert!(migration.contains("LIMIT $1"));
+    assert!(migration.contains("migrated_at IS NULL"));
+}
+
+#[test]
 fn concurrent_index_migrations_reject_same_name_definition_drift() {
     let path = "CREATE INDEX hosted_provider_record_projections_snapshot_path_cursor_idx \
         ON public.hosted_provider_record_projections USING btree \

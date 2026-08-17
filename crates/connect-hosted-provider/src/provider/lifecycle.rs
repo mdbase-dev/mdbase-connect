@@ -29,6 +29,7 @@ impl HostedProvider {
         blob_store: Arc<dyn BlobStore>,
         notification_config: Option<HostedNotificationConfig>,
         cutover_statement_timeout: Duration,
+        cutover_owner_token: Uuid,
     ) -> ApiResult<Self> {
         Self::connect_internal(
             database_url,
@@ -37,7 +38,7 @@ impl HostedProvider {
             blob_store,
             notification_config,
             false,
-            Some(cutover_statement_timeout),
+            Some((cutover_statement_timeout, cutover_owner_token)),
         )
         .await
     }
@@ -49,13 +50,14 @@ impl HostedProvider {
         blob_store: Arc<dyn BlobStore>,
         notification_config: Option<HostedNotificationConfig>,
         run_migrations: bool,
-        cutover_statement_timeout: Option<Duration>,
+        cutover_connection: Option<(Duration, Uuid)>,
     ) -> ApiResult<Self> {
         let started = Instant::now();
         let mut retry_delay = Duration::from_millis(100);
         loop {
-            let pool_options = cutover_statement_timeout
-                .map_or_else(hosted_pool_options, hosted_cutover_pool_options);
+            let pool_options = cutover_connection.map_or_else(hosted_pool_options, |value| {
+                hosted_cutover_pool_options(value.0, value.1)
+            });
             match pool_options.connect(database_url).await {
                 Ok(pool) => match if run_migrations {
                     run_hosted_migrations(&pool).await
@@ -117,7 +119,23 @@ impl HostedProvider {
                                     .expect("published process memory budget fits usize"),
                                 )),
                             };
-                            provider.migrate_legacy_sync_receipts().await?;
+                            if run_migrations {
+                                loop {
+                                    let (_, complete) =
+                                        provider.migrate_legacy_sync_receipts_batch(100).await?;
+                                    if complete {
+                                        break;
+                                    }
+                                    if started.elapsed() >= DATABASE_STARTUP_TIMEOUT {
+                                        provider.pool.close().await;
+                                        return Err(ApiError::new(
+                                            StatusCode::SERVICE_UNAVAILABLE,
+                                            "legacy_receipt_migration_time_budget_exceeded",
+                                            "Legacy mutation receipt migration exceeded the bounded startup window.",
+                                        ));
+                                    }
+                                }
+                            }
                             if let Some(notifications) = &provider.notifications {
                                 notifications.prepare().await?;
                                 // Notification delivery calls back into the Connect control
@@ -618,8 +636,9 @@ fn hosted_pool_options() -> PgPoolOptions {
         })
 }
 
-fn hosted_cutover_pool_options(statement_timeout: Duration) -> PgPoolOptions {
+fn hosted_cutover_pool_options(statement_timeout: Duration, owner_token: Uuid) -> PgPoolOptions {
     let timeout_ms = statement_timeout.as_millis().clamp(1, i32::MAX as u128);
+    let application_name = format!("mdbase-cb-projection/{owner_token}");
     PgPoolOptions::new()
         .max_connections(1)
         .min_connections(1)
@@ -628,7 +647,12 @@ fn hosted_cutover_pool_options(statement_timeout: Duration) -> PgPoolOptions {
         .max_lifetime(Duration::from_secs(30 * 60))
         .after_connect(move |connection, _metadata| {
             let timeout = format!("{timeout_ms}ms");
+            let application_name = application_name.clone();
             Box::pin(async move {
+                sqlx::query("SELECT set_config('application_name', $1, false)")
+                    .bind(application_name)
+                    .execute(&mut *connection)
+                    .await?;
                 sqlx::query("SELECT set_config('statement_timeout', $1, false)")
                     .bind(timeout)
                     .execute(&mut *connection)

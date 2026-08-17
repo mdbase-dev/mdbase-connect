@@ -3,7 +3,10 @@ use super::mutation_receipt::StoredMutationReceipt;
 use super::*;
 
 impl HostedProvider {
-    pub(super) async fn migrate_legacy_sync_receipts(&self) -> ApiResult<u64> {
+    /// Migrate one bounded legacy replay-receipt page. The cutover operator
+    /// invokes this only while retaining both forms of ownership.
+    pub async fn migrate_legacy_sync_receipts_batch(&self, limit: u32) -> ApiResult<(u64, bool)> {
+        let limit = i64::from(limit.clamp(1, 100));
         let rows = sqlx::query(
             r#"SELECT legacy.replica_id, legacy.mutation_id, legacy.mutation_hash,
                       legacy.receipt_ciphertext, legacy.created_at,
@@ -13,8 +16,10 @@ impl HostedProvider {
                JOIN hosted_provider_replicas replica ON replica.id = legacy.replica_id
                JOIN hosted_provider_collections collection ON collection.id = replica.collection_id
                WHERE legacy.migrated_at IS NULL
-               ORDER BY legacy.created_at, legacy.replica_id, legacy.mutation_id"#,
+               ORDER BY legacy.created_at, legacy.replica_id, legacy.mutation_id
+               LIMIT $1"#,
         )
+        .bind(limit)
         .fetch_all(&self.pool)
         .await?;
         let mut migrated = 0_u64;
@@ -115,6 +120,11 @@ impl HostedProvider {
             transaction.commit().await?;
             migrated += 1;
         }
-        Ok(migrated)
+        let complete: bool = sqlx::query_scalar(
+            "SELECT NOT EXISTS (SELECT 1 FROM archived_hosted_mutation_receipts WHERE migrated_at IS NULL)",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok((migrated, complete))
     }
 }
