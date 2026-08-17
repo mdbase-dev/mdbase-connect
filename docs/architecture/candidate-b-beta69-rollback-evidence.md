@@ -1,8 +1,11 @@
 # Candidate B beta69 rollback and roll-forward evidence
 
-Date: 2026-08-17  
-Database: disposable PostgreSQL 17 (`rollback_runtime`)  
-Rollback artifact: `ghcr.io/mdbase-dev/mdbase-connect-hosted-provider@sha256:c233855520ab7b4fa0e2a6576bebb29cdfa029eef57ad327cd303aebb3516888`  
+Date: 2026-08-17
+
+Database: disposable PostgreSQL 17 (`rollback_runtime`)
+
+Rollback artifact: `ghcr.io/mdbase-dev/mdbase-connect-hosted-provider@sha256:c233855520ab7b4fa0e2a6576bebb29cdfa029eef57ad327cd303aebb3516888`
+
 Artifact revision: `90334b9c4f6de306bdee5b6992a849362d508789` / beta69
 
 ## Procedure and result
