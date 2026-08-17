@@ -4399,7 +4399,7 @@ views:
     assert!(base_cursor_state
         .get::<Option<Vec<u8>>, _>("exact_context_ciphertext")
         .is_none());
-    Box::pin(assert_pre_0040_rollback_preflight(&fixture, true)).await;
+    Box::pin(assert_live_base_invocation_cursor(&fixture, true)).await;
     let changed_base = tasknotes_base.replace(
         "if(priority == \"high\", 2, 1)",
         "if(priority == \"high\", 0, 3)",
@@ -4453,7 +4453,7 @@ views:
     .await
     .unwrap();
     assert_eq!(remaining_invocations, 0);
-    Box::pin(assert_pre_0040_rollback_preflight(&fixture, false)).await;
+    Box::pin(assert_live_base_invocation_cursor(&fixture, false)).await;
 
     let stable_view_document = "---\ntype: view\nid: stable.views\nversion: 1\nname: Stable\nquery:\n  where: this.id == 'stable.views'\nviews:\n  - id: all\n    name: All\n---\n";
     let stable_view = fixture
@@ -7518,7 +7518,7 @@ async fn complete_generation(fixture: &FileLifecycleFixture) -> Uuid {
     }
 }
 
-async fn assert_pre_0040_rollback_preflight(
+async fn assert_live_base_invocation_cursor(
     fixture: &FileLifecycleFixture,
     expected_blocked: bool,
 ) {

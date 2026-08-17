@@ -20,33 +20,32 @@ fn final_query_runtime_has_only_invocation_backed_base_cursors() {
 }
 
 #[test]
-fn pre_0040_rollback_preflight_fails_closed_on_live_invocation_cursors() {
-    let preflight =
-        include_str!("../../../../deploy/postgres/preflight-hosted-provider-pre-0040-rollback.sql");
-    assert!(preflight.contains("\\set ON_ERROR_STOP on"));
-    assert!(preflight.contains("base_invocation_id IS NOT NULL"));
-    assert!(preflight.contains("expires_at > now()"));
-    assert!(preflight.contains("hard_expires_at > now()"));
-    assert!(preflight.contains("RAISE EXCEPTION"));
-    assert!(preflight.contains("candidate_b_pre_0040_rollback_blocked"));
-    assert!(preflight.contains("query_admission_suspended = true"));
-}
-
-#[test]
-fn rollback_fence_and_pre_0044_preflight_are_fail_closed() {
+fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
     let migration = include_str!("../../migrations/0036_hosted_query_runtime.sql");
     let suspend =
         include_str!("../../../../deploy/postgres/suspend-hosted-query-admission-for-rollback.sql");
     let resume = include_str!("../../../../deploy/postgres/resume-hosted-query-admission.sql");
     let preflight =
-        include_str!("../../../../deploy/postgres/preflight-hosted-provider-pre-0044-rollback.sql");
+        include_str!("../../../../deploy/postgres/prepare-hosted-provider-beta69-rollback.sql");
     assert!(migration.contains("query_admission_suspended boolean NOT NULL DEFAULT false"));
     assert!(suspend.contains("pg_advisory_xact_lock"));
     assert!(suspend.contains("query_admission_suspended = true"));
     assert!(resume.contains("query_admission_suspended = false"));
+    assert!(preflight.contains("expected exact successful final ledger 1-36"));
+    assert!(preflight.contains("DELETE FROM hosted_provider_query_cursors"));
+    assert!(preflight.contains("DELETE FROM hosted_provider_query_page_receipts"));
     assert!(preflight.contains("hosted_provider_projection_generations"));
     assert!(preflight.contains("status = 'building'"));
     assert!(preflight.contains("RAISE EXCEPTION"));
+    for canonical in [
+        "hosted_provider_records",
+        "hosted_provider_record_versions",
+        "hosted_provider_changes",
+        "hosted_provider_mutation_receipts",
+        "hosted_provider_runtime_outbox",
+    ] {
+        assert!(!preflight.contains(&format!("DELETE FROM {canonical}")));
+    }
 }
 
 #[test]
@@ -69,18 +68,14 @@ fn final_runtime_starts_with_current_receipt_and_cursor_contracts() {
 }
 
 #[test]
-fn managed_upgrade_preflight_fences_and_checks_every_quiescent_migration() {
+fn beta69_cutover_preflight_requires_the_exact_production_baseline() {
     let preflight =
-        include_str!("../../../../deploy/postgres/preflight-hosted-provider-upgrade.sql");
-    assert!(preflight.contains("pg_advisory_xact_lock"));
-    assert!(preflight.contains("query_admission_suspended = true"));
-    assert!(preflight.contains("without a durable admission fence"));
-    assert!(preflight.contains("version = 46"));
-    assert!(preflight.contains("version = 49"));
-    assert!(preflight.contains("version = 50"));
-    assert!(preflight.contains("projection rows must be rebuilt"));
-    assert!(preflight.contains("query page receipts must be drained"));
-    assert!(preflight.contains("query cursors must be drained"));
+        include_str!("../../../../deploy/postgres/preflight-hosted-provider-beta69-cutover.sql");
+    assert!(preflight.contains("REPEATABLE READ READ ONLY"));
+    assert!(preflight.contains("generate_series(1, 34)"));
+    assert!(preflight.contains("expected exact successful migration ledger 1-34"));
+    assert!(preflight.contains("Candidate B schema already exists"));
+    assert!(preflight.contains("largest_collection_records"));
 }
 
 #[test]
