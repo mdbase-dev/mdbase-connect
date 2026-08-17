@@ -1,5 +1,8 @@
 use super::*;
 
+const COLLECTION_DELETE_DATABASE_RETRIES: usize = 3;
+const COLLECTION_DELETE_RETRY_BACKOFF_MS: u64 = 25;
+
 impl HostedProvider {
     pub async fn collection_usage(
         &self,
@@ -340,6 +343,36 @@ impl HostedProvider {
     }
 
     pub async fn delete_collection(&self, collection_id: Uuid) -> ApiResult<()> {
+        for attempt in 0..=COLLECTION_DELETE_DATABASE_RETRIES {
+            match self.delete_collection_transaction(collection_id).await {
+                Err(error)
+                    if error.code == "provider_database_retryable"
+                        && attempt < COLLECTION_DELETE_DATABASE_RETRIES =>
+                {
+                    tracing::warn!(
+                        target: "mdbase_connect::metrics",
+                        metric = "collection_delete_database_retry",
+                        attempt = attempt + 1,
+                        "privacy-safe hosted provider metric"
+                    );
+                    tokio::time::sleep(Duration::from_millis(
+                        COLLECTION_DELETE_RETRY_BACKOFF_MS * (attempt as u64 + 1),
+                    ))
+                    .await;
+                }
+                result => {
+                    result?;
+                    if let Err(error) = self.delete_pending_blobs(1_000).await {
+                        tracing::warn!(collection_id = %collection_id, %error, "deferred collection blob deletion failed");
+                    }
+                    return Ok(());
+                }
+            }
+        }
+        unreachable!("the bounded collection-delete retry loop always returns")
+    }
+
+    async fn delete_collection_transaction(&self, collection_id: Uuid) -> ApiResult<()> {
         let mut transaction = self.pool.begin().await?;
         sqlx::query("UPDATE hosted_provider_collections SET state = 'deleting' WHERE id = $1")
             .bind(collection_id)
@@ -378,9 +411,6 @@ impl HostedProvider {
             .execute(&mut *transaction)
             .await?;
         transaction.commit().await?;
-        if let Err(error) = self.delete_pending_blobs(1_000).await {
-            tracing::warn!(collection_id = %collection_id, %error, "deferred collection blob deletion failed");
-        }
         Ok(())
     }
 }
