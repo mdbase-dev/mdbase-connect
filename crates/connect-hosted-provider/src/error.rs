@@ -131,8 +131,8 @@ impl From<sqlx::Error> for ApiError {
 
 impl From<std::io::Error> for ApiError {
     fn from(error: std::io::Error) -> Self {
-        tracing::error!(error = %error, "hosted provider working-set error");
-        Self::internal("The hosted provider could not prepare the collection working set.")
+        tracing::error!(error = %error, "hosted provider authority-workspace error");
+        Self::internal("The hosted provider could not prepare the authority workspace.")
     }
 }
 

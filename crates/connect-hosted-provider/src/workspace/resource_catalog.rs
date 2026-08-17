@@ -1,4 +1,4 @@
-use super::WorkingSet;
+use super::AuthorityWorkspace;
 use crate::error::{ApiError, ApiResult};
 use mdbase::Collection;
 use mdbase_connect_protocol::{
@@ -8,7 +8,7 @@ use mdbase_connect_protocol::{
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
-impl WorkingSet {
+impl AuthorityWorkspace {
     pub fn type_resources(
         &self,
     ) -> ApiResult<(

@@ -385,7 +385,7 @@ fn portable_imports_are_canonicalized_by_rust_including_first_class_resources() 
         "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\"}\n";
     let record_document = "---\ntitle: One\n---\n\nBody\n";
     let opaque_document = "---\ntitle: [unterminated\n---\nOpaque body\n";
-    let workspace = WorkingSet::materialize(
+    let workspace = AuthorityWorkspace::materialize(
         [
             ("mdbase.yaml".to_string(), configuration.to_string()),
             (

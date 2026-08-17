@@ -149,7 +149,7 @@ pub(super) async fn recover_expired_authority_imports_in(
 }
 
 pub(super) fn canonicalize_imported_snapshot(
-    workspace: &WorkingSet,
+    workspace: &AuthorityWorkspace,
     manifest: &AuthorityImportManifest,
     records: &[AuthorityImportRecord],
 ) -> ApiResult<Vec<AuthoritySnapshotRecord>> {

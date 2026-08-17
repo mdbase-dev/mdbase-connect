@@ -90,7 +90,7 @@ implements:
 
 #[test]
 fn applies_hosted_configuration_and_receipt_as_one_setup() {
-    let workspace = WorkingSet::materialize(super::tests::resources(), []).unwrap();
+    let workspace = AuthorityWorkspace::materialize(super::tests::resources(), []).unwrap();
     let setup = AssessCollectionSetupInput {
         application_id: "dev.mdbase.tasknotes".to_string(),
         declaration_digest: format!("sha256:{}", "a".repeat(64)),
@@ -159,7 +159,7 @@ fn makes_preexisting_managed_resources_applicable_with_digest_pinned_adoption() 
         "_contracts/example.work-item.md".to_string(),
         format!("{}\n<!-- pre-existing -->\n", contract_resource.document),
     ));
-    let workspace = WorkingSet::materialize(resources, []).unwrap();
+    let workspace = AuthorityWorkspace::materialize(resources, []).unwrap();
     let mut setup = AssessCollectionSetupInput {
         application_id: "dev.mdbase.tests".to_string(),
         declaration_digest: format!("sha256:{}", "a".repeat(64)),
@@ -202,7 +202,7 @@ fn makes_preexisting_managed_resources_applicable_with_digest_pinned_adoption() 
 
 #[test]
 fn maps_hosted_contracts_to_revisioned_existing_types() {
-    let workspace = WorkingSet::materialize(super::tests::resources(), []).unwrap();
+    let workspace = AuthorityWorkspace::materialize(super::tests::resources(), []).unwrap();
     let provision = work_item_provision();
     let (types, _) = workspace.type_resources().unwrap();
     let task = types

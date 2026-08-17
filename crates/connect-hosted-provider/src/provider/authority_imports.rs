@@ -456,6 +456,39 @@ impl HostedProvider {
             &manifest_ciphertext,
             &authority_import_manifest_aad(import_id),
         )?;
+        let staged_inventory = sqlx::query(
+            r#"SELECT count(*)::bigint AS records,
+                      coalesce(sum(content_bytes), 0)::bigint AS exact_bytes
+               FROM hosted_provider_authority_import_records
+               WHERE import_id = $1"#,
+        )
+        .bind(import_id)
+        .fetch_one(&mut *transaction)
+        .await?;
+        let resource_bytes = manifest
+            .resources
+            .documents
+            .iter()
+            .try_fold(0_u64, |total, resource| {
+                total.checked_add(resource.document.len() as u64)
+            })
+            .ok_or_else(|| {
+                ApiError::quota(
+                    "hosted_authority_bulk_budget_exceeded",
+                    "The authority resource snapshot size overflowed.",
+                )
+            })?;
+        ensure_authority_bulk_budget(
+            number(
+                staged_inventory.get::<i64, _>("records"),
+                "authority import record count",
+            )?,
+            number(
+                staged_inventory.get::<i64, _>("exact_bytes"),
+                "authority import exact bytes",
+            )?,
+            resource_bytes,
+        )?;
         let staged = sqlx::query(
             r#"SELECT record_id, payload_ciphertext
                FROM hosted_provider_authority_import_records
@@ -537,7 +570,7 @@ impl HostedProvider {
                 .verify_object(object_key, file.size, &file.content_digest)
                 .await?;
         }
-        let workspace = WorkingSet::materialize(
+        let workspace = AuthorityWorkspace::materialize(
             manifest
                 .resources
                 .documents

@@ -37,7 +37,7 @@ schema:
 
 #[test]
 fn executes_create_through_the_canonical_engine() {
-    let mut workspace = WorkingSet::materialize(resources(), []).unwrap();
+    let mut workspace = AuthorityWorkspace::materialize(resources(), []).unwrap();
     let record_id = Uuid::new_v4();
     let execution = workspace
         .execute_semantic(
@@ -68,7 +68,7 @@ fn executes_create_through_the_canonical_engine() {
 fn creates_and_updates_opaque_markdown_records_losslessly() {
     let record_id = Uuid::new_v4();
     let original = "---\ntitle: [unterminated\n---\nOriginal body";
-    let mut workspace = WorkingSet::materialize(resources(), []).unwrap();
+    let mut workspace = AuthorityWorkspace::materialize(resources(), []).unwrap();
     let created = workspace
         .execute_sync(&SyncMutation {
             mutation_id: Uuid::new_v4(),
@@ -117,7 +117,7 @@ fn sync_move_preserves_every_document_byte_and_never_rewrites_references() {
     let reference_id = Uuid::new_v4();
     let source = "---\ntype: task\ntitle: Source\n---\nSource body\n";
     let reference = "---\ntype: task\ntitle: Reference\n---\nSee [[tasks/source]].\n";
-    let mut workspace = WorkingSet::materialize(
+    let mut workspace = AuthorityWorkspace::materialize(
         resources(),
         [
             StoredDocument {
@@ -159,7 +159,7 @@ fn sync_move_preserves_every_document_byte_and_never_rewrites_references() {
 #[test]
 fn adapts_sync_update_patches_for_the_supported_v03_engine() {
     let record_id = Uuid::new_v4();
-    let mut workspace = WorkingSet::materialize(resources(), []).unwrap();
+    let mut workspace = AuthorityWorkspace::materialize(resources(), []).unwrap();
     let created = workspace
         .execute_semantic(
             record_id,
@@ -203,7 +203,7 @@ fn adapts_sync_update_patches_for_the_supported_v03_engine() {
 #[test]
 fn keeps_record_and_path_indexes_consistent_across_mutations() {
     let record_id = Uuid::new_v4();
-    let mut workspace = WorkingSet::materialize(resources(), []).unwrap();
+    let mut workspace = AuthorityWorkspace::materialize(resources(), []).unwrap();
     let created = workspace
         .execute_semantic(
             record_id,
@@ -274,7 +274,7 @@ fn reads_and_replaces_exact_markdown_documents() {
     let record_id = Uuid::new_v4();
     let original =
             "\u{feff}---\r\ntype: task\r\ntitle: \"Exact title\" # keep this\r\ncustom: null\r\n---\r\nBody  \r\n";
-    let mut workspace = WorkingSet::materialize(
+    let mut workspace = AuthorityWorkspace::materialize(
         resources(),
         [StoredDocument {
             record_id,
@@ -322,8 +322,8 @@ fn reads_and_replaces_exact_markdown_documents() {
 }
 
 #[test]
-fn mutation_preflights_leave_the_hosted_working_set_unchanged() {
-    let workspace = WorkingSet::materialize(
+fn mutation_preflights_leave_the_authority_workspace_unchanged() {
+    let workspace = AuthorityWorkspace::materialize(
         resources(),
         [
             StoredDocument {
@@ -391,8 +391,8 @@ fn mutation_preflights_leave_the_hosted_working_set_unchanged() {
 }
 
 #[test]
-fn rejects_paths_that_could_escape_the_working_set() {
-    let mut workspace = WorkingSet::materialize(resources(), []).unwrap();
+fn rejects_paths_that_could_escape_the_authority_workspace() {
+    let mut workspace = AuthorityWorkspace::materialize(resources(), []).unwrap();
     let mutation = SyncMutation {
         mutation_id: Uuid::new_v4(),
         replica_id: Uuid::new_v4(),
@@ -411,7 +411,7 @@ fn rejects_paths_that_could_escape_the_working_set() {
 
 #[test]
 fn reads_creates_and_updates_type_resources() {
-    let workspace = WorkingSet::materialize(resources(), []).unwrap();
+    let workspace = AuthorityWorkspace::materialize(resources(), []).unwrap();
     let task = workspace
         .read_operation("read_type", &json!({"name": "task"}))
         .unwrap();
@@ -447,7 +447,7 @@ fn reads_creates_and_updates_type_resources() {
 
 #[test]
 fn reads_creates_updates_and_deletes_saved_view_resources() {
-    let workspace = WorkingSet::materialize(resources(), []).unwrap();
+    let workspace = AuthorityWorkspace::materialize(resources(), []).unwrap();
     let document = r#"---
 type: view
 id: task.views

@@ -65,7 +65,7 @@ impl HostedProvider {
         let seed_records = if template.records.is_empty() {
             Vec::new()
         } else {
-            WorkingSet::materialize(
+            AuthorityWorkspace::materialize(
                 template
                     .documents
                     .iter()

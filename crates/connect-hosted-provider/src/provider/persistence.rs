@@ -299,13 +299,12 @@ pub(super) async fn load_sync_resource_documents(
         .collect()
 }
 
-pub(super) async fn load_records(
+pub(super) async fn load_authority_snapshot_records(
     transaction: &mut Transaction<'_, Postgres>,
     crypto: &ProviderCrypto,
     data_key: &[u8; 32],
     collection_id: Uuid,
 ) -> ApiResult<BTreeMap<Uuid, PersistedRecord>> {
-    admit_legacy_working_set(transaction, collection_id).await?;
     let started = Instant::now();
     let rows = sqlx::query(
         r#"SELECT record_id, sequence, payload_ciphertext
@@ -336,7 +335,7 @@ pub(super) async fn load_records(
     }
     tracing::info!(
         target: "mdbase_connect::metrics",
-        metric = "hosted_working_set_load",
+        metric = "hosted_authority_snapshot_load",
         scanned_records,
         ciphertext_bytes,
         elapsed_ms = started.elapsed().as_millis() as u64,
@@ -345,52 +344,77 @@ pub(super) async fn load_records(
     Ok(records)
 }
 
-async fn admit_legacy_working_set(
+pub(super) async fn admit_authority_bulk_snapshot(
     transaction: &mut Transaction<'_, Postgres>,
     collection_id: Uuid,
 ) -> ApiResult<()> {
-    let containment = &crate::HostedExecutionBudgetManifest::published().temporary_containment;
-    let collection_bytes: i64 =
-        sqlx::query_scalar("SELECT content_bytes FROM hosted_provider_collections WHERE id = $1")
-            .bind(collection_id)
-            .fetch_one(&mut **transaction)
-            .await?;
-    let collection_bytes = number(collection_bytes, "collection content size")?;
-    // The legacy payload retains the exact document, parsed body/frontmatter, and
-    // path maps. Reserve three canonical-content bytes for each retained plaintext
-    // byte and divide the process budget across every admitted collection slot.
-    let canonical_content_limit = legacy_canonical_content_limit(containment);
-    if collection_bytes > canonical_content_limit {
-        tracing::warn!(
-            target: "mdbase_connect::metrics",
-            metric = "hosted_working_set_admission_rejected",
-            budget_kind = "scan",
-            collection_bytes,
-            canonical_content_limit,
-            "privacy-safe hosted provider metric"
-        );
-        return Err(ApiError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "hosted_working_set_capacity",
-            "The collection exceeds the temporary compatibility runtime budget.",
-        )
-        .with_details(json!({ "budget_kind": "scan" })));
-    }
-    Ok(())
+    let row = sqlx::query(
+        r#"SELECT collection.record_count, collection.content_bytes,
+                  coalesce(sum(octet_length(resource.document_ciphertext)), 0)::bigint
+                    AS resource_bytes
+           FROM hosted_provider_collections collection
+           LEFT JOIN hosted_provider_resources resource
+             ON resource.collection_id = collection.id
+           WHERE collection.id = $1
+           GROUP BY collection.id"#,
+    )
+    .bind(collection_id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    ensure_authority_bulk_budget(
+        number(row.get::<i64, _>("record_count"), "authority record count")?,
+        number(
+            row.get::<i64, _>("content_bytes"),
+            "authority content bytes",
+        )?,
+        number(
+            row.get::<i64, _>("resource_bytes"),
+            "authority resource bytes",
+        )?,
+    )
 }
 
-fn legacy_canonical_content_limit(containment: &crate::TemporaryExecutionContainment) -> u64 {
-    let duplication_factor = 3_u64;
-    let slots = containment.working_set_collections_per_process.max(1);
-    let per_collection = containment
-        .working_set_plaintext_bytes_per_collection
-        .checked_div(duplication_factor)
-        .unwrap_or(0);
-    let per_process = containment
-        .working_set_plaintext_bytes_per_process
-        .checked_div(slots.saturating_mul(duplication_factor))
-        .unwrap_or(0);
-    per_collection.min(per_process)
+pub(super) fn ensure_authority_bulk_budget(
+    records: u64,
+    exact_bytes: u64,
+    resource_bytes: u64,
+) -> ApiResult<()> {
+    let budget = &crate::HostedExecutionBudgetManifest::published().authority_bulk;
+    let estimated_plaintext_bytes = exact_bytes
+        .saturating_mul(3)
+        .saturating_add(resource_bytes.saturating_mul(2));
+    let exceeded = [
+        ("records", records, budget.records),
+        ("exact_bytes", exact_bytes, budget.exact_bytes),
+        ("resource_bytes", resource_bytes, budget.resource_bytes),
+        (
+            "estimated_plaintext_bytes",
+            estimated_plaintext_bytes,
+            budget.estimated_plaintext_bytes,
+        ),
+    ]
+    .into_iter()
+    .find(|(_, observed, limit)| observed > limit);
+    let Some((budget_kind, observed, limit)) = exceeded else {
+        return Ok(());
+    };
+    tracing::warn!(
+        target: "mdbase_connect::metrics",
+        metric = "hosted_authority_bulk_admission_rejected",
+        budget_kind,
+        observed,
+        limit,
+        "privacy-safe hosted provider metric"
+    );
+    Err(ApiError::quota(
+        "hosted_authority_bulk_budget_exceeded",
+        "The authority snapshot exceeds the bounded bulk transfer budget.",
+    )
+    .with_details(json!({
+        "budget_kind": budget_kind,
+        "limit": limit,
+        "observed": observed,
+    })))
 }
 
 pub(super) async fn persist_live_record(
@@ -530,4 +554,23 @@ pub(super) async fn store_receipt(
             journal.public_result,
         )
         .await
+}
+
+#[cfg(test)]
+mod authority_bulk_budget_tests {
+    use super::*;
+
+    #[test]
+    fn authority_bulk_materialization_has_an_explicit_hard_boundary() {
+        let budget = &crate::HostedExecutionBudgetManifest::published().authority_bulk;
+        ensure_authority_bulk_budget(
+            budget.records,
+            budget.exact_bytes / 2,
+            budget.resource_bytes / 2,
+        )
+        .unwrap();
+        let error = ensure_authority_bulk_budget(budget.records + 1, 0, 0).unwrap_err();
+        assert_eq!(error.code, "hosted_authority_bulk_budget_exceeded");
+        assert_eq!(error.details.unwrap()["budget_kind"], "records");
+    }
 }

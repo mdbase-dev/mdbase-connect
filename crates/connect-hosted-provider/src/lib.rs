@@ -21,8 +21,8 @@ pub use blob_store::{
 pub use crypto::ProviderCrypto;
 pub use error::{ApiError, ApiResult};
 pub use execution_budget::{
-    HostedExecutionAcceptance, HostedExecutionBudgetManifest, HostedExecutionBudgets,
-    HostedExecutionEntitlement, TemporaryExecutionContainment,
+    HostedAuthorityBulkBudgets, HostedExecutionAcceptance, HostedExecutionBudgetManifest,
+    HostedExecutionBudgets, HostedExecutionEntitlement,
 };
 pub use execution_measurement::HostedProcessMemory;
 pub use http::{app, AppState};

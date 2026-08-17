@@ -50,8 +50,8 @@ use crate::{
     notifications::{HostedNotificationConfig, HostedNotificationRuntime},
     template,
     workspace::{
-        engine_collection_setup, engine_contract_setup, engine_type_pack_provision, StoredDocument,
-        WorkingSet,
+        engine_collection_setup, engine_contract_setup, engine_type_pack_provision,
+        AuthorityWorkspace, StoredDocument,
     },
 };
 

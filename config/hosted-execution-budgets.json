@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": "hosted-execution-v3",
+  "revision": "hosted-execution-v4",
   "publishedAt": "2026-08-17T00:00:00+10:00",
   "capacityBasis": {
     "providerMemoryMiB": 512,
@@ -114,13 +114,11 @@
       "accountedExecutionBytesPerProcess": 134217728
     }
   },
-  "temporaryContainment": {
-    "deletionMarker": "delete-with-working-set-after-phase-7-acceptance",
-    "workingSetCollectionsPerProcess": 2,
-    "workingSetPlaintextBytesPerProcess": 134217728,
-    "workingSetPlaintextBytesPerCollection": 100663296,
-    "workingSetMaximumAgeMs": 300000,
-    "queryResultCacheEnabled": false
+  "authorityBulk": {
+    "records": 100000,
+    "exactBytes": 22369621,
+    "resourceBytes": 8388608,
+    "estimatedPlaintextBytes": 100663296
   },
   "acceptance": {
     "steadyProcessRssBytes": 402653184,
