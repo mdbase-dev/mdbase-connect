@@ -1,6 +1,6 @@
 # Hosted semantic projection cutover
 
-Status: final Candidate B production-cutover design; production execution still requires the explicit rollout approval gate.
+Status: final Candidate B production-cutover design; explicit production rollout approval granted 2026-08-18, with protected operational gates still mandatory.
 
 The live production baseline is beta69 with successful SQLx migrations 1–34. The final cutover adds exactly:
 
@@ -119,7 +119,10 @@ Normal reads, queries, validation, and mutations never materialize a collection-
    observable. Resume external traffic only after every collection verifies and
    the expected release/recovery status is visible.
 
-Production migration and activation remain prohibited until the final explicit user approval.
+The user granted final production rollout approval on 2026-08-18. Migration and
+activation may proceed only through the protected main-branch workflow after its
+recovery, credential, exact-image, maintenance, drain, schema, projection, and
+closed/open verification gates pass.
 
 ## Beta69 code rollback and forward recovery
 

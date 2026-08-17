@@ -1,6 +1,6 @@
 # Candidate B beta69 rollback and roll-forward evidence
 
-Date: 2026-08-17
+Date: 2026-08-17–2026-08-18
 
 Database: disposable PostgreSQL 17 (`rollback_runtime`)
 
@@ -63,6 +63,38 @@ tests (106 passed, 3 ignored), warnings-denied clippy, server tests (320 passed)
 server typecheck, protocol tests (45 passed), and both focused PostgreSQL
 regressions were green on 2026-08-17.
 
+## Isolated live-staging rollback and roll-forward
+
+The same sequence passed against the isolated beta69-based Candidate B staging
+database and the exact final images on 2026-08-18:
+
+1. Final admission was suspended under a durable rollback fence and the exact
+   final ledger/schema rollback preflight succeeded.
+2. The target provider was replaced with the signed beta69 image above. It became
+   healthy against the additive migration-37 database without a schema downgrade.
+3. Through the normal Connect operation boundary, beta69 completed an existing
+   exact point read and a revision-CAS create, read, update, read, and delete cycle.
+   All payload was synthetic.
+4. The first roll-forward attempt intentionally demonstrated the fail-closed
+   recovery boundary: a new cutover fence could not replace the still-durable
+   rollback fence. The runner left every runtime terminally suspended, every public
+   endpoint in maintenance, and the database closed.
+5. With all runtimes still offline, the operator completed the matching rollback
+   fence handoff and resumed the same roll-forward journal. The final-schema
+   attestation, all-collection indexer, closed verification, provisional lease,
+   open verification, and finalization then completed.
+6. The beta69 writes advanced the mission collection from head 49 to 52. The
+   roll-forward created a new active generation for that head and verified every
+   exact record, projection, relationship row, resolution key, schema object, and
+   migration-ledger entry.
+7. Independent post-recovery drain observation reported zero active queries,
+   permits, plaintext scopes, accounted execution bytes, and pool connections. The
+   complete five-consumer browser mission passed again after recovery.
+
+The live drill used the same guarded cloud runner and immutable image identities as
+the production workflow; it did not edit the migration ledger, remove canonical
+state, or reuse the retained beta73 staging database.
+
 ## Conclusions
 
 - The exact production beta69 rollback image starts and serves exact authority on the final additive schema.
@@ -71,4 +103,7 @@ regressions were green on 2026-08-17.
 - Projection indexing changes derived rows/bindings only; the measured canonical authority/journal/outbox digest is unchanged.
 - No schema downgrade, exact rewrite, projection deletion, or migration-ledger edit is required.
 
-This is disposable local evidence, not authorization to run the sequence on production. The same procedure must pass on the fresh beta69-based staging database and the exact immutable release candidate before the production gate.
+The user granted explicit production rollout authorization on 2026-08-18. The
+staging rollback requirement is now satisfied; production execution still depends
+on the protected workflow's recovery, credential, exact-image, schema, drain, and
+all-collection verification gates.
