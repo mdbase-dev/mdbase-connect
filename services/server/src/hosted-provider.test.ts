@@ -25,6 +25,93 @@ function readinessDocument(contractSupport: ConnectContractSupport = CONNECT_CON
 }
 
 describe("hosted provider control client", () => {
+  it("activates new Candidate B collections before returning them to the control plane", async () => {
+    const legacy = {
+      collection_id: "collection",
+      execution_model: "legacy",
+      pending_execution_model: null,
+      head: 0,
+      resource_revision: "catalog-v1",
+      active_generation_id: null,
+      building_generation: null
+    };
+    const building = {
+      ...legacy,
+      pending_execution_model: "candidate_b",
+      building_generation: {
+        collection_id: "collection",
+        generation_id: "generation",
+        source_head: 0,
+        phase: "projection",
+        status: "building"
+      }
+    };
+    const active = {
+      ...legacy,
+      execution_model: "candidate_b",
+      active_generation_id: "generation"
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(undefined, { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ projection: legacy })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ projection: building })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ projection: active })));
+    const provider = new HostedProviderClient({
+      url: "https://provider.example",
+      internalToken: "internal-secret",
+      newCollectionExecutionModel: "candidate_b"
+    });
+
+    await provider.createCollection("account", "collection", "blank", "Notes", "UTC");
+
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, init?.method])).toEqual([
+      ["https://provider.example/internal/v1/collections", "POST"],
+      ["https://provider.example/internal/v1/collections/collection/projection", "GET"],
+      [
+        "https://provider.example/internal/v1/collections/collection/projection/activate-candidate-b",
+        "POST"
+      ],
+      [
+        "https://provider.example/internal/v1/collections/collection/projection/advance",
+        "POST"
+      ]
+    ]);
+    expect(fetchMock.mock.calls[2]?.[1]?.body).toBe(JSON.stringify({
+      expected_head: 0,
+      expected_resource_revision: "catalog-v1",
+      confirmation: "activate-candidate-b:collection:0:catalog-v1"
+    }));
+  });
+
+  it("reconciles an activation batch whose successful response was lost", async () => {
+    const active = {
+      collection_id: "collection",
+      execution_model: "candidate_b",
+      pending_execution_model: null,
+      head: 0,
+      resource_revision: "catalog-v1",
+      active_generation_id: "generation",
+      building_generation: null
+    };
+    vi.spyOn(globalThis, "fetch")
+      .mockRejectedValueOnce(new Error("response lost after commit"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        error: {
+          code: "projection_generation_not_building",
+          message: "The generation completed."
+        }
+      }), { status: 409 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ projection: active })));
+    const provider = new HostedProviderClient({
+      url: "https://provider.example",
+      internalToken: "internal-secret",
+      newCollectionExecutionModel: "candidate_b"
+    });
+
+    await expect(provider.advanceProjection("collection", "generation"))
+      .resolves.toEqual(active);
+  });
+
   it("uses only the internal bearer credential and expected provider document", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(undefined, { status: 201 })
@@ -174,6 +261,21 @@ describe("hosted provider control client", () => {
     const provider = new HostedProviderClient({
       url: "https://provider.example",
       internalToken: "internal-secret"
+    });
+    await expect(provider.ready()).rejects.toBeInstanceOf(HostedProviderUnavailableError);
+  });
+
+  it("requires the versioned activation capability only when new Candidate B collections are enabled", async () => {
+    const document = readinessDocument();
+    document.provider.capabilities = [...HOSTED_PROVIDER_REQUIRED_CAPABILITIES];
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
+      JSON.stringify(document),
+      { status: 200 }
+    ));
+    const provider = new HostedProviderClient({
+      url: "https://provider.example",
+      internalToken: "internal-secret",
+      newCollectionExecutionModel: "candidate_b"
     });
     await expect(provider.ready()).rejects.toBeInstanceOf(HostedProviderUnavailableError);
   });

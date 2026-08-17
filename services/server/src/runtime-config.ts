@@ -356,12 +356,21 @@ export function hostedProviderConfigFromEnv(
     env.MDBASE_CONNECT_HOSTED_PROVIDER_PUBLIC_URL?.trim() ?? "";
   const internalToken =
     env.MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN?.trim() ?? "";
+  const newCollectionExecutionModel =
+    env.MDBASE_CONNECT_NEW_HOSTED_EXECUTION_MODEL?.trim() || "legacy";
+  if (!["legacy", "candidate_b"].includes(newCollectionExecutionModel)) {
+    throw new Error(
+      "MDBASE_CONNECT_NEW_HOSTED_EXECUTION_MODEL must be legacy or candidate_b."
+    );
+  }
   if (!url && !publicUrl && !internalToken) return null;
   return validateHostedProviderConfig(
     {
       url,
       ...(publicUrl ? { publicUrl } : {}),
-      internalToken
+      internalToken,
+      newCollectionExecutionModel:
+        newCollectionExecutionModel as "legacy" | "candidate_b"
     },
     env.MDBASE_CONNECT_ALLOW_INSECURE_HOSTED_PROVIDER === "1",
     env.MDBASE_CONNECT_DEV_AUTH === "1"

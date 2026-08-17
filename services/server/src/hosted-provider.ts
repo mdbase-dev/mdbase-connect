@@ -10,6 +10,7 @@ import type {
 } from "@mdbase-dev/connect-protocol";
 import {
   CONNECT_CONTRACT_SUPPORT,
+  HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY,
   HOSTED_PROVIDER_REQUIRED_CAPABILITIES,
   type ConnectContractSupport
 } from "@mdbase-dev/connect-protocol";
@@ -20,6 +21,25 @@ export interface HostedProviderConfig {
   url: string;
   publicUrl?: string;
   internalToken: string;
+  newCollectionExecutionModel?: "legacy" | "candidate_b";
+}
+
+export interface HostedProjectionGenerationStatus {
+  collection_id: string;
+  generation_id: string;
+  source_head: number;
+  phase: "projection" | "resolution";
+  status: "building";
+}
+
+export interface HostedProjectionStatus {
+  collection_id: string;
+  execution_model: "legacy" | "candidate_b";
+  pending_execution_model: "candidate_b" | null;
+  head: number;
+  resource_revision: string;
+  active_generation_id: string | null;
+  building_generation: HostedProjectionGenerationStatus | null;
 }
 
 export interface HostedReplicaEnrollment {
@@ -135,11 +155,13 @@ export class HostedProviderClient {
   readonly url: string;
   private readonly endpointUrl: string;
   private readonly internalToken: string;
+  private readonly newCollectionExecutionModel: "legacy" | "candidate_b";
 
   constructor(config: HostedProviderConfig) {
     this.endpointUrl = new URL(config.url).origin;
     this.url = new URL(config.publicUrl ?? config.url).origin;
     this.internalToken = config.internalToken;
+    this.newCollectionExecutionModel = config.newCollectionExecutionModel ?? "legacy";
   }
 
   async ready(): Promise<void> {
@@ -155,6 +177,8 @@ export class HostedProviderClient {
         || !HOSTED_PROVIDER_REQUIRED_CAPABILITIES.every(
           (required) => capabilities.includes(required)
         )
+        || (this.newCollectionExecutionModel === "candidate_b"
+          && !capabilities.includes(HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY))
         || !hostedContractSupportMatches(result.provider?.contract_support)) {
       throw new HostedProviderUnavailableError(
         new Error("Hosted provider capability report is incompatible.")
@@ -238,6 +262,93 @@ export class HostedProviderClient {
       display_name: displayName,
       timezone
     });
+    if (this.newCollectionExecutionModel === "candidate_b") {
+      await this.activateNewCandidateBCollection(collectionId);
+    }
+  }
+
+  async projectionStatus(collectionId: string): Promise<HostedProjectionStatus> {
+    const result = await this.request(
+      "GET",
+      `/internal/v1/collections/${encodeURIComponent(collectionId)}/projection`
+    ) as { projection?: HostedProjectionStatus } | undefined;
+    return requiredProjectionStatus(result?.projection);
+  }
+
+  async requestCandidateBActivation(
+    collectionId: string,
+    expected: Pick<HostedProjectionStatus, "head" | "resource_revision">
+  ): Promise<HostedProjectionStatus> {
+    const confirmation = [
+      "activate-candidate-b",
+      collectionId,
+      String(expected.head),
+      expected.resource_revision
+    ].join(":");
+    const result = await this.request(
+      "POST",
+      `/internal/v1/collections/${encodeURIComponent(collectionId)}/projection/activate-candidate-b`,
+      {
+        expected_head: expected.head,
+        expected_resource_revision: expected.resource_revision,
+        confirmation
+      }
+    ) as { projection?: HostedProjectionStatus } | undefined;
+    return requiredProjectionStatus(result?.projection);
+  }
+
+  async advanceProjection(
+    collectionId: string,
+    generationId: string
+  ): Promise<HostedProjectionStatus> {
+    try {
+      const result = await this.request(
+        "POST",
+        `/internal/v1/collections/${encodeURIComponent(collectionId)}/projection/advance`,
+        { generation_id: generationId }
+      ) as { projection?: HostedProjectionStatus } | undefined;
+      return requiredProjectionStatus(result?.projection);
+    } catch (error) {
+      // A bounded batch may commit while its HTTP response is lost. The retry
+      // then observes a completed generation. Reconcile only that exact ID;
+      // never reinterpret another generation as success.
+      if (
+        error instanceof HostedProviderResponseError
+        && error.code === "projection_generation_not_building"
+      ) {
+        const status = await this.projectionStatus(collectionId);
+        if (
+          status.execution_model === "candidate_b"
+          && status.active_generation_id === generationId
+        ) return status;
+      }
+      throw error;
+    }
+  }
+
+  private async activateNewCandidateBCollection(collectionId: string): Promise<void> {
+    let status = await this.projectionStatus(collectionId);
+    if (status.execution_model === "candidate_b" && status.active_generation_id) return;
+    status = await this.requestCandidateBActivation(collectionId, status);
+    // Creation-time collections contain no user records. Keep the loop finite
+    // so a provider regression cannot hold a control-plane request forever.
+    for (let batch = 0; batch < 16; batch += 1) {
+      if (status.execution_model === "candidate_b" && status.active_generation_id) return;
+      const generationId = status.building_generation?.generation_id;
+      if (!generationId) {
+        throw new HostedProviderResponseError(
+          503,
+          "projection_activation_stalled",
+          "Candidate B activation has no building projection generation."
+        );
+      }
+      status = await this.advanceProjection(collectionId, generationId);
+    }
+    throw new HostedProviderResponseError(
+      503,
+      "projection_activation_budget_exceeded",
+      "Candidate B activation exceeded its bounded creation-time batch budget."
+    );
   }
 
   async renameCollection(collectionId: string, displayName: string): Promise<void> {
@@ -590,6 +701,43 @@ function hostedContractSupportMatches(value: unknown): value is ConnectContractS
     && includes("authorization_binding", CONNECT_CONTRACT_SUPPORT.authorization_binding)
     && includes("semantic_capabilities", CONNECT_CONTRACT_SUPPORT.semantic_capabilities)
     && includes("durable_mutation", CONNECT_CONTRACT_SUPPORT.durable_mutation);
+}
+
+function requiredProjectionStatus(value: unknown): HostedProjectionStatus {
+  if (!value || typeof value !== "object") {
+    throw new HostedProviderResponseError(
+      502,
+      "invalid_provider_response",
+      "Hosted projection status was missing from the provider response."
+    );
+  }
+  const status = value as Record<string, unknown>;
+  const building = status.building_generation;
+  if (
+    typeof status.collection_id !== "string"
+    || !["legacy", "candidate_b"].includes(String(status.execution_model))
+    || !(status.pending_execution_model === null
+      || status.pending_execution_model === "candidate_b")
+    || !Number.isSafeInteger(status.head)
+    || typeof status.resource_revision !== "string"
+    || !(status.active_generation_id === null
+      || typeof status.active_generation_id === "string")
+    || !(building === null || (
+      typeof building === "object"
+      && typeof (building as Record<string, unknown>).generation_id === "string"
+      && ["projection", "resolution"].includes(
+        String((building as Record<string, unknown>).phase)
+      )
+      && (building as Record<string, unknown>).status === "building"
+    ))
+  ) {
+    throw new HostedProviderResponseError(
+      502,
+      "invalid_provider_response",
+      "Hosted projection status was malformed."
+    );
+  }
+  return value as HostedProjectionStatus;
 }
 
 export class HostedProviderResponseError extends Error {

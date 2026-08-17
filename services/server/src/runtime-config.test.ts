@@ -287,6 +287,22 @@ describe("public runtime configuration", () => {
       MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: "x".repeat(40)
     });
     expect(value.hostedProvider?.url).toBe("http://127.0.0.1:8790");
+    expect(value.hostedProvider?.newCollectionExecutionModel).toBe("legacy");
+
+    const candidateB = runtimeConfigFromEnv({
+      PUBLIC_URL: "http://localhost:8787",
+      MDBASE_CONNECT_DEV_AUTH: "1",
+      MDBASE_CONNECT_HOSTED_COLLECTIONS: "1",
+      MDBASE_CONNECT_HOSTED_PROVIDER_URL: "http://127.0.0.1:8790",
+      MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: "x".repeat(40),
+      MDBASE_CONNECT_NEW_HOSTED_EXECUTION_MODEL: "candidate_b"
+    });
+    expect(candidateB.hostedProvider?.newCollectionExecutionModel).toBe("candidate_b");
+    expect(() => hostedProviderConfigFromEnv({
+      MDBASE_CONNECT_HOSTED_PROVIDER_URL: "https://provider.example",
+      MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: "x".repeat(40),
+      MDBASE_CONNECT_NEW_HOSTED_EXECUTION_MODEL: "unknown"
+    })).toThrow(/legacy or candidate_b/);
 
     const dockerDevelopment = runtimeConfigFromEnv({
       PUBLIC_URL: "http://localhost:8787",
@@ -333,7 +349,8 @@ describe("public runtime configuration", () => {
       MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: "x".repeat(40)
     })).toEqual({
       url: "https://provider.example",
-      internalToken: "x".repeat(40)
+      internalToken: "x".repeat(40),
+      newCollectionExecutionModel: "legacy"
     });
     expect(() => hostedProviderConfigFromEnv({
       MDBASE_CONNECT_HOSTED_PROVIDER_URL: "https://provider.example"

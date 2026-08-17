@@ -42,9 +42,12 @@ export const HOSTED_PROVIDER_REQUIRED_CAPABILITIES = [
   "durable-mutation-journal-v1",
   "durable-file-lifecycle-v1"
 ] as const;
+export const HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY =
+  "candidate-b-activation-v1" as const;
 export const HOSTED_PROVIDER_CAPABILITIES = [
   ...HOSTED_PROVIDER_REQUIRED_CAPABILITIES,
-  "mutation-replay-after-credential-retirement-v1"
+  "mutation-replay-after-credential-retirement-v1",
+  HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY
 ] as const;
 export const RELAY_CAPABILITIES = [
   ...RELAY_REQUIRED_CAPABILITIES,
