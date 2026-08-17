@@ -319,7 +319,7 @@ async fn execute_bounded_residual_page(
         .push_bind(to_i64(state.snapshot_head, "query snapshot head")?)
         .push(
             " ORDER BY record_id, sequence DESC), joined AS (SELECT l.record_id, l.deleted, \
-               p.matched_types, p.projection_bytes, p.semantic_projection,
+               p.canonical_path, p.matched_types, p.projection_bytes, p.semantic_projection,
                p.record_id IS NOT NULL \
                AND p.record_sequence = l.sequence AND p.record_revision = l.revision \
                AND p.catalog_revision = ",

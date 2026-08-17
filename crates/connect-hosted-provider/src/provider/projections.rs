@@ -84,6 +84,10 @@ pub struct HostedProjectionVerification {
     pub projected_records: u64,
     pub resolved_records: u64,
     pub invalid_projection_rows: u64,
+    pub expected_resolution_keys: u64,
+    pub persisted_resolution_keys: u64,
+    pub expected_relationships: u64,
+    pub persisted_relationships: u64,
 }
 
 #[derive(Debug, Clone)]

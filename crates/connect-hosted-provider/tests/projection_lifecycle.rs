@@ -520,6 +520,118 @@ async fn projection_indexing_binds_only_after_atomic_completion() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn projection_verification_detects_missing_resolution_keys_and_relationships() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let replica_id = replica.get("id");
+    let scope_epoch = u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap();
+    put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        Uuid::now_v7(),
+        None,
+        "targets/target.md",
+        "---\ntitle: Target\n---\nTarget body.\n",
+    )
+    .await;
+    put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        Uuid::now_v7(),
+        None,
+        "notes/source.md",
+        "A canonical [[targets/target|private label]] relationship.\n",
+    )
+    .await;
+    let generation_id = complete_generation(&fixture).await;
+
+    let before = fixture
+        .provider
+        .verify_projection_index(fixture.collection_id)
+        .await
+        .unwrap();
+    assert!(before.verified, "{:?}", before.failures);
+    assert!(before.expected_resolution_keys > 0);
+    assert!(before.expected_relationships > 0);
+
+    let deleted_keys = sqlx::query(
+        r#"DELETE FROM hosted_provider_record_resolution_keys
+           WHERE ctid IN (
+             SELECT ctid FROM hosted_provider_record_resolution_keys
+             WHERE collection_id = $1 AND generation_id = $2
+               AND valid_to_sequence IS NULL
+             ORDER BY record_id, key_kind, lookup_key COLLATE "C"
+             LIMIT 1
+           )"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(deleted_keys.rows_affected(), 1);
+    let deleted_relationships = sqlx::query(
+        r#"DELETE FROM hosted_provider_record_relationships
+           WHERE ctid IN (
+             SELECT ctid FROM hosted_provider_record_relationships
+             WHERE collection_id = $1 AND generation_id = $2
+               AND valid_to_sequence IS NULL
+             ORDER BY source_record_id, occurrence_key
+             LIMIT 1
+           )"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(deleted_relationships.rows_affected(), 1);
+
+    assert!(
+        !fixture
+            .provider
+            .projection_status(fixture.collection_id)
+            .await
+            .unwrap()
+            .ready
+    );
+    let after = fixture
+        .provider
+        .verify_projection_index(fixture.collection_id)
+        .await
+        .unwrap();
+    assert!(!after.verified);
+    assert!(after
+        .failures
+        .contains(&"active_binding_not_current".to_string()));
+    assert!(after
+        .failures
+        .contains(&"projection_resolution_keys_mismatch".to_string()));
+    assert!(after
+        .failures
+        .contains(&"projection_relationships_mismatch".to_string()));
+    assert_eq!(
+        after.persisted_resolution_keys + 1,
+        after.expected_resolution_keys
+    );
+    assert_eq!(
+        after.persisted_relationships + 1,
+        after.expected_relationships
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
 async fn projection_indexing_recovers_after_a_concurrent_exact_write() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
@@ -4049,7 +4161,12 @@ async fn exercise_candidate_b_projection_lifecycle() {
             &application_token,
             "query",
             Uuid::new_v4(),
-            json!({"limit": 10, "order_by": [{"field": "file.path"}]}),
+            json!({
+                "where": "file.inFolder('notes')",
+                "include_body": true,
+                "limit": 10,
+                "order_by": [{"field": "file.path"}]
+            }),
             None,
         )
         .await
@@ -4067,6 +4184,11 @@ async fn exercise_candidate_b_projection_lifecycle() {
         .unwrap()
         .iter()
         .any(|result| result["path"] == "notes/source.md"));
+    assert!(stale_fallback["result"]["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|result| result["body"].is_string()));
     let validated = fixture
         .provider
         .operation(
@@ -7053,6 +7175,21 @@ async fn candidate_b_base_candidate_prunes_fixture(
     .execute(&fixture.pool)
     .await
     .unwrap();
+    // The synthetic fixture bypasses the canonical projection writer, so its
+    // statement triggers deliberately invalidate the generation epoch. Mark
+    // this fully constructed test generation verified before measuring the
+    // current-projection SQL path; later corruption re-invalidates it.
+    sqlx::query(
+        r#"UPDATE hosted_provider_projection_generations
+           SET integrity_verified_epoch = integrity_epoch
+           WHERE collection_id = $1 AND generation_id = $2
+             AND status = 'complete'"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
     sqlx::query("ANALYZE hosted_provider_record_versions, hosted_provider_record_projections")
         .execute(&fixture.pool)
         .await
@@ -7099,6 +7236,12 @@ async fn candidate_b_base_candidate_prunes_fixture(
     order: [file.name]
   - type: table
     name: All
+    order: [file.name]
+  - type: table
+    name: Folder
+    filters:
+      and:
+        - 'file.inFolder("tasks")'
     order: [file.name]
   - type: table
     name: Created
@@ -7181,6 +7324,21 @@ async fn candidate_b_base_candidate_prunes_fixture(
     assert_eq!(result["valid"], true);
     assert_eq!(result["result"]["meta"]["total_count"], 1);
     assert_eq!(result["result"]["results"][0]["path"], "tasks/selected.md");
+    let folder = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "execute_view",
+            Uuid::new_v4(),
+            json!({"path": "views/tasks.base", "view": "folder"}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(folder["valid"], true);
+    assert_eq!(folder["result"]["meta"]["total_count"], 1);
+    assert_eq!(folder["result"]["results"][0]["path"], "tasks/selected.md");
 
     if large_projection_pressure {
         sqlx::query(
@@ -7378,7 +7536,14 @@ async fn candidate_b_base_candidate_prunes_fixture(
         )
         .await
         .unwrap_err();
-    assert_eq!(deleted_context.code, "hosted_base_context_unavailable");
+    assert_eq!(
+        deleted_context.code,
+        "hosted_exact_document_budget_exceeded"
+    );
+    assert_eq!(
+        deleted_context.details.as_ref().unwrap()["budget"],
+        "exact_documents"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

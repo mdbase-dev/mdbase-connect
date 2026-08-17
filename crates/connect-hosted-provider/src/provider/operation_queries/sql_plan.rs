@@ -240,10 +240,11 @@ fn push_path_in_folder(query: &mut QueryBuilder<Postgres>, folder: &str) {
         query.push("strpos(canonical_path, '/') = 0");
     } else {
         query
-            .push("left(canonical_path, char_length(")
+            .push("left(canonical_path COLLATE \"C\", char_length(")
             .push_bind(folder.to_string())
             .push(") + 1) = ")
-            .push_bind(format!("{folder}/"));
+            .push_bind(format!("{folder}/"))
+            .push(" COLLATE \"C\"");
     }
 }
 

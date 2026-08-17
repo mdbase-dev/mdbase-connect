@@ -136,7 +136,7 @@ mod tests {
         push_candidate_predicate(&mut nested_sql, &nested);
         assert_eq!(
             nested_sql.sql(),
-            "left(canonical_path, char_length($1) + 1) = $2"
+            "left(canonical_path COLLATE \"C\", char_length($1) + 1) = $2 COLLATE \"C\""
         );
 
         let mut exact_nested_sql = QueryBuilder::<Postgres>::new("");

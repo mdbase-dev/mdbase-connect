@@ -12,7 +12,10 @@ SELECT pg_advisory_xact_lock(
 DO $beta69_rollback_preflight$
 DECLARE
   migration_count bigint;
+  minimum_version bigint;
   maximum_version bigint;
+  failed_migrations bigint;
+  missing_migrations bigint;
   invalid_states bigint;
 BEGIN
   IF NOT EXISTS (
@@ -23,12 +26,19 @@ BEGIN
       'beta69_rollback_blocked: suspend hosted query admission first';
   END IF;
 
-  SELECT count(*), max(version)
-    INTO migration_count, maximum_version
-  FROM _sqlx_migrations
-  WHERE success;
-  IF migration_count <> 36 OR maximum_version <> 36
-     OR EXISTS (SELECT 1 FROM _sqlx_migrations WHERE NOT success OR version > 36) THEN
+  SELECT count(*), min(version), max(version),
+         count(*) FILTER (WHERE NOT success)
+    INTO migration_count, minimum_version, maximum_version, failed_migrations
+  FROM _sqlx_migrations;
+  SELECT count(*)
+    INTO missing_migrations
+  FROM generate_series(1, 36) AS required(version)
+  WHERE NOT EXISTS (
+    SELECT 1 FROM _sqlx_migrations applied
+    WHERE applied.version = required.version AND applied.success
+  );
+  IF migration_count <> 36 OR minimum_version <> 1 OR maximum_version <> 36
+     OR failed_migrations <> 0 OR missing_migrations <> 0 THEN
     RAISE EXCEPTION
       'beta69_rollback_blocked: expected exact successful final ledger 1-36';
   END IF;

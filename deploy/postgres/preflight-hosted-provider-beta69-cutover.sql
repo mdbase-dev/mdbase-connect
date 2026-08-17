@@ -37,13 +37,24 @@ BEGIN
 
   IF to_regclass('hosted_provider_projection_generations') IS NOT NULL
      OR to_regclass('hosted_provider_record_projections') IS NOT NULL
+     OR to_regclass('hosted_provider_record_resolution_keys') IS NOT NULL
      OR to_regclass('hosted_provider_record_relationships') IS NOT NULL
      OR to_regclass('hosted_provider_query_cursors') IS NOT NULL
+     OR to_regclass('hosted_provider_base_query_invocations') IS NOT NULL
+     OR to_regclass('hosted_provider_query_page_receipts') IS NOT NULL
+     OR to_regclass('hosted_provider_query_receipt_usage') IS NOT NULL
+     OR to_regclass('hosted_provider_runtime_control') IS NOT NULL
      OR EXISTS (
        SELECT 1 FROM information_schema.columns
        WHERE table_schema = current_schema()
          AND table_name = 'hosted_provider_collections'
-         AND column_name LIKE 'active_projection_%'
+         AND (
+           column_name LIKE 'active_projection_%'
+           OR column_name IN (
+             'active_catalog_revision',
+             'active_semantic_engine_version'
+           )
+         )
      ) THEN
     RAISE EXCEPTION
       'beta69_cutover_blocked: Candidate B schema already exists';

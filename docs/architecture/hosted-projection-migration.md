@@ -40,10 +40,10 @@ New collections begin in transient `indexing` state and are not returned until t
 3. Persist prepared projections and resolution keys only while the exact revision and generation fence still match. Terminal oversized or malformed semantic state quarantines the generation without poisoning unrelated collections.
 4. After a complete prepared-state proof, transition to `building/resolution` and resolve structural occurrences through `mdbase-rs` against the frozen key snapshot.
 5. Persist final projections and temporal outgoing edges. Backlinks are indexed inverse queries over resolved target identity.
-6. Prove no missing, extra, stale, incomplete, unresolved, or digest-invalid row remains. Atomically bind and mark complete only if source head/resource/catalog still match.
+6. Prove no missing, extra, stale, incomplete, unresolved, or digest-invalid projection, resolution key, or relationship row remains. Atomically bind and mark complete only if source head/resource/catalog still match.
 7. If the source changes, abandon and restart from the new authority binding. Normal batch completion releases its lease so another process resumes immediately; crashes recover after lease expiry, with the fence preventing stale commits.
 
-Projection rows are temporal (`valid_from_sequence` inclusive, `valid_to_sequence` exclusive). Exact revision, catalog, format, engine, digest, semantic completeness, and relationship completeness are checked before candidate use. Direct or untrusted readable-row mutation advances the observed integrity side and therefore fails closed.
+Projection rows are temporal (`valid_from_sequence` inclusive, `valid_to_sequence` exclusive). Exact revision, catalog, format, engine, digest, semantic completeness, and relationship completeness are checked before candidate use. Statement triggers advance the generation integrity epoch after any complete-generation projection, resolution-key, or relationship mutation. The cutover verifier independently reconstructs canonical key and edge fingerprints from the versioned mdbase-rs semantic projection, so missing, extra, or altered derived rows fail closed before admission.
 
 ## Physical index policy
 

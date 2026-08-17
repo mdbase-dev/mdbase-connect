@@ -330,6 +330,63 @@ impl HostedProvider {
                      LEFT JOIN live r ON r.record_id = p.record_id
                      WHERE p.collection_id = $1 AND p.generation_id = $2
                        AND p.valid_to_sequence IS NULL AND r.record_id IS NULL
+                     UNION ALL
+                     SELECT 1 FROM hosted_provider_record_projections p
+                     WHERE p.collection_id = $1 AND p.generation_id = $2
+                       AND p.valid_to_sequence IS NULL
+                       AND (
+                         jsonb_typeof(p.semantic_projection -> 'resolution_keys') <> 'array'
+                         OR jsonb_typeof(
+                              p.semantic_projection #> '{structure,occurrences}'
+                            ) <> 'array'
+                         OR jsonb_array_length(
+                              p.semantic_projection -> 'resolution_keys'
+                            ) <> (
+                              SELECT count(*)
+                              FROM hosted_provider_record_resolution_keys key
+                              WHERE key.collection_id = p.collection_id
+                                AND key.generation_id = p.generation_id
+                                AND key.record_id = p.record_id
+                                AND key.valid_to_sequence IS NULL
+                            )
+                         OR (
+                              SELECT count(*)
+                              FROM jsonb_array_elements(
+                                p.semantic_projection #> '{structure,occurrences}'
+                              ) occurrence
+                              WHERE occurrence ->> 'resolution' IN (
+                                'resolved', 'missing', 'ambiguous',
+                                'unsafe_traversal', 'external'
+                              )
+                            ) <> (
+                              SELECT count(*)
+                              FROM hosted_provider_record_relationships relationship
+                              WHERE relationship.collection_id = p.collection_id
+                                AND relationship.generation_id = p.generation_id
+                                AND relationship.source_record_id = p.record_id
+                                AND relationship.valid_to_sequence IS NULL
+                            )
+                       )
+                     UNION ALL
+                     SELECT 1 FROM hosted_provider_record_resolution_keys key
+                     LEFT JOIN hosted_provider_record_projections p
+                       ON p.collection_id = key.collection_id
+                      AND p.generation_id = key.generation_id
+                      AND p.record_id = key.record_id
+                      AND p.valid_to_sequence IS NULL
+                     WHERE key.collection_id = $1 AND key.generation_id = $2
+                       AND key.valid_to_sequence IS NULL AND p.record_id IS NULL
+                     UNION ALL
+                     SELECT 1 FROM hosted_provider_record_relationships relationship
+                     LEFT JOIN hosted_provider_record_projections p
+                       ON p.collection_id = relationship.collection_id
+                      AND p.generation_id = relationship.generation_id
+                      AND p.record_id = relationship.source_record_id
+                      AND p.valid_to_sequence IS NULL
+                     WHERE relationship.collection_id = $1
+                       AND relationship.generation_id = $2
+                       AND relationship.valid_to_sequence IS NULL
+                       AND p.record_id IS NULL
                    )"#,
             )
             .bind(collection_id)

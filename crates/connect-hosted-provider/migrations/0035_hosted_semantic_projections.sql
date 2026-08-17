@@ -473,3 +473,43 @@ AFTER DELETE ON hosted_provider_record_projections
 REFERENCING OLD TABLE AS old_projection_rows
 FOR EACH STATEMENT
 EXECUTE FUNCTION hosted_provider_bump_projection_epoch_after_delete();
+
+-- Resolution keys and relationship edges are part of the same derived
+-- generation contract as their projection row. Any out-of-band change to a
+-- complete generation invalidates its verified epoch until the canonical
+-- writer or the index verifier proves the whole generation again.
+CREATE TRIGGER hosted_provider_resolution_key_epoch_after_insert
+AFTER INSERT ON hosted_provider_record_resolution_keys
+REFERENCING NEW TABLE AS new_projection_rows
+FOR EACH STATEMENT
+EXECUTE FUNCTION hosted_provider_bump_projection_epoch_after_insert();
+
+CREATE TRIGGER hosted_provider_resolution_key_epoch_after_update
+AFTER UPDATE ON hosted_provider_record_resolution_keys
+REFERENCING OLD TABLE AS old_projection_rows NEW TABLE AS new_projection_rows
+FOR EACH STATEMENT
+EXECUTE FUNCTION hosted_provider_bump_projection_epoch_after_update();
+
+CREATE TRIGGER hosted_provider_resolution_key_epoch_after_delete
+AFTER DELETE ON hosted_provider_record_resolution_keys
+REFERENCING OLD TABLE AS old_projection_rows
+FOR EACH STATEMENT
+EXECUTE FUNCTION hosted_provider_bump_projection_epoch_after_delete();
+
+CREATE TRIGGER hosted_provider_relationship_epoch_after_insert
+AFTER INSERT ON hosted_provider_record_relationships
+REFERENCING NEW TABLE AS new_projection_rows
+FOR EACH STATEMENT
+EXECUTE FUNCTION hosted_provider_bump_projection_epoch_after_insert();
+
+CREATE TRIGGER hosted_provider_relationship_epoch_after_update
+AFTER UPDATE ON hosted_provider_record_relationships
+REFERENCING OLD TABLE AS old_projection_rows NEW TABLE AS new_projection_rows
+FOR EACH STATEMENT
+EXECUTE FUNCTION hosted_provider_bump_projection_epoch_after_update();
+
+CREATE TRIGGER hosted_provider_relationship_epoch_after_delete
+AFTER DELETE ON hosted_provider_record_relationships
+REFERENCING OLD TABLE AS old_projection_rows
+FOR EACH STATEMENT
+EXECUTE FUNCTION hosted_provider_bump_projection_epoch_after_delete();
