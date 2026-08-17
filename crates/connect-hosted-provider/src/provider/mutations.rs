@@ -120,7 +120,8 @@ impl HostedProvider {
         semantic: Option<(String, serde_json::Map<String, Value>)>,
     ) -> ApiResult<ApplicationMutationResult> {
         let mut transaction = self.pool.begin().await?;
-        let replica = authenticate_in(&mut transaction, collection_id, token, purpose).await?;
+        let replica =
+            authenticate_mutation_in(&mut transaction, collection_id, token, purpose).await?;
         if let Some(lease) = journal_lease {
             if let Some((receipt, semantic_result)) =
                 self.load_sync_effect(collection_id, lease).await?
@@ -237,9 +238,10 @@ impl HostedProvider {
         // Serialize a replica's mutation stream before consulting its receipt
         // table. A concurrent retry must observe the first transaction's
         // committed receipt instead of executing the same effect twice.
-        // The sync path already holds this row FOR UPDATE from its commit-time
-        // authorization check. Application operations hold a current FOR SHARE
-        // authorization and upgrade it here to serialize their mutation stream.
+        // Both sync and application paths already hold this row FOR UPDATE
+        // from their commit-time authorization check. Keep this assertion next
+        // to receipt handling so future entry points cannot omit the mutation
+        // stream serializer, but never rely on a shared-to-exclusive upgrade.
         sqlx::query("SELECT id FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE")
             .bind(replica.id)
             .fetch_one(&mut *transaction)

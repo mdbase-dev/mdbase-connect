@@ -10,8 +10,12 @@ use mdbase_connect_protocol::{
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::Row;
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use support::{wait_for_database_condition, wait_for_query_blocked, FileLifecycleFixture};
+use tokio::sync::Barrier;
 use uuid::Uuid;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2807,6 +2811,137 @@ async fn candidate_b_recovery_does_not_supersede_a_concurrent_explicit_generatio
     .await
     .unwrap();
     assert_ne!(explicit_status, "abandoned");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_concurrent_application_writes_do_not_upgrade_replica_locks() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let mirror = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    put(
+        &fixture,
+        mirror.get("id"),
+        u64::try_from(mirror.get::<i64, _>("scope_epoch")).unwrap(),
+        Uuid::now_v7(),
+        None,
+        "targets/shared.md",
+        "---\ntitle: Shared target\n---\nTarget body.\n",
+    )
+    .await;
+    complete_generation(&fixture).await;
+
+    let writer_id = Uuid::now_v7();
+    let writer_token = format!("candidate-b-concurrent-writer-{}", Uuid::new_v4());
+    fixture
+        .provider
+        .register_replica(
+            fixture.collection_id,
+            RegisterReplica {
+                replica_id: writer_id,
+                name: "Candidate B concurrent writer".to_string(),
+                purpose: ReplicaPurpose::Application,
+                mode: SyncReplicaMode::ReadWrite,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
+                allowed_operations: vec!["create".to_string()],
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: Vec::new(),
+                file_capability: None,
+                allowed_origin: None,
+                proof_public_key: None,
+                grant_id: Some(Uuid::now_v7()),
+                application_declaration_id: None,
+                application_declaration_digest: None,
+                token: writer_token.clone(),
+                token_ttl_seconds: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    // Hold a compatible shared lock long enough for both writers to reach
+    // authentication. The former shared-then-exclusive implementation let
+    // both writers keep a shared row lock here and deterministically deadlock
+    // when the guard was released. Exclusive authentication instead queues
+    // both writers before either owns a conflicting lock.
+    let mut replica_guard = fixture.pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM hosted_provider_replicas WHERE id = $1 FOR SHARE")
+        .bind(writer_id)
+        .fetch_one(&mut *replica_guard)
+        .await
+        .unwrap();
+    let start = Arc::new(Barrier::new(3));
+    let mut writers = Vec::new();
+    for index in 0..2_u8 {
+        let provider = fixture.provider.clone();
+        let collection_id = fixture.collection_id;
+        let token = writer_token.clone();
+        let start = start.clone();
+        writers.push(tokio::spawn(async move {
+            start.wait().await;
+            provider
+                .operation(
+                    collection_id,
+                    &token,
+                    "create",
+                    Uuid::new_v4(),
+                    json!({
+                        "path": format!("concurrent/source-{index}.md"),
+                        "frontmatter": {"title": format!("Source {index}")},
+                        "body": "See [[targets/shared]].\n",
+                    }),
+                    None,
+                )
+                .await
+        }));
+    }
+    start.wait().await;
+    wait_for_database_condition(&fixture.pool, || {
+        let pool = fixture.pool.clone();
+        async move {
+            let blocked: i64 = sqlx::query_scalar(
+                r#"SELECT count(*) FROM pg_stat_activity
+                   WHERE datname = current_database() AND pid <> pg_backend_pid()
+                     AND wait_event_type = 'Lock'
+                     AND query LIKE '%hosted_provider_replicas%'
+                     AND query LIKE '%FOR UPDATE%'"#,
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            blocked >= 2
+        }
+    })
+    .await;
+    replica_guard.rollback().await.unwrap();
+
+    for writer in writers {
+        let result = tokio::time::timeout(Duration::from_secs(10), writer)
+            .await
+            .expect("concurrent Candidate B write completes")
+            .unwrap()
+            .expect("concurrent Candidate B write avoids a database deadlock");
+        assert_eq!(result["valid"], true);
+    }
+    let current_relationships: i64 = sqlx::query_scalar(
+        r#"SELECT count(*) FROM hosted_provider_record_relationships
+           WHERE collection_id = $1 AND valid_to_sequence IS NULL
+             AND normalized_target = 'targets/shared'"#,
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(current_relationships, 2);
 }
 
 async fn exercise_candidate_b_projection_lifecycle() {

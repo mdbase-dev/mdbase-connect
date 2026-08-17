@@ -42,7 +42,12 @@ pub(super) async fn verify_stored_database_key(
     crypto.verify_key_check(&key_check).await
 }
 
-pub(super) async fn authenticate_in(
+/// Authenticate an application mutation while taking the replica lock it will
+/// need for the whole commit transaction. Taking `FOR UPDATE` immediately is
+/// important: acquiring `FOR SHARE` here and upgrading later lets two
+/// concurrent operations on the same replica deadlock while both still hold
+/// their shared row lock.
+pub(super) async fn authenticate_mutation_in(
     transaction: &mut Transaction<'_, Postgres>,
     collection_id: Uuid,
     token: &str,
@@ -54,7 +59,7 @@ pub(super) async fn authenticate_in(
            FROM hosted_provider_replicas
            WHERE collection_id = $1 AND token_hash = $2 AND purpose = $3
              AND revoked_at IS NULL AND token_expires_at > now()
-           FOR SHARE"#,
+           FOR UPDATE"#,
     )
     .bind(collection_id)
     .bind(token_hash(token))
