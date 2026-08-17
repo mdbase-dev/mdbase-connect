@@ -42,10 +42,12 @@ pub const RELAY_INCOMPATIBLE_CLOSE_CODE: u16 = 4406;
 pub const MINIMUM_CONNECTOR_VERSION: &str = "0.1.0-beta.33";
 pub const HOSTED_PROVIDER_REQUIRED_CAPABILITIES: &[&str] =
     &["durable-mutation-journal-v1", "durable-file-lifecycle-v1"];
+pub const HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY: &str = "candidate-b-activation-v1";
 pub const HOSTED_PROVIDER_CAPABILITIES: &[&str] = &[
     "durable-mutation-journal-v1",
     "durable-file-lifecycle-v1",
     "mutation-replay-after-credential-retirement-v1",
+    HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY,
 ];
 pub const CONTRACT_SETUP_CAPABILITY: &str = "contract-setup-v1";
 pub const FILE_RELAY_CAPABILITY: &str = "file-relay-v1";

@@ -257,6 +257,169 @@ async fn candidate_b_projection_rebuild_abandons_an_oversized_first_record() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_initial_activation_keeps_legacy_until_atomic_completion() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let binding = sqlx::query(
+        "SELECT head, resource_revision FROM hosted_provider_collections WHERE id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let head = u64::try_from(binding.get::<i64, _>("head")).unwrap();
+    let resource_revision: String = binding.get("resource_revision");
+
+    let stale = fixture
+        .provider
+        .request_candidate_b_activation(fixture.collection_id, head + 1, resource_revision.clone())
+        .await
+        .unwrap_err();
+    assert_eq!(stale.code, "projection_activation_binding_changed");
+
+    let requested = fixture
+        .provider
+        .request_candidate_b_activation(fixture.collection_id, head, resource_revision.clone())
+        .await
+        .unwrap();
+    assert_eq!(requested.execution_model, "legacy");
+    assert_eq!(
+        requested.pending_execution_model.as_deref(),
+        Some("candidate_b")
+    );
+    let generation_id = requested.building_generation.unwrap().generation_id;
+
+    // A retry is idempotent and does not supersede the authorized generation.
+    let retried = fixture
+        .provider
+        .request_candidate_b_activation(fixture.collection_id, head, resource_revision)
+        .await
+        .unwrap();
+    assert_eq!(
+        retried.building_generation.unwrap().generation_id,
+        generation_id
+    );
+
+    for _ in 0..8 {
+        let before = fixture
+            .provider
+            .projection_status(fixture.collection_id)
+            .await
+            .unwrap();
+        if before.execution_model == "candidate_b" {
+            break;
+        }
+        assert_eq!(before.execution_model, "legacy");
+        fixture
+            .provider
+            .advance_projection_generation(fixture.collection_id, generation_id)
+            .await
+            .unwrap();
+    }
+    let complete = fixture
+        .provider
+        .projection_status(fixture.collection_id)
+        .await
+        .unwrap();
+    assert_eq!(complete.execution_model, "candidate_b");
+    assert!(complete.pending_execution_model.is_none());
+    assert_eq!(complete.active_generation_id, Some(generation_id));
+    assert!(complete.building_generation.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn candidate_b_pending_activation_recovers_after_a_concurrent_legacy_write() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let binding = sqlx::query(
+        "SELECT head, resource_revision FROM hosted_provider_collections WHERE id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let requested = fixture
+        .provider
+        .request_candidate_b_activation(
+            fixture.collection_id,
+            u64::try_from(binding.get::<i64, _>("head")).unwrap(),
+            binding.get("resource_revision"),
+        )
+        .await
+        .unwrap();
+    let stale_generation = requested.building_generation.unwrap().generation_id;
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    put(
+        &fixture,
+        replica.get("id"),
+        u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap(),
+        Uuid::now_v7(),
+        None,
+        "concurrent.md",
+        "A write while legacy remains readable.\n",
+    )
+    .await;
+    let mut stale_code = None;
+    for _ in 0..4 {
+        match fixture
+            .provider
+            .advance_projection_generation(fixture.collection_id, stale_generation)
+            .await
+        {
+            Ok(_) => {}
+            Err(error) => {
+                stale_code = Some(error.code);
+                break;
+            }
+        }
+    }
+    assert_eq!(
+        stale_code.as_deref(),
+        Some("projection_source_head_changed")
+    );
+    let still_legacy = fixture
+        .provider
+        .projection_status(fixture.collection_id)
+        .await
+        .unwrap();
+    assert_eq!(still_legacy.execution_model, "legacy");
+    assert_eq!(
+        still_legacy.pending_execution_model.as_deref(),
+        Some("candidate_b")
+    );
+
+    for _ in 0..16 {
+        fixture
+            .provider
+            .recover_projection_generations(1)
+            .await
+            .unwrap();
+        let status = fixture
+            .provider
+            .projection_status(fixture.collection_id)
+            .await
+            .unwrap();
+        if status.execution_model == "candidate_b" {
+            assert!(status.pending_execution_model.is_none());
+            assert!(status.active_generation_id.is_some());
+            return;
+        }
+        assert_eq!(status.execution_model, "legacy");
+    }
+    panic!("pending Candidate B activation did not recover within its bounded test loop");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
 async fn candidate_b_projection_rebuild_quarantines_an_oversized_semantic_projection() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");

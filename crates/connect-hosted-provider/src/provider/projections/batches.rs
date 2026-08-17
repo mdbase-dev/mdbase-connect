@@ -785,6 +785,16 @@ impl HostedProvider {
                        active_projection_format_version = $4,
                        active_semantic_engine_version = $5,
                        active_projection_generation_id = $2,
+                       hosted_execution_model = CASE
+                         WHEN pending_hosted_execution_model = 'candidate_b'
+                           THEN 'candidate_b'
+                         ELSE hosted_execution_model
+                       END,
+                       pending_hosted_execution_model = CASE
+                         WHEN pending_hosted_execution_model = 'candidate_b'
+                           THEN NULL
+                         ELSE pending_hosted_execution_model
+                       END,
                        updated_at = now()
                    WHERE id = $1 AND state = 'active' AND head = $6
                    "#,

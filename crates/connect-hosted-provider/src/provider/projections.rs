@@ -41,6 +41,23 @@ pub struct HostedProjectionBatch {
     pub phase_advanced: bool,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct HostedProjectionStatus {
+    pub collection_id: Uuid,
+    pub execution_model: String,
+    pub pending_execution_model: Option<String>,
+    pub head: u64,
+    pub resource_revision: String,
+    pub active_generation_id: Option<Uuid>,
+    pub building_generation: Option<HostedProjectionGeneration>,
+}
+
+#[derive(Debug, Clone)]
+struct CandidateBActivationExpectation {
+    head: u64,
+    resource_revision: String,
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct ActiveProjectionChange {
     pub record_id: Uuid,
@@ -72,10 +89,21 @@ impl HostedProvider {
         collection_id: Uuid,
         supersede_building: bool,
     ) -> ApiResult<Option<HostedProjectionGeneration>> {
+        self.start_projection_generation_with_expectation(collection_id, supersede_building, None)
+            .await
+    }
+
+    async fn start_projection_generation_with_expectation(
+        &self,
+        collection_id: Uuid,
+        supersede_building: bool,
+        activation: Option<CandidateBActivationExpectation>,
+    ) -> ApiResult<Option<HostedProjectionGeneration>> {
         let generation_id = Uuid::new_v4();
         let mut transaction = self.pool.begin().await?;
         let row = sqlx::query(
-            r#"SELECT head, resource_revision, wrapped_data_key, resources_ciphertext
+            r#"SELECT head, resource_revision, wrapped_data_key, resources_ciphertext,
+                      hosted_execution_model, pending_hosted_execution_model
                FROM hosted_provider_collections
                WHERE id = $1 AND state = 'active'
                FOR UPDATE"#,
@@ -89,6 +117,48 @@ impl HostedProvider {
                 "Hosted collection not found.",
             )
         })?;
+        let execution_model: String = row.get("hosted_execution_model");
+        let pending_execution_model: Option<String> = row.get("pending_hosted_execution_model");
+        if let Some(expected) = activation.as_ref() {
+            if execution_model == "candidate_b" {
+                transaction.rollback().await?;
+                return Ok(None);
+            }
+            let current_head = number(row.get::<i64, _>("head"), "collection head")?;
+            let current_resource_revision: String = row.get("resource_revision");
+            if current_head != expected.head
+                || current_resource_revision != expected.resource_revision
+            {
+                return Err(ApiError::conflict(
+                    "projection_activation_binding_changed",
+                    "The collection head or resource revision changed before activation.",
+                )
+                .with_details(json!({
+                    "expected_head": expected.head,
+                    "actual_head": current_head,
+                    "expected_resource_revision": expected.resource_revision,
+                    "actual_resource_revision": current_resource_revision,
+                })));
+            }
+        }
+        if activation.is_some() && pending_execution_model.as_deref() == Some("candidate_b") {
+            let building = sqlx::query(
+                r#"SELECT generation_id, target_catalog_revision,
+                          projection_format_version, semantic_engine_version,
+                          source_head, phase, status, lease_fencing_generation
+                   FROM hosted_provider_projection_generations
+                   WHERE collection_id = $1 AND status = 'building'
+                   ORDER BY created_at DESC, generation_id DESC LIMIT 1"#,
+            )
+            .bind(collection_id)
+            .fetch_optional(&mut *transaction)
+            .await?;
+            if let Some(building) = building {
+                let generation = projection_generation_from_row(collection_id, &building)?;
+                transaction.rollback().await?;
+                return Ok(Some(generation));
+            }
+        }
         if !supersede_building {
             // Recovery selects missing work without locking every candidate.
             // Recheck after taking the collection lock so a stale selection
@@ -177,12 +247,23 @@ impl HostedProvider {
         .bind(PROJECTION_LEASE_SECONDS)
         .execute(&mut *transaction)
         .await?;
-        sqlx::query(
-            "UPDATE hosted_provider_collections SET hosted_execution_model = 'candidate_b' WHERE id = $1",
-        )
-        .bind(collection_id)
-        .execute(&mut *transaction)
-        .await?;
+        if activation.is_some() {
+            sqlx::query(
+                r#"UPDATE hosted_provider_collections
+                   SET pending_hosted_execution_model = 'candidate_b', updated_at = now()
+                   WHERE id = $1 AND hosted_execution_model = 'legacy'"#,
+            )
+            .bind(collection_id)
+            .execute(&mut *transaction)
+            .await?;
+        } else if pending_execution_model.as_deref() != Some("candidate_b") {
+            sqlx::query(
+                "UPDATE hosted_provider_collections SET hosted_execution_model = 'candidate_b' WHERE id = $1",
+            )
+            .bind(collection_id)
+            .execute(&mut *transaction)
+            .await?;
+        }
         transaction.commit().await?;
         Ok(Some(HostedProjectionGeneration {
             collection_id,
@@ -197,6 +278,118 @@ impl HostedProvider {
         }))
     }
 
+    /// Record an initial Candidate B activation intent without changing the
+    /// readable execution model. The complete projection generation is bound
+    /// and activated atomically by the resolution completion transaction.
+    pub async fn request_candidate_b_activation(
+        &self,
+        collection_id: Uuid,
+        expected_head: u64,
+        expected_resource_revision: String,
+    ) -> ApiResult<HostedProjectionStatus> {
+        self.start_projection_generation_with_expectation(
+            collection_id,
+            false,
+            Some(CandidateBActivationExpectation {
+                head: expected_head,
+                resource_revision: expected_resource_revision,
+            }),
+        )
+        .await?;
+        self.projection_status(collection_id).await
+    }
+
+    pub async fn projection_status(
+        &self,
+        collection_id: Uuid,
+    ) -> ApiResult<HostedProjectionStatus> {
+        let row = sqlx::query(
+            r#"SELECT collection.hosted_execution_model,
+                      collection.pending_hosted_execution_model,
+                      collection.head, collection.resource_revision,
+                      collection.active_projection_generation_id,
+                      generation.generation_id, generation.target_catalog_revision,
+                      generation.projection_format_version,
+                      generation.semantic_engine_version, generation.source_head,
+                      generation.phase, generation.status,
+                      generation.lease_fencing_generation
+               FROM hosted_provider_collections collection
+               LEFT JOIN LATERAL (
+                 SELECT generation_id, target_catalog_revision,
+                        projection_format_version, semantic_engine_version,
+                        source_head, phase, status, lease_fencing_generation
+                 FROM hosted_provider_projection_generations
+                 WHERE collection_id = collection.id AND status = 'building'
+                 ORDER BY created_at DESC, generation_id DESC LIMIT 1
+               ) generation ON true
+               WHERE collection.id = $1 AND collection.state = 'active'"#,
+        )
+        .bind(collection_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                "hosted_collection_not_found",
+                "Hosted collection not found.",
+            )
+        })?;
+        Ok(HostedProjectionStatus {
+            collection_id,
+            execution_model: row.get("hosted_execution_model"),
+            pending_execution_model: row.get("pending_hosted_execution_model"),
+            head: number(row.get::<i64, _>("head"), "collection head")?,
+            resource_revision: row.get("resource_revision"),
+            active_generation_id: row.get("active_projection_generation_id"),
+            building_generation: projection_generation_from_joined_row(collection_id, &row)?,
+        })
+    }
+
+    /// Advance exactly one bounded batch for the named generation. Callers
+    /// must re-read status after every call; this never loops to completion.
+    pub async fn advance_projection_generation(
+        &self,
+        collection_id: Uuid,
+        generation_id: Uuid,
+    ) -> ApiResult<HostedProjectionBatch> {
+        let row = sqlx::query(
+            r#"SELECT generation.phase
+               FROM hosted_provider_projection_generations generation
+               JOIN hosted_provider_collections collection
+                 ON collection.id = generation.collection_id
+               WHERE generation.collection_id = $1
+                 AND generation.generation_id = $2
+                 AND generation.status = 'building'
+                 AND collection.state = 'active'
+                 AND (
+                   collection.hosted_execution_model = 'candidate_b'
+                   OR collection.pending_hosted_execution_model = 'candidate_b'
+                 )"#,
+        )
+        .bind(collection_id)
+        .bind(generation_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| {
+            ApiError::conflict(
+                "projection_generation_not_building",
+                "The requested projection generation is not the current building generation.",
+            )
+        })?;
+        let phase: String = row.get("phase");
+        if phase == "projection" {
+            self.project_generation_batch(collection_id, generation_id, MAX_PROJECTION_BATCH)
+                .await
+        } else if phase == "resolution" {
+            self.resolve_generation_batch(collection_id, generation_id, MAX_PROJECTION_BATCH)
+                .await
+        } else {
+            Err(ApiError::conflict(
+                "projection_generation_phase_invalid",
+                "The projection generation has an invalid phase.",
+            ))
+        }
+    }
+
     /// Advance a bounded number of opted-in projection rebuilds. A missing
     /// generation is recreated from exact authority, while live leases remain
     /// fenced to their current owner. One call performs at most one bounded
@@ -207,9 +400,13 @@ impl HostedProvider {
             r#"SELECT collection.id
                FROM hosted_provider_collections collection
                WHERE collection.state = 'active'
-                 AND collection.hosted_execution_model = 'candidate_b'
                  AND (
-                   collection.active_projection_generation_id IS NULL
+                   collection.hosted_execution_model = 'candidate_b'
+                   OR collection.pending_hosted_execution_model = 'candidate_b'
+                 )
+                 AND (
+                   collection.pending_hosted_execution_model = 'candidate_b'
+                   OR collection.active_projection_generation_id IS NULL
                    OR EXISTS (
                      SELECT 1
                      FROM hosted_provider_record_projections projection
@@ -278,7 +475,10 @@ impl HostedProvider {
                JOIN hosted_provider_collections collection
                  ON collection.id = generation.collection_id
                WHERE collection.state = 'active'
-                 AND collection.hosted_execution_model = 'candidate_b'
+                 AND (
+                   collection.hosted_execution_model = 'candidate_b'
+                   OR collection.pending_hosted_execution_model = 'candidate_b'
+                 )
                  AND generation.status = 'building'
                  AND (
                    generation.lease_owner IS NULL
@@ -341,6 +541,75 @@ impl HostedProvider {
         }
         Ok(advanced)
     }
+}
+
+fn projection_generation_from_row(
+    collection_id: Uuid,
+    row: &sqlx::postgres::PgRow,
+) -> ApiResult<HostedProjectionGeneration> {
+    Ok(HostedProjectionGeneration {
+        collection_id,
+        generation_id: row.get("generation_id"),
+        catalog_revision: row.get("target_catalog_revision"),
+        projection_format_version: u32::try_from(number(
+            row.get::<i32, _>("projection_format_version").into(),
+            "projection format version",
+        )?)
+        .map_err(|_| ApiError::internal("Projection format version is outside u32 range."))?,
+        semantic_engine_version: row.get("semantic_engine_version"),
+        source_head: number(row.get::<i64, _>("source_head"), "projection source head")?,
+        phase: row.get("phase"),
+        status: row.get("status"),
+        lease_fencing_generation: number(
+            row.get::<i64, _>("lease_fencing_generation"),
+            "projection lease fence",
+        )?,
+    })
+}
+
+fn projection_generation_from_joined_row(
+    collection_id: Uuid,
+    row: &sqlx::postgres::PgRow,
+) -> ApiResult<Option<HostedProjectionGeneration>> {
+    let Some(generation_id) = row.get::<Option<Uuid>, _>("generation_id") else {
+        return Ok(None);
+    };
+    let required = |name: &str| {
+        row.try_get::<Option<String>, _>(name)
+            .map_err(ApiError::from)?
+            .ok_or_else(|| ApiError::internal("A building projection generation was incomplete."))
+    };
+    let format_version = row
+        .get::<Option<i32>, _>("projection_format_version")
+        .ok_or_else(|| {
+            ApiError::internal("A building projection generation omitted its format.")
+        })?;
+    Ok(Some(HostedProjectionGeneration {
+        collection_id,
+        generation_id,
+        catalog_revision: required("target_catalog_revision")?,
+        projection_format_version: u32::try_from(number(
+            i64::from(format_version),
+            "projection format version",
+        )?)
+        .map_err(|_| ApiError::internal("Projection format version is outside u32 range."))?,
+        semantic_engine_version: required("semantic_engine_version")?,
+        source_head: number(
+            row.get::<Option<i64>, _>("source_head").ok_or_else(|| {
+                ApiError::internal("A building projection generation omitted its source head.")
+            })?,
+            "projection source head",
+        )?,
+        phase: required("phase")?,
+        status: required("status")?,
+        lease_fencing_generation: number(
+            row.get::<Option<i64>, _>("lease_fencing_generation")
+                .ok_or_else(|| {
+                    ApiError::internal("A building projection generation omitted its lease fence.")
+                })?,
+            "projection lease fence",
+        )?,
+    }))
 }
 
 include!("projections/batches.rs");
