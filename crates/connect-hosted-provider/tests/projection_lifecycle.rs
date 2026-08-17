@@ -4259,7 +4259,7 @@ views:
         .unwrap();
     assert_eq!(query_after_view["valid"], true);
 
-    let type_document = "---\nkind: mdbase.type\nname: note\nversion: 1\nmatch:\n  path_glob: 'notes/*.md'\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    properties:\n      title: {type: string}\n---\n";
+    let type_document = "---\nkind: mdbase.type\nname: note\nversion: 1\nmatch:\n  path_glob: 'notes/*.md'\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    properties:\n      title: {type: string}\n      review_default: {type: string}\ncollection:\n  read_defaults:\n    review_default: effective-only\n---\n";
     let created_type = fixture
         .provider
         .operation(
@@ -4317,6 +4317,32 @@ views:
         .await
         .unwrap();
     assert_eq!(query_after_rebuild["valid"], true);
+    let persisted_and_effective = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "where": "file.path == 'notes/source.md'",
+                "frontmatter_mode": "both",
+                "limit": 1,
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(persisted_and_effective["valid"], true);
+    assert!(
+        persisted_and_effective["result"]["results"][0]["frontmatter"]
+            .get("review_default")
+            .is_none()
+    );
+    assert_eq!(
+        persisted_and_effective["result"]["results"][0]["effective_frontmatter"]["review_default"],
+        "effective-only"
+    );
     let read_type = fixture
         .provider
         .operation(

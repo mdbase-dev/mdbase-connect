@@ -173,6 +173,7 @@ async function main() {
       pagination: "cursor",
       ...(existingCursor ? { cursor: existingCursor } : {}),
       include_body: true,
+      frontmatter_mode: "both",
       limit: 500
     })).value, "preflight query");
     for (const record of existingPage.results) {
