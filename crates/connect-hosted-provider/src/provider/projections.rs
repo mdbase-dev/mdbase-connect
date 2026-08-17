@@ -120,10 +120,6 @@ impl HostedProvider {
         let execution_model: String = row.get("hosted_execution_model");
         let pending_execution_model: Option<String> = row.get("pending_hosted_execution_model");
         if let Some(expected) = activation.as_ref() {
-            if execution_model == "candidate_b" {
-                transaction.rollback().await?;
-                return Ok(None);
-            }
             let current_head = number(row.get::<i64, _>("head"), "collection head")?;
             let current_resource_revision: String = row.get("resource_revision");
             if current_head != expected.head
@@ -139,6 +135,10 @@ impl HostedProvider {
                     "expected_resource_revision": expected.resource_revision,
                     "actual_resource_revision": current_resource_revision,
                 })));
+            }
+            if execution_model == "candidate_b" {
+                transaction.rollback().await?;
+                return Ok(None);
             }
         }
         if activation.is_some() && pending_execution_model.as_deref() == Some("candidate_b") {
