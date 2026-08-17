@@ -33,7 +33,11 @@ env:
 jobs:
   authorize:
     name: Authorize isolated staging source
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
+    environment: candidate-b-staging-images
+    outputs:
+      mdbase_rs_revision: ${{ steps.source.outputs.mdbase_rs_revision }}
     steps:
       - name: Require an open, green, exact pull-request head
         env:
@@ -42,6 +46,12 @@ jobs:
           [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
           [[ "$PULL_REQUEST" =~ ^[1-9][0-9]*$ ]]
           [[ ${#BUILD_REASON} -ge 10 && ${#BUILD_REASON} -le 500 ]]
+          [[ "$GITHUB_REF" == refs/heads/main ]]
+
+          permission=$(gh api \
+            "repos/$GITHUB_REPOSITORY/collaborators/$GITHUB_ACTOR/permission" \
+            --jq .permission)
+          [[ $permission == admin || $permission == maintain || $permission == write ]]
 
           pull=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PULL_REQUEST")
           jq -e \
@@ -69,8 +79,22 @@ jobs:
               and .conclusion == "success")
             ' >/dev/null <<<"$runs"
 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.SOURCE_COMMIT }}
+          persist-credentials: false
+
+      - id: source
+        name: Record complete hosted-provider source provenance
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          revision=$(tr -d '\r\n' <deploy/docker/mdbase-rs-revision)
+          [[ $revision =~ ^[0-9a-f]{40}$ ]]
+          echo "mdbase_rs_revision=$revision" >>"$GITHUB_OUTPUT"
+
   publish:
     needs: authorize
+    if: github.ref == 'refs/heads/main'
     name: Publish staging ${{ matrix.component }}
     runs-on: ubuntu-24.04
     permissions:
@@ -156,6 +180,7 @@ jobs:
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
           COMPONENT: ${{ matrix.component }}
+          MDBASE_RS_REVISION: ${{ needs.authorize.outputs.mdbase_rs_revision }}
         run: |
           image_ref="$IMAGE@$DIGEST"
           cosign sign --yes "$image_ref"
@@ -166,7 +191,8 @@ jobs:
             --arg image "$IMAGE" \
             --argjson pull_request "$PULL_REQUEST" \
             --arg reason "$BUILD_REASON" \
-            --arg workflow_run "$GITHUB_RUN_ID" '
+            --arg workflow_run "$GITHUB_RUN_ID" \
+            --arg mdbase_rs_revision "$MDBASE_RS_REVISION" '
               {
                 repository:$repository,
                 commit:$commit,
@@ -175,7 +201,8 @@ jobs:
                 pull_request:$pull_request,
                 purpose:"candidate-b-isolated-staging",
                 reason:$reason,
-                workflow_run:$workflow_run
+                workflow_run:$workflow_run,
+                mdbase_rs_revision:$mdbase_rs_revision
               }
             ' >"$RUNNER_TEMP/staging-image.json"
           cosign attest \
@@ -188,18 +215,22 @@ jobs:
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
           COMPONENT: ${{ matrix.component }}
+          MDBASE_RS_REVISION: ${{ needs.authorize.outputs.mdbase_rs_revision }}
         run: |
           jq -n \
             --arg component "$COMPONENT" \
             --arg commit "$SOURCE_COMMIT" \
             --arg image "$IMAGE@$DIGEST" \
             --argjson pull_request "$PULL_REQUEST" \
+            --arg mdbase_rs_revision "$MDBASE_RS_REVISION" \
             '{
               component:$component,
               commit:$commit,
               image:$image,
               pull_request:$pull_request,
-              purpose:"candidate-b-isolated-staging"
+              purpose:"candidate-b-isolated-staging",
+              reference_kind:"digest-only",
+              mdbase_rs_revision:$mdbase_rs_revision
             }' >"$RUNNER_TEMP/$COMPONENT.json"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
