@@ -35,7 +35,7 @@ try {
   await run("cargo", [
     "test", "-p", "mdbase-connect-hosted-provider",
     "--test", "projection_lifecycle",
-    "candidate_b_migration_0040_upgrades_a_live_legacy_base_cursor",
+    "candidate_b_consolidated_migrations_upgrade_the_beta69_schema",
     "--", "--ignored", "--nocapture"
   ], {
     MDBASE_PROJECTION_DATABASE_URL:
@@ -45,7 +45,7 @@ try {
     "test", "-p", "mdbase-connect-hosted-provider",
     "--test", "projection_lifecycle", "--", "--ignored", "--nocapture",
     "--test-threads=1",
-    "--skip", "candidate_b_migration_0040_upgrades_a_live_legacy_base_cursor",
+    "--skip", "candidate_b_consolidated_migrations_upgrade_the_beta69_schema",
     "--skip", "candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through",
     "--skip", "candidate_b_recovery_does_not_supersede_a_concurrent_explicit_generation_start",
     "--skip", "candidate_b_scalar_cursor_uses_canonical_collation_in_an_icu_database",

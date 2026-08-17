@@ -203,6 +203,7 @@ pub struct HostedProvider {
     notifications: Option<HostedNotificationRuntime>,
     notification_recovery_guard: Arc<Mutex<()>>,
     notification_recovery: Arc<RwLock<NotificationRecoveryStatus>>,
+    projection_recovery_guard: Arc<Mutex<()>>,
     blob_store: Arc<dyn BlobStore>,
     query_activity: Arc<HostedQueryActivityCounters>,
     query_scan_permits: Arc<Semaphore>,

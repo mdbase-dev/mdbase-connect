@@ -49,6 +49,7 @@ impl HostedProvider {
                                         last_success_at: None,
                                     },
                                 )),
+                                projection_recovery_guard: Arc::new(Mutex::new(())),
                                 blob_store,
                                 query_activity: Arc::new(HostedQueryActivityCounters::default()),
                                 query_scan_permits: Arc::new(Semaphore::new(

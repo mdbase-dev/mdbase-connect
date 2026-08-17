@@ -542,6 +542,12 @@ impl HostedProvider {
     /// fenced to their current owner. One call performs at most one bounded
     /// projection or resolution batch per selected collection.
     pub async fn recover_projection_generations(&self, limit: u32) -> ApiResult<usize> {
+        let Ok(_recovery_guard) = self.projection_recovery_guard.try_lock() else {
+            tracing::debug!(
+                "projection recovery yielded to another worker in this provider process"
+            );
+            return Ok(0);
+        };
         let limit = i64::from(limit.clamp(1, 100));
         let missing = sqlx::query(
             r#"SELECT collection.id

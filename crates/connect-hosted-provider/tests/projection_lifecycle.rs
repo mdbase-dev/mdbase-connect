@@ -887,7 +887,7 @@ async fn projection_indexing_recovers_after_a_concurrent_exact_write() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
-async fn candidate_b_projection_rebuild_quarantines_an_oversized_semantic_projection() {
+async fn candidate_b_write_rejects_an_oversized_semantic_projection_atomically() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
     let fixture = FileLifecycleFixture::new(&database_url).await;
@@ -902,75 +902,60 @@ async fn candidate_b_projection_rebuild_quarantines_an_oversized_semantic_projec
         "---\ntitle: {}\n---\nBounded exact body.\n",
         "x".repeat(300_000)
     );
-    put(
-        &fixture,
-        replica.get("id"),
-        u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap(),
-        Uuid::now_v7(),
-        None,
-        "semantic-oversized.md",
-        &document,
-    )
-    .await;
-
-    let generation = fixture
-        .provider
-        .start_projection_generation(fixture.collection_id)
-        .await
-        .unwrap();
+    let record_id = Uuid::now_v7();
+    let head_before: i64 =
+        sqlx::query_scalar("SELECT head FROM hosted_provider_collections WHERE id = $1")
+            .bind(fixture.collection_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
     let error = fixture
         .provider
-        .project_generation_batch(fixture.collection_id, generation.generation_id, 1)
+        .mutate(
+            fixture.collection_id,
+            &fixture.token,
+            SyncMutation {
+                mutation_id: Uuid::new_v4(),
+                replica_id: replica.get("id"),
+                scope_epoch: u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap(),
+                operation: SyncMutationOperation::Put,
+                record_id,
+                base_revision: None,
+                path: Some("semantic-oversized.md".to_string()),
+                document: Some(document),
+                created_at: Utc::now().to_rfc3339(),
+                causal_predecessor: None,
+            },
+            None,
+        )
         .await
         .unwrap_err();
-    assert_eq!(error.code, "projection_record_too_large");
+    assert_eq!(error.code, "hosted_execution_budget_exceeded");
     assert_eq!(
-        error.details.as_ref().unwrap()["budget"],
-        "semantic_projection_bytes"
+        error.details.as_ref().unwrap()["budget_kind"],
+        "projection_bytes"
     );
-    assert_eq!(error.details.as_ref().unwrap()["terminal"], true);
-    let state = sqlx::query(
-        r#"SELECT status, last_error_code, lease_owner, abandoned_at
-           FROM hosted_provider_projection_generations
-           WHERE collection_id = $1 AND generation_id = $2"#,
+    let exact_rows: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_records WHERE collection_id = $1 AND record_id = $2",
     )
     .bind(fixture.collection_id)
-    .bind(generation.generation_id)
+    .bind(record_id)
     .fetch_one(&fixture.pool)
     .await
     .unwrap();
-    assert_eq!(state.get::<String, _>("status"), "abandoned");
-    assert_eq!(
-        state.get::<Option<String>, _>("last_error_code").as_deref(),
-        Some("projection_record_too_large")
-    );
-    assert!(state.get::<Option<Uuid>, _>("lease_owner").is_none());
-
-    let generation_count_before: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM hosted_provider_projection_generations WHERE collection_id = $1",
-    )
-    .bind(fixture.collection_id)
-    .fetch_one(&fixture.pool)
-    .await
-    .unwrap();
-    fixture
-        .provider
-        .recover_projection_generations(100)
-        .await
-        .unwrap();
-    let generation_count_after: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM hosted_provider_projection_generations WHERE collection_id = $1",
-    )
-    .bind(fixture.collection_id)
-    .fetch_one(&fixture.pool)
-    .await
-    .unwrap();
-    assert_eq!(generation_count_after, generation_count_before);
+    let head_after: i64 =
+        sqlx::query_scalar("SELECT head FROM hosted_provider_collections WHERE id = $1")
+            .bind(fixture.collection_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    assert_eq!(exact_rows, 0);
+    assert_eq!(head_after, head_before);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
-async fn candidate_b_projection_resolution_quarantines_an_oversized_final_projection() {
+async fn candidate_b_write_rejects_an_oversized_structural_projection_atomically() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
     let fixture = FileLifecycleFixture::new(&database_url).await;
@@ -995,72 +980,54 @@ async fn candidate_b_projection_resolution_quarantines_an_oversized_final_projec
     .await;
     let source_id = Uuid::now_v7();
     let source_document = format!("# Source\n{}", "[[target]]\n".repeat(905));
-    put(
-        &fixture,
-        replica_id,
-        scope_epoch,
-        source_id,
-        None,
-        "source.md",
-        &source_document,
-    )
-    .await;
-
-    let generation = fixture
-        .provider
-        .start_projection_generation(fixture.collection_id)
-        .await
-        .unwrap();
-    loop {
-        let batch = fixture
-            .provider
-            .project_generation_batch(fixture.collection_id, generation.generation_id, 200)
+    let head_before: i64 =
+        sqlx::query_scalar("SELECT head FROM hosted_provider_collections WHERE id = $1")
+            .bind(fixture.collection_id)
+            .fetch_one(&fixture.pool)
             .await
             .unwrap();
-        if batch.generation.phase == "resolution" {
-            break;
-        }
-    }
-    let prepared_bytes: i32 = sqlx::query_scalar(
-        r#"SELECT projection_bytes FROM hosted_provider_record_projections
-           WHERE collection_id = $1 AND generation_id = $2 AND record_id = $3
-             AND valid_to_sequence IS NULL"#,
+    let error = fixture
+        .provider
+        .mutate(
+            fixture.collection_id,
+            &fixture.token,
+            SyncMutation {
+                mutation_id: Uuid::new_v4(),
+                replica_id,
+                scope_epoch,
+                operation: SyncMutationOperation::Put,
+                record_id: source_id,
+                base_revision: None,
+                path: Some("source.md".to_string()),
+                document: Some(source_document),
+                created_at: Utc::now().to_rfc3339(),
+                causal_predecessor: None,
+            },
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, "hosted_execution_budget_exceeded");
+    assert_eq!(
+        error.details.as_ref().unwrap()["budget_kind"],
+        "projection_bytes"
+    );
+    let exact_rows: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_records WHERE collection_id = $1 AND record_id = $2",
     )
     .bind(fixture.collection_id)
-    .bind(generation.generation_id)
     .bind(source_id)
     .fetch_one(&fixture.pool)
     .await
     .unwrap();
-    assert!(prepared_bytes < 262_144);
-
-    let error = fixture
-        .provider
-        .resolve_generation_batch(fixture.collection_id, generation.generation_id, 200)
-        .await
-        .unwrap_err();
-    assert_eq!(error.code, "projection_record_too_large");
-    assert_eq!(
-        error.details.as_ref().unwrap()["budget"],
-        "semantic_projection_bytes"
-    );
-    let state = sqlx::query(
-        r#"SELECT status, phase, last_error_code, lease_owner
-           FROM hosted_provider_projection_generations
-           WHERE collection_id = $1 AND generation_id = $2"#,
-    )
-    .bind(fixture.collection_id)
-    .bind(generation.generation_id)
-    .fetch_one(&fixture.pool)
-    .await
-    .unwrap();
-    assert_eq!(state.get::<String, _>("status"), "abandoned");
-    assert_eq!(state.get::<String, _>("phase"), "resolution");
-    assert_eq!(
-        state.get::<Option<String>, _>("last_error_code").as_deref(),
-        Some("projection_record_too_large")
-    );
-    assert!(state.get::<Option<Uuid>, _>("lease_owner").is_none());
+    let head_after: i64 =
+        sqlx::query_scalar("SELECT head FROM hosted_provider_collections WHERE id = $1")
+            .bind(fixture.collection_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    assert_eq!(exact_rows, 0);
+    assert_eq!(head_after, head_before);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2550,7 +2517,7 @@ async fn candidate_b_rollback_fence_drains_inflight_queries_and_allows_cursor_re
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
-async fn candidate_b_recovery_rebuilds_pre_digest_active_projection_rows() {
+async fn candidate_b_final_projection_rows_reject_missing_observed_digests() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
     let fixture = FileLifecycleFixture::new(&database_url).await;
@@ -2571,113 +2538,48 @@ async fn candidate_b_recovery_rebuilds_pre_digest_active_projection_rows() {
         "---\ntype: note\n---\n# Recovered\n",
     )
     .await;
-    let legacy_generation = complete_generation(&fixture).await;
+    let generation = complete_generation(&fixture).await;
 
-    // Simulate rows written by a pre-0044 binary. The production migration
-    // deliberately leaves their new observed digest NULL so recovery must
-    // rebuild from encrypted exact authority instead of serving them forever
-    // through canonical fallback.
+    // Consolidated migration 35 starts with the final guarded-v2 digest shape.
+    // There is no supported pre-digest Candidate B population to recover. Prove
+    // the final NOT NULL invariant survives even if the observer is disabled,
+    // and use a transaction so the test can never leak a disabled trigger into
+    // subsequent shared-database cases.
+    let mut transaction = fixture.pool.begin().await.unwrap();
     sqlx::query(
         "ALTER TABLE hosted_provider_record_projections DISABLE TRIGGER \
          hosted_provider_record_projection_digest_observer",
     )
-    .execute(&fixture.pool)
+    .execute(&mut *transaction)
     .await
     .unwrap();
-    sqlx::query(
+    let error = sqlx::query(
         r#"UPDATE hosted_provider_record_projections
            SET projection_observed_digest = NULL
            WHERE collection_id = $1 AND generation_id = $2
              AND valid_to_sequence IS NULL"#,
     )
     .bind(fixture.collection_id)
-    .bind(legacy_generation)
-    .execute(&fixture.pool)
+    .bind(generation)
+    .execute(&mut *transaction)
     .await
-    .unwrap();
-    sqlx::query(
-        "ALTER TABLE hosted_provider_record_projections ENABLE TRIGGER \
-         hosted_provider_record_projection_digest_observer",
-    )
-    .execute(&fixture.pool)
-    .await
-    .unwrap();
+    .unwrap_err();
+    assert_eq!(
+        error.as_database_error().unwrap().code().unwrap().as_ref(),
+        "23502"
+    );
+    transaction.rollback().await.unwrap();
 
-    let rebuilt_generation = loop {
-        fixture
-            .provider
-            .recover_projection_generations(10)
-            .await
-            .unwrap();
-        let active: Uuid = sqlx::query_scalar(
-            "SELECT active_projection_generation_id FROM hosted_provider_collections WHERE id = $1",
-        )
-        .bind(fixture.collection_id)
-        .fetch_one(&fixture.pool)
-        .await
-        .unwrap();
-        if active != legacy_generation {
-            break active;
-        }
-        tokio::task::yield_now().await;
-    };
-    let invalid_rows: i64 = sqlx::query_scalar(
-        r#"SELECT count(*)
-           FROM hosted_provider_record_projections
-           WHERE collection_id = $1 AND generation_id = $2
-             AND valid_to_sequence IS NULL
-             AND NOT hosted_provider_projection_digest_valid(
-               projection_digest, projection_observed_digest)"#,
+    let trigger_enabled: String = sqlx::query_scalar(
+        r#"SELECT tgenabled::text
+           FROM pg_trigger
+           WHERE tgrelid = 'hosted_provider_record_projections'::regclass
+             AND tgname = 'hosted_provider_record_projection_digest_observer'"#,
     )
-    .bind(fixture.collection_id)
-    .bind(rebuilt_generation)
     .fetch_one(&fixture.pool)
     .await
     .unwrap();
-    assert_eq!(invalid_rows, 0);
-
-    let application_token = format!("digest-recovery-{}-{}", Uuid::new_v4(), Uuid::new_v4());
-    fixture
-        .provider
-        .register_replica(
-            fixture.collection_id,
-            RegisterReplica {
-                replica_id: Uuid::now_v7(),
-                name: "Digest recovery reader".to_string(),
-                purpose: ReplicaPurpose::Application,
-                mode: SyncReplicaMode::ReadOnly,
-                allowed_types: Vec::new(),
-                contract_scope: Vec::new(),
-                full_collection: true,
-                allowed_operations: vec!["query".to_string()],
-                operation_transport_protocol: Some(3),
-                operation_transport_recovery_protocols: Vec::new(),
-                file_capability: None,
-                allowed_origin: None,
-                proof_public_key: None,
-                grant_id: Some(Uuid::now_v7()),
-                application_declaration_id: None,
-                application_declaration_digest: None,
-                token: application_token.clone(),
-                token_ttl_seconds: None,
-            },
-        )
-        .await
-        .unwrap();
-    let query = fixture
-        .provider
-        .operation(
-            fixture.collection_id,
-            &application_token,
-            "query",
-            Uuid::new_v4(),
-            json!({"select": ["path"], "limit": 10}),
-            None,
-        )
-        .await
-        .unwrap();
-    assert_eq!(query["valid"], true);
-    assert_eq!(query["result"]["results"][0]["path"], "recovered.md");
+    assert_eq!(trigger_enabled, "O");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -3347,6 +3249,10 @@ async fn assert_scoped_public_query(fixture: &FileLifecycleFixture, token: &str)
 #[test]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
 fn candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through() {
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::ERROR)
+        .with_test_writer()
+        .try_init();
     // This intentionally comprehensive scenario combines many independently
     // tested lifecycle slices in one debug-build future. Give its test-only
     // runtime an explicit stack so runner platform defaults cannot turn the
@@ -3372,6 +3278,7 @@ async fn candidate_b_recovery_does_not_supersede_a_concurrent_explicit_generatio
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
     let fixture = FileLifecycleFixture::new(&database_url).await;
+    make_collection_unindexed(&fixture).await;
 
     let mut collection_lock = fixture.pool.begin().await.unwrap();
     sqlx::query("SELECT id FROM hosted_provider_collections WHERE id = $1 FOR UPDATE")
@@ -4903,7 +4810,7 @@ views:
             rebuilt_generation = Some(active);
             break;
         }
-        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
     let rebuilt_generation = rebuilt_generation.expect("semantic generation rebuilt");
     assert_ne!(rebuilt_generation, second_generation);
@@ -7746,6 +7653,10 @@ async fn candidate_b_persisted_body_relationships_exclude_label_prose() {
         r#"SELECT projection_format_version, semantic_projection::text AS projection
            FROM hosted_provider_record_projections
            WHERE collection_id = $1 AND record_id = $2
+             AND generation_id = (
+               SELECT active_projection_generation_id
+               FROM hosted_provider_collections WHERE id = $1
+             )
              AND valid_to_sequence IS NULL"#,
     )
     .bind(fixture.collection_id)
@@ -7767,6 +7678,10 @@ async fn candidate_b_persisted_body_relationships_exclude_label_prose() {
         r#"SELECT raw_target, normalized_target, alias
            FROM hosted_provider_record_relationships
            WHERE collection_id = $1 AND source_record_id = $2
+             AND generation_id = (
+               SELECT active_projection_generation_id
+               FROM hosted_provider_collections WHERE id = $1
+             )
              AND valid_to_sequence IS NULL
            ORDER BY raw_target COLLATE "C""#,
     )
@@ -7832,21 +7747,64 @@ async fn complete_generation(fixture: &FileLifecycleFixture) -> Uuid {
         .await
         .unwrap();
     loop {
-        let batch = fixture
+        let batch = match fixture
             .provider
             .project_generation_batch(fixture.collection_id, generation.generation_id, 200)
             .await
-            .unwrap();
+        {
+            Ok(batch) => batch,
+            Err(error) if error.code == "projection_lease_unavailable" => {
+                let state = sqlx::query(
+                    r#"SELECT phase, status
+                       FROM hosted_provider_projection_generations
+                       WHERE collection_id = $1 AND generation_id = $2"#,
+                )
+                .bind(fixture.collection_id)
+                .bind(generation.generation_id)
+                .fetch_one(&fixture.pool)
+                .await
+                .unwrap();
+                if state.get::<String, _>("status") == "complete" {
+                    return generation.generation_id;
+                }
+                if state.get::<String, _>("phase") == "resolution" {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                continue;
+            }
+            Err(error) => panic!("projection batch failed: {error:?}"),
+        };
         if batch.generation.phase == "resolution" {
             break;
         }
     }
     loop {
-        let batch = fixture
+        let batch = match fixture
             .provider
             .resolve_generation_batch(fixture.collection_id, generation.generation_id, 200)
             .await
-            .unwrap();
+        {
+            Ok(batch) => batch,
+            Err(error) if error.code == "projection_lease_unavailable" => {
+                let status: String = sqlx::query_scalar(
+                    r#"SELECT status
+                       FROM hosted_provider_projection_generations
+                       WHERE collection_id = $1 AND generation_id = $2"#,
+                )
+                .bind(fixture.collection_id)
+                .bind(generation.generation_id)
+                .fetch_one(&fixture.pool)
+                .await
+                .unwrap();
+                if status == "complete" {
+                    return generation.generation_id;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                continue;
+            }
+            Err(error) => panic!("projection resolution failed: {error:?}"),
+        };
         if batch.generation.status == "complete" {
             return generation.generation_id;
         }

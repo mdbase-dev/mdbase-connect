@@ -27,10 +27,16 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
     let resume = include_str!("../../../../deploy/postgres/resume-hosted-query-admission.sql");
     let preflight =
         include_str!("../../../../deploy/postgres/prepare-hosted-provider-beta69-rollback.sql");
+    let final_preflight =
+        include_str!("../../../../deploy/postgres/preflight-hosted-provider-final-rollback.sql");
     assert!(migration.contains("query_admission_suspended boolean NOT NULL DEFAULT false"));
     assert!(suspend.contains("pg_advisory_xact_lock"));
     assert!(suspend.contains("query_admission_suspended = true"));
+    assert!(suspend.contains("GET DIAGNOSTICS affected_rows = ROW_COUNT"));
+    assert!(suspend.contains("affected_rows <> 1"));
     assert!(resume.contains("query_admission_suspended = false"));
+    assert!(resume.contains("GET DIAGNOSTICS affected_rows = ROW_COUNT"));
+    assert!(resume.contains("affected_rows <> 1"));
     assert!(preflight.contains("expected exact successful final ledger 1-36"));
     assert!(preflight.contains("DELETE FROM hosted_provider_query_cursors"));
     assert!(preflight.contains("DELETE FROM hosted_provider_query_page_receipts"));
@@ -46,6 +52,15 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
     ] {
         assert!(!preflight.contains(&format!("DELETE FROM {canonical}")));
     }
+    assert!(final_preflight.contains("REPEATABLE READ READ ONLY"));
+    assert!(final_preflight.contains("expected exact successful final ledger 1-36"));
+    assert!(final_preflight.contains("migration checksum mismatch at version(s)"));
+    assert!(final_preflight.contains("required final relation/index objects are absent"));
+    assert!(final_preflight.contains("expected ten enabled final projection integrity triggers"));
+    assert!(final_preflight.contains("expected two validated final projection binding constraints"));
+    assert!(final_preflight.contains("expected exactly one controlled suspended admission row"));
+    assert!(!final_preflight.contains("DELETE FROM"));
+    assert!(!final_preflight.contains("UPDATE hosted_provider_"));
 }
 
 #[test]

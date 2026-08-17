@@ -124,7 +124,7 @@ impl From<sqlx::Error> for ApiError {
                 return Self::quota(code, message);
             }
         }
-        tracing::error!(error = %error, "hosted provider database error");
+        tracing::error!(error = ?error, "hosted provider database error");
         Self::internal("The hosted provider could not access its authoritative store.")
     }
 }
