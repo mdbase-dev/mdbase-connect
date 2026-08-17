@@ -164,6 +164,27 @@ async function proveFinalAdmissionAndRollbackGates(database) {
       "cp", resolve(root, source), `${container}:/tmp/${name}.sql`
     ], { cwd: root });
   }
+  const drainObserver = "mdbase_drain_observer";
+  await psql(database, `CREATE ROLE ${drainObserver} LOGIN`);
+  await psqlFileAs(database, "databaseDrained", drainObserver);
+  const drainBlockerApplication = "mdbase-drain-contract-test";
+  const drainBlocker = spawn("docker", [
+    "exec", "-e", `PGAPPNAME=${drainBlockerApplication}`, container,
+    "psql", "-U", "mdbase", "-d", database, "--no-psqlrc",
+    "--command", "SELECT pg_sleep(30)"
+  ], { cwd: root, stdio: "ignore" });
+  await waitForApplicationSession(database, drainBlockerApplication);
+  await expectPsqlFileAsFailure(
+    database,
+    "databaseDrained",
+    drainObserver,
+    "the drain preflight accepted another database session"
+  );
+  await psql(
+    database,
+    `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = '${drainBlockerApplication}'`
+  );
+  await waitForChildExit(drainBlocker);
   await psqlFile(database, "databaseDrained");
   await psqlFile(database, "suspend", {
     fence_token: token,
@@ -287,6 +308,45 @@ async function psqlFile(database, name, variables = {}) {
   }
   args.push("--file", `/tmp/${name}.sql`);
   await execute("docker", args, { cwd: root });
+}
+
+async function psqlFileAs(database, name, role) {
+  await execute("docker", [
+    "exec", container, "psql", "-U", role, "-d", database,
+    "--no-psqlrc", "--set", "ON_ERROR_STOP=on", "--file", `/tmp/${name}.sql`
+  ], { cwd: root });
+}
+
+async function expectPsqlFileAsFailure(database, name, role, message) {
+  const failed = await psqlFileAs(database, name, role).then(
+    () => false,
+    () => true
+  );
+  if (!failed) throw new Error(message);
+}
+
+async function waitForApplicationSession(database, applicationName) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const { stdout } = await execute("docker", [
+      "exec", container, "psql", "-U", "mdbase", "-d", database,
+      "--no-psqlrc", "--tuples-only", "--no-align", "--command",
+      `SELECT count(*) FROM pg_stat_activity WHERE application_name = '${applicationName}'`
+    ], { cwd: root });
+    if (stdout.trim() === "1") return;
+    await new Promise(resolveDelay => setTimeout(resolveDelay, 50));
+  }
+  throw new Error(`Database session ${applicationName} did not start`);
+}
+
+function waitForChildExit(child) {
+  return new Promise((resolveExit, rejectExit) => {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      resolveExit();
+      return;
+    }
+    child.once("error", rejectExit);
+    child.once("exit", resolveExit);
+  });
 }
 
 async function expectPsqlFailure(database, name, variables, message) {

@@ -95,13 +95,15 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
 }
 
 #[test]
-fn cutover_database_drain_requires_complete_session_visibility() {
+fn cutover_database_drain_requires_zero_other_sessions_without_stats_role() {
     let drain = include_str!("../../../../deploy/postgres/preflight-hosted-database-drained.sql");
-    assert!(drain.contains("pg_read_all_stats"));
+    assert!(drain.contains("session_existence_and_database"));
+    assert!(drain.contains("SELECT count(*)"));
+    assert!(drain.contains("datname = current_database()"));
     assert!(drain.contains("pid <> pg_backend_pid()"));
-    assert!(drain.contains("state <> 'idle'"));
-    assert!(drain.contains("xact_start IS NOT NULL"));
-    assert!(drain.contains("hosted_database_drain_unverifiable"));
+    assert!(drain.contains("other_sessions"));
+    assert!(!drain.contains("pg_read_all_stats', 'MEMBER'"));
+    assert!(!drain.contains("state <> 'idle'"));
     assert!(drain.contains("hosted_database_not_drained"));
 }
 
