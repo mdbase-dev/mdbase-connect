@@ -325,15 +325,43 @@ canonical_inventory_before=$(query_canonical_authority_inventory)
 printf 'Previous release canonical authority inventory: sha256:%s\n' \
   "$canonical_inventory_before"
 
-upgrade_phase 'indexing the preserved exact authority with the packaged operator'
-apply_result=$(run_projection_indexer apply --limit 100 --batches-per-collection 16)
-jq -e '.ok == true' <<<"$apply_result" >/dev/null
-verify_result=$(run_projection_indexer verify --limit 100)
+upgrade_phase 'indexing the complete preserved authority with the bounded cutover operator'
+if bounded_result=$(run_projection_indexer cutover \
+  --page-limit 1 \
+  --batches-per-collection 1 \
+  --max-collections 10 \
+  --max-batches 1 \
+  --max-pages 10 \
+  --max-seconds 120)
+then
+  printf 'Projection cutover unexpectedly completed inside the one-batch test budget.\n' >&2
+  exit 1
+fi
+jq -e '
+  .ok == false and
+  .command == "cutover" and
+  .result.outcome == "projection_cutover_batch_budget_exceeded" and
+  .result.complete_inventory == false and
+  .result.collections_verified == 0 and
+  .result.batches_advanced == 1 and
+  .result.blocked_collection_id == "33333333-3333-4333-8333-333333333333"
+' <<<"$bounded_result" >/dev/null
+verify_result=$(run_projection_indexer cutover \
+  --page-limit 1 \
+  --batches-per-collection 16 \
+  --max-collections 10 \
+  --max-batches 160 \
+  --max-pages 10 \
+  --max-seconds 120)
 jq -e '
   .ok == true and
-  (.result.collections | length) == 1 and
+  .command == "cutover" and
+  .result.outcome == "complete" and
   .result.complete_inventory == true and
-  .result.collections[0].verified == true
+  .result.pages_visited == 1 and
+  .result.collections_verified == 1 and
+  .result.batches_advanced > 0 and
+  .result.blocked_collection_id == null
 ' <<<"$verify_result" >/dev/null
 canonical_inventory_after_index=$(query_canonical_authority_inventory)
 printf 'Indexed candidate canonical authority inventory: sha256:%s\n' \

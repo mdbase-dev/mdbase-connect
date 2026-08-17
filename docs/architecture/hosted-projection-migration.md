@@ -66,6 +66,12 @@ The provider image contains `mdbase-hosted-projection-indexer`. It uses the same
 - `apply`: starts or resumes the expected head/resource binding and advances only the configured bounded batches per collection.
 - `status`: reports current binding, bounded generation progress, and terminal errors.
 - `verify`: requires a complete page inventory and proves exact/projected record counts and digests, resolution completeness, and the final binding.
+- `cutover`: applies migrations, pages the entire active/indexing inventory, resumes
+  each durable generation to completion, and canonically verifies every binding.
+  It has explicit wall-time, page, collection, per-collection batch, and total-batch
+  ceilings. Reaching any ceiling is a typed non-success result, never partial
+  readiness. It is run only as a pre-deploy job after the old provider service is
+  terminally suspended, so no source-34 process can race migration or indexing.
 
 Output is machine-readable JSON with run identity and timestamps but no exact Markdown, body prose, keys, or ciphertext. Repeated processes are idempotent. `verify` never treats a building or partially complete generation as success.
 
@@ -78,8 +84,14 @@ Normal reads, queries, validation, and mutations never materialize a collection-
 1. Enter the reviewed external maintenance window and stop new hosted operations on the exact beta69 service set.
 2. Run `preflight-hosted-provider-beta69-cutover.sql`. It requires the exact successful 1–34 ledger and absence of every Candidate B object.
 3. Reconfirm recovery artifacts, key reader, capacity, and privacy-safe canonical inventory.
-4. Apply final migrations 0035–0037. Migration 0037 adds the operation-bound admission fence without rewriting published migration 0036. Suspend durable query admission before any candidate process accepts traffic.
-5. Run indexer `plan`, bounded `apply` passes, `status`, and complete-inventory `verify`. Abort on any unverified collection or changed expected head/resource binding.
+4. Terminally suspend the source provider at the service scheduler. The
+   candidate image's pre-deploy sequence re-attests the drained source-34 state,
+   runs `cutover` to apply migrations 0035–0037 and rebuild/verify every page,
+   then persists and independently attests the operation-bound admission fence
+   before a candidate process may start.
+5. Abort on a typed cutover budget result, any unverified collection, a changed
+   expected head/resource binding, or an incomplete inventory. Retry resumes the
+   durable generation checkpoints while the service remains suspended.
 6. Compare canonical tables/inventory with the pre-cutover evidence. Only derived projection/runtime rows and additive active bindings may differ.
 7. Deploy the immutable final provider/control/MCP set while external maintenance and durable admission remain closed.
 8. Run synthetic and representative exact read/write, query, pagination, link, cancellation, restart, and recovery checks.

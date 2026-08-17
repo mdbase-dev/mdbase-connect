@@ -1,4 +1,8 @@
-use std::{process::ExitCode, sync::Arc, time::Duration};
+use std::{
+    process::ExitCode,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use async_trait::async_trait;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -65,6 +69,9 @@ enum Command {
     },
     Status(PageArguments),
     Verify(PageArguments),
+    /// Migrate, rebuild, and verify the complete active collection inventory.
+    /// This is intended for a terminally suspended pre-deploy cutover job.
+    Cutover(CutoverArguments),
 }
 
 #[derive(clap::Args)]
@@ -73,6 +80,22 @@ struct PageArguments {
     after: Option<Uuid>,
     #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(u32).range(1..=1000))]
     limit: u32,
+}
+
+#[derive(clap::Args)]
+struct CutoverArguments {
+    #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(u32).range(1..=1000))]
+    page_limit: u32,
+    #[arg(long, default_value_t = 10_000, value_parser = clap::value_parser!(u32).range(1..=100_000))]
+    batches_per_collection: u32,
+    #[arg(long, default_value_t = 100_000, value_parser = clap::value_parser!(u32).range(1..=1_000_000))]
+    max_collections: u32,
+    #[arg(long, default_value_t = 1_000_000, value_parser = clap::value_parser!(u64).range(1..=10_000_000))]
+    max_batches: u64,
+    #[arg(long, default_value_t = 10_000, value_parser = clap::value_parser!(u32).range(1..=100_000))]
+    max_pages: u32,
+    #[arg(long, default_value_t = 3_600, value_parser = clap::value_parser!(u64).range(1..=86_400))]
+    max_seconds: u64,
 }
 
 #[derive(Serialize)]
@@ -259,6 +282,10 @@ async fn run(arguments: Arguments) -> ApiResult<Envelope> {
                 }),
             )
         }
+        Command::Cutover(cutover) => {
+            let (ok, result) = run_cutover(&provider, cutover).await?;
+            (ok, "cutover", result)
+        }
     };
     Ok(Envelope {
         ok,
@@ -266,6 +293,216 @@ async fn run(arguments: Arguments) -> ApiResult<Envelope> {
         run_id,
         recorded_at,
         result,
+    })
+}
+
+async fn run_cutover(
+    provider: &HostedProvider,
+    arguments: CutoverArguments,
+) -> ApiResult<(bool, Value)> {
+    let started = Instant::now();
+    let deadline = Duration::from_secs(arguments.max_seconds);
+    let mut after = None;
+    let mut pages_visited = 0_u32;
+    let mut collections_verified = 0_u32;
+    let mut batches_advanced = 0_u64;
+
+    loop {
+        if started.elapsed() >= deadline {
+            return Ok((
+                false,
+                cutover_outcome(
+                    "projection_cutover_time_budget_exceeded",
+                    false,
+                    pages_visited,
+                    collections_verified,
+                    batches_advanced,
+                    after,
+                    None,
+                    &[],
+                ),
+            ));
+        }
+        if pages_visited >= arguments.max_pages {
+            return Ok((
+                false,
+                cutover_outcome(
+                    "projection_cutover_page_budget_exceeded",
+                    false,
+                    pages_visited,
+                    collections_verified,
+                    batches_advanced,
+                    after,
+                    None,
+                    &[],
+                ),
+            ));
+        }
+        let plan = provider
+            .projection_index_plan(after, arguments.page_limit)
+            .await?;
+        pages_visited += 1;
+        if !plan.migration_ledger_valid || !plan.schema_valid {
+            return Ok((
+                false,
+                json!({
+                    "outcome": "projection_cutover_schema_invalid",
+                    "migration_ledger_valid": plan.migration_ledger_valid,
+                    "schema_valid": plan.schema_valid,
+                    "complete_inventory": false,
+                    "pages_visited": pages_visited,
+                    "collections_verified": collections_verified,
+                    "batches_advanced": batches_advanced,
+                    "next_after": after,
+                }),
+            ));
+        }
+
+        for entry in &plan.collections {
+            if collections_verified >= arguments.max_collections {
+                return Ok((
+                    false,
+                    cutover_outcome(
+                        "projection_cutover_collection_budget_exceeded",
+                        false,
+                        pages_visited,
+                        collections_verified,
+                        batches_advanced,
+                        after,
+                        Some(entry.collection_id),
+                        &[],
+                    ),
+                ));
+            }
+            let mut status = provider
+                .request_projection_indexing(
+                    entry.collection_id,
+                    entry.head,
+                    entry.resource_revision.clone(),
+                )
+                .await?;
+            let mut collection_batches = 0_u32;
+            while !status.ready {
+                if started.elapsed() >= deadline {
+                    return Ok((
+                        false,
+                        cutover_outcome(
+                            "projection_cutover_time_budget_exceeded",
+                            false,
+                            pages_visited,
+                            collections_verified,
+                            batches_advanced,
+                            after,
+                            Some(entry.collection_id),
+                            &[],
+                        ),
+                    ));
+                }
+                if collection_batches >= arguments.batches_per_collection
+                    || batches_advanced >= arguments.max_batches
+                {
+                    return Ok((
+                        false,
+                        cutover_outcome(
+                            "projection_cutover_batch_budget_exceeded",
+                            false,
+                            pages_visited,
+                            collections_verified,
+                            batches_advanced,
+                            after,
+                            Some(entry.collection_id),
+                            &[],
+                        ),
+                    ));
+                }
+                let Some(generation) = status.building_generation.as_ref() else {
+                    let failures = status
+                        .latest_terminal_error_code
+                        .clone()
+                        .into_iter()
+                        .collect::<Vec<_>>();
+                    return Ok((
+                        false,
+                        cutover_outcome(
+                            "projection_cutover_generation_unavailable",
+                            false,
+                            pages_visited,
+                            collections_verified,
+                            batches_advanced,
+                            after,
+                            Some(entry.collection_id),
+                            &failures,
+                        ),
+                    ));
+                };
+                provider
+                    .advance_projection_generation(entry.collection_id, generation.generation_id)
+                    .await?;
+                collection_batches += 1;
+                batches_advanced += 1;
+                status = provider.projection_status(entry.collection_id).await?;
+            }
+
+            let verification = provider
+                .verify_projection_index(entry.collection_id)
+                .await?;
+            if !verification.verified {
+                return Ok((
+                    false,
+                    cutover_outcome(
+                        "projection_cutover_verification_failed",
+                        false,
+                        pages_visited,
+                        collections_verified,
+                        batches_advanced,
+                        after,
+                        Some(entry.collection_id),
+                        &verification.failures,
+                    ),
+                ));
+            }
+            collections_verified += 1;
+        }
+
+        let Some(next_after) = plan.next_after else {
+            return Ok((
+                true,
+                cutover_outcome(
+                    "complete",
+                    true,
+                    pages_visited,
+                    collections_verified,
+                    batches_advanced,
+                    None,
+                    None,
+                    &[],
+                ),
+            ));
+        };
+        after = Some(next_after);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cutover_outcome(
+    outcome: &'static str,
+    complete_inventory: bool,
+    pages_visited: u32,
+    collections_verified: u32,
+    batches_advanced: u64,
+    next_after: Option<Uuid>,
+    blocked_collection_id: Option<Uuid>,
+    failures: &[String],
+) -> Value {
+    json!({
+        "outcome": outcome,
+        "complete_inventory": complete_inventory,
+        "pages_visited": pages_visited,
+        "collections_verified": collections_verified,
+        "batches_advanced": batches_advanced,
+        "next_after": next_after,
+        "blocked_collection_id": blocked_collection_id,
+        "failures": failures,
     })
 }
 
