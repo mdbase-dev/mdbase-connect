@@ -156,13 +156,15 @@ async function proveFinalAdmissionAndRollbackGates(database) {
       "deploy/postgres/preflight-hosted-provider-final-rollback.sql",
     beta69Rollback: "deploy/postgres/prepare-hosted-provider-beta69-rollback.sql",
     "attest-hosted-provider-migration-ledger":
-      "deploy/postgres/attest-hosted-provider-migration-ledger.sql"
+      "deploy/postgres/attest-hosted-provider-migration-ledger.sql",
+    databaseDrained: "deploy/postgres/preflight-hosted-database-drained.sql"
   };
   for (const [name, source] of Object.entries(scripts)) {
     await execute("docker", [
       "cp", resolve(root, source), `${container}:/tmp/${name}.sql`
     ], { cwd: root });
   }
+  await psqlFile(database, "databaseDrained");
   await psqlFile(database, "suspend", { fence_token: token, fence_kind: "rollback" });
   await psqlFile(database, "finalPreflight", { fence_token: token });
   await expectPsqlFailure(
