@@ -165,7 +165,11 @@ async function proveFinalAdmissionAndRollbackGates(database) {
     ], { cwd: root });
   }
   await psqlFile(database, "databaseDrained");
-  await psqlFile(database, "suspend", { fence_token: token, fence_kind: "rollback" });
+  await psqlFile(database, "suspend", {
+    fence_token: token,
+    fence_kind: "rollback",
+    owner_lease_seconds: "7200"
+  });
   await psqlFile(database, "finalPreflight", { fence_token: token });
   await expectPsqlFailure(
     database,
@@ -230,7 +234,11 @@ async function proveFinalAdmissionAndRollbackGates(database) {
   await psql(database,
     "ALTER TABLE hosted_provider_runtime_control RENAME CONSTRAINT hosted_provider_runtime_control_fence_pair_check_wrong TO hosted_provider_runtime_control_fence_pair_check");
   await psqlFile(database, "resume", { fence_token: token, fence_kind: "rollback" });
-  await psqlFile(database, "suspend", { fence_token: token, fence_kind: "cutover" });
+  await psqlFile(database, "suspend", {
+    fence_token: token,
+    fence_kind: "cutover",
+    owner_lease_seconds: "7200"
+  });
   await psqlFile(database, "finalCutover", { fence_token: token });
   await expectPsqlFailure(
     database,
@@ -239,7 +247,11 @@ async function proveFinalAdmissionAndRollbackGates(database) {
     "the final cutover preflight accepted a stale fence token"
   );
   await psqlFile(database, "resume", { fence_token: token, fence_kind: "cutover" });
-  await psqlFile(database, "suspend", { fence_token: token, fence_kind: "rollback" });
+  await psqlFile(database, "suspend", {
+    fence_token: token,
+    fence_kind: "rollback",
+    owner_lease_seconds: "7200"
+  });
   await psqlFile(database, "beta69Rollback", { fence_token: token });
   await psqlFile(database, "resume", { fence_token: token, fence_kind: "rollback" });
 }
