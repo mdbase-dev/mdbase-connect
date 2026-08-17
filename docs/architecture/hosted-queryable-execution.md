@@ -276,10 +276,12 @@ edge replacement, and record-revision CAS make restart safe. Rebuild failure aff
 optimization only: exact authority remains available, subject to the same bounded
 fallback and fail-closed authorization rules.
 
-Provider startup awaits one bounded recovery pass for at most 20 Candidate B
-generations before binding the HTTP listener. The pass can create a missing
+Provider startup awaits one bounded recovery pass for at most 20 active or durably
+pending Candidate B generations before binding the HTTP listener. The pass can create a missing
 generation and advances at most one bounded projection or resolution batch per
-selected collection; it does not turn global readiness into a wait for every tenant
+selected collection. Pending initial activation remains routed through legacy until
+the complete generation is bound atomically; recovery cannot expose partial state.
+The startup pass does not turn global readiness into a wait for every tenant
 rebuild to complete. Terminal semantic or ciphertext faults remain quarantined,
 while an unexpected database or recovery error fails startup instead of advertising
 a ready process that has not attempted recovery. The periodic bounded worker resumes

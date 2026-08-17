@@ -16,6 +16,7 @@ Snapshot mtime cursor index: `crates/connect-hosted-provider/migrations/0055_sna
 Versioned query-receipt compression: `crates/connect-hosted-provider/migrations/0056_query_receipt_compression.sql`
 Immutable receipt ownership: `crates/connect-hosted-provider/migrations/0057_query_receipt_identity_immutability.sql`
 Guarded digest binding: `crates/connect-hosted-provider/migrations/0058_projection_digest_write_guard.sql`
+Atomic activation intent: `crates/connect-hosted-provider/migrations/0059_hosted_execution_model_activation.sql`
 
 ## Compatibility strategy
 
@@ -32,10 +33,27 @@ is installed only if the collection head and catalog still equal that source
 snapshot at completion. Otherwise the generation is abandoned and retried.
 Migration 0036 adds an explicit `legacy | candidate_b` execution-model gate with a
 `legacy` default. Existing collections therefore keep their recoverable path when
-the additive schema and dual-capable binary deploy. Starting the first explicitly
-authorized generation opts only that collection into Candidate B. Maintenance
-recreates missing generations and advances one bounded fenced batch at a time only
-for opted-in collections.
+the additive schema and dual-capable binary deploy. Requesting the first explicitly
+authorized generation writes a durable
+`pending_hosted_execution_model = 'candidate_b'` intent but leaves the collection
+on `legacy`. Maintenance recreates missing generations and advances one bounded
+fenced batch at a time for active or pending collections. Only the generation's
+completion transaction binds the fully resolved snapshot, changes
+`hosted_execution_model` to `candidate_b`, and clears the pending intent. A failed,
+stale, cancelled, or restarted build therefore never exposes a half-projected
+collection and never removes the legacy path.
+
+The internal activation protocol is `candidate-b-activation-v1`. Status returns
+only execution/binding state, head, resource revision, and the current building
+generation. Activation requires the expected head, expected resource revision, and
+an exact `activate-candidate-b:<collection>:<head>:<revision>` confirmation. A retry
+returns the existing authorized generation instead of superseding it. Advance names
+that generation and executes exactly one bounded projection or resolution batch.
+The control plane may set
+`MDBASE_CONNECT_NEW_HOSTED_EXECUTION_MODEL=candidate_b` for an isolated environment;
+the default is `legacy`. In Candidate B mode, a newly created provider collection
+must complete this bounded protocol before its control-plane catalogue row is
+inserted or returned to a consumer.
 
 ## Physical state
 
@@ -45,6 +63,10 @@ for opted-in collections.
 - `active_projection_format_version`;
 - `active_semantic_engine_version`; and
 - `active_projection_generation_id`.
+
+Migration 0059 additionally adds nullable `pending_hosted_execution_model`. The
+only non-null value is `candidate_b`; it records authorization to rebuild and
+survives process restart or source-head races without changing query routing.
 
 They are either all null or all present. Existing encrypted exact records remain
 unchanged and authoritative.
@@ -397,8 +419,10 @@ leaves only the successor returned by the committed response/retry receipt path.
 
 ## Code rollback
 
-Before production activation, rollback is simply the previous binary; all new rows
-remain unused and no canonical state changed. During an isolated activated staging
+Before production activation, rollback is a code rollback; all new rows remain
+derived and no canonical state changed. A pre-0059 binary ignores a pending
+activation and continues routing that collection through `legacy`; it does not
+recover the intent, and a later 0059-aware deployment resumes it. During an isolated activated staging
 test, an operator may invalidate query cursors and atomically null all four
 collection binding fields to return traffic to the encrypted exact path while
 retaining generation-scoped projection rows for diagnosis.
