@@ -26,7 +26,7 @@ async fn persist_prepared_projection(
                AND g.lease_fencing_generation = $6
                AND g.lease_expires_at > now()
                AND g.target_catalog_revision = $7
-               AND c.state = 'active'
+               AND c.state IN ('active', 'indexing')
            )"#,
     )
     .bind(collection_id)
@@ -148,7 +148,7 @@ async fn persist_resolved_projection(
              AND g.lease_expires_at > now()
              AND g.target_catalog_revision = $12
              AND c.id = p.collection_id
-             AND c.state = 'active'
+             AND c.state IN ('active', 'indexing')
              AND r.collection_id = p.collection_id AND r.record_id = p.record_id
              AND r.sequence = p.record_sequence AND r.revision = p.record_revision
              AND r.deleted = false"#,

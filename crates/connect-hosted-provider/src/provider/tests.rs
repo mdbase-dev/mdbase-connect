@@ -234,8 +234,8 @@ fn concurrent_index_migrations_reject_same_name_definition_drift() {
 #[test]
 fn final_query_receipt_contract_supports_bounded_compression() {
     let migration = include_str!("../../migrations/0036_hosted_query_runtime.sql");
-    assert!(migration.contains("response_encoding text NOT NULL"));
-    assert!(migration.contains("'zstd-json-v1'"));
+    assert!(!migration.contains("response_encoding"));
+    assert!(!migration.contains("json-v1"));
     assert!(!migration.contains("legacy"));
 }
 

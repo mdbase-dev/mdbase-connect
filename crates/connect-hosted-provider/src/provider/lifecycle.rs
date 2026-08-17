@@ -135,6 +135,43 @@ impl HostedProvider {
         sqlx::query("SELECT 1").execute(&self.pool).await?;
         self.blob_store.ready().await?;
         self.verify_key_readiness().await?;
+        let unready_collections: i64 = sqlx::query_scalar(
+            r#"SELECT count(*)
+               FROM hosted_provider_collections collection
+               LEFT JOIN hosted_provider_projection_generations generation
+                 ON generation.collection_id = collection.id
+                AND generation.generation_id = collection.active_projection_generation_id
+               WHERE collection.state = 'active'
+                 AND (
+                   generation.generation_id IS NULL
+                   OR generation.status <> 'complete'
+                   OR collection.active_projection_head IS DISTINCT FROM collection.head
+                   OR generation.source_head > collection.active_projection_head
+                   OR generation.source_resource_revision <> collection.resource_revision
+                   OR generation.target_catalog_revision IS DISTINCT FROM
+                        collection.active_catalog_revision
+                   OR generation.projection_format_version IS DISTINCT FROM
+                        collection.active_projection_format_version
+                   OR generation.semantic_engine_version IS DISTINCT FROM
+                        collection.active_semantic_engine_version
+                   OR generation.projection_format_version <> $1
+                   OR generation.semantic_engine_version <> $2
+                   OR generation.integrity_epoch <> generation.integrity_verified_epoch
+                 )"#,
+        )
+        .bind(i64::from(
+            mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION,
+        ))
+        .bind(mdbase::VERSION)
+        .fetch_one(&self.pool)
+        .await?;
+        if unready_collections != 0 {
+            return Err(ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "hosted_projection_index_incomplete",
+                "Hosted semantic projection indexing is incomplete.",
+            ));
+        }
         // Keep readiness acyclic: notification delivery is an outbound,
         // durably-retried dependency on the Connect control plane, while
         // Connect itself checks this endpoint before advertising readiness.

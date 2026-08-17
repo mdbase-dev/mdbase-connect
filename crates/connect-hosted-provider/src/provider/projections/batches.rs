@@ -59,7 +59,7 @@ impl HostedProvider {
         let collection = sqlx::query(
             r#"SELECT resource_revision, wrapped_data_key, resources_ciphertext
                FROM hosted_provider_collections
-               WHERE id = $1 AND state = 'active'"#,
+               WHERE id = $1 AND state IN ('active', 'indexing')"#,
         )
         .bind(collection_id)
         .fetch_optional(&mut *transaction)
@@ -352,6 +352,8 @@ impl HostedProvider {
                    projected_records = projected_records + $7,
                    phase = CASE WHEN $8 THEN 'resolution' ELSE phase END,
                    resolved_records = CASE WHEN $8 THEN 0 ELSE resolved_records END,
+                   lease_owner = NULL,
+                   lease_expires_at = NULL,
                    updated_at = now()
                WHERE collection_id = $1 AND generation_id = $2
                  AND status = 'building' AND phase = 'projection'
@@ -438,7 +440,7 @@ impl HostedProvider {
             // Every path that can lock both rows uses collection -> generation.
             // Ordinary resolution batches never need the collection row lock.
             sqlx::query(
-                "SELECT id FROM hosted_provider_collections WHERE id = $1 AND state = 'active' FOR UPDATE",
+                "SELECT id FROM hosted_provider_collections WHERE id = $1 AND state IN ('active', 'indexing') FOR UPDATE",
             )
             .bind(collection_id)
             .fetch_optional(&mut *transaction)
@@ -490,7 +492,7 @@ impl HostedProvider {
         let collection = sqlx::query(
             r#"SELECT resource_revision, wrapped_data_key, resources_ciphertext
                FROM hosted_provider_collections
-               WHERE id = $1 AND state = 'active'"#,
+               WHERE id = $1 AND state IN ('active', 'indexing')"#,
         )
         .bind(collection_id)
         .fetch_optional(&mut *transaction)
@@ -785,8 +787,9 @@ impl HostedProvider {
                        active_projection_format_version = $4,
                        active_semantic_engine_version = $5,
                        active_projection_generation_id = $2,
-                       updated_at = now()
-                   WHERE id = $1 AND state = 'active' AND head = $6
+                       active_projection_head = $6,
+                       state = 'active', updated_at = now()
+                   WHERE id = $1 AND state IN ('active', 'indexing') AND head = $6
                    "#,
             )
             .bind(collection_id)
@@ -828,8 +831,8 @@ impl HostedProvider {
                    status = CASE WHEN $8 THEN 'complete' ELSE status END,
                    integrity_verified_epoch = CASE WHEN $8 THEN integrity_epoch ELSE integrity_verified_epoch END,
                    completed_at = CASE WHEN $8 THEN now() ELSE completed_at END,
-                   lease_owner = CASE WHEN $8 THEN NULL ELSE lease_owner END,
-                   lease_expires_at = CASE WHEN $8 THEN NULL ELSE lease_expires_at END,
+                   lease_owner = NULL,
+                   lease_expires_at = NULL,
                    last_error_code = NULL,
                    updated_at = now()
                WHERE collection_id = $1 AND generation_id = $2

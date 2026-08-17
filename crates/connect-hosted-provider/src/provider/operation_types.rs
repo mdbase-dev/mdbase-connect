@@ -211,6 +211,16 @@ impl HostedProvider {
             )
             .await?;
         transaction.commit().await?;
+        let provider = self.clone();
+        tokio::spawn(async move {
+            if let Err(error) = provider.recover_projection_generations(1).await {
+                tracing::warn!(
+                    %collection_id,
+                    error_code = %error.code,
+                    "semantic projection rebuild recovery deferred"
+                );
+            }
+        });
         Ok(result)
     }
 

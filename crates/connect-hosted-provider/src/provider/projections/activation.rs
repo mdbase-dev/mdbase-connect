@@ -27,7 +27,7 @@ impl HostedProvider {
                LEFT JOIN hosted_provider_projection_generations g
                  ON g.collection_id = c.id
                 AND g.generation_id = c.active_projection_generation_id
-               WHERE c.id = $1 AND c.state = 'active'"#,
+               WHERE c.id = $1 AND c.state IN ('active', 'indexing')"#,
         )
         .bind(collection_id)
         .fetch_optional(&mut **transaction)

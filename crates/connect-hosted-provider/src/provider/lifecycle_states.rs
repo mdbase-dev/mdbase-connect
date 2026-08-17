@@ -28,6 +28,7 @@ impl TryFrom<&str> for ProviderAuthorityTransferState {
 pub enum ProviderAuthorityImportState {
     Receiving,
     Uploaded,
+    Indexing,
     Completed,
     Aborted,
 }
@@ -45,6 +46,7 @@ impl TryFrom<&str> for ProviderAuthorityImportState {
         match value {
             "receiving" => Ok(Self::Receiving),
             "uploaded" => Ok(Self::Uploaded),
+            "indexing" => Ok(Self::Indexing),
             "completed" => Ok(Self::Completed),
             "aborted" => Ok(Self::Aborted),
             _ => Err(ApiError::internal(
@@ -57,6 +59,7 @@ impl TryFrom<&str> for ProviderAuthorityImportState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum HostedCollectionState {
     Active,
+    Indexing,
     Importing,
     Transferring,
     Transferred,
@@ -69,6 +72,7 @@ impl TryFrom<&str> for HostedCollectionState {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
             "active" => Ok(Self::Active),
+            "indexing" => Ok(Self::Indexing),
             "importing" => Ok(Self::Importing),
             "transferring" => Ok(Self::Transferring),
             "transferred" => Ok(Self::Transferred),

@@ -119,8 +119,6 @@ CREATE TABLE hosted_provider_query_page_receipts (
   response_ciphertext bytea NOT NULL,
   response_ciphertext_bytes bigint
     GENERATED ALWAYS AS (octet_length(response_ciphertext)::bigint) STORED,
-  response_encoding text NOT NULL
-    CHECK (response_encoding IN ('json-v1', 'zstd-json-v1')),
   expires_at timestamptz NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (replica_id, request_id),

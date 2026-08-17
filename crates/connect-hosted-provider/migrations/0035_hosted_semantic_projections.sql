@@ -3,21 +3,42 @@
 -- begin unbound and are indexed before the new runtime is admitted; there is no
 -- durable legacy execution mode.
 ALTER TABLE hosted_provider_collections
+  DROP CONSTRAINT hosted_provider_collections_state_check;
+
+ALTER TABLE hosted_provider_collections
+  ADD CONSTRAINT hosted_provider_collections_state_check CHECK (
+    state IN (
+      'active', 'indexing', 'importing', 'transferring', 'transferred', 'deleting'
+    )
+  );
+
+ALTER TABLE hosted_provider_authority_imports
+  DROP CONSTRAINT hosted_provider_authority_imports_state_check;
+
+ALTER TABLE hosted_provider_authority_imports
+  ADD CONSTRAINT hosted_provider_authority_imports_state_check CHECK (
+    state IN ('receiving', 'uploaded', 'indexing', 'completed', 'aborted')
+  );
+
+ALTER TABLE hosted_provider_collections
   ADD COLUMN active_catalog_revision text,
   ADD COLUMN active_projection_format_version integer,
   ADD COLUMN active_semantic_engine_version text,
   ADD COLUMN active_projection_generation_id uuid,
+  ADD COLUMN active_projection_head bigint CHECK (active_projection_head >= 0),
   ADD CONSTRAINT hosted_provider_collections_projection_binding_check CHECK (
     (
       active_catalog_revision IS NULL
       AND active_projection_format_version IS NULL
       AND active_semantic_engine_version IS NULL
       AND active_projection_generation_id IS NULL
+      AND active_projection_head IS NULL
     ) OR (
       active_catalog_revision IS NOT NULL
       AND active_projection_format_version > 0
       AND active_semantic_engine_version IS NOT NULL
       AND active_projection_generation_id IS NOT NULL
+      AND active_projection_head IS NOT NULL
     )
   );
 

@@ -281,6 +281,7 @@ impl HostedProvider {
                       collection.resources_ciphertext,
                       active_catalog_revision, active_projection_format_version,
                       active_semantic_engine_version, active_projection_generation_id,
+                      active_projection_head,
                       generation.integrity_epoch AS projection_integrity_epoch,
                       generation.integrity_verified_epoch AS projection_integrity_verified_epoch
                FROM hosted_provider_collections collection

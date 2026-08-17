@@ -5,7 +5,9 @@ mod support;
 use chrono::{DateTime, SecondsFormat, Utc};
 use mdbase_connect_hosted_provider::{RegisterReplica, ReplicaPurpose};
 use mdbase_connect_protocol::{
-    SyncMutation, SyncMutationOperation, SyncMutationReceipt, SyncReplicaMode,
+    authority_manifest_digest, AuthorityImportManifest, AuthorityImportRecord,
+    AuthorityImportRecordPage, SyncCollectionResources, SyncMutation, SyncMutationOperation,
+    SyncMutationReceipt, SyncRecord, SyncReplicaMode, CONTROL_PROTOCOL_VERSION,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -75,6 +77,253 @@ async fn candidate_b_consolidated_migrations_upgrade_the_beta69_schema() {
     .await
     .unwrap();
     assert_eq!(general_projection_indexes, 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn new_collections_are_indexed_before_becoming_active() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let state: String =
+        sqlx::query_scalar("SELECT state FROM hosted_provider_collections WHERE id = $1")
+            .bind(fixture.collection_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    assert_eq!(state, "active");
+    assert!(
+        fixture
+            .provider
+            .projection_status(fixture.collection_id)
+            .await
+            .unwrap()
+            .ready
+    );
+    assert!(
+        fixture
+            .provider
+            .verify_projection_index(fixture.collection_id)
+            .await
+            .unwrap()
+            .verified
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn authority_imports_remain_hidden_until_projection_indexing_completes() {
+    use mdbase_connect_hosted_provider::{PrepareAuthorityImport, ProviderAuthorityImportState};
+
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let account_id: Uuid =
+        sqlx::query_scalar("SELECT account_id FROM hosted_provider_collections WHERE id = $1")
+            .bind(fixture.collection_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    let collection_id = Uuid::now_v7();
+    fixture
+        .provider
+        .create_collection(account_id, collection_id, "mdbase", "Imported", "UTC")
+        .await
+        .unwrap();
+    let resource_row = sqlx::query(
+        "SELECT wrapped_data_key, resources_ciphertext FROM hosted_provider_collections WHERE id = $1",
+    )
+    .bind(collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let data_key = fixture
+        .crypto
+        .unwrap_data_key(resource_row.get("wrapped_data_key"), collection_id)
+        .await
+        .unwrap();
+    let mut resources: SyncCollectionResources = fixture
+        .crypto
+        .decrypt_json(
+            &data_key,
+            resource_row.get("resources_ciphertext"),
+            &serde_json::to_vec(&("resources", collection_id)).unwrap(),
+        )
+        .unwrap();
+    let resource_rows = sqlx::query(
+        "SELECT path, kind, revision, document_ciphertext FROM hosted_provider_resources WHERE collection_id = $1 ORDER BY path",
+    )
+    .bind(collection_id)
+    .fetch_all(&fixture.pool)
+    .await
+    .unwrap();
+    resources.documents = resource_rows
+        .into_iter()
+        .map(|row| {
+            let path: String = row.get("path");
+            let document_bytes = fixture
+                .crypto
+                .decrypt_bytes(
+                    &data_key,
+                    row.get("document_ciphertext"),
+                    &serde_json::to_vec(&("resource_document", collection_id, path.as_str()))
+                        .unwrap(),
+                )
+                .unwrap();
+            let document = String::from_utf8(document_bytes).unwrap();
+            mdbase_connect_protocol::SyncResourceDocument {
+                path,
+                kind: row.get("kind"),
+                revision: row.get("revision"),
+                document,
+            }
+        })
+        .collect();
+    let canonical_resources = tempfile::tempdir().unwrap();
+    for resource in &resources.documents {
+        let target = canonical_resources.path().join(&resource.path);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(target, &resource.document).unwrap();
+    }
+    let canonical_snapshot = mdbase::Collection::open(canonical_resources.path())
+        .unwrap()
+        .snapshot()
+        .unwrap();
+    resources.revision = canonical_snapshot.resource_revision;
+    resources.spec_version = canonical_snapshot.spec_version;
+
+    let import_id = Uuid::new_v4();
+    let token = format!("authority-import-{}-{}", Uuid::new_v4(), Uuid::new_v4());
+    fixture
+        .provider
+        .prepare_authority_import(PrepareAuthorityImport {
+            transfer_id: import_id,
+            collection_id,
+            account_id,
+            display_name: "Imported".to_string(),
+            token: token.clone(),
+            authority_epoch: 2,
+            ttl_seconds: 300,
+        })
+        .await
+        .unwrap();
+    let record_id = Uuid::new_v4();
+    let path = "notes/imported.md".to_string();
+    let document = "---\ntitle: Imported\n---\nBody with [[notes/target]].\n".to_string();
+    let digest_record = SyncRecord {
+        record_id,
+        path: path.clone(),
+        document: document.clone(),
+        revision: String::new(),
+        frontmatter: serde_json::Map::new(),
+        body: String::new(),
+        types: Vec::new(),
+    };
+    let manifest_digest = authority_manifest_digest(
+        &resources.documents,
+        std::slice::from_ref(&digest_record),
+        &[],
+    );
+    let source_revision = "authority-source-v1".to_string();
+    fixture
+        .provider
+        .put_authority_import_manifest(
+            import_id,
+            &token,
+            AuthorityImportManifest {
+                protocol_version: CONTROL_PROTOCOL_VERSION,
+                collection_id,
+                source_head: 7,
+                source_revision: source_revision.clone(),
+                manifest_digest: manifest_digest.clone(),
+                resources,
+                record_count: 1,
+                file_count: 0,
+                files: Vec::new(),
+            },
+        )
+        .await
+        .unwrap();
+    fixture
+        .provider
+        .put_authority_import_records(
+            import_id,
+            &token,
+            AuthorityImportRecordPage {
+                protocol_version: CONTROL_PROTOCOL_VERSION,
+                page: 0,
+                records: vec![AuthorityImportRecord {
+                    record_id,
+                    path: path.clone(),
+                    document: document.clone(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+    let uploaded = fixture
+        .provider
+        .finalize_authority_import(import_id, &token)
+        .await
+        .unwrap();
+    assert_eq!(uploaded.state, ProviderAuthorityImportState::Uploaded);
+
+    let first_indexing = fixture
+        .provider
+        .complete_authority_import(import_id, &manifest_digest, &source_revision)
+        .await
+        .unwrap();
+    assert_eq!(first_indexing.state, ProviderAuthorityImportState::Indexing);
+    let hidden_state: String =
+        sqlx::query_scalar("SELECT state FROM hosted_provider_collections WHERE id = $1")
+            .bind(collection_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    assert_eq!(hidden_state, "indexing");
+    let abort = fixture
+        .provider
+        .abort_authority_import(import_id)
+        .await
+        .unwrap_err();
+    assert_eq!(abort.code, "authority_import_indexing");
+
+    let mut completed = first_indexing;
+    for _ in 0..8 {
+        if completed.state == ProviderAuthorityImportState::Completed {
+            break;
+        }
+        completed = fixture
+            .provider
+            .complete_authority_import(import_id, &manifest_digest, &source_revision)
+            .await
+            .unwrap();
+    }
+    assert_eq!(completed.state, ProviderAuthorityImportState::Completed);
+    assert!(
+        fixture
+            .provider
+            .verify_projection_index(collection_id)
+            .await
+            .unwrap()
+            .verified
+    );
+    let visible_state: String =
+        sqlx::query_scalar("SELECT state FROM hosted_provider_collections WHERE id = $1")
+            .bind(collection_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    assert_eq!(visible_state, "active");
+    let current_records: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM hosted_provider_records WHERE collection_id = $1")
+            .bind(collection_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    assert_eq!(current_records, 1);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -167,10 +416,11 @@ async fn candidate_b_projection_rebuild_abandons_an_oversized_first_record() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
-async fn candidate_b_initial_activation_keeps_legacy_until_atomic_completion() {
+async fn projection_indexing_binds_only_after_atomic_completion() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
     let fixture = FileLifecycleFixture::new(&database_url).await;
+    make_collection_unindexed(&fixture).await;
     let binding = sqlx::query(
         "SELECT head, resource_revision FROM hosted_provider_collections WHERE id = $1",
     )
@@ -183,27 +433,23 @@ async fn candidate_b_initial_activation_keeps_legacy_until_atomic_completion() {
 
     let stale = fixture
         .provider
-        .request_candidate_b_activation(fixture.collection_id, head + 1, resource_revision.clone())
+        .request_projection_indexing(fixture.collection_id, head + 1, resource_revision.clone())
         .await
         .unwrap_err();
-    assert_eq!(stale.code, "projection_activation_binding_changed");
+    assert_eq!(stale.code, "projection_index_binding_changed");
 
     let requested = fixture
         .provider
-        .request_candidate_b_activation(fixture.collection_id, head, resource_revision.clone())
+        .request_projection_indexing(fixture.collection_id, head, resource_revision.clone())
         .await
         .unwrap();
-    assert_eq!(requested.execution_model, "legacy");
-    assert_eq!(
-        requested.pending_execution_model.as_deref(),
-        Some("candidate_b")
-    );
+    assert!(!requested.ready);
     let generation_id = requested.building_generation.unwrap().generation_id;
 
     // A retry is idempotent and does not supersede the authorized generation.
     let retried = fixture
         .provider
-        .request_candidate_b_activation(fixture.collection_id, head, resource_revision)
+        .request_projection_indexing(fixture.collection_id, head, resource_revision)
         .await
         .unwrap();
     assert_eq!(
@@ -211,16 +457,32 @@ async fn candidate_b_initial_activation_keeps_legacy_until_atomic_completion() {
         generation_id
     );
 
+    fixture
+        .provider
+        .advance_projection_generation(fixture.collection_id, generation_id)
+        .await
+        .unwrap();
+    let lease_released: bool = sqlx::query_scalar(
+        r#"SELECT lease_owner IS NULL AND lease_expires_at IS NULL
+           FROM hosted_provider_projection_generations
+           WHERE collection_id = $1 AND generation_id = $2"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert!(lease_released);
+
     for _ in 0..8 {
         let before = fixture
             .provider
             .projection_status(fixture.collection_id)
             .await
             .unwrap();
-        if before.execution_model == "candidate_b" {
+        if before.ready {
             break;
         }
-        assert_eq!(before.execution_model, "legacy");
         fixture
             .provider
             .advance_projection_generation(fixture.collection_id, generation_id)
@@ -232,18 +494,37 @@ async fn candidate_b_initial_activation_keeps_legacy_until_atomic_completion() {
         .projection_status(fixture.collection_id)
         .await
         .unwrap();
-    assert_eq!(complete.execution_model, "candidate_b");
-    assert!(complete.pending_execution_model.is_none());
+    assert!(complete.ready);
     assert_eq!(complete.active_generation_id, Some(generation_id));
     assert!(complete.building_generation.is_none());
+    let verification = fixture
+        .provider
+        .verify_projection_index(fixture.collection_id)
+        .await
+        .unwrap();
+    assert!(verification.verified, "{:?}", verification.failures);
+    let plan = fixture
+        .provider
+        .projection_index_plan(None, 100)
+        .await
+        .unwrap();
+    assert!(plan.migration_ledger_valid);
+    assert!(plan.schema_valid);
+    let planned = plan
+        .collections
+        .iter()
+        .find(|entry| entry.collection_id == fixture.collection_id)
+        .unwrap();
+    assert!(planned.ready);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
-async fn candidate_b_pending_activation_recovers_after_a_concurrent_legacy_write() {
+async fn projection_indexing_recovers_after_a_concurrent_exact_write() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
     let fixture = FileLifecycleFixture::new(&database_url).await;
+    make_collection_unindexed(&fixture).await;
     let binding = sqlx::query(
         "SELECT head, resource_revision FROM hosted_provider_collections WHERE id = $1",
     )
@@ -253,7 +534,7 @@ async fn candidate_b_pending_activation_recovers_after_a_concurrent_legacy_write
     .unwrap();
     let requested = fixture
         .provider
-        .request_candidate_b_activation(
+        .request_projection_indexing(
             fixture.collection_id,
             u64::try_from(binding.get::<i64, _>("head")).unwrap(),
             binding.get("resource_revision"),
@@ -275,7 +556,7 @@ async fn candidate_b_pending_activation_recovers_after_a_concurrent_legacy_write
         Uuid::now_v7(),
         None,
         "concurrent.md",
-        "A write while legacy remains readable.\n",
+        "A write while indexing is in progress.\n",
     )
     .await;
     let mut stale_code = None;
@@ -296,16 +577,12 @@ async fn candidate_b_pending_activation_recovers_after_a_concurrent_legacy_write
         stale_code.as_deref(),
         Some("projection_source_head_changed")
     );
-    let still_legacy = fixture
+    let still_unbound = fixture
         .provider
         .projection_status(fixture.collection_id)
         .await
         .unwrap();
-    assert_eq!(still_legacy.execution_model, "legacy");
-    assert_eq!(
-        still_legacy.pending_execution_model.as_deref(),
-        Some("candidate_b")
-    );
+    assert!(!still_unbound.ready);
 
     for _ in 0..16 {
         fixture
@@ -318,14 +595,12 @@ async fn candidate_b_pending_activation_recovers_after_a_concurrent_legacy_write
             .projection_status(fixture.collection_id)
             .await
             .unwrap();
-        if status.execution_model == "candidate_b" {
-            assert!(status.pending_execution_model.is_none());
+        if status.ready {
             assert!(status.active_generation_id.is_some());
             return;
         }
-        assert_eq!(status.execution_model, "legacy");
     }
-    panic!("pending Candidate B activation did not recover within its bounded test loop");
+    panic!("projection indexing did not recover within its bounded test loop");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -5232,6 +5507,7 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
     sqlx::query(
         r#"UPDATE hosted_provider_collections
            SET active_projection_generation_id = NULL,
+               active_projection_head = NULL,
                active_catalog_revision = NULL,
                active_projection_format_version = NULL,
                active_semantic_engine_version = NULL
@@ -7260,6 +7536,29 @@ async fn assert_pre_0040_rollback_preflight(
     .await
     .unwrap();
     assert_eq!(blocked, expected_blocked);
+}
+
+async fn make_collection_unindexed(fixture: &FileLifecycleFixture) {
+    let mut transaction = fixture.pool.begin().await.unwrap();
+    sqlx::query(
+        r#"UPDATE hosted_provider_collections
+           SET active_catalog_revision = NULL,
+               active_projection_format_version = NULL,
+               active_semantic_engine_version = NULL,
+               active_projection_generation_id = NULL,
+               active_projection_head = NULL
+           WHERE id = $1"#,
+    )
+    .bind(fixture.collection_id)
+    .execute(&mut *transaction)
+    .await
+    .unwrap();
+    sqlx::query("DELETE FROM hosted_provider_projection_generations WHERE collection_id = $1")
+        .bind(fixture.collection_id)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    transaction.commit().await.unwrap();
 }
 
 async fn put(

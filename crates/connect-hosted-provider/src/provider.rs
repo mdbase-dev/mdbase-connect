@@ -106,7 +106,10 @@ pub use lifecycle_states::{ProviderAuthorityImportState, ProviderAuthorityTransf
 use operation_context::RecordOperationContext;
 use persistence::*;
 use policy::*;
-pub use projections::{HostedProjectionBatch, HostedProjectionGeneration};
+pub use projections::{
+    HostedProjectionBatch, HostedProjectionGeneration, HostedProjectionIndexPlan,
+    HostedProjectionIndexPlanEntry, HostedProjectionStatus, HostedProjectionVerification,
+};
 
 const SNAPSHOT_PAGE_SIZE: i64 = 200;
 const DATABASE_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);

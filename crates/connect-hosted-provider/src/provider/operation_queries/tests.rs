@@ -91,13 +91,12 @@ mod tests {
             diagnostics: Vec::new(),
         };
         let maximum = 16 * 1024 * 1024;
-        let (encoding, payload) = encode_query_page_receipt_payload(&result, maximum).unwrap();
-        assert_eq!(encoding, QUERY_RECEIPT_ZSTD_JSON_V1);
+        let payload = encode_query_page_receipt_payload(&result, maximum).unwrap();
         assert_eq!(
-            decode_query_page_receipt_payload(encoding, &payload, maximum).unwrap(),
+            decode_query_page_receipt_payload(&payload, maximum).unwrap(),
             result
         );
-        assert!(decode_query_page_receipt_payload(encoding, &payload, 16).is_err());
+        assert!(decode_query_page_receipt_payload(&payload, 16).is_err());
     }
 
     #[test]

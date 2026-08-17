@@ -85,13 +85,14 @@ impl HostedProvider {
         let account = load_account_limits(&mut transaction, account_id, true).await?;
         let inserted = sqlx::query(
             r#"INSERT INTO hosted_provider_collections
-                 (id, account_id, template, display_name, timezone, spec_version, resource_revision, wrapped_data_key,
+                 (id, account_id, template, display_name, timezone, state,
+                  spec_version, resource_revision, wrapped_data_key,
                   resources_ciphertext, max_records, max_content_bytes,
                   max_document_bytes, max_mirror_replicas,
                   max_application_replicas, max_files, max_file_bytes,
                   max_stored_file_bytes, max_single_file_bytes)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                       $14, $15, $16, $17, $18)
+               VALUES ($1, $2, $3, $4, $5, 'indexing', $6, $7, $8, $9, $10, $11,
+                       $12, $13, $14, $15, $16, $17, $18)
                ON CONFLICT (id) DO NOTHING"#,
         )
         .bind(collection_id)
@@ -123,7 +124,10 @@ impl HostedProvider {
             account.limits.max_application_replicas_per_collection,
             "application replica quota",
         )?)
-        .bind(to_i64(account.limits.max_files_per_collection, "file quota")?)
+        .bind(to_i64(
+            account.limits.max_files_per_collection,
+            "file quota",
+        )?)
         .bind(to_i64(
             account.limits.hosted_storage_bytes,
             "current file byte quota",
@@ -140,7 +144,9 @@ impl HostedProvider {
         .await?;
         if inserted.rows_affected() == 0 {
             let existing = sqlx::query(
-                "SELECT account_id, template, display_name, timezone, spec_version, resource_revision FROM hosted_provider_collections WHERE id = $1",
+                "SELECT account_id, template, display_name, timezone, head,
+                        spec_version, resource_revision
+                 FROM hosted_provider_collections WHERE id = $1",
             )
             .bind(collection_id)
             .fetch_one(&mut *transaction)
@@ -163,6 +169,12 @@ impl HostedProvider {
                 resource_revision: existing.get("resource_revision"),
             };
             transaction.commit().await?;
+            self.index_new_collection(
+                collection_id,
+                number(existing.get::<i64, _>("head"), "collection head")?,
+                existing.get("resource_revision"),
+            )
+            .await?;
             return Ok(result);
         }
         for document in documents {
@@ -223,12 +235,45 @@ impl HostedProvider {
             .await?;
         }
         transaction.commit().await?;
+        self.index_new_collection(collection_id, initial_sequence, resources.revision.clone())
+            .await?;
         Ok(ProviderCollection {
             id: collection_id,
             display_name: display_name.to_string(),
             spec_version: resources.spec_version,
             resource_revision: resources.revision,
         })
+    }
+
+    async fn index_new_collection(
+        &self,
+        collection_id: Uuid,
+        head: u64,
+        resource_revision: String,
+    ) -> ApiResult<()> {
+        let mut status = self
+            .request_projection_indexing(collection_id, head, resource_revision)
+            .await?;
+        for _ in 0..64 {
+            if status.ready {
+                return Ok(());
+            }
+            let generation = status.building_generation.as_ref().ok_or_else(|| {
+                ApiError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "projection_index_incomplete",
+                    "The new collection projection is not ready.",
+                )
+            })?;
+            self.advance_projection_generation(collection_id, generation.generation_id)
+                .await?;
+            status = self.projection_status(collection_id).await?;
+        }
+        Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "projection_index_budget_exceeded",
+            "The new collection projection exceeded its bounded bootstrap budget.",
+        ))
     }
 
     pub async fn rename_collection(

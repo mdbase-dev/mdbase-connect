@@ -15,14 +15,12 @@ fn query_page_input_digest(
     Ok(Sha256::digest(canonical).to_vec())
 }
 
-const QUERY_RECEIPT_JSON_V1: &str = "json-v1";
-const QUERY_RECEIPT_ZSTD_JSON_V1: &str = "zstd-json-v1";
 const QUERY_RECEIPT_ZSTD_LEVEL: i32 = 3;
 
 fn encode_query_page_receipt_payload(
     result: &OperationResult,
     maximum_bytes: u64,
-) -> ApiResult<(&'static str, Vec<u8>)> {
+) -> ApiResult<Vec<u8>> {
     let plaintext = serde_json::to_vec(result).map_err(|error| {
         ApiError::internal(format!(
             "Hosted query receipt could not serialize: {error}"
@@ -42,42 +40,20 @@ fn encode_query_page_receipt_payload(
             "Hosted query receipt could not be compressed: {error}"
         ))
     })?;
-    if compressed.len() < plaintext.len() {
-        Ok((QUERY_RECEIPT_ZSTD_JSON_V1, compressed))
-    } else {
-        Ok((QUERY_RECEIPT_JSON_V1, plaintext))
-    }
+    Ok(compressed)
 }
 
 fn decode_query_page_receipt_payload(
-    encoding: &str,
     payload: &[u8],
     maximum_bytes: u64,
 ) -> ApiResult<OperationResult> {
     let maximum_bytes = usize::try_from(maximum_bytes)
         .map_err(|_| ApiError::internal("Hosted query receipt byte budget is unsupported."))?;
-    let plaintext = match encoding {
-        QUERY_RECEIPT_JSON_V1 => {
-            if payload.len() > maximum_bytes {
-                return Err(ApiError::internal(
-                    "Hosted query receipt plaintext exceeds its decode budget.",
-                ));
-            }
-            payload.to_vec()
-        }
-        QUERY_RECEIPT_ZSTD_JSON_V1 => zstd::bulk::decompress(payload, maximum_bytes).map_err(
-            |error| {
-                ApiError::internal(format!(
-                    "Hosted query receipt compressed payload is invalid or oversized: {error}"
-                ))
-            },
-        )?,
-        _ => {
-            return Err(ApiError::internal(
-                "Hosted query receipt has an unsupported response encoding.",
-            ))
-        }
-    };
+    let plaintext = zstd::bulk::decompress(payload, maximum_bytes).map_err(|error| {
+        ApiError::internal(format!(
+            "Hosted query receipt compressed payload is invalid or oversized: {error}"
+        ))
+    })?;
     serde_json::from_slice(&plaintext)
         .map_err(|error| ApiError::internal(format!("Hosted query receipt is invalid: {error}")))
 }
@@ -103,7 +79,7 @@ async fn replay_query_page_receipt(
     .await?;
     let row = sqlx::query(
         r#"SELECT collection_id, scope_epoch, request_kind, input_digest,
-                  response_ciphertext, response_encoding
+                  response_ciphertext
            FROM hosted_provider_query_page_receipts
            WHERE replica_id = $1 AND request_id = $2
            FOR UPDATE"#,
@@ -133,7 +109,6 @@ async fn replay_query_page_receipt(
         &query_page_receipt_aad(collection_id, replica.id, request_id),
     )?;
     let result = decode_query_page_receipt_payload(
-        row.get::<String, _>("response_encoding").as_str(),
         &payload,
         HostedExecutionBudgetManifest::published()
             .defaults
@@ -156,7 +131,7 @@ async fn store_query_page_receipt(
     expires_at: DateTime<Utc>,
 ) -> ApiResult<()> {
     let budgets = &HostedExecutionBudgetManifest::published().defaults;
-    let (response_encoding, payload) = encode_query_page_receipt_payload(
+    let payload = encode_query_page_receipt_payload(
         result,
         budgets.query_receipt_ciphertext_bytes,
     )?;
@@ -321,8 +296,8 @@ async fn store_query_page_receipt(
     sqlx::query(
         r#"INSERT INTO hosted_provider_query_page_receipts
              (replica_id, request_id, collection_id, scope_epoch, request_kind,
-              input_digest, response_ciphertext, response_encoding, expires_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
+              input_digest, response_ciphertext, expires_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
     )
     .bind(replica.id)
     .bind(request_id)
@@ -331,7 +306,6 @@ async fn store_query_page_receipt(
     .bind(request_kind.as_str())
     .bind(input_digest)
     .bind(ciphertext)
-    .bind(response_encoding)
     .bind(expires_at)
     .execute(&mut **transaction)
     .await?;
@@ -379,6 +353,11 @@ fn active_query_binding(
     collection: &PgRow,
     catalog: &mdbase::runtime::CompiledCatalog,
 ) -> ApiResult<(Uuid, String, u32, String)> {
+    let collection_head = number(collection.get::<i64, _>("head"), "collection head")?;
+    let active_projection_head = collection
+        .get::<Option<i64>, _>("active_projection_head")
+        .map(|head| number(head, "active projection head"))
+        .transpose()?;
     let generation_id = collection
         .get::<Option<Uuid>, _>("active_projection_generation_id")
         .ok_or_else(|| {
@@ -404,6 +383,7 @@ fn active_query_binding(
     if catalog_revision != catalog.resource_revision()
         || projection_format_version != mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION
         || semantic_engine_version != mdbase::VERSION
+        || active_projection_head != Some(collection_head)
     {
         return Err(ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -541,10 +521,13 @@ fn base_query_binding(
         .and_then(|value| u32::try_from(value).ok());
     let semantic_engine_version =
         collection.get::<Option<String>, _>("active_semantic_engine_version");
+    let collection_head = collection.get::<i64, _>("head");
+    let active_projection_head = collection.get::<Option<i64>, _>("active_projection_head");
     let current = generation_id.is_some()
         && catalog_revision.as_deref() == Some(catalog.resource_revision())
         && projection_format_version == Some(mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION)
-        && semantic_engine_version.as_deref() == Some(mdbase::VERSION);
+        && semantic_engine_version.as_deref() == Some(mdbase::VERSION)
+        && active_projection_head == Some(collection_head);
     (
         current.then_some(generation_id).flatten(),
         catalog.resource_revision().to_string(),
