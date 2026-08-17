@@ -1,0 +1,210 @@
+name: Publish Candidate B Staging Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Exact open pull-request head commit to build
+        required: true
+        type: string
+      pull_request:
+        description: Open pull request whose head must equal source_commit
+        required: true
+        type: number
+      reason:
+        description: Non-secret audit reason for this isolated staging build
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: candidate-b-staging-images-${{ inputs.source_commit }}
+  cancel-in-progress: false
+
+env:
+  SOURCE_COMMIT: ${{ inputs.source_commit }}
+  PULL_REQUEST: ${{ inputs.pull_request }}
+  BUILD_REASON: ${{ inputs.reason }}
+
+jobs:
+  authorize:
+    name: Authorize isolated staging source
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require an open, green, exact pull-request head
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PULL_REQUEST" =~ ^[1-9][0-9]*$ ]]
+          [[ ${#BUILD_REASON} -ge 10 && ${#BUILD_REASON} -le 500 ]]
+
+          pull=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PULL_REQUEST")
+          jq -e \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg commit "$SOURCE_COMMIT" \
+            --argjson pull_request "$PULL_REQUEST" '
+              .state == "open"
+              and .number == $pull_request
+              and .head.sha == $commit
+              and .head.repo.full_name == $repository
+            ' >/dev/null <<<"$pull"
+
+          runs=$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow server-ci.yml \
+            --commit "$SOURCE_COMMIT" \
+            --event pull_request \
+            --limit 20 \
+            --json status,conclusion,headSha,event,url)
+          jq -e --arg commit "$SOURCE_COMMIT" '
+            any(.[];
+              .headSha == $commit
+              and .event == "pull_request"
+              and .status == "completed"
+              and .conclusion == "success")
+            ' >/dev/null <<<"$runs"
+
+  publish:
+    needs: authorize
+    name: Publish staging ${{ matrix.component }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: connect
+            package: mdbase-connect-server
+            dockerfile: deploy/docker/Dockerfile.server
+          - component: hosted-provider
+            package: mdbase-connect-hosted-provider
+            dockerfile: deploy/docker/Dockerfile.hosted-provider
+          - component: mcp
+            package: mdbase-connect-mcp
+            dockerfile: deploy/docker/Dockerfile.mcp
+    env:
+      IMAGE: ghcr.io/mdbase-dev/${{ matrix.package }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.SOURCE_COMMIT }}
+          persist-credentials: false
+
+      - name: Attest checked-out source identity
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+
+      - id: buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - uses: docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c # v4.5.2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Restore hosted-provider Cargo cache mounts
+        if: matrix.component == 'hosted-provider'
+        id: hosted-provider-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: hosted-provider-cache-mounts
+          key: hosted-provider-cargo-${{ hashFiles('deploy/docker/Cargo.lock.hosted-provider', 'deploy/docker/mdbase-rs-revision') }}-${{ env.SOURCE_COMMIT }}
+          restore-keys: |
+            hosted-provider-cargo-${{ hashFiles('deploy/docker/Cargo.lock.hosted-provider', 'deploy/docker/mdbase-rs-revision') }}-
+
+      - name: Inject hosted-provider Cargo cache mounts
+        if: matrix.component == 'hosted-provider'
+        uses: reproducible-containers/buildkit-cache-dance@5b81f4d29dc8397a7d341dba3aeecc7ec54d6361 # v3.3.0
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          cache-dir: hosted-provider-cache-mounts
+          dockerfile: deploy/docker/Dockerfile.hosted-provider
+          skip-extraction: ${{ steps.hosted-provider-cache.outputs.cache-hit }}
+
+      - id: build
+        name: Build immutable staging image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.IMAGE }}:candidate-b-staging-sha-${{ env.SOURCE_COMMIT }}
+          build-args: MDBASE_CONNECT_REVISION=${{ env.SOURCE_COMMIT }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ env.SOURCE_COMMIT }}
+            dev.mdbase.deployment-scope=isolated-staging-only
+          cache-from: type=gha,scope=candidate-b-staging-${{ matrix.package }}
+          cache-to: type=gha,mode=max,scope=candidate-b-staging-${{ matrix.package }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign and attest staging-only identity
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          image_ref="$IMAGE@$DIGEST"
+          cosign sign --yes "$image_ref"
+          jq -n \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg commit "$SOURCE_COMMIT" \
+            --arg component "$COMPONENT" \
+            --arg image "$IMAGE" \
+            --argjson pull_request "$PULL_REQUEST" \
+            --arg reason "$BUILD_REASON" \
+            --arg workflow_run "$GITHUB_RUN_ID" '
+              {
+                repository:$repository,
+                commit:$commit,
+                component:$component,
+                image:$image,
+                pull_request:$pull_request,
+                purpose:"candidate-b-isolated-staging",
+                reason:$reason,
+                workflow_run:$workflow_run
+              }
+            ' >"$RUNNER_TEMP/staging-image.json"
+          cosign attest \
+            --yes \
+            --type https://mdbase.dev/attestations/staging-image/v1 \
+            --predicate "$RUNNER_TEMP/staging-image.json" \
+            "$image_ref"
+
+      - name: Record published digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          jq -n \
+            --arg component "$COMPONENT" \
+            --arg commit "$SOURCE_COMMIT" \
+            --arg image "$IMAGE@$DIGEST" \
+            --argjson pull_request "$PULL_REQUEST" \
+            '{
+              component:$component,
+              commit:$commit,
+              image:$image,
+              pull_request:$pull_request,
+              purpose:"candidate-b-isolated-staging"
+            }' >"$RUNNER_TEMP/$COMPONENT.json"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-b-staging-image-${{ matrix.component }}
+          path: ${{ runner.temp }}/${{ matrix.component }}.json
+          if-no-files-found: error
+          retention-days: 30
