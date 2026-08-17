@@ -100,7 +100,7 @@ BEGIN
     (34, decode('ab662bb7a71e9f742cb197e6842a26b4526b74394b41ba2cc153644d5496a360960b7b6c9e01924ab56e45e7052dab37', 'hex')),
     (35, decode('042632e2b1ee010fabe5c23ae0ddc6aa91720aceafe21a263ca08a6b117a0638d0166c93deaf9dd565ba8eba32de3950', 'hex')),
     (36, decode('b3bf3e4d582211cf1df4a15806c5ae2715538aadd0fa6139aac580f4192ffa17668f4a07b34e0d9f34ca2a6a204f4bbb', 'hex')),
-    (37, decode('0dba4741d39cc682c4d032f427b5fcad5517a0ce434b0ee580c5e6280a9cc0398d65889884520206900bb702110c829d', 'hex'))
+    (37, decode('d159baacd7a8c3e5168d01199ed0dc9d084583c571210943e13be8aa03795e33a4bd09e35231f4ad7d2801811ef16047', 'hex'))
   ) AS expected(version, checksum)
   LEFT JOIN _sqlx_migrations applied ON applied.version = expected.version
   WHERE applied.checksum IS DISTINCT FROM expected.checksum;
@@ -175,7 +175,8 @@ BEGIN
   FROM unnest(ARRAY[
     'admission_fence_token',
     'admission_fence_kind',
-    'admission_lease_expires_at'
+    'admission_lease_expires_at',
+    'admission_owner_expires_at'
   ]) AS required(column_name)
   WHERE NOT EXISTS (
     SELECT 1
@@ -327,6 +328,9 @@ BEGIN
       ('hosted_provider_runtime_control_lease_state_check',
        'hosted_provider_runtime_control', 'c'::"char", false, false,
        'CHECK (((admission_lease_expires_at IS NULL) OR ((NOT query_admission_suspended) AND (admission_fence_token IS NOT NULL) AND (admission_fence_kind = ''cutover''::text))))'),
+      ('hosted_provider_runtime_control_owner_state_check',
+       'hosted_provider_runtime_control', 'c'::"char", false, false,
+       'CHECK ((((admission_fence_kind = ''cutover''::text) AND (admission_owner_expires_at IS NOT NULL)) OR ((admission_fence_kind IS DISTINCT FROM ''cutover''::text) AND (admission_owner_expires_at IS NULL))))'),
       ('hosted_provider_runtime_control_pkey',
        'hosted_provider_runtime_control', 'p'::"char", false, false,
        'PRIMARY KEY (singleton)'),
@@ -377,9 +381,9 @@ BEGIN
   WHERE namespace.nspname = 'public'
     AND relation.relname = 'hosted_provider_runtime_control'
     AND constraint_row.contype IN ('c', 'p');
-  IF runtime_constraint_count <> 8 THEN
+  IF runtime_constraint_count <> 9 THEN
     RAISE EXCEPTION
-      'final_rollback_blocked: expected exactly eight runtime-control check/key constraints, found %',
+      'final_rollback_blocked: expected exactly nine runtime-control check/key constraints, found %',
       runtime_constraint_count;
   END IF;
 
@@ -391,7 +395,11 @@ BEGIN
     AND suspension_reason = 'controlled_provider_' || requested_kind
     AND admission_fence_token = requested_token
     AND admission_fence_kind = requested_kind
-    AND admission_lease_expires_at IS NULL;
+    AND admission_lease_expires_at IS NULL
+    AND (
+      (requested_kind = 'cutover' AND admission_owner_expires_at > clock_timestamp())
+      OR (requested_kind = 'rollback' AND admission_owner_expires_at IS NULL)
+    );
   IF runtime_rows <> 1 OR (SELECT count(*) FROM hosted_provider_runtime_control) <> 1 THEN
     RAISE EXCEPTION
       'final_schema_preflight_blocked: expected exactly one matching controlled suspended admission row';

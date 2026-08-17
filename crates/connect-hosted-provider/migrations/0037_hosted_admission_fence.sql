@@ -6,6 +6,7 @@ ALTER TABLE hosted_provider_runtime_control
   ADD COLUMN admission_fence_token uuid,
   ADD COLUMN admission_fence_kind text,
   ADD COLUMN admission_lease_expires_at timestamptz,
+  ADD COLUMN admission_owner_expires_at timestamptz,
   ADD CONSTRAINT hosted_provider_runtime_control_fence_kind_check CHECK (
     admission_fence_kind IS NULL OR admission_fence_kind IN ('cutover', 'rollback')
   ),
@@ -23,5 +24,15 @@ ALTER TABLE hosted_provider_runtime_control
       NOT query_admission_suspended
       AND admission_fence_token IS NOT NULL
       AND admission_fence_kind = 'cutover'
+    )
+  ),
+  ADD CONSTRAINT hosted_provider_runtime_control_owner_state_check CHECK (
+    (
+      admission_fence_kind = 'cutover'
+      AND admission_owner_expires_at IS NOT NULL
+    )
+    OR (
+      admission_fence_kind IS DISTINCT FROM 'cutover'
+      AND admission_owner_expires_at IS NULL
     )
   );

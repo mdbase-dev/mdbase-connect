@@ -6,7 +6,7 @@ The live production baseline is beta69 with successful SQLx migrations 1–34. T
 
 - `0035_hosted_semantic_projections.sql`: versioned semantic projections, relationship graph, generation/rebuild state, integrity binding, and mandatory cursor/relationship indexes;
 - `0036_hosted_query_runtime.sql`: snapshot-keyset query cursors, invocation-backed Obsidian Base state, bounded replay receipts/accounting, and runtime admission control.
-- `0037_hosted_admission_fence.sql`: operation-bound cutover/rollback fencing and the provisional-open expiry lease.
+- `0037_hosted_admission_fence.sql`: operation-bound cutover/rollback fencing, a durable expiring cutover-owner lease, and the provisional-open expiry lease.
 
 The chronological beta72/beta73 migrations 0035–0059 are development history and are not a production upgrade path. Current beta73 staging must not be promoted or pointed at the rewritten migration set.
 
@@ -73,6 +73,12 @@ The provider image contains `mdbase-hosted-projection-indexer`. It uses the same
   ceilings. Reaching any ceiling is a typed non-success result, never partial
   readiness. It is run only as a pre-deploy job after the old provider service is
   terminally suspended, so no source-34 process can race migration or indexing.
+  Migrations execute on the exact PostgreSQL session holding the global lock;
+  ordinary migration-capable startup serializes behind the same lock. Immediately
+  after migration the operator atomically persists its owner token and bounded
+  owner lease while admission is closed. Each page and batch rechecks both the
+  session lock and durable owner. A same-token recovery renews the lease; a new
+  token may claim only an expired owner whose admission is already closed.
 
 Output is machine-readable JSON with run identity and timestamps but no exact Markdown, body prose, keys, or ciphertext. Repeated processes are idempotent. `verify` never treats a building or partially complete generation as success.
 
@@ -88,11 +94,12 @@ Normal reads, queries, validation, and mutations never materialize a collection-
 4. Terminally suspend the source provider at the service scheduler. The
    candidate operator re-attests the drained source-34 state, then `cutover`
    acquires a PostgreSQL-wide owner-token advisory lock before applying
-   migrations 0035–0037. The one total deadline covers key setup, connection,
-   migrations, rebuild and verification. Every page and batch rechecks lock
-   ownership before continuing. The operator then persists and independently
-   attests the operation-bound admission fence
-   before a candidate process may start.
+   migrations 0035–0037 on that same lock-owning session. The one total deadline
+   covers key setup, connection, migrations, rebuild and verification. Server-side
+   statement deadlines shrink with the remaining budget, and timeout closes the
+   cutover database lanes. Before releasing the session lock, the operator
+   persists the expiring durable owner and admission fence. Every page and batch
+   rechecks both forms of ownership before continuing.
 5. Abort on a typed cutover budget result, any unverified collection, a changed
    expected head/resource binding, or an incomplete inventory. Retry resumes the
    durable generation checkpoints while the service remains suspended.
@@ -114,7 +121,7 @@ Schema downgrade is neither required nor permitted. Beta69 uses `ignore_missing`
 
 1. Keep external traffic in maintenance and run `suspend-hosted-query-admission-for-rollback.sql`. Its exclusive advisory transaction lock drains final query pages before persisting the fence.
 2. Strongly inventory canonical exact tables.
-3. Run `prepare-hosted-provider-beta69-rollback.sql`. It requires the exact successful 1–36 ledger, rejects final-only `indexing` rows, deletes only ephemeral final query cursors/invocations/replay receipts, and abandons only incomplete derived generations. It does not delete or update records, versions, changes, mutation receipts, resources, files, grants, journals, or outbox rows.
+3. Run `prepare-hosted-provider-beta69-rollback.sql`. It requires the exact successful 1–37 ledger, rejects final-only `indexing` rows, deletes only ephemeral final query cursors/invocations/replay receipts, and abandons only incomplete derived generations. It does not delete or update records, versions, changes, mutation receipts, resources, files, grants, journals, or outbox rows.
 4. Deploy the exact beta69 image set. Reopen external maintenance only after beta69 exact reads/writes and consumer smoke checks pass. The final database admission flag is ignored by beta69 and should remain set for the later roll-forward.
 5. To roll forward, return to maintenance, deploy the final image, run indexer plan/apply/verify, and prove beta69-era writes caused only stale bindings that rebuild from exact authority.
 6. Resume database admission with `resume-hosted-query-admission.sql` only after the final runtime and every collection verify.

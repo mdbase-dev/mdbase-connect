@@ -24,7 +24,9 @@ BEGIN
   WHERE singleton = true
     AND query_admission_suspended = true
     AND admission_fence_token = requested_token
-    AND admission_fence_kind = 'cutover';
+    AND admission_fence_kind = 'cutover'
+    AND admission_owner_expires_at >
+          clock_timestamp() + make_interval(secs => lease_seconds);
   GET DIAGNOSTICS affected_rows = ROW_COUNT;
   IF affected_rows <> 1 THEN
     RAISE EXCEPTION

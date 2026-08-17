@@ -78,7 +78,7 @@ BEGIN
     (34, decode('ab662bb7a71e9f742cb197e6842a26b4526b74394b41ba2cc153644d5496a360960b7b6c9e01924ab56e45e7052dab37', 'hex')),
     (35, decode('042632e2b1ee010fabe5c23ae0ddc6aa91720aceafe21a263ca08a6b117a0638d0166c93deaf9dd565ba8eba32de3950', 'hex')),
     (36, decode('b3bf3e4d582211cf1df4a15806c5ae2715538aadd0fa6139aac580f4192ffa17668f4a07b34e0d9f34ca2a6a204f4bbb', 'hex')),
-    (37, decode('0dba4741d39cc682c4d032f427b5fcad5517a0ce434b0ee580c5e6280a9cc0398d65889884520206900bb702110c829d', 'hex'))
+    (37, decode('d159baacd7a8c3e5168d01199ed0dc9d084583c571210943e13be8aa03795e33a4bd09e35231f4ad7d2801811ef16047', 'hex'))
   ) AS expected(version, checksum)
   LEFT JOIN public._sqlx_migrations applied ON applied.version = expected.version
   WHERE expected.version <= expected_max

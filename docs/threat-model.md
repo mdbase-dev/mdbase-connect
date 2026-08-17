@@ -204,11 +204,17 @@ by digest. Desktop artifacts use platform signing where configured and are
 explicitly labelled as unsigned beta previews otherwise.
 
 Candidate B cutover takes a PostgreSQL-wide owner-token lock before migration,
-keeps external maintenance and the durable admission fence closed while images
-change, and opens data/control routes only under a short database lease. The
-same owner token must finalize that lease after open verification. If the
-operator process or host disappears first, lease expiry makes every non-health
-provider route fail with 503 without depending on a shell cleanup trap.
+runs migrations on that same session, and atomically persists a second durable,
+expiring owner lease before releasing it. Every data/control request holds a
+shared database admission permit for its complete handler lifetime, so the
+exclusive fence cannot commit while an admitted mutation is still running.
+External maintenance and the durable admission fence remain closed while images
+change. Admission opens only under a short database lease, which the same owner
+token must finalize after open verification. If the operator process or host
+disappears first, lease expiry makes every non-health provider route fail with
+503 without depending on a shell cleanup trap. The privacy-safe query-activity
+diagnostic remains authenticated but outside the admission router so a closed
+operator can prove drain and cleanup.
 
 ## Abuse cases and controls
 

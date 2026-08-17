@@ -7,11 +7,61 @@ impl HostedProvider {
         blob_store: Arc<dyn BlobStore>,
         notification_config: Option<HostedNotificationConfig>,
     ) -> ApiResult<Self> {
+        Self::connect_internal(
+            database_url,
+            crypto,
+            limits,
+            blob_store,
+            notification_config,
+            true,
+            None,
+        )
+        .await
+    }
+
+    /// Connect after a cutover operator has applied the reviewed migration
+    /// ledger on the exact PostgreSQL session that owns the global cutover
+    /// lock. This deliberately cannot migrate on a second pooled session.
+    pub async fn connect_pre_migrated(
+        database_url: &str,
+        crypto: ProviderCrypto,
+        limits: ProviderLimits,
+        blob_store: Arc<dyn BlobStore>,
+        notification_config: Option<HostedNotificationConfig>,
+        cutover_statement_timeout: Duration,
+    ) -> ApiResult<Self> {
+        Self::connect_internal(
+            database_url,
+            crypto,
+            limits,
+            blob_store,
+            notification_config,
+            false,
+            Some(cutover_statement_timeout),
+        )
+        .await
+    }
+
+    async fn connect_internal(
+        database_url: &str,
+        crypto: ProviderCrypto,
+        limits: ProviderLimits,
+        blob_store: Arc<dyn BlobStore>,
+        notification_config: Option<HostedNotificationConfig>,
+        run_migrations: bool,
+        cutover_statement_timeout: Option<Duration>,
+    ) -> ApiResult<Self> {
         let started = Instant::now();
         let mut retry_delay = Duration::from_millis(100);
         loop {
-            match hosted_pool_options().connect(database_url).await {
-                Ok(pool) => match run_hosted_migrations(&pool).await {
+            let pool_options = cutover_statement_timeout
+                .map_or_else(hosted_pool_options, hosted_cutover_pool_options);
+            match pool_options.connect(database_url).await {
+                Ok(pool) => match if run_migrations {
+                    run_hosted_migrations(&pool).await
+                } else {
+                    Ok(())
+                } {
                     Ok(()) => match verify_database_key(&pool, &crypto).await {
                         Ok(()) => {
                             let query_pool = hosted_query_pool_options()
@@ -181,6 +231,37 @@ impl HostedProvider {
         Ok(self.notification_recovery.read().await.clone())
     }
 
+    /// Apply a shrinking server-side statement deadline to the single cutover
+    /// lane before each bounded page/batch operation.
+    pub async fn configure_cutover_statement_timeout(&self, remaining: Duration) -> ApiResult<()> {
+        if remaining.is_zero() {
+            return Err(ApiError::new(
+                StatusCode::REQUEST_TIMEOUT,
+                "projection_cutover_time_budget_exceeded",
+                "The projection cutover time budget is exhausted.",
+            ));
+        }
+        let timeout_ms = remaining.as_millis().clamp(1, i32::MAX as u128);
+        let mut connection = self.pool.acquire().await?;
+        sqlx::query("SELECT set_config('statement_timeout', $1, false)")
+            .bind(format!("{timeout_ms}ms"))
+            .execute(&mut *connection)
+            .await?;
+        Ok(())
+    }
+
+    /// Close every database lane after client-side cutover cancellation so no
+    /// statement, transaction, snapshot, or permit survives a typed timeout.
+    pub async fn close_cutover_database_lanes(&self) {
+        let primary = self.pool.close();
+        let query = self.query_pool.close();
+        let cancellation = self.query_cancellation_pool.close();
+        let _ = tokio::time::timeout(Duration::from_secs(5), async {
+            tokio::join!(primary, query, cancellation);
+        })
+        .await;
+    }
+
     async fn verify_key_readiness(&self) -> ApiResult<()> {
         // Serialize probes so a burst of health requests performs at most one KMS
         // decrypt. A short failure cache prevents an unavailable key service from
@@ -334,13 +415,83 @@ pub(super) fn concurrent_migration_index_matches(
                     || normalized.ends_with(&default_c_and_nulls_suffix))))
 }
 
+const CUTOVER_LOCK_NAME: &str = "mdbase-candidate-b-cutover-v1";
+
 async fn run_hosted_migrations(pool: &PgPool) -> Result<(), String> {
     let mut connection = pool.acquire().await.map_err(|error| error.to_string())?;
-    sqlx::query("SET lock_timeout = '5s'")
+    let acquired: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock(hashtextextended($1, 0))")
+        .bind(CUTOVER_LOCK_NAME)
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(|error| error.to_string())?;
+    if !acquired {
+        return Err("hosted migration global cutover lock is unavailable".to_string());
+    }
+    let migration =
+        run_hosted_migrations_on_connection(&mut connection, Duration::from_secs(30 * 60)).await;
+    let unlocked: Result<bool, String> =
+        sqlx::query_scalar("SELECT pg_advisory_unlock(hashtextextended($1, 0))")
+            .bind(CUTOVER_LOCK_NAME)
+            .fetch_one(&mut *connection)
+            .await
+            .map_err(|error| error.to_string());
+    migration.and_then(|()| match unlocked {
+        Ok(true) => Ok(()),
+        Ok(false) => Err("hosted migration global cutover lock was lost".to_string()),
+        Err(error) => Err(error),
+    })
+}
+
+/// Apply the migration ledger on the already locked cutover session. SQL
+/// deadlines are derived from the caller's remaining wall-clock budget.
+pub async fn run_hosted_cutover_migrations(
+    connection: &mut sqlx::PgConnection,
+    remaining: Duration,
+) -> Result<(), String> {
+    if remaining.is_zero() {
+        return Err("hosted cutover migration deadline is exhausted".to_string());
+    }
+    let owns_lock: bool = sqlx::query_scalar(
+        r#"WITH lock_key AS (
+             SELECT hashtextextended($1, 0) AS value
+           )
+           SELECT EXISTS (
+             SELECT 1
+             FROM pg_locks, lock_key
+             WHERE locktype = 'advisory'
+               AND pid = pg_backend_pid()
+               AND granted
+               AND classid = (((lock_key.value >> 32) & 4294967295)::bigint)::oid
+               AND objid = ((lock_key.value & 4294967295)::bigint)::oid
+               AND objsubid = 1
+           )"#,
+    )
+    .bind(CUTOVER_LOCK_NAME)
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(|error| error.to_string())?;
+    if !owns_lock {
+        return Err("hosted cutover migration session does not own the global lock".to_string());
+    }
+    run_hosted_migrations_on_connection(connection, remaining).await
+}
+
+async fn run_hosted_migrations_on_connection(
+    connection: &mut sqlx::PgConnection,
+    remaining: Duration,
+) -> Result<(), String> {
+    let statement_timeout_ms = remaining.as_millis().clamp(1, i32::MAX as u128);
+    let lock_timeout_ms = remaining
+        .min(Duration::from_secs(5))
+        .as_millis()
+        .clamp(1, i32::MAX as u128);
+    sqlx::query("SELECT set_config('lock_timeout', $1, false)")
+        .bind(format!("{lock_timeout_ms}ms"))
         .execute(&mut *connection)
         .await
         .map_err(|error| error.to_string())?;
-    sqlx::query("SET statement_timeout = '30min'")
+    sqlx::query("SELECT set_config('statement_timeout', $1, false)")
+        .bind(format!("{statement_timeout_ms}ms"))
         .execute(&mut *connection)
         .await
         .map_err(|error| error.to_string())?;
@@ -454,6 +605,32 @@ fn hosted_pool_options() -> PgPoolOptions {
         .after_connect(|connection, _metadata| {
             Box::pin(async move {
                 sqlx::query("SET statement_timeout = 15000")
+                    .execute(&mut *connection)
+                    .await?;
+                sqlx::query("SET lock_timeout = 5000")
+                    .execute(&mut *connection)
+                    .await?;
+                sqlx::query("SET idle_in_transaction_session_timeout = 10000")
+                    .execute(&mut *connection)
+                    .await?;
+                Ok(())
+            })
+        })
+}
+
+fn hosted_cutover_pool_options(statement_timeout: Duration) -> PgPoolOptions {
+    let timeout_ms = statement_timeout.as_millis().clamp(1, i32::MAX as u128);
+    PgPoolOptions::new()
+        .max_connections(1)
+        .min_connections(1)
+        .acquire_timeout(DATABASE_ACQUIRE_TIMEOUT)
+        .idle_timeout(Duration::from_secs(10 * 60))
+        .max_lifetime(Duration::from_secs(30 * 60))
+        .after_connect(move |connection, _metadata| {
+            let timeout = format!("{timeout_ms}ms");
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('statement_timeout', $1, false)")
+                    .bind(timeout)
                     .execute(&mut *connection)
                     .await?;
                 sqlx::query("SET lock_timeout = 5000")

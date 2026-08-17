@@ -39,9 +39,11 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
     assert!(fence_migration.contains("ADD COLUMN admission_fence_token uuid"));
     assert!(fence_migration.contains("ADD COLUMN admission_fence_kind text"));
     assert!(fence_migration.contains("ADD COLUMN admission_lease_expires_at timestamptz"));
+    assert!(fence_migration.contains("ADD COLUMN admission_owner_expires_at timestamptz"));
     assert!(suspend.contains("pg_advisory_xact_lock"));
     assert!(suspend.contains("query_admission_suspended = true"));
     assert!(suspend.contains("admission_fence_token = requested_token"));
+    assert!(suspend.contains("admission_owner_expires_at"));
     assert!(suspend.contains("GET DIAGNOSTICS affected_rows = ROW_COUNT"));
     assert!(suspend.contains("affected_rows <> 1"));
     assert!(resume.contains("query_admission_suspended = false"));
@@ -51,8 +53,10 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
     assert!(resume.contains("affected_rows <> 1"));
     assert!(provisional.contains("admission_lease_expires_at"));
     assert!(provisional.contains("lease_seconds < 30 OR lease_seconds > 600"));
+    assert!(provisional.contains("admission_owner_expires_at >"));
     assert!(finalize.contains("admission_lease_expires_at > clock_timestamp()"));
     assert!(finalize.contains("admission_fence_token = NULL"));
+    assert!(finalize.contains("admission_owner_expires_at = NULL"));
     assert!(preflight.contains("expected exact successful final ledger 1-37"));
     assert!(preflight.contains("attest-hosted-provider-migration-ledger.sql"));
     assert!(preflight.contains("admission_fence_token = requested_token"));
@@ -79,7 +83,7 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
     assert!(final_preflight.contains("pg_get_constraintdef"));
     assert!(final_preflight.contains("pg_get_functiondef"));
     assert!(final_preflight.contains("expected exactly ten non-internal"));
-    assert!(final_preflight.contains("expected exactly eight runtime-control"));
+    assert!(final_preflight.contains("expected exactly nine runtime-control"));
     assert!(final_preflight
         .contains("expected exactly one matching controlled suspended admission row"));
     assert!(!final_preflight.contains("DELETE FROM"));
@@ -215,8 +219,10 @@ fn snapshot_mtime_cursor_index_matches_the_only_direct_scalar_order() {
 fn concurrent_index_migrations_have_bounded_retry_cleanup() {
     assert_eq!(super::lifecycle::CONCURRENT_MIGRATION_INDEXES.len(), 2);
     let lifecycle = include_str!("lifecycle.rs");
-    assert!(lifecycle.contains("SET lock_timeout = '5s'"));
-    assert!(lifecycle.contains("SET statement_timeout = '30min'"));
+    assert!(lifecycle.contains("set_config('lock_timeout', $1, false)"));
+    assert!(lifecycle.contains("set_config('statement_timeout', $1, false)"));
+    assert!(lifecycle.contains("pg_try_advisory_lock"));
+    assert!(lifecycle.contains("run_hosted_cutover_migrations"));
     assert!(lifecycle.contains("pg_get_indexdef"));
     assert!(lifecycle.contains("DROP INDEX CONCURRENTLY IF EXISTS"));
 }

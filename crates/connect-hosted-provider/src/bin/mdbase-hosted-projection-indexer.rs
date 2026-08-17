@@ -7,8 +7,9 @@ use std::{
 use async_trait::async_trait;
 use clap::{Parser, Subcommand, ValueEnum};
 use mdbase_connect_hosted_provider::{
-    ApiError, ApiResult, BlobByteStream, BlobStore, HostedProvider, KeyWrappingBackend,
-    KeyWrappingConfig, PresignedPart, ProviderCrypto, ProviderLimits, UploadedPart,
+    run_hosted_cutover_migrations, ApiError, ApiResult, BlobByteStream, BlobStore, HostedProvider,
+    KeyWrappingBackend, KeyWrappingConfig, PresignedPart, ProviderCrypto, ProviderLimits,
+    UploadedPart,
 };
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -240,13 +241,105 @@ async fn run(arguments: Arguments) -> ApiResult<Envelope> {
             }
         };
     }
-    let provider_future = HostedProvider::connect(
-        &database_url,
-        crypto,
-        ProviderLimits::default(),
-        Arc::new(ProjectionOnlyBlobStore),
-        None,
-    );
+    if let (Some(budget), Some(lock)) = (cutover_budget, cutover_lock.as_mut()) {
+        let migration_result = tokio::time::timeout(
+            remaining_cutover_time(started, budget),
+            run_hosted_cutover_migrations(
+                &mut lock.connection,
+                remaining_cutover_time(started, budget),
+            ),
+        )
+        .await;
+        match migration_result {
+            Ok(Ok(())) => {
+                let owner_lease = Duration::from_secs(
+                    arguments
+                        .command
+                        .cutover_max_seconds()
+                        .unwrap_or(0)
+                        .saturating_add(3_600)
+                        .clamp(600, 86_400),
+                );
+                match claim_cutover_owner(
+                    &mut lock.connection,
+                    arguments
+                        .command
+                        .cutover_owner_token()
+                        .expect("cutover token"),
+                    owner_lease,
+                )
+                .await
+                {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        return Ok(cutover_startup_failure(
+                            run_id,
+                            recorded_at,
+                            "projection_cutover_owner_unavailable",
+                            "durable_owner",
+                            None,
+                        ));
+                    }
+                    Err(error) => {
+                        return Ok(cutover_startup_failure(
+                            run_id,
+                            recorded_at,
+                            "projection_cutover_owner_failed",
+                            "durable_owner",
+                            Some(error.message),
+                        ));
+                    }
+                }
+            }
+            Ok(Err(error)) => {
+                return Ok(cutover_startup_failure(
+                    run_id,
+                    recorded_at,
+                    "projection_cutover_migration_failed",
+                    "migration",
+                    Some(error),
+                ));
+            }
+            Err(_) => {
+                if let Some(lock) = cutover_lock.take() {
+                    close_cutover_session(&database_url, lock).await;
+                }
+                return Ok(cutover_startup_failure(
+                    run_id,
+                    recorded_at,
+                    "projection_cutover_time_budget_exceeded",
+                    "migration",
+                    None,
+                ));
+            }
+        }
+    }
+    let cutover_connection = cutover_budget.is_some();
+    let provider_future = async {
+        if cutover_connection {
+            HostedProvider::connect_pre_migrated(
+                &database_url,
+                crypto,
+                ProviderLimits::default(),
+                Arc::new(ProjectionOnlyBlobStore),
+                None,
+                remaining_cutover_time(
+                    started,
+                    cutover_budget.expect("cutover connection has a budget"),
+                ),
+            )
+            .await
+        } else {
+            HostedProvider::connect(
+                &database_url,
+                crypto,
+                ProviderLimits::default(),
+                Arc::new(ProjectionOnlyBlobStore),
+                None,
+            )
+            .await
+        }
+    };
     let provider = match cutover_budget {
         Some(budget) => {
             match tokio::time::timeout(remaining_cutover_time(started, budget), provider_future)
@@ -383,11 +476,37 @@ async fn run(arguments: Arguments) -> ApiResult<Envelope> {
             )
         }
         Command::Cutover(cutover) => {
-            let lock = cutover_lock.as_mut().ok_or_else(|| {
-                ApiError::internal("Projection cutover global lock was not retained.")
-            })?;
-            let (ok, result) = run_cutover(&provider, lock, started, cutover).await?;
-            (ok, "cutover", result)
+            let remaining =
+                remaining_cutover_time(started, Duration::from_secs(cutover.max_seconds));
+            let cutover_result = {
+                let lock = cutover_lock.as_mut().ok_or_else(|| {
+                    ApiError::internal("Projection cutover global lock was not retained.")
+                })?;
+                tokio::time::timeout(
+                    remaining,
+                    run_cutover(&provider, &mut lock.connection, started, cutover),
+                )
+                .await
+            };
+            match cutover_result {
+                Ok(result) => {
+                    let (ok, result) = result?;
+                    (ok, "cutover", result)
+                }
+                Err(_) => {
+                    provider.close_cutover_database_lanes().await;
+                    if let Some(lock) = cutover_lock.take() {
+                        close_cutover_session(&database_url, lock).await;
+                    }
+                    return Ok(cutover_startup_failure(
+                        run_id,
+                        recorded_at,
+                        "projection_cutover_time_budget_exceeded",
+                        "projection_execution",
+                        None,
+                    ));
+                }
+            }
         }
     };
     Ok(Envelope {
@@ -431,7 +550,7 @@ fn cutover_startup_failure(
 async fn acquire_cutover_lock(
     database_url: &str,
     owner_token: Uuid,
-) -> ApiResult<Option<PgConnection>> {
+) -> ApiResult<Option<CutoverLock>> {
     let mut connection = PgConnection::connect(database_url).await?;
     let application_name = format!("mdbase-candidate-b-cutover/{owner_token}");
     sqlx::query("SELECT set_config('application_name', $1, false)")
@@ -443,7 +562,121 @@ async fn acquire_cutover_lock(
     )
     .fetch_one(&mut connection)
     .await?;
-    Ok(acquired.then_some(connection))
+    if !acquired {
+        return Ok(None);
+    }
+    let backend_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut connection)
+        .await?;
+    Ok(Some(CutoverLock {
+        connection,
+        backend_pid,
+        application_name,
+    }))
+}
+
+struct CutoverLock {
+    connection: PgConnection,
+    backend_pid: i32,
+    application_name: String,
+}
+
+impl Command {
+    fn cutover_owner_token(&self) -> Option<Uuid> {
+        match self {
+            Self::Cutover(arguments) => Some(arguments.owner_token),
+            _ => None,
+        }
+    }
+
+    fn cutover_max_seconds(&self) -> Option<u64> {
+        match self {
+            Self::Cutover(arguments) => Some(arguments.max_seconds),
+            _ => None,
+        }
+    }
+}
+
+async fn claim_cutover_owner(
+    connection: &mut PgConnection,
+    owner_token: Uuid,
+    lease: Duration,
+) -> ApiResult<bool> {
+    sqlx::query("BEGIN").execute(&mut *connection).await?;
+    let result = async {
+        sqlx::query(
+            "SELECT pg_advisory_xact_lock(hashtextextended('mdbase-hosted-query-admission-v1', 0))",
+        )
+        .execute(&mut *connection)
+        .await?;
+        let updated = sqlx::query(
+            r#"UPDATE hosted_provider_runtime_control
+               SET query_admission_suspended = true,
+                   suspension_reason = 'controlled_provider_cutover',
+                   admission_fence_token = $1,
+                   admission_fence_kind = 'cutover',
+                   admission_lease_expires_at = NULL,
+                   admission_owner_expires_at =
+                     clock_timestamp() + make_interval(secs => $2),
+                   updated_at = now()
+               WHERE singleton = true
+                 AND (
+                   admission_fence_token IS NULL
+                   OR (
+                     admission_fence_token = $1
+                     AND admission_fence_kind = 'cutover'
+                   )
+                   OR (
+                     admission_fence_kind = 'cutover'
+                     AND admission_owner_expires_at <= clock_timestamp()
+                     AND (
+                       query_admission_suspended
+                       OR admission_lease_expires_at <= clock_timestamp()
+                     )
+                   )
+                 )"#,
+        )
+        .bind(owner_token)
+        .bind(i64::try_from(lease.as_secs()).unwrap_or(i64::MAX))
+        .execute(&mut *connection)
+        .await?;
+        Ok::<bool, ApiError>(updated.rows_affected() == 1)
+    }
+    .await;
+    match result {
+        Ok(owned) => {
+            sqlx::query("COMMIT").execute(&mut *connection).await?;
+            Ok(owned)
+        }
+        Err(error) => {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *connection).await;
+            Err(error)
+        }
+    }
+}
+
+async fn close_cutover_session(database_url: &str, lock: CutoverLock) {
+    let backend_pid = lock.backend_pid;
+    let application_name = lock.application_name;
+    let _ = tokio::time::timeout(Duration::from_secs(5), lock.connection.close()).await;
+    let Ok(Ok(mut observer)) =
+        tokio::time::timeout(Duration::from_secs(5), PgConnection::connect(database_url)).await
+    else {
+        return;
+    };
+    let _ = tokio::time::timeout(Duration::from_secs(5), async {
+        let _terminated: Result<Option<bool>, sqlx::Error> = sqlx::query_scalar(
+            r#"SELECT pg_terminate_backend(pid)
+               FROM pg_stat_activity
+               WHERE pid = $1
+                 AND application_name = $2"#,
+        )
+        .bind(backend_pid)
+        .bind(application_name)
+        .fetch_optional(&mut observer)
+        .await;
+    })
+    .await;
 }
 
 async fn cutover_lock_owned(connection: &mut PgConnection, owner_token: Uuid) -> ApiResult<bool> {
@@ -462,9 +695,19 @@ async fn cutover_lock_owned(connection: &mut PgConnection, owner_token: Uuid) ->
                  AND classid = (((lock_key.value >> 32) & 4294967295)::bigint)::oid
                  AND objid = ((lock_key.value & 4294967295)::bigint)::oid
                  AND objsubid = 1
+             )
+             AND EXISTS (
+               SELECT 1
+               FROM hosted_provider_runtime_control
+               WHERE singleton = true
+                 AND query_admission_suspended = true
+                 AND admission_fence_token = $2
+                 AND admission_fence_kind = 'cutover'
+                 AND admission_owner_expires_at > clock_timestamp()
              )"#,
     )
     .bind(application_name)
+    .bind(owner_token)
     .fetch_one(connection)
     .await
     .map_err(Into::into)
@@ -528,6 +771,9 @@ async fn run_cutover(
                 ),
             ));
         }
+        provider
+            .configure_cutover_statement_timeout(remaining_cutover_time(started, deadline))
+            .await?;
         let plan = provider
             .projection_index_plan(after, arguments.page_limit)
             .await?;
@@ -564,6 +810,9 @@ async fn run_cutover(
                     ),
                 ));
             }
+            provider
+                .configure_cutover_statement_timeout(remaining_cutover_time(started, deadline))
+                .await?;
             let mut status = provider
                 .request_projection_indexing(
                     entry.collection_id,
@@ -641,6 +890,9 @@ async fn run_cutover(
                     ));
                 };
                 provider
+                    .configure_cutover_statement_timeout(remaining_cutover_time(started, deadline))
+                    .await?;
+                provider
                     .advance_projection_generation(entry.collection_id, generation.generation_id)
                     .await?;
                 collection_batches += 1;
@@ -648,6 +900,9 @@ async fn run_cutover(
                 status = provider.projection_status(entry.collection_id).await?;
             }
 
+            provider
+                .configure_cutover_statement_timeout(remaining_cutover_time(started, deadline))
+                .await?;
             let verification = provider
                 .verify_projection_index(entry.collection_id)
                 .await?;

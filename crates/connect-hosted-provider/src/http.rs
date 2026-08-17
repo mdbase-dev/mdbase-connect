@@ -61,6 +61,10 @@ const MAX_BODY_BYTES: usize = 3 * 1024 * 1024;
 // Record imports are paged, but a page can contain several large canonical
 // documents. Provider quotas and the concurrency gate bound parsed work.
 const MAX_IMPORT_BODY_BYTES: usize = 16 * 1024 * 1024;
+// An admitted request holds one primary-pool connection for its cross-process
+// advisory permit. Eight permits leave ten primary connections for handler and
+// maintenance work, preventing a pool-ordering deadlock under saturation.
+const MAX_ADMITTED_REQUESTS: usize = 8;
 #[derive(Clone)]
 pub struct AppState {
     provider: HostedProvider,
@@ -79,7 +83,7 @@ impl AppState {
         Ok(Self {
             provider,
             internal_token_hash: Sha256::digest(internal_token.as_bytes()).into(),
-            request_slots: Arc::new(Semaphore::new(128)),
+            request_slots: Arc::new(Semaphore::new(MAX_ADMITTED_REQUESTS)),
         })
     }
 
@@ -255,7 +259,6 @@ pub fn app(state: AppState) -> Router {
             "/internal/v1/replicas/{replica_id}/policy",
             patch(update_replica_policy),
         )
-        .route("/internal/v1/query-activity", get(query_activity))
         .route("/internal/v1/replicas/{replica_id}", delete(revoke_replica))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -314,6 +317,15 @@ pub fn app(state: AppState) -> Router {
         )
         .layer(DefaultBodyLimit::max(MAX_IMPORT_BODY_BYTES))
         .route_layer(middleware::from_fn(require_bearer_request));
+    // The privacy-safe drain diagnostic remains internally authenticated but
+    // deliberately bypasses data admission so a fenced operator can prove all
+    // query resources have drained.
+    let diagnostics = Router::new()
+        .route("/internal/v1/query-activity", get(query_activity))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            authorize_internal_request,
+        ));
     let admitted = Router::new()
         .merge(internal)
         .merge(sync)
@@ -327,6 +339,7 @@ pub fn app(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/ready", get(ready))
+        .merge(diagnostics)
         .merge(admitted)
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(cors)
@@ -345,8 +358,10 @@ async fn enforce_runtime_admission(
     request: Request,
     next: Next,
 ) -> ApiResult<Response> {
-    state.provider.enforce_runtime_admission().await?;
-    Ok(next.run(request).await)
+    let permit = state.provider.acquire_runtime_admission().await?;
+    let response = next.run(request).await;
+    permit.commit().await?;
+    Ok(response)
 }
 
 async fn limit_concurrent_requests(

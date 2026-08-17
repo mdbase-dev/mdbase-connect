@@ -99,6 +99,7 @@ async fn candidate_b_consolidated_migrations_upgrade_the_beta69_schema() {
     .unwrap();
     assert!(admission_columns.contains(&"admission_fence_token".to_string()));
     assert!(admission_columns.contains(&"admission_fence_kind".to_string()));
+    assert!(admission_columns.contains(&"admission_owner_expires_at".to_string()));
     let general_projection_indexes: i64 = sqlx::query_scalar(
         r#"SELECT count(*)
            FROM pg_indexes
@@ -2467,13 +2468,9 @@ async fn candidate_b_rollback_fence_drains_inflight_queries_and_allows_cursor_re
         .unwrap()
         .to_string();
 
-    let mut in_flight = fixture.pool.begin().await.unwrap();
-    sqlx::query(
-        "SELECT pg_advisory_xact_lock_shared(hashtextextended('mdbase-hosted-query-admission-v1', 0))",
-    )
-    .execute(&mut *in_flight)
-    .await
-    .unwrap();
+    // The HTTP admission permit performs the state check while acquiring the
+    // shared database lock, then retains both until the complete request ends.
+    let in_flight = fixture.provider.acquire_runtime_admission().await.unwrap();
     let fence_pool = fixture.pool.clone();
     let suspend = tokio::spawn(async move {
         let mut transaction = fence_pool.begin().await.unwrap();
@@ -2536,6 +2533,7 @@ async fn candidate_b_rollback_fence_drains_inflight_queries_and_allows_cursor_re
                admission_fence_token = '11111111-1111-4111-8111-111111111111',
                admission_fence_kind = 'cutover',
                admission_lease_expires_at = clock_timestamp() - interval '1 second',
+               admission_owner_expires_at = clock_timestamp() + interval '1 hour',
                updated_at = now()
            WHERE singleton = true"#,
     )
@@ -2568,6 +2566,7 @@ async fn candidate_b_rollback_fence_drains_inflight_queries_and_allows_cursor_re
            SET query_admission_suspended = false, suspension_reason = NULL,
                admission_fence_token = NULL, admission_fence_kind = NULL,
                admission_lease_expires_at = NULL,
+               admission_owner_expires_at = NULL,
                updated_at = now()
            WHERE singleton = true"#,
     )

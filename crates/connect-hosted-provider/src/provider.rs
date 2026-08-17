@@ -70,6 +70,7 @@ mod crypto_state;
 mod file_policy;
 mod files;
 mod lifecycle;
+pub use lifecycle::run_hosted_cutover_migrations;
 mod lifecycle_states;
 mod mutation_journal;
 pub use mutation_journal::HostedMutationJournalDiagnostics;

@@ -71,6 +71,13 @@ impl HostedProvider {
                         AND table_name = 'hosted_provider_runtime_control'
                         AND column_name = 'admission_lease_expires_at'
                     )
+                    AND EXISTS (
+                      SELECT 1
+                      FROM information_schema.columns
+                      WHERE table_schema = 'public'
+                        AND table_name = 'hosted_provider_runtime_control'
+                        AND column_name = 'admission_owner_expires_at'
+                    )
                     AND NOT EXISTS (
                       SELECT 1
                       FROM (VALUES
@@ -81,7 +88,9 @@ impl HostedProvider {
                         ('hosted_provider_runtime_control_fence_state_check',
                          'CHECK ((query_admission_suspended OR (admission_fence_token IS NULL) OR (admission_lease_expires_at IS NOT NULL)))'),
                         ('hosted_provider_runtime_control_lease_state_check',
-                         'CHECK (((admission_lease_expires_at IS NULL) OR ((NOT query_admission_suspended) AND (admission_fence_token IS NOT NULL) AND (admission_fence_kind = ''cutover''::text))))')
+                         'CHECK (((admission_lease_expires_at IS NULL) OR ((NOT query_admission_suspended) AND (admission_fence_token IS NOT NULL) AND (admission_fence_kind = ''cutover''::text))))'),
+                        ('hosted_provider_runtime_control_owner_state_check',
+                         'CHECK ((((admission_fence_kind = ''cutover''::text) AND (admission_owner_expires_at IS NOT NULL)) OR ((admission_fence_kind IS DISTINCT FROM ''cutover''::text) AND (admission_owner_expires_at IS NULL))))')
                       ) AS expected(constraint_name, constraint_definition)
                       WHERE NOT EXISTS (
                         SELECT 1

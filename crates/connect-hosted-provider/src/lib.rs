@@ -32,6 +32,7 @@ pub use key_wrapping::{
     KeyWrappingBackend, KeyWrappingConfig, KeyWrappingRuntime, LegacyKeyWrapper,
 };
 pub use notifications::{HostedNotificationConfig, HostedNotificationRuntime};
+pub use provider::run_hosted_cutover_migrations;
 pub use provider::{
     HostedMutationJournalDiagnostics, HostedProjectionBatch, HostedProjectionGeneration,
     HostedProjectionIndexPlan, HostedProjectionIndexPlanEntry, HostedProjectionStatus,

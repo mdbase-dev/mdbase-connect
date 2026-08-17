@@ -14,12 +14,14 @@ BEGIN
   SET admission_fence_token = NULL,
       admission_fence_kind = NULL,
       admission_lease_expires_at = NULL,
+      admission_owner_expires_at = NULL,
       updated_at = now()
   WHERE singleton = true
     AND query_admission_suspended = false
     AND admission_fence_token = requested_token
     AND admission_fence_kind = 'cutover'
-    AND admission_lease_expires_at > clock_timestamp();
+    AND admission_lease_expires_at > clock_timestamp()
+    AND admission_owner_expires_at > clock_timestamp();
   GET DIAGNOSTICS affected_rows = ROW_COUNT;
   IF affected_rows <> 1 THEN
     RAISE EXCEPTION
