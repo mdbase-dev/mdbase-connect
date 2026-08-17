@@ -72,12 +72,25 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
     assert!(final_preflight.contains("pg_get_functiondef"));
     assert!(final_preflight.contains("expected exactly ten non-internal"));
     assert!(final_preflight.contains("expected exactly seven runtime-control"));
-    assert!(final_preflight.contains("expected exactly one controlled suspended admission row"));
+    assert!(final_preflight
+        .contains("expected exactly one matching controlled suspended admission row"));
     assert!(!final_preflight.contains("DELETE FROM"));
     assert!(!final_preflight.contains("UPDATE hosted_provider_"));
-    assert!(cutover_preflight.contains("admission_fence_kind = 'cutover'"));
+    assert!(cutover_preflight.contains("\\set fence_kind cutover"));
+    assert!(cutover_preflight.contains("\\ir preflight-hosted-provider-final-rollback.sql"));
     assert!(cutover_preflight.contains("generation.status IS DISTINCT FROM 'complete'"));
     assert!(cutover_preflight.contains("attest-hosted-provider-migration-ledger.sql"));
+}
+
+#[test]
+fn cutover_database_drain_requires_complete_session_visibility() {
+    let drain = include_str!("../../../../deploy/postgres/preflight-hosted-database-drained.sql");
+    assert!(drain.contains("pg_read_all_stats"));
+    assert!(drain.contains("pid <> pg_backend_pid()"));
+    assert!(drain.contains("state <> 'idle'"));
+    assert!(drain.contains("xact_start IS NOT NULL"));
+    assert!(drain.contains("hosted_database_drain_unverifiable"));
+    assert!(drain.contains("hosted_database_not_drained"));
 }
 
 #[test]
