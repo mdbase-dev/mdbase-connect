@@ -289,19 +289,18 @@ impl Drop for PostgresQueryCancellationGuard {
             let cancelled = tokio::time::timeout(
                 Duration::from_secs(2),
                 sqlx::query_scalar::<_, bool>(
-                    r#"SELECT COALESCE((
-                         SELECT pg_cancel_backend(pid)
-                         FROM pg_stat_activity
-                         WHERE pid = $1 AND application_name = $2
-                       ), false)"#,
+                    r#"SELECT pg_cancel_backend(pid)
+                       FROM pg_stat_activity
+                       WHERE pid = $1 AND application_name = $2"#,
                 )
                 .bind(backend_pid)
                 .bind(&session_fence)
-                .fetch_one(&pool),
+                .fetch_optional(&pool),
             )
             .await;
-            let cancel_sent = matches!(cancelled, Ok(Ok(true)));
-            if !cancel_sent {
+            let cancel_sent = matches!(cancelled, Ok(Ok(Some(true))));
+            let session_already_released = matches!(cancelled, Ok(Ok(None)));
+            if !cancel_sent && !session_already_released {
                 tracing::warn!(
                     target: "mdbase_connect::metrics",
                     metric = "hosted_query_cancel_failed",

@@ -1,3 +1,15 @@
+const HOSTED_QUERY_DATABASE_RETRIES: usize = 3;
+
+async fn query_cleanup_observed(
+    cleanup_observed: tokio::sync::oneshot::Receiver<bool>,
+    cleanup_ms: u64,
+) -> bool {
+    matches!(
+        tokio::time::timeout(Duration::from_millis(cleanup_ms), cleanup_observed).await,
+        Ok(Ok(true)) | Ok(Err(_))
+    )
+}
+
 impl HostedProvider {
     async fn execute_hosted_query_request(
         &self,
@@ -11,87 +23,109 @@ impl HostedProvider {
         let deadline_ms = budgets
             .operation_deadline_ms
             .min(budgets.snapshot_lifetime_ms);
-        let (cleanup_complete, cleanup_observed) = tokio::sync::oneshot::channel();
-        match tokio::time::timeout(
-            Duration::from_millis(deadline_ms),
-            Box::pin(self.execute_hosted_query_request_inner(
-                collection_id,
-                replica,
-                request_id,
-                input,
-                request_kind,
-                Some(cleanup_complete),
-            )),
-        )
-        .await
-        {
-            Ok(Err(error))
-                if error.code == "provider_database_timeout"
-                    && error
-                        .details
-                        .as_ref()
-                        .and_then(|details| details["timeout_class"].as_str())
-                        == Some("statement") =>
-            {
-                let cleanup_ms = budgets.cancellation_cleanup_ms;
-                let cleaned = matches!(
-                    tokio::time::timeout(
-                        Duration::from_millis(cleanup_ms),
-                        cleanup_observed,
-                    )
-                    .await,
-                    Ok(Ok(true)) | Ok(Err(_))
-                );
-                if !cleaned {
-                    return Err(ApiError::new(
-                        StatusCode::SERVICE_UNAVAILABLE,
-                        "hosted_cancellation_cleanup_failed",
-                        "The hosted query timed out and its database cleanup could not be confirmed.",
-                    )
-                    .with_details(json!({
-                        "budget": "cancellation_cleanup_ms",
-                        "limit": cleanup_ms,
-                    })));
-                }
-                Err(query_budget_error(
-                    "hosted_time_budget_exceeded",
-                    "The hosted query exceeded its database statement-time budget.",
-                    "wall_time_ms",
-                    deadline_ms,
-                    deadline_ms,
-                ))
-            }
-            Ok(result) => result,
-            Err(_) => {
-                let cleanup_ms = budgets.cancellation_cleanup_ms;
-                let cleaned = matches!(
-                    tokio::time::timeout(
-                        Duration::from_millis(cleanup_ms),
-                        cleanup_observed,
-                    )
-                    .await,
-                    Ok(Ok(true)) | Ok(Err(_))
-                );
-                if !cleaned {
-                    return Err(ApiError::new(
-                        StatusCode::SERVICE_UNAVAILABLE,
-                        "hosted_cancellation_cleanup_failed",
-                        "The hosted query timed out and its database cleanup could not be confirmed.",
-                    )
-                    .with_details(json!({
-                        "budget": "cancellation_cleanup_ms",
-                        "limit": cleanup_ms,
-                    })));
-                }
-                Err(query_budget_error(
+        let deadline = Duration::from_millis(deadline_ms);
+        let started = Instant::now();
+        for attempt in 0..=HOSTED_QUERY_DATABASE_RETRIES {
+            let remaining = deadline.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                return Err(query_budget_error(
                     "hosted_time_budget_exceeded",
                     "The hosted query exceeded its operation or snapshot-lifetime budget.",
                     "wall_time_ms",
                     deadline_ms,
                     deadline_ms.saturating_add(1),
-                ))
+                ));
+            }
+            let (cleanup_complete, cleanup_observed) = tokio::sync::oneshot::channel();
+            match tokio::time::timeout(
+                remaining,
+                Box::pin(self.execute_hosted_query_request_inner(
+                    collection_id,
+                    replica,
+                    request_id,
+                    input,
+                    request_kind,
+                    Some(cleanup_complete),
+                )),
+            )
+            .await
+            {
+                Ok(Err(error))
+                    if error.code == "provider_database_retryable"
+                        && attempt < HOSTED_QUERY_DATABASE_RETRIES =>
+                {
+                    let cleanup_ms = budgets.cancellation_cleanup_ms;
+                    if !query_cleanup_observed(cleanup_observed, cleanup_ms).await {
+                        return Err(ApiError::new(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "hosted_cancellation_cleanup_failed",
+                            "The hosted query conflicted and its database cleanup could not be confirmed.",
+                        )
+                        .with_details(json!({
+                            "budget": "cancellation_cleanup_ms",
+                            "limit": cleanup_ms,
+                        })));
+                    }
+                    tracing::warn!(
+                        target: "mdbase_connect::metrics",
+                        metric = "hosted_query_database_retry",
+                        attempt = attempt + 1,
+                        "privacy-safe hosted provider metric"
+                    );
+                }
+                Ok(Err(error))
+                    if error.code == "provider_database_timeout"
+                        && error
+                            .details
+                            .as_ref()
+                            .and_then(|details| details["timeout_class"].as_str())
+                            == Some("statement") =>
+                {
+                    let cleanup_ms = budgets.cancellation_cleanup_ms;
+                    if !query_cleanup_observed(cleanup_observed, cleanup_ms).await {
+                        return Err(ApiError::new(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "hosted_cancellation_cleanup_failed",
+                            "The hosted query timed out and its database cleanup could not be confirmed.",
+                        )
+                        .with_details(json!({
+                            "budget": "cancellation_cleanup_ms",
+                            "limit": cleanup_ms,
+                        })));
+                    }
+                    return Err(query_budget_error(
+                        "hosted_time_budget_exceeded",
+                        "The hosted query exceeded its database statement-time budget.",
+                        "wall_time_ms",
+                        deadline_ms,
+                        deadline_ms,
+                    ));
+                }
+                Ok(result) => return result,
+                Err(_) => {
+                    let cleanup_ms = budgets.cancellation_cleanup_ms;
+                    if !query_cleanup_observed(cleanup_observed, cleanup_ms).await {
+                        return Err(ApiError::new(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "hosted_cancellation_cleanup_failed",
+                            "The hosted query timed out and its database cleanup could not be confirmed.",
+                        )
+                        .with_details(json!({
+                            "budget": "cancellation_cleanup_ms",
+                            "limit": cleanup_ms,
+                        })));
+                    }
+                    return Err(query_budget_error(
+                        "hosted_time_budget_exceeded",
+                        "The hosted query exceeded its operation or snapshot-lifetime budget.",
+                        "wall_time_ms",
+                        deadline_ms,
+                        deadline_ms.saturating_add(1),
+                    ));
+                }
             }
         }
+        unreachable!("bounded hosted query retry loop always returns")
     }
 
     async fn execute_hosted_query_request_inner(

@@ -80,6 +80,29 @@ impl IntoResponse for ApiError {
 
 impl From<sqlx::Error> for ApiError {
     fn from(error: sqlx::Error) -> Self {
+        let retry_class = match &error {
+            sqlx::Error::Database(database) if database.code().as_deref() == Some("40001") => {
+                Some("serialization")
+            }
+            sqlx::Error::Database(database) if database.code().as_deref() == Some("40P01") => {
+                Some("deadlock")
+            }
+            _ => None,
+        };
+        if let Some(retry_class) = retry_class {
+            tracing::warn!(
+                target: "mdbase_connect::metrics",
+                metric = "database_retryable_conflict",
+                retry_class,
+                "privacy-safe hosted provider metric"
+            );
+            return Self::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "provider_database_retryable",
+                "The hosted provider database transaction conflicted. Retry the request.",
+            )
+            .with_details(json!({ "retry_class": retry_class }));
+        }
         let timeout_class = match &error {
             sqlx::Error::PoolTimedOut => Some("pool"),
             sqlx::Error::Database(database) if database.code().as_deref() == Some("57014") => {
@@ -152,5 +175,25 @@ mod tests {
                 .and_then(|value| value["timeout_class"].as_str()),
             Some("pool")
         );
+    }
+
+    #[test]
+    fn retryable_database_conflicts_are_recognized_without_leaking_details() {
+        let serialization = ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "provider_database_retryable",
+            "The hosted provider database transaction conflicted. Retry the request.",
+        )
+        .with_details(json!({ "retry_class": "serialization" }));
+        assert_eq!(serialization.code, "provider_database_retryable");
+        assert_eq!(serialization.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            serialization
+                .details
+                .as_ref()
+                .and_then(|value| value["retry_class"].as_str()),
+            Some("serialization")
+        );
+        assert!(!serialization.message.contains("40001"));
     }
 }

@@ -2828,6 +2828,51 @@ async fn candidate_b_query_receipt_maintenance_is_global_and_bounded() {
     );
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn concurrent_query_receipts_retry_repeatable_read_conflicts() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let (replica_id, application_token) = register_query_application(&fixture, Vec::new()).await;
+
+    for _ in 0..4 {
+        let results = futures_util::future::join_all((0..8).map(|_| {
+            fixture.provider.operation(
+                fixture.collection_id,
+                &application_token,
+                "query",
+                Uuid::new_v4(),
+                json!({"limit": 1, "order_by": [{"field": "file.path"}]}),
+                None,
+            )
+        }))
+        .await;
+        for result in results {
+            assert_eq!(result.unwrap()["valid"], true);
+        }
+    }
+
+    let (receipt_count, usage_count, usage_bytes, receipt_bytes): (i64, i64, i64, i64) =
+        sqlx::query_as(
+            r#"SELECT count(receipt.request_id), usage.receipt_count,
+                      usage.ciphertext_bytes,
+                      sum(receipt.response_ciphertext_bytes)::bigint
+               FROM hosted_provider_query_page_receipts receipt
+               JOIN hosted_provider_query_receipt_usage usage
+                 ON usage.scope_kind = 'replica' AND usage.scope_id = receipt.replica_id
+               WHERE receipt.replica_id = $1
+               GROUP BY usage.receipt_count, usage.ciphertext_bytes"#,
+        )
+        .bind(replica_id)
+        .fetch_one(&fixture.pool)
+        .await
+        .unwrap();
+    assert_eq!(receipt_count, 32);
+    assert_eq!(usage_count, receipt_count);
+    assert_eq!(usage_bytes, receipt_bytes);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
 async fn candidate_b_query_receipts_evict_the_oldest_per_replica_window_entry() {
