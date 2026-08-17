@@ -91,13 +91,12 @@ mod tests {
             diagnostics: Vec::new(),
         };
         let maximum = 16 * 1024 * 1024;
-        let (encoding, payload) = encode_query_page_receipt_payload(&result, maximum).unwrap();
-        assert_eq!(encoding, QUERY_RECEIPT_ZSTD_JSON_V1);
+        let payload = encode_query_page_receipt_payload(&result, maximum).unwrap();
         assert_eq!(
-            decode_query_page_receipt_payload(encoding, &payload, maximum).unwrap(),
+            decode_query_page_receipt_payload(&payload, maximum).unwrap(),
             result
         );
-        assert!(decode_query_page_receipt_payload(encoding, &payload, 16).is_err());
+        assert!(decode_query_page_receipt_payload(&payload, 16).is_err());
     }
 
     #[test]
@@ -120,6 +119,36 @@ mod tests {
         };
         assert!(!candidate_predicate_is_total(&comparison));
         assert!(candidate_predicate_is_projection_exact(&comparison));
+    }
+
+    #[test]
+    fn folder_candidates_use_segment_bounded_projection_sql() {
+        use mdbase::runtime::CandidatePredicate;
+
+        let nested = CandidatePredicate::PathInFolder {
+            folder: "tasks".to_string(),
+        };
+        assert!(candidate_predicate_is_total(&nested));
+        assert!(candidate_predicate_is_projection_exact(&nested));
+        assert_eq!(candidate_type_union(&nested), Some(Vec::new()));
+
+        let mut nested_sql = QueryBuilder::<Postgres>::new("");
+        push_candidate_predicate(&mut nested_sql, &nested);
+        assert_eq!(
+            nested_sql.sql(),
+            "left(canonical_path COLLATE \"C\", char_length($1) + 1) = $2 COLLATE \"C\""
+        );
+
+        let mut exact_nested_sql = QueryBuilder::<Postgres>::new("");
+        push_exact_candidate_predicate(&mut exact_nested_sql, &nested);
+        assert_eq!(exact_nested_sql.sql(), nested_sql.sql());
+
+        let root = CandidatePredicate::PathInFolder {
+            folder: String::new(),
+        };
+        let mut root_sql = QueryBuilder::<Postgres>::new("");
+        push_candidate_predicate(&mut root_sql, &root);
+        assert_eq!(root_sql.sql(), "strpos(canonical_path, '/') = 0");
     }
 
     #[test]

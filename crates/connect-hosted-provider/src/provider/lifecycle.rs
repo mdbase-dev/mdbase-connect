@@ -7,11 +7,63 @@ impl HostedProvider {
         blob_store: Arc<dyn BlobStore>,
         notification_config: Option<HostedNotificationConfig>,
     ) -> ApiResult<Self> {
+        Self::connect_internal(
+            database_url,
+            crypto,
+            limits,
+            blob_store,
+            notification_config,
+            true,
+            None,
+        )
+        .await
+    }
+
+    /// Connect after a cutover operator has applied the reviewed migration
+    /// ledger on the exact PostgreSQL session that owns the global cutover
+    /// lock. This deliberately cannot migrate on a second pooled session.
+    pub async fn connect_pre_migrated(
+        database_url: &str,
+        crypto: ProviderCrypto,
+        limits: ProviderLimits,
+        blob_store: Arc<dyn BlobStore>,
+        notification_config: Option<HostedNotificationConfig>,
+        cutover_statement_timeout: Duration,
+        cutover_owner_token: Uuid,
+    ) -> ApiResult<Self> {
+        Self::connect_internal(
+            database_url,
+            crypto,
+            limits,
+            blob_store,
+            notification_config,
+            false,
+            Some((cutover_statement_timeout, cutover_owner_token)),
+        )
+        .await
+    }
+
+    async fn connect_internal(
+        database_url: &str,
+        crypto: ProviderCrypto,
+        limits: ProviderLimits,
+        blob_store: Arc<dyn BlobStore>,
+        notification_config: Option<HostedNotificationConfig>,
+        run_migrations: bool,
+        cutover_connection: Option<(Duration, Uuid)>,
+    ) -> ApiResult<Self> {
         let started = Instant::now();
         let mut retry_delay = Duration::from_millis(100);
         loop {
-            match hosted_pool_options().connect(database_url).await {
-                Ok(pool) => match run_hosted_migrations(&pool).await {
+            let pool_options = cutover_connection.map_or_else(hosted_pool_options, |value| {
+                hosted_cutover_pool_options(value.0, value.1)
+            });
+            match pool_options.connect(database_url).await {
+                Ok(pool) => match if run_migrations {
+                    run_hosted_migrations(&pool).await
+                } else {
+                    Ok(())
+                } {
                     Ok(()) => match verify_database_key(&pool, &crypto).await {
                         Ok(()) => {
                             let query_pool = hosted_query_pool_options()
@@ -35,9 +87,6 @@ impl HostedProvider {
                                     healthy: true,
                                 })),
                                 limits,
-                                working_sets: Arc::new(Mutex::new(
-                                    WorkingSetRegistryState::default(),
-                                )),
                                 notifications,
                                 notification_recovery_guard: Arc::new(Mutex::new(())),
                                 notification_recovery: Arc::new(RwLock::new(
@@ -52,6 +101,7 @@ impl HostedProvider {
                                         last_success_at: None,
                                     },
                                 )),
+                                projection_recovery_guard: Arc::new(Mutex::new(())),
                                 blob_store,
                                 query_activity: Arc::new(HostedQueryActivityCounters::default()),
                                 query_scan_permits: Arc::new(Semaphore::new(
@@ -69,7 +119,28 @@ impl HostedProvider {
                                     .expect("published process memory budget fits usize"),
                                 )),
                             };
-                            provider.migrate_legacy_sync_receipts().await?;
+                            if run_migrations {
+                                loop {
+                                    let (_, complete) = provider
+                                        .migrate_legacy_sync_receipts_batch(
+                                            100,
+                                            DATABASE_STARTUP_TIMEOUT
+                                                .saturating_sub(started.elapsed()),
+                                        )
+                                        .await?;
+                                    if complete {
+                                        break;
+                                    }
+                                    if started.elapsed() >= DATABASE_STARTUP_TIMEOUT {
+                                        provider.pool.close().await;
+                                        return Err(ApiError::new(
+                                            StatusCode::SERVICE_UNAVAILABLE,
+                                            "legacy_receipt_migration_time_budget_exceeded",
+                                            "Legacy mutation receipt migration exceeded the bounded startup window.",
+                                        ));
+                                    }
+                                }
+                            }
                             if let Some(notifications) = &provider.notifications {
                                 notifications.prepare().await?;
                                 // Notification delivery calls back into the Connect control
@@ -138,12 +209,80 @@ impl HostedProvider {
         sqlx::query("SELECT 1").execute(&self.pool).await?;
         self.blob_store.ready().await?;
         self.verify_key_readiness().await?;
+        let unready_collections: i64 = sqlx::query_scalar(
+            r#"SELECT count(*)
+               FROM hosted_provider_collections collection
+               LEFT JOIN hosted_provider_projection_generations generation
+                 ON generation.collection_id = collection.id
+                AND generation.generation_id = collection.active_projection_generation_id
+               WHERE collection.state = 'active'
+                 AND (
+                   generation.generation_id IS NULL
+                   OR generation.status <> 'complete'
+                   OR collection.active_projection_head IS DISTINCT FROM collection.head
+                   OR generation.source_head > collection.active_projection_head
+                   OR generation.source_resource_revision <> collection.resource_revision
+                   OR generation.target_catalog_revision IS DISTINCT FROM
+                        collection.active_catalog_revision
+                   OR generation.projection_format_version IS DISTINCT FROM
+                        collection.active_projection_format_version
+                   OR generation.semantic_engine_version IS DISTINCT FROM
+                        collection.active_semantic_engine_version
+                   OR generation.projection_format_version <> $1
+                   OR generation.semantic_engine_version <> $2
+                   OR generation.integrity_epoch <> generation.integrity_verified_epoch
+                 )"#,
+        )
+        .bind(i64::from(
+            mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION,
+        ))
+        .bind(mdbase::VERSION)
+        .fetch_one(&self.pool)
+        .await?;
+        if unready_collections != 0 {
+            return Err(ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "hosted_projection_index_incomplete",
+                "Hosted semantic projection indexing is incomplete.",
+            ));
+        }
         // Keep readiness acyclic: notification delivery is an outbound,
         // durably-retried dependency on the Connect control plane, while
         // Connect itself checks this endpoint before advertising readiness.
         // Report degradation for operators without inviting the platform to
         // restart a provider that can still serve authoritative data.
         Ok(self.notification_recovery.read().await.clone())
+    }
+
+    /// Apply a shrinking server-side statement deadline to the single cutover
+    /// lane before each bounded page/batch operation.
+    pub async fn configure_cutover_statement_timeout(&self, remaining: Duration) -> ApiResult<()> {
+        if remaining.is_zero() {
+            return Err(ApiError::new(
+                StatusCode::REQUEST_TIMEOUT,
+                "projection_cutover_time_budget_exceeded",
+                "The projection cutover time budget is exhausted.",
+            ));
+        }
+        let timeout_ms = remaining.as_millis().clamp(1, i32::MAX as u128);
+        let mut connection = self.pool.acquire().await?;
+        sqlx::query("SELECT set_config('statement_timeout', $1, false)")
+            .bind(format!("{timeout_ms}ms"))
+            .execute(&mut *connection)
+            .await?;
+        Ok(())
+    }
+
+    /// Close every database lane after client-side cutover cancellation so no
+    /// statement, transaction, snapshot, or permit survives a typed timeout.
+    pub async fn close_cutover_database_lanes(&self) {
+        let primary = self.pool.close();
+        let query = self.query_pool.close();
+        let cancellation = self.query_cancellation_pool.close();
+        let _ = tokio::time::timeout(Duration::from_secs(5), async {
+            tokio::join!(primary, query, cancellation);
+        })
+        .await;
     }
 
     async fn verify_key_readiness(&self) -> ApiResult<()> {
@@ -299,13 +438,83 @@ pub(super) fn concurrent_migration_index_matches(
                     || normalized.ends_with(&default_c_and_nulls_suffix))))
 }
 
+const CUTOVER_LOCK_NAME: &str = "mdbase-candidate-b-cutover-v1";
+
 async fn run_hosted_migrations(pool: &PgPool) -> Result<(), String> {
     let mut connection = pool.acquire().await.map_err(|error| error.to_string())?;
-    sqlx::query("SET lock_timeout = '5s'")
+    let acquired: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock(hashtextextended($1, 0))")
+        .bind(CUTOVER_LOCK_NAME)
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(|error| error.to_string())?;
+    if !acquired {
+        return Err("hosted migration global cutover lock is unavailable".to_string());
+    }
+    let migration =
+        run_hosted_migrations_on_connection(&mut connection, Duration::from_secs(30 * 60)).await;
+    let unlocked: Result<bool, String> =
+        sqlx::query_scalar("SELECT pg_advisory_unlock(hashtextextended($1, 0))")
+            .bind(CUTOVER_LOCK_NAME)
+            .fetch_one(&mut *connection)
+            .await
+            .map_err(|error| error.to_string());
+    migration.and_then(|()| match unlocked {
+        Ok(true) => Ok(()),
+        Ok(false) => Err("hosted migration global cutover lock was lost".to_string()),
+        Err(error) => Err(error),
+    })
+}
+
+/// Apply the migration ledger on the already locked cutover session. SQL
+/// deadlines are derived from the caller's remaining wall-clock budget.
+pub async fn run_hosted_cutover_migrations(
+    connection: &mut sqlx::PgConnection,
+    remaining: Duration,
+) -> Result<(), String> {
+    if remaining.is_zero() {
+        return Err("hosted cutover migration deadline is exhausted".to_string());
+    }
+    let owns_lock: bool = sqlx::query_scalar(
+        r#"WITH lock_key AS (
+             SELECT hashtextextended($1, 0) AS value
+           )
+           SELECT EXISTS (
+             SELECT 1
+             FROM pg_locks, lock_key
+             WHERE locktype = 'advisory'
+               AND pid = pg_backend_pid()
+               AND granted
+               AND classid = (((lock_key.value >> 32) & 4294967295)::bigint)::oid
+               AND objid = ((lock_key.value & 4294967295)::bigint)::oid
+               AND objsubid = 1
+           )"#,
+    )
+    .bind(CUTOVER_LOCK_NAME)
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(|error| error.to_string())?;
+    if !owns_lock {
+        return Err("hosted cutover migration session does not own the global lock".to_string());
+    }
+    run_hosted_migrations_on_connection(connection, remaining).await
+}
+
+async fn run_hosted_migrations_on_connection(
+    connection: &mut sqlx::PgConnection,
+    remaining: Duration,
+) -> Result<(), String> {
+    let statement_timeout_ms = remaining.as_millis().clamp(1, i32::MAX as u128);
+    let lock_timeout_ms = remaining
+        .min(Duration::from_secs(5))
+        .as_millis()
+        .clamp(1, i32::MAX as u128);
+    sqlx::query("SELECT set_config('lock_timeout', $1, false)")
+        .bind(format!("{lock_timeout_ms}ms"))
         .execute(&mut *connection)
         .await
         .map_err(|error| error.to_string())?;
-    sqlx::query("SET statement_timeout = '30min'")
+    sqlx::query("SELECT set_config('statement_timeout', $1, false)")
+        .bind(format!("{statement_timeout_ms}ms"))
         .execute(&mut *connection)
         .await
         .map_err(|error| error.to_string())?;
@@ -419,6 +628,38 @@ fn hosted_pool_options() -> PgPoolOptions {
         .after_connect(|connection, _metadata| {
             Box::pin(async move {
                 sqlx::query("SET statement_timeout = 15000")
+                    .execute(&mut *connection)
+                    .await?;
+                sqlx::query("SET lock_timeout = 5000")
+                    .execute(&mut *connection)
+                    .await?;
+                sqlx::query("SET idle_in_transaction_session_timeout = 10000")
+                    .execute(&mut *connection)
+                    .await?;
+                Ok(())
+            })
+        })
+}
+
+fn hosted_cutover_pool_options(statement_timeout: Duration, owner_token: Uuid) -> PgPoolOptions {
+    let timeout_ms = statement_timeout.as_millis().clamp(1, i32::MAX as u128);
+    let application_name = format!("mdbase-cb-projection/{owner_token}");
+    PgPoolOptions::new()
+        .max_connections(1)
+        .min_connections(1)
+        .acquire_timeout(DATABASE_ACQUIRE_TIMEOUT)
+        .idle_timeout(Duration::from_secs(10 * 60))
+        .max_lifetime(Duration::from_secs(30 * 60))
+        .after_connect(move |connection, _metadata| {
+            let timeout = format!("{timeout_ms}ms");
+            let application_name = application_name.clone();
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('application_name', $1, false)")
+                    .bind(application_name)
+                    .execute(&mut *connection)
+                    .await?;
+                sqlx::query("SELECT set_config('statement_timeout', $1, false)")
+                    .bind(timeout)
                     .execute(&mut *connection)
                     .await?;
                 sqlx::query("SET lock_timeout = 5000")

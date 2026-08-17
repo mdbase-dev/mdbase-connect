@@ -26,7 +26,8 @@ RUN --mount=type=cache,id=hosted-provider-cargo-registry,target=/usr/local/cargo
  && mkdir -p /build/output \
  && cp target/release/mdbase-connect-hosted-provider /build/output/ \
  && cp target/release/mdbase-hosted-key-admin /build/output/ \
- && cp target/release/mdbase-hosted-backup-admin /build/output/
+ && cp target/release/mdbase-hosted-backup-admin /build/output/ \
+ && cp target/release/mdbase-hosted-projection-indexer /build/output/
 
 FROM debian:bookworm-slim AS runtime
 

@@ -1,6 +1,40 @@
 # Hosted Candidate B consumer staging missions
 
-Status: inventory frozen; execution pending isolated synthetic staging
+Status: accepted on isolated Candidate B staging at Connect `3aa4f582`
+
+## Final staging evidence
+
+The exact signed Candidate B images were cut over from a fresh beta69 ledger,
+verified behind closed admission, opened through the bounded provisional lease,
+and finalized. The hosted provider was
+`sha256:4de5cb009c76c31ec618464c968350838760b19d2077f7664837640198166262`;
+Connect was
+`sha256:50dbff3f050f09356b811068e9f67b0d350afa8c7cfc4ab6324578edd1c793d1`;
+and MCP was
+`sha256:c52224b43a65941ef514c4bdd847cd415e940f7bb1569a2118991dc952cd1ca5`.
+
+The high-cardinality generic mission completed 59 deterministic keyset pages
+over 2,505 records, excluded a post-snapshot write, returned it in a fresh
+snapshot, expired an explicitly released cursor, completed exact/body output
+within a 20-document budget, returned the typed
+`hosted_exact_document_budget_exceeded` outcome for the broader request, and
+passed grouping, revision-CAS mutation, changes, SIGTERM cancellation, and
+post-cancellation reuse. Cleanup completed in 44.5 ms with no provider busy or
+internal errors.
+
+The MCP mission completed DCR/PKCE authorization, refresh-token rotation, tool
+discovery, bounded query/cursor release, exact read, all four point mutations,
+cancellation, and a post-cancellation query. A single sequential browser mission
+then passed TaskNotes, mdbase Reader, Pickle, mdbase editor, and mdbase Workouts,
+including authorization, exact setup, create/write, query/read, reload, and
+reconnect behavior. The same five-consumer mission passed again after the live
+beta69 rollback and final roll-forward.
+
+Post-mission verification proved 2,519 exact records matched 2,519 projections,
+5,358 relationship rows, and 7,557 resolution keys across three collections,
+with zero invalid projection rows or verification failures. Independent drain
+observation reported zero active queries, scan permits, plaintext scopes, and
+accounted execution bytes, with every query-pool connection idle.
 
 These missions validate the selected Candidate B architecture without production
 fallback. Every deployment uses a synthetic collection, a staging-only authority,

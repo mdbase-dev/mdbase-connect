@@ -157,8 +157,7 @@ impl HostedProvider {
             .await?;
         }
         let collection = sqlx::query(
-            r#"SELECT head, wrapped_data_key, resources_ciphertext, max_document_bytes,
-                      hosted_execution_model
+            r#"SELECT head, wrapped_data_key, resources_ciphertext, max_document_bytes
                FROM hosted_provider_collections
                WHERE id = $1 AND state = 'active' FOR UPDATE"#,
         )
@@ -171,7 +170,7 @@ impl HostedProvider {
                 "Hosted collection not found.",
             )
         })?;
-        let mut head = number(collection.get::<i64, _>("head"), "collection head")?;
+        let head = number(collection.get::<i64, _>("head"), "collection head")?;
         let max_document_bytes = number(
             collection.get::<i64, _>("max_document_bytes"),
             "maximum document size",
@@ -199,264 +198,29 @@ impl HostedProvider {
         let data_key = self
             .collection_key(collection_id, collection.get("wrapped_data_key"))
             .await?;
-        if collection.get::<String, _>("hosted_execution_model") == "candidate_b" {
-            let result = self
-                .prepare_candidate_b_definition_mutation(
-                    &mut transaction,
-                    collection_id,
-                    &collection,
-                    head,
-                    max_document_bytes,
-                    &data_key,
-                    input,
-                    mutation_lease,
-                )
-                .await?;
-            transaction.commit().await?;
-            self.remove_working_set(collection_id).await;
-            return Ok(result);
-        }
-        let working_set = self.working_set(collection_id).await?;
-        let mut cached = working_set.lock().await;
-        if cached
-            .as_ref()
-            .is_none_or(|working_set| working_set.head != Some(head))
-        {
-            let resources =
-                load_resource_documents(&mut transaction, &self.crypto, &data_key, collection_id)
-                    .await?;
-            let records =
-                load_records(&mut transaction, &self.crypto, &data_key, collection_id).await?;
-            let workspace = WorkingSet::materialize(
-                resources,
-                records.values().map(|record| StoredDocument {
-                    record_id: record.record_id,
-                    path: record.path.clone(),
-                    document: record.document.clone(),
-                }),
-            )?;
-            *cached = Some(CachedCollection::new(Some(head), workspace, records));
-        }
-        let cached = cached
-            .as_mut()
-            .expect("hosted working set was initialized above");
-        let envelope = match input {
-            DefinitionMutation::TypePack(input) => cached.workspace.apply_type_pack(input)?,
-            DefinitionMutation::CollectionSetup(input) => {
-                cached.workspace.apply_collection_setup(input)?
-            }
-        };
-        if !envelope.valid {
-            transaction.commit().await?;
-            return serde_json::to_value(envelope).map_err(|error| {
-                ApiError::internal(format!("Hosted type pack could not serialize: {error}"))
-            });
-        }
-        let changed_resources = definition_changed_resources(&envelope, &input)?;
-        if changed_resources.iter().any(|resource| {
-            // The lockfile is connector-generated metadata, bounded by the
-            // protocol's type-pack limits, and cannot be made smaller by the
-            // collection owner. User-authored and setup-generated resources
-            // still obey the collection's per-document quota.
-            resource.get("kind").and_then(Value::as_str) != Some("lock")
-                && resource
-                    .get("target")
-                    .and_then(Value::as_str)
-                    .and_then(|target| cached.workspace.resource_document(target).ok())
-                    .is_some_and(|document| document.len() as u64 > max_document_bytes)
-        }) {
-            cached.head = None;
-            return Err(ApiError::bad_request(
-                "document_quota_exceeded",
-                "A contract setup resource exceeds the hosted document size limit.",
-            ));
-        }
-        if changed_resources.is_empty() {
-            transaction.commit().await?;
-            return serde_json::to_value(envelope).map_err(|error| {
-                ApiError::internal(format!("Hosted type pack could not serialize: {error}"))
-            });
-        }
-        cached.head = None;
-        let (types, contracts) = cached.workspace.type_resources()?;
-        let record_inputs = cached
-            .records
-            .iter()
-            .map(|(id, persisted)| (*id, persisted.path.clone(), persisted.frontmatter.clone()))
-            .collect::<Vec<_>>();
-        let classifications = cached.workspace.classify_records(&record_inputs)?;
-
-        for resource in changed_resources {
-            let target = resource
-                .get("target")
-                .and_then(Value::as_str)
-                .ok_or_else(|| ApiError::internal("Contract setup returned an invalid target."))?;
-            let kind = resource
-                .get("kind")
-                .and_then(Value::as_str)
-                .ok_or_else(|| {
-                    ApiError::internal("Contract setup returned an invalid resource kind.")
-                })?;
-            let action = resource
-                .get("action")
-                .and_then(Value::as_str)
-                .ok_or_else(|| ApiError::internal("Contract setup returned an invalid action."))?;
-            head = head.checked_add(1).ok_or_else(|| {
-                ApiError::internal("The hosted collection sequence is exhausted.")
-            })?;
-            let revision = if action == "delete" {
-                sqlx::query(
-                    "DELETE FROM hosted_provider_resources WHERE collection_id = $1 AND path = $2",
-                )
-                .bind(collection_id)
-                .bind(target)
-                .execute(&mut *transaction)
-                .await?;
-                "deleted".to_string()
-            } else {
-                let document = cached.workspace.resource_document(target)?;
-                let revision = format!("sha256:{:x}", Sha256::digest(document.as_bytes()));
-                let ciphertext = self.crypto.encrypt_bytes(
-                    &data_key,
-                    document.as_bytes(),
-                    &resource_document_aad(collection_id, target),
-                )?;
-                sqlx::query(
-                    r#"INSERT INTO hosted_provider_resources
-                         (collection_id, path, kind, revision, document_ciphertext)
-                       VALUES ($1, $2, $3, $4, $5)
-                       ON CONFLICT (collection_id, path) DO UPDATE SET
-                         kind = EXCLUDED.kind,
-                         revision = EXCLUDED.revision,
-                         document_ciphertext = EXCLUDED.document_ciphertext,
-                         updated_at = now()"#,
-                )
-                .bind(collection_id)
-                .bind(target)
-                .bind(kind)
-                .bind(&revision)
-                .bind(ciphertext)
-                .execute(&mut *transaction)
-                .await?;
-                revision
-            };
-            let type_name = if kind == "type" {
-                target
-                    .rsplit('/')
-                    .next()
-                    .and_then(|file| file.strip_suffix(".md"))
-            } else {
-                None
-            };
-            if kind != "lock" {
-                sqlx::query(
-                    r#"INSERT INTO hosted_provider_resource_changes
-                     (collection_id, sequence, resource_kind, type_name, path, revision)
-                   VALUES ($1, $2, $3, $4, $5, $6)"#,
-                )
-                .bind(collection_id)
-                .bind(to_i64(head, "resource change sequence")?)
-                .bind(kind)
-                .bind(type_name)
-                .bind(target)
-                .bind(&revision)
-                .execute(&mut *transaction)
-                .await?;
-            }
-        }
-
-        let resource_revision = format!("hosted:1:{head}:resources");
-        let mut resources: SyncCollectionResources = self.crypto.decrypt_json(
-            &data_key,
-            collection.get("resources_ciphertext"),
-            &resources_aad(collection_id),
-        )?;
-        resources.revision = resource_revision.clone();
-        resources.types = types;
-        resources.contracts = contracts;
-        let resources_ciphertext =
-            self.crypto
-                .encrypt_json(&data_key, &resources, &resources_aad(collection_id))?;
-
-        for (record_id, next_types) in classifications {
-            let Some(persisted) = cached.records.get_mut(&record_id) else {
-                continue;
-            };
-            if persisted.types == next_types {
-                continue;
-            }
-            persisted.types = next_types;
-            let sequence: i64 = sqlx::query_scalar(
-                "SELECT sequence FROM hosted_provider_records WHERE collection_id = $1 AND record_id = $2",
-            )
-            .bind(collection_id)
-            .bind(record_id)
-            .fetch_one(&mut *transaction)
-            .await?;
-            let sequence_u64 = number(sequence, "record sequence")?;
-            let current_ciphertext = self.crypto.encrypt_json(
-                &data_key,
-                persisted,
-                &current_record_aad(collection_id, record_id, sequence_u64),
-            )?;
-            let version_ciphertext = self.crypto.encrypt_json(
-                &data_key,
-                persisted,
-                &record_version_aad(collection_id, record_id, sequence_u64),
-            )?;
-            sqlx::query(
-                r#"UPDATE hosted_provider_records
-                   SET types = $3, payload_ciphertext = $4, updated_at = now()
-                   WHERE collection_id = $1 AND record_id = $2"#,
-            )
-            .bind(collection_id)
-            .bind(record_id)
-            .bind(&persisted.types)
-            .bind(current_ciphertext)
-            .execute(&mut *transaction)
-            .await?;
-            sqlx::query(
-                r#"UPDATE hosted_provider_record_versions
-                   SET types = $4, payload_ciphertext = $5
-                   WHERE collection_id = $1 AND record_id = $2 AND sequence = $3"#,
-            )
-            .bind(collection_id)
-            .bind(record_id)
-            .bind(sequence)
-            .bind(&persisted.types)
-            .bind(version_ciphertext)
-            .execute(&mut *transaction)
-            .await?;
-        }
-
-        invalidate_projection_catalog_binding(&mut transaction, collection_id).await?;
-        sqlx::query(
-            r#"UPDATE hosted_provider_collections
-               SET head = $2, retained_after = $2, resource_revision = $3,
-                   resources_ciphertext = $4, updated_at = now()
-               WHERE id = $1"#,
-        )
-        .bind(collection_id)
-        .bind(to_i64(head, "collection head")?)
-        .bind(resource_revision)
-        .bind(resources_ciphertext)
-        .execute(&mut *transaction)
-        .await?;
-        let result = serde_json::to_value(envelope).map_err(|error| {
-            ApiError::internal(format!("Hosted type pack could not serialize: {error}"))
-        })?;
-        if let Some(lease) = mutation_lease {
-            self.mark_operation_mutation_applied_in(
+        let result = self
+            .prepare_candidate_b_definition_mutation(
                 &mut transaction,
+                collection_id,
+                &collection,
+                head,
+                max_document_bytes,
                 &data_key,
-                lease,
-                &Ok(result.clone()),
+                input,
+                mutation_lease,
             )
             .await?;
-        }
-        cached.refresh_plaintext_bytes();
         transaction.commit().await?;
-        cached.head = Some(head);
+        let provider = self.clone();
+        tokio::spawn(async move {
+            if let Err(error) = provider.recover_projection_generations(1).await {
+                tracing::warn!(
+                    %collection_id,
+                    error_code = %error.code,
+                    "semantic projection rebuild recovery deferred"
+                );
+            }
+        });
         Ok(result)
     }
 

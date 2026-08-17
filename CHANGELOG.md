@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+## 0.1.0-beta.74
+
+Beta.74 replaces the unreleased Candidate B migration history with the final
+single-runtime upgrade from the production beta.69 schema. Encrypted exact
+Markdown remains authoritative; PostgreSQL stores only the accepted readable,
+rebuildable semantic projection and bounded relationship graph.
+
+- Hosted migrations 0035 and 0036 now create the complete final projection,
+  cursor, receipt, integrity, admission, and indexing contracts directly from
+  beta.69 migration 0034. Transitional execution modes, cursor proofs, digest
+  shapes, receipt encodings, and staging-only upgrade gates are absent.
+- Every active collection requires a current projection binding. New
+  collections and imported authorities remain hidden while the resumable,
+  fenced indexer builds and verifies their first generation; existing exact
+  authorities retain bounded canonical fallback during cutover recovery.
+- Ordinary query, validation, saved-view, Base, and mutation paths no longer
+  materialize a collection-wide WorkingSet. Closed SQL plans provide
+  snapshot-pinned keyset pages, bounded residual work, typed budget outcomes,
+  and canonical `file.inFolder(...)` semantics without decrypting body prose.
+- The hosted-provider image includes audited `plan`, `apply`, `status`, and
+  `verify` commands for an all-collection maintenance-window backfill. Exact
+  beta.69 rollback and forward-rebuild procedures preserve canonical records,
+  versions, resources, changes, journals, receipts, files, and outbox state.
+
 ## 0.1.0-beta.73
 
 Beta.73 makes Candidate B activation safe for isolated staged rollout while

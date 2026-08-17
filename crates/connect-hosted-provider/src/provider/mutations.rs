@@ -761,7 +761,12 @@ impl HostedProvider {
         .await?;
         sqlx::query(
             r#"UPDATE hosted_provider_collections
-               SET head = $2, record_count = $3, content_bytes = $4, updated_at = now()
+               SET head = $2, record_count = $3, content_bytes = $4,
+                   active_projection_head = CASE
+                     WHEN active_projection_generation_id IS NULL THEN NULL
+                     ELSE $2
+                   END,
+                   updated_at = now()
                WHERE id = $1"#,
         )
         .bind(collection_id)
@@ -788,7 +793,6 @@ impl HostedProvider {
         )
         .await?;
         transaction.commit().await?;
-        self.remove_working_set(collection_id).await;
         if direct_sync {
             let memory = crate::HostedProcessMemory::capture();
             tracing::info!(

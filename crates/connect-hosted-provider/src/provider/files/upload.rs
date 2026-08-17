@@ -844,7 +844,12 @@ impl HostedProvider {
         sqlx::query(
             r#"UPDATE hosted_provider_collections
                SET head = $2, file_count = $3, file_bytes = $4,
-                   stored_file_bytes = $5, updated_at = now()
+                   stored_file_bytes = $5,
+                   active_projection_head = CASE
+                     WHEN active_projection_generation_id IS NULL THEN NULL
+                     ELSE $2
+                   END,
+                   updated_at = now()
                WHERE id = $1"#,
         )
         .bind(transfer.collection_id)

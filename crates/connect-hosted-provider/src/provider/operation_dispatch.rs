@@ -2,6 +2,9 @@ use super::mutation_journal::{HostedMutationClaim, HostedMutationLease};
 use super::mutation_metrics::{duplicate_replay, lease_takeover};
 use super::*;
 
+const OPERATION_MUTATION_DATABASE_RETRIES: usize = 3;
+const OPERATION_MUTATION_RETRY_BACKOFF_MS: u64 = 25;
+
 impl HostedProvider {
     pub async fn operation(
         &self,
@@ -80,18 +83,40 @@ impl HostedProvider {
                         .await;
                 }
             }
-            let result = self
-                .execute_authorized_operation(
-                    collection_id,
-                    token,
-                    operation,
-                    request_id,
-                    input,
-                    &replica,
-                    contract_scope,
-                    Some(&lease),
-                )
-                .await;
+            let mut database_attempt = 0;
+            let result = loop {
+                let result = self
+                    .execute_authorized_operation(
+                        collection_id,
+                        token,
+                        operation,
+                        request_id,
+                        input.clone(),
+                        &replica,
+                        contract_scope.clone(),
+                        Some(&lease),
+                    )
+                    .await;
+                if matches!(&result, Err(error) if error.code == "provider_database_retryable")
+                    && retryable_hosted_database_mutation(operation)
+                    && database_attempt < OPERATION_MUTATION_DATABASE_RETRIES
+                {
+                    database_attempt += 1;
+                    tracing::warn!(
+                        target: "mdbase_connect::metrics",
+                        metric = "hosted_mutation_database_retry",
+                        operation,
+                        attempt = database_attempt,
+                        "privacy-safe hosted provider metric"
+                    );
+                    tokio::time::sleep(Duration::from_millis(
+                        OPERATION_MUTATION_RETRY_BACKOFF_MS * database_attempt as u64,
+                    ))
+                    .await;
+                    continue;
+                }
+                break result;
+            };
             self.complete_operation_mutation(collection_id, &lease, &result)
                 .await?;
             return result;
@@ -168,12 +193,10 @@ impl HostedProvider {
                         None,
                     ),
                 };
-                let candidate_b = matches!(operation, "query" | "execute_view")
-                    && self.candidate_b_execution_enabled(collection_id).await?;
-                let result = if candidate_b && operation == "query" {
+                let result = if operation == "query" {
                     self.execute_hosted_query(collection_id, replica, request_id, &scoped_input)
                         .await?
-                } else if candidate_b && operation == "execute_view" {
+                } else if operation == "execute_view" {
                     self.execute_hosted_canonical_view(
                         collection_id,
                         replica,
@@ -353,24 +376,6 @@ impl HostedProvider {
                 "The hosted provider does not support that collection operation.",
             )),
         }
-    }
-
-    pub(super) async fn candidate_b_execution_enabled(
-        &self,
-        collection_id: Uuid,
-    ) -> ApiResult<bool> {
-        sqlx::query_scalar(
-            "SELECT hosted_execution_model = 'candidate_b' FROM hosted_provider_collections WHERE id = $1 AND state = 'active'",
-        )
-        .bind(collection_id)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| {
-            ApiError::not_found(
-                "hosted_collection_not_found",
-                "Hosted collection not found.",
-            )
-        })
     }
 
     async fn authorize_collection_setup_declaration(
@@ -840,6 +845,23 @@ impl HostedProvider {
     }
 }
 
+fn retryable_hosted_database_mutation(operation: &str) -> bool {
+    matches!(
+        operation,
+        "create"
+            | "update"
+            | "delete"
+            | "rename"
+            | "create_type"
+            | "update_type"
+            | "apply_type_pack"
+            | "apply_collection_setup"
+            | "create_view_source"
+            | "update_view_source"
+            | "delete_view_source"
+    )
+}
+
 pub(super) fn ensure_collection_setup_declaration_binding(
     expected_application_id: Option<&str>,
     expected_declaration_digest: Option<&str>,
@@ -860,4 +882,34 @@ fn collection_setup_declaration_mismatch() -> ApiError {
         "application_declaration_mismatch",
         "Collection setup must exactly match the application declaration bound to this capability.",
     )
+}
+
+#[cfg(test)]
+mod database_retry_tests {
+    use super::retryable_hosted_database_mutation;
+
+    #[test]
+    fn retries_only_transactional_hosted_database_mutations() {
+        for operation in [
+            "create",
+            "update",
+            "delete",
+            "rename",
+            "create_type",
+            "update_type",
+            "apply_type_pack",
+            "apply_collection_setup",
+            "create_view_source",
+            "update_view_source",
+            "delete_view_source",
+        ] {
+            assert!(retryable_hosted_database_mutation(operation), "{operation}");
+        }
+        for operation in ["query", "read", "put_timer", "cancel_timer"] {
+            assert!(
+                !retryable_hosted_database_mutation(operation),
+                "{operation}"
+            );
+        }
+    }
 }

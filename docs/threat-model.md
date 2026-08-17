@@ -161,9 +161,12 @@ inside the trusted database model, not a MAC against a malicious database operat
 Candidate B writers use an all-zero expected digest solely as a trigger marker for
 same-tuple binding; the trigger replaces it before storage. This removes a redundant
 projection update and its dead tuple, but deliberately adds no protection against a
-database actor who can submit arbitrary writes. Direct unmarked changes invalidate
-the row, advance the generation integrity epoch, and require a complete verified
-scan before SQL-only proofs can be reused.
+database actor who can submit arbitrary writes. Direct unmarked projection changes
+invalidate the row. Projection, resolution-key, and relationship mutations all
+advance the generation integrity epoch and require a complete verified scan before
+SQL-only proofs can be reused. The cutover verifier reconstructs canonical
+resolution-key and relationship fingerprints from the versioned mdbase-rs
+projection rather than trusting stored derived-row counts.
 For scoped queries, that safety union can contain records later excluded by
 canonical classification. Client-visible budget errors therefore disclose only
 that the configured threshold was crossed (`observed = limit + 1`), never the raw
@@ -199,6 +202,19 @@ Malformed or unsupported input fails with a structured error. Images are built
 once for a source commit with SBOM and provenance attestations, then promoted
 by digest. Desktop artifacts use platform signing where configured and are
 explicitly labelled as unsigned beta previews otherwise.
+
+Candidate B cutover takes a PostgreSQL-wide owner-token lock before migration,
+runs migrations on that same session, and atomically persists a second durable,
+expiring owner lease before releasing it. Every data/control request holds a
+shared database admission permit for its complete handler lifetime, so the
+exclusive fence cannot commit while an admitted mutation is still running.
+External maintenance and the durable admission fence remain closed while images
+change. Admission opens only under a short database lease, which the same owner
+token must finalize after open verification. If the operator process or host
+disappears first, lease expiry makes every non-health provider route fail with
+503 without depending on a shell cleanup trap. The privacy-safe query-activity
+diagnostic remains authenticated but outside the admission router so a closed
+operator can prove drain and cleanup.
 
 ## Abuse cases and controls
 

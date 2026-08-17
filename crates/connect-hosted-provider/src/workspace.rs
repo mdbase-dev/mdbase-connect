@@ -4,10 +4,12 @@ use std::{collections::BTreeMap, fs};
 use std::collections::BTreeSet;
 
 use mdbase::{runtime::CollectionSnapshot, v03::OperationResult, Collection};
+#[cfg(test)]
 use mdbase_connect_protocol::{
     ApplyCollectionSetupInput, ApplyTypePackInput, AssessCollectionSetupInput, AssessTypePackInput,
-    SyncMutation, SyncMutationOperation, SyncRecord,
 };
+use mdbase_connect_protocol::{SyncMutation, SyncMutationOperation, SyncRecord};
+#[cfg(test)]
 use serde_json::Value;
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -26,13 +28,13 @@ pub(crate) use type_packs::{
 };
 pub use types::{Execution, StoredDocument};
 
-pub struct WorkingSet {
+pub struct AuthorityWorkspace {
     directory: TempDir,
     records_by_path: BTreeMap<String, Uuid>,
     paths_by_record_id: BTreeMap<Uuid, String>,
 }
 
-impl WorkingSet {
+impl AuthorityWorkspace {
     pub fn materialize(
         resources: impl IntoIterator<Item = (String, String)>,
         records: impl IntoIterator<Item = StoredDocument>,
@@ -50,7 +52,7 @@ impl WorkingSet {
         }
         Collection::open(directory.path()).map_err(|error| {
             ApiError::internal(format!(
-                "The hosted collection working set is invalid: {error}"
+                "The hosted authority workspace is invalid: {error}"
             ))
         })?;
         Ok(Self {
@@ -63,7 +65,7 @@ impl WorkingSet {
     pub fn snapshot_records(&self) -> ApiResult<Vec<SyncRecord>> {
         let collection = Collection::open(self.directory.path()).map_err(|error| {
             ApiError::internal(format!(
-                "The hosted collection working set is invalid: {error}"
+                "The hosted authority workspace is invalid: {error}"
             ))
         })?;
         self.records_by_path
@@ -96,7 +98,7 @@ impl WorkingSet {
     ) -> ApiResult<Execution> {
         let collection = Collection::open(self.directory.path()).map_err(|error| {
             ApiError::internal(format!(
-                "The hosted collection working set is invalid: {error}"
+                "The hosted authority workspace is invalid: {error}"
             ))
         })?;
         let operations = collection.v03_operations().map_err(|diagnostic| {
@@ -341,10 +343,11 @@ impl WorkingSet {
             })
     }
 
+    #[cfg(test)]
     pub fn read_operation(&self, operation: &str, input: &Value) -> ApiResult<OperationResult> {
         let collection = Collection::open(self.directory.path()).map_err(|error| {
             ApiError::internal(format!(
-                "The hosted collection working set is invalid: {error}"
+                "The hosted authority workspace is invalid: {error}"
             ))
         })?;
         let operations = collection.v03_operations().map_err(|diagnostic| {
@@ -402,7 +405,7 @@ impl WorkingSet {
     ) -> ApiResult<OperationResult> {
         let collection = Collection::open(self.directory.path()).map_err(|error| {
             ApiError::internal(format!(
-                "The hosted collection working set is invalid: {error}"
+                "The hosted authority workspace is invalid: {error}"
             ))
         })?;
         let operations = collection.v03_operations().map_err(|diagnostic| {
@@ -426,7 +429,7 @@ impl WorkingSet {
     pub fn type_operation(&self, operation: &str, input: &Value) -> ApiResult<OperationResult> {
         let collection = Collection::open(self.directory.path()).map_err(|error| {
             ApiError::internal(format!(
-                "The hosted collection working set is invalid: {error}"
+                "The hosted authority workspace is invalid: {error}"
             ))
         })?;
         let operations = collection.v03_operations().map_err(|diagnostic| {
@@ -445,10 +448,11 @@ impl WorkingSet {
         }
     }
 
+    #[cfg(test)]
     pub fn assess_type_pack(&self, input: &AssessTypePackInput) -> ApiResult<OperationResult> {
         let collection = Collection::open(self.directory.path()).map_err(|error| {
             ApiError::internal(format!(
-                "The hosted collection working set is invalid: {error:?}"
+                "The hosted authority workspace is invalid: {error:?}"
             ))
         })?;
         let provision = engine_type_pack_provision(&input.provision)?;
@@ -469,10 +473,11 @@ impl WorkingSet {
         ))
     }
 
+    #[cfg(test)]
     pub fn apply_type_pack(&self, input: &ApplyTypePackInput) -> ApiResult<OperationResult> {
         let collection = Collection::open(self.directory.path()).map_err(|error| {
             ApiError::internal(format!(
-                "The hosted collection working set is invalid: {error:?}"
+                "The hosted authority workspace is invalid: {error:?}"
             ))
         })?;
         let provision = engine_type_pack_provision(&input.provision)?;
@@ -495,25 +500,27 @@ impl WorkingSet {
         ))
     }
 
+    #[cfg(test)]
     pub fn assess_collection_setup(
         &self,
         input: &AssessCollectionSetupInput,
     ) -> ApiResult<OperationResult> {
         let collection = Collection::open(self.directory.path()).map_err(|error| {
             ApiError::internal(format!(
-                "The hosted collection working set is invalid: {error:?}"
+                "The hosted authority workspace is invalid: {error:?}"
             ))
         })?;
         Ok(collection.assess_collection_setup(&engine_collection_setup(input)?))
     }
 
+    #[cfg(test)]
     pub fn apply_collection_setup(
         &self,
         input: &ApplyCollectionSetupInput,
     ) -> ApiResult<OperationResult> {
         let collection = Collection::open(self.directory.path()).map_err(|error| {
             ApiError::internal(format!(
-                "The hosted collection working set is invalid: {error:?}"
+                "The hosted authority workspace is invalid: {error:?}"
             ))
         })?;
         Ok(collection.apply_collection_setup(
@@ -527,6 +534,7 @@ impl WorkingSet {
         ))
     }
 
+    #[cfg(test)]
     pub fn resource_document(&self, path: &str) -> ApiResult<String> {
         fs::read_to_string(safe_path(self.directory.path(), path)?).map_err(Into::into)
     }

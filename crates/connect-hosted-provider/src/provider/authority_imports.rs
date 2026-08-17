@@ -7,156 +7,6 @@ use super::*;
 use mdbase_connect_protocol::CollectionFileDescriptor;
 
 impl HostedProvider {
-    pub async fn prepare_authority_import(
-        &self,
-        input: PrepareAuthorityImport,
-    ) -> ApiResult<ProviderAuthorityImport> {
-        if input.token.len() < 32 {
-            return Err(ApiError::bad_request(
-                "invalid_authority_import",
-                "Authority import credential is invalid.",
-            ));
-        }
-        if input.authority_epoch <= 1 || !(60..=60 * 60).contains(&input.ttl_seconds) {
-            return Err(ApiError::bad_request(
-                "invalid_authority_import",
-                "Authority import epoch or lifetime is invalid.",
-            ));
-        }
-        // Expiry cascades delete abandoned import targets. Recover first so a
-        // replacement target cannot be mistaken for the expired one.
-        self.recover_expired_authority_imports().await?;
-        let existing_state = sqlx::query_scalar::<_, String>(
-            "SELECT state FROM hosted_provider_collections WHERE id = $1",
-        )
-        .bind(input.collection_id)
-        .fetch_optional(&self.pool)
-        .await?;
-        if existing_state.is_none() {
-            self.create_collection(
-                input.account_id,
-                input.collection_id,
-                "mdbase",
-                &input.display_name,
-                "UTC",
-            )
-            .await?;
-        } else if !matches!(existing_state.as_deref(), Some("importing" | "transferred")) {
-            return Err(ApiError::conflict(
-                "authority_import_target_unavailable",
-                "The target collection already has an active authority.",
-            ));
-        }
-        let expires_at = Utc::now()
-            + chrono::Duration::seconds(to_i64(input.ttl_seconds, "authority import lifetime")?);
-        let requested_token_hash = token_hash(&input.token);
-        let mut transaction = self.pool.begin().await?;
-        if let Some(existing) = sqlx::query(
-            r#"SELECT id, collection_id, token_hash, next_authority_epoch, state,
-                      manifest_digest, source_revision, source_head, expires_at
-               FROM hosted_provider_authority_imports WHERE id = $1 FOR UPDATE"#,
-        )
-        .bind(input.transfer_id)
-        .fetch_optional(&mut *transaction)
-        .await?
-        {
-            let exact = existing.get::<Uuid, _>("collection_id") == input.collection_id
-                && existing.get::<i64, _>("next_authority_epoch")
-                    == to_i64(input.authority_epoch, "authority epoch")?
-                && authority_import_state(&existing, "state")?.accepts_upload();
-            if !exact {
-                return Err(ApiError::conflict(
-                    "authority_import_conflict",
-                    "Authority import already exists with different parameters.",
-                ));
-            }
-            let rotated = sqlx::query(
-                r#"UPDATE hosted_provider_authority_imports
-                   SET token_hash = $2, expires_at = $3
-                   WHERE id = $1
-                   RETURNING id, collection_id, next_authority_epoch, state,
-                             manifest_digest, source_revision, source_head, expires_at"#,
-            )
-            .bind(input.transfer_id)
-            .bind(requested_token_hash)
-            .bind(expires_at)
-            .fetch_one(&mut *transaction)
-            .await?;
-            let result = provider_authority_import(&rotated)?;
-            transaction.commit().await?;
-            return Ok(result);
-        }
-        // A later epoch supersedes the completed import receipt for this
-        // collection. Keeping only the current import preserves the useful
-        // collection-level uniqueness without preventing round trips.
-        sqlx::query(
-            r#"DELETE FROM hosted_provider_authority_imports
-               WHERE collection_id = $1 AND state = 'completed'
-                 AND next_authority_epoch < $2"#,
-        )
-        .bind(input.collection_id)
-        .bind(to_i64(input.authority_epoch, "authority epoch")?)
-        .execute(&mut *transaction)
-        .await?;
-        let collection = sqlx::query(
-            r#"UPDATE hosted_provider_collections
-               SET state = 'importing', authority_epoch = $2,
-                   display_name = $3, updated_at = now()
-               WHERE id = $1 AND state = 'transferred'
-               RETURNING id"#,
-        )
-        .bind(input.collection_id)
-        .bind(to_i64(input.authority_epoch, "authority epoch")?)
-        .bind(input.display_name.trim())
-        .fetch_optional(&mut *transaction)
-        .await?;
-        let collection = if collection.is_some() {
-            collection
-        } else {
-            sqlx::query(
-                r#"UPDATE hosted_provider_collections
-                   SET state = 'importing', authority_epoch = $2,
-                       display_name = $3, updated_at = now()
-                   WHERE id = $1 AND state = 'active' AND head = 0 AND record_count = 0
-                   RETURNING id"#,
-            )
-            .bind(input.collection_id)
-            .bind(to_i64(input.authority_epoch, "authority epoch")?)
-            .bind(input.display_name.trim())
-            .fetch_optional(&mut *transaction)
-            .await?
-        };
-        if collection.is_none() {
-            return Err(ApiError::conflict(
-                "authority_import_target_unavailable",
-                "The target collection cannot receive an authority import.",
-            ));
-        }
-        let row = sqlx::query(
-            r#"INSERT INTO hosted_provider_authority_imports
-                 (id, collection_id, token_hash, next_authority_epoch,
-                  restore_state, expires_at)
-               VALUES ($1, $2, $3, $4, $5, $6)
-               RETURNING id, collection_id, next_authority_epoch, state,
-                         manifest_digest, source_revision, source_head, expires_at"#,
-        )
-        .bind(input.transfer_id)
-        .bind(input.collection_id)
-        .bind(requested_token_hash)
-        .bind(to_i64(input.authority_epoch, "authority epoch")?)
-        .bind(if existing_state.as_deref() == Some("transferred") {
-            Some("transferred")
-        } else {
-            None
-        })
-        .bind(expires_at)
-        .fetch_one(&mut *transaction)
-        .await?;
-        let result = provider_authority_import(&row)?;
-        transaction.commit().await?;
-        Ok(result)
-    }
-
     pub async fn put_authority_import_manifest(
         &self,
         import_id: Uuid,
@@ -453,6 +303,39 @@ impl HostedProvider {
             &manifest_ciphertext,
             &authority_import_manifest_aad(import_id),
         )?;
+        let staged_inventory = sqlx::query(
+            r#"SELECT count(*)::bigint AS records,
+                      coalesce(sum(content_bytes), 0)::bigint AS exact_bytes
+               FROM hosted_provider_authority_import_records
+               WHERE import_id = $1"#,
+        )
+        .bind(import_id)
+        .fetch_one(&mut *transaction)
+        .await?;
+        let resource_bytes = manifest
+            .resources
+            .documents
+            .iter()
+            .try_fold(0_u64, |total, resource| {
+                total.checked_add(resource.document.len() as u64)
+            })
+            .ok_or_else(|| {
+                ApiError::quota(
+                    "hosted_authority_bulk_budget_exceeded",
+                    "The authority resource snapshot size overflowed.",
+                )
+            })?;
+        ensure_authority_bulk_budget(
+            number(
+                staged_inventory.get::<i64, _>("records"),
+                "authority import record count",
+            )?,
+            number(
+                staged_inventory.get::<i64, _>("exact_bytes"),
+                "authority import exact bytes",
+            )?,
+            resource_bytes,
+        )?;
         let staged = sqlx::query(
             r#"SELECT record_id, payload_ciphertext
                FROM hosted_provider_authority_import_records
@@ -534,7 +417,7 @@ impl HostedProvider {
                 .verify_object(object_key, file.size, &file.content_digest)
                 .await?;
         }
-        let workspace = WorkingSet::materialize(
+        let workspace = AuthorityWorkspace::materialize(
             manifest
                 .resources
                 .documents
@@ -800,7 +683,6 @@ impl HostedProvider {
         let mut result = provider_authority_import(&saved)?;
         result.contracts = manifest.resources.contracts.clone();
         transaction.commit().await?;
-        self.remove_working_set(collection_id).await;
         Ok(result)
     }
 
@@ -828,7 +710,7 @@ impl HostedProvider {
             transaction.commit().await?;
             return Ok(result);
         }
-        if state != "uploaded"
+        if !matches!(state.as_str(), "uploaded" | "indexing")
             || row.get::<Option<String>, _>("manifest_digest").as_deref() != Some(manifest_digest)
             || row.get::<Option<String>, _>("source_revision").as_deref() != Some(source_revision)
         {
@@ -839,31 +721,83 @@ impl HostedProvider {
         }
         let collection_id: Uuid = row.get("collection_id");
         let authority_epoch = number(row.get::<i64, _>("next_authority_epoch"), "authority epoch")?;
-        let activated = sqlx::query(
-            r#"UPDATE hosted_provider_collections
-               SET state = 'active', authority_epoch = $2, updated_at = now()
-               WHERE id = $1 AND state = 'importing'"#,
+        if state == "uploaded" {
+            let indexing = sqlx::query(
+                r#"UPDATE hosted_provider_collections
+                   SET state = 'indexing', authority_epoch = $2, updated_at = now()
+                   WHERE id = $1 AND state = 'importing'"#,
+            )
+            .bind(collection_id)
+            .bind(to_i64(authority_epoch, "authority epoch")?)
+            .execute(&mut *transaction)
+            .await?;
+            if indexing.rows_affected() != 1 {
+                return Err(ApiError::conflict(
+                    "authority_import_target_unavailable",
+                    "Authority import target is no longer pending.",
+                ));
+            }
+            sqlx::query(
+                "UPDATE hosted_provider_authority_imports SET state = 'indexing' WHERE id = $1",
+            )
+            .bind(import_id)
+            .execute(&mut *transaction)
+            .await?;
+        }
+        transaction.commit().await?;
+
+        let binding = sqlx::query(
+            "SELECT head, resource_revision FROM hosted_provider_collections WHERE id = $1 AND state IN ('indexing', 'active')",
         )
         .bind(collection_id)
-        .bind(to_i64(authority_epoch, "authority epoch")?)
-        .execute(&mut *transaction)
-        .await?;
-        if activated.rows_affected() != 1 {
-            return Err(ApiError::conflict(
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| {
+            ApiError::conflict(
                 "authority_import_target_unavailable",
-                "Authority import target is no longer pending.",
-            ));
+                "Authority import target is no longer indexing.",
+            )
+        })?;
+        let mut projection = self
+            .request_projection_indexing(
+                collection_id,
+                number(binding.get::<i64, _>("head"), "collection head")?,
+                binding.get("resource_revision"),
+            )
+            .await?;
+        if !projection.ready {
+            let generation = projection.building_generation.as_ref().ok_or_else(|| {
+                ApiError::internal("Authority import indexing has no building generation.")
+            })?;
+            self.advance_projection_generation(collection_id, generation.generation_id)
+                .await?;
+            projection = self.projection_status(collection_id).await?;
+        }
+
+        let mut transaction = self.pool.begin().await?;
+        let row = authority_import_row(&mut transaction, import_id).await?;
+        if !projection.ready {
+            let mut result = provider_authority_import(&row)?;
+            result.contracts = authority_import_contracts(self, &row).await?;
+            transaction.commit().await?;
+            return Ok(result);
         }
         let saved = sqlx::query(
             r#"UPDATE hosted_provider_authority_imports
                SET state = 'completed', completed_at = now()
-               WHERE id = $1
+               WHERE id = $1 AND state = 'indexing'
                RETURNING id, collection_id, next_authority_epoch, state,
                          manifest_digest, source_revision, source_head, expires_at"#,
         )
         .bind(import_id)
-        .fetch_one(&mut *transaction)
-        .await?;
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or_else(|| {
+            ApiError::conflict(
+                "authority_import_target_unavailable",
+                "Authority import indexing state changed before completion.",
+            )
+        })?;
         let mut result = provider_authority_import(&saved)?;
         result.contracts = authority_import_contracts(self, &row).await?;
         transaction.commit().await?;
@@ -876,11 +810,17 @@ impl HostedProvider {
     ) -> ApiResult<ProviderAuthorityImport> {
         let mut transaction = self.pool.begin().await?;
         let row = authority_import_row(&mut transaction, import_id).await?;
-        if authority_import_state(&row, "import_state")? == ProviderAuthorityImportState::Completed
-        {
+        let import_state = authority_import_state(&row, "import_state")?;
+        if import_state == ProviderAuthorityImportState::Completed {
             return Err(ApiError::conflict(
                 "authority_import_completed",
                 "Completed authority import cannot be cancelled.",
+            ));
+        }
+        if import_state == ProviderAuthorityImportState::Indexing {
+            return Err(ApiError::conflict(
+                "authority_import_indexing",
+                "An authority import cannot be cancelled after durable indexing begins.",
             ));
         }
         let result = ProviderAuthorityImport {
@@ -914,32 +854,60 @@ impl HostedProvider {
         }
         transaction.commit().await?;
         self.abort_authority_import_multipart(abandoned_files).await;
-        self.remove_working_set(result.collection_id).await;
         Ok(result)
     }
 
     pub async fn recover_expired_authority_imports(&self) -> ApiResult<usize> {
         let mut transaction = self.pool.begin().await?;
-        let expired = sqlx::query(
+        sqlx::query(
             r#"SELECT collection_id FROM hosted_provider_authority_imports
                WHERE state IN ('receiving', 'uploaded') AND expires_at <= now()
                FOR UPDATE"#,
         )
         .fetch_all(&mut *transaction)
         .await?;
-        let collection_ids = expired
-            .iter()
-            .map(|row| row.get::<Uuid, _>("collection_id"))
-            .collect::<Vec<_>>();
         let abandoned_files = expired_authority_import_blob_cleanup(&mut transaction).await?;
         let recovered = recover_expired_authority_imports_in(&mut transaction).await?;
         transaction.commit().await?;
         self.abort_authority_import_multipart(abandoned_files).await;
-        if recovered > 0 {
-            for collection_id in collection_ids {
-                self.remove_working_set(collection_id).await;
-            }
-        }
         Ok(recovered)
+    }
+
+    pub(super) async fn finalize_indexed_authority_imports(&self, limit: u32) -> ApiResult<u64> {
+        let result = sqlx::query(
+            r#"WITH ready AS MATERIALIZED (
+                 SELECT import.id
+                 FROM hosted_provider_authority_imports import
+                 JOIN hosted_provider_collections collection
+                   ON collection.id = import.collection_id
+                 JOIN hosted_provider_projection_generations generation
+                   ON generation.collection_id = collection.id
+                  AND generation.generation_id = collection.active_projection_generation_id
+                 WHERE import.state = 'indexing'
+                   AND collection.state = 'active'
+                   AND generation.status = 'complete'
+                   AND collection.active_projection_head = collection.head
+                   AND generation.source_head <= collection.active_projection_head
+                   AND generation.source_resource_revision = collection.resource_revision
+                   AND generation.projection_format_version = $2
+                   AND generation.semantic_engine_version = $3
+                   AND generation.integrity_epoch = generation.integrity_verified_epoch
+                 ORDER BY import.id
+                 LIMIT $1
+                 FOR UPDATE OF import SKIP LOCKED
+               )
+               UPDATE hosted_provider_authority_imports import
+               SET state = 'completed', completed_at = now()
+               FROM ready
+               WHERE import.id = ready.id"#,
+        )
+        .bind(i64::from(limit.clamp(1, 100)))
+        .bind(i64::from(
+            mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION,
+        ))
+        .bind(mdbase::VERSION)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
     }
 }

@@ -25,7 +25,9 @@ pub(super) async fn invalidate_projection_catalog_binding(
            SET active_catalog_revision = NULL,
                active_projection_format_version = NULL,
                active_semantic_engine_version = NULL,
-               active_projection_generation_id = NULL
+               active_projection_generation_id = NULL,
+               active_projection_head = NULL,
+               updated_at = now()
            WHERE id = $1"#,
     )
     .bind(collection_id)

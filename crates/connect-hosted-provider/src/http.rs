@@ -45,6 +45,7 @@ use crate::{
 mod accounts;
 mod authentication;
 mod authority_import_files;
+mod diagnostics;
 mod files;
 mod projections;
 
@@ -54,6 +55,7 @@ use authority_import_files::{
     commit_authority_import_file_upload, open_authority_import_file_upload,
     prepare_authority_import_file_part,
 };
+use diagnostics::diagnostic_routes;
 use files::file_routes;
 use projections::projection_routes;
 
@@ -61,6 +63,10 @@ const MAX_BODY_BYTES: usize = 3 * 1024 * 1024;
 // Record imports are paged, but a page can contain several large canonical
 // documents. Provider quotas and the concurrency gate bound parsed work.
 const MAX_IMPORT_BODY_BYTES: usize = 16 * 1024 * 1024;
+// An admitted request holds one primary-pool connection for its cross-process
+// advisory permit. Eight permits leave ten primary connections for handler and
+// maintenance work, preventing a pool-ordering deadlock under saturation.
+const MAX_ADMITTED_REQUESTS: usize = 8;
 #[derive(Clone)]
 pub struct AppState {
     provider: HostedProvider,
@@ -79,7 +85,7 @@ impl AppState {
         Ok(Self {
             provider,
             internal_token_hash: Sha256::digest(internal_token.as_bytes()).into(),
-            request_slots: Arc::new(Semaphore::new(128)),
+            request_slots: Arc::new(Semaphore::new(MAX_ADMITTED_REQUESTS)),
         })
     }
 
@@ -313,14 +319,19 @@ pub fn app(state: AppState) -> Router {
         )
         .layer(DefaultBodyLimit::max(MAX_IMPORT_BODY_BYTES))
         .route_layer(middleware::from_fn(require_bearer_request));
-    Router::new()
-        .route("/health", get(health))
-        .route("/ready", get(ready))
+    let admitted = Router::new()
         .merge(internal)
         .merge(sync)
         .merge(operations)
         .merge(files)
         .merge(imports)
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            enforce_runtime_admission,
+        ));
+    Router::new()
+        .merge(diagnostic_routes(state.clone()))
+        .merge(admitted)
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(cors)
         .layer(PropagateRequestIdLayer::new(request_id_header.clone()))
@@ -331,6 +342,17 @@ pub fn app(state: AppState) -> Router {
             limit_concurrent_requests,
         ))
         .with_state(state)
+}
+
+async fn enforce_runtime_admission(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> ApiResult<Response> {
+    let permit = state.provider.acquire_runtime_admission().await?;
+    let response = next.run(request).await;
+    permit.commit().await?;
+    Ok(response)
 }
 
 async fn limit_concurrent_requests(
@@ -364,23 +386,6 @@ async fn authorize_internal_request(
 async fn require_bearer_request(request: Request, next: Next) -> ApiResult<Response> {
     bearer(request.headers())?;
     Ok(next.run(request).await)
-}
-
-async fn health() -> Json<Value> {
-    Json(json!({ "status": "ok" }))
-}
-
-async fn ready(State(state): State<AppState>) -> ApiResult<Json<Value>> {
-    let notifications = state.provider.ready().await?;
-    Ok(Json(json!({
-        "status": "ready",
-        "provider": {
-            "version": env!("CARGO_PKG_VERSION"),
-            "capabilities": mdbase_connect_protocol::HOSTED_PROVIDER_CAPABILITIES,
-            "contract_support": mdbase_connect_protocol::ConnectContractSupport::default(),
-        },
-        "notifications": notifications
-    })))
 }
 
 async fn rename_collection(

@@ -264,15 +264,15 @@ async fn insert_query_cursor(
               generation_id, catalog_revision, projection_format_version,
               semantic_engine_version, query_plan_version, query_digest, query_plan,
               request_kind, request_digest, result_meta, exact_context_ciphertext,
-              base_plan, base_context, base_operation_clock, base_invocation_id,
+              base_invocation_id,
               last_order_values, last_record_id, emitted_rows, expires_at, hard_expires_at,
               execution_proof_version, execution_proof_ciphertext,
               execution_proof_bytes, snapshot_record_count, scan_budget_records,
               scan_budget_ciphertext_bytes, projection_integrity_epoch, cursor_bytes)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                   $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
-                   LEAST(now() + ($24::bigint * interval '1 millisecond'), $25), $25,
-                   $26, $27, $28, $29, $30, $31, $32, $33)"#,
+                   $13, $14, $15, $16, $17, $18, $19, $20,
+                   LEAST(now() + ($21::bigint * interval '1 millisecond'), $22), $22,
+                   $23, $24, $25, $26, $27, $28, $29, $30)"#,
     )
     .bind(cursor_id)
     .bind(collection_id)
@@ -290,9 +290,6 @@ async fn insert_query_cursor(
     .bind(decode_sha256_digest(&state.request_digest)?)
     .bind(sqlx::types::Json(&state.result_meta))
     .bind(exact_context_ciphertext)
-    .bind(None::<Value>)
-    .bind(None::<Value>)
-    .bind(None::<String>)
     .bind(base_invocation_id)
     .bind(sqlx::types::Json(keyset))
     .bind(last_record_id)

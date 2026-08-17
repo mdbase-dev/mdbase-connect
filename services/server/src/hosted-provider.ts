@@ -21,7 +21,6 @@ export interface HostedProviderConfig {
   url: string;
   publicUrl?: string;
   internalToken: string;
-  newCollectionExecutionModel?: "legacy" | "candidate_b";
 }
 
 export interface HostedProjectionGenerationStatus {
@@ -34,8 +33,7 @@ export interface HostedProjectionGenerationStatus {
 
 export interface HostedProjectionStatus {
   collection_id: string;
-  execution_model: "legacy" | "candidate_b";
-  pending_execution_model: "candidate_b" | null;
+  ready: boolean;
   head: number;
   resource_revision: string;
   active_generation_id: string | null;
@@ -145,7 +143,7 @@ export interface AuthorityImport {
   id: string;
   collection_id: string;
   authority_epoch: number;
-  state: "receiving" | "uploaded" | "completed" | "aborted";
+  state: "receiving" | "uploaded" | "indexing" | "completed" | "aborted";
   manifest_digest: string | null;
   source_revision: string | null;
   source_head: number | null;
@@ -157,13 +155,11 @@ export class HostedProviderClient {
   readonly url: string;
   private readonly endpointUrl: string;
   private readonly internalToken: string;
-  private readonly newCollectionExecutionModel: "legacy" | "candidate_b";
 
   constructor(config: HostedProviderConfig) {
     this.endpointUrl = new URL(config.url).origin;
     this.url = new URL(config.publicUrl ?? config.url).origin;
     this.internalToken = config.internalToken;
-    this.newCollectionExecutionModel = config.newCollectionExecutionModel ?? "legacy";
   }
 
   async ready(): Promise<void> {
@@ -179,8 +175,7 @@ export class HostedProviderClient {
         || !HOSTED_PROVIDER_REQUIRED_CAPABILITIES.every(
           (required) => capabilities.includes(required)
         )
-        || (this.newCollectionExecutionModel === "candidate_b"
-          && !capabilities.includes(HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY))
+        || !capabilities.includes(HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY)
         || !hostedContractSupportMatches(result.provider?.contract_support)) {
       throw new HostedProviderUnavailableError(
         new Error("Hosted provider capability report is incompatible.")
@@ -264,8 +259,13 @@ export class HostedProviderClient {
       display_name: displayName,
       timezone
     });
-    if (this.newCollectionExecutionModel === "candidate_b") {
-      await this.activateCandidateBCollection(collectionId, false);
+    const projection = await this.projectionStatus(collectionId);
+    if (!projection.ready || !projection.active_generation_id) {
+      throw new HostedProviderResponseError(
+        503,
+        "projection_activation_stalled",
+        "The provider returned a new collection without a current projection."
+      );
     }
   }
 
@@ -273,28 +273,6 @@ export class HostedProviderClient {
     const result = await this.request(
       "GET",
       `/internal/v1/collections/${encodeURIComponent(collectionId)}/projection`
-    ) as { projection?: HostedProjectionStatus } | undefined;
-    return requiredProjectionStatus(result?.projection);
-  }
-
-  async requestCandidateBActivation(
-    collectionId: string,
-    expected: Pick<HostedProjectionStatus, "head" | "resource_revision">
-  ): Promise<HostedProjectionStatus> {
-    const confirmation = [
-      "activate-candidate-b",
-      collectionId,
-      String(expected.head),
-      expected.resource_revision
-    ].join(":");
-    const result = await this.request(
-      "POST",
-      `/internal/v1/collections/${encodeURIComponent(collectionId)}/projection/activate-candidate-b`,
-      {
-        expected_head: expected.head,
-        expected_resource_revision: expected.resource_revision,
-        confirmation
-      }
     ) as { projection?: HostedProjectionStatus } | undefined;
     return requiredProjectionStatus(result?.projection);
   }
@@ -320,7 +298,7 @@ export class HostedProviderClient {
       ) {
         const status = await this.projectionStatus(collectionId);
         if (
-          status.execution_model === "candidate_b"
+          status.ready
           && status.active_generation_id === generationId
         ) return status;
       }
@@ -328,17 +306,12 @@ export class HostedProviderClient {
     }
   }
 
-  private async activateCandidateBCollection(
-    collectionId: string,
-    resumable: boolean
-  ): Promise<void> {
+  private async completeProjection(collectionId: string): Promise<void> {
     let status = await this.projectionStatus(collectionId);
-    if (status.execution_model === "candidate_b" && status.active_generation_id) return;
-    status = await this.requestCandidateBActivation(collectionId, status);
     // Keep every control-plane request finite. Large authority imports resume
     // the same fenced generation through an explicit typed pending response.
     for (let batch = 0; batch < 16; batch += 1) {
-      if (status.execution_model === "candidate_b" && status.active_generation_id) return;
+      if (status.ready && status.active_generation_id) return;
       const generationId = status.building_generation?.generation_id;
       if (!generationId) {
         throw new HostedProviderResponseError(
@@ -349,17 +322,10 @@ export class HostedProviderClient {
       }
       status = await this.advanceProjection(collectionId, generationId);
     }
-    if (resumable) {
-      throw new HostedProviderResponseError(
-        409,
-        "projection_activation_pending",
-        "Candidate B activation is still building; resume the same fenced authority import."
-      );
-    }
     throw new HostedProviderResponseError(
-      503,
-      "projection_activation_budget_exceeded",
-      "Candidate B activation exceeded its bounded creation-time batch budget."
+      409,
+      "projection_activation_pending",
+      "Candidate B activation is still building; resume the same fenced authority import."
     );
   }
 
@@ -645,14 +611,24 @@ export class HostedProviderClient {
     manifestDigest: string,
     sourceRevision: string
   ): Promise<AuthorityImport> {
-    const completed = await this.request(
+    let completed = await this.request(
       "POST",
       `/internal/v1/authority-imports/${encodeURIComponent(transferId)}`,
       { manifest_digest: manifestDigest, source_revision: sourceRevision }
     ) as AuthorityImport;
-    if (this.newCollectionExecutionModel === "candidate_b") {
-      await this.activateCandidateBCollection(completed.collection_id, true);
+    if (completed.state === "completed") {
+      return completed;
     }
+    await this.completeProjection(completed.collection_id);
+    // The import endpoint advances only one bounded projection batch.
+    // Projection completion may finish the fenced generation through the
+    // projection API, so reconcile the import row before exposing completion
+    // to the authority-transfer transaction.
+    completed = await this.request(
+      "POST",
+      `/internal/v1/authority-imports/${encodeURIComponent(transferId)}`,
+      { manifest_digest: manifestDigest, source_revision: sourceRevision }
+    ) as AuthorityImport;
     return completed;
   }
 
@@ -731,9 +707,7 @@ function requiredProjectionStatus(value: unknown): HostedProjectionStatus {
   const building = status.building_generation;
   if (
     typeof status.collection_id !== "string"
-    || !["legacy", "candidate_b"].includes(String(status.execution_model))
-    || !(status.pending_execution_model === null
-      || status.pending_execution_model === "candidate_b")
+    || typeof status.ready !== "boolean"
     || !Number.isSafeInteger(status.head)
     || typeof status.resource_revision !== "string"
     || !(status.active_generation_id === null

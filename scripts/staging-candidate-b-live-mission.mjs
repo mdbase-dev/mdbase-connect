@@ -7,7 +7,8 @@ import { isAbsolute, resolve } from "node:path";
 import { isDeepStrictEqual, promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-const STAGING_ORIGIN = "https://connect-staging.mdbase.dev";
+const STAGING_ORIGIN = process.env.MDBASE_CANDIDATE_B_STAGING_ORIGIN
+  ?? "https://connect-staging.mdbase.dev";
 const FIXTURE_PREFIX = "candidate-b-live-v1";
 
 function fail(message) {
@@ -163,8 +164,15 @@ async function main() {
   const folderPredicate = `file.inFolder("${FIXTURE_PREFIX}/tasks")`;
   const fixtures = Array.from({ length: options.records }, (_, index) => missionRecord(index));
   const fixturesByPath = new Map(fixtures.map((fixture) => [fixture.path, fixture]));
+  const lateRecord = {
+    ...missionRecord(options.records),
+    path: `${FIXTURE_PREFIX}/tasks/task-snapshot-late.md`,
+    frontmatter: { ...missionRecord(options.records).frontmatter, title: "Snapshot-late task" }
+  };
   const fixtureDigest = sha256(fixtures.map((fixture) => JSON.stringify(fixture)).join("\n"));
   const existingPaths = new Set();
+  let lateRecordResumed = false;
+  let lateRecordRevision;
   let existingCursor;
   do {
     const existingPage = envelopeValue((await operation("query", {
@@ -177,6 +185,16 @@ async function main() {
       limit: 500
     })).value, "preflight query");
     for (const record of existingPage.results) {
+      if (record.path === lateRecord.path && options.resume) {
+        if (!isDeepStrictEqual(record.frontmatter, lateRecord.frontmatter)
+            || !isDeepStrictEqual(record.types, lateRecord.types)
+            || record.body !== lateRecord.body) {
+          fail("The existing snapshot-late fixture does not match this deterministic run.");
+        }
+        lateRecordResumed = true;
+        lateRecordRevision = record.revision;
+        continue;
+      }
       const expected = fixturesByPath.get(record.path);
       if (!expected
           || !isDeepStrictEqual(record.frontmatter, expected.frontmatter)
@@ -191,20 +209,32 @@ async function main() {
   if (existingPaths.size !== 0 && !options.resume) {
     fail(`The ${FIXTURE_PREFIX} fixture prefix is not empty.`);
   }
+  if (lateRecordResumed) {
+    envelopeValue((await operation("delete", {
+      path: lateRecord.path,
+      if_revision: lateRecordRevision
+    })).value, "reset snapshot-late fixture");
+    lateRecordResumed = false;
+  }
 
   const createLatencies = [];
   let providerInternalErrors = 0;
+  let providerBusyErrors = 0;
   let nextIndex = 0;
   let stopWorkers = false;
   const errorCode = (error) => {
-    try {
-      return JSON.parse(error?.stdout ?? "")?.error?.code;
-    } catch {
-      return undefined;
+    for (const output of [error?.stdout, error?.stderr]) {
+      try {
+        const code = JSON.parse(output ?? "")?.error?.code;
+        if (code) return code;
+      } catch {
+        // The other output stream may contain the CLI error envelope.
+      }
     }
+    return undefined;
   };
   const createFixture = async (fixture, index) => {
-    for (let attempt = 1; attempt <= 5; attempt += 1) {
+    for (let attempt = 1; attempt <= 12; attempt += 1) {
       const started = performance.now();
       try {
         const created = await operation("create", fixture);
@@ -214,20 +244,27 @@ async function main() {
         }
         return performance.now() - started;
       } catch (error) {
-        if (errorCode(error) !== "provider_internal_error") throw error;
-        providerInternalErrors += 1;
-        try {
-          const recovered = envelopeValue((await operation("read", { path: fixture.path })).value, `reconcile create ${index}`);
-          if (recovered.path === fixture.path
-            && recovered.frontmatter?.title === fixture.frontmatter.title
-            && recovered.body === fixture.body) {
-            return performance.now() - started;
+        const code = errorCode(error);
+        if (code === "provider_internal_error") {
+          providerInternalErrors += 1;
+          try {
+            const recovered = envelopeValue((await operation("read", { path: fixture.path })).value, `reconcile create ${index}`);
+            if (recovered.path === fixture.path
+              && recovered.frontmatter?.title === fixture.frontmatter.title
+              && recovered.body === fixture.body) {
+              return performance.now() - started;
+            }
+          } catch {
+            // A missing read is the expected retry case after a failed create.
           }
-        } catch {
-          // A missing read is the expected retry case after a failed create.
+        } else if (code === "provider_busy") {
+          providerBusyErrors += 1;
+        } else {
+          throw error;
         }
-        if (attempt === 5) throw error;
-        await new Promise((resolveRetry) => setTimeout(resolveRetry, 100 * 2 ** (attempt - 1)));
+        if (attempt === 12) throw error;
+        const retryDelayMs = Math.min(2_000, 100 * 2 ** (attempt - 1));
+        await new Promise((resolveRetry) => setTimeout(resolveRetry, retryDelayMs));
       }
     }
     fail(`Create ${index} exhausted its bounded retry loop.`);
@@ -262,12 +299,9 @@ async function main() {
     fail("The first cursor page did not bind the complete deterministic fixture.");
   }
 
-  const lateRecord = {
-    ...missionRecord(options.records),
-    path: `${FIXTURE_PREFIX}/tasks/task-snapshot-late.md`,
-    frontmatter: { ...missionRecord(options.records).frontmatter, title: "Snapshot-late task" }
-  };
-  envelopeValue((await operation("create", lateRecord)).value, "snapshot-late create");
+  if (!lateRecordResumed) {
+    envelopeValue((await operation("create", lateRecord)).value, "snapshot-late create");
+  }
 
   const seenPaths = firstPage.results.map((record) => record.path);
   const pageSizes = [firstPage.results.length];
@@ -293,14 +327,22 @@ async function main() {
   const releasable = envelopeValue((await operation("query", { ...queryBase, limit: 5 })).value, "releasable cursor");
   const released = await operation("query", { release_cursor: releasable.meta.cursor });
   envelopeValue(released.value, "cursor release");
-  const reused = (await operation("query", { ...queryBase, cursor: releasable.meta.cursor, limit: 5 })).value;
-  if (reused.valid !== false || !diagnosticCodes(reused).some((code) => code.includes("cursor"))) {
+  let reusedDiagnostics;
+  try {
+    const reused = (await operation("query", { ...queryBase, cursor: releasable.meta.cursor, limit: 5 })).value;
+    reusedDiagnostics = diagnosticCodes(reused);
+  } catch (error) {
+    const code = errorCode(error);
+    if (code !== "query_cursor_expired") throw error;
+    reusedDiagnostics = [code];
+  }
+  if (!reusedDiagnostics.some((code) => code.includes("cursor"))) {
     fail("A released cursor did not fail with a typed cursor diagnostic.");
   }
 
   const bodySuccess = (await operation("query", {
     ...queryBase,
-    where: `${folderPredicate} && record.priority == 1 && file.body.lower().contains('deterministic mission body')`,
+    where: `${folderPredicate} && record.status == 'open' && file.body.lower().contains('deterministic mission body')`,
     include_body: true,
     limit: 20
   }, 60_000)).value;
@@ -309,13 +351,21 @@ async function main() {
     fail("The bounded exact/body query returned incomplete exact documents.");
   }
 
-  const bodyBudget = (await operation("query", {
-    ...queryBase,
-    where: `${folderPredicate} && file.body.lower().contains('needle-that-does-not-exist')`,
-    limit: 20
-  }, 60_000)).value;
-  if (bodyBudget.valid !== false || !diagnosticCodes(bodyBudget).includes("hosted_exact_document_budget_exceeded")) {
-    fail(`The unbounded body residual did not return its typed exact-document budget: ${JSON.stringify(bodyBudget)}`);
+  let bodyBudgetDiagnostics;
+  try {
+    const bodyBudget = (await operation("query", {
+      ...queryBase,
+      where: `${folderPredicate} && file.body.lower().contains('needle-that-does-not-exist')`,
+      limit: 20
+    }, 60_000)).value;
+    bodyBudgetDiagnostics = diagnosticCodes(bodyBudget);
+  } catch (error) {
+    const code = errorCode(error);
+    if (code !== "hosted_exact_document_budget_exceeded") throw error;
+    bodyBudgetDiagnostics = [code];
+  }
+  if (!bodyBudgetDiagnostics.includes("hosted_exact_document_budget_exceeded")) {
+    fail(`The unbounded body residual did not return its typed exact-document budget: ${JSON.stringify(bodyBudgetDiagnostics)}`);
   }
 
   const grouped = envelopeValue((await operation("query", {
@@ -327,6 +377,17 @@ async function main() {
   })).value, "grouped query");
   if (!Array.isArray(grouped.meta?.groups) || grouped.meta.groups.length !== 4) {
     fail("The bounded grouped query did not return four deterministic status groups.");
+  }
+
+  let changeCursor = 0;
+  for (let pageIndex = 0; pageIndex < 64; pageIndex += 1) {
+    const page = (await operation("changes", { after: changeCursor, limit: 200 })).value;
+    if (!Array.isArray(page.events) || !Number.isSafeInteger(page.cursor)) {
+      fail("The change stream returned an invalid baseline page.");
+    }
+    changeCursor = page.cursor;
+    if (!page.has_more) break;
+    if (pageIndex === 63) fail("The change-stream baseline exceeded 64 bounded pages.");
   }
 
   const casPath = `${FIXTURE_PREFIX}/cas/source.md`;
@@ -341,12 +402,20 @@ async function main() {
     patch: { status: "done" },
     if_revision: casCreated.revision
   })).value, "CAS update");
-  const stale = (await operation("update", {
-    path: casPath,
-    patch: { status: "cancelled" },
-    if_revision: casCreated.revision
-  })).value;
-  if (stale.valid !== false || !diagnosticCodes(stale).includes("concurrent_modification")) {
+  let staleDiagnostics;
+  try {
+    const stale = (await operation("update", {
+      path: casPath,
+      patch: { status: "cancelled" },
+      if_revision: casCreated.revision
+    })).value;
+    staleDiagnostics = diagnosticCodes(stale);
+  } catch (error) {
+    const code = errorCode(error);
+    if (code !== "concurrent_modification") throw error;
+    staleDiagnostics = [code];
+  }
+  if (!staleDiagnostics.includes("concurrent_modification")) {
     fail("A stale CAS update did not return a typed revision diagnostic.");
   }
   const renamedPath = `${FIXTURE_PREFIX}/cas/renamed.md`;
@@ -362,8 +431,8 @@ async function main() {
     check_backlinks: true
   })).value, "CAS delete");
 
-  const changes = (await operation("changes", { after: 0, limit: 200 })).value;
-  if (!Array.isArray(changes.changes) || changes.changes.length === 0) fail("The change stream returned no live mutations.");
+  const changes = (await operation("changes", { after: changeCursor, limit: 200 })).value;
+  if (!Array.isArray(changes.events) || changes.events.length === 0) fail("The change stream returned no live mutations.");
 
   const cancellationStarted = performance.now();
   const cancellation = await new Promise((resolveCancellation, rejectCancellation) => {
@@ -399,7 +468,7 @@ async function main() {
     started_at: startedAt,
     finished_at: finishedAt,
     cli_version: version,
-    records_created: createLatencies.length + 2,
+    records_created: createLatencies.length + (lateRecordResumed ? 1 : 2),
     fixture_records_resumed: existingPaths.size,
     deterministic_fixture_records: options.records,
     concurrency: options.concurrency,
@@ -411,6 +480,7 @@ async function main() {
       maximum: Math.max(...createLatencies)
     },
     provider_internal_errors: providerInternalErrors,
+    provider_busy_errors: providerBusyErrors,
     cursor: {
       first_page_size: 17,
       subsequent_page_size: 43,
@@ -418,15 +488,15 @@ async function main() {
       traversed_records: seenPaths.length,
       snapshot_late_record_excluded: true,
       fresh_total_after_concurrent_write: fresh.meta.total_count,
-      early_release_typed_failure: diagnosticCodes(reused)
+      early_release_typed_failure: reusedDiagnostics
     },
     body: {
       successful_exact_page_items: bodyResult.results.length,
-      budget_failure: diagnosticCodes(bodyBudget)
+      budget_failure: bodyBudgetDiagnostics
     },
     grouping: { groups: grouped.meta.groups.length },
-    cas: { stale_failure: diagnosticCodes(stale), create_update_rename_delete: true },
-    changes_observed: changes.changes.length,
+    cas: { stale_failure: staleDiagnostics, create_update_rename_delete: true },
+    changes_observed: changes.events.length,
     cancellation: { ...cancellation, post_cancel_query: "passed" }
   };
   await writeFile(options.output, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 });
@@ -436,7 +506,7 @@ async function main() {
     fixture_digest: fixtureDigest,
     records: options.records,
     cursor_pages: pageSizes.length,
-    typed_budget: diagnosticCodes(bodyBudget)
+    typed_budget: bodyBudgetDiagnostics
   })}\n`);
 }
 

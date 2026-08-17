@@ -79,21 +79,35 @@ impl HostedProvider {
         let requested_path = input.get("path").and_then(Value::as_str).ok_or_else(|| {
             ApiError::bad_request("invalid_request", "Saved-view path is required.")
         })?;
-        let Some((_, view_document)) = resource_documents
+        let resource_view = resource_documents
             .iter()
-            .find(|(path, _)| path == requested_path)
-        else {
+            .find(|(path, _)| path == requested_path);
+        let view_record = if let Some((_, view_document)) = resource_view {
+            mdbase::runtime::CanonicalRecordInput {
+                stable_id: None,
+                path: requested_path.to_string(),
+                document: view_document.clone(),
+                file_size: view_document.len() as u64,
+                file_mtime: None,
+            }
+        } else if let Some(view_record) = load_exact_context_by_path(
+            transaction,
+            &self.crypto,
+            data_key,
+            collection_id,
+            requested_path,
+        )
+        .await?
+        {
+            // Canonical saved views may be ordinary Markdown records or
+            // dedicated view resources. The exact point read is bounded and
+            // avoids reconstructing a collection-wide WorkingSet.
+            view_record
+        } else {
             return Ok(Err(mdbase::runtime::invalid_operation_result(
                 "view_not_found",
                 format!("View record '{requested_path}' was not found."),
             )));
-        };
-        let view_record = mdbase::runtime::CanonicalRecordInput {
-            stable_id: None,
-            path: requested_path.to_string(),
-            document: view_document.clone(),
-            file_size: view_document.len() as u64,
-            file_mtime: None,
         };
         let explicit_context_path = input
             .get("context")
@@ -137,7 +151,7 @@ impl HostedProvider {
         };
         enforce_exact_context_budget(&plan.query, exact_context.as_ref())?;
         let (generation_id, catalog_revision, projection_format_version, semantic_engine_version) =
-            active_query_binding(collection, catalog)?;
+            base_query_binding(collection, catalog);
         let mut result_meta = serde_json::Map::new();
         result_meta.insert(
             "view".to_string(),
@@ -159,7 +173,7 @@ impl HostedProvider {
             )?,
             scan_budget_records,
             scan_budget_ciphertext_bytes,
-            generation_id: Some(generation_id),
+            generation_id,
             projection_integrity_epoch: collection_projection_integrity_epoch(collection)?,
             projection_integrity_verified: collection_projection_integrity_verified(collection)?,
             catalog_revision,
@@ -335,10 +349,7 @@ impl HostedProvider {
                       c.projection_format_version, c.semantic_engine_version,
                       c.query_plan, c.query_digest, c.request_kind, c.request_digest,
                       c.result_meta, c.exact_context_ciphertext,
-                      COALESCE(i.base_plan, c.base_plan) AS base_plan,
-                      COALESCE(i.base_context, c.base_context) AS base_context,
-                      COALESCE(i.base_operation_clock, c.base_operation_clock)
-                        AS base_operation_clock,
+                      i.base_plan, i.base_context, i.base_operation_clock,
                       c.base_invocation_id, c.last_order_values,
                       c.last_record_id, c.emitted_rows, c.hard_expires_at,
                       c.execution_proof_version, c.execution_proof_ciphertext,

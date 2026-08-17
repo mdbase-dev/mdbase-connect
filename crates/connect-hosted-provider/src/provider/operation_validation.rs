@@ -71,9 +71,10 @@ impl HostedProvider {
             None,
         );
         let collection = sqlx::query(
-            r#"SELECT record_count, resource_revision, wrapped_data_key, resources_ciphertext,
+            r#"SELECT head, record_count, resource_revision, wrapped_data_key, resources_ciphertext,
                       active_catalog_revision, active_projection_format_version,
-                      active_semantic_engine_version, active_projection_generation_id
+                      active_semantic_engine_version, active_projection_generation_id,
+                      active_projection_head
                FROM hosted_provider_collections
                WHERE id = $1 AND state = 'active'"#,
         )
@@ -162,7 +163,9 @@ impl HostedProvider {
                     mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION,
                 ))
             && active_engine.as_deref() == Some(mdbase::VERSION)
-            && generation_id.is_some();
+            && generation_id.is_some()
+            && collection.get::<Option<i64>, _>("active_projection_head")
+                == Some(collection.get::<i64, _>("head"));
 
         let mut context = vec![target];
         let mut context_ids = BTreeSet::from([plan.target_stable_id.clone()]);

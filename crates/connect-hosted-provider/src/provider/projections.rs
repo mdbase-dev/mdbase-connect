@@ -44,8 +44,7 @@ pub struct HostedProjectionBatch {
 #[derive(Debug, Clone, Serialize)]
 pub struct HostedProjectionStatus {
     pub collection_id: Uuid,
-    pub execution_model: String,
-    pub pending_execution_model: Option<String>,
+    pub ready: bool,
     pub head: u64,
     pub resource_revision: String,
     pub active_generation_id: Option<Uuid>,
@@ -54,8 +53,45 @@ pub struct HostedProjectionStatus {
     pub latest_terminal_error_code: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct HostedProjectionIndexPlanEntry {
+    pub collection_id: Uuid,
+    pub head: u64,
+    pub resource_revision: String,
+    pub record_count: u64,
+    pub resource_count: u64,
+    pub retained_record_versions: u64,
+    pub exact_ciphertext_bytes: u64,
+    pub ready: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HostedProjectionIndexPlan {
+    pub migration_baseline: u64,
+    pub migration_target: u64,
+    pub migration_ledger_valid: bool,
+    pub schema_valid: bool,
+    pub collections: Vec<HostedProjectionIndexPlanEntry>,
+    pub next_after: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HostedProjectionVerification {
+    pub collection_id: Uuid,
+    pub verified: bool,
+    pub failures: Vec<String>,
+    pub exact_records: u64,
+    pub projected_records: u64,
+    pub resolved_records: u64,
+    pub invalid_projection_rows: u64,
+    pub expected_resolution_keys: u64,
+    pub persisted_resolution_keys: u64,
+    pub expected_relationships: u64,
+    pub persisted_relationships: u64,
+}
+
 #[derive(Debug, Clone)]
-struct CandidateBActivationExpectation {
+struct ProjectionIndexExpectation {
     head: u64,
     resource_revision: String,
 }
@@ -99,15 +135,15 @@ impl HostedProvider {
         &self,
         collection_id: Uuid,
         supersede_building: bool,
-        activation: Option<CandidateBActivationExpectation>,
+        activation: Option<ProjectionIndexExpectation>,
     ) -> ApiResult<Option<HostedProjectionGeneration>> {
         let generation_id = Uuid::new_v4();
         let mut transaction = self.pool.begin().await?;
         let row = sqlx::query(
             r#"SELECT head, resource_revision, wrapped_data_key, resources_ciphertext,
-                      hosted_execution_model, pending_hosted_execution_model
+                      active_projection_generation_id, active_projection_head
                FROM hosted_provider_collections
-               WHERE id = $1 AND state = 'active'
+               WHERE id = $1 AND state IN ('active', 'indexing')
                FOR UPDATE"#,
         )
         .bind(collection_id)
@@ -119,8 +155,6 @@ impl HostedProvider {
                 "Hosted collection not found.",
             )
         })?;
-        let execution_model: String = row.get("hosted_execution_model");
-        let pending_execution_model: Option<String> = row.get("pending_hosted_execution_model");
         if let Some(expected) = activation.as_ref() {
             let current_head = number(row.get::<i64, _>("head"), "collection head")?;
             let current_resource_revision: String = row.get("resource_revision");
@@ -128,8 +162,8 @@ impl HostedProvider {
                 || current_resource_revision != expected.resource_revision
             {
                 return Err(ApiError::conflict(
-                    "projection_activation_binding_changed",
-                    "The collection head or resource revision changed before activation.",
+                    "projection_index_binding_changed",
+                    "The collection head or resource revision changed before indexing.",
                 )
                 .with_details(json!({
                     "expected_head": expected.head,
@@ -138,21 +172,54 @@ impl HostedProvider {
                     "actual_resource_revision": current_resource_revision,
                 })));
             }
-            if execution_model == "candidate_b" {
+            let active_is_current: bool = row.get::<Option<i64>, _>("active_projection_head")
+                == Some(row.get::<i64, _>("head"))
+                && sqlx::query_scalar(
+                    r#"SELECT EXISTS (
+                     SELECT 1
+                     FROM hosted_provider_projection_generations generation
+                     WHERE generation.collection_id = $1
+                       AND generation.generation_id = $2
+                       AND generation.status = 'complete'
+                       AND generation.source_head <= $3
+                       AND generation.source_resource_revision = $4
+                       AND generation.projection_format_version = $5
+                       AND generation.semantic_engine_version = $6
+                   )"#,
+                )
+                .bind(collection_id)
+                .bind(row.get::<Option<Uuid>, _>("active_projection_generation_id"))
+                .bind(row.get::<i64, _>("head"))
+                .bind(row.get::<String, _>("resource_revision"))
+                .bind(i64::from(
+                    mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION,
+                ))
+                .bind(mdbase::VERSION)
+                .fetch_one(&mut *transaction)
+                .await?;
+            if active_is_current {
                 transaction.rollback().await?;
                 return Ok(None);
             }
-        }
-        if activation.is_some() && pending_execution_model.as_deref() == Some("candidate_b") {
             let building = sqlx::query(
                 r#"SELECT generation_id, target_catalog_revision,
                           projection_format_version, semantic_engine_version,
                           source_head, phase, status, lease_fencing_generation
                    FROM hosted_provider_projection_generations
                    WHERE collection_id = $1 AND status = 'building'
+                     AND source_head = $2
+                     AND source_resource_revision = $3
+                     AND projection_format_version = $4
+                     AND semantic_engine_version = $5
                    ORDER BY created_at DESC, generation_id DESC LIMIT 1"#,
             )
             .bind(collection_id)
+            .bind(row.get::<i64, _>("head"))
+            .bind(row.get::<String, _>("resource_revision"))
+            .bind(i64::from(
+                mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION,
+            ))
+            .bind(mdbase::VERSION)
             .fetch_optional(&mut *transaction)
             .await?;
             if let Some(building) = building {
@@ -189,8 +256,8 @@ impl HostedProvider {
             if let Some(error_code) = terminal_error {
                 return Err(ApiError::new(
                     StatusCode::SERVICE_UNAVAILABLE,
-                    "projection_activation_quarantined",
-                    "Candidate B activation is quarantined until exact authority or the semantic catalog changes.",
+                    "projection_index_quarantined",
+                    "Projection indexing is quarantined until exact authority or the semantic catalog changes.",
                 )
                 .with_details(json!({ "generation_error_code": error_code })));
             }
@@ -199,16 +266,26 @@ impl HostedProvider {
             // Recovery selects missing work without locking every candidate.
             // Recheck after taking the collection lock so a stale selection
             // cannot supersede an explicit start that won the race.
-            let building_exists: bool = sqlx::query_scalar(
-                r#"SELECT EXISTS (
-                     SELECT 1 FROM hosted_provider_projection_generations
-                     WHERE collection_id = $1 AND status = 'building'
-                   )"#,
+            let building = sqlx::query(
+                r#"SELECT source_head, source_resource_revision,
+                          projection_format_version, semantic_engine_version
+                   FROM hosted_provider_projection_generations
+                   WHERE collection_id = $1 AND status = 'building'
+                   ORDER BY created_at DESC, generation_id DESC
+                   LIMIT 1"#,
             )
             .bind(collection_id)
-            .fetch_one(&mut *transaction)
+            .fetch_optional(&mut *transaction)
             .await?;
-            if building_exists {
+            let building_is_current = building.is_some_and(|building| {
+                building.get::<i64, _>("source_head") == row.get::<i64, _>("head")
+                    && building.get::<String, _>("source_resource_revision")
+                        == row.get::<String, _>("resource_revision")
+                    && i64::from(building.get::<i32, _>("projection_format_version"))
+                        == i64::from(mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION)
+                    && building.get::<String, _>("semantic_engine_version") == mdbase::VERSION
+            });
+            if building_is_current {
                 transaction.rollback().await?;
                 return Ok(None);
             }
@@ -283,23 +360,6 @@ impl HostedProvider {
         .bind(PROJECTION_LEASE_SECONDS)
         .execute(&mut *transaction)
         .await?;
-        if activation.is_some() {
-            sqlx::query(
-                r#"UPDATE hosted_provider_collections
-                   SET pending_hosted_execution_model = 'candidate_b', updated_at = now()
-                   WHERE id = $1 AND hosted_execution_model = 'legacy'"#,
-            )
-            .bind(collection_id)
-            .execute(&mut *transaction)
-            .await?;
-        } else if pending_execution_model.as_deref() != Some("candidate_b") {
-            sqlx::query(
-                "UPDATE hosted_provider_collections SET hosted_execution_model = 'candidate_b' WHERE id = $1",
-            )
-            .bind(collection_id)
-            .execute(&mut *transaction)
-            .await?;
-        }
         transaction.commit().await?;
         Ok(Some(HostedProjectionGeneration {
             collection_id,
@@ -314,10 +374,10 @@ impl HostedProvider {
         }))
     }
 
-    /// Record an initial Candidate B activation intent without changing the
-    /// readable execution model. The complete projection generation is bound
-    /// and activated atomically by the resolution completion transaction.
-    pub async fn request_candidate_b_activation(
+    /// Start or resume indexing for one exact head/resource binding. The
+    /// complete projection generation is bound atomically by the resolution
+    /// completion transaction.
+    pub async fn request_projection_indexing(
         &self,
         collection_id: Uuid,
         expected_head: u64,
@@ -326,7 +386,7 @@ impl HostedProvider {
         self.start_projection_generation_with_expectation(
             collection_id,
             false,
-            Some(CandidateBActivationExpectation {
+            Some(ProjectionIndexExpectation {
                 head: expected_head,
                 resource_revision: expected_resource_revision,
             }),
@@ -340,10 +400,20 @@ impl HostedProvider {
         collection_id: Uuid,
     ) -> ApiResult<HostedProjectionStatus> {
         let row = sqlx::query(
-            r#"SELECT collection.hosted_execution_model,
-                      collection.pending_hosted_execution_model,
-                      collection.head, collection.resource_revision,
+            r#"SELECT collection.head, collection.resource_revision,
                       collection.active_projection_generation_id,
+                      collection.active_projection_head,
+                      collection.active_catalog_revision,
+                      collection.active_projection_format_version,
+                      collection.active_semantic_engine_version,
+                      active.status AS active_status,
+                      active.source_head AS active_source_head,
+                      active.source_resource_revision AS active_source_resource_revision,
+                      active.target_catalog_revision AS active_target_catalog_revision,
+                      active.projection_format_version AS active_generation_format_version,
+                      active.semantic_engine_version AS active_generation_engine_version,
+                      active.integrity_epoch AS active_integrity_epoch,
+                      active.integrity_verified_epoch AS active_integrity_verified_epoch,
                       generation.generation_id, generation.target_catalog_revision,
                       generation.projection_format_version,
                       generation.semantic_engine_version, generation.source_head,
@@ -352,6 +422,9 @@ impl HostedProvider {
                       terminal.generation_id AS terminal_generation_id,
                       terminal.last_error_code AS terminal_error_code
                FROM hosted_provider_collections collection
+               LEFT JOIN hosted_provider_projection_generations active
+                 ON active.collection_id = collection.id
+                AND active.generation_id = collection.active_projection_generation_id
                LEFT JOIN LATERAL (
                  SELECT generation_id, target_catalog_revision,
                         projection_format_version, semantic_engine_version,
@@ -366,7 +439,8 @@ impl HostedProvider {
                  WHERE collection_id = collection.id AND status = 'abandoned'
                  ORDER BY updated_at DESC, generation_id DESC LIMIT 1
                ) terminal ON true
-               WHERE collection.id = $1 AND collection.state = 'active'"#,
+               WHERE collection.id = $1
+                 AND collection.state IN ('active', 'indexing')"#,
         )
         .bind(collection_id)
         .fetch_optional(&self.pool)
@@ -377,13 +451,44 @@ impl HostedProvider {
                 "Hosted collection not found.",
             )
         })?;
+        let head = number(row.get::<i64, _>("head"), "collection head")?;
+        let resource_revision: String = row.get("resource_revision");
+        let active_generation_id: Option<Uuid> = row.get("active_projection_generation_id");
+        let ready = active_generation_id.is_some()
+            && row.get::<Option<i64>, _>("active_projection_head")
+                == Some(row.get::<i64, _>("head"))
+            && row.get::<Option<String>, _>("active_status").as_deref() == Some("complete")
+            && row
+                .get::<Option<i64>, _>("active_source_head")
+                .is_some_and(|value| u64::try_from(value).is_ok_and(|value| value <= head))
+            && row
+                .get::<Option<String>, _>("active_source_resource_revision")
+                .as_ref()
+                == Some(&resource_revision)
+            && row.get::<Option<String>, _>("active_target_catalog_revision")
+                == row.get::<Option<String>, _>("active_catalog_revision")
+            && row.get::<Option<i32>, _>("active_generation_format_version")
+                == row.get::<Option<i32>, _>("active_projection_format_version")
+            && row
+                .get::<Option<i32>, _>("active_projection_format_version")
+                .is_some_and(|version| {
+                    i64::from(version)
+                        == i64::from(mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION)
+                })
+            && row.get::<Option<String>, _>("active_generation_engine_version")
+                == row.get::<Option<String>, _>("active_semantic_engine_version")
+            && row
+                .get::<Option<String>, _>("active_semantic_engine_version")
+                .as_deref()
+                == Some(mdbase::VERSION)
+            && row.get::<Option<i64>, _>("active_integrity_epoch")
+                == row.get::<Option<i64>, _>("active_integrity_verified_epoch");
         Ok(HostedProjectionStatus {
             collection_id,
-            execution_model: row.get("hosted_execution_model"),
-            pending_execution_model: row.get("pending_hosted_execution_model"),
-            head: number(row.get::<i64, _>("head"), "collection head")?,
-            resource_revision: row.get("resource_revision"),
-            active_generation_id: row.get("active_projection_generation_id"),
+            ready,
+            head,
+            resource_revision,
+            active_generation_id,
             building_generation: projection_generation_from_joined_row(collection_id, &row)?,
             latest_terminal_generation_id: row.get("terminal_generation_id"),
             latest_terminal_error_code: row.get("terminal_error_code"),
@@ -405,11 +510,7 @@ impl HostedProvider {
                WHERE generation.collection_id = $1
                  AND generation.generation_id = $2
                  AND generation.status = 'building'
-                 AND collection.state = 'active'
-                 AND (
-                   collection.hosted_execution_model = 'candidate_b'
-                   OR collection.pending_hosted_execution_model = 'candidate_b'
-                 )"#,
+                 AND collection.state IN ('active', 'indexing')"#,
         )
         .bind(collection_id)
         .bind(generation_id)
@@ -441,18 +542,19 @@ impl HostedProvider {
     /// fenced to their current owner. One call performs at most one bounded
     /// projection or resolution batch per selected collection.
     pub async fn recover_projection_generations(&self, limit: u32) -> ApiResult<usize> {
+        let Ok(_recovery_guard) = self.projection_recovery_guard.try_lock() else {
+            tracing::debug!(
+                "projection recovery yielded to another worker in this provider process"
+            );
+            return Ok(0);
+        };
         let limit = i64::from(limit.clamp(1, 100));
         let missing = sqlx::query(
             r#"SELECT collection.id
                FROM hosted_provider_collections collection
-               WHERE collection.state = 'active'
+               WHERE collection.state IN ('active', 'indexing')
                  AND (
-                   collection.hosted_execution_model = 'candidate_b'
-                   OR collection.pending_hosted_execution_model = 'candidate_b'
-                 )
-                 AND (
-                   collection.pending_hosted_execution_model = 'candidate_b'
-                   OR collection.active_projection_generation_id IS NULL
+                   collection.active_projection_generation_id IS NULL
                    OR EXISTS (
                      SELECT 1
                      FROM hosted_provider_record_projections projection
@@ -520,11 +622,7 @@ impl HostedProvider {
                FROM hosted_provider_projection_generations generation
                JOIN hosted_provider_collections collection
                  ON collection.id = generation.collection_id
-               WHERE collection.state = 'active'
-                 AND (
-                   collection.hosted_execution_model = 'candidate_b'
-                   OR collection.pending_hosted_execution_model = 'candidate_b'
-                 )
+               WHERE collection.state IN ('active', 'indexing')
                  AND generation.status = 'building'
                  AND (
                    generation.lease_owner IS NULL
@@ -585,6 +683,8 @@ impl HostedProvider {
                 Err(error) => return Err(error),
             }
         }
+        self.finalize_indexed_authority_imports(limit as u32)
+            .await?;
         Ok(advanced)
     }
 }
@@ -663,4 +763,5 @@ include!("projections/pruning.rs");
 include!("projections/rebuild_limits.rs");
 include!("projections/activation.rs");
 include!("projections/persistence.rs");
+include!("projections/indexing.rs");
 include!("projections/catalog_binding.rs");

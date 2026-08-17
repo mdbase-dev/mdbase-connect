@@ -59,7 +59,7 @@ impl HostedProvider {
         let collection = sqlx::query(
             r#"SELECT resource_revision, wrapped_data_key, resources_ciphertext
                FROM hosted_provider_collections
-               WHERE id = $1 AND state = 'active'"#,
+               WHERE id = $1 AND state IN ('active', 'indexing')"#,
         )
         .bind(collection_id)
         .fetch_optional(&mut *transaction)
@@ -275,6 +275,7 @@ impl HostedProvider {
         }
 
         let mut phase_advanced = false;
+        let mut projection_restarted = false;
         if rows.is_empty() {
             if let Some(issue) = abandon_invalid_projection_candidate(
                 &mut transaction,
@@ -330,6 +331,35 @@ impl HostedProvider {
                      LEFT JOIN live r ON r.record_id = p.record_id
                      WHERE p.collection_id = $1 AND p.generation_id = $2
                        AND p.valid_to_sequence IS NULL AND r.record_id IS NULL
+                     UNION ALL
+                     SELECT 1 FROM hosted_provider_record_projections p
+                     WHERE p.collection_id = $1 AND p.generation_id = $2
+                       AND p.valid_to_sequence IS NULL
+                       AND (
+                         jsonb_typeof(p.semantic_projection -> 'resolution_keys') <> 'array'
+                         OR jsonb_typeof(
+                              p.semantic_projection #> '{structure,occurrences}'
+                            ) <> 'array'
+                         OR jsonb_array_length(
+                              p.semantic_projection -> 'resolution_keys'
+                            ) <> (
+                              SELECT count(*)
+                              FROM hosted_provider_record_resolution_keys key
+                              WHERE key.collection_id = p.collection_id
+                                AND key.generation_id = p.generation_id
+                                AND key.record_id = p.record_id
+                                AND key.valid_to_sequence IS NULL
+                            )
+                       )
+                     UNION ALL
+                     SELECT 1 FROM hosted_provider_record_resolution_keys key
+                     LEFT JOIN hosted_provider_record_projections p
+                       ON p.collection_id = key.collection_id
+                      AND p.generation_id = key.generation_id
+                      AND p.record_id = key.record_id
+                      AND p.valid_to_sequence IS NULL
+                     WHERE key.collection_id = $1 AND key.generation_id = $2
+                       AND key.valid_to_sequence IS NULL AND p.record_id IS NULL
                    )"#,
             )
             .bind(collection_id)
@@ -341,7 +371,11 @@ impl HostedProvider {
             .fetch_one(&mut *transaction)
             .await?;
             if stale_exists {
+                // Prepared projections and resolution keys are complete in
+                // this phase; relationship rows deliberately are not. They
+                // are generated and verified only during resolution.
                 last_record_id = None;
+                projection_restarted = true;
             } else {
                 phase_advanced = true;
             }
@@ -349,9 +383,24 @@ impl HostedProvider {
         let updated = sqlx::query(
             r#"UPDATE hosted_provider_projection_generations
                SET checkpoint_record_id = $6,
-                   projected_records = projected_records + $7,
+                   projected_records = CASE
+                     WHEN $8 THEN (
+                       SELECT count(*)
+                       FROM hosted_provider_record_projections projection
+                       WHERE projection.collection_id = $1
+                         AND projection.generation_id = $2
+                         AND projection.valid_to_sequence IS NULL
+                     )
+                     WHEN $9 THEN 0
+                     ELSE projected_records + $7
+                   END,
                    phase = CASE WHEN $8 THEN 'resolution' ELSE phase END,
-                   resolved_records = CASE WHEN $8 THEN 0 ELSE resolved_records END,
+                   resolved_records = CASE WHEN $8 OR $9 THEN 0
+                                           ELSE resolved_records END,
+                   lease_owner = NULL,
+                   lease_expires_at = NULL,
+                   last_error_code = CASE WHEN $9 THEN 'concurrent_change'
+                                          ELSE NULL END,
                    updated_at = now()
                WHERE collection_id = $1 AND generation_id = $2
                  AND status = 'building' AND phase = 'projection'
@@ -367,6 +416,7 @@ impl HostedProvider {
         .bind(if phase_advanced { None } else { last_record_id })
         .bind(to_i64(projected, "projected record count")?)
         .bind(phase_advanced)
+        .bind(projection_restarted)
         .execute(&mut *transaction)
         .await?;
         if updated.rows_affected() != 1 {
@@ -438,7 +488,7 @@ impl HostedProvider {
             // Every path that can lock both rows uses collection -> generation.
             // Ordinary resolution batches never need the collection row lock.
             sqlx::query(
-                "SELECT id FROM hosted_provider_collections WHERE id = $1 AND state = 'active' FOR UPDATE",
+                "SELECT id FROM hosted_provider_collections WHERE id = $1 AND state IN ('active', 'indexing') FOR UPDATE",
             )
             .bind(collection_id)
             .fetch_optional(&mut *transaction)
@@ -490,7 +540,7 @@ impl HostedProvider {
         let collection = sqlx::query(
             r#"SELECT resource_revision, wrapped_data_key, resources_ciphertext
                FROM hosted_provider_collections
-               WHERE id = $1 AND state = 'active'"#,
+               WHERE id = $1 AND state IN ('active', 'indexing')"#,
         )
         .bind(collection_id)
         .fetch_optional(&mut *transaction)
@@ -741,6 +791,7 @@ impl HostedProvider {
                 let restarted = sqlx::query(
                     r#"UPDATE hosted_provider_projection_generations
                        SET phase = 'projection', checkpoint_record_id = NULL,
+                           projected_records = 0, resolved_records = 0,
                            updated_at = now(), last_error_code = 'concurrent_change'
                        WHERE collection_id = $1 AND generation_id = $2
                          AND status = 'building' AND phase = 'resolution'
@@ -785,18 +836,9 @@ impl HostedProvider {
                        active_projection_format_version = $4,
                        active_semantic_engine_version = $5,
                        active_projection_generation_id = $2,
-                       hosted_execution_model = CASE
-                         WHEN pending_hosted_execution_model = 'candidate_b'
-                           THEN 'candidate_b'
-                         ELSE hosted_execution_model
-                       END,
-                       pending_hosted_execution_model = CASE
-                         WHEN pending_hosted_execution_model = 'candidate_b'
-                           THEN NULL
-                         ELSE pending_hosted_execution_model
-                       END,
-                       updated_at = now()
-                   WHERE id = $1 AND state = 'active' AND head = $6
+                       active_projection_head = $6,
+                       state = 'active', updated_at = now()
+                   WHERE id = $1 AND state IN ('active', 'indexing') AND head = $6
                    "#,
             )
             .bind(collection_id)
@@ -834,12 +876,23 @@ impl HostedProvider {
         let updated = sqlx::query(
             r#"UPDATE hosted_provider_projection_generations
                SET checkpoint_record_id = $6,
-                   resolved_records = resolved_records + $7,
+                   resolved_records = CASE
+                     WHEN $8 THEN (
+                       SELECT count(*)
+                       FROM hosted_provider_record_projections projection
+                       WHERE projection.collection_id = $1
+                         AND projection.generation_id = $2
+                         AND projection.valid_to_sequence IS NULL
+                         AND projection.semantic_complete
+                         AND projection.resolution_complete
+                     )
+                     ELSE resolved_records + $7
+                   END,
                    status = CASE WHEN $8 THEN 'complete' ELSE status END,
                    integrity_verified_epoch = CASE WHEN $8 THEN integrity_epoch ELSE integrity_verified_epoch END,
                    completed_at = CASE WHEN $8 THEN now() ELSE completed_at END,
-                   lease_owner = CASE WHEN $8 THEN NULL ELSE lease_owner END,
-                   lease_expires_at = CASE WHEN $8 THEN NULL ELSE lease_expires_at END,
+                   lease_owner = NULL,
+                   lease_expires_at = NULL,
                    last_error_code = NULL,
                    updated_at = now()
                WHERE collection_id = $1 AND generation_id = $2

@@ -840,7 +840,8 @@ fn collect_exact_candidate_scalar_fields(
         }
         mdbase::runtime::CandidatePredicate::All
         | mdbase::runtime::CandidatePredicate::None
-        | mdbase::runtime::CandidatePredicate::HasType { .. } => {}
+        | mdbase::runtime::CandidatePredicate::HasType { .. }
+        | mdbase::runtime::CandidatePredicate::PathInFolder { .. } => {}
     }
 }
 

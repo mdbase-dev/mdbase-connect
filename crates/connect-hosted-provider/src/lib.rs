@@ -21,8 +21,8 @@ pub use blob_store::{
 pub use crypto::ProviderCrypto;
 pub use error::{ApiError, ApiResult};
 pub use execution_budget::{
-    HostedExecutionAcceptance, HostedExecutionBudgetManifest, HostedExecutionBudgets,
-    HostedExecutionEntitlement, TemporaryExecutionContainment,
+    HostedAuthorityBulkBudgets, HostedExecutionAcceptance, HostedExecutionBudgetManifest,
+    HostedExecutionBudgets, HostedExecutionEntitlement,
 };
 pub use execution_measurement::HostedProcessMemory;
 pub use http::{app, AppState};
@@ -32,10 +32,13 @@ pub use key_wrapping::{
     KeyWrappingBackend, KeyWrappingConfig, KeyWrappingRuntime, LegacyKeyWrapper,
 };
 pub use notifications::{HostedNotificationConfig, HostedNotificationRuntime};
+pub use provider::run_hosted_cutover_migrations;
 pub use provider::{
     HostedMutationJournalDiagnostics, HostedProjectionBatch, HostedProjectionGeneration,
-    HostedProvider, HostedQueryActivity, NotificationRecoveryState, NotificationRecoveryStatus,
-    PrepareAuthorityImport, PrepareAuthorityTransfer, ProviderAccountLimits, ProviderAccountUsage,
-    ProviderAuthorityImport, ProviderAuthorityImportState, ProviderAuthorityTransfer,
-    ProviderAuthorityTransferState, ProviderLimits, RegisterReplica, ReplicaPurpose,
+    HostedProjectionIndexPlan, HostedProjectionIndexPlanEntry, HostedProjectionStatus,
+    HostedProjectionVerification, HostedProvider, HostedQueryActivity, NotificationRecoveryState,
+    NotificationRecoveryStatus, PrepareAuthorityImport, PrepareAuthorityTransfer,
+    ProviderAccountLimits, ProviderAccountUsage, ProviderAuthorityImport,
+    ProviderAuthorityImportState, ProviderAuthorityTransfer, ProviderAuthorityTransferState,
+    ProviderLimits, RegisterReplica, ReplicaPurpose,
 };

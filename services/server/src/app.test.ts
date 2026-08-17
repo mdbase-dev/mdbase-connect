@@ -14,6 +14,7 @@ import {
   AUTHORITY_PROOF_HEADERS,
   AUTHORITY_PROOF_VERSION,
   CONNECT_CONTRACT_SUPPORT,
+  HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY,
   HOSTED_PROVIDER_REQUIRED_CAPABILITIES
 } from "@mdbase-dev/connect-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -121,8 +122,11 @@ describe("mdbase connect server", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       status: "ready",
       provider: {
-        version: "0.1.0-beta.73",
-        capabilities: [...HOSTED_PROVIDER_REQUIRED_CAPABILITIES],
+        version: "0.1.0-beta.74",
+        capabilities: [
+          ...HOSTED_PROVIDER_REQUIRED_CAPABILITIES,
+          HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY
+        ],
         contract_support: CONNECT_CONTRACT_SUPPORT
       },
       notifications: {

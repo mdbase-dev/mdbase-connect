@@ -175,6 +175,10 @@ impl HostedProvider {
         sqlx::query(
             r#"UPDATE hosted_provider_collections
                SET head = $2,
+                   active_projection_head = CASE
+                     WHEN active_projection_generation_id IS NULL THEN NULL
+                     ELSE $2
+                   END,
                    retained_after = CASE WHEN $5 THEN $2 ELSE retained_after END,
                    resource_revision = $3, resources_ciphertext = $4, updated_at = now()
                WHERE id = $1"#,
@@ -196,7 +200,6 @@ impl HostedProvider {
             .await?;
         }
         transaction.commit().await?;
-        self.remove_working_set(collection_id).await;
         if is_type {
             let provider = self.clone();
             tokio::spawn(async move {

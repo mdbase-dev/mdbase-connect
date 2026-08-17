@@ -9,119 +9,165 @@ fn rollback_binaries_tolerate_newer_additive_migrations() {
 }
 
 #[test]
-fn base_invocation_migration_releases_the_legacy_constraint_before_backfill() {
-    let migration = include_str!("../../migrations/0040_hosted_base_query_invocations.sql");
-    let drop_constraint = migration
-        .find("DROP CONSTRAINT hosted_provider_query_cursors_base_state_check")
-        .expect("migration drops the legacy Base cursor constraint");
-    let backfill = migration
-        .find("UPDATE hosted_provider_query_cursors")
-        .expect("migration backfills legacy Base cursors");
-    let replacement = migration
-        .rfind("ADD CONSTRAINT hosted_provider_query_cursors_base_state_check")
-        .expect("migration installs the invocation-aware constraint");
-    assert!(drop_constraint < backfill);
-    assert!(backfill < replacement);
+fn final_query_runtime_has_only_invocation_backed_base_cursors() {
+    let migration = include_str!("../../migrations/0036_hosted_query_runtime.sql");
+    assert!(migration.contains("CREATE TABLE hosted_provider_base_query_invocations"));
+    assert!(migration.contains("base_invocation_id uuid"));
+    assert!(
+        migration.contains("request_kind = 'obsidian_base') = (base_invocation_id IS NOT NULL)")
+    );
+    assert!(!migration.contains("ALTER TABLE hosted_provider_query_cursors"));
 }
 
 #[test]
-fn pre_0040_rollback_preflight_fails_closed_on_live_invocation_cursors() {
-    let preflight =
-        include_str!("../../../../deploy/postgres/preflight-hosted-provider-pre-0040-rollback.sql");
-    assert!(preflight.contains("\\set ON_ERROR_STOP on"));
-    assert!(preflight.contains("base_invocation_id IS NOT NULL"));
-    assert!(preflight.contains("expires_at > now()"));
-    assert!(preflight.contains("hard_expires_at > now()"));
-    assert!(preflight.contains("RAISE EXCEPTION"));
-    assert!(preflight.contains("candidate_b_pre_0040_rollback_blocked"));
-    assert!(preflight.contains("query_admission_suspended = true"));
-}
-
-#[test]
-fn rollback_fence_and_pre_0044_preflight_are_fail_closed() {
-    let migration = include_str!("../../migrations/0047_hosted_runtime_rollback_fence.sql");
-    let suspend =
-        include_str!("../../../../deploy/postgres/suspend-hosted-query-admission-for-rollback.sql");
+fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
+    let migration = include_str!("../../migrations/0036_hosted_query_runtime.sql");
+    let fence_migration = include_str!("../../migrations/0037_hosted_admission_fence.sql");
+    let suspend = include_str!("../../../../deploy/postgres/suspend-hosted-query-admission.sql");
     let resume = include_str!("../../../../deploy/postgres/resume-hosted-query-admission.sql");
+    let provisional =
+        include_str!("../../../../deploy/postgres/open-hosted-query-admission-provisional.sql");
+    let finalize = include_str!("../../../../deploy/postgres/finalize-hosted-query-admission.sql");
     let preflight =
-        include_str!("../../../../deploy/postgres/preflight-hosted-provider-pre-0044-rollback.sql");
+        include_str!("../../../../deploy/postgres/prepare-hosted-provider-beta69-rollback.sql");
+    let final_preflight =
+        include_str!("../../../../deploy/postgres/preflight-hosted-provider-final-rollback.sql");
+    let cutover_preflight =
+        include_str!("../../../../deploy/postgres/preflight-hosted-provider-final-cutover.sql");
     assert!(migration.contains("query_admission_suspended boolean NOT NULL DEFAULT false"));
+    assert!(!migration.contains("admission_fence_token uuid"));
+    assert!(fence_migration.contains("ADD COLUMN admission_fence_token uuid"));
+    assert!(fence_migration.contains("ADD COLUMN admission_fence_kind text"));
+    assert!(fence_migration.contains("ADD COLUMN admission_lease_expires_at timestamptz"));
+    assert!(fence_migration.contains("ADD COLUMN admission_owner_expires_at timestamptz"));
     assert!(suspend.contains("pg_advisory_xact_lock"));
     assert!(suspend.contains("query_admission_suspended = true"));
+    assert!(suspend.contains("admission_fence_token = requested_token"));
+    assert!(suspend.contains("admission_owner_expires_at"));
+    assert!(suspend.contains("GET DIAGNOSTICS affected_rows = ROW_COUNT"));
+    assert!(suspend.contains("affected_rows <> 1"));
     assert!(resume.contains("query_admission_suspended = false"));
-    assert!(preflight.contains("hosted_execution_model = 'candidate_b'"));
+    assert!(resume.contains("admission_fence_token = requested_token"));
+    assert!(resume.contains("admission_fence_kind = requested_kind"));
+    assert!(resume.contains("GET DIAGNOSTICS affected_rows = ROW_COUNT"));
+    assert!(resume.contains("affected_rows <> 1"));
+    assert!(provisional.contains("admission_lease_expires_at"));
+    assert!(provisional.contains("lease_seconds < 30 OR lease_seconds > 600"));
+    assert!(provisional.contains("admission_owner_expires_at >"));
+    assert!(finalize.contains("admission_lease_expires_at > clock_timestamp()"));
+    assert!(finalize.contains("admission_fence_token = NULL"));
+    assert!(finalize.contains("admission_owner_expires_at = NULL"));
+    assert!(preflight.contains("expected exact successful final ledger 1-37"));
+    assert!(preflight.contains("attest-hosted-provider-migration-ledger.sql"));
+    assert!(preflight.contains("admission_fence_token = requested_token"));
+    assert!(preflight.contains("DELETE FROM hosted_provider_query_cursors"));
+    assert!(preflight.contains("DELETE FROM hosted_provider_query_page_receipts"));
+    assert!(preflight.contains("hosted_provider_projection_generations"));
     assert!(preflight.contains("status = 'building'"));
     assert!(preflight.contains("RAISE EXCEPTION"));
+    for canonical in [
+        "hosted_provider_records",
+        "hosted_provider_record_versions",
+        "hosted_provider_changes",
+        "hosted_provider_mutation_receipts",
+        "hosted_provider_runtime_outbox",
+    ] {
+        assert!(!preflight.contains(&format!("DELETE FROM {canonical}")));
+    }
+    assert!(final_preflight.contains("REPEATABLE READ READ ONLY"));
+    assert!(final_preflight.contains("expected exact successful final ledger 1-37"));
+    assert!(final_preflight.contains("migration checksum mismatch at version(s)"));
+    assert!(final_preflight.contains("required final relation/index objects are absent"));
+    assert!(final_preflight.contains("differ from the exact contract"));
+    assert!(final_preflight.contains("pg_get_triggerdef"));
+    assert!(final_preflight.contains("pg_get_constraintdef"));
+    assert!(final_preflight.contains("pg_get_functiondef"));
+    assert!(final_preflight.contains("expected exactly ten non-internal"));
+    assert!(final_preflight.contains("expected exactly nine runtime-control"));
+    assert!(final_preflight
+        .contains("expected exactly one matching controlled suspended admission row"));
+    assert!(
+        cutover_preflight.contains("active_projection_head IS DISTINCT FROM collection_row.head")
+    );
+    assert!(cutover_preflight
+        .contains("generation.source_head > collection_row.active_projection_head"));
+    assert!(cutover_preflight.contains(
+        "integrity_epoch\n           IS DISTINCT FROM generation.integrity_verified_epoch"
+    ));
+    assert!(
+        !cutover_preflight.contains("generation.source_head IS DISTINCT FROM collection_row.head")
+    );
+    assert!(!final_preflight.contains("DELETE FROM"));
+    assert!(!final_preflight.contains("UPDATE hosted_provider_"));
+    assert!(cutover_preflight.contains("\\set fence_kind cutover"));
+    assert!(cutover_preflight.contains("\\ir preflight-hosted-provider-final-rollback.sql"));
+    assert!(cutover_preflight.contains("generation.status IS DISTINCT FROM 'complete'"));
+    assert!(cutover_preflight.contains("attest-hosted-provider-migration-ledger.sql"));
 }
 
 #[test]
-fn receipt_retention_index_migration_is_quiescent_and_time_bounded() {
-    let migration = include_str!("../../migrations/0043_hosted_query_page_receipt_retention.sql");
-    assert!(migration.contains("SET LOCAL lock_timeout = '5s'"));
-    assert!(migration.contains("SET LOCAL statement_timeout = '30s'"));
+fn cutover_database_drain_requires_zero_other_sessions_without_stats_role() {
+    let drain = include_str!("../../../../deploy/postgres/preflight-hosted-database-drained.sql");
+    assert!(drain.contains("session_existence_and_database"));
+    assert!(drain.contains("SELECT count(*)"));
+    assert!(drain.contains("datname = current_database()"));
+    assert!(drain.contains("pid <> pg_backend_pid()"));
+    assert!(drain.contains("other_sessions"));
+    assert!(!drain.contains("pg_read_all_stats', 'MEMBER'"));
+    assert!(!drain.contains("state <> 'idle'"));
+    assert!(drain.contains("hosted_database_not_drained"));
+}
+
+#[test]
+fn final_receipt_runtime_has_global_retention_index() {
+    let migration = include_str!("../../migrations/0036_hosted_query_runtime.sql");
     assert!(migration.contains("hosted_provider_query_page_receipts_global_expiry_idx"));
 }
 
 #[test]
-fn receipt_usage_and_ciphertext_budget_migrations_require_drained_ephemeral_state() {
-    let usage = include_str!("../../migrations/0049_hosted_query_receipt_usage.sql");
-    assert!(usage.contains("hosted_provider_query_page_receipts to be drained"));
-    assert!(usage.contains("pg_advisory_xact_lock"));
-    assert!(usage.contains("mdbase-hosted-query-admission-v1"));
+fn final_runtime_starts_with_current_receipt_and_cursor_contracts() {
+    let usage = include_str!("../../migrations/0036_hosted_query_runtime.sql");
     assert!(usage.contains("hosted_provider_query_receipt_usage"));
     assert!(usage.contains("AFTER INSERT OR DELETE OR UPDATE OF account_id"));
     assert!(!usage.contains("sum(octet_length(response_ciphertext)"));
-
-    let ciphertext = include_str!("../../migrations/0050_hosted_query_ciphertext_budget.sql");
-    assert!(ciphertext.contains("hosted_provider_query_cursors to be drained"));
-    assert!(ciphertext.contains("scan_budget_ciphertext_bytes bigint NOT NULL DEFAULT 1073741824"));
-    assert!(ciphertext.contains("execution_proof_version IN (0, 1, 2)"));
-
-    let immutability =
-        include_str!("../../migrations/0051_hosted_query_receipt_payload_immutability.sql");
-    assert!(immutability.contains("SET LOCAL lock_timeout = '5s'"));
-    assert!(immutability.contains("SET LOCAL statement_timeout = '30s'"));
-    assert!(immutability.contains("BEFORE UPDATE OF response_ciphertext"));
-    assert!(immutability.contains("response ciphertext is immutable"));
+    assert!(usage.contains("scan_budget_ciphertext_bytes bigint NOT NULL"));
+    assert!(usage
+        .contains("execution_proof_version integer NOT NULL CHECK (execution_proof_version = 2)"));
+    assert!(usage.contains("BEFORE UPDATE OF response_ciphertext"));
+    assert!(usage.contains("response ciphertext is immutable"));
 }
 
 #[test]
-fn managed_upgrade_preflight_fences_and_checks_every_quiescent_migration() {
+fn beta69_cutover_preflight_requires_the_exact_production_baseline() {
     let preflight =
-        include_str!("../../../../deploy/postgres/preflight-hosted-provider-upgrade.sql");
-    assert!(preflight.contains("pg_advisory_xact_lock"));
-    assert!(preflight.contains("query_admission_suspended = true"));
-    assert!(preflight.contains("without a durable admission fence"));
-    assert!(preflight.contains("version = 46"));
-    assert!(preflight.contains("version = 49"));
-    assert!(preflight.contains("version = 50"));
-    assert!(preflight.contains("projection rows must be rebuilt"));
-    assert!(preflight.contains("query page receipts must be drained"));
-    assert!(preflight.contains("query cursors must be drained"));
+        include_str!("../../../../deploy/postgres/preflight-hosted-provider-beta69-cutover.sql");
+    assert!(preflight.contains("REPEATABLE READ READ ONLY"));
+    assert!(preflight.contains("generate_series(1, 34)"));
+    assert!(preflight.contains("expected exact successful migration ledger 1-34"));
+    assert!(preflight.contains("attest-hosted-provider-migration-ledger.sql"));
+    assert!(preflight.contains("mdbase.expected_migration_max', '34'"));
+    assert!(preflight.contains("Candidate B schema already exists"));
+    assert!(preflight.contains("largest_collection_records"));
 }
 
 #[test]
 fn projection_source_revision_constraint_is_time_bounded() {
-    let migration =
-        include_str!("../../migrations/0048_hosted_projection_generation_source_resource.sql");
-    assert!(migration.contains("SET LOCAL lock_timeout = '5s'"));
-    assert!(migration.contains("SET LOCAL statement_timeout = '30s'"));
-    assert!(migration.contains("NOT VALID"));
-    assert!(migration.contains("VALIDATE CONSTRAINT"));
+    let migration = include_str!("../../migrations/0035_hosted_semantic_projections.sql");
+    assert!(migration.contains("source_resource_revision text NOT NULL"));
+    assert!(migration.contains("length(source_resource_revision) BETWEEN 1 AND 1024"));
 }
 
 #[test]
 fn temporal_projection_digest_upgrade_refuses_weaker_existing_rows() {
-    let migration = include_str!("../../migrations/0046_hosted_projection_temporal_digest.sql");
-    assert!(migration.contains("candidate_b_projection_rows_require_rebuild"));
+    let migration = include_str!("../../migrations/0035_hosted_semantic_projections.sql");
     assert!(migration.contains("(projection_row).valid_to_sequence"));
     assert!(migration.contains("mdbase/hosted-projection-row/v2"));
 }
 
 #[test]
 fn projection_digest_migration_is_expand_only_and_observes_row_changes() {
-    let migration = include_str!("../../migrations/0044_hosted_projection_row_digest.sql");
-    assert!(migration.contains("ADD COLUMN projection_observed_digest"));
+    let migration = include_str!("../../migrations/0035_hosted_semantic_projections.sql");
+    assert!(migration.contains("projection_observed_digest bytea NOT NULL"));
     assert!(migration.contains("BEFORE INSERT OR UPDATE"));
     assert!(migration.contains("NEW.projection_observed_digest"));
     assert!(migration.contains("expected_digest = observed_digest"));
@@ -130,7 +176,7 @@ fn projection_digest_migration_is_expand_only_and_observes_row_changes() {
 
 #[test]
 fn projection_digest_application_writes_do_not_create_a_second_tuple_version() {
-    let migration = include_str!("../../migrations/0054_projection_digest_single_write.sql");
+    let migration = include_str!("../../migrations/0035_hosted_semantic_projections.sql");
     assert!(migration.contains("NEW.projection_digest = decode(repeat('00', 32), 'hex')"));
     assert!(migration.contains("NEW.projection_digest := NEW.projection_observed_digest"));
     assert!(!migration.contains("UPDATE hosted_provider_record_projections"));
@@ -138,31 +184,30 @@ fn projection_digest_application_writes_do_not_create_a_second_tuple_version() {
 
 #[test]
 fn query_receipt_identity_migration_preserves_usage_counter_ownership() {
-    let migration = include_str!("../../migrations/0057_query_receipt_identity_immutability.sql");
-    assert!(migration.contains("UPDATE OF replica_id, collection_id"));
-    assert!(migration.contains("replica and collection identities are immutable"));
-    assert!(!migration.contains("UPDATE OF account_id"));
+    let migration = include_str!("../../migrations/0036_hosted_query_runtime.sql");
+    let identity = &migration[migration
+        .find("CREATE FUNCTION hosted_provider_reject_query_receipt_identity_update")
+        .unwrap()..];
+    let identity = &identity[..identity.find("CREATE TRIGGER").unwrap()];
+    assert!(identity.contains("replica and collection identities are immutable"));
+    assert!(!identity.contains("account_id"));
 }
 
 #[test]
 fn projection_digest_marker_requires_transaction_local_writer_authority() {
-    let migration = include_str!("../../migrations/0058_projection_digest_write_guard.sql");
+    let migration = include_str!("../../migrations/0035_hosted_semantic_projections.sql");
     assert!(migration.contains("current_setting('mdbase.projection_digest_write', true)"));
     assert!(migration.contains("ERRCODE = '42501'"));
     let projections = include_str!("projections.rs");
     assert!(projections.contains("SET LOCAL mdbase.projection_digest_write = 'on'"));
-    let rollback =
-        include_str!("../../../../deploy/postgres/preflight-hosted-provider-pre-0058-rollback.sql");
-    assert!(rollback.contains("query_admission_suspended = true"));
-    assert!(rollback.contains("hosted_execution_model = 'candidate_b'"));
-    assert!(rollback.contains("hosted_provider_record_projections"));
 }
 
 #[test]
 fn snapshot_cursor_index_keeps_path_and_identity_adjacent() {
-    let migration = include_str!("../../migrations/0053_snapshot_path_cursor_index.sql");
-    assert!(migration.starts_with("-- no-transaction"));
-    assert!(migration.contains("CREATE INDEX CONCURRENTLY IF NOT EXISTS"));
+    let migration = include_str!("../../migrations/0035_hosted_semantic_projections.sql");
+    let migration = &migration[migration
+        .find("CREATE INDEX hosted_provider_record_projections_snapshot_path_cursor_idx")
+        .unwrap()..];
     let path = migration.find("canonical_path COLLATE \"C\"").unwrap();
     let identity = migration.find("record_id").unwrap();
     let temporal = migration.find("valid_from_sequence").unwrap();
@@ -171,9 +216,10 @@ fn snapshot_cursor_index_keeps_path_and_identity_adjacent() {
 
 #[test]
 fn snapshot_mtime_cursor_index_matches_the_only_direct_scalar_order() {
-    let migration = include_str!("../../migrations/0055_snapshot_mtime_cursor_index.sql");
-    assert!(migration.starts_with("-- no-transaction"));
-    assert!(migration.contains("CREATE INDEX CONCURRENTLY IF NOT EXISTS"));
+    let migration = include_str!("../../migrations/0035_hosted_semantic_projections.sql");
+    let migration = &migration[migration
+        .find("CREATE INDEX hosted_provider_record_projections_snapshot_mtime_cursor_idx")
+        .unwrap()..];
     let mtime = migration.find("file_modified_at DESC NULLS FIRST").unwrap();
     let path = migration.find("canonical_path COLLATE \"C\" ASC").unwrap();
     let identity = migration.find("record_id ASC").unwrap();
@@ -186,10 +232,24 @@ fn snapshot_mtime_cursor_index_matches_the_only_direct_scalar_order() {
 fn concurrent_index_migrations_have_bounded_retry_cleanup() {
     assert_eq!(super::lifecycle::CONCURRENT_MIGRATION_INDEXES.len(), 2);
     let lifecycle = include_str!("lifecycle.rs");
-    assert!(lifecycle.contains("SET lock_timeout = '5s'"));
-    assert!(lifecycle.contains("SET statement_timeout = '30min'"));
+    assert!(lifecycle.contains("set_config('lock_timeout', $1, false)"));
+    assert!(lifecycle.contains("set_config('statement_timeout', $1, false)"));
+    assert!(lifecycle.contains("pg_try_advisory_lock"));
+    assert!(lifecycle.contains("run_hosted_cutover_migrations"));
     assert!(lifecycle.contains("pg_get_indexdef"));
     assert!(lifecycle.contains("DROP INDEX CONCURRENTLY IF EXISTS"));
+}
+
+#[test]
+fn legacy_receipt_cutover_migration_is_page_bounded() {
+    let migration = include_str!("mutation_journal_migration.rs");
+    assert!(migration.contains("limit.clamp(1, 100)"));
+    assert!(migration.contains("LIMIT $1"));
+    assert!(migration.contains("started.elapsed() >= remaining"));
+    assert!(!migration.contains("SELECT NOT EXISTS"));
+    let fence = include_str!("../../migrations/0037_hosted_admission_fence.sql");
+    assert!(fence.contains("archived_hosted_mutation_receipts_unmigrated_idx"));
+    assert!(fence.contains("WHERE migrated_at IS NULL"));
 }
 
 #[test]
@@ -253,17 +313,11 @@ fn concurrent_index_migrations_reject_same_name_definition_drift() {
 }
 
 #[test]
-fn query_receipt_compression_is_additive_and_legacy_writers_keep_json() {
-    let migration = include_str!("../../migrations/0056_query_receipt_compression.sql");
-    assert!(migration.contains("ADD COLUMN response_encoding"));
-    assert!(migration.contains("DEFAULT 'json-v1'"));
-    assert!(migration.contains("'zstd-json-v1'"));
-    assert!(!migration.contains("DROP COLUMN"));
-    let rollback =
-        include_str!("../../../../deploy/postgres/preflight-hosted-provider-pre-0056-rollback.sql");
-    assert!(rollback.contains("query_admission_suspended = true"));
-    assert!(rollback.contains("response_encoding = 'zstd-json-v1'"));
-    assert!(rollback.contains("one-hour hard receipt lifetime"));
+fn final_query_receipt_contract_supports_bounded_compression() {
+    let migration = include_str!("../../migrations/0036_hosted_query_runtime.sql");
+    assert!(!migration.contains("response_encoding"));
+    assert!(!migration.contains("json-v1"));
+    assert!(!migration.contains("legacy"));
 }
 
 #[test]
@@ -412,7 +466,7 @@ fn portable_imports_are_canonicalized_by_rust_including_first_class_resources() 
         "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\"}\n";
     let record_document = "---\ntitle: One\n---\n\nBody\n";
     let opaque_document = "---\ntitle: [unterminated\n---\nOpaque body\n";
-    let workspace = WorkingSet::materialize(
+    let workspace = AuthorityWorkspace::materialize(
         [
             ("mdbase.yaml".to_string(), configuration.to_string()),
             (

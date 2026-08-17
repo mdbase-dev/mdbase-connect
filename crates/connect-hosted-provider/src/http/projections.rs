@@ -13,7 +13,7 @@ use crate::error::{ApiError, ApiResult};
 use super::AppState;
 
 #[derive(Debug, Deserialize)]
-struct ActivateCandidateBRequest {
+struct IndexProjectionRequest {
     expected_head: u64,
     expected_resource_revision: String,
     confirmation: String,
@@ -31,8 +31,8 @@ pub(super) fn projection_routes() -> Router<AppState> {
             get(projection_status),
         )
         .route(
-            "/internal/v1/collections/{collection_id}/projection/activate-candidate-b",
-            post(activate_candidate_b),
+            "/internal/v1/collections/{collection_id}/projection/index",
+            post(index_projection),
         )
         .route(
             "/internal/v1/collections/{collection_id}/projection/advance",
@@ -50,26 +50,26 @@ async fn projection_status(
     Ok(Json(json!({ "projection": status })))
 }
 
-async fn activate_candidate_b(
+async fn index_projection(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(collection_id): Path<Uuid>,
-    Json(input): Json<ActivateCandidateBRequest>,
+    Json(input): Json<IndexProjectionRequest>,
 ) -> ApiResult<Json<Value>> {
     state.authorize_internal(&headers)?;
     let expected_confirmation = format!(
-        "activate-candidate-b:{collection_id}:{}:{}",
+        "index-projection:{collection_id}:{}:{}",
         input.expected_head, input.expected_resource_revision
     );
     if input.confirmation != expected_confirmation {
         return Err(ApiError::bad_request(
-            "projection_activation_confirmation_invalid",
-            "The Candidate B activation confirmation does not match the expected binding.",
+            "projection_index_confirmation_invalid",
+            "The projection index confirmation does not match the expected binding.",
         ));
     }
     let status = state
         .provider
-        .request_candidate_b_activation(
+        .request_projection_indexing(
             collection_id,
             input.expected_head,
             input.expected_resource_revision,

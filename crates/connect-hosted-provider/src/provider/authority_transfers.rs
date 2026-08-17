@@ -93,11 +93,17 @@ impl HostedProvider {
         let data_key = self
             .collection_key(collection_id, collection.get("wrapped_data_key"))
             .await?;
+        admit_authority_bulk_snapshot(&mut transaction, collection_id).await?;
         let resources =
             load_resource_documents(&mut transaction, &self.crypto, &data_key, collection_id)
                 .await?;
-        let records =
-            load_records(&mut transaction, &self.crypto, &data_key, collection_id).await?;
+        let records = load_authority_snapshot_records(
+            &mut transaction,
+            &self.crypto,
+            &data_key,
+            collection_id,
+        )
+        .await?;
         let files =
             load_authority_files(&mut transaction, &self.crypto, &data_key, collection_id).await?;
         let manifest_digest = authority_manifest_digest(resources, records, files);
@@ -256,7 +262,6 @@ impl HostedProvider {
             .execute(&mut *transaction)
             .await?;
         transaction.commit().await?;
-        self.remove_working_set(transfer.collection_id).await;
         Ok(ProviderAuthorityTransfer {
             state: ProviderAuthorityTransferState::Completed,
             ..transfer

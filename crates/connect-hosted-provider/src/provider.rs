@@ -50,14 +50,16 @@ use crate::{
     notifications::{HostedNotificationConfig, HostedNotificationRuntime},
     template,
     workspace::{
-        engine_collection_setup, engine_contract_setup, engine_type_pack_provision, StoredDocument,
-        WorkingSet,
+        engine_collection_setup, engine_contract_setup, engine_type_pack_provision,
+        AuthorityWorkspace, StoredDocument,
     },
 };
 
 mod account_quotas;
+mod admission;
 mod authority_import_cleanup;
 mod authority_import_files;
+mod authority_import_prepare;
 mod authority_imports;
 mod authority_snapshots;
 mod authority_transfers;
@@ -68,6 +70,7 @@ mod crypto_state;
 mod file_policy;
 mod files;
 mod lifecycle;
+pub use lifecycle::run_hosted_cutover_migrations;
 mod lifecycle_states;
 mod mutation_journal;
 pub use mutation_journal::HostedMutationJournalDiagnostics;
@@ -106,7 +109,10 @@ pub use lifecycle_states::{ProviderAuthorityImportState, ProviderAuthorityTransf
 use operation_context::RecordOperationContext;
 use persistence::*;
 use policy::*;
-pub use projections::{HostedProjectionBatch, HostedProjectionGeneration};
+pub use projections::{
+    HostedProjectionBatch, HostedProjectionGeneration, HostedProjectionIndexPlan,
+    HostedProjectionIndexPlanEntry, HostedProjectionStatus, HostedProjectionVerification,
+};
 
 const SNAPSHOT_PAGE_SIZE: i64 = 200;
 const DATABASE_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
@@ -116,19 +122,6 @@ const PRIMARY_POOL_CONNECTIONS: u32 = DATABASE_CONNECTION_BUDGET - QUERY_POOL_CO
 const DATABASE_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(5);
 const KEY_READINESS_SUCCESS_TTL: Duration = Duration::from_secs(60);
 const KEY_READINESS_FAILURE_TTL: Duration = Duration::from_secs(5);
-type WorkingSetSlot = Arc<Mutex<Option<CachedCollection>>>;
-type WorkingSetRegistry = Arc<Mutex<WorkingSetRegistryState>>;
-
-#[derive(Default)]
-struct WorkingSetRegistryState {
-    entries: HashMap<Uuid, WorkingSetRegistryEntry>,
-}
-
-struct WorkingSetRegistryEntry {
-    slot: WorkingSetSlot,
-    last_used: Instant,
-}
-
 struct KeyReadinessState {
     last_checked: Instant,
     healthy: bool,
@@ -209,10 +202,10 @@ pub struct HostedProvider {
     crypto: ProviderCrypto,
     key_readiness: Arc<Mutex<KeyReadinessState>>,
     limits: ProviderLimits,
-    working_sets: WorkingSetRegistry,
     notifications: Option<HostedNotificationRuntime>,
     notification_recovery_guard: Arc<Mutex<()>>,
     notification_recovery: Arc<RwLock<NotificationRecoveryStatus>>,
+    projection_recovery_guard: Arc<Mutex<()>>,
     blob_store: Arc<dyn BlobStore>,
     query_activity: Arc<HostedQueryActivityCounters>,
     query_scan_permits: Arc<Semaphore>,
@@ -296,19 +289,18 @@ impl Drop for PostgresQueryCancellationGuard {
             let cancelled = tokio::time::timeout(
                 Duration::from_secs(2),
                 sqlx::query_scalar::<_, bool>(
-                    r#"SELECT COALESCE((
-                         SELECT pg_cancel_backend(pid)
-                         FROM pg_stat_activity
-                         WHERE pid = $1 AND application_name = $2
-                       ), false)"#,
+                    r#"SELECT pg_cancel_backend(pid)
+                       FROM pg_stat_activity
+                       WHERE pid = $1 AND application_name = $2"#,
                 )
                 .bind(backend_pid)
                 .bind(&session_fence)
-                .fetch_one(&pool),
+                .fetch_optional(&pool),
             )
             .await;
-            let cancel_sent = matches!(cancelled, Ok(Ok(true)));
-            if !cancel_sent {
+            let cancel_sent = matches!(cancelled, Ok(Ok(Some(true))));
+            let session_already_released = matches!(cancelled, Ok(Ok(None)));
+            if !cancel_sent && !session_already_released {
                 tracing::warn!(
                     target: "mdbase_connect::metrics",
                     metric = "hosted_query_cancel_failed",
@@ -640,81 +632,6 @@ struct PreparedRecordOperation {
     semantic_input: serde_json::Map<String, Value>,
     previous_path: Option<String>,
     include_document: bool,
-}
-
-struct CachedCollection {
-    head: Option<u64>,
-    workspace: WorkingSet,
-    records: BTreeMap<Uuid, PersistedRecord>,
-    plaintext_bytes: u64,
-    created_at: Instant,
-}
-
-impl CachedCollection {
-    fn new(
-        head: Option<u64>,
-        workspace: WorkingSet,
-        records: BTreeMap<Uuid, PersistedRecord>,
-    ) -> Self {
-        let plaintext_bytes = Self::estimate_plaintext_bytes(&records);
-        Self::log_measurement(plaintext_bytes, records.len());
-        Self {
-            head,
-            workspace,
-            records,
-            plaintext_bytes,
-            created_at: Instant::now(),
-        }
-    }
-
-    fn refresh_plaintext_bytes(&mut self) {
-        let previous = self.plaintext_bytes;
-        self.plaintext_bytes = Self::estimate_plaintext_bytes(&self.records);
-        if self.plaintext_bytes.saturating_sub(previous) >= 1024 * 1024
-            || self.records.len().is_multiple_of(1_000)
-        {
-            Self::log_measurement(self.plaintext_bytes, self.records.len());
-        }
-    }
-
-    fn estimate_plaintext_bytes(records: &BTreeMap<Uuid, PersistedRecord>) -> u64 {
-        records.values().fold(0_u64, |total, record| {
-            total.saturating_add(Self::record_plaintext_bytes(record))
-        })
-    }
-
-    fn record_plaintext_bytes(record: &PersistedRecord) -> u64 {
-        let frontmatter = serde_json::to_vec(&record.frontmatter)
-            .map(|value| value.len() as u64)
-            .unwrap_or(u64::MAX);
-        (record.document.len() as u64)
-            .saturating_add(record.body.len() as u64)
-            .saturating_add(record.path.len() as u64 * 3)
-            .saturating_add(record.revision.len() as u64)
-            .saturating_add(
-                record
-                    .types
-                    .iter()
-                    .map(|value| value.len() as u64)
-                    .sum::<u64>(),
-            )
-            .saturating_add(frontmatter)
-    }
-
-    fn log_measurement(plaintext_bytes: u64, records: usize) {
-        let memory = crate::HostedProcessMemory::capture();
-        tracing::info!(
-            target: "mdbase_connect::metrics",
-            metric = "hosted_working_set_materialized",
-            plaintext_bytes,
-            records,
-            rss_bytes = memory.rss_bytes.unwrap_or(0),
-            pss_bytes = memory.pss_bytes.unwrap_or(0),
-            cgroup_current_bytes = memory.cgroup_current_bytes.unwrap_or(0),
-            cgroup_peak_bytes = memory.cgroup_peak_bytes.unwrap_or(0),
-            "privacy-safe hosted provider metric"
-        );
-    }
 }
 
 pub fn validate_limit(limit: Option<u32>) -> ApiResult<u32> {

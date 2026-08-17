@@ -15,7 +15,7 @@ pub struct HostedExecutionBudgetManifest {
     pub defaults: HostedExecutionBudgets,
     pub hard_maxima: HostedExecutionBudgets,
     pub entitlements: BTreeMap<String, HostedExecutionEntitlement>,
-    pub temporary_containment: TemporaryExecutionContainment,
+    pub authority_bulk: HostedAuthorityBulkBudgets,
     pub acceptance: HostedExecutionAcceptance,
     pub budget_kinds: Vec<String>,
 }
@@ -96,13 +96,11 @@ pub struct HostedExecutionEntitlement {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TemporaryExecutionContainment {
-    pub deletion_marker: String,
-    pub working_set_collections_per_process: u64,
-    pub working_set_plaintext_bytes_per_process: u64,
-    pub working_set_plaintext_bytes_per_collection: u64,
-    pub working_set_maximum_age_ms: u64,
-    pub query_result_cache_enabled: bool,
+pub struct HostedAuthorityBulkBudgets {
+    pub records: u64,
+    pub exact_bytes: u64,
+    pub resource_bytes: u64,
+    pub estimated_plaintext_bytes: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -189,11 +187,16 @@ impl HostedExecutionBudgetManifest {
         {
             return Err("default durable query-receipt byte quotas are not monotonic".to_string());
         }
-        if self.temporary_containment.query_result_cache_enabled {
-            return Err("the temporary hosted query-result cache must remain disabled".to_string());
-        }
-        if self.temporary_containment.deletion_marker.trim().is_empty() {
-            return Err("temporary containment needs an explicit deletion marker".to_string());
+        let authority_bulk = serde_json::to_value(&self.authority_bulk)
+            .map_err(|error| format!("serialize authorityBulk budgets: {error}"))?;
+        let authority_bulk = authority_bulk
+            .as_object()
+            .ok_or_else(|| "authorityBulk budgets are not an object".to_string())?;
+        if authority_bulk
+            .values()
+            .any(|value| value.as_u64() == Some(0))
+        {
+            return Err("authorityBulk budgets must be greater than zero".to_string());
         }
         let large = self
             .entitlements
@@ -298,14 +301,14 @@ mod tests {
     #[test]
     fn published_manifest_is_valid_and_sized_for_the_large_fixture() {
         let manifest = HostedExecutionBudgetManifest::published();
-        assert_eq!(manifest.revision, "hosted-execution-v3");
+        assert_eq!(manifest.revision, "hosted-execution-v4");
         assert_eq!(manifest.defaults.scanned_records, 100_000);
         assert_eq!(manifest.hard_maxima.scanned_records, 1_000_000);
         assert_eq!(
             manifest.entitlements["large_fixture_v1"].active_scan_permits_per_process,
             1
         );
-        assert!(!manifest.temporary_containment.query_result_cache_enabled);
+        assert_eq!(manifest.authority_bulk.records, 100_000);
     }
 
     #[test]

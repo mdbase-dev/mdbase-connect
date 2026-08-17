@@ -112,9 +112,9 @@ impl FileLifecycleFixture {
         }
     }
 
-    /// Test-only collection bootstrap performed before any semantic generation
-    /// exists. Production configuration changes must use the reviewed setup
-    /// operation and its journal/receipt path.
+    /// Test-only collection bootstrap followed by a complete semantic rebuild.
+    /// Production configuration changes use the reviewed setup operation and
+    /// its journal/receipt path.
     #[allow(dead_code)]
     pub async fn enable_obsidian_base_pattern(&self, pattern: &str) {
         let mut transaction = self.pool.begin().await.expect("test transaction opens");
@@ -188,6 +188,22 @@ impl FileLifecycleFixture {
         .await
         .unwrap();
         transaction.commit().await.unwrap();
+        let generation = self
+            .provider
+            .start_projection_generation(self.collection_id)
+            .await
+            .unwrap();
+        for _ in 0..16 {
+            let batch = self
+                .provider
+                .advance_projection_generation(self.collection_id, generation.generation_id)
+                .await
+                .unwrap();
+            if batch.generation.status == "complete" {
+                return;
+            }
+        }
+        panic!("test configuration projection did not complete");
     }
 
     pub async fn stage_upload(&self, path: &str, bytes: &[u8]) -> Uuid {

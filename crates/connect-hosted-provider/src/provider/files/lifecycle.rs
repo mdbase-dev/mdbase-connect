@@ -317,7 +317,12 @@ impl HostedProvider {
             .ok_or_else(|| ApiError::internal("Current file byte count underflowed."))?;
         sqlx::query(
             r#"UPDATE hosted_provider_collections
-               SET head = $2, file_count = $3, file_bytes = $4, updated_at = now()
+               SET head = $2, file_count = $3, file_bytes = $4,
+                   active_projection_head = CASE
+                     WHEN active_projection_generation_id IS NULL THEN NULL
+                     ELSE $2
+                   END,
+                   updated_at = now()
                WHERE id = $1"#,
         )
         .bind(collection_id)
@@ -588,7 +593,14 @@ async fn update_collection_head(
     sequence: u64,
 ) -> ApiResult<()> {
     sqlx::query(
-        "UPDATE hosted_provider_collections SET head = $2, updated_at = now() WHERE id = $1",
+        r#"UPDATE hosted_provider_collections
+           SET head = $2,
+               active_projection_head = CASE
+                 WHEN active_projection_generation_id IS NULL THEN NULL
+                 ELSE $2
+               END,
+               updated_at = now()
+           WHERE id = $1"#,
     )
     .bind(collection_id)
     .bind(to_i64(sequence, "collection sequence")?)
