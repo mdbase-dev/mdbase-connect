@@ -58,6 +58,7 @@ use crate::{
 mod account_quotas;
 mod authority_import_cleanup;
 mod authority_import_files;
+mod authority_import_prepare;
 mod authority_imports;
 mod authority_snapshots;
 mod authority_transfers;
