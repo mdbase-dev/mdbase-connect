@@ -35,8 +35,11 @@ test("previous-provider fixture preserves the notification contract", async () =
     resolve(repoRoot, "test/upgrade/provider-notification.sql"),
     "utf8"
   );
-  assert.match(fixture, /INSERT INTO hosted_provider_collections/);
+  assert.doesNotMatch(fixture, /INSERT INTO hosted_provider_collections/);
   assert.match(fixture, /INSERT INTO hosted_provider_notification_grants/);
+  assert.match(fixture, /"application_declaration_id":"legacy\.unbound\./);
+  assert.match(fixture, /"application_manifest_digest":"sha256:[0-9a-f]{64}"/);
+  assert.match(fixture, /"authorization_binding":5/);
   assert.match(fixture, /mdbase\.runtime\.timer\.fired/);
   assert.match(fixture, /"version":"1\.0\.0"/);
 });
