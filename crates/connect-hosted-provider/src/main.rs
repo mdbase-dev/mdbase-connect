@@ -1,5 +1,6 @@
 use std::{net::IpAddr, sync::Arc, time::Duration};
 
+use axum::{http::StatusCode, response::IntoResponse, routing::get, Json, Router};
 use clap::{Parser, ValueEnum};
 use mdbase_connect_hosted_provider::{
     app, AppState, HostedNotificationConfig, HostedProvider, KeyWrappingBackend, KeyWrappingConfig,
@@ -11,6 +12,10 @@ use tracing_subscriber::EnvFilter;
 #[derive(Debug, Parser)]
 #[command(name = "mdbase-connect-hosted-provider")]
 struct Arguments {
+    /// Start an inert health-observable service that never connects to storage.
+    /// Used only to pre-provision a blue/green cutover target.
+    #[arg(long, env = "MDBASE_CONNECT_CUTOVER_HOLD", default_value_t = false)]
+    cutover_hold: bool,
     #[arg(
         long,
         env = "MDBASE_CONNECT_HOSTED_KEY_WRAPPER",
@@ -197,7 +202,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .install_default()
         .expect("the TLS crypto provider must be installed before starting the hosted provider");
     let arguments = Arguments::parse();
-    let mut secrets = RuntimeSecrets::from_environment()?;
     if arguments.maintenance_interval_seconds == 0 {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -218,6 +222,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .with_target(false)
         .init();
+    if arguments.cutover_hold {
+        return serve_cutover_hold(arguments.host, arguments.port).await;
+    }
+    let mut secrets = RuntimeSecrets::from_environment()?;
 
     let crypto = provider_crypto(&arguments, secrets.master_key.take()).await?;
     let limits = ProviderLimits {
@@ -301,6 +309,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = notification_recovery.await;
     result?;
     Ok(())
+}
+
+async fn serve_cutover_hold(host: IpAddr, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+    let router = Router::new()
+        .route("/health", get(cutover_hold_health))
+        .route("/ready", get(cutover_hold_health))
+        .fallback(cutover_hold_unavailable);
+    let listener = TcpListener::bind((host, port)).await?;
+    let address = listener.local_addr()?;
+    println!("HOSTED_PROVIDER_CUTOVER_HOLD=http://{address}");
+    tracing::warn!(%address, "hosted provider is serving the inert cutover hold");
+    axum::serve(listener, router)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+    Ok(())
+}
+
+async fn cutover_hold_health() -> Json<serde_json::Value> {
+    Json(serde_json::json!({"status": "ok", "mode": "cutover_hold"}))
+}
+
+async fn cutover_hold_unavailable() -> impl IntoResponse {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({
+            "error": {
+                "code": "hosted_provider_cutover_hold",
+                "message": "Hosted provider admission is closed for a controlled cutover."
+            }
+        })),
+    )
 }
 
 async fn provider_crypto(
@@ -425,4 +464,18 @@ async fn shutdown_signal() {
     let _ = signal::ctrl_c().await;
     tracing::info!("shutdown requested");
     tokio::time::sleep(Duration::from_millis(10)).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn cutover_hold_exposes_only_health_and_fail_closed_payloads() {
+        assert_eq!(cutover_hold_health().await.0["mode"], "cutover_hold");
+        assert_eq!(
+            cutover_hold_unavailable().await.into_response().status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
 }
