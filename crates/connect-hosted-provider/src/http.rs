@@ -45,6 +45,7 @@ use crate::{
 mod accounts;
 mod authentication;
 mod authority_import_files;
+mod diagnostics;
 mod files;
 mod projections;
 
@@ -54,6 +55,7 @@ use authority_import_files::{
     commit_authority_import_file_upload, open_authority_import_file_upload,
     prepare_authority_import_file_part,
 };
+use diagnostics::diagnostic_routes;
 use files::file_routes;
 use projections::projection_routes;
 
@@ -317,15 +319,6 @@ pub fn app(state: AppState) -> Router {
         )
         .layer(DefaultBodyLimit::max(MAX_IMPORT_BODY_BYTES))
         .route_layer(middleware::from_fn(require_bearer_request));
-    // The privacy-safe drain diagnostic remains internally authenticated but
-    // deliberately bypasses data admission so a fenced operator can prove all
-    // query resources have drained.
-    let diagnostics = Router::new()
-        .route("/internal/v1/query-activity", get(query_activity))
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            authorize_internal_request,
-        ));
     let admitted = Router::new()
         .merge(internal)
         .merge(sync)
@@ -337,9 +330,7 @@ pub fn app(state: AppState) -> Router {
             enforce_runtime_admission,
         ));
     Router::new()
-        .route("/health", get(health))
-        .route("/ready", get(ready))
-        .merge(diagnostics)
+        .merge(diagnostic_routes(state.clone()))
         .merge(admitted)
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(cors)
@@ -395,29 +386,6 @@ async fn authorize_internal_request(
 async fn require_bearer_request(request: Request, next: Next) -> ApiResult<Response> {
     bearer(request.headers())?;
     Ok(next.run(request).await)
-}
-
-async fn health() -> Json<Value> {
-    Json(json!({ "status": "ok" }))
-}
-
-async fn ready(State(state): State<AppState>) -> ApiResult<Json<Value>> {
-    let notifications = state.provider.ready().await?;
-    Ok(Json(json!({
-        "status": "ready",
-        "provider": {
-            "version": env!("CARGO_PKG_VERSION"),
-            "capabilities": mdbase_connect_protocol::HOSTED_PROVIDER_CAPABILITIES,
-            "contract_support": mdbase_connect_protocol::ConnectContractSupport::default(),
-        },
-        "notifications": notifications
-    })))
-}
-
-async fn query_activity(State(state): State<AppState>) -> Json<Value> {
-    Json(json!({
-        "query_activity": state.provider.hosted_query_activity()
-    }))
 }
 
 async fn rename_collection(
