@@ -836,6 +836,160 @@ async fn projection_verification_detects_missing_resolution_keys_and_relationshi
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn linked_projection_rebuild_restarts_preparation_then_completes_boundedly() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let replica_id = replica.get("id");
+    let scope_epoch = u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap();
+    put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        Uuid::now_v7(),
+        None,
+        "targets/target.md",
+        "---\ntitle: Target\n---\nTarget body.\n",
+    )
+    .await;
+    put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        Uuid::now_v7(),
+        None,
+        "notes/source.md",
+        "A canonical [[targets/target|private label]] relationship.\n",
+    )
+    .await;
+
+    let generation = fixture
+        .provider
+        .start_projection_generation(fixture.collection_id)
+        .await
+        .unwrap();
+    let generation_id = generation.generation_id;
+    let first = fixture
+        .provider
+        .project_generation_batch(fixture.collection_id, generation_id, 200)
+        .await
+        .unwrap();
+    assert_eq!(first.records_projected, 2);
+
+    // Force the end-of-preparation verifier to restart the generation. This
+    // models a concurrent/catalogue change after a batch without relying on a
+    // timing race, and proves that progress counters describe the replacement
+    // pass rather than cumulative work.
+    let deleted = sqlx::query(
+        r#"DELETE FROM hosted_provider_record_resolution_keys
+           WHERE ctid IN (
+             SELECT ctid FROM hosted_provider_record_resolution_keys
+             WHERE collection_id = $1 AND generation_id = $2
+               AND valid_to_sequence IS NULL
+             ORDER BY record_id, key_kind, lookup_key COLLATE "C"
+             LIMIT 1
+           )"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(deleted.rows_affected(), 1);
+    let restarted = fixture
+        .provider
+        .project_generation_batch(fixture.collection_id, generation_id, 200)
+        .await
+        .unwrap();
+    assert_eq!(restarted.generation.phase, "projection");
+    let reset_progress = sqlx::query(
+        r#"SELECT projected_records, resolved_records, last_error_code
+           FROM hosted_provider_projection_generations
+           WHERE collection_id = $1 AND generation_id = $2"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(reset_progress.get::<i64, _>("projected_records"), 0);
+    assert_eq!(reset_progress.get::<i64, _>("resolved_records"), 0);
+    assert_eq!(
+        reset_progress.get::<Option<String>, _>("last_error_code"),
+        Some("concurrent_change".to_string())
+    );
+
+    let mut reached_resolution = false;
+    for _ in 0..4 {
+        let batch = fixture
+            .provider
+            .project_generation_batch(fixture.collection_id, generation_id, 200)
+            .await
+            .unwrap();
+        if batch.generation.phase == "resolution" {
+            reached_resolution = true;
+            break;
+        }
+    }
+    assert!(
+        reached_resolution,
+        "linked projections must not be mistaken for missing relationships before resolution"
+    );
+
+    let mut completed = false;
+    for _ in 0..4 {
+        let batch = fixture
+            .provider
+            .resolve_generation_batch(fixture.collection_id, generation_id, 200)
+            .await
+            .unwrap();
+        if batch.generation.status == "complete" {
+            completed = true;
+            break;
+        }
+    }
+    assert!(completed, "linked projection rebuild completes boundedly");
+
+    let final_progress = sqlx::query(
+        r#"SELECT projected_records, resolved_records
+           FROM hosted_provider_projection_generations
+           WHERE collection_id = $1 AND generation_id = $2"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(final_progress.get::<i64, _>("projected_records"), 2);
+    assert_eq!(final_progress.get::<i64, _>("resolved_records"), 2);
+    let relationships: i64 = sqlx::query_scalar(
+        r#"SELECT count(*) FROM hosted_provider_record_relationships
+           WHERE collection_id = $1 AND generation_id = $2
+             AND valid_to_sequence IS NULL"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(relationships, 1);
+    let verification = fixture
+        .provider
+        .verify_projection_index(fixture.collection_id)
+        .await
+        .unwrap();
+    assert!(verification.verified, "{:?}", verification.failures);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
 async fn projection_indexing_recovers_after_a_concurrent_exact_write() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");

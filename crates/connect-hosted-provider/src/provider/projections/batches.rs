@@ -275,6 +275,7 @@ impl HostedProvider {
         }
 
         let mut phase_advanced = false;
+        let mut projection_restarted = false;
         if rows.is_empty() {
             if let Some(issue) = abandon_invalid_projection_candidate(
                 &mut transaction,
@@ -349,23 +350,6 @@ impl HostedProvider {
                                 AND key.record_id = p.record_id
                                 AND key.valid_to_sequence IS NULL
                             )
-                         OR (
-                              SELECT count(*)
-                              FROM jsonb_array_elements(
-                                p.semantic_projection #> '{structure,occurrences}'
-                              ) occurrence
-                              WHERE occurrence ->> 'resolution' IN (
-                                'resolved', 'missing', 'ambiguous',
-                                'unsafe_traversal', 'external'
-                              )
-                            ) <> (
-                              SELECT count(*)
-                              FROM hosted_provider_record_relationships relationship
-                              WHERE relationship.collection_id = p.collection_id
-                                AND relationship.generation_id = p.generation_id
-                                AND relationship.source_record_id = p.record_id
-                                AND relationship.valid_to_sequence IS NULL
-                            )
                        )
                      UNION ALL
                      SELECT 1 FROM hosted_provider_record_resolution_keys key
@@ -376,17 +360,6 @@ impl HostedProvider {
                       AND p.valid_to_sequence IS NULL
                      WHERE key.collection_id = $1 AND key.generation_id = $2
                        AND key.valid_to_sequence IS NULL AND p.record_id IS NULL
-                     UNION ALL
-                     SELECT 1 FROM hosted_provider_record_relationships relationship
-                     LEFT JOIN hosted_provider_record_projections p
-                       ON p.collection_id = relationship.collection_id
-                      AND p.generation_id = relationship.generation_id
-                      AND p.record_id = relationship.source_record_id
-                      AND p.valid_to_sequence IS NULL
-                     WHERE relationship.collection_id = $1
-                       AND relationship.generation_id = $2
-                       AND relationship.valid_to_sequence IS NULL
-                       AND p.record_id IS NULL
                    )"#,
             )
             .bind(collection_id)
@@ -398,7 +371,11 @@ impl HostedProvider {
             .fetch_one(&mut *transaction)
             .await?;
             if stale_exists {
+                // Prepared projections and resolution keys are complete in
+                // this phase; relationship rows deliberately are not. They
+                // are generated and verified only during resolution.
                 last_record_id = None;
+                projection_restarted = true;
             } else {
                 phase_advanced = true;
             }
@@ -406,11 +383,15 @@ impl HostedProvider {
         let updated = sqlx::query(
             r#"UPDATE hosted_provider_projection_generations
                SET checkpoint_record_id = $6,
-                   projected_records = projected_records + $7,
+                   projected_records = CASE WHEN $9 THEN 0
+                                              ELSE projected_records + $7 END,
                    phase = CASE WHEN $8 THEN 'resolution' ELSE phase END,
-                   resolved_records = CASE WHEN $8 THEN 0 ELSE resolved_records END,
+                   resolved_records = CASE WHEN $8 OR $9 THEN 0
+                                           ELSE resolved_records END,
                    lease_owner = NULL,
                    lease_expires_at = NULL,
+                   last_error_code = CASE WHEN $9 THEN 'concurrent_change'
+                                          ELSE NULL END,
                    updated_at = now()
                WHERE collection_id = $1 AND generation_id = $2
                  AND status = 'building' AND phase = 'projection'
@@ -426,6 +407,7 @@ impl HostedProvider {
         .bind(if phase_advanced { None } else { last_record_id })
         .bind(to_i64(projected, "projected record count")?)
         .bind(phase_advanced)
+        .bind(projection_restarted)
         .execute(&mut *transaction)
         .await?;
         if updated.rows_affected() != 1 {
@@ -800,6 +782,7 @@ impl HostedProvider {
                 let restarted = sqlx::query(
                     r#"UPDATE hosted_provider_projection_generations
                        SET phase = 'projection', checkpoint_record_id = NULL,
+                           projected_records = 0, resolved_records = 0,
                            updated_at = now(), last_error_code = 'concurrent_change'
                        WHERE collection_id = $1 AND generation_id = $2
                          AND status = 'building' AND phase = 'resolution'
