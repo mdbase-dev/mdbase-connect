@@ -23,6 +23,46 @@ Artifact revision: `90334b9c4f6de306bdee5b6992a849362d508789` / beta69
 
 9. Final `verify` reported `ok: true`, a complete inventory, and every collection verified.
 
+## Immutable-image upgrade fixture
+
+`test/upgrade/provider-from-previous` now uses the exact beta69 provider digest
+above rather than the obsolete beta28 fixture. It creates an account, collection,
+mirror replica, encrypted exact Markdown record, durable mutation receipt, and
+beta69-compatible notification grant through beta69's public/internal APIs. It
+then:
+
+1. hashes the canonical collection fields plus exact records, retained versions,
+   changes, resources, files, immutable journal evidence, and stable outbox
+   authority fields;
+2. runs the `mdbase-hosted-projection-indexer` binary copied into the candidate
+   provider image and requires complete-inventory verification;
+3. starts the candidate provider and requires projection plus notification
+   recovery readiness;
+4. compares the canonical SHA-256 inventory unchanged after indexing and runtime
+   recovery;
+5. replays the exact beta69 mutation and receipt, compares the inventory unchanged
+   again; and
+6. applies a new revision-CAS exact update and requires the projection verifier to
+   remain complete.
+
+The 2026-08-17 run kept the inventory at
+`sha256:3ea6f5e29b02495d627b151dca93e0c685055ded0cf39552700db15690990e8b`
+through all non-mutating phases and passed the final exact update. The companion
+server fixture also passed beta69 migrations followed by current migrations and a
+current v5 OAuth authorization flow. Both upgrade harnesses accept isolated local
+ports so an unrelated development service cannot satisfy their readiness probes.
+
+Independent semantic and security re-review also exercised the final absent/stale
+projection boundary. Disposable PostgreSQL regressions prove that an empty
+unindexed beta69 collection returns a valid empty result, while a non-empty
+collection whose active projection head is stale returns its canonical encrypted
+record through bounded exact fallback. A missing generation can no longer inherit
+a prior integrity-verification bit or enter the projected SQL fast path. Completed
+authority imports are idempotent and do not restart projection work. Provider unit
+tests (106 passed, 3 ignored), warnings-denied clippy, server tests (320 passed),
+server typecheck, protocol tests (45 passed), and both focused PostgreSQL
+regressions were green on 2026-08-17.
+
 ## Conclusions
 
 - The exact production beta69 rollback image starts and serves exact authority on the final additive schema.

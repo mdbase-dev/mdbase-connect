@@ -19,11 +19,13 @@ MDBASE_CONNECT_ALLOW_INSECURE_R2=${MDBASE_CONNECT_ALLOW_INSECURE_R2:-true}
 UPGRADE_ACCOUNT_ID=11111111-1111-4111-8111-111111111111
 UPGRADE_COLLECTION_ID=33333333-3333-4333-8333-333333333333
 UPGRADE_REPLICA_ID=44444444-4444-4444-8444-444444444444
-UPGRADE_GRANT_ID=55555555-5555-4555-8555-555555555555
 UPGRADE_MUTATION_ID=66666666-6666-4666-8666-666666666666
+UPGRADE_NEXT_MUTATION_ID=88888888-8888-4888-8888-888888888888
 UPGRADE_RECORD_ID=77777777-7777-4777-8777-777777777777
 UPGRADE_REPLICA_TOKEN=previous-provider-upgrade-replica-token
 UPGRADE_DATABASE_PORT=${UPGRADE_DATABASE_PORT:-5432}
+UPGRADE_PROVIDER_PORT=${UPGRADE_PROVIDER_PORT:-8790}
+UPGRADE_PROVIDER_URL="http://127.0.0.1:$UPGRADE_PROVIDER_PORT"
 export PROVIDER_INTERNAL_TOKEN PROVIDER_MASTER_KEY
 export MDBASE_CONNECT_R2_ENDPOINT MDBASE_CONNECT_R2_BUCKET
 export MDBASE_CONNECT_R2_ACCESS_KEY_ID MDBASE_CONNECT_R2_SECRET_ACCESS_KEY
@@ -59,8 +61,9 @@ start_previous_provider() {
     --env MDBASE_CONNECT_R2_ACCESS_KEY_ID \
     --env MDBASE_CONNECT_R2_SECRET_ACCESS_KEY \
     --env MDBASE_CONNECT_ALLOW_INSECURE_R2 \
+    --env PORT="$UPGRADE_PROVIDER_PORT" \
     "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE" >/dev/null
-  if ! upgrade_wait_http http://127.0.0.1:8790/ready 'previous provider'; then
+  if ! upgrade_wait_http "$UPGRADE_PROVIDER_URL/ready" 'previous provider'; then
     docker logs "$name"
     return 1
   fi
@@ -74,21 +77,21 @@ provider_json() {
   local path=$2
   local body=$3
   local token=${4:-$PROVIDER_INTERNAL_TOKEN}
-  curl --fail --silent --show-error \
+  curl --fail-with-body --silent --show-error \
     --request "$method" \
     --header 'content-type: application/json' \
     --header "authorization: Bearer $token" \
     --data "$body" \
-    "http://127.0.0.1:8790$path"
+    "$UPGRADE_PROVIDER_URL$path"
 }
 
 seed_previous_sync_receipt() {
   provider_json PUT "/internal/v1/accounts/$UPGRADE_ACCOUNT_ID" \
-    '{"entitlement_revision":1,"hosted_storage_bytes":1073741824,"retained_file_bytes":2147483648,"max_document_bytes":2097152,"max_single_file_bytes":262144000,"max_replicas_per_collection":10,"max_hosted_collections":10,"max_files_per_collection":10000}' >/dev/null
+    '{"entitlement_revision":1,"hosted_storage_bytes":1073741824,"retained_file_bytes":2147483648,"max_document_bytes":2097152,"max_single_file_bytes":262144000,"max_mirror_replicas_per_collection":10,"max_application_replicas_per_collection":10,"max_hosted_collections":10,"max_files_per_collection":10000}' >/dev/null
   provider_json POST /internal/v1/collections \
-    "{\"account_id\":\"$UPGRADE_ACCOUNT_ID\",\"collection_id\":\"$UPGRADE_COLLECTION_ID\",\"template\":\"mdbase\",\"display_name\":\"Upgrade receipt probe\"}" >/dev/null
+    "{\"account_id\":\"$UPGRADE_ACCOUNT_ID\",\"collection_id\":\"$UPGRADE_COLLECTION_ID\",\"template\":\"mdbase\",\"display_name\":\"Upgrade receipt probe\",\"timezone\":\"Australia/Melbourne\"}" >/dev/null
   provider_json POST "/internal/v1/collections/$UPGRADE_COLLECTION_ID/replicas" \
-    "{\"replica_id\":\"$UPGRADE_REPLICA_ID\",\"name\":\"Upgrade receipt writer\",\"purpose\":\"application\",\"mode\":\"read_write\",\"allowed_types\":[],\"contract_scope\":[],\"full_collection\":true,\"allowed_operations\":[\"create\"],\"grant_id\":\"$UPGRADE_GRANT_ID\",\"token\":\"$UPGRADE_REPLICA_TOKEN\"}" >/dev/null
+    "{\"replica_id\":\"$UPGRADE_REPLICA_ID\",\"name\":\"Upgrade receipt writer\",\"purpose\":\"mirror\",\"mode\":\"read_write\",\"allowed_types\":[],\"contract_scope\":[],\"full_collection\":false,\"allowed_operations\":[],\"grant_id\":null,\"token\":\"$UPGRADE_REPLICA_TOKEN\"}" >/dev/null
   provider_json POST "/v1/authorities/$UPGRADE_COLLECTION_ID/sync/mutations" \
     "$(previous_mutation_body)" "$UPGRADE_REPLICA_TOKEN"
 }
@@ -98,34 +101,130 @@ previous_mutation_body() {
     --arg mutation_id "$UPGRADE_MUTATION_ID" \
     --arg replica_id "$UPGRADE_REPLICA_ID" \
     --arg record_id "$UPGRADE_RECORD_ID" \
-    '{mutation_id:$mutation_id,replica_id:$replica_id,scope_epoch:1,operation:"create",record_id:$record_id,input:{path:"upgrade/receipt.md",frontmatter:{title:"Preserved beta receipt"},body:"",types:[]},created_at:"2026-08-04T00:00:00Z"}'
+    --arg document $'---\ntitle: Preserved beta receipt\n---\n\nExact beta69 bytes.\n' \
+    '{mutation_id:$mutation_id,replica_id:$replica_id,scope_epoch:1,operation:"put",record_id:$record_id,path:"upgrade/receipt.md",document:$document,created_at:"2026-08-04T00:00:00Z"}'
 }
 
 exact_mutation_body() {
+  local base_revision=$1
   jq --compact-output --null-input \
-    --arg mutation_id "$UPGRADE_MUTATION_ID" \
+    --arg mutation_id "$UPGRADE_NEXT_MUTATION_ID" \
     --arg replica_id "$UPGRADE_REPLICA_ID" \
     --arg record_id "$UPGRADE_RECORD_ID" \
+    --arg base_revision "$base_revision" \
     --arg document $'---\ntitle: Exact beta receipt\n---\n\nExact bytes.\n' \
-    '{mutation_id:$mutation_id,replica_id:$replica_id,scope_epoch:1,operation:"put",record_id:$record_id,path:"upgrade/receipt.md",document:$document,created_at:"2026-08-06T00:00:00Z"}'
+    '{mutation_id:$mutation_id,replica_id:$replica_id,scope_epoch:1,operation:"put",record_id:$record_id,base_revision:$base_revision,path:"upgrade/receipt.md",document:$document,created_at:"2026-08-06T00:00:00Z"}'
 }
 
-query_exact_document_reset() {
+query_canonical_authority_inventory() {
   docker run --rm --network host \
     --env PGPASSWORD=previous-provider-upgrade \
     postgres:18-alpine \
     psql --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT" --username mdbase --dbname mdbase_provider_upgrade \
     --set ON_ERROR_STOP=1 --tuples-only --no-align \
-    --command "SELECT concat(
-                 (SELECT count(*) FROM hosted_provider_records WHERE collection_id = '$UPGRADE_COLLECTION_ID'), '|',
-                 (SELECT count(*) FROM hosted_provider_record_versions WHERE collection_id = '$UPGRADE_COLLECTION_ID'), '|',
-                 (SELECT count(*) FROM hosted_provider_changes WHERE collection_id = '$UPGRADE_COLLECTION_ID'), '|',
-                 (SELECT count(*) FROM hosted_provider_mutation_journal WHERE replica_id = '$UPGRADE_REPLICA_ID'), '|',
-                 (SELECT count(*) FROM hosted_provider_runtime_outbox WHERE collection_id = '$UPGRADE_COLLECTION_ID'), '|',
-                 record_count, '|', content_bytes
-               )
-               FROM hosted_provider_collections
-               WHERE id = '$UPGRADE_COLLECTION_ID'"
+    --command "SELECT jsonb_build_object(
+                 'collection', (
+                   SELECT to_jsonb(canonical)
+                   FROM (
+                     SELECT id, template, spec_version, authority_epoch, head,
+                            retained_after, record_count, content_bytes, max_records,
+                            max_content_bytes, max_document_bytes, max_mirror_replicas,
+                            resource_revision, wrapped_data_key, resources_ciphertext,
+                            state, created_at, display_name, file_count, file_bytes,
+                            stored_file_bytes, max_files, max_file_bytes,
+                            max_stored_file_bytes, max_single_file_bytes, account_id,
+                            timezone, max_application_replicas
+                     FROM hosted_provider_collections
+                     WHERE id = '$UPGRADE_COLLECTION_ID'
+                   ) canonical
+                 ),
+                 'records', COALESCE((
+                   SELECT jsonb_agg(to_jsonb(row_data) ORDER BY record_id)
+                   FROM hosted_provider_records row_data
+                   WHERE collection_id = '$UPGRADE_COLLECTION_ID'
+                 ), '[]'::jsonb),
+                 'record_versions', COALESCE((
+                   SELECT jsonb_agg(to_jsonb(row_data) ORDER BY record_id, sequence)
+                   FROM hosted_provider_record_versions row_data
+                   WHERE collection_id = '$UPGRADE_COLLECTION_ID'
+                 ), '[]'::jsonb),
+                 'changes', COALESCE((
+                   SELECT jsonb_agg(to_jsonb(row_data) ORDER BY sequence)
+                   FROM hosted_provider_changes row_data
+                   WHERE collection_id = '$UPGRADE_COLLECTION_ID'
+                 ), '[]'::jsonb),
+                 'resources', COALESCE((
+                   SELECT jsonb_agg(to_jsonb(row_data) ORDER BY path)
+                   FROM hosted_provider_resources row_data
+                   WHERE collection_id = '$UPGRADE_COLLECTION_ID'
+                 ), '[]'::jsonb),
+                 'resource_changes', COALESCE((
+                   SELECT jsonb_agg(to_jsonb(row_data) ORDER BY sequence, path)
+                   FROM hosted_provider_resource_changes row_data
+                   WHERE collection_id = '$UPGRADE_COLLECTION_ID'
+                 ), '[]'::jsonb),
+                 'files', COALESCE((
+                   SELECT jsonb_agg(to_jsonb(row_data) ORDER BY file_id)
+                   FROM hosted_provider_files row_data
+                   WHERE collection_id = '$UPGRADE_COLLECTION_ID'
+                 ), '[]'::jsonb),
+                 'file_versions', COALESCE((
+                   SELECT jsonb_agg(to_jsonb(row_data) ORDER BY file_id, revision)
+                   FROM hosted_provider_file_versions row_data
+                   WHERE collection_id = '$UPGRADE_COLLECTION_ID'
+                 ), '[]'::jsonb),
+                 'journal', COALESCE((
+                   SELECT jsonb_agg(
+                     jsonb_build_object(
+                       'replica_id', replica_id,
+                       'grant_id', grant_id,
+                       'request_id', request_id,
+                       'operation_kind', operation_kind,
+                       'fingerprint_schema_version', fingerprint_schema_version,
+                       'input_schema_version', input_schema_version,
+                       'input_digest', input_digest,
+                       'state', state,
+                       'fencing_generation', fencing_generation,
+                       'prepared_head', prepared_head,
+                       'prepared_ciphertext', prepared_ciphertext,
+                       'evidence_ciphertext', evidence_ciphertext,
+                       'evidence_kind', evidence_kind,
+                       'effect_applied', effect_applied,
+                       'final_receipt_ciphertext', final_receipt_ciphertext,
+                       'receipt_digest', receipt_digest,
+                       'accepted_at', accepted_at,
+                       'completed_at', completed_at
+                     ) ORDER BY request_id
+                   )
+                   FROM hosted_provider_mutation_journal
+                   WHERE replica_id = '$UPGRADE_REPLICA_ID'
+                 ), '[]'::jsonb),
+                 'outbox_authority', COALESCE((
+                   SELECT jsonb_agg(
+                     jsonb_build_object(
+                       'collection_id', collection_id,
+                       'sequence', sequence,
+                       'event_type', event_type,
+                       'payload', payload,
+                       'occurred_at', occurred_at
+                     ) ORDER BY sequence, event_type
+                   )
+                   FROM hosted_provider_runtime_outbox
+                   WHERE collection_id = '$UPGRADE_COLLECTION_ID'
+                 ), '[]'::jsonb)
+               )::text" \
+    | sha256sum \
+    | cut -d ' ' -f 1
+}
+
+run_projection_indexer() {
+  local command=$1
+  shift
+  docker run --rm --network host \
+    --env DATABASE_URL="$DATABASE_URL" \
+    --env MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY="$PROVIDER_MASTER_KEY" \
+    --entrypoint mdbase-hosted-projection-indexer \
+    "$CANDIDATE_IMAGE" "$command" "$@"
 }
 
 query_notification_contract() {
@@ -206,6 +305,7 @@ previous_receipt=$(seed_previous_sync_receipt)
 printf 'Previous release sync receipt: %s\n' "$previous_receipt"
 jq -e '.status == "applied" and .record.path == "upgrade/receipt.md"' \
   <<<"$previous_receipt" >/dev/null
+previous_revision=$(jq -r '.record.revision' <<<"$previous_receipt")
 upgrade_remove_container mdbase-provider-previous
 
 upgrade_phase 'seeding the persisted previous-release notification shape'
@@ -221,6 +321,24 @@ start_previous_provider mdbase-provider-previous-migration
 previous_contract=$(query_notification_contract)
 printf 'Previous release notification contract: %s\n' "$previous_contract"
 [[ $previous_contract == "mdbase.runtime.timer.fired|1.0.0" ]]
+canonical_inventory_before=$(query_canonical_authority_inventory)
+printf 'Previous release canonical authority inventory: sha256:%s\n' \
+  "$canonical_inventory_before"
+
+upgrade_phase 'indexing the preserved exact authority with the packaged operator'
+apply_result=$(run_projection_indexer apply --limit 100 --batches-per-collection 16)
+jq -e '.ok == true' <<<"$apply_result" >/dev/null
+verify_result=$(run_projection_indexer verify --limit 100)
+jq -e '
+  .ok == true and
+  (.result.collections | length) == 1 and
+  .result.complete_inventory == true and
+  .result.collections[0].verified == true
+' <<<"$verify_result" >/dev/null
+canonical_inventory_after_index=$(query_canonical_authority_inventory)
+printf 'Indexed candidate canonical authority inventory: sha256:%s\n' \
+  "$canonical_inventory_after_index"
+[[ $canonical_inventory_after_index == "$canonical_inventory_before" ]]
 
 upgrade_phase 'requiring candidate recovery readiness'
 docker run --detach --name mdbase-provider-upgrade-candidate \
@@ -234,11 +352,12 @@ docker run --detach --name mdbase-provider-upgrade-candidate \
   --env MDBASE_CONNECT_R2_ACCESS_KEY_ID \
   --env MDBASE_CONNECT_R2_SECRET_ACCESS_KEY \
   --env MDBASE_CONNECT_ALLOW_INSECURE_R2 \
+  --env PORT="$UPGRADE_PROVIDER_PORT" \
   "$CANDIDATE_IMAGE" >/dev/null
 
 recovered=false
 for attempt in {1..30}; do
-  readiness=$(curl --silent http://127.0.0.1:8790/ready || true)
+  readiness=$(curl --silent "$UPGRADE_PROVIDER_URL/ready" || true)
   if jq -e '
     .status == "ready" and
     .notifications.configured == true and
@@ -261,19 +380,46 @@ printf 'Recovered notification contract: %s\n' "$contract"
 [[ $contract == "mdbase.runtime.timer.fired|1.0.0|sha256:41105be7a7abf33b31ced47e1e1965242236e40ccaea286b959b0a8c591f5642" ]]
 connect_contracts=$(query_connect_contracts)
 printf 'Recovered Connect compatibility contracts: %s\n' "$connect_contracts"
-[[ $connect_contracts == "2|3|1|1" ]]
+[[ $connect_contracts == "3|5|1|1" ]]
 application_binding=$(query_notification_application_binding)
 printf 'Recovered legacy application binding: %s\n' "$application_binding"
 [[ $application_binding == "legacy.unbound.33333333333343338333333333333333|sha256:$(printf '0%.0s' {1..64})" ]]
 
-reset=$(query_exact_document_reset)
-printf 'Exact-document record-plane reset: %s\n' "$reset"
-[[ $reset == "0|0|0|0|0|0|0" ]]
-exact_receipt=$(provider_json POST "/v1/authorities/$UPGRADE_COLLECTION_ID/sync/mutations" \
-  "$(exact_mutation_body)" "$UPGRADE_REPLICA_TOKEN")
+canonical_inventory_after_recovery=$(query_canonical_authority_inventory)
+printf 'Recovered candidate canonical authority inventory: sha256:%s\n' \
+  "$canonical_inventory_after_recovery"
+[[ $canonical_inventory_after_recovery == "$canonical_inventory_before" ]]
+
+if ! replayed_receipt=$(provider_json POST \
+  "/v1/authorities/$UPGRADE_COLLECTION_ID/sync/mutations" \
+  "$(previous_mutation_body)" "$UPGRADE_REPLICA_TOKEN"); then
+  printf 'Beta69 receipt replay failed: %s\n' "$replayed_receipt" >&2
+  exit 1
+fi
+printf 'Replayed beta69 receipt: %s\n' "$replayed_receipt"
+jq -e '
+  .status == "applied" and
+  .record.path == "upgrade/receipt.md" and
+  .record.document == "---\ntitle: Preserved beta receipt\n---\n\nExact beta69 bytes.\n"
+' <<<"$replayed_receipt" >/dev/null
+canonical_inventory_after_replay=$(query_canonical_authority_inventory)
+printf 'Replayed candidate canonical authority inventory: sha256:%s\n' \
+  "$canonical_inventory_after_replay"
+[[ $canonical_inventory_after_replay == "$canonical_inventory_before" ]]
+
+if ! exact_receipt=$(provider_json POST \
+  "/v1/authorities/$UPGRADE_COLLECTION_ID/sync/mutations" \
+  "$(exact_mutation_body "$previous_revision")" "$UPGRADE_REPLICA_TOKEN"); then
+  printf 'Candidate exact mutation failed: %s\n' "$exact_receipt" >&2
+  exit 1
+fi
+printf 'Candidate exact mutation receipt: %s\n' "$exact_receipt"
 jq -e '
   .status == "applied" and
   .record.path == "upgrade/receipt.md" and
   .record.document == "---\ntitle: Exact beta receipt\n---\n\nExact bytes.\n"
 ' <<<"$exact_receipt" >/dev/null
+post_write_verify=$(run_projection_indexer verify --limit 100)
+jq -e '.ok == true and .result.collections[0].verified == true' \
+  <<<"$post_write_verify" >/dev/null
 printf 'Previous provider notification recovery path passed.\n'

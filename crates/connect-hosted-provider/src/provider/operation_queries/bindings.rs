@@ -349,56 +349,6 @@ fn ensure_query_receipt_byte_quota(
     ))
 }
 
-fn active_query_binding(
-    collection: &PgRow,
-    catalog: &mdbase::runtime::CompiledCatalog,
-) -> ApiResult<(Uuid, String, u32, String)> {
-    let collection_head = number(collection.get::<i64, _>("head"), "collection head")?;
-    let active_projection_head = collection
-        .get::<Option<i64>, _>("active_projection_head")
-        .map(|head| number(head, "active projection head"))
-        .transpose()?;
-    let generation_id = collection
-        .get::<Option<Uuid>, _>("active_projection_generation_id")
-        .ok_or_else(|| {
-            ApiError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "hosted_projection_unavailable",
-                "This collection has no active semantic projection generation.",
-            )
-        })?;
-    let catalog_revision = collection
-        .get::<Option<String>, _>("active_catalog_revision")
-        .ok_or_else(|| ApiError::internal("The active projection catalog binding is absent."))?;
-    let projection_format_version = number(
-        collection
-            .get::<Option<i32>, _>("active_projection_format_version")
-            .map(i64::from)
-            .ok_or_else(|| ApiError::internal("The active projection format binding is absent."))?,
-        "projection format version",
-    )? as u32;
-    let semantic_engine_version = collection
-        .get::<Option<String>, _>("active_semantic_engine_version")
-        .ok_or_else(|| ApiError::internal("The active semantic engine binding is absent."))?;
-    if catalog_revision != catalog.resource_revision()
-        || projection_format_version != mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION
-        || semantic_engine_version != mdbase::VERSION
-        || active_projection_head != Some(collection_head)
-    {
-        return Err(ApiError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "hosted_projection_stale",
-            "The active semantic projection is not bound to the current engine and catalog.",
-        ));
-    }
-    Ok((
-        generation_id,
-        catalog_revision,
-        projection_format_version,
-        semantic_engine_version,
-    ))
-}
-
 fn hosted_query_scan_budgets() -> (u64, u64) {
     let budgets = crate::execution_budget::hosted_execution_budgets();
     (budgets.scanned_records, budgets.scanned_ciphertext_bytes)
@@ -727,7 +677,9 @@ async fn validate_generation_binding(
     if state.generation_id.is_none() {
         return if matches!(
             state.request_kind,
-            HostedQueryRequestKind::Query | HostedQueryRequestKind::ObsidianBase
+            HostedQueryRequestKind::Query
+                | HostedQueryRequestKind::CanonicalView
+                | HostedQueryRequestKind::ObsidianBase
         ) {
             Ok(())
         } else {
@@ -793,6 +745,13 @@ async fn mark_projection_integrity_verified(
     collection_id: Uuid,
     state: &mut HostedQueryState,
 ) -> ApiResult<()> {
+    if state.generation_id.is_none() {
+        // An empty pre-Candidate-B collection has no exact rows requiring a
+        // projection and therefore no generation row whose epoch can be
+        // persisted. Treat the verified empty snapshot as locally complete.
+        state.projection_integrity_verified = true;
+        return Ok(());
+    }
     let updated = sqlx::query(
         r#"UPDATE hosted_provider_projection_generations
            SET integrity_verified_epoch = integrity_epoch, updated_at = now()

@@ -17,12 +17,16 @@ const P256_ORDER = BigInt(
 );
 const P256_HALF_ORDER = P256_ORDER / 2n;
 
-export async function createReleaseCanaryAuthorization(applicationId, manifestDigest) {
+export async function createReleaseCanaryAuthorization(
+  applicationId,
+  manifestDigest,
+  baseUrl = "http://127.0.0.1:8787"
+) {
   const installationSigning = keyPair();
   const grantAgreement = keyPair();
   const grantSigning = keyPair();
   const issuedAt = new Date();
-  const redirectUri = "http://127.0.0.1:8787/callback";
+  const redirectUri = `${baseUrl}/callback`;
   const codeChallenge = "A".repeat(43);
   const state = "release-canary";
   const binding = {
@@ -91,13 +95,13 @@ function canonicalSignature(signature) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const [applicationId, manifestDigest] = process.argv.slice(2);
+  const [applicationId, manifestDigest, baseUrl] = process.argv.slice(2);
   if (!applicationId || !manifestDigest) {
     console.error("Usage: create-release-canary-authorization.mjs APPLICATION_ID MANIFEST_DIGEST");
     process.exitCode = 2;
   } else {
     console.log(JSON.stringify(
-      await createReleaseCanaryAuthorization(applicationId, manifestDigest)
+      await createReleaseCanaryAuthorization(applicationId, manifestDigest, baseUrl)
     ));
   }
 }

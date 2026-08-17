@@ -595,7 +595,9 @@ impl HostedProvider {
                 ));
             }
             (None, None) => {
-                let projection_fallback = if state.projection_integrity_verified {
+                let projection_fallback = if state.generation_id.is_some()
+                    && state.projection_integrity_verified
+                {
                     false
                 } else {
                     let fallback = projection_fallback_exists(
@@ -653,6 +655,7 @@ impl HostedProvider {
                         )
                         .await?);
                 if state.plan.residual.projection_filter_safe
+                    && state.generation_id.is_some()
                     && !state.plan.requirements.diagnostic_type_matchers
                     && (!state.plan.requirements.bounded_grouping || grouping_values_valid)
                     && exact_candidate_values_valid

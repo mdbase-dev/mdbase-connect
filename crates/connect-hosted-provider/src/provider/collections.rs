@@ -251,10 +251,16 @@ impl HostedProvider {
         head: u64,
         resource_revision: String,
     ) -> ApiResult<()> {
+        const MAX_BOOTSTRAP_BATCHES: u32 = 64;
+        const BOOTSTRAP_CONTENTION_TIMEOUT: Duration = Duration::from_secs(30);
+        const BOOTSTRAP_CONTENTION_BACKOFF: Duration = Duration::from_millis(25);
+
         let mut status = self
             .request_projection_indexing(collection_id, head, resource_revision)
             .await?;
-        for _ in 0..64 {
+        let started = Instant::now();
+        let mut batches_advanced = 0_u32;
+        while batches_advanced < MAX_BOOTSTRAP_BATCHES {
             if status.ready {
                 return Ok(());
             }
@@ -265,8 +271,37 @@ impl HostedProvider {
                     "The new collection projection is not ready.",
                 )
             })?;
-            self.advance_projection_generation(collection_id, generation.generation_id)
-                .await?;
+            match self
+                .advance_projection_generation(collection_id, generation.generation_id)
+                .await
+            {
+                Ok(_) => batches_advanced += 1,
+                Err(error)
+                    if matches!(
+                        error.code.as_str(),
+                        "projection_lease_unavailable" | "projection_generation_not_building"
+                    ) =>
+                {
+                    // Maintenance, an indexer, or an idempotent concurrent
+                    // create may already be advancing this exact generation.
+                    // Observe its committed state instead of failing the
+                    // collection request on an expected lease hand-off.
+                    status = self.projection_status(collection_id).await?;
+                    if status.ready {
+                        return Ok(());
+                    }
+                    if started.elapsed() >= BOOTSTRAP_CONTENTION_TIMEOUT {
+                        return Err(ApiError::new(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "projection_index_contention_timeout",
+                            "The new collection projection remained leased beyond its bootstrap deadline.",
+                        ));
+                    }
+                    tokio::time::sleep(BOOTSTRAP_CONTENTION_BACKOFF).await;
+                    continue;
+                }
+                Err(error) => return Err(error),
+            }
             status = self.projection_status(collection_id).await?;
         }
         Err(ApiError::new(

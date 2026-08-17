@@ -112,6 +112,89 @@ async fn new_collections_are_indexed_before_becoming_active() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn empty_unindexed_collections_return_a_valid_empty_query_result() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    make_collection_unindexed(&fixture).await;
+    let (_, application_token) = register_query_application(&fixture, Vec::new()).await;
+
+    let result = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({"limit": 10, "order_by": [{"field": "file.path"}]}),
+            None,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(result["valid"], true);
+    assert_eq!(result["result"]["meta"]["total_count"], 0);
+    assert!(result["result"]["results"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn stale_projection_bindings_use_canonical_exact_fallback_for_projection_exact_queries() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    put(
+        &fixture,
+        replica.get("id"),
+        u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap(),
+        Uuid::now_v7(),
+        None,
+        "notes/stale-binding.md",
+        "---\ntitle: Stale binding\n---\nCanonical encrypted body.\n",
+    )
+    .await;
+    complete_generation(&fixture).await;
+    sqlx::query(
+        r#"UPDATE hosted_provider_collections
+           SET active_projection_head = active_projection_head - 1
+           WHERE id = $1"#,
+    )
+    .bind(fixture.collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let (_, application_token) = register_query_application(&fixture, Vec::new()).await;
+
+    let result = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({"limit": 10, "order_by": [{"field": "file.path"}]}),
+            None,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(result["valid"], true);
+    assert_eq!(result["result"]["meta"]["total_count"], 1);
+    assert_eq!(
+        result["result"]["results"][0]["path"],
+        "notes/stale-binding.md"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
 async fn authority_imports_remain_hidden_until_projection_indexing_completes() {
     use mdbase_connect_hosted_provider::{PrepareAuthorityImport, ProviderAuthorityImportState};
 
@@ -516,6 +599,93 @@ async fn projection_indexing_binds_only_after_atomic_completion() {
         .find(|entry| entry.collection_id == fixture.collection_id)
         .unwrap();
     assert!(planned.ready);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn idempotent_collection_create_waits_for_a_projection_lease_handoff() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let account_id: Uuid =
+        sqlx::query_scalar("SELECT account_id FROM hosted_provider_collections WHERE id = $1")
+            .bind(fixture.collection_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    make_collection_unindexed(&fixture).await;
+    let binding = sqlx::query(
+        "SELECT head, resource_revision FROM hosted_provider_collections WHERE id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let requested = fixture
+        .provider
+        .request_projection_indexing(
+            fixture.collection_id,
+            u64::try_from(binding.get::<i64, _>("head")).unwrap(),
+            binding.get("resource_revision"),
+        )
+        .await
+        .unwrap();
+    let generation_id = requested.building_generation.unwrap().generation_id;
+    sqlx::query(
+        r#"UPDATE hosted_provider_projection_generations
+           SET lease_owner = $3, lease_expires_at = now() + interval '30 seconds'
+           WHERE collection_id = $1 AND generation_id = $2"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .bind(Uuid::new_v4())
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+
+    let provider = fixture.provider.clone();
+    let collection_id = fixture.collection_id;
+    let create = tokio::spawn(async move {
+        provider
+            .create_collection(
+                account_id,
+                collection_id,
+                "mdbase",
+                "Adversarial files",
+                "UTC",
+            )
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(
+        !create.is_finished(),
+        "idempotent create must wait for a live projection lease"
+    );
+
+    sqlx::query(
+        r#"UPDATE hosted_provider_projection_generations
+           SET lease_owner = NULL, lease_expires_at = NULL
+           WHERE collection_id = $1 AND generation_id = $2"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let collection = tokio::time::timeout(Duration::from_secs(5), create)
+        .await
+        .expect("idempotent create completes after lease handoff")
+        .expect("idempotent create task joins")
+        .expect("idempotent create succeeds after lease handoff");
+    assert_eq!(collection.id, fixture.collection_id);
+    assert!(
+        fixture
+            .provider
+            .projection_status(fixture.collection_id)
+            .await
+            .unwrap()
+            .ready
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
