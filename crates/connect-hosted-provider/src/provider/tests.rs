@@ -86,6 +86,17 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
     assert!(final_preflight.contains("expected exactly nine runtime-control"));
     assert!(final_preflight
         .contains("expected exactly one matching controlled suspended admission row"));
+    assert!(
+        cutover_preflight.contains("active_projection_head IS DISTINCT FROM collection_row.head")
+    );
+    assert!(cutover_preflight
+        .contains("generation.source_head > collection_row.active_projection_head"));
+    assert!(cutover_preflight.contains(
+        "integrity_epoch\n           IS DISTINCT FROM generation.integrity_verified_epoch"
+    ));
+    assert!(
+        !cutover_preflight.contains("generation.source_head IS DISTINCT FROM collection_row.head")
+    );
     assert!(!final_preflight.contains("DELETE FROM"));
     assert!(!final_preflight.contains("UPDATE hosted_provider_"));
     assert!(cutover_preflight.contains("\\set fence_kind cutover"));

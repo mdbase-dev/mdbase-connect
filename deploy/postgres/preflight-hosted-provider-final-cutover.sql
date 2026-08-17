@@ -46,7 +46,12 @@ BEGIN
     AND (
       collection_row.active_projection_generation_id IS NULL
       OR generation.status IS DISTINCT FROM 'complete'
-      OR generation.source_head IS DISTINCT FROM collection_row.head
+      -- A complete generation is a rebuild snapshot. Ordinary exact writes
+      -- transactionally maintain its versioned projection rows and advance the
+      -- collection's active projection watermark without rewriting the
+      -- generation's original source snapshot.
+      OR collection_row.active_projection_head IS DISTINCT FROM collection_row.head
+      OR generation.source_head > collection_row.active_projection_head
       OR generation.source_resource_revision
            IS DISTINCT FROM collection_row.resource_revision
       OR generation.target_catalog_revision
@@ -55,6 +60,8 @@ BEGIN
            IS DISTINCT FROM collection_row.active_projection_format_version
       OR generation.semantic_engine_version
            IS DISTINCT FROM collection_row.active_semantic_engine_version
+      OR generation.integrity_epoch
+           IS DISTINCT FROM generation.integrity_verified_epoch
     );
   IF unready_collections <> 0 THEN
     RAISE EXCEPTION
