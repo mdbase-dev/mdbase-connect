@@ -5,7 +5,8 @@ Status: final Candidate B production-cutover design; production execution still 
 The live production baseline is beta69 with successful SQLx migrations 1–34. The final cutover adds exactly:
 
 - `0035_hosted_semantic_projections.sql`: versioned semantic projections, relationship graph, generation/rebuild state, integrity binding, and mandatory cursor/relationship indexes;
-- `0036_hosted_query_runtime.sql`: snapshot-keyset query cursors, invocation-backed Obsidian Base state, bounded replay receipts/accounting, and the durable admission fence.
+- `0036_hosted_query_runtime.sql`: snapshot-keyset query cursors, invocation-backed Obsidian Base state, bounded replay receipts/accounting, and runtime admission control.
+- `0037_hosted_admission_fence.sql`: operation-bound cutover/rollback fencing and the provisional-open expiry lease.
 
 The chronological beta72/beta73 migrations 0035–0059 are development history and are not a production upgrade path. Current beta73 staging must not be promoted or pointed at the rewritten migration set.
 
@@ -85,9 +86,12 @@ Normal reads, queries, validation, and mutations never materialize a collection-
 2. Run `preflight-hosted-provider-beta69-cutover.sql`. It requires the exact successful 1–34 ledger and absence of every Candidate B object.
 3. Reconfirm recovery artifacts, key reader, capacity, and privacy-safe canonical inventory.
 4. Terminally suspend the source provider at the service scheduler. The
-   candidate image's pre-deploy sequence re-attests the drained source-34 state,
-   runs `cutover` to apply migrations 0035–0037 and rebuild/verify every page,
-   then persists and independently attests the operation-bound admission fence
+   candidate operator re-attests the drained source-34 state, then `cutover`
+   acquires a PostgreSQL-wide owner-token advisory lock before applying
+   migrations 0035–0037. The one total deadline covers key setup, connection,
+   migrations, rebuild and verification. Every page and batch rechecks lock
+   ownership before continuing. The operator then persists and independently
+   attests the operation-bound admission fence
    before a candidate process may start.
 5. Abort on a typed cutover budget result, any unverified collection, a changed
    expected head/resource binding, or an incomplete inventory. Retry resumes the
@@ -95,7 +99,12 @@ Normal reads, queries, validation, and mutations never materialize a collection-
 6. Compare canonical tables/inventory with the pre-cutover evidence. Only derived projection/runtime rows and additive active bindings may differ.
 7. Deploy the immutable final provider/control/MCP set while external maintenance and durable admission remain closed.
 8. Run synthetic and representative exact read/write, query, pagination, link, cancellation, restart, and recovery checks.
-9. Resume durable admission and external traffic only after every collection verifies and the expected release/recovery status is visible.
+9. Open admission with a 30–600 second provisional lease, verify the open
+   runtime, and finalize the lease with the same owner token. Every provider
+   data and control route fails closed after lease expiry, so a hard-killed
+   runner cannot leave an unverified cutover open. Health/readiness remain
+   observable. Resume external traffic only after every collection verifies and
+   the expected release/recovery status is visible.
 
 Production migration and activation remain prohibited until the final explicit user approval.
 

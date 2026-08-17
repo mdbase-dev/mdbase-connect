@@ -25,6 +25,9 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
     let fence_migration = include_str!("../../migrations/0037_hosted_admission_fence.sql");
     let suspend = include_str!("../../../../deploy/postgres/suspend-hosted-query-admission.sql");
     let resume = include_str!("../../../../deploy/postgres/resume-hosted-query-admission.sql");
+    let provisional =
+        include_str!("../../../../deploy/postgres/open-hosted-query-admission-provisional.sql");
+    let finalize = include_str!("../../../../deploy/postgres/finalize-hosted-query-admission.sql");
     let preflight =
         include_str!("../../../../deploy/postgres/prepare-hosted-provider-beta69-rollback.sql");
     let final_preflight =
@@ -35,6 +38,7 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
     assert!(!migration.contains("admission_fence_token uuid"));
     assert!(fence_migration.contains("ADD COLUMN admission_fence_token uuid"));
     assert!(fence_migration.contains("ADD COLUMN admission_fence_kind text"));
+    assert!(fence_migration.contains("ADD COLUMN admission_lease_expires_at timestamptz"));
     assert!(suspend.contains("pg_advisory_xact_lock"));
     assert!(suspend.contains("query_admission_suspended = true"));
     assert!(suspend.contains("admission_fence_token = requested_token"));
@@ -45,6 +49,10 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
     assert!(resume.contains("admission_fence_kind = requested_kind"));
     assert!(resume.contains("GET DIAGNOSTICS affected_rows = ROW_COUNT"));
     assert!(resume.contains("affected_rows <> 1"));
+    assert!(provisional.contains("admission_lease_expires_at"));
+    assert!(provisional.contains("lease_seconds < 30 OR lease_seconds > 600"));
+    assert!(finalize.contains("admission_lease_expires_at > clock_timestamp()"));
+    assert!(finalize.contains("admission_fence_token = NULL"));
     assert!(preflight.contains("expected exact successful final ledger 1-37"));
     assert!(preflight.contains("attest-hosted-provider-migration-ledger.sql"));
     assert!(preflight.contains("admission_fence_token = requested_token"));
@@ -71,7 +79,7 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
     assert!(final_preflight.contains("pg_get_constraintdef"));
     assert!(final_preflight.contains("pg_get_functiondef"));
     assert!(final_preflight.contains("expected exactly ten non-internal"));
-    assert!(final_preflight.contains("expected exactly seven runtime-control"));
+    assert!(final_preflight.contains("expected exactly eight runtime-control"));
     assert!(final_preflight
         .contains("expected exactly one matching controlled suspended admission row"));
     assert!(!final_preflight.contains("DELETE FROM"));

@@ -2529,6 +2529,33 @@ async fn candidate_b_rollback_fence_drains_inflight_queries_and_allows_cursor_re
         .unwrap();
     assert_eq!(released["valid"], true);
 
+    sqlx::query(
+        r#"UPDATE hosted_provider_runtime_control
+           SET query_admission_suspended = false,
+               suspension_reason = NULL,
+               admission_fence_token = '11111111-1111-4111-8111-111111111111',
+               admission_fence_kind = 'cutover',
+               admission_lease_expires_at = clock_timestamp() - interval '1 second',
+               updated_at = now()
+           WHERE singleton = true"#,
+    )
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let expired = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({"limit": 1}),
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(expired.code, "hosted_query_admission_suspended");
+
     let mut transaction = fixture.pool.begin().await.unwrap();
     sqlx::query(
         "SELECT pg_advisory_xact_lock(hashtextextended('mdbase-hosted-query-admission-v1', 0))",
@@ -2539,6 +2566,8 @@ async fn candidate_b_rollback_fence_drains_inflight_queries_and_allows_cursor_re
     sqlx::query(
         r#"UPDATE hosted_provider_runtime_control
            SET query_admission_suspended = false, suspension_reason = NULL,
+               admission_fence_token = NULL, admission_fence_kind = NULL,
+               admission_lease_expires_at = NULL,
                updated_at = now()
            WHERE singleton = true"#,
     )

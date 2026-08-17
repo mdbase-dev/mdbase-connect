@@ -12,6 +12,7 @@ use mdbase_connect_hosted_provider::{
 };
 use serde::Serialize;
 use serde_json::{json, Value};
+use sqlx::{Connection, PgConnection};
 use uuid::Uuid;
 
 #[derive(Parser)]
@@ -84,6 +85,9 @@ struct PageArguments {
 
 #[derive(clap::Args)]
 struct CutoverArguments {
+    /// Stable operation identity used for the cross-host PostgreSQL cutover lock.
+    #[arg(long)]
+    owner_token: Uuid,
     #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(u32).range(1..=1000))]
     page_limit: u32,
     #[arg(long, default_value_t = 10_000, value_parser = clap::value_parser!(u32).range(1..=100_000))]
@@ -138,10 +142,17 @@ async fn main() -> ExitCode {
 }
 
 async fn run(arguments: Arguments) -> ApiResult<Envelope> {
+    let started = Instant::now();
+    let cutover_budget = match &arguments.command {
+        Command::Cutover(arguments) => Some(Duration::from_secs(arguments.max_seconds)),
+        _ => None,
+    };
+    let run_id = Uuid::now_v7();
+    let recorded_at = chrono::Utc::now().to_rfc3339();
     let database_url = required_environment("DATABASE_URL")?;
     let master_key = optional_environment("MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY")?;
     let environment = arguments.key_environment;
-    let key_wrapping = KeyWrappingConfig {
+    let key_wrapping_future = KeyWrappingConfig {
         backend: match arguments.key_wrapper {
             KeyWrapperArgument::Local => KeyWrappingBackend::Local,
             KeyWrapperArgument::AwsKms => KeyWrappingBackend::AwsKms,
@@ -155,26 +166,115 @@ async fn run(arguments: Arguments) -> ApiResult<Envelope> {
         cache_entries: 0,
         cache_ttl: Duration::ZERO,
     }
-    .build()
-    .await
-    .map_err(|error| {
-        ApiError::internal(format!(
-            "Projection indexer key configuration failed: {error}"
-        ))
-    })?;
+    .build();
+    let key_wrapping = match cutover_budget {
+        Some(budget) => {
+            match tokio::time::timeout(remaining_cutover_time(started, budget), key_wrapping_future)
+                .await
+            {
+                Ok(Ok(key_wrapping)) => key_wrapping,
+                Ok(Err(error)) => {
+                    return Ok(cutover_startup_failure(
+                        run_id,
+                        recorded_at,
+                        "projection_cutover_key_configuration_failed",
+                        "key_configuration",
+                        Some(error.to_string()),
+                    ));
+                }
+                Err(_) => {
+                    return Ok(cutover_startup_failure(
+                        run_id,
+                        recorded_at,
+                        "projection_cutover_time_budget_exceeded",
+                        "key_configuration",
+                        None,
+                    ));
+                }
+            }
+        }
+        None => key_wrapping_future.await.map_err(|error| {
+            ApiError::internal(format!(
+                "Projection indexer key configuration failed: {error}"
+            ))
+        })?,
+    };
     let crypto = ProviderCrypto::with_key_wrapping(key_wrapping, environment).map_err(|error| {
         ApiError::internal(format!("Projection indexer crypto failed: {error}"))
     })?;
-    let provider = HostedProvider::connect(
+    let mut cutover_lock = None;
+    if let Command::Cutover(cutover) = &arguments.command {
+        let lock_result = tokio::time::timeout(
+            remaining_cutover_time(started, Duration::from_secs(cutover.max_seconds)),
+            acquire_cutover_lock(&database_url, cutover.owner_token),
+        )
+        .await;
+        cutover_lock = match lock_result {
+            Ok(Ok(Some(lock))) => Some(lock),
+            Ok(Ok(None)) => {
+                return Ok(cutover_startup_failure(
+                    run_id,
+                    recorded_at,
+                    "projection_cutover_lock_unavailable",
+                    "global_lock",
+                    None,
+                ));
+            }
+            Ok(Err(error)) => {
+                return Ok(cutover_startup_failure(
+                    run_id,
+                    recorded_at,
+                    "projection_cutover_lock_failed",
+                    "global_lock",
+                    Some(error.message),
+                ));
+            }
+            Err(_) => {
+                return Ok(cutover_startup_failure(
+                    run_id,
+                    recorded_at,
+                    "projection_cutover_time_budget_exceeded",
+                    "global_lock",
+                    None,
+                ));
+            }
+        };
+    }
+    let provider_future = HostedProvider::connect(
         &database_url,
         crypto,
         ProviderLimits::default(),
         Arc::new(ProjectionOnlyBlobStore),
         None,
-    )
-    .await?;
-    let run_id = Uuid::now_v7();
-    let recorded_at = chrono::Utc::now().to_rfc3339();
+    );
+    let provider = match cutover_budget {
+        Some(budget) => {
+            match tokio::time::timeout(remaining_cutover_time(started, budget), provider_future)
+                .await
+            {
+                Ok(Ok(provider)) => provider,
+                Ok(Err(error)) => {
+                    return Ok(cutover_startup_failure(
+                        run_id,
+                        recorded_at,
+                        "projection_cutover_migration_failed",
+                        "migration",
+                        Some(error.message),
+                    ));
+                }
+                Err(_) => {
+                    return Ok(cutover_startup_failure(
+                        run_id,
+                        recorded_at,
+                        "projection_cutover_time_budget_exceeded",
+                        "migration",
+                        None,
+                    ));
+                }
+            }
+        }
+        None => provider_future.await?,
+    };
     let (ok, command, result) = match arguments.command {
         Command::Plan(page) => {
             let plan = provider
@@ -283,7 +383,10 @@ async fn run(arguments: Arguments) -> ApiResult<Envelope> {
             )
         }
         Command::Cutover(cutover) => {
-            let (ok, result) = run_cutover(&provider, cutover).await?;
+            let lock = cutover_lock.as_mut().ok_or_else(|| {
+                ApiError::internal("Projection cutover global lock was not retained.")
+            })?;
+            let (ok, result) = run_cutover(&provider, lock, started, cutover).await?;
             (ok, "cutover", result)
         }
     };
@@ -296,11 +399,83 @@ async fn run(arguments: Arguments) -> ApiResult<Envelope> {
     })
 }
 
+fn remaining_cutover_time(started: Instant, budget: Duration) -> Duration {
+    budget.saturating_sub(started.elapsed())
+}
+
+fn cutover_startup_failure(
+    run_id: Uuid,
+    recorded_at: String,
+    outcome: &'static str,
+    phase: &'static str,
+    failure: Option<String>,
+) -> Envelope {
+    Envelope {
+        ok: false,
+        command: "cutover",
+        run_id,
+        recorded_at,
+        result: json!({
+            "outcome": outcome,
+            "phase": phase,
+            "complete_inventory": false,
+            "pages_visited": 0,
+            "collections_verified": 0,
+            "batches_advanced": 0,
+            "next_after": null,
+            "failure": failure,
+        }),
+    }
+}
+
+async fn acquire_cutover_lock(
+    database_url: &str,
+    owner_token: Uuid,
+) -> ApiResult<Option<PgConnection>> {
+    let mut connection = PgConnection::connect(database_url).await?;
+    let application_name = format!("mdbase-candidate-b-cutover/{owner_token}");
+    sqlx::query("SELECT set_config('application_name', $1, false)")
+        .bind(&application_name)
+        .execute(&mut connection)
+        .await?;
+    let acquired: bool = sqlx::query_scalar(
+        "SELECT pg_try_advisory_lock(hashtextextended('mdbase-candidate-b-cutover-v1', 0))",
+    )
+    .fetch_one(&mut connection)
+    .await?;
+    Ok(acquired.then_some(connection))
+}
+
+async fn cutover_lock_owned(connection: &mut PgConnection, owner_token: Uuid) -> ApiResult<bool> {
+    let application_name = format!("mdbase-candidate-b-cutover/{owner_token}");
+    sqlx::query_scalar(
+        r#"WITH lock_key AS (
+             SELECT hashtextextended('mdbase-candidate-b-cutover-v1', 0) AS value
+           )
+           SELECT current_setting('application_name') = $1
+             AND EXISTS (
+               SELECT 1
+               FROM pg_locks, lock_key
+               WHERE locktype = 'advisory'
+                 AND pid = pg_backend_pid()
+                 AND granted
+                 AND classid = (((lock_key.value >> 32) & 4294967295)::bigint)::oid
+                 AND objid = ((lock_key.value & 4294967295)::bigint)::oid
+                 AND objsubid = 1
+             )"#,
+    )
+    .bind(application_name)
+    .fetch_one(connection)
+    .await
+    .map_err(Into::into)
+}
+
 async fn run_cutover(
     provider: &HostedProvider,
+    cutover_lock: &mut PgConnection,
+    started: Instant,
     arguments: CutoverArguments,
 ) -> ApiResult<(bool, Value)> {
-    let started = Instant::now();
     let deadline = Duration::from_secs(arguments.max_seconds);
     let mut after = None;
     let mut pages_visited = 0_u32;
@@ -308,6 +483,21 @@ async fn run_cutover(
     let mut batches_advanced = 0_u64;
 
     loop {
+        if !cutover_lock_owned(cutover_lock, arguments.owner_token).await? {
+            return Ok((
+                false,
+                cutover_outcome(
+                    "projection_cutover_lock_lost",
+                    false,
+                    pages_visited,
+                    collections_verified,
+                    batches_advanced,
+                    after,
+                    None,
+                    &[],
+                ),
+            ));
+        }
         if started.elapsed() >= deadline {
             return Ok((
                 false,
@@ -383,6 +573,21 @@ async fn run_cutover(
                 .await?;
             let mut collection_batches = 0_u32;
             while !status.ready {
+                if !cutover_lock_owned(cutover_lock, arguments.owner_token).await? {
+                    return Ok((
+                        false,
+                        cutover_outcome(
+                            "projection_cutover_lock_lost",
+                            false,
+                            pages_visited,
+                            collections_verified,
+                            batches_advanced,
+                            after,
+                            Some(entry.collection_id),
+                            &[],
+                        ),
+                    ));
+                }
                 if started.elapsed() >= deadline {
                     return Ok((
                         false,
@@ -579,5 +784,57 @@ impl BlobStore for ProjectionOnlyBlobStore {
     }
     async fn delete(&self, _: &str) -> ApiResult<()> {
         Err(blob_access_forbidden())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cutover_requires_an_explicit_owner_token() {
+        let missing = Arguments::try_parse_from([
+            "mdbase-hosted-projection-indexer",
+            "cutover",
+            "--max-seconds",
+            "30",
+        ]);
+        assert!(missing.is_err());
+
+        let parsed = Arguments::try_parse_from([
+            "mdbase-hosted-projection-indexer",
+            "cutover",
+            "--owner-token",
+            "99999999-9999-4999-8999-999999999999",
+            "--max-seconds",
+            "30",
+        ])
+        .unwrap();
+        let Command::Cutover(cutover) = parsed.command else {
+            panic!("cutover command was not parsed");
+        };
+        assert_eq!(
+            cutover.owner_token,
+            Uuid::parse_str("99999999-9999-4999-8999-999999999999").unwrap()
+        );
+    }
+
+    #[test]
+    fn startup_budget_failures_are_typed_cutover_results() {
+        let envelope = cutover_startup_failure(
+            Uuid::nil(),
+            "2026-08-17T00:00:00Z".to_string(),
+            "projection_cutover_time_budget_exceeded",
+            "migration",
+            None,
+        );
+        assert!(!envelope.ok);
+        assert_eq!(envelope.command, "cutover");
+        assert_eq!(
+            envelope.result["outcome"],
+            "projection_cutover_time_budget_exceeded"
+        );
+        assert_eq!(envelope.result["phase"], "migration");
+        assert_eq!(envelope.result["complete_inventory"], false);
     }
 }

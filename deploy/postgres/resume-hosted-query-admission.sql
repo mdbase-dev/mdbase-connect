@@ -21,6 +21,7 @@ BEGIN
       suspension_reason = NULL,
       admission_fence_token = NULL,
       admission_fence_kind = NULL,
+      admission_lease_expires_at = NULL,
       updated_at = now()
   WHERE singleton = true
     AND query_admission_suspended = true

@@ -203,6 +203,13 @@ once for a source commit with SBOM and provenance attestations, then promoted
 by digest. Desktop artifacts use platform signing where configured and are
 explicitly labelled as unsigned beta previews otherwise.
 
+Candidate B cutover takes a PostgreSQL-wide owner-token lock before migration,
+keeps external maintenance and the durable admission fence closed while images
+change, and opens data/control routes only under a short database lease. The
+same owner token must finalize that lease after open verification. If the
+operator process or host disappears first, lease expiry makes every non-health
+provider route fail with 503 without depending on a shell cleanup trap.
+
 ## Abuse cases and controls
 
 | Abuse case | Primary controls |

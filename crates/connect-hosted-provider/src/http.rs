@@ -314,14 +314,20 @@ pub fn app(state: AppState) -> Router {
         )
         .layer(DefaultBodyLimit::max(MAX_IMPORT_BODY_BYTES))
         .route_layer(middleware::from_fn(require_bearer_request));
-    Router::new()
-        .route("/health", get(health))
-        .route("/ready", get(ready))
+    let admitted = Router::new()
         .merge(internal)
         .merge(sync)
         .merge(operations)
         .merge(files)
         .merge(imports)
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            enforce_runtime_admission,
+        ));
+    Router::new()
+        .route("/health", get(health))
+        .route("/ready", get(ready))
+        .merge(admitted)
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(cors)
         .layer(PropagateRequestIdLayer::new(request_id_header.clone()))
@@ -332,6 +338,15 @@ pub fn app(state: AppState) -> Router {
             limit_concurrent_requests,
         ))
         .with_state(state)
+}
+
+async fn enforce_runtime_admission(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> ApiResult<Response> {
+    state.provider.enforce_runtime_admission().await?;
+    Ok(next.run(request).await)
 }
 
 async fn limit_concurrent_requests(

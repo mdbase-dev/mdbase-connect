@@ -33,6 +33,7 @@ export MDBASE_CONNECT_ALLOW_INSECURE_R2
 upgrade_require DATABASE_URL MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE
 
 r2_pid=
+cutover_lock_pid=
 cleanup() {
   for container in \
     mdbase-provider-previous \
@@ -44,6 +45,9 @@ cleanup() {
   done
   if [[ -n $r2_pid ]]; then
     kill "$r2_pid" >/dev/null 2>&1 || true
+  fi
+  if [[ -n $cutover_lock_pid ]]; then
+    kill "$cutover_lock_pid" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
@@ -326,7 +330,46 @@ printf 'Previous release canonical authority inventory: sha256:%s\n' \
   "$canonical_inventory_before"
 
 upgrade_phase 'indexing the complete preserved authority with the bounded cutover operator'
+docker run --rm --network host \
+  --env PGPASSWORD=previous-provider-upgrade \
+  postgres:18-alpine \
+  psql --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT" \
+    --username mdbase --dbname mdbase_provider_upgrade \
+    --set ON_ERROR_STOP=1 \
+    --command "SELECT pg_advisory_lock(hashtextextended('mdbase-candidate-b-cutover-v1', 0)); SELECT pg_sleep(30)" \
+  >/dev/null &
+cutover_lock_pid=$!
+for _ in {1..30}; do
+  lock_count=$(docker run --rm --network host \
+    --env PGPASSWORD=previous-provider-upgrade \
+    postgres:18-alpine \
+    psql --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT" \
+      --username mdbase --dbname mdbase_provider_upgrade \
+      --tuples-only --no-align \
+      --command "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted" | tr -d '[:space:]')
+  [[ $lock_count != 0 ]] && break
+  sleep 1
+done
+[[ ${lock_count:-0} != 0 ]]
+if lock_result=$(run_projection_indexer cutover \
+  --owner-token 99999999-9999-4999-8999-999999999990 \
+  --max-seconds 30)
+then
+  printf 'Projection cutover unexpectedly ignored the global PostgreSQL lock.\n' >&2
+  exit 1
+fi
+jq -e '
+  .ok == false and
+  .command == "cutover" and
+  .result.outcome == "projection_cutover_lock_unavailable" and
+  .result.phase == "global_lock"
+' <<<"$lock_result" >/dev/null
+kill "$cutover_lock_pid" >/dev/null 2>&1 || true
+wait "$cutover_lock_pid" >/dev/null 2>&1 || true
+cutover_lock_pid=
+
 if bounded_result=$(run_projection_indexer cutover \
+  --owner-token 99999999-9999-4999-8999-999999999991 \
   --page-limit 1 \
   --batches-per-collection 1 \
   --max-collections 10 \
@@ -347,6 +390,7 @@ jq -e '
   .result.blocked_collection_id == "33333333-3333-4333-8333-333333333333"
 ' <<<"$bounded_result" >/dev/null
 verify_result=$(run_projection_indexer cutover \
+  --owner-token 99999999-9999-4999-8999-999999999992 \
   --page-limit 1 \
   --batches-per-collection 16 \
   --max-collections 10 \

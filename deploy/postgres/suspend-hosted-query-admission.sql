@@ -21,6 +21,7 @@ BEGIN
       suspension_reason = 'controlled_provider_' || requested_kind,
       admission_fence_token = requested_token,
       admission_fence_kind = requested_kind,
+      admission_lease_expires_at = NULL,
       updated_at = now()
   WHERE singleton = true
     AND (

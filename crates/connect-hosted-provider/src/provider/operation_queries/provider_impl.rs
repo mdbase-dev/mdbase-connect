@@ -248,12 +248,21 @@ impl HostedProvider {
         )
         .execute(&mut *transaction)
         .await?;
-        let query_admission_suspended: bool = sqlx::query_scalar(
-            "SELECT query_admission_suspended FROM hosted_provider_runtime_control WHERE singleton = true",
+        let query_admitted: bool = sqlx::query_scalar(
+            r#"SELECT NOT query_admission_suspended
+                    AND (
+                      admission_fence_token IS NULL
+                      OR (
+                        admission_fence_kind = 'cutover'
+                        AND admission_lease_expires_at > clock_timestamp()
+                      )
+                    )
+               FROM hosted_provider_runtime_control
+               WHERE singleton = true"#,
         )
         .fetch_one(&mut *transaction)
         .await?;
-        if query_admission_suspended {
+        if !query_admitted {
             return Err(ApiError::new(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "hosted_query_admission_suspended",

@@ -28,7 +28,8 @@ BEGIN
     AND query_admission_suspended = true
     AND suspension_reason = 'controlled_provider_cutover'
     AND admission_fence_token = requested_token
-    AND admission_fence_kind = 'cutover';
+    AND admission_fence_kind = 'cutover'
+    AND admission_lease_expires_at IS NULL;
   IF runtime_rows <> 1 OR (SELECT count(*) FROM hosted_provider_runtime_control) <> 1 THEN
     RAISE EXCEPTION
       'final_cutover_blocked: expected exactly one matching cutover admission fence';
