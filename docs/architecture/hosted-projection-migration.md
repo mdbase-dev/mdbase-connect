@@ -44,8 +44,9 @@ stale, cancelled, or restarted build therefore never exposes a half-projected
 collection and never removes the legacy path.
 
 The internal activation protocol is `candidate-b-activation-v1`. Status returns
-only execution/binding state, head, resource revision, and the current building
-generation. Activation requires the expected head, expected resource revision, and
+only execution/binding state, head, resource revision, the current building
+generation, and bounded metadata for the latest terminal generation. Activation
+requires the expected head, expected resource revision, and
 an exact `activate-candidate-b:<collection>:<head>:<revision>` confirmation. A retry
 returns the existing authorized generation instead of superseding it. Advance names
 that generation and executes exactly one bounded projection or resolution batch.
