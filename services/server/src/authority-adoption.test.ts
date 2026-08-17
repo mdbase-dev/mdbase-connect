@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import {
+  HostedProviderResponseError,
   HostedProviderUnavailableError,
   type HostedProviderClient
 } from "./hosted-provider.js";
@@ -57,6 +58,13 @@ describe("portable local collection adoption", () => {
         completionAttempts += 1;
         if (completionAttempts === 1) {
           throw new HostedProviderUnavailableError(new Error("response lost after commit"));
+        }
+        if (completionAttempts === 2) {
+          throw new HostedProviderResponseError(
+            409,
+            "projection_activation_pending",
+            "Candidate B projection is still building."
+          );
         }
         return {
           id: transferId,
@@ -199,6 +207,15 @@ describe("portable local collection adoption", () => {
       headers: { authorization: `Bearer ${secret}` },
       payload: { ...completion, manifest_digest: "c".repeat(64) }
     })).statusCode).toBe(409);
+
+    const projectionPending = await app.inject({
+      method: "POST",
+      url: `/v1/authority-adoptions/${adoptionId}/complete`,
+      headers: { authorization: `Bearer ${secret}` },
+      payload: completion
+    });
+    expect(projectionPending.statusCode, projectionPending.body).toBe(202);
+    expect(projectionPending.json()).toEqual({ status: "activating" });
 
     const completed = await app.inject({
       method: "POST",

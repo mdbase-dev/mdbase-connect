@@ -442,11 +442,22 @@ export function registerAuthorityAdoptionRoutes(
           ));
         }
       }
-      const completed = await options.hostedProvider.completeAuthorityImport(
-        adoption.id,
-        input.manifest_digest,
-        input.source_revision
-      );
+      let completed;
+      try {
+        completed = await options.hostedProvider.completeAuthorityImport(
+          adoption.id,
+          input.manifest_digest,
+          input.source_revision
+        );
+      } catch (error) {
+        if (
+          error instanceof HostedProviderResponseError
+          && error.code === "projection_activation_pending"
+        ) {
+          return reply.code(202).send({ status: "activating" });
+        }
+        throw error;
+      }
       if (
         completed.id !== adoption.id
         || completed.collection_id !== adoption.collection_id

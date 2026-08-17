@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import {
+  HostedProviderResponseError,
   HostedProviderUnavailableError,
   type HostedProviderClient
 } from "./hosted-provider.js";
@@ -454,6 +455,13 @@ describe("local-to-hosted authority transfer", () => {
         if (completionAttempts === 1) {
           throw new HostedProviderUnavailableError(new Error("response lost"));
         }
+        if (completionAttempts === 2) {
+          throw new HostedProviderResponseError(
+            409,
+            "projection_activation_pending",
+            "Candidate B projection is still building."
+          );
+        }
         return {
           id: transferId,
           collection_id: collectionId,
@@ -572,6 +580,23 @@ describe("local-to-hosted authority transfer", () => {
         source_head: 7
       }
     })).statusCode).toBe(409);
+
+    const projectionPending = await app.inject({
+      method: "POST",
+      url: `/v1/connectors/authority-transfers/${transferId}/complete`,
+      headers: { authorization: `Bearer ${connectorToken}` },
+      payload: {
+        manifest_digest: manifestDigest,
+        source_revision: sourceRevision,
+        source_head: 7
+      }
+    });
+    expect(projectionPending.statusCode, projectionPending.body).toBe(202);
+    expect(projectionPending.json()).toEqual({
+      status: "activating",
+      collection_id: collectionId,
+      authority_epoch: 2
+    });
 
     const completed = await app.inject({
       method: "POST",

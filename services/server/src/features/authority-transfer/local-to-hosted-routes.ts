@@ -237,11 +237,26 @@ export function registerLocalToHostedTransferRoutes(
           input
         );
       }
-      const completed = await options.hostedProvider.completeAuthorityImport(
-        transferId,
-        input.manifest_digest,
-        input.source_revision
-      );
+      let completed;
+      try {
+        completed = await options.hostedProvider.completeAuthorityImport(
+          transferId,
+          input.manifest_digest,
+          input.source_revision
+        );
+      } catch (error) {
+        if (
+          error instanceof HostedProviderResponseError
+          && error.code === "projection_activation_pending"
+        ) {
+          return reply.code(202).send({
+            status: "activating",
+            collection_id: transfer.hosted_collection_id,
+            authority_epoch: Number(transfer.next_authority_epoch)
+          });
+        }
+        throw error;
+      }
       if (
         completed.id !== transferId
         || completed.collection_id !== transfer.hosted_collection_id

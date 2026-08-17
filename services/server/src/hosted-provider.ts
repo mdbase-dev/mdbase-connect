@@ -265,7 +265,7 @@ export class HostedProviderClient {
       timezone
     });
     if (this.newCollectionExecutionModel === "candidate_b") {
-      await this.activateCandidateBCollection(collectionId);
+      await this.activateCandidateBCollection(collectionId, false);
     }
   }
 
@@ -328,12 +328,15 @@ export class HostedProviderClient {
     }
   }
 
-  private async activateCandidateBCollection(collectionId: string): Promise<void> {
+  private async activateCandidateBCollection(
+    collectionId: string,
+    resumable: boolean
+  ): Promise<void> {
     let status = await this.projectionStatus(collectionId);
     if (status.execution_model === "candidate_b" && status.active_generation_id) return;
     status = await this.requestCandidateBActivation(collectionId, status);
-    // Creation-time collections contain no user records. Keep the loop finite
-    // so a provider regression cannot hold a control-plane request forever.
+    // Keep every control-plane request finite. Large authority imports resume
+    // the same fenced generation through an explicit typed pending response.
     for (let batch = 0; batch < 16; batch += 1) {
       if (status.execution_model === "candidate_b" && status.active_generation_id) return;
       const generationId = status.building_generation?.generation_id;
@@ -345,6 +348,13 @@ export class HostedProviderClient {
         );
       }
       status = await this.advanceProjection(collectionId, generationId);
+    }
+    if (resumable) {
+      throw new HostedProviderResponseError(
+        409,
+        "projection_activation_pending",
+        "Candidate B activation is still building; resume the same fenced authority import."
+      );
     }
     throw new HostedProviderResponseError(
       503,
@@ -641,7 +651,7 @@ export class HostedProviderClient {
       { manifest_digest: manifestDigest, source_revision: sourceRevision }
     ) as AuthorityImport;
     if (this.newCollectionExecutionModel === "candidate_b") {
-      await this.activateCandidateBCollection(completed.collection_id);
+      await this.activateCandidateBCollection(completed.collection_id, true);
     }
     return completed;
   }

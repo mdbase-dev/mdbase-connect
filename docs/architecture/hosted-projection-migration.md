@@ -55,8 +55,11 @@ the default is `legacy`. In Candidate B mode, a newly created provider collectio
 must complete this bounded protocol before its control-plane catalogue row is
 inserted or returned to a consumer. Completed authority imports use the same gate:
 the provider import receipt remains replayable while Connect resumes bounded
-activation calls, and the control-plane transfer stays `activating` until the
-complete Candidate B generation is visible.
+activation calls. A request that exhausts its 16 one-batch advances returns an
+explicit HTTP 202 `activating` response; the same fenced completion request is
+safe to resume while the periodic provider worker also advances it. The
+control-plane transfer stays `activating` until the complete Candidate B generation
+is visible.
 
 ## Physical state
 
