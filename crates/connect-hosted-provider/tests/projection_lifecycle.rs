@@ -637,6 +637,134 @@ async fn projection_indexing_binds_only_after_atomic_completion() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn projection_indexing_activates_resolved_exact_fallback_rows() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let incomplete_id = Uuid::now_v7();
+    put(
+        &fixture,
+        replica.get("id"),
+        u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap(),
+        incomplete_id,
+        None,
+        "notes/malformed.md",
+        "A deliberately malformed [[relationship.\n",
+    )
+    .await;
+    make_collection_unindexed(&fixture).await;
+    let binding = sqlx::query(
+        "SELECT head, resource_revision FROM hosted_provider_collections WHERE id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let status = fixture
+        .provider
+        .request_projection_indexing(
+            fixture.collection_id,
+            u64::try_from(binding.get::<i64, _>("head")).unwrap(),
+            binding.get("resource_revision"),
+        )
+        .await
+        .unwrap();
+    let generation_id = status.building_generation.unwrap().generation_id;
+
+    for _ in 0..16 {
+        if fixture
+            .provider
+            .projection_status(fixture.collection_id)
+            .await
+            .unwrap()
+            .ready
+        {
+            break;
+        }
+        fixture
+            .provider
+            .advance_projection_generation(fixture.collection_id, generation_id)
+            .await
+            .unwrap();
+    }
+
+    let complete = fixture
+        .provider
+        .projection_status(fixture.collection_id)
+        .await
+        .unwrap();
+    assert!(complete.ready);
+    let fallback_row = sqlx::query(
+        r#"SELECT semantic_complete, resolution_complete
+           FROM hosted_provider_record_projections
+           WHERE collection_id = $1 AND generation_id = $2 AND record_id = $3
+             AND valid_to_sequence IS NULL"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .bind(incomplete_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert!(!fallback_row.get::<bool, _>("semantic_complete"));
+    assert!(fallback_row.get::<bool, _>("resolution_complete"));
+    let integrity = sqlx::query(
+        r#"SELECT integrity_epoch, integrity_verified_epoch
+           FROM hosted_provider_projection_generations
+           WHERE collection_id = $1 AND generation_id = $2"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_ne!(
+        integrity.get::<i64, _>("integrity_epoch"),
+        integrity.get::<i64, _>("integrity_verified_epoch"),
+        "semantic-incomplete rows must keep exact fallback enabled"
+    );
+    let (_, application_token) = register_query_application(&fixture, Vec::new()).await;
+    let result = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "where": "file.inFolder('notes')",
+                "include_body": true,
+                "limit": 10,
+                "order_by": [{"field": "file.path"}]
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(result["valid"], true);
+    assert_eq!(result["result"]["meta"]["total_count"], 1);
+    assert_eq!(result["result"]["results"][0]["path"], "notes/malformed.md");
+    assert_eq!(
+        result["result"]["results"][0]["body"],
+        "A deliberately malformed [[relationship.\n"
+    );
+    let verification = fixture
+        .provider
+        .verify_projection_index(fixture.collection_id)
+        .await
+        .unwrap();
+    assert!(verification.verified, "{:?}", verification.failures);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
 async fn idempotent_collection_create_waits_for_a_projection_lease_handoff() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
@@ -8239,6 +8367,21 @@ async fn make_collection_unindexed(fixture: &FileLifecycleFixture) {
     .execute(&mut *transaction)
     .await
     .unwrap();
+    sqlx::query("DELETE FROM hosted_provider_record_relationships WHERE collection_id = $1")
+        .bind(fixture.collection_id)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM hosted_provider_record_resolution_keys WHERE collection_id = $1")
+        .bind(fixture.collection_id)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM hosted_provider_record_projections WHERE collection_id = $1")
+        .bind(fixture.collection_id)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
     sqlx::query("DELETE FROM hosted_provider_projection_generations WHERE collection_id = $1")
         .bind(fixture.collection_id)
         .execute(&mut *transaction)

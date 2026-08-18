@@ -767,7 +767,10 @@ impl HostedProvider {
                         OR p.semantic_engine_version <> $6
                         OR NOT hosted_provider_projection_digest_valid(
                           p.projection_digest, p.projection_observed_digest)
-                        OR NOT p.semantic_complete
+                        -- Semantic incompleteness is a valid, durable exact-fallback
+                        -- state (for example malformed Markdown or a body-dependent
+                        -- computed field). Only unfinished relationship resolution
+                        -- means the generation has not completed its build.
                         OR NOT p.resolution_complete
                      UNION ALL
                      SELECT 1 FROM hosted_provider_record_projections p
@@ -883,13 +886,24 @@ impl HostedProvider {
                        WHERE projection.collection_id = $1
                          AND projection.generation_id = $2
                          AND projection.valid_to_sequence IS NULL
-                         AND projection.semantic_complete
                          AND projection.resolution_complete
                      )
                      ELSE resolved_records + $7
                    END,
                    status = CASE WHEN $8 THEN 'complete' ELSE status END,
-                   integrity_verified_epoch = CASE WHEN $8 THEN integrity_epoch ELSE integrity_verified_epoch END,
+                   integrity_verified_epoch = CASE
+                     WHEN $8 AND NOT EXISTS (
+                       SELECT 1
+                       FROM hosted_provider_record_projections projection
+                       WHERE projection.collection_id = $1
+                         AND projection.generation_id = $2
+                         AND projection.valid_to_sequence IS NULL
+                         AND (NOT projection.semantic_complete
+                              OR NOT projection.resolution_complete)
+                     ) THEN integrity_epoch
+                     WHEN $8 THEN 0
+                     ELSE integrity_verified_epoch
+                   END,
                    completed_at = CASE WHEN $8 THEN now() ELSE completed_at END,
                    lease_owner = NULL,
                    lease_expires_at = NULL,

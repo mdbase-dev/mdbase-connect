@@ -480,9 +480,11 @@ impl HostedProvider {
             && row
                 .get::<Option<String>, _>("active_semantic_engine_version")
                 .as_deref()
-                == Some(mdbase::VERSION)
-            && row.get::<Option<i64>, _>("active_integrity_epoch")
-                == row.get::<Option<i64>, _>("active_integrity_verified_epoch");
+                == Some(mdbase::VERSION);
+        // A current, complete generation is operationally ready even when its
+        // integrity epoch cannot be globally projection-trusted. Query setup
+        // uses the distinct verified-epoch proof to select bounded exact
+        // fallback for semantic-incomplete or otherwise untrusted rows.
         Ok(HostedProjectionStatus {
             collection_id,
             ready,

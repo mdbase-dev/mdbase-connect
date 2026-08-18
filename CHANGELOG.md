@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.1.0-beta.75
+
+Beta.75 allows a projection generation to activate when a canonically parsed
+record intentionally requires exact fallback, while continuing to require
+complete relationship resolution and valid projection digests. This prevents
+the production cutover indexer from repeatedly rebuilding collections that
+contain malformed Markdown or body-dependent computed fields. Query execution
+still treats those rows as projection-incomplete and uses bounded exact fallback;
+authorization classification remains fail-closed.
+
 ## 0.1.0-beta.74
 
 Beta.74 replaces the unreleased Candidate B migration history with the final
