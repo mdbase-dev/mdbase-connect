@@ -26,7 +26,7 @@ async fn health() -> Json<Value> {
 }
 
 async fn ready(State(state): State<AppState>) -> ApiResult<Json<Value>> {
-    let notifications = state.provider.ready().await?;
+    let readiness = state.provider.ready().await?;
     Ok(Json(json!({
         "status": "ready",
         "provider": {
@@ -34,7 +34,8 @@ async fn ready(State(state): State<AppState>) -> ApiResult<Json<Value>> {
             "capabilities": mdbase_connect_protocol::HOSTED_PROVIDER_CAPABILITIES,
             "contract_support": mdbase_connect_protocol::ConnectContractSupport::default(),
         },
-        "notifications": notifications
+        "notifications": readiness.notifications,
+        "projections": readiness.projections
     })))
 }
 
