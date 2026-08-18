@@ -2237,6 +2237,28 @@ select {
   min-height: 2.5rem;
 }
 
+.github-button {
+  gap: 0.65rem;
+  border-color: #1f2328;
+  background: #1f2328;
+  color: #ffffff;
+}
+
+.github-button:hover:not(:disabled) {
+  border-color: #000000;
+  background: #30363d;
+  color: #ffffff;
+}
+
+.github-button:focus-visible {
+  outline: 2px solid var(--ink-muted);
+  outline-offset: 2px;
+}
+
+.github-mark {
+  flex: none;
+}
+
 .provider-divider {
   display: flex;
   align-items: center;

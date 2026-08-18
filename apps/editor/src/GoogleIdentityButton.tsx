@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ConnectManagementClient } from "@mdbase/connect-management";
+import { observeProviderWidth } from "@mdbase/connect-ui/provider-button";
 
 interface GoogleAccountsApi {
   accounts: {
@@ -32,21 +33,22 @@ export function GoogleIdentityButton({ client, purpose, onComplete, onError }: {
   onComplete(): void;
   onError(reason: unknown): void;
 }) {
+  const container = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLDivElement>(null);
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [ready, setReady] = useState(false);
+  const [google, setGoogle] = useState<GoogleAccountsApi | null>(null);
+  const [width, setWidth] = useState(0);
 
   useEffect(() => {
     let active = true;
     async function prepare() {
       try {
-        setReady(false);
+        setGoogle(null);
         const start = await client.startGoogleAccountFlow(purpose);
-        const google = await loadGoogleIdentityServices();
-        if (!active || !button.current) return;
-        button.current.replaceChildren();
-        google.accounts.id.initialize({
+        const loaded = await loadGoogleIdentityServices();
+        if (!active) return;
+        loaded.accounts.id.initialize({
           client_id: start.client_id,
           nonce: start.nonce,
           auto_select: false,
@@ -66,17 +68,7 @@ export function GoogleIdentityButton({ client, purpose, onComplete, onError }: {
               });
           }
         });
-        const width = Math.min(400, Math.max(240, Math.floor(button.current.clientWidth)));
-        google.accounts.id.renderButton(button.current, {
-          type: "standard",
-          theme: "outline",
-          size: "large",
-          text: "continue_with",
-          shape: "rectangular",
-          logo_alignment: "left",
-          width
-        });
-        setReady(true);
+        setGoogle(loaded);
       } catch (reason) {
         if (active) onError(reason);
       }
@@ -85,7 +77,26 @@ export function GoogleIdentityButton({ client, purpose, onComplete, onError }: {
     return () => { active = false; };
   }, [attempt, client, onComplete, onError, purpose]);
 
-  return <div className={`connect-google-provider ${busy ? "busy" : ""}`} aria-busy={busy}>
+  useEffect(() => observeProviderWidth(container.current, setWidth), []);
+
+  // Google draws the button itself at a fixed pixel width, so the only way to
+  // keep it aligned with the controls around it is to ask for it again.
+  useEffect(() => {
+    if (!google || !width || !button.current) return;
+    button.current.replaceChildren();
+    google.accounts.id.renderButton(button.current, {
+      type: "standard",
+      theme: "outline",
+      size: "large",
+      text: "continue_with",
+      shape: "rectangular",
+      logo_alignment: "left",
+      width
+    });
+  }, [google, width]);
+
+  const ready = Boolean(google && width);
+  return <div ref={container} className={`connect-google-provider ${busy ? "busy" : ""}`} aria-busy={busy}>
     <div ref={button} className="connect-google-button" />
     {!ready && <span className="connect-provider-loading">Preparing Google sign-in…</span>}
   </div>;
