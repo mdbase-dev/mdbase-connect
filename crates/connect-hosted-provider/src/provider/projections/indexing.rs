@@ -254,7 +254,6 @@ impl HostedProvider {
                          AND projection.generation_id =
                              collection.active_projection_generation_id
                          AND projection.valid_to_sequence IS NULL
-                         AND projection.semantic_complete
                          AND projection.resolution_complete) AS resolved_records,
                       (SELECT count(*)::bigint
                        FROM hosted_provider_record_projections projection
@@ -444,7 +443,20 @@ async fn verify_projection_derived_rows_in(
                     continue;
                 }
             };
-            if !projection.is_current_for(catalog_revision, engine_version)
+            // `is_current_for` deliberately rejects semantic-incomplete rows so
+            // query evaluators cannot trust them. Index verification must still
+            // validate the remainder of that envelope: incompleteness is the
+            // durable signal that selects exact fallback, not malformed derived
+            // storage. Temporarily toggling only that flag exercises every other
+            // mdbase-rs currentness and structural-digest invariant.
+            let envelope_current = if projection.facts.semantic_complete {
+                projection.is_current_for(catalog_revision, engine_version)
+            } else {
+                let mut fallback_envelope = projection.clone();
+                fallback_envelope.facts.semantic_complete = true;
+                fallback_envelope.is_current_for(catalog_revision, engine_version)
+            };
+            if !envelope_current
                 || i64::from(projection.facts.format_version) != i64::from(format_version)
             {
                 verification.semantic_envelopes_valid = false;
