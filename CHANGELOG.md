@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.1.0-beta.76
+
+Beta.76 separates derived-state integrity verification from semantic exact
+fallback. A fully verified generation may contain records that mdbase-rs marks
+semantic-incomplete; query initialization detects those rows independently and
+keeps them on bounded canonical exact evaluation. This preserves both the final
+cutover integrity gate and complete query results.
+
 ## 0.1.0-beta.75
 
 Beta.75 allows a projection generation to activate when a canonically parsed

@@ -445,19 +445,7 @@ impl HostedProvider {
         if prior_integrity_verified {
             let verified = sqlx::query(
                 r#"UPDATE hosted_provider_projection_generations
-                   SET integrity_verified_epoch = CASE
-                         WHEN NOT EXISTS (
-                           SELECT 1
-                           FROM hosted_provider_record_projections projection
-                           WHERE projection.collection_id = $1
-                             AND projection.generation_id = $2
-                             AND projection.valid_to_sequence IS NULL
-                             AND (NOT projection.semantic_complete
-                                  OR NOT projection.resolution_complete)
-                         ) THEN integrity_epoch
-                         ELSE 0
-                       END,
-                       updated_at = now()
+                   SET integrity_verified_epoch = integrity_epoch, updated_at = now()
                    WHERE collection_id = $1 AND generation_id = $2 AND status = 'complete'"#,
             )
             .bind(collection_id)
