@@ -326,7 +326,16 @@ impl HostedProvider {
                       active_semantic_engine_version, active_projection_generation_id,
                       active_projection_head,
                       generation.integrity_epoch AS projection_integrity_epoch,
-                      generation.integrity_verified_epoch AS projection_integrity_verified_epoch
+                      generation.integrity_verified_epoch AS projection_integrity_verified_epoch,
+                      EXISTS (
+                        SELECT 1
+                        FROM hosted_provider_record_projections projection
+                        WHERE projection.collection_id = collection.id
+                          AND projection.generation_id = collection.active_projection_generation_id
+                          AND projection.valid_to_sequence IS NULL
+                          AND (NOT projection.semantic_complete
+                               OR NOT projection.resolution_complete)
+                      ) AS projection_semantic_fallback_exists
                FROM hosted_provider_collections collection
                LEFT JOIN hosted_provider_projection_generations generation
                  ON generation.collection_id = collection.id

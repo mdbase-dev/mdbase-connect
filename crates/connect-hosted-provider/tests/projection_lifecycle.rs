@@ -725,10 +725,10 @@ async fn projection_indexing_activates_resolved_exact_fallback_rows() {
     .fetch_one(&fixture.pool)
     .await
     .unwrap();
-    assert_ne!(
+    assert_eq!(
         integrity.get::<i64, _>("integrity_epoch"),
         integrity.get::<i64, _>("integrity_verified_epoch"),
-        "semantic-incomplete rows must keep exact fallback enabled"
+        "derived-state verification remains independent from exact fallback"
     );
     let (_, application_token) = register_query_application(&fixture, Vec::new()).await;
     let result = fixture

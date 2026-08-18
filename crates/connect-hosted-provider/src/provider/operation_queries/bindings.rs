@@ -367,7 +367,9 @@ fn collection_projection_integrity_verified(collection: &PgRow) -> ApiResult<boo
         .get::<Option<i64>, _>("projection_integrity_verified_epoch")
         .map(|value| number(value, "verified projection integrity epoch"))
         .transpose()?;
-    Ok(epoch.is_some() && epoch == verified)
+    let semantic_fallback_exists =
+        collection.get::<bool, _>("projection_semantic_fallback_exists");
+    Ok(epoch.is_some() && epoch == verified && !semantic_fallback_exists)
 }
 
 fn enforce_hosted_query_scan_budget(state: &HostedQueryState) -> ApiResult<()> {
