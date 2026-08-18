@@ -5843,8 +5843,17 @@ async fn assert_projected_group_cancellation(fixture: &FileLifecycleFixture, tok
             .fetch_one(&fixture.pool)
             .await
             .unwrap();
+            // This grouping workload reads only projected metadata: a title
+            // predicate, a title group key, a count, and a path ordering. It
+            // resolves entirely inside PostgreSQL, so engagement is proven by
+            // the query slot, the scan permit and the blocked backend -- never
+            // by a plaintext scope. Requiring zero scopes here pins the
+            // Candidate B invariant that projected metadata work decrypts
+            // nothing; scope acquisition and release under cancellation are
+            // covered by the body-predicate cancellations, which genuinely
+            // need plaintext.
             if activity.active_queries == 2
-                && activity.plaintext_scopes == 2
+                && activity.plaintext_scopes == 0
                 && activity.active_scan_permits == 2
                 && blocked_sessions == 2
             {
@@ -5854,7 +5863,10 @@ async fn assert_projected_group_cancellation(fixture: &FileLifecycleFixture, tok
         }
     })
     .await
-    .expect("the projected grouping query reaches its cancellable PostgreSQL wait");
+    .expect(
+        "the projected grouping query reaches its cancellable PostgreSQL wait \
+         without materializing plaintext",
+    );
     let point_started = Instant::now();
     let point = fixture
         .provider
