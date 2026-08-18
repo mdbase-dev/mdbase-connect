@@ -929,23 +929,39 @@ async fn projection_verification_detects_missing_resolution_keys_and_relationshi
     .unwrap();
     assert_eq!(deleted_relationships.rows_affected(), 1);
 
+    // Operational readiness is deliberately independent from derived-state
+    // integrity: a current, complete generation keeps serving, and the query
+    // path routes untrusted rows to bounded canonical fallback through the
+    // separate verified-epoch proof. Out-of-band derived corruption is caught
+    // by the canonical verifier below, which is the cutover's admission gate.
     assert!(
-        !fixture
+        fixture
             .provider
             .projection_status(fixture.collection_id)
             .await
             .unwrap()
-            .ready
+            .ready,
+        "a complete generation stays operationally ready after derived-row loss"
     );
     let after = fixture
         .provider
         .verify_projection_index(fixture.collection_id)
         .await
         .unwrap();
-    assert!(!after.verified);
-    assert!(after
-        .failures
-        .contains(&"active_binding_not_current".to_string()));
+    assert!(
+        !after.verified,
+        "the canonical verifier must still detect missing derived rows"
+    );
+    // `active_binding_not_current` mirrors operational readiness, which derived-row
+    // loss no longer disturbs. Detection here must come from the canonical row
+    // counts themselves, so assert it is absent rather than leaving the weaker
+    // binding signal to carry this test.
+    assert!(
+        !after
+            .failures
+            .contains(&"active_binding_not_current".to_string()),
+        "binding currency is independent of derived-row integrity"
+    );
     assert!(after
         .failures
         .contains(&"projection_resolution_keys_mismatch".to_string()));
