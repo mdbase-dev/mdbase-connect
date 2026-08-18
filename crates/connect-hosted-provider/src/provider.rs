@@ -419,6 +419,24 @@ pub struct NotificationRecoveryStatus {
     pub last_success_at: Option<DateTime<Utc>>,
 }
 
+/// Process readiness. Collections whose semantic projection is absent or bound
+/// to a superseded catalog/resource revision are reported as degraded, never as
+/// a process failure: the query path already serves them from bounded canonical
+/// exact fallback, and failing the probe would remove a provider that is still
+/// serving every collection correctly.
+#[derive(Debug, Clone, Serialize)]
+pub struct HostedReadinessStatus {
+    pub notifications: NotificationRecoveryStatus,
+    pub projections: HostedProjectionReadiness,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct HostedProjectionReadiness {
+    /// Active collections currently served from canonical exact fallback while
+    /// their projection generation is absent, superseded, or rebuilding.
+    pub degraded_collections: u64,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum NotificationRecoveryState {

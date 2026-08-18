@@ -210,11 +210,37 @@ lifecycle:
 ---
 `;
 
+export const PICKLE_ATTACHMENT_TYPE_DOCUMENT = `---
+kind: mdbase.type
+name: pickle_attachment
+version: 1
+description: Markdown content attached to a Pickle request.
+schema:
+  dialect: json-schema-2020-12
+  value:
+    $schema: "https://json-schema.org/draft/2020-12/schema"
+    type: object
+    additionalProperties: true
+    required: [request_id, filename, content_type, size_bytes, sha256]
+    properties:
+      type: { const: pickle_attachment }
+      request_id: { type: string, minLength: 1 }
+      filename: { type: string, minLength: 1 }
+      content_type: { type: string, minLength: 1 }
+      size_bytes: { type: integer, minimum: 0 }
+      sha256: { type: string, pattern: '^sha256:[0-9a-f]{64}$' }
+      created_at: { type: string, format: date-time }
+collection:
+  display:
+    name_field: filename
+---
+`;
+
 export const PICKLE_TYPE_PACK_PROVISION = {
   manifest: {
     kind: "mdbase.type-pack",
     id: "pickle.requests",
-    version: "1.0.0",
+    version: "1.1.0",
     name: "Pickle requests",
     description: "Pickle request and response record types.",
     resources: [
@@ -245,6 +271,13 @@ export const PICKLE_TYPE_PACK_PROVISION = {
         source: "types/pickle_response_ack.md",
         target: "_types/pickle_response_ack.md",
         digest: "sha256:2530c8d21bb711889f20e0d096045cb6c9a7618583b1e2afff7ada72367de41f"
+      },
+      {
+        kind: "type",
+        mode: "seed",
+        source: "types/pickle_attachment.md",
+        target: "_types/pickle_attachment.md",
+        digest: "sha256:67f14eeee2c126e99d8b37b7508fa148955b924367e2d2941b1793d1c814ec25"
       }
     ]
   },
@@ -264,6 +297,10 @@ export const PICKLE_TYPE_PACK_PROVISION = {
     {
       source: "types/pickle_response_ack.md",
       document: PICKLE_ACK_RESPONSE_TYPE_DOCUMENT
+    },
+    {
+      source: "types/pickle_attachment.md",
+      document: PICKLE_ATTACHMENT_TYPE_DOCUMENT
     }
   ],
   provides: [{

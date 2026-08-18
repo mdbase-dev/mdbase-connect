@@ -205,7 +205,7 @@ impl HostedProvider {
         }
     }
 
-    pub async fn ready(&self) -> ApiResult<NotificationRecoveryStatus> {
+    pub async fn ready(&self) -> ApiResult<HostedReadinessStatus> {
         sqlx::query("SELECT 1").execute(&self.pool).await?;
         self.blob_store.ready().await?;
         self.verify_key_readiness().await?;
@@ -239,19 +239,24 @@ impl HostedProvider {
         .bind(mdbase::VERSION)
         .fetch_one(&self.pool)
         .await?;
-        if unready_collections != 0 {
-            return Err(ApiError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "hosted_projection_index_incomplete",
-                "Hosted semantic projection indexing is incomplete.",
-            ));
-        }
+        // A collection whose projection is absent, superseded or rebuilding is
+        // degraded, not unserviceable: the query path routes it to bounded
+        // canonical exact fallback and returns correct results. Failing the
+        // probe here would withdraw a provider that is still serving every
+        // collection, turning one collection's rebuild into a total outage.
+        // Report the count so operators and the indexer can act on it.
+        //
         // Keep readiness acyclic: notification delivery is an outbound,
         // durably-retried dependency on the Connect control plane, while
         // Connect itself checks this endpoint before advertising readiness.
         // Report degradation for operators without inviting the platform to
         // restart a provider that can still serve authoritative data.
-        Ok(self.notification_recovery.read().await.clone())
+        Ok(HostedReadinessStatus {
+            notifications: self.notification_recovery.read().await.clone(),
+            projections: HostedProjectionReadiness {
+                degraded_collections: number(unready_collections, "degraded collection count")?,
+            },
+        })
     }
 
     /// Apply a shrinking server-side statement deadline to the single cutover

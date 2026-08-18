@@ -169,8 +169,36 @@ impl HostedProvider {
         .bind(event_revision)
         .execute(&mut *transaction)
         .await?;
+        // Every resource mutation advances `resource_revision`, and a generation
+        // is current only while its `source_resource_revision` still matches.
+        //
+        // A type mutation changes the semantic catalog, so its projections are
+        // genuinely superseded and the binding is invalidated for rebuild.
+        //
+        // A view mutation does not: an Obsidian Base source is a query
+        // definition, and no projected fact is derived from it. Previously the
+        // revision advanced while the generation kept the old value, leaving the
+        // collection permanently stale with no rebuild scheduled -- which failed
+        // readiness forever. Carry the generation forward instead. Invalidating
+        // here would be worse than the bug: it drops a large collection into
+        // canonical exact fallback and its Base queries start returning
+        // `hosted_exact_document_budget_exceeded` until the rebuild completes.
         if is_type {
             invalidate_projection_catalog_binding(&mut transaction, collection_id).await?;
+        } else {
+            sqlx::query(
+                r#"UPDATE hosted_provider_projection_generations generation
+                   SET source_resource_revision = $2, updated_at = now()
+                   FROM hosted_provider_collections collection
+                   WHERE collection.id = $1
+                     AND generation.collection_id = collection.id
+                     AND generation.generation_id
+                           = collection.active_projection_generation_id"#,
+            )
+            .bind(collection_id)
+            .bind(&resource_revision)
+            .execute(&mut *transaction)
+            .await?;
         }
         sqlx::query(
             r#"UPDATE hosted_provider_collections

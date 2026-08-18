@@ -850,6 +850,145 @@ async fn idempotent_collection_create_waits_for_a_projection_lease_handoff() {
     );
 }
 
+/// A view mutation advances `resource_revision`. Because no projected fact is
+/// derived from a Base source, the active generation must be carried to the new
+/// revision rather than abandoned: leaving it behind stranded the collection as
+/// permanently stale (the 2026-08-18 outage), while abandoning it would drop a
+/// large collection into canonical exact fallback for no semantic reason.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn view_mutations_carry_the_projection_binding_and_keep_readiness() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let replica_id = replica.get("id");
+    let scope_epoch = u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap();
+    put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        Uuid::now_v7(),
+        None,
+        "notes/source.md",
+        "---\ntitle: Source\n---\nSource body.\n",
+    )
+    .await;
+    complete_generation(&fixture).await;
+
+    // Other tests share this database, so assert on this collection rather
+    // than the process-wide degraded count.
+    fixture.provider.ready().await.expect("readiness before");
+    assert!(
+        fixture
+            .provider
+            .projection_status(fixture.collection_id)
+            .await
+            .unwrap()
+            .ready
+    );
+
+    let writer_token = format!("candidate-b-view-writer-{}", Uuid::new_v4());
+    fixture
+        .provider
+        .register_replica(
+            fixture.collection_id,
+            RegisterReplica {
+                replica_id: Uuid::now_v7(),
+                name: "Candidate B view writer".to_string(),
+                purpose: ReplicaPurpose::Application,
+                mode: SyncReplicaMode::ReadWrite,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
+                allowed_operations: vec!["create_view_source".to_string()],
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: Vec::new(),
+                file_capability: None,
+                allowed_origin: None,
+                proof_public_key: None,
+                grant_id: Some(Uuid::now_v7()),
+                application_declaration_id: None,
+                application_declaration_digest: None,
+                token: writer_token.clone(),
+                token_ttl_seconds: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    fixture.enable_obsidian_base_pattern("views/*.base").await;
+    complete_generation(&fixture).await;
+
+    let created = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &writer_token,
+            "create_view_source",
+            Uuid::new_v4(),
+            json!({
+                "path": "views/notes.base",
+                "document": "views:\n  - type: table\n    name: All notes\n    order: [file.name]\n"
+            }),
+            None,
+        )
+        .await
+        .expect("the view source is created");
+    assert_eq!(created["valid"], true);
+
+    // A Base source is a query definition; no projected fact derives from it.
+    // The generation must therefore stay bound and be carried to the new
+    // resource revision rather than abandoned -- invalidating would drop the
+    // collection into canonical exact fallback for no semantic reason.
+    let carried: (Option<Uuid>, Option<String>, String) = sqlx::query_as(
+        r#"SELECT collection.active_projection_generation_id,
+                  generation.source_resource_revision,
+                  collection.resource_revision
+           FROM hosted_provider_collections collection
+           LEFT JOIN hosted_provider_projection_generations generation
+             ON generation.collection_id = collection.id
+            AND generation.generation_id = collection.active_projection_generation_id
+           WHERE collection.id = $1"#,
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert!(
+        carried.0.is_some(),
+        "a view mutation must not abandon the active projection binding"
+    );
+    assert_eq!(
+        carried.1.as_deref(),
+        Some(carried.2.as_str()),
+        "the generation must be carried to the new resource revision"
+    );
+
+    // Readiness must remain healthy and the collection must stay queryable.
+    // `ready()` returning Ok at all is the property that matters: a degraded
+    // collection must never fail the probe for the whole provider.
+    fixture
+        .provider
+        .ready()
+        .await
+        .expect("readiness must survive a view mutation");
+    assert!(
+        fixture
+            .provider
+            .projection_status(fixture.collection_id)
+            .await
+            .unwrap()
+            .ready
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
 async fn projection_verification_detects_missing_resolution_keys_and_relationships() {
@@ -929,23 +1068,39 @@ async fn projection_verification_detects_missing_resolution_keys_and_relationshi
     .unwrap();
     assert_eq!(deleted_relationships.rows_affected(), 1);
 
+    // Operational readiness is deliberately independent from derived-state
+    // integrity: a current, complete generation keeps serving, and the query
+    // path routes untrusted rows to bounded canonical fallback through the
+    // separate verified-epoch proof. Out-of-band derived corruption is caught
+    // by the canonical verifier below, which is the cutover's admission gate.
     assert!(
-        !fixture
+        fixture
             .provider
             .projection_status(fixture.collection_id)
             .await
             .unwrap()
-            .ready
+            .ready,
+        "a complete generation stays operationally ready after derived-row loss"
     );
     let after = fixture
         .provider
         .verify_projection_index(fixture.collection_id)
         .await
         .unwrap();
-    assert!(!after.verified);
-    assert!(after
-        .failures
-        .contains(&"active_binding_not_current".to_string()));
+    assert!(
+        !after.verified,
+        "the canonical verifier must still detect missing derived rows"
+    );
+    // `active_binding_not_current` mirrors operational readiness, which derived-row
+    // loss no longer disturbs. Detection here must come from the canonical row
+    // counts themselves, so assert it is absent rather than leaving the weaker
+    // binding signal to carry this test.
+    assert!(
+        !after
+            .failures
+            .contains(&"active_binding_not_current".to_string()),
+        "binding currency is independent of derived-row integrity"
+    );
     assert!(after
         .failures
         .contains(&"projection_resolution_keys_mismatch".to_string()));
@@ -5827,8 +5982,17 @@ async fn assert_projected_group_cancellation(fixture: &FileLifecycleFixture, tok
             .fetch_one(&fixture.pool)
             .await
             .unwrap();
+            // This grouping workload reads only projected metadata: a title
+            // predicate, a title group key, a count, and a path ordering. It
+            // resolves entirely inside PostgreSQL, so engagement is proven by
+            // the query slot, the scan permit and the blocked backend -- never
+            // by a plaintext scope. Requiring zero scopes here pins the
+            // Candidate B invariant that projected metadata work decrypts
+            // nothing; scope acquisition and release under cancellation are
+            // covered by the body-predicate cancellations, which genuinely
+            // need plaintext.
             if activity.active_queries == 2
-                && activity.plaintext_scopes == 2
+                && activity.plaintext_scopes == 0
                 && activity.active_scan_permits == 2
                 && blocked_sessions == 2
             {
@@ -5838,7 +6002,10 @@ async fn assert_projected_group_cancellation(fixture: &FileLifecycleFixture, tok
         }
     })
     .await
-    .expect("the projected grouping query reaches its cancellable PostgreSQL wait");
+    .expect(
+        "the projected grouping query reaches its cancellable PostgreSQL wait \
+         without materializing plaintext",
+    );
     let point_started = Instant::now();
     let point = fixture
         .provider

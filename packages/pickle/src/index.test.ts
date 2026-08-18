@@ -82,6 +82,7 @@ const contract = {
 
 describe("Pickle contract adapter", () => {
   it("pins every type-pack resource to its exact embedded document", async () => {
+    expect(PICKLE_TYPE_PACK_PROVISION.manifest.version).toBe("1.1.0");
     const documents = new Map(
       PICKLE_TYPE_PACK_PROVISION.resources.map((resource) => [
         resource.source,
@@ -102,6 +103,72 @@ describe("Pickle contract adapter", () => {
         ).join("")}`
       );
     }
+  });
+
+  it("reads Markdown attachments from typed records", async () => {
+    const read = vi.fn(async () =>
+      connectSuccess({
+        path: "attachments/req-one/1-context.md",
+        types: ["pickle_attachment"],
+        frontmatter: {
+          type: "pickle_attachment",
+          request_id: "req-one",
+          filename: "context.md",
+          content_type: "text/markdown",
+          size_bytes: 9,
+          sha256: `sha256:${"0".repeat(64)}`
+        },
+        body: "# Context"
+      })
+    );
+    const files = {
+      list: vi.fn(async function* () { yield* []; }),
+      download: vi.fn()
+    };
+    const pickle = new PickleCollection({ read, files } as never);
+
+    const content = await pickle.readAttachment({
+      path: "attachments/req-one/1-context.md",
+      filename: "1-context.md"
+    });
+
+    expect(content).toMatchObject({
+      filename: "context.md",
+      mediaType: "text/markdown",
+      size: 9
+    });
+    expect(await content?.blob.text()).toBe("# Context");
+    expect(files.list).not.toHaveBeenCalled();
+  });
+
+  it("reads binary attachments through the file API", async () => {
+    const descriptor = {
+      fileId: "file-1",
+      path: "attachments/req-one/2-report.pdf",
+      revision: "one",
+      contentDigest: `sha256:${"0".repeat(64)}`,
+      size: 3,
+      mediaType: "application/pdf",
+      mediaClass: "pdf",
+      modifiedAt: "2026-08-17T00:00:00Z"
+    } as const;
+    const files = {
+      list: vi.fn(async function* () { yield descriptor; }),
+      download: vi.fn(async () => new Blob(["pdf"], { type: "application/pdf" }))
+    };
+    const pickle = new PickleCollection({ files } as never);
+
+    const content = await pickle.readAttachment({
+      path: descriptor.path,
+      filename: "report.pdf"
+    });
+
+    expect(content).toMatchObject({
+      filename: "report.pdf",
+      mediaType: "application/pdf",
+      size: 3
+    });
+    expect(files.download).toHaveBeenCalledWith(descriptor, {});
   });
 
   it("derives lifecycle from response links and writes a typed response", async () => {
