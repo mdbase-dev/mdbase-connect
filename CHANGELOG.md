@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 0.1.0-beta.77
+
+Beta.77 fixes a hosted-provider outage in which saving an Obsidian Base source
+took the whole provider offline.
+
+- Resource mutations advance the collection resource revision, but the
+  projection catalog binding was invalidated only for type mutations. A view
+  mutation left the active generation pinned to a superseded revision with no
+  rebuild scheduled, stranding the collection permanently stale. A Base source
+  is a query definition and no projected fact derives from it, so the generation
+  is now carried to the new revision; type mutations still invalidate.
+- Readiness no longer fails when a collection's projection is absent or
+  rebuilding. Such a collection is served from bounded canonical exact fallback
+  by design, so `/ready` now reports `projections.degraded_collections` instead
+  of returning 503 and withdrawing a provider that is serving correctly.
+- The Pickle SDK gains a `pickle_attachment` type and
+  `PickleCollection.readAttachment`, advancing its type pack to 1.1.0.
+
 ## 0.1.0-beta.76
 
 Beta.76 separates derived-state integrity verification from semantic exact

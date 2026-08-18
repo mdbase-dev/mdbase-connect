@@ -103,6 +103,7 @@ import {
   NoteSkeleton,
   PaneControl,
   PaneResizeHandle,
+  PaneSkeleton,
   SaveIndicator,
   TypeAccessPrompt
 } from "./WorkspaceChrome";
@@ -1899,13 +1900,13 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         leadingActions={layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
         trailingActions={<PaneControl label="Hide notes sidebar" action="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
       />}
-      {selectedCollectionFile && selectedFileAsset ? <Suspense fallback={<NoteSkeleton leadingActions={editorLeadingActions} />}><FileWorkspace
+      {selectedCollectionFile && selectedFileAsset ? <Suspense fallback={<PaneSkeleton label="Loading file viewer" leadingActions={editorLeadingActions} />}><FileWorkspace
         file={selectedCollectionFile}
         asset={selectedFileAsset}
         leadingActions={editorLeadingActions}
         onBack={() => returnToMobilePane("notes")}
         onRetry={() => void fileAssetStore.retry(selectedCollectionFile)}
-      /></Suspense> : creationMode ? <Suspense fallback={<NoteSkeleton leadingActions={editorLeadingActions} />}><NewNoteComposer
+      /></Suspense> : creationMode ? <Suspense fallback={<PaneSkeleton label={creationMode === "folder" ? "Loading folder composer" : "Loading note composer"} leadingActions={editorLeadingActions} />}><NewNoteComposer
         types={description.types}
         defaultFolder={creationContext.folder}
         defaultTag={creationContext.tag}

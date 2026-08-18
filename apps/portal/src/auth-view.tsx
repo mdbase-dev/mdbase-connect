@@ -1,3 +1,4 @@
+import { observeProviderWidth } from "@mdbase/connect-ui/provider-button";
 import React, { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "./api";
 import {
@@ -88,8 +89,9 @@ export function Login() {
             {index > 0 && <div className="provider-divider"><span>or</span></div>}
             {provider.id === "google"
               ? <GoogleSignIn returnTo={returnTarget()} onError={setError} />
-              : <a className="button primary link-button provider-button" href={`${provider.login_url}?return_to=${encodeURIComponent(returnTarget())}`}>
-                  {provider.label}
+              : <a className="button link-button provider-button github-button" href={`${provider.login_url}?return_to=${encodeURIComponent(returnTarget())}`}>
+                  <GitHubMark />
+                  <span>{provider.label}</span>
                 </a>}
           </React.Fragment>)}
         </div>}
@@ -569,9 +571,9 @@ interface GoogleAccountsApi {
       }): void;
       renderButton(element: HTMLElement, config: {
         type: "standard";
-        theme: "outline";
+        theme: "filled_blue";
         size: "large";
-        text: "continue_with";
+        text: "signin_with";
         shape: "rectangular";
         logo_alignment: "left";
         width: number;
@@ -595,21 +597,22 @@ export function GoogleIdentityButton({ startUrl, onComplete, onError }: {
   onComplete(redirectTo: string): void;
   onError(value: string): void;
 }) {
+  const container = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLDivElement>(null);
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [ready, setReady] = useState(false);
+  const [google, setGoogle] = useState<GoogleAccountsApi | null>(null);
+  const [width, setWidth] = useState(0);
 
   useEffect(() => {
     let active = true;
     async function prepare() {
       try {
-        setReady(false);
+        setGoogle(null);
         const start = await api<{ client_id: string; nonce: string }>(startUrl);
-        const google = await loadGoogleIdentityServices();
-        if (!active || !button.current) return;
-        button.current.replaceChildren();
-        google.accounts.id.initialize({
+        const loaded = await loadGoogleIdentityServices();
+        if (!active) return;
+        loaded.accounts.id.initialize({
           client_id: start.client_id,
           nonce: start.nonce,
           auto_select: false,
@@ -630,17 +633,7 @@ export function GoogleIdentityButton({ startUrl, onComplete, onError }: {
             });
           }
         });
-        const width = Math.min(400, Math.max(240, Math.floor(button.current.clientWidth)));
-        google.accounts.id.renderButton(button.current, {
-          type: "standard",
-          theme: "outline",
-          size: "large",
-          text: "continue_with",
-          shape: "rectangular",
-          logo_alignment: "left",
-          width
-        });
-        setReady(true);
+        setGoogle(loaded);
       } catch (reason) {
         if (active) onError(message(reason));
       }
@@ -649,10 +642,45 @@ export function GoogleIdentityButton({ startUrl, onComplete, onError }: {
     return () => { active = false; };
   }, [attempt, onComplete, onError, startUrl]);
 
-  return <div className={`google-provider ${busy ? "busy" : ""}`} aria-busy={busy}>
+  useEffect(() => observeProviderWidth(container.current, setWidth), []);
+
+  // Google draws the button itself at a fixed pixel width, so the only way to
+  // keep it aligned with the providers beside it is to ask for it again.
+  useEffect(() => {
+    if (!google || !width || !button.current) return;
+    button.current.replaceChildren();
+    google.accounts.id.renderButton(button.current, {
+      type: "standard",
+      theme: "filled_blue",
+      size: "large",
+      text: "signin_with",
+      shape: "rectangular",
+      logo_alignment: "left",
+      width
+    });
+  }, [google, width]);
+
+  const ready = Boolean(google && width);
+  return <div ref={container} className={`google-provider ${busy ? "busy" : ""}`} aria-busy={busy}>
     <div ref={button} className="google-button" />
     {!ready && <span className="provider-loading">Preparing Google sign-in…</span>}
   </div>;
+}
+
+function GitHubMark() {
+  return (
+    <svg
+      className="github-mark"
+      viewBox="0 0 16 16"
+      width="16"
+      height="16"
+      aria-hidden="true"
+      focusable="false"
+      fill="currentColor"
+    >
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+    </svg>
+  );
 }
 
 function loadGoogleIdentityServices(): Promise<GoogleAccountsApi> {
