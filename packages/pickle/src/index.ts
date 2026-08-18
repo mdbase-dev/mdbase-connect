@@ -3,6 +3,7 @@ import {
   MdbaseConnectError,
   type CollectionContractDescriptor,
   type CollectionDescription,
+  type CollectionFileDescriptor,
   type CollectionTypeDescriptor,
   type JsonObject,
   type RecordDocument,
@@ -16,6 +17,7 @@ import { PICKLE_REQUEST_CONTRACT_DIGEST } from "./resources.js";
 
 export {
   PICKLE_ACK_RESPONSE_TYPE_DOCUMENT,
+  PICKLE_ATTACHMENT_TYPE_DOCUMENT,
   PICKLE_APPROVAL_RESPONSE_TYPE_DOCUMENT,
   PICKLE_REQUEST_CONTRACT_DOCUMENT,
   PICKLE_REQUEST_CONTRACT_DIGEST,
@@ -86,6 +88,14 @@ export interface PickleAttachment {
   filename: string;
 }
 
+export interface PickleAttachmentContent {
+  path: string;
+  filename: string;
+  mediaType: string;
+  size: number;
+  blob: Blob;
+}
+
 export interface PickleResponse {
   path: string;
   type: string;
@@ -149,6 +159,11 @@ export interface PickleClient {
     input: Parameters<MdbaseConnection<PickleFrontmatter>["create"]>[0],
     options?: ConnectRequestOptions
   ): ReturnType<MdbaseConnection<PickleFrontmatter>["create"]>;
+  read(
+    input: Parameters<MdbaseConnection<PickleFrontmatter>["read"]>[0],
+    options?: ConnectRequestOptions
+  ): ReturnType<MdbaseConnection<PickleFrontmatter>["read"]>;
+  files: MdbaseConnection<PickleFrontmatter>["files"];
   pendingMutations<Result = unknown>(): readonly PendingMutation<Result>[];
   pendingMutation<Result = unknown>(
     requestId: string
@@ -310,6 +325,52 @@ export class PickleCollection {
       requestOptions
     );
     return responseSubmission(created);
+  }
+
+  async readAttachment(
+    attachment: PickleAttachment,
+    options: ConnectRequestOptions = {}
+  ): Promise<PickleAttachmentContent | null> {
+    const path = attachment.path.replace(/^\/+/, "");
+    if (isMarkdownPath(path)) {
+      const outcome = await this.connect.read({ path }, options);
+      if (outcome.ok) {
+        const frontmatter = outcome.value.frontmatter;
+        if (stringField(frontmatter, "type") === "pickle_attachment") {
+          const body = outcome.value.body ?? "";
+          const filename = stringField(frontmatter, "filename") || attachment.filename;
+          const mediaType = stringField(frontmatter, "content_type") || "text/markdown";
+          return {
+            path,
+            filename,
+            mediaType,
+            size: new TextEncoder().encode(body).byteLength,
+            blob: new Blob([body], { type: mediaType })
+          };
+        }
+      }
+    }
+    const separator = path.lastIndexOf("/");
+    const folder = separator < 0 ? undefined : path.slice(0, separator);
+    let match: CollectionFileDescriptor | null = null;
+    for await (const file of this.connect.files.list({
+      ...options,
+      ...(folder ? { folder } : {})
+    })) {
+      if (file.path === path) {
+        match = file;
+        break;
+      }
+    }
+    if (!match) return null;
+    const blob = await this.connect.files.download(match, options);
+    return {
+      path,
+      filename: attachment.filename,
+      mediaType: match.mediaType || blob.type || "application/octet-stream",
+      size: match.size,
+      blob
+    };
   }
 
   pendingResponses(): readonly PicklePendingResponse[] {
@@ -595,6 +656,10 @@ function validFieldPath(value: string): boolean {
 
 function trimSlashes(value: string): string {
   return value.replace(/^\/+|\/+$/g, "");
+}
+
+function isMarkdownPath(path: string): boolean {
+  return /\.(?:md|markdown|mdown|mkd|mkdn)$/i.test(path);
 }
 
 function asObject(value: unknown): JsonObject | undefined {
