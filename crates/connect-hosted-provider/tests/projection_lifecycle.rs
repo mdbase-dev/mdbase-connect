@@ -715,6 +715,46 @@ async fn projection_indexing_activates_resolved_exact_fallback_rows() {
     .unwrap();
     assert!(!fallback_row.get::<bool, _>("semantic_complete"));
     assert!(fallback_row.get::<bool, _>("resolution_complete"));
+    let integrity = sqlx::query(
+        r#"SELECT integrity_epoch, integrity_verified_epoch
+           FROM hosted_provider_projection_generations
+           WHERE collection_id = $1 AND generation_id = $2"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_ne!(
+        integrity.get::<i64, _>("integrity_epoch"),
+        integrity.get::<i64, _>("integrity_verified_epoch"),
+        "semantic-incomplete rows must keep exact fallback enabled"
+    );
+    let (_, application_token) = register_query_application(&fixture, Vec::new()).await;
+    let result = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({
+                "where": "file.inFolder('notes')",
+                "include_body": true,
+                "limit": 10,
+                "order_by": [{"field": "file.path"}]
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(result["valid"], true);
+    assert_eq!(result["result"]["meta"]["total_count"], 1);
+    assert_eq!(result["result"]["results"][0]["path"], "notes/malformed.md");
+    assert_eq!(
+        result["result"]["results"][0]["body"],
+        "A deliberately malformed [[relationship.\n"
+    );
     let verification = fixture
         .provider
         .verify_projection_index(fixture.collection_id)
