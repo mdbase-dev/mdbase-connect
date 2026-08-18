@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { ConnectManagementClient } from "@mdbase/connect-management";
 import { observeProviderWidth } from "@mdbase/connect-ui/provider-button";
+import { observeTheme, resolveDarkTheme } from "@mdbase/connect-ui/theme";
 
 interface GoogleAccountsApi {
   accounts: {
@@ -14,7 +15,7 @@ interface GoogleAccountsApi {
       }): void;
       renderButton(element: HTMLElement, config: {
         type: "standard";
-        theme: "outline";
+        theme: "outline" | "filled_black";
         size: "large";
         text: "continue_with";
         shape: "rectangular";
@@ -78,22 +79,23 @@ export function GoogleIdentityButton({ client, purpose, onComplete, onError }: {
   }, [attempt, client, onComplete, onError, purpose]);
 
   useEffect(() => observeProviderWidth(container.current, setWidth), []);
+  const dark = useSyncExternalStore(observeTheme, () => resolveDarkTheme(), () => false);
 
-  // Google draws the button itself at a fixed pixel width, so the only way to
-  // keep it aligned with the controls around it is to ask for it again.
+  // Google draws the button itself at a fixed pixel width and bakes the palette
+  // in, so the only way to follow the surrounding chrome is to ask for it again.
   useEffect(() => {
     if (!google || !width || !button.current) return;
     button.current.replaceChildren();
     google.accounts.id.renderButton(button.current, {
       type: "standard",
-      theme: "outline",
+      theme: dark ? "filled_black" : "outline",
       size: "large",
       text: "continue_with",
       shape: "rectangular",
       logo_alignment: "left",
       width
     });
-  }, [google, width]);
+  }, [dark, google, width]);
 
   const ready = Boolean(google && width);
   return <div ref={container} className={`connect-google-provider ${busy ? "busy" : ""}`} aria-busy={busy}>
