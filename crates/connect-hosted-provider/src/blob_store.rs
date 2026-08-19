@@ -73,6 +73,33 @@ impl fmt::Debug for R2Config {
 }
 
 impl R2Config {
+    /// Unix expiry of the session token, if one is configured.
+    ///
+    /// Derived R2 credentials carry a signed `exp` claim. A parent token set
+    /// never to expire does not override it, so an environment stops serving
+    /// without warning when the derived credential lapses. Surfacing the expiry
+    /// turns that into something monitorable.
+    ///
+    /// The claim is read, not verified: this is a diagnostic, and the authority
+    /// on validity is Cloudflare. A malformed token yields `None` rather than
+    /// an error, because a diagnostic must not fail the caller.
+    pub fn credential_expiry(&self) -> Option<i64> {
+        let token = self.session_token.as_ref()?;
+        let claims = token.split('.').nth(1)?;
+        let decoded = base64_url_decode(claims)?;
+        let value: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
+        value.get("exp")?.as_i64()
+    }
+}
+
+fn base64_url_decode(value: &str) -> Option<Vec<u8>> {
+    use base64::Engine as _;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(value)
+        .ok()
+}
+
+impl R2Config {
     pub fn new(
         endpoint: impl Into<String>,
         bucket: impl Into<String>,
@@ -213,6 +240,13 @@ pub trait BlobStore: Send + Sync {
     fn upload_part_size(&self) -> u64;
     fn download_part_size(&self) -> u64;
     async fn ready(&self) -> ApiResult<()>;
+    /// Bucket and credential lifetime for diagnostics. Defaulted so stores
+    /// without object storage need not implement it. Never returns key
+    /// material -- only the bucket name and the expiry already encoded in the
+    /// credential.
+    fn storage_diagnostic(&self) -> Option<(String, Option<i64>)> {
+        None
+    }
     async fn create_multipart(&self, key: &str) -> ApiResult<String>;
     async fn presign_put(&self, key: &str, content_length: u64) -> ApiResult<PresignedPart>;
     async fn presign_part(
@@ -243,6 +277,10 @@ pub trait BlobStore: Send + Sync {
 
 #[async_trait]
 impl BlobStore for R2BlobStore {
+    fn storage_diagnostic(&self) -> Option<(String, Option<i64>)> {
+        Some((self.config.bucket.clone(), self.config.credential_expiry()))
+    }
+
     fn upload_part_size(&self) -> u64 {
         self.config.multipart_part_bytes
     }

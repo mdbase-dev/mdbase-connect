@@ -34,11 +34,13 @@ pub use key_wrapping::{
 pub use notifications::{HostedNotificationConfig, HostedNotificationRuntime};
 pub use provider::run_hosted_cutover_migrations;
 pub use provider::{
-    HostedMutationJournalDiagnostics, HostedProjectionBatch, HostedProjectionGeneration,
-    HostedProjectionIndexPlan, HostedProjectionIndexPlanEntry, HostedProjectionStatus,
-    HostedProjectionVerification, HostedProvider, HostedQueryActivity, NotificationRecoveryState,
+    DiagnosticSection, DrainStateDiagnostic, HostedDiagnostics, HostedMutationJournalDiagnostics,
+    HostedProjectionBatch, HostedProjectionGeneration, HostedProjectionIndexPlan,
+    HostedProjectionIndexPlanEntry, HostedProjectionStatus, HostedProjectionVerification,
+    HostedProvider, HostedQueryActivity, MigrationLedgerDiagnostic, NotificationRecoveryState,
     NotificationRecoveryStatus, PrepareAuthorityImport, PrepareAuthorityTransfer,
-    ProviderAccountLimits, ProviderAccountUsage, ProviderAuthorityImport,
-    ProviderAuthorityImportState, ProviderAuthorityTransfer, ProviderAuthorityTransferState,
-    ProviderLimits, RegisterReplica, ReplicaPurpose,
+    ProjectionProgressDiagnostic, ProjectionReadinessDiagnostic, ProviderAccountLimits,
+    ProviderAccountUsage, ProviderAuthorityImport, ProviderAuthorityImportState,
+    ProviderAuthorityTransfer, ProviderAuthorityTransferState, ProviderLimits, RegisterReplica,
+    ReplicaPurpose, ResourceChangeDiagnostic, StorageDiagnostic,
 };

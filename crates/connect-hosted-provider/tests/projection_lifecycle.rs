@@ -3,7 +3,7 @@
 mod support;
 
 use chrono::{DateTime, SecondsFormat, Utc};
-use mdbase_connect_hosted_provider::{RegisterReplica, ReplicaPurpose};
+use mdbase_connect_hosted_provider::{DiagnosticSection, RegisterReplica, ReplicaPurpose};
 use mdbase_connect_protocol::{
     authority_manifest_digest, AuthorityImportManifest, AuthorityImportRecord,
     AuthorityImportRecordPage, SyncCollectionResources, SyncMutation, SyncMutationOperation,
@@ -987,6 +987,94 @@ async fn view_mutations_carry_the_projection_binding_and_keep_readiness() {
             .unwrap()
             .ready
     );
+}
+
+/// The diagnostics surface must answer with real state, and must attribute an
+/// unready collection to a specific cause. On 2026-08-18 that attribution took
+/// eleven commits and a live deploy because the only channel to the database
+/// could issue commands but not return answers.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn diagnostics_attribute_unready_collections_to_a_cause() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let replica_id = replica.get("id");
+    let scope_epoch = u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap();
+    put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        Uuid::now_v7(),
+        None,
+        "notes/source.md",
+        "---\ntitle: Source\n---\nSource body.\n",
+    )
+    .await;
+    complete_generation(&fixture).await;
+
+    let healthy = fixture.provider.hosted_diagnostics().await;
+    assert_eq!(healthy.schema_version, 1);
+    let readiness = match &healthy.projection_readiness {
+        DiagnosticSection::Ok { value } => *value,
+        DiagnosticSection::Unavailable { reason } => {
+            panic!("projection readiness unavailable: {reason}")
+        }
+    };
+    assert!(readiness.active_collections >= 1);
+    // Other tests share this database, so assert on the change this test
+    // causes rather than on absolute counts.
+    let unready_before = readiness.unready;
+    let stale_before = readiness.resource_revision_stale;
+
+    // Strand the binding the way a view mutation did on 2026-08-18: advance the
+    // collection's resource revision while the generation keeps the old one.
+    sqlx::query("UPDATE hosted_provider_collections SET resource_revision = $2 WHERE id = $1")
+        .bind(fixture.collection_id)
+        .bind("diagnostics-probe:superseded")
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+
+    let stranded = fixture.provider.hosted_diagnostics().await;
+    let readiness = match &stranded.projection_readiness {
+        DiagnosticSection::Ok { value } => *value,
+        DiagnosticSection::Unavailable { reason } => {
+            panic!("projection readiness unavailable: {reason}")
+        }
+    };
+    assert_eq!(
+        readiness.unready,
+        unready_before + 1,
+        "stranding one binding must make exactly one more collection unready"
+    );
+    assert_eq!(
+        readiness.resource_revision_stale,
+        stale_before + 1,
+        "the diagnostic must name the cause, not merely report unreadiness"
+    );
+
+    // Progress and migration ledger must resolve; they are what a recovery
+    // needs to state remaining work and confirm the schema it is acting on.
+    match &stranded.projection_progress {
+        DiagnosticSection::Ok { value } => assert!(!value.is_empty()),
+        DiagnosticSection::Unavailable { reason } => {
+            panic!("projection progress unavailable: {reason}")
+        }
+    }
+    match &stranded.migration_ledger {
+        DiagnosticSection::Ok { value } => assert!(value.applied_migrations > 0),
+        DiagnosticSection::Unavailable { reason } => {
+            panic!("migration ledger unavailable: {reason}")
+        }
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
