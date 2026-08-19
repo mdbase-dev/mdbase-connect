@@ -67,6 +67,7 @@ mod capabilities;
 mod collections;
 mod compaction;
 mod crypto_state;
+mod diagnostics;
 mod file_policy;
 mod files;
 mod lifecycle;

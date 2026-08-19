@@ -1036,14 +1036,12 @@ async fn diagnostics_attribute_unready_collections_to_a_cause() {
 
     // Strand the binding the way a view mutation did on 2026-08-18: advance the
     // collection's resource revision while the generation keeps the old one.
-    sqlx::query(
-        "UPDATE hosted_provider_collections SET resource_revision = $2 WHERE id = $1",
-    )
-    .bind(fixture.collection_id)
-    .bind("diagnostics-probe:superseded")
-    .execute(&fixture.pool)
-    .await
-    .unwrap();
+    sqlx::query("UPDATE hosted_provider_collections SET resource_revision = $2 WHERE id = $1")
+        .bind(fixture.collection_id)
+        .bind("diagnostics-probe:superseded")
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
 
     let stranded = fixture.provider.hosted_diagnostics().await;
     let readiness = match &stranded.projection_readiness {
