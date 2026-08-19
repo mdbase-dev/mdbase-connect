@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.1.0-beta.78
+
+Beta.78 adds a diagnostics surface to the hosted provider.
+
+- `/internal/v1/diagnostics` reports projection readiness by cause, durable
+  projection checkpoints, drain state, the applied migration ledger, storage
+  configuration including credential expiry, and recent resource changes. Like
+  the existing query-activity route it is internally authenticated and bypasses
+  admission, so it answers while the provider is fenced.
+- Each section is separately bounded and separately fallible: a slow database
+  yields one unavailable section rather than an unanswerable request. The
+  payload is versioned, and every section is aggregate-and-identifier only, so
+  no record content, frontmatter, body prose or key material is exposed.
+- Two reviewed read-only SQL files ship in the provider image for row-level
+  forensic detail where the aggregate surface is not enough.
+
 ## 0.1.0-beta.77
 
 Beta.77 fixes a hosted-provider outage in which saving an Obsidian Base source
