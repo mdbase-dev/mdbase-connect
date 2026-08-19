@@ -124,7 +124,12 @@ jobs:
       - run: pnpm build
       # Browser-only provider boundaries run alongside the slower Rust and
       # system suites instead of extending their critical path.
+      # `--with-deps` pulls system packages from distribution mirrors, so a
+      # slow or unresponsive mirror hangs this step rather than failing it.
+      # Bound it: an unbounded install burned 75 minutes of a job whose whole
+      # successful run is normally under 18.
       - run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 10
       - run: pnpm test:browser-storage
       - run: pnpm test:accessibility
       - run: pnpm typecheck
@@ -246,7 +251,12 @@ jobs:
       - run: cargo build --locked --workspace
       # The local system suite launches Chromium even though the standalone
       # browser-storage and accessibility checks run in the parallel Node job.
+      # `--with-deps` pulls system packages from distribution mirrors, so a
+      # slow or unresponsive mirror hangs this step rather than failing it.
+      # Bound it: an unbounded install burned 75 minutes of a job whose whole
+      # successful run is normally under 18.
       - run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 10
       # Exercise the local connector/browser request path in normal CI as well
       # as the durable hosted-provider path below.
       - run: node test/system/run.mjs --suite local --no-prepare
