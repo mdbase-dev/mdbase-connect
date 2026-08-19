@@ -8517,11 +8517,24 @@ async fn register_query_application(
 }
 
 async fn complete_generation(fixture: &FileLifecycleFixture) -> Uuid {
-    let generation = fixture
-        .provider
-        .start_projection_generation(fixture.collection_id)
-        .await
-        .unwrap();
+    // The provider types transaction conflicts as `provider_database_retryable`
+    // and tells the caller to retry. A helper that unwraps them instead asserts
+    // a stronger contract than production offers, and fails on ordinary
+    // contention: the 230k fixture flaked exactly this way on a deadlock during
+    // generation start.
+    let generation = loop {
+        match fixture
+            .provider
+            .start_projection_generation(fixture.collection_id)
+            .await
+        {
+            Ok(generation) => break generation,
+            Err(error) if error.code == "provider_database_retryable" => {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            Err(error) => panic!("projection generation start failed: {error:?}"),
+        }
+    };
     loop {
         let batch = match fixture
             .provider

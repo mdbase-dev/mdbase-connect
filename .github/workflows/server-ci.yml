@@ -124,12 +124,26 @@ jobs:
       - run: pnpm build
       # Browser-only provider boundaries run alongside the slower Rust and
       # system suites instead of extending their critical path.
-      # `--with-deps` pulls system packages from distribution mirrors, so a
-      # slow or unresponsive mirror hangs this step rather than failing it.
-      # Bound it: an unbounded install burned 75 minutes of a job whose whole
-      # successful run is normally under 18.
-      - run: pnpm exec playwright install --with-deps chromium
+      # `--with-deps` pulls system packages from distribution mirrors. On
+      # 2026-08-19 azure.archive.ubuntu.com served 21 MB of font packages at
+      # under 50 KB/s, hanging the step for 75 minutes before it was bounded.
+      #
+      # Cache the browser so most runs never contact a mirror at all, and keep
+      # the timeout so a cache miss on a slow day fails fast instead of
+      # silently consuming an hour.
+      - uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      # The system dependencies are font packages that the runner image
+      # already carries; only a cache miss needs them refreshed.
+      - if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install --with-deps chromium
         timeout-minutes: 10
+      - if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install chromium
+        timeout-minutes: 5
       - run: pnpm test:browser-storage
       - run: pnpm test:accessibility
       - run: pnpm typecheck
@@ -251,12 +265,26 @@ jobs:
       - run: cargo build --locked --workspace
       # The local system suite launches Chromium even though the standalone
       # browser-storage and accessibility checks run in the parallel Node job.
-      # `--with-deps` pulls system packages from distribution mirrors, so a
-      # slow or unresponsive mirror hangs this step rather than failing it.
-      # Bound it: an unbounded install burned 75 minutes of a job whose whole
-      # successful run is normally under 18.
-      - run: pnpm exec playwright install --with-deps chromium
+      # `--with-deps` pulls system packages from distribution mirrors. On
+      # 2026-08-19 azure.archive.ubuntu.com served 21 MB of font packages at
+      # under 50 KB/s, hanging the step for 75 minutes before it was bounded.
+      #
+      # Cache the browser so most runs never contact a mirror at all, and keep
+      # the timeout so a cache miss on a slow day fails fast instead of
+      # silently consuming an hour.
+      - uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      # The system dependencies are font packages that the runner image
+      # already carries; only a cache miss needs them refreshed.
+      - if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install --with-deps chromium
         timeout-minutes: 10
+      - if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install chromium
+        timeout-minutes: 5
       # Exercise the local connector/browser request path in normal CI as well
       # as the durable hosted-provider path below.
       - run: node test/system/run.mjs --suite local --no-prepare
