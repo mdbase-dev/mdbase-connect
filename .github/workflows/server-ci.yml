@@ -137,10 +137,14 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       # The system dependencies are font packages that the runner image
-      # already carries; only a cache miss needs them refreshed.
+      # already carries; only a cache miss needs them refreshed. A miss must be
+      # able to finish even on a slow mirror, or the cache never populates and
+      # every run pays the same cost -- so this path gets a wider budget than
+      # the cached path. It is still bounded: the 2026-08-19 hang ran 75
+      # minutes unbounded.
       - if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: pnpm exec playwright install --with-deps chromium
-        timeout-minutes: 10
+        timeout-minutes: 30
       - if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: pnpm exec playwright install chromium
         timeout-minutes: 5
@@ -278,10 +282,14 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       # The system dependencies are font packages that the runner image
-      # already carries; only a cache miss needs them refreshed.
+      # already carries; only a cache miss needs them refreshed. A miss must be
+      # able to finish even on a slow mirror, or the cache never populates and
+      # every run pays the same cost -- so this path gets a wider budget than
+      # the cached path. It is still bounded: the 2026-08-19 hang ran 75
+      # minutes unbounded.
       - if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: pnpm exec playwright install --with-deps chromium
-        timeout-minutes: 10
+        timeout-minutes: 30
       - if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: pnpm exec playwright install chromium
         timeout-minutes: 5
