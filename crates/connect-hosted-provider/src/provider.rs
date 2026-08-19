@@ -230,6 +230,128 @@ struct HostedQueryActivityCounters {
     accounted_execution_bytes: AtomicU64,
 }
 
+/// Point-in-time operational state, in one authenticated request.
+///
+/// This is deliberately reachable while admission is fenced: an operator needs
+/// it most when the provider is refusing ordinary traffic. Every section is
+/// aggregate-and-identifier only -- no record content, frontmatter, body prose
+/// or key material -- because a surface that answers questions about a specific
+/// user's data while fenced is a target rather than a tool.
+///
+/// Each section is independently fallible. A section that times out or errors
+/// is reported as such rather than failing the whole response: a diagnostics
+/// endpoint that blocks on an unhealthy database is useless exactly when it is
+/// needed.
+#[derive(Debug, Clone, Serialize)]
+pub struct HostedDiagnostics {
+    pub schema_version: u32,
+    pub provider_version: &'static str,
+    pub query_activity: HostedQueryActivity,
+    pub projection_readiness: DiagnosticSection<ProjectionReadinessDiagnostic>,
+    pub projection_progress: DiagnosticSection<Vec<ProjectionProgressDiagnostic>>,
+    pub drain_state: DiagnosticSection<DrainStateDiagnostic>,
+    pub migration_ledger: DiagnosticSection<MigrationLedgerDiagnostic>,
+    pub storage: DiagnosticSection<StorageDiagnostic>,
+    pub recent_resource_changes: DiagnosticSection<Vec<ResourceChangeDiagnostic>>,
+}
+
+/// A section that resolved, or the reason it did not. Keeping the failure in
+/// the payload rather than in the status code is what lets one slow section
+/// coexist with six useful ones.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum DiagnosticSection<T> {
+    Ok { value: T },
+    Unavailable { reason: String },
+}
+
+impl<T> DiagnosticSection<T> {
+    pub fn from_result<E: std::fmt::Display>(result: Result<T, E>) -> Self {
+        match result {
+            Ok(value) => Self::Ok { value },
+            // The reason is a short classification, never a raw database error:
+            // those can echo query text and identifiers.
+            Err(error) => Self::Unavailable {
+                reason: error.to_string(),
+            },
+        }
+    }
+}
+
+/// Why active collections are unready, counted per cause. A collection can fail
+/// several conditions at once, so these overlap and do not sum to `unready`.
+#[derive(Debug, Clone, Copy, Serialize, Default)]
+pub struct ProjectionReadinessDiagnostic {
+    pub active_collections: u64,
+    pub unready: u64,
+    pub missing_generation: u64,
+    pub generation_incomplete: u64,
+    pub head_mismatch: u64,
+    pub source_head_ahead: u64,
+    pub resource_revision_stale: u64,
+    pub catalog_stale: u64,
+    pub format_version_mismatch: u64,
+    pub engine_version_mismatch: u64,
+    pub integrity_unverified: u64,
+}
+
+/// Durable checkpoint position for one generation. Recorded because the
+/// executor can report zero advance while checkpoints are committed, leaving a
+/// recovery unable to state remaining work.
+#[derive(Debug, Clone, Serialize)]
+pub struct ProjectionProgressDiagnostic {
+    pub collection_id: Uuid,
+    pub generation_id: Uuid,
+    pub status: String,
+    pub phase: String,
+    pub expected_records: i64,
+    pub projected_records: i64,
+    pub resolved_records: i64,
+    pub lease_held: bool,
+    pub lease_live: bool,
+    pub last_error_code: Option<String>,
+    pub seconds_since_progress: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct DrainStateDiagnostic {
+    pub other_sessions: i64,
+    pub query_pool_connections: u64,
+    pub query_pool_idle_connections: u64,
+    pub active_scan_permits: u64,
+    pub plaintext_scopes: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MigrationLedgerDiagnostic {
+    pub applied_migrations: i64,
+    pub latest_version: Option<i64>,
+    pub expected_projection_format_version: i64,
+    pub expected_semantic_engine_version: &'static str,
+}
+
+/// Storage configuration and, most importantly, when its credential dies.
+/// Derived R2 credentials carry a signed `exp` claim that a long-lived parent
+/// does not override, so an environment stops serving without warning.
+#[derive(Debug, Clone, Serialize)]
+pub struct StorageDiagnostic {
+    pub bucket: String,
+    pub credential_expires_at: Option<DateTime<Utc>>,
+    pub credential_expires_in_seconds: Option<i64>,
+}
+
+/// Recent resource mutations. A resource revision advancing is what stranded a
+/// projection binding twice on 2026-08-18; seeing the change is the difference
+/// between diagnosing that in seconds and reading mutation code.
+#[derive(Debug, Clone, Serialize)]
+pub struct ResourceChangeDiagnostic {
+    pub collection_id: Uuid,
+    pub sequence: i64,
+    pub resource_kind: String,
+    pub path: String,
+    pub revision: String,
+}
+
 struct HostedQueryActivityGuard {
     counters: Arc<HostedQueryActivityCounters>,
     plaintext: bool,

@@ -11,6 +11,7 @@ pub(super) fn diagnostic_routes(state: AppState) -> Router<AppState> {
     // query resources have drained.
     let internal = Router::new()
         .route("/internal/v1/query-activity", get(query_activity))
+        .route("/internal/v1/diagnostics", get(diagnostics))
         .route_layer(middleware::from_fn_with_state(
             state,
             authorize_internal_request,
@@ -42,5 +43,17 @@ async fn ready(State(state): State<AppState>) -> ApiResult<Json<Value>> {
 async fn query_activity(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
         "query_activity": state.provider.hosted_query_activity()
+    }))
+}
+
+/// Point-in-time operational state in one request.
+///
+/// Deliberately infallible: every section carries its own success or failure,
+/// so an unhealthy database yields partial state rather than an unanswerable
+/// request. Like the rest of this router it bypasses admission, because an
+/// operator needs it most when the provider is fenced.
+async fn diagnostics(State(state): State<AppState>) -> Json<Value> {
+    Json(json!({
+        "diagnostics": state.provider.hosted_diagnostics().await
     }))
 }
