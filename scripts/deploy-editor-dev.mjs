@@ -29,18 +29,20 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
 }
 
 export async function deployDevelopmentEditor(environment, run = runCommand) {
-  const target = environment.MDBASE_ENV ?? "lab";
+  const target = environment.MDBASE_ENV?.trim() || "lab";
   if (target !== "lab" && target !== "staging") {
     throw new Error("Development editor deployments are restricted to lab and staging.");
   }
   const deployment = developmentDeployments[target];
-  if (environment.MDBASE_CONNECT_URL && environment.MDBASE_CONNECT_URL !== deployment.connectOrigin) {
+  const requestedOrigin = environment.MDBASE_CONNECT_URL?.trim();
+  if (requestedOrigin && requestedOrigin !== deployment.connectOrigin) {
     throw new Error(`MDBASE_CONNECT_URL does not match the ${target} environment.`);
   }
   const previousManifest = await readFile(manifestPath);
   const deploymentEnvironment = {
     ...environment,
     MDBASE_ENV: target,
+    VITE_MDBASE_ENV: target,
     MDBASE_EDITOR_ORIGIN: deployment.editorOrigin,
     MDBASE_EDITOR_BASE_PATH: "/",
     MDBASE_CONNECT_URL: deployment.connectOrigin,

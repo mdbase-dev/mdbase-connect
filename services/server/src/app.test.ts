@@ -116,6 +116,28 @@ describe("mdbase connect server", () => {
     });
   });
 
+  it("publishes a verifiable non-secret environment identity", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      publicUrl: "https://connect-lab.example",
+      environment: "lab"
+    });
+    resources.push(() => app.close());
+
+    const health = await app.inject({ method: "GET", url: "/health" });
+
+    expect(health.statusCode).toBe(200);
+    expect(health.json()).toMatchObject({
+      ok: true,
+      service: "mdbase-connect",
+      environment: "lab",
+      public_origin: "https://connect-lab.example"
+    });
+  });
+
   it("stays ready when the hosted provider reports retryable notification degradation", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());

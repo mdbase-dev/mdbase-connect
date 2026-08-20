@@ -25,9 +25,11 @@ export async function isolatedDesktopConfiguration(
   allocatePort = availablePort
 ) {
   const staging = arguments_.includes("--staging");
+  const namedEnvironment = environment.MDBASE_ENV?.trim()
+    || (staging ? "staging" : "development");
   const profileDirectory = staging
     ? stagingDesktop.profileDirectory
-    : "desktop-development-profile";
+    : `desktop-${namedEnvironment}-profile`;
   const userData = resolve(
     environment.MDBASE_CONNECT_DEV_USER_DATA
       ?? resolve(repoRoot, ".tmp", profileDirectory)
@@ -39,20 +41,27 @@ export async function isolatedDesktopConfiguration(
     ?? (staging ? stagingDesktop.loopbackPort : String(await allocatePort()));
   const childEnvironment = {
     ...environment,
+    VITE_MDBASE_ENV: environment.VITE_MDBASE_ENV ?? namedEnvironment,
     MDBASE_CONNECT_HOME: connectHome,
     MDBASE_CONNECT_USER_DATA_DIR: userData,
     MDBASE_CONNECT_LOOPBACK_PORT: loopbackPort,
     MDBASE_CONNECT_REGISTER_DEEP_LINKS:
       environment.MDBASE_CONNECT_REGISTER_DEEP_LINKS ?? "0"
   };
-  if (staging) {
+  const configuredServer = environment.MDBASE_CONNECT_URL?.trim()
+    || environment.MDBASE_CONNECT_SERVER_URL?.trim();
+  const configuredEditor = environment.MDBASE_EDITOR_URL?.trim();
+  if (staging || configuredServer || configuredEditor) {
     childEnvironment.MDBASE_EDITOR_URL =
-      environment.MDBASE_EDITOR_URL ?? stagingDesktop.editorUrl;
+      configuredEditor ?? stagingDesktop.editorUrl;
     childEnvironment.VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL =
-      environment.VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL ?? stagingDesktop.serverUrl;
+      environment.VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL
+      ?? configuredServer
+      ?? stagingDesktop.serverUrl;
   }
   return {
     staging,
+    namedEnvironment,
     fresh: arguments_.includes("--fresh"),
     userData,
     connectHome,
@@ -79,8 +88,11 @@ export async function runIsolatedDesktop(
   console.log(`Isolated Electron profile: ${configuration.userData}`);
   console.log(`Isolated connector state: ${configuration.connectHome}`);
   console.log(`Connector loopback port: ${configuration.loopbackPort}`);
-  if (configuration.staging) {
-    console.log(`Staging Connect service: ${stagingDesktop.serverUrl}`);
+  if (configuration.childEnvironment.VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL) {
+    console.log(
+      `${configuration.namedEnvironment} Connect service: `
+      + configuration.childEnvironment.VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL
+    );
   }
   console.log("The normal mdbase connect profile and credentials will not be read.");
 

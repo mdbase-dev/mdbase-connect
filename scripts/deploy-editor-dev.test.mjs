@@ -9,6 +9,8 @@ test("builds and deploys the editor against lab by default", async () => {
   });
 
   const build = calls.find(({ args }) => args.includes("mdbase-editor") && args.includes("build"));
+  assert.equal(build.environment.MDBASE_ENV, "lab");
+  assert.equal(build.environment.VITE_MDBASE_ENV, "lab");
   assert.equal(build.environment.MDBASE_EDITOR_ORIGIN, developmentDeployments.lab.editorOrigin);
   assert.equal(build.environment.MDBASE_CONNECT_URL, developmentDeployments.lab.connectOrigin);
   assert.equal(build.environment.VITE_MDBASE_CONNECT_URL, developmentDeployments.lab.connectOrigin);
@@ -33,6 +35,7 @@ test("staging requires an explicit environment and production is rejected", asyn
   const deploy = calls.find(({ args }) => args.includes("wrangler@4.114.0"));
   assert.ok(deploy.args.includes("--branch=staging"));
   assert.equal(deploy.environment.MDBASE_CONNECT_URL, developmentDeployments.staging.connectOrigin);
+  assert.equal(deploy.environment.VITE_MDBASE_ENV, "staging");
 
   await assert.rejects(
     deployDevelopmentEditor({ MDBASE_ENV: "production" }, async () => undefined),
