@@ -36,7 +36,10 @@ function Portal({ bootstrapSecrets }: { bootstrapSecrets: PortalBootstrapSecrets
   const authorityTransferId = location.pathname.match(/^\/transfer\/([0-9a-f-]+)$/i)?.[1];
   const authorizationId = location.pathname.match(/^\/authorize\/([0-9a-f-]+)$/i)?.[1];
   if (location.pathname === "/login") return <Login />;
-  if (location.pathname === "/signup") return <Signup invitationToken={bootstrapSecrets.invitationToken} />;
+  if (location.pathname === "/signup") return <Signup
+    invitationToken={bootstrapSecrets.invitationToken}
+    verificationToken={bootstrapSecrets.verificationToken}
+  />;
   if (location.pathname === "/getting-started") return <GettingStarted />;
   if (location.pathname === "/forgot-password") return <ForgotPassword />;
   if (location.pathname === "/reset-password") return <ResetPassword resetToken={bootstrapSecrets.resetToken} />;

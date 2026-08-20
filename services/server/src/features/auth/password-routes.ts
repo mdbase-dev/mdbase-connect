@@ -26,6 +26,11 @@ import {
   PasswordRecoveryUnavailableError
 } from "../../password-recovery.js";
 import { sendPasswordResetEmail } from "../../password-reset-email.js";
+import {
+  PublicSignupService,
+  PublicSignupUnavailableError
+} from "../../public-signup.js";
+import { sendPublicSignupVerificationEmail } from "../../public-signup-email.js";
 import { PASSWORD_MAX_UTF8_BYTES } from "../../password.js";
 import type { AuthenticationLegalDocuments } from "../../runtime-config.js";
 import { apiError } from "../../platform/http-errors.js";
@@ -52,6 +57,12 @@ const PASSWORD_SIGNUP_TOKEN_LIMIT: AuthRateLimitRule = {
 };
 const PASSWORD_SIGNUP_IP_LIMIT: AuthRateLimitRule = {
   maxAttempts: 10,
+  windowSeconds: 60 * 60,
+  baseBlockSeconds: 15 * 60,
+  maxBlockSeconds: 6 * 60 * 60
+};
+const PASSWORD_SIGNUP_EMAIL_LIMIT: AuthRateLimitRule = {
+  maxAttempts: 3,
   windowSeconds: 60 * 60,
   baseBlockSeconds: 15 * 60,
   maxBlockSeconds: 6 * 60 * 60
@@ -114,6 +125,10 @@ export function registerPasswordAuthRoutes(
     options.db,
     options.authenticationPolicy
   );
+  const publicSignup = new PublicSignupService(
+    options.db,
+    options.authenticationPolicy
+  );
   const authenticationRateLimiter = options.authRateLimitSecret
     ? new AuthRateLimiter(options.db, options.authRateLimitSecret)
     : null;
@@ -124,12 +139,22 @@ export function registerPasswordAuthRoutes(
     const passwordLogin =
       authenticationSettings.passwordAuthEnabled
       && authenticationRateLimiter !== null;
-    const passwordRegistration =
-      passwordLogin
-      && authenticationSettings.registrationMode === "invite"
-      && Boolean(authenticationSettings.termsVersion)
+    const legalReady =
+      Boolean(authenticationSettings.termsVersion)
       && Boolean(authenticationSettings.privacyVersion)
       && options.authenticationLegalDocuments !== undefined;
+    const passwordInvitationRegistration =
+      passwordLogin
+      && ["invite", "open"].includes(authenticationSettings.registrationMode)
+      && legalReady;
+    const passwordPublicRegistration =
+      passwordLogin
+      && authenticationSettings.registrationMode === "open"
+      && authenticationSettings.emailDeliveryEnabled
+      && options.emailTransport !== undefined
+      && legalReady;
+    const passwordRegistration =
+      passwordInvitationRegistration || passwordPublicRegistration;
     const passwordRecoveryAvailable =
       passwordLogin
       && authenticationSettings.emailDeliveryEnabled
@@ -173,6 +198,12 @@ export function registerPasswordAuthRoutes(
             ...(passwordRegistration
               ? {
                   password_registration: true,
+                  ...(passwordInvitationRegistration
+                    ? { password_invitation_registration: true }
+                    : {}),
+                  ...(passwordPublicRegistration
+                    ? { password_public_registration: true }
+                    : {}),
                   agreements: {
                     terms: {
                       version: authenticationSettings.termsVersion!,
@@ -189,6 +220,196 @@ export function registerPasswordAuthRoutes(
         : {}),
       ...(providers.length === 1 ? { login_url: providers[0].login_url } : {})
     };
+  });
+
+  app.post("/v1/auth/password/signup/request", async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    requireSameOrigin(request, options.publicUrl);
+    if (!authenticationRateLimiter || !options.emailTransport) {
+      throw new PublicSignupUnavailableError();
+    }
+    if (!options.authenticationLegalDocuments) {
+      throw new AuthenticationPolicyIncompleteError();
+    }
+    const input = z.object({
+      email: z.email().max(320)
+    }).strict().parse(request.body);
+    const normalizedEmail = normalizeEmailAddress(input.email);
+    const allowed = await consumeAuthenticationLimits(
+      authenticationRateLimiter,
+      [
+        {
+          scope: "password.signup_request.email",
+          key: normalizedEmail,
+          rule: PASSWORD_SIGNUP_EMAIL_LIMIT
+        },
+        {
+          scope: "password.signup_request.ip",
+          key: request.ip,
+          rule: PASSWORD_SIGNUP_IP_LIMIT
+        },
+        {
+          scope: "password.signup_request.global",
+          key: "global",
+          rule: PASSWORD_AUTH_GLOBAL_LIMIT
+        }
+      ],
+      reply
+    );
+    if (!allowed) return;
+    const verification = await publicSignup.create(normalizedEmail);
+    reply.code(202).send({
+      accepted: true,
+      message: "If that address can be used, a verification link is on its way."
+    });
+    if (!verification) return reply;
+
+    let delivery:
+      | { status: "sent"; provider: string; messageId: string }
+      | {
+          status: "failed";
+          provider: string;
+          code: string;
+          retryable: boolean;
+        };
+    try {
+      const sent = await sendPublicSignupVerificationEmail(
+        options.emailTransport,
+        {
+          challengeId: verification.challengeId,
+          to: verification.email,
+          verificationUrl:
+            `${options.publicUrl}/signup#verification=${encodeURIComponent(verification.token)}`,
+          expiresAt: verification.expiresAt
+        }
+      );
+      delivery = {
+        status: "sent",
+        provider: sent.provider,
+        messageId: sent.messageId
+      };
+    } catch (error) {
+      delivery = {
+        status: "failed",
+        provider: error instanceof EmailDeliveryError ? "resend" : "unknown",
+        code: error instanceof EmailDeliveryError
+          ? error.code
+          : "unexpected_error",
+        retryable: error instanceof EmailDeliveryError && error.retryable
+      };
+      request.log.error({
+        challenge_id: verification.challengeId,
+        provider: delivery.provider,
+        provider_code: delivery.code,
+        retryable: delivery.retryable
+      }, "Public signup verification email delivery failed");
+    }
+    try {
+      await publicSignup.recordDelivery(verification.challengeId, delivery);
+    } catch (error) {
+      request.log.error({
+        err: error,
+        challenge_id: verification.challengeId
+      }, "Public signup delivery audit failed");
+    }
+    return reply;
+  });
+
+  app.post("/v1/auth/password/signup/verification", async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    requireSameOrigin(request, options.publicUrl);
+    if (!authenticationRateLimiter || !options.emailTransport) {
+      throw new PublicSignupUnavailableError();
+    }
+    const input = z.object({
+      verification_token: z.string().min(1).max(200)
+    }).strict().parse(request.body);
+    const allowed = await consumeAuthenticationLimits(
+      authenticationRateLimiter,
+      [
+        {
+          scope: "password.signup_verification.token",
+          key: input.verification_token,
+          rule: PASSWORD_SIGNUP_TOKEN_LIMIT
+        },
+        {
+          scope: "password.signup_verification.ip",
+          key: request.ip,
+          rule: PASSWORD_SIGNUP_IP_LIMIT
+        },
+        {
+          scope: "password.signup_verification.global",
+          key: "global",
+          rule: PASSWORD_AUTH_GLOBAL_LIMIT
+        }
+      ],
+      reply
+    );
+    if (!allowed) return;
+    const verification = await publicSignup.details(input.verification_token);
+    return {
+      verification: {
+        email: verification.email,
+        expires_at: verification.expiresAt.toISOString()
+      }
+    };
+  });
+
+  app.post("/v1/auth/password/signup/public", async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    requireSameOrigin(request, options.publicUrl);
+    if (!authenticationRateLimiter || !options.emailTransport) {
+      throw new PublicSignupUnavailableError();
+    }
+    if (!options.authenticationLegalDocuments) {
+      throw new AuthenticationPolicyIncompleteError();
+    }
+    const input = z.object({
+      verification_token: z.string().min(1).max(200),
+      name: z.string().trim().min(1).max(100),
+      password: z.string().min(1).max(PASSWORD_MAX_UTF8_BYTES),
+      terms_version: z.string().min(1).max(100),
+      privacy_version: z.string().min(1).max(100),
+      timezone: ianaTimezoneSchema.optional()
+    }).strict().parse(request.body);
+    const allowed = await consumeAuthenticationLimits(
+      authenticationRateLimiter,
+      [
+        {
+          scope: "password.signup_verification.token",
+          key: input.verification_token,
+          rule: PASSWORD_SIGNUP_TOKEN_LIMIT
+        },
+        {
+          scope: "password.signup_verification.ip",
+          key: request.ip,
+          rule: PASSWORD_SIGNUP_IP_LIMIT
+        },
+        {
+          scope: "password.signup_verification.global",
+          key: "global",
+          rule: PASSWORD_AUTH_GLOBAL_LIMIT
+        }
+      ],
+      reply
+    );
+    if (!allowed) return;
+    const session = await publicSignup.complete({
+      verificationToken: input.verification_token,
+      name: input.name,
+      password: input.password,
+      termsVersion: input.terms_version,
+      privacyVersion: input.privacy_version,
+      timezone: input.timezone,
+      clientName: sessionClientName(request.headers["user-agent"])
+    });
+    setSessionCookie(reply, session.token, options.publicUrl);
+    return reply.code(201).send({
+      user: session.user,
+      onboarding: session.starterCollectionPending
+        ? { starter_collection: "pending" }
+        : null
+    });
   });
 
   app.post("/v1/auth/password/signup", async (request, reply) => {

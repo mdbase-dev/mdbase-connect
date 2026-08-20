@@ -97,10 +97,15 @@ export function Login() {
         </div>}
         {config.registration !== "open" && (
           <p className="auth-footnote">
-            Don’t have an invite? <a href="https://mdbase.dev/beta/">Request beta access</a>.
+            Don’t have an invite? <a href="https://mdbase.dev/beta/">Public signup is opening soon</a>.
             {config.password_registration && (
               <> Already invited? Use the one-time link in your invitation email to create your account with a password. After signing in, you can connect Google from your account settings and use it for future sign-ins.</>
             )}
+          </p>
+        )}
+        {config.registration === "open" && config.password_public_registration && (
+          <p className="auth-footnote">
+            New to mdbase Connect? <a href={`/signup?return_to=${encodeURIComponent(returnTarget())}`}>Create an account</a>.
           </p>
         )}
       </section>
@@ -358,9 +363,17 @@ export function ResetPassword({ resetToken }: { resetToken: string }) {
   );
 }
 
-export function Signup({ invitationToken }: { invitationToken: string }) {
+export function Signup({
+  invitationToken,
+  verificationToken
+}: {
+  invitationToken: string;
+  verificationToken: string;
+}) {
   const [config, setConfig] = useState<AuthConfig | null>(null);
-  const [invitation, setInvitation] = useState<InvitationPreview | null>(null);
+  const [verifiedEmail, setVerifiedEmail] = useState("");
+  const [email, setEmail] = useState("");
+  const [requestSubmitted, setRequestSubmitted] = useState(false);
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
@@ -377,19 +390,29 @@ export function Signup({ invitationToken }: { invitationToken: string }) {
       try {
         const authentication = await api<AuthConfig>("/v1/auth/config");
         setConfig(authentication);
-        if (
-          !invitationToken
-          || !authentication.password_registration
-          || !authentication.agreements
-        ) return;
-        const result = await api<{ invitation: InvitationPreview }>(
-          "/v1/auth/password/invitation",
-          {
-            method: "POST",
-            body: JSON.stringify({ invitation_token: invitationToken })
-          }
-        );
-        setInvitation(result.invitation);
+        if (!authentication.agreements) return;
+        if (invitationToken && authentication.password_invitation_registration) {
+          const result = await api<{ invitation: InvitationPreview }>(
+            "/v1/auth/password/invitation",
+            {
+              method: "POST",
+              body: JSON.stringify({ invitation_token: invitationToken })
+            }
+          );
+          setVerifiedEmail(result.invitation.email);
+        } else if (
+          verificationToken
+          && authentication.password_public_registration
+        ) {
+          const result = await api<{ verification: VerificationPreview }>(
+            "/v1/auth/password/signup/verification",
+            {
+              method: "POST",
+              body: JSON.stringify({ verification_token: verificationToken })
+            }
+          );
+          setVerifiedEmail(result.verification.email);
+        }
       } catch (reason) {
         setError(message(reason));
       } finally {
@@ -397,11 +420,28 @@ export function Signup({ invitationToken }: { invitationToken: string }) {
       }
     }
     void prepare();
-  }, [invitationToken]);
+  }, [invitationToken, verificationToken]);
+
+  async function requestVerification(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await api("/v1/auth/password/signup/request", {
+        method: "POST",
+        body: JSON.stringify({ email })
+      });
+      setRequestSubmitted(true);
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function createAccount(event: React.FormEvent) {
     event.preventDefault();
-    if (!config?.agreements || !invitation) return;
+    if (!config?.agreements || !verifiedEmail) return;
     if (password !== passwordConfirmation) {
       setError("Passwords do not match.");
       return;
@@ -409,12 +449,17 @@ export function Signup({ invitationToken }: { invitationToken: string }) {
     setBusy(true);
     setError("");
     try {
+      const publicSignup = Boolean(verificationToken && !invitationToken);
       const result = await api<{
         onboarding?: { starter_collection?: "pending" } | null;
-      }>("/v1/auth/password/signup", {
+      }>(publicSignup
+        ? "/v1/auth/password/signup/public"
+        : "/v1/auth/password/signup", {
         method: "POST",
         body: JSON.stringify({
-          invitation_token: invitationToken,
+          ...(publicSignup
+            ? { verification_token: verificationToken }
+            : { invitation_token: invitationToken }),
           name,
           password,
           terms_version: config.agreements.terms.version,
@@ -433,24 +478,62 @@ export function Signup({ invitationToken }: { invitationToken: string }) {
   }
 
   if (loading || !config) return <Loading error={error} />;
-  const ready = Boolean(
-    invitation
-    && config.password_registration
-    && config.agreements
+  const isInvitation = Boolean(invitationToken);
+  const hasVerification = Boolean(verificationToken);
+  const ready = Boolean(verifiedEmail && config.agreements);
+  const canRequest = Boolean(
+    !isInvitation
+    && !hasVerification
+    && config.password_public_registration
+  );
+  if (canRequest) return (
+    <main className="center-page">
+      <PageBrand label="connect" />
+      <section className="auth-panel">
+        <p className="eyebrow">Create account</p>
+        <h1>{requestSubmitted ? "Check your email." : "Create your account"}</h1>
+        <p role={requestSubmitted ? "status" : undefined} aria-live={requestSubmitted ? "polite" : undefined}>
+          {requestSubmitted
+            ? "If that address can be used, its one-time verification link is on the way."
+            : "Start with your email. We’ll verify the address before asking you to choose a password."}
+        </p>
+        {error && <div className="message error" role="alert">{error}</div>}
+        {!requestSubmitted && (
+          <form className="password-auth-form" onSubmit={(event) => void requestVerification(event)}>
+            <label>
+              <span>Email</span>
+              <input
+                type="email"
+                autoComplete="email"
+                autoFocus
+                maxLength={320}
+                required
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
+            </label>
+            <button className="button primary" disabled={busy} type="submit">
+              {busy ? "Sending link…" : "Verify email"}
+            </button>
+          </form>
+        )}
+        <a className="quiet-auth-link" href="/login">Return to sign in</a>
+      </section>
+    </main>
   );
   return (
     <main className="center-page">
       <PageBrand label="connect" />
       <section className="auth-panel">
-        <p className="eyebrow">Private preview / invitation</p>
-        <h1>{ready ? "Create your account" : "This invitation can’t be opened"}</h1>
+        <p className="eyebrow">{isInvitation ? "Invitation" : "Email verified"}</p>
+        <h1>{ready ? "Create your account" : "This account setup link can’t be opened"}</h1>
         <p>{ready
-          ? "Your email is already verified by this one-time invitation. Create a password, then we’ll open a small starter collection in the editor."
-          : invitationToken
+          ? `${isInvitation ? "Your invitation verified your email" : "Your email is verified"}. Choose a password and we’ll prepare a small starter collection.`
+          : isInvitation || hasVerification
             ? "The link is invalid, expired, already used, or account setup is temporarily unavailable."
-            : "Open the complete account setup link from your invitation email."}</p>
+            : "Public account creation is temporarily unavailable."}</p>
         {error && <div className="message error" role="alert">{error}</div>}
-        {ready && invitation && config.agreements && (
+        {ready && config.agreements && (
           <form className="password-auth-form signup-form" onSubmit={(event) => void createAccount(event)}>
             <label>
               <span>Email</span>
@@ -458,7 +541,7 @@ export function Signup({ invitationToken }: { invitationToken: string }) {
                 type="email"
                 autoComplete="username"
                 readOnly
-                value={invitation.email}
+                value={verifiedEmail}
               />
             </label>
             <label>
@@ -522,7 +605,7 @@ export function Signup({ invitationToken }: { invitationToken: string }) {
               disabled={busy || !agreementsAccepted}
               type="submit"
             >
-              {busy ? "Creating account…" : "Create account and open editor"}
+              {busy ? "Creating account…" : "Create account"}
             </button>
           </form>
         )}
@@ -546,6 +629,8 @@ interface AuthConfig {
   password_login?: true;
   password_recovery?: true;
   password_registration?: true;
+  password_invitation_registration?: true;
+  password_public_registration?: true;
   agreements?: {
     terms: { version: string; url: string };
     privacy: { version: string; url: string };
@@ -557,6 +642,11 @@ interface InvitationPreview {
   expires_at: string;
   terms_version: string;
   privacy_version: string;
+}
+
+interface VerificationPreview {
+  email: string;
+  expires_at: string;
 }
 
 interface GoogleAccountsApi {

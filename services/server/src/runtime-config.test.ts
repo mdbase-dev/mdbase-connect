@@ -175,18 +175,13 @@ describe("public runtime configuration", () => {
     })).toThrow(/at least 32 bytes/);
   });
 
-  it("enables beta requests only for a canonical origin with shared rate limiting", () => {
+  it("accepts only a canonical origin for the retired beta request response", () => {
     const value = runtimeConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
       MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: "x".repeat(32),
       MDBASE_CONNECT_BETA_ACCESS_ORIGIN: "https://mdbase.dev/"
     });
     expect(value.betaAccessOrigin).toBe("https://mdbase.dev");
-    expect(() => runtimeConfigFromEnv({
-      PUBLIC_URL: "http://localhost:8787",
-      MDBASE_CONNECT_DEV_AUTH: "1",
-      MDBASE_CONNECT_BETA_ACCESS_ORIGIN: "https://mdbase.dev"
-    })).toThrow(/RATE_LIMIT_SECRET/);
     expect(() => runtimeConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
       MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: "x".repeat(32),

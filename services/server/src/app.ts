@@ -264,13 +264,8 @@ export async function buildApp(options: BuildOptions) {
     });
   }
   if (options.betaAccessOrigin) {
-    if (!options.authRateLimitSecret) {
-      throw new Error("Beta access requests require a rate-limit secret.");
-    }
     registerBetaAccessRoutes(app, {
-      db: options.db,
-      allowedOrigin: options.betaAccessOrigin,
-      rateLimitSecret: options.authRateLimitSecret
+      allowedOrigin: options.betaAccessOrigin
     });
   }
   registerPasswordAuthRoutes(app, {

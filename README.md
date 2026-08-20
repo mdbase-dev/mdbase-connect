@@ -1,10 +1,8 @@
 # mdbase connect
 
 > [!IMPORTANT]
-> **Invite-only beta:** The managed mdbase connect cloud service is currently
-> available by invitation only. Access to `connect.mdbase.dev`, including
-> hosted collections and the managed connection service, requires beta access.
-> If you have been invited, follow the access instructions you received.
+> **Beta:** The managed mdbase connect cloud service is transitioning from
+> invite-only access to public signup. Existing invitation links remain valid.
 
 mdbase connect lets you use the applications you choose with the Markdown data
 you control. An application gets access to one collection only after you
@@ -69,12 +67,10 @@ can be revoked with `mdbase connect hosted disconnect <collection-id>`.
 
 ## Getting started during the beta
 
-There is no public signup for the managed cloud service while it is in
-invite-only beta.
+To use the managed cloud service, create an account from the Connect sign-in
+page or follow an existing invitation link. Then:
 
-If you have beta access:
-
-1. Follow your invitation to create or access your mdbase connect account.
+1. Create or sign in to your mdbase connect account.
 2. Install the desktop build provided for your platform.
 3. Open the desktop app and pair your computer.
 4. Add an existing mdbase collection or create a hosted collection.
