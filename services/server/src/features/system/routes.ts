@@ -9,6 +9,7 @@ export interface SystemRoutesOptions {
   hostedCollections: boolean;
   hostedProvider?: Pick<HostedProviderClient, "ready">;
   revision?: string;
+  environment?: string;
   publicUrl: string;
   editorOrigin?: string;
 }
@@ -18,11 +19,15 @@ export function registerSystemRoutes(
   options: SystemRoutesOptions
 ): void {
   const revision = options.revision?.trim() || undefined;
+  const environment = options.environment?.trim() || undefined;
 
   app.get("/health", async () => ({
     ok: true,
     service: "mdbase-connect",
     protocol_version: 1,
+    ...(environment
+      ? { environment, public_origin: new URL(options.publicUrl).origin }
+      : {}),
     ...(revision ? { revision } : {})
   }));
 

@@ -83,7 +83,8 @@ for CI, sign in with Wrangler once, then run:
 
 ```sh
 pnpm dlx wrangler@4.114.0 login
-pnpm deploy:dev
+pnpm deploy:dev                         # lab (experimental default)
+MDBASE_ENV=staging pnpm deploy:dev      # staging release rehearsal
 ```
 
 The command builds workspace packages, generates the editor for the staging

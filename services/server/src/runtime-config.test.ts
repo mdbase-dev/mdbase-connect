@@ -10,6 +10,7 @@ function config(overrides: Partial<Parameters<typeof validateRuntimeConfig>[0]> 
   return {
     host: "127.0.0.1",
     publicUrl: "http://127.0.0.1:8787",
+    environment: "local",
     devAuth: false,
     tailscaleAuth: false,
     githubAuth: null,
@@ -33,6 +34,21 @@ function config(overrides: Partial<Parameters<typeof validateRuntimeConfig>[0]> 
 }
 
 describe("public runtime configuration", () => {
+  it("normalizes and validates the non-secret environment identity", () => {
+    expect(validateRuntimeConfig(config({
+      environment: " lab ",
+      devAuth: true
+    })).environment).toBe("lab");
+    expect(() => validateRuntimeConfig(config({ environment: "Production!" }))).toThrow(
+      /MDBASE_CONNECT_ENVIRONMENT/
+    );
+    expect(runtimeConfigFromEnv({
+      PUBLIC_URL: "http://localhost:8787",
+      MDBASE_CONNECT_DEV_AUTH: "1",
+      MDBASE_CONNECT_ENVIRONMENT: "local"
+    }).environment).toBe("local");
+  });
+
   it("allows explicit loopback development authentication", () => {
     expect(() => validateRuntimeConfig(config({
       host: "0.0.0.0",

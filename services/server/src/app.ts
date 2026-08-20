@@ -63,6 +63,7 @@ import { sessionToken } from "./platform/session-cookies.js";
 interface BuildOptions {
   db: DatabasePool;
   revision?: string;
+  environment?: string;
   devAuth?: boolean;
   tailscaleAuth?: boolean;
   githubAuth?: GitHubAuthConfig;
@@ -252,6 +253,7 @@ export async function buildApp(options: BuildOptions) {
     hostedCollections: options.hostedCollections === true,
     hostedProvider: options.hostedProvider,
     revision: options.revision,
+    environment: options.environment,
     publicUrl,
     editorOrigin: options.editorOrigin
   });
