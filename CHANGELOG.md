@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+## 0.1.0-beta.79
+
+Beta.79 fixes a durable write race in the engine and a credential expiry that
+never decoded.
+
+- The runtime transaction commit path now rejects a commit against a path
+  another commit owns but has not settled. Settlement runs after the commit lock
+  is released, so a committed-but-unsettled transaction was invisible to the
+  precondition check and two writers could both take commit points against one
+  baseline. Whichever settled second found a revision matching neither its
+  before nor its intended state, stranded its journal as needing manual
+  recovery, and that journal then failed every later collection open — so an
+  ordinary lost write race could leave a collection unopenable. The loser is now
+  rejected before taking a commit point, reporting a concurrent modification
+  conflict, which is what it is.
+- `storage.credential_expires_at` in the hosted provider diagnostics surface
+  reported no expiry for every temporary credential. The session token is
+  standard base64 of `jwt/<header>.<claims>.<signature>` rather than a bare JWT,
+  so its claims were never read and an expiring credential was indistinguishable
+  from a permanent one. That is the field the surface exists to provide, and it
+  failed in the direction of false reassurance.
+
+Note for operators: a modest increase in concurrent modification conflicts is
+expected and correct. Races that previously succeeded and then stranded now
+surface as conflicts instead. A sustained rate against a small set of paths is
+the signal worth investigating, not the aggregate change.
+
 ## 0.1.0-beta.78
 
 Beta.78 adds a diagnostics surface to the hosted provider.
