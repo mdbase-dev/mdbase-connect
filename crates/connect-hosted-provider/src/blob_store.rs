@@ -85,7 +85,17 @@ impl R2Config {
     /// an error, because a diagnostic must not fail the caller.
     pub fn credential_expiry(&self) -> Option<i64> {
         let token = self.session_token.as_ref()?;
-        let claims = token.split('.').nth(1)?;
+        // The session token is not a bare JWT. A temporary credential wraps the
+        // signed token: standard base64 of `jwt/<header>.<claims>.<signature>`.
+        // Splitting the outer encoding on `.` finds nothing, so reading the
+        // claims directly reported no expiry for every real credential.
+        let unwrapped = base64_standard_decode(token)
+            .and_then(|bytes| String::from_utf8(bytes).ok())
+            .and_then(|value| value.strip_prefix("jwt/").map(str::to_owned));
+        // A bare JWT still decodes, so this reads whichever shape is configured
+        // rather than assuming the wrapper is always present.
+        let jwt = unwrapped.as_deref().unwrap_or(token.as_str());
+        let claims = jwt.split('.').nth(1)?;
         let decoded = base64_url_decode(claims)?;
         let value: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
         value.get("exp")?.as_i64()
@@ -97,6 +107,11 @@ fn base64_url_decode(value: &str) -> Option<Vec<u8>> {
     base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(value)
         .ok()
+}
+
+fn base64_standard_decode(value: &str) -> Option<Vec<u8>> {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.decode(value).ok()
 }
 
 impl R2Config {
@@ -686,6 +701,74 @@ mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
+
+    /// Builds a session token in the shape the minter actually emits
+    /// (`.github/scripts/r2_temporary_credential.mjs`): standard base64 of
+    /// `jwt/<header>.<claims>.<signature>`. The previous test double was the
+    /// literal `"temporary-session"`, which exercised no decoding at all and is
+    /// why a credential expiry that never decoded reached production.
+    fn wrapped_session_token(expires_at: i64) -> String {
+        use base64::Engine as _;
+        let url = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        let header = url.encode(br#"{"alg":"HS256","typ":"JWT"}"#);
+        let claims = url.encode(
+            serde_json::json!({
+                "bucket": "mdbase-connect-staging-files",
+                "scope": "object-read-write",
+                "exp": expires_at,
+            })
+            .to_string(),
+        );
+        let jwt = format!("{header}.{claims}.c2lnbmF0dXJl");
+        base64::engine::general_purpose::STANDARD.encode(format!("jwt/{jwt}"))
+    }
+
+    fn config_with_session_token(token: Option<String>) -> R2Config {
+        R2Config::new(
+            "https://account.r2.cloudflarestorage.com",
+            "private-bucket",
+            "access",
+            "secret",
+            8 * 1024 * 1024,
+            8 * 1024 * 1024,
+            Duration::from_secs(900),
+        )
+        .unwrap()
+        .with_session_token(token)
+        .unwrap()
+    }
+
+    #[test]
+    fn credential_expiry_reads_the_wrapped_temporary_credential() {
+        assert_eq!(
+            config_with_session_token(Some(wrapped_session_token(1_756_000_000)))
+                .credential_expiry(),
+            Some(1_756_000_000)
+        );
+    }
+
+    #[test]
+    fn credential_expiry_is_absent_rather_than_wrong_when_it_cannot_be_read() {
+        // Permanent credentials carry no session token, which is the one case
+        // where "no expiry" is the truth rather than a failure to decode.
+        assert_eq!(config_with_session_token(None).credential_expiry(), None);
+        // Correctly wrapped, but the claims carry no expiry.
+        let wrapped_without_expiry = {
+            use base64::Engine as _;
+            base64::engine::general_purpose::STANDARD.encode("jwt/aGVhZGVy.e30.c2ln")
+        };
+        for unreadable in [
+            "temporary-session",
+            "not base64 at all !!",
+            wrapped_without_expiry.as_str(),
+        ] {
+            assert_eq!(
+                config_with_session_token(Some(unreadable.to_string())).credential_expiry(),
+                None,
+                "expected no expiry for {unreadable}"
+            );
+        }
+    }
 
     #[test]
     fn r2_configuration_is_strict_and_does_not_accept_undersized_parts() {
