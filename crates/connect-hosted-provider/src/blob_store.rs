@@ -1,3 +1,4 @@
+use crate::r2_session_token::session_token_expiry;
 use crate::{ApiError, ApiResult};
 use async_trait::async_trait;
 use aws_credential_types::Credentials;
@@ -84,19 +85,8 @@ impl R2Config {
     /// on validity is Cloudflare. A malformed token yields `None` rather than
     /// an error, because a diagnostic must not fail the caller.
     pub fn credential_expiry(&self) -> Option<i64> {
-        let token = self.session_token.as_ref()?;
-        let claims = token.split('.').nth(1)?;
-        let decoded = base64_url_decode(claims)?;
-        let value: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
-        value.get("exp")?.as_i64()
+        session_token_expiry(self.session_token.as_deref()?)
     }
-}
-
-fn base64_url_decode(value: &str) -> Option<Vec<u8>> {
-    use base64::Engine as _;
-    base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(value)
-        .ok()
 }
 
 impl R2Config {
@@ -686,6 +676,34 @@ mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
+
+    /// The decoding itself is covered in `r2_session_token`; this covers the
+    /// seam, including the one case where `None` is the truth rather than a
+    /// failure to read: a permanent credential carries no session token.
+    #[test]
+    fn credential_expiry_reflects_the_configured_session_token() {
+        use base64::Engine as _;
+        let config = |token: Option<String>| {
+            R2Config::new(
+                "https://account.r2.cloudflarestorage.com",
+                "private-bucket",
+                "access",
+                "secret",
+                8 * 1024 * 1024,
+                8 * 1024 * 1024,
+                Duration::from_secs(900),
+            )
+            .unwrap()
+            .with_session_token(token)
+            .unwrap()
+        };
+        let claims =
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(r#"{"exp":1756000000}"#);
+        let token =
+            base64::engine::general_purpose::STANDARD.encode(format!("jwt/aGVhZGVy.{claims}.c2ln"));
+        assert_eq!(config(Some(token)).credential_expiry(), Some(1_756_000_000));
+        assert_eq!(config(None).credential_expiry(), None);
+    }
 
     #[test]
     fn r2_configuration_is_strict_and_does_not_accept_undersized_parts() {

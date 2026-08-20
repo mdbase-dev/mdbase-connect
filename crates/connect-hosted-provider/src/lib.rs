@@ -9,6 +9,7 @@ mod key_admin;
 mod key_wrapping;
 mod notifications;
 mod provider;
+mod r2_session_token;
 mod symmetric_crypto;
 mod template;
 mod workspace;
