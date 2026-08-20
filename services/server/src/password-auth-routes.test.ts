@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 import { AuthenticationPolicyStore } from "./authentication-policy.js";
 import { createDatabase } from "./db.js";
+import type { TransactionalEmail } from "./email.js";
 import { PasswordAccountService } from "./password-auth.js";
 
 const resources: Array<() => Promise<void>> = [];
@@ -222,7 +223,7 @@ describe("password authentication HTTP boundary", () => {
     expect((await db.query("SELECT id FROM users")).rows).toHaveLength(0);
   });
 
-  it("keeps registration unavailable when legal documents are missing or mode is open", async () => {
+  it("requires legal documents and keeps invitations usable when registration opens", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
     const policy = await configurePolicy(db);
@@ -286,7 +287,11 @@ describe("password authentication HTTP boundary", () => {
     });
     expect(openConfig.json().registration).toBe("open");
     expect(openConfig.json().password_login).toBe(true);
-    expect(openConfig.json().password_registration).toBeUndefined();
+    expect(openConfig.json()).toMatchObject({
+      password_registration: true,
+      password_invitation_registration: true
+    });
+    expect(openConfig.json().password_public_registration).toBeUndefined();
     const openSignup = await withDocuments.app.inject({
       method: "POST",
       url: "/v1/auth/password/signup",
@@ -299,8 +304,122 @@ describe("password authentication HTTP boundary", () => {
         privacy_version: invitation.privacyVersion
       }
     });
-    expect(openSignup.statusCode).toBe(503);
-    expect((await db.query("SELECT id FROM users")).rows).toHaveLength(0);
+    expect(openSignup.statusCode).toBe(201);
+    expect((await db.query("SELECT id FROM users")).rows).toHaveLength(1);
+  });
+
+  it("verifies public signup email without revealing existing accounts, then rejects replay", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const policy = new AuthenticationPolicyStore(db, "closed");
+    await policy.update({
+      registrationMode: "open",
+      passwordAuthEnabled: true,
+      emailDeliveryEnabled: true,
+      termsVersion: "terms-2026-08",
+      privacyVersion: "privacy-2026-08",
+      expectedRevision: 0,
+      updatedBy: "operator:test",
+      reason: "Configure public signup route test"
+    });
+    const deliveries: TransactionalEmail[] = [];
+    const { app } = await buildApp({
+      db,
+      publicUrl: origin,
+      authRateLimitSecret: "test-auth-rate-limit-secret-value",
+      authenticationLegalDocuments: {
+        termsUrl: "https://mdbase.dev/terms/",
+        privacyUrl: "https://mdbase.dev/privacy/"
+      },
+      emailTransport: {
+        async send(message) {
+          deliveries.push(message);
+          return { provider: "test", messageId: `message-${deliveries.length}` };
+        }
+      }
+    });
+    resources.push(() => app.close());
+    const config = await app.inject({ method: "GET", url: "/v1/auth/config" });
+    expect(config.json()).toMatchObject({
+      registration: "open",
+      password_registration: true,
+      password_invitation_registration: true,
+      password_public_registration: true
+    });
+
+    const crossOrigin = await app.inject({
+      method: "POST",
+      url: "/v1/auth/password/signup/request",
+      headers: { origin: "https://evil.example" },
+      payload: { email: "person@example.com" }
+    });
+    expect(crossOrigin.statusCode).toBe(403);
+    const requested = await app.inject({
+      method: "POST",
+      url: "/v1/auth/password/signup/request",
+      headers: { origin },
+      payload: { email: "Person@Example.com" }
+    });
+    expect(requested.statusCode).toBe(202);
+    expect(deliveries).toHaveLength(1);
+    const verificationToken = new URL(
+      deliveries[0]!.text.match(/https:\/\/[^\s]+/u)![0]
+    ).hash.slice("#verification=".length);
+    expect(verificationToken).toMatch(/^vfy_/u);
+    expect(JSON.stringify((await db.query(
+      "SELECT token_hash FROM authentication_challenges"
+    )).rows)).not.toContain(verificationToken);
+
+    const preview = await app.inject({
+      method: "POST",
+      url: "/v1/auth/password/signup/verification",
+      headers: { origin },
+      payload: { verification_token: verificationToken }
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json().verification.email).toBe("person@example.com");
+    const completed = await app.inject({
+      method: "POST",
+      url: "/v1/auth/password/signup/public",
+      headers: { origin },
+      payload: {
+        verification_token: verificationToken,
+        name: "Person Example",
+        password: "a durable public account password",
+        terms_version: "terms-2026-08",
+        privacy_version: "privacy-2026-08",
+        timezone: "Australia/Melbourne"
+      }
+    });
+    expect(completed.statusCode).toBe(201);
+    expect(completed.cookies.find(
+      ({ name }) => name === "__Host-mdbase_session"
+    )).toMatchObject({ httpOnly: true, secure: true, sameSite: "Lax" });
+
+    const replay = await app.inject({
+      method: "POST",
+      url: "/v1/auth/password/signup/public",
+      headers: { origin },
+      payload: {
+        verification_token: verificationToken,
+        name: "Person Example",
+        password: "a durable public account password",
+        terms_version: "terms-2026-08",
+        privacy_version: "privacy-2026-08"
+      }
+    });
+    expect(replay.statusCode).toBe(400);
+    expect(replay.json().error.code).toBe("invalid_signup_verification");
+
+    const existing = await app.inject({
+      method: "POST",
+      url: "/v1/auth/password/signup/request",
+      headers: { origin },
+      payload: { email: "PERSON@example.com" }
+    });
+    expect(existing.statusCode).toBe(202);
+    expect(existing.json()).toEqual(requested.json());
+    expect(deliveries).toHaveLength(1);
   });
 });
 

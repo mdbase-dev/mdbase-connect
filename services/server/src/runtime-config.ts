@@ -119,11 +119,6 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
     ...(config.managementOrigins ?? []),
     ...(editorOrigin ? [editorOrigin] : [])
   ].map((origin) => validatePublicOrigin(origin, "MDBASE_CONNECT_MANAGEMENT_ORIGINS"));
-  if (betaAccessOrigin && config.authRateLimitSecret === null) {
-    throw new Error(
-      "Beta access requests require MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET."
-    );
-  }
   if (config.authenticationLegalDocuments) {
     validatePublicDocumentUrl(
       config.authenticationLegalDocuments.termsUrl,

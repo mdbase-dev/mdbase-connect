@@ -75,6 +75,11 @@ Open registration applies to every configured external provider. Do not enable
 it on the public service until the homepage, privacy policy, support contact,
 account lifecycle, monitoring, and abuse response are ready.
 
+Open registration also advertises verified email-and-password signup when the
+password-authentication limiter, current legal documents, audited email
+delivery, and runtime email transport are all configured. Invitation links
+remain redeemable after the policy moves from `invite` to `open`.
+
 Invitation-only registration is also available:
 
 ```text

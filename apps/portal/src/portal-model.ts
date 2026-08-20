@@ -72,6 +72,7 @@ export function returnTarget() {
 }
 export type PortalBootstrapSecrets = Readonly<{
   invitationToken: string;
+  verificationToken: string;
   resetToken: string;
 }>;
 
@@ -82,9 +83,14 @@ export function capturePortalBootstrapSecrets(
   const parameters = new URLSearchParams(currentLocation.hash.slice(1));
   const secrets = Object.freeze({
     invitationToken: parameters.get("invitation")?.trim() ?? "",
+    verificationToken: parameters.get("verification")?.trim() ?? "",
     resetToken: parameters.get("reset")?.trim() ?? ""
   });
-  if (secrets.invitationToken || secrets.resetToken) {
+  if (
+    secrets.invitationToken
+    || secrets.verificationToken
+    || secrets.resetToken
+  ) {
     currentHistory.replaceState(
       currentHistory.state,
       "",
