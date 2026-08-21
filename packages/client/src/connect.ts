@@ -777,6 +777,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
           collectionId: result.connection.collectionId,
           ...(result.returnTo ? { returnTo: result.returnTo } : {})
         });
+        if (popupAttempt) closeAuthorizationCallbackWindow();
         return result;
       })
       .catch((error: unknown) => {
@@ -787,6 +788,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
           message: error instanceof Error ? error.message : "Authorization could not be completed.",
           ...(pending?.returnTo ? { returnTo: pending.returnTo } : {})
         });
+        if (popupAttempt) closeAuthorizationCallbackWindow();
         throw error;
       });
     const shared = completion.finally(() => {
@@ -1080,5 +1082,11 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
   private emitConnections(): void {
     const connections = this.connections();
     for (const listener of this.listeners) listener(connections);
+  }
+}
+
+function closeAuthorizationCallbackWindow(): void {
+  if (typeof window !== "undefined" && typeof window.close === "function") {
+    window.close();
   }
 }

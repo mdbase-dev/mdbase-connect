@@ -2547,7 +2547,8 @@ describe("authorization renewal", () => {
       close: vi.fn(() => { popup.closed = true; })
     };
     const open = vi.fn(() => popup);
-    vi.stubGlobal("window", { open });
+    const closeAuthorizationWindow = vi.fn();
+    vi.stubGlobal("window", { open, close: closeAuthorizationWindow });
     vi.stubGlobal("location", { assign: vi.fn() });
     let state = "";
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
@@ -2616,6 +2617,7 @@ describe("authorization renewal", () => {
       }
     });
     expect(popup.close).toHaveBeenCalled();
+    expect(closeAuthorizationWindow).toHaveBeenCalledOnce();
   });
 
   it("falls back to full-page redirect when a web popup is blocked", async () => {
