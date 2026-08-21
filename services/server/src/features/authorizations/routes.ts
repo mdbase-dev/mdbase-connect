@@ -573,7 +573,7 @@ export function registerAuthorizationRoutes(
       collection_id: string;
       operations: string[];
     }>(
-      `SELECT COALESCE(col.local_id, g.hosted_collection_id::text) AS collection_id,
+      `SELECT COALESCE(col.local_id, g.hosted_collection_id)::text AS collection_id,
               g.operations
        FROM grants g
        LEFT JOIN collections col ON col.id = g.collection_id

@@ -61,7 +61,7 @@ try {
   });
   const pairingWindow = await pairingApp.firstWindow({ timeout: 30_000 });
   pairingWindow.setDefaultTimeout(30_000);
-  await waitForDesktopHeading(pairingWindow, "Connect this computer.");
+  await waitForDesktopHeading(pairingWindow, "Connect this computer to mdbase");
   await pairingWindow
     .getByText("Use another Connect server", { exact: true })
     .click();

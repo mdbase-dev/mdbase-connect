@@ -54,7 +54,7 @@ try {
     app.exit = () => {};
   });
   const pairingWindow = await firstApp.firstWindow({ timeout: 15_000 });
-  await pairingWindow.getByRole("heading", { name: "Connect this computer." }).waitFor();
+  await pairingWindow.getByRole("heading", { name: "Connect this computer to mdbase" }).waitFor();
   await pairingWindow.getByText("Use another Connect server", { exact: true }).click();
   await pairingWindow.getByLabel("Server address").fill(portalUrl);
   await pairingWindow.getByLabel("Computer name").fill("Progress test computer");
