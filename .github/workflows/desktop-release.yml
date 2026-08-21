@@ -24,7 +24,9 @@ permissions:
 
 concurrency:
   group: desktop-release-${{ github.ref }}
-  cancel-in-progress: false
+  # Tag publication must finish once started. Pull-request regressions are
+  # replaceable and should not make every superseded commit wait its turn.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
