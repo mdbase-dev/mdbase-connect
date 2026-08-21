@@ -32,6 +32,7 @@ import {
   FilePermissionSummary,
   NotificationAccess,
   PermissionCapabilitySummary,
+  PermissionDelta,
   PermissionChoices
 } from "./authorization-permissions";
 import {
@@ -44,7 +45,6 @@ import {
   scopeDescription
 } from "./portal-model";
 import { Loading, PageBrand, useSystemTheme } from "./portal-ui";
-
 export function DeviceAuthorization() {
   const initialCode = formatDeviceCode(new URLSearchParams(location.search).get("user_code") ?? "");
   const [code, setCode] = useState(initialCode);
@@ -524,14 +524,6 @@ export function ApprovalForm({
   const [collectionName, setCollectionName] = useState("");
   const [error, setError] = useState("");
   const selected = compatible.find((choice) => choice.collection.id === collectionId)?.collection;
-  const existingOperations = useMemo(
-    () => new Set(request.existing_access?.find((access) =>
-      access.collection_id === collectionId)?.operations ?? []),
-    [collectionId, request.existing_access]
-  );
-  const existingSelectedCount = [...operations].filter((operation) =>
-    existingOperations.has(operation)).length;
-  const addedSelectedCount = operations.size - existingSelectedCount;
   const setup = selected ? neededProvisions(request, selected) : [];
   const configurationSetup = request.provisions.configuration ?? [];
   const hasSetup = setup.length > 0 || configurationSetup.length > 0;
@@ -870,10 +862,7 @@ export function ApprovalForm({
           <small>{permissionCount} requested actions across {permissionCategoryCount} {permissionCategoryCount === 1 ? "capability" : "capabilities"}.</small>
         </div>
         <div className="approval-section-content authorization-permissions">
-          {selected && existingOperations.size > 0 && <div className="permission-delta" role="note">
-            <span><strong>{existingSelectedCount}</strong> already approved</span>
-            <span><strong>{addedSelectedCount}</strong> {addedSelectedCount === 1 ? "action" : "actions"} added by this request</span>
-          </div>}
+          {selected && <PermissionDelta existingAccess={request.existing_access} collectionId={selected.id} selected={operations} />}
           <PermissionCapabilitySummary groups={permissionGroups} selected={operations} files={request.requirements.files} />
           {permissionGroups.length > 0 && <PermissionChoices
             groups={permissionGroups}
