@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+commit=${1:?usage: verify-qualified-commit COMMIT [RUN_ID] [EXPECTED_EVENT]}
+run_id=${2:-}
+expected_event=${3:-push}
+[[ $commit =~ ^[0-9a-f]{40}$ ]] || {
+  printf 'Qualification commit must be a full SHA.\n' >&2
+  exit 2
+}
+command -v gh >/dev/null
+command -v jq >/dev/null
+
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  else
+    shasum -a 256 "$1" | cut -d' ' -f1
+  fi
+}
+
+if [[ -z $run_id ]]; then
+  runs=$(gh api --method GET \
+    "repos/$GITHUB_REPOSITORY/actions/workflows/server-ci.yml/runs" \
+    --field head_sha="$commit" --field event="$expected_event" --field status=completed)
+  run_id=$(jq -er --arg commit "$commit" --arg event "$expected_event" '
+    [.workflow_runs[] | select(
+      .head_sha == $commit and .event == $event and .conclusion == "success"
+    )] | sort_by(.run_number) | last | .id' <<<"$runs") || {
+    printf 'No successful %s qualification exists for %s.\n' \
+      "$expected_event" "$commit" >&2
+    exit 1
+  }
+fi
+[[ $run_id =~ ^[1-9][0-9]*$ ]] || {
+  printf 'Qualification run ID must be a positive integer.\n' >&2
+  exit 2
+}
+run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")
+jq -e --arg commit "$commit" --arg event "$expected_event" '
+  .head_sha == $commit and .event == $event and .status == "completed"
+  and .conclusion == "success" and .path == ".github/workflows/server-ci.yml"
+' >/dev/null <<<"$run" || {
+  printf 'Run %s is not a successful exact Server CI %s qualification.\n' \
+    "$run_id" "$expected_event" >&2
+  exit 1
+}
+
+temporary=$(mktemp -d)
+trap 'rm -rf -- "$temporary"' EXIT
+gh run download "$run_id" --repo "$GITHUB_REPOSITORY" \
+  --name server-qualification --dir "$temporary"
+manifest=$temporary/qualification.json
+[[ -f $manifest && $(git rev-parse HEAD) == "$commit" ]] || {
+  printf 'Qualification artifact or checkout identity is invalid.\n' >&2
+  exit 1
+}
+jq -e \
+  --arg commit "$commit" \
+  --arg tree "$(git rev-parse HEAD^{tree})" \
+  --arg pnpm "$(sha256_file pnpm-lock.yaml)" \
+  --arg cargo "$(sha256_file deploy/docker/Cargo.lock.hosted-provider)" \
+  --arg revision "$(tr -d '\r\n' <deploy/docker/mdbase-rs-revision)" \
+  --arg workflow "$(sha256_file .github/workflows/server-ci.yml)" '
+    .schema_version == 1 and .qualification == "full"
+    and .commit == $commit and .tree == $tree
+    and .inputs.pnpm_lock_sha256 == $pnpm
+    and .inputs.cargo_lock_sha256 == $cargo
+    and .inputs.mdbase_rs_revision == $revision
+    and .inputs.workflow_sha256 == $workflow
+  ' "$manifest" >/dev/null || {
+  printf 'Run %s qualification is not bound to this exact checkout.\n' \
+    "$run_id" >&2
+  exit 1
+}
+artifact_run_id=$(jq -r '.upstream_run_id // .run_id' "$manifest")
+[[ $artifact_run_id =~ ^[1-9][0-9]*$ ]] || {
+  printf 'Qualification artifact does not identify its producing run.\n' >&2
+  exit 1
+}
+if [[ -n ${GITHUB_OUTPUT:-} ]]; then
+  printf 'run_id=%s\nartifact_run_id=%s\n' "$run_id" "$artifact_run_id" \
+    >>"$GITHUB_OUTPUT"
+fi
+printf 'Verified full Server CI qualification run %s for %s.\n' \
+  "$run_id" "$commit"
