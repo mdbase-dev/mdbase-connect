@@ -497,7 +497,7 @@ async function auditDesktopRoutes() {
     await page.getByRole("button", { name: route[0] }).click();
     await page.getByRole("heading", { name: route[1] }).waitFor();
     if (route[0] === "App access") {
-      await page.getByRole("button", { name: "Review in portal" }).waitFor();
+      await page.getByRole("button", { name: "Review in Connect" }).waitFor();
       assert.equal(await page.getByRole("button", { name: "Reject" }).count(), 0);
     }
     await auditPage(page, `desktop ${route[0].toLowerCase()}`);

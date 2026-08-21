@@ -365,7 +365,7 @@ function registerIpc(): void {
       server_url: string | null;
     }>("account.configuration");
     if (!configuration.configured || !configuration.server_url) {
-      throw new Error("Connect this computer to a portal first.");
+      throw new Error("Connect this computer to your mdbase account first.");
     }
     const accountUrl = new URL("/account", validateServerUrl(configuration.server_url));
     await shell.openExternal(accountUrl.href);
@@ -380,7 +380,7 @@ function registerIpc(): void {
       server_url: string | null;
     }>("account.configuration");
     if (!configuration.configured || !configuration.server_url) {
-      throw new Error("Connect this computer to a portal first.");
+      throw new Error("Connect this computer to your mdbase account first.");
     }
     const authorizationUrl = new URL(
       `/authorize/${encodeURIComponent(requestId)}`,

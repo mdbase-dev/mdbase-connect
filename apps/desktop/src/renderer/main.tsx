@@ -13,17 +13,22 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Collections } from "./collections-view";
 import { CollectionCompletionReceipt } from "./completion-receipt";
+import { AuthorityTransferReceipt } from "./authority-transfer-receipt";
 import { presentConnection } from "./connection-state.mjs";
 import {
   COMPLETION_RECEIPT_KEY,
   POST_PAIRING_KEY,
   RESUME_AUTHORIZATION_KEY,
   clearCompletionReceipt,
+  clearTransferReceipt,
   consumePairingCompleted,
   readAuthorizationTarget,
   readCompletionReceipt,
+  readTransferReceipt,
+  writeTransferReceipt,
   writeCompletionReceipt,
-  type CollectionCompletionReceipt as CompletionReceipt
+  type CollectionCompletionReceipt as CompletionReceipt,
+  type AuthorityTransferReceipt as TransferReceipt
 } from "./onboarding-state.mjs";
 import { RequestPermissionChoices } from "./authorization-components";
 import { ConnectionProgress, Overview } from "./overview-view";
@@ -104,6 +109,7 @@ function App() {
   const [mirrorTarget, setMirrorTarget] = useState<string | null>(null);
   const [detailTarget, setDetailTarget] = useState<string | null>(null);
   const [completionReceipt, setCompletionReceipt] = useState<CompletionReceipt | null>(() => readCompletionReceipt(localStorage));
+  const [transferReceipt, setTransferReceipt] = useState<TransferReceipt | null>(() => readTransferReceipt(localStorage));
   const [initialRefreshComplete, setInitialRefreshComplete] = useState(false);
   const [navigationOpen, setNavigationOpen] = useState(false);
 
@@ -201,6 +207,17 @@ function App() {
     }
   }
 
+  async function transferAct(action: () => Promise<void>) {
+    setError(null);
+    setNotice(null);
+    try {
+      await action();
+      await refresh(true);
+    } catch (actionError) {
+      setError(message(actionError));
+    }
+  }
+
   async function addExisting() {
     await act(async () => {
       const result = await window.mdbaseConnect.addCollection();
@@ -268,6 +285,17 @@ function App() {
     setCompletionReceipt(null);
   }
 
+  function showTransferReceipt(receipt: TransferReceipt) {
+    writeTransferReceipt(localStorage, receipt);
+    setTransferReceipt(receipt);
+    setRoute("collections");
+  }
+
+  function dismissTransferReceipt() {
+    clearTransferReceipt(localStorage);
+    setTransferReceipt(null);
+  }
+
   const copy = routeCopy[route];
   const connection = presentConnection(status, cloud);
   const combinedAccess = useMemo<AccessSnapshot>(() => {
@@ -287,7 +315,12 @@ function App() {
       pending_authorizations: [...pending.values()]
     };
   }, [access, hosted]);
-  const collectionCount = collections.length + hosted.hosted_collections.length;
+  const localCollectionIds = new Set(collections.map((collection) => collection.id));
+  const collectionCount = collections.length + hosted.hosted_collections.filter((collection) =>
+    collection.authority_state !== "transferred"
+      || !collection.transferred_collection_id
+      || !localCollectionIds.has(collection.transferred_collection_id)
+  ).length;
   const selectRoute = (next: Route) => {
     setRoute(next);
     setNavigationOpen(false);
@@ -335,6 +368,23 @@ function App() {
           onDismiss={dismissCompletionReceipt}
         />}
 
+        {transferReceipt && cloud !== null && <AuthorityTransferReceipt
+          receipt={transferReceipt}
+          onOpen={() => {
+            if (transferReceipt.direction === "hosted_to_local") {
+              void window.mdbaseConnect.openPath(transferReceipt.newMainCopy);
+            } else {
+              void window.mdbaseConnect.openEditor(transferReceipt.collectionId);
+            }
+          }}
+          onReconnect={() => setRoute("access")}
+          onViewDetails={() => {
+            setDetailTarget(transferReceipt.collectionId);
+            setRoute("collections");
+          }}
+          onDismiss={dismissTransferReceipt}
+        />}
+
         {cloud === null ? <ConnectionProgress /> : route === "overview" ? (
           <Overview
             status={status}
@@ -354,6 +404,7 @@ function App() {
           <Collections
             collections={collections}
             hosted={hosted}
+            grants={combinedAccess.grants}
             cloudConfigured={cloud.configured}
             mirrors={mirrors}
             mirrorTarget={mirrorTarget}
@@ -368,6 +419,8 @@ function App() {
             onMirrorTargetHandled={() => setMirrorTarget(null)}
             onDetailTargetHandled={() => setDetailTarget(null)}
             onAct={act}
+            onTransfer={transferAct}
+            onTransferComplete={showTransferReceipt}
             onNotice={setNotice}
           />
         ) : route === "access" ? (
@@ -442,9 +495,9 @@ function Access({ cloud, access, focusedRequestId, resumeAuthorization, busy, on
   return (
     <div className="workspace-stack">
       <section>
-        <SectionHeading title="Portal approvals" note="Collection choice and permissions stay in the portal; this computer never substitutes a local approval." count={access.pending_authorizations.length} />
+        <SectionHeading title="Pending decisions" note="Connect handles collection choice and exact permission review; this computer never substitutes a local approval." count={access.pending_authorizations.length} />
         {access.pending_authorizations.length === 0 ? (
-          <Empty title="No portal approvals are waiting" text="New connection requests are reviewed in the portal." />
+          <Empty title="No decisions are waiting" text="New application requests are reviewed in Connect." />
         ) : (
           <div className="request-list">
             {pendingAuthorizations.map((request) => <PortalApprovalRequest
@@ -490,10 +543,10 @@ function PortalApprovalRequest({ request, focused, busy, onAct }: {
       <code>{identity}</code>
       <small>Expires {relativeTime(request.expires_at)}</small>
     </div>
-    <p>Choose the collection and review the exact permissions in the portal. If this is a new application installation, local code comparison follows separately.</p>
+    <p>Choose the collection and review the exact permissions in Connect. If this is a new application installation, local code comparison follows separately.</p>
     <button className="button primary" disabled={busy} onClick={() => void onAct(async () => {
       await window.mdbaseConnect.openAuthorization(request.id);
-    })}>Review in portal</button>
+    })}>Review in Connect</button>
   </article>;
 }
 
@@ -627,7 +680,7 @@ function Settings({ startup, cloud, access, status, updateStatus, busy, onAct, o
             <SettingRow label="Apps on this computer" value={status?.direct_access_available ? "Available" : "Unavailable"} detail="Approved apps here can connect without sending records over the internet" />
           </div>
           <div className="portal-connection-actions">
-            <button className="button secondary" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openAccount())}>Manage account in portal</button>
+            <button className="button secondary" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openAccount())}>Manage in Connect</button>
             <button className="button secondary danger-text disconnect-button" disabled={busy} onClick={() => { if (window.confirm("Forget this account on this computer? This removes the saved account credential from this computer. Connecting again will create a new computer entry. Existing local collection files are unaffected.")) void onAct(async () => { await window.mdbaseConnect.clearCloudConfig(); }); }}>Forget account on this computer…</button>
           </div>
         </section>
