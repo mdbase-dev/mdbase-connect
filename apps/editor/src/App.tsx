@@ -991,7 +991,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       return;
     }
     setConfirmation({
-      title: "Choose another collection?",
+      title: "Connect another collection?",
       body: <p>Unsaved type or creation changes will be discarded when the new collection opens. Note and property changes will finish saving first.</p>,
       confirmLabel: "Continue",
       onConfirm: connectAnotherCollection

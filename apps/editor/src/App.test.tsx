@@ -991,7 +991,7 @@ describe("mdbase editor", () => {
     });
     render(<App gateway={disconnected} />);
 
-    await userEvent.click(await screen.findByRole("button", { name: "Choose another collection" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Connect another collection" }));
 
     expect(authorize).toHaveBeenCalledOnce();
     expect(authorize).toHaveBeenCalledWith("choose");
@@ -1013,7 +1013,7 @@ describe("mdbase editor", () => {
     });
     render(<App gateway={disconnected} />);
 
-    await userEvent.click(await screen.findByRole("button", { name: "Choose another collection" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Connect another collection" }));
 
     expect(authorize).toHaveBeenCalledOnce();
     expect(authorize).toHaveBeenCalledWith("selected");

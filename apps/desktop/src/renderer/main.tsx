@@ -12,7 +12,19 @@ import "@mdbase/connect-ui/styles.css";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Collections } from "./collections-view";
+import { CollectionCompletionReceipt } from "./completion-receipt";
 import { presentConnection } from "./connection-state.mjs";
+import {
+  COMPLETION_RECEIPT_KEY,
+  POST_PAIRING_KEY,
+  RESUME_AUTHORIZATION_KEY,
+  clearCompletionReceipt,
+  consumePairingCompleted,
+  readAuthorizationTarget,
+  readCompletionReceipt,
+  writeCompletionReceipt,
+  type CollectionCompletionReceipt as CompletionReceipt
+} from "./onboarding-state.mjs";
 import { RequestPermissionChoices } from "./authorization-components";
 import { ConnectionProgress, Overview } from "./overview-view";
 import { singleFlight } from "./single-flight.mjs";
@@ -28,7 +40,6 @@ import {
   ThemeMenu
 } from "./ui-components";
 import {
-  allOperations,
   host,
   message,
   plural,
@@ -66,10 +77,8 @@ const routeCopy: Record<Route, { eyebrow: string; title: string; lede: string }>
   }
 };
 
-const RESUME_AUTHORIZATION_KEY = "mdbase:resume-authorization";
-
 function storedAuthorizationTarget(): string | null {
-  return localStorage.getItem(RESUME_AUTHORIZATION_KEY);
+  return readAuthorizationTarget(localStorage);
 }
 
 function App() {
@@ -93,6 +102,9 @@ function App() {
   const [newPath, setNewPath] = useState("");
   const [newAuthority, setNewAuthority] = useState<"local" | "hosted">("local");
   const [mirrorTarget, setMirrorTarget] = useState<string | null>(null);
+  const [detailTarget, setDetailTarget] = useState<string | null>(null);
+  const [completionReceipt, setCompletionReceipt] = useState<CompletionReceipt | null>(() => readCompletionReceipt(localStorage));
+  const [initialRefreshComplete, setInitialRefreshComplete] = useState(false);
   const [navigationOpen, setNavigationOpen] = useState(false);
 
   const runRefresh = useCallback(async (quiet = false) => {
@@ -116,6 +128,7 @@ function App() {
     } catch (refreshError) {
       if (!quiet) setError(message(refreshError));
     }
+    setInitialRefreshComplete(true);
   }, []);
   const refresh = useMemo(() => singleFlight(runRefresh), [runRefresh]);
 
@@ -135,6 +148,12 @@ function App() {
         setRoute("collections");
         return;
       }
+      if (next === "paired") {
+        localStorage.setItem(POST_PAIRING_KEY, "completed");
+        setInitialRefreshComplete(false);
+        void refresh();
+        return;
+      }
       if (["overview", "collections", "access", "activity", "settings"].includes(next)) {
         setRoute(next as Route);
       }
@@ -146,6 +165,12 @@ function App() {
       removeUpdateStatus();
     };
   }, [refresh]);
+
+  useEffect(() => {
+    if (!initialRefreshComplete || !cloud?.configured || !consumePairingCompleted(localStorage)) return;
+    if (authorizationTarget) setRoute("access");
+    else setRoute("collections");
+  }, [authorizationTarget, cloud?.configured, initialRefreshComplete]);
 
   useEffect(() => {
     if (cloud?.configured && route === "access" && authorizationTarget) {
@@ -180,7 +205,12 @@ function App() {
     await act(async () => {
       const result = await window.mdbaseConnect.addCollection();
       if (result?.status === "added") {
-        setNotice(`${result.collection.display_name} is now available to mdbase connect.`);
+        showCompletionReceipt({
+          collectionId: result.collection.id,
+          collectionName: result.collection.display_name,
+          authority: "local",
+          path: result.collection.path
+        });
       } else if (result?.status === "copy_requires_new_identity") {
         setCopiedCollectionPath(result.path);
       }
@@ -192,7 +222,7 @@ function App() {
     await act(async () => {
       const added = await window.mdbaseConnect.addCopiedCollection(copiedCollectionPath);
       setCopiedCollectionPath(null);
-      setNotice(`${added.display_name} was registered as an independent collection.`);
+      showCompletionReceipt({ collectionId: added.id, collectionName: added.display_name, authority: "local", path: added.path });
     });
   }
 
@@ -211,20 +241,31 @@ function App() {
           name: newName,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
         });
-        setNotice(`${result.collection.display_name} is now hosted by mdbase.`);
+        showCompletionReceipt({ collectionId: result.collection.id, collectionName: result.collection.display_name, authority: "hosted" });
       } else {
         const created = await window.mdbaseConnect.createCollection({
           path: newPath,
           name: newName,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
         });
-        setNotice(`${created.display_name} was created on this computer.`);
+        showCompletionReceipt({ collectionId: created.id, collectionName: created.display_name, authority: "local", path: created.path });
       }
       setCreateOpen(false);
       setNewName("");
       setNewPath("");
       setNewAuthority("local");
     });
+  }
+
+  function showCompletionReceipt(receipt: CompletionReceipt) {
+    writeCompletionReceipt(localStorage, receipt);
+    setCompletionReceipt(receipt);
+    setRoute("collections");
+  }
+
+  function dismissCompletionReceipt() {
+    clearCompletionReceipt(localStorage);
+    setCompletionReceipt(null);
   }
 
   const copy = routeCopy[route];
@@ -275,6 +316,25 @@ function App() {
           {notice && <div className="message notice-message">{notice}</div>}
         </div>
 
+        {completionReceipt && cloud !== null && <CollectionCompletionReceipt
+          receipt={completionReceipt}
+          hasPendingAuthorization={authorizationTarget !== null || combinedAccess.pending_authorizations.length > 0}
+          onOpenFolder={() => {
+            if (completionReceipt.path) void window.mdbaseConnect.openPath(completionReceipt.path);
+          }}
+          onUseInApplication={() => setRoute("access")}
+          onOpenEditor={() => void window.mdbaseConnect.openEditor(completionReceipt.collectionId)}
+          onViewDetails={() => {
+            setDetailTarget(completionReceipt.collectionId);
+            setRoute("collections");
+          }}
+          onAddSyncedFolder={() => {
+            setMirrorTarget(completionReceipt.collectionId);
+            setRoute("collections");
+          }}
+          onDismiss={dismissCompletionReceipt}
+        />}
+
         {cloud === null ? <ConnectionProgress /> : route === "overview" ? (
           <Overview
             status={status}
@@ -297,6 +357,7 @@ function App() {
             cloudConfigured={cloud.configured}
             mirrors={mirrors}
             mirrorTarget={mirrorTarget}
+            detailTarget={detailTarget}
             authorityConflicts={access.authority_conflicts}
             busy={busy}
             copiedCollectionPath={copiedCollectionPath}
@@ -305,6 +366,7 @@ function App() {
             onCreate={() => setCreateOpen(true)}
             onRegisterCopy={() => void registerCopiedCollection()}
             onMirrorTargetHandled={() => setMirrorTarget(null)}
+            onDetailTargetHandled={() => setDetailTarget(null)}
             onAct={act}
             onNotice={setNotice}
           />
@@ -481,11 +543,7 @@ function ApplicationGrantGroup({ group, busy, onAct, onNotice }: {
 
 function GrantEditor({ grant, busy, onAct, onNotice }: { grant: GrantSummary; busy: boolean; onAct(action: () => Promise<void>): Promise<void>; onNotice(value: string): void }) {
   const [operations, setOperations] = useState(grant.operations);
-  const contractScoped = grant.scope.contracts.length > 0;
-  const allowedOperations = useMemo(
-    () => contractScoped ? allOperations.filter((operation) => operation !== "validate") : allOperations,
-    [contractScoped]
-  );
+  const allowedOperations = grant.operations;
   const permissionGroups = useMemo(
     () => groupAuthorizationOperations(allowedOperations),
     [allowedOperations]
@@ -506,7 +564,7 @@ function GrantEditor({ grant, busy, onAct, onNotice }: { grant: GrantSummary; bu
       <div className="grant-identity"><p className="eyebrow">{authority}</p><h3>{grant.collection_name}</h3><code>{grant.application_distribution === "portable" ? "Downloaded file · encrypted access" : host(grant.application_origin || grant.application_homepage)}</code><small>Connected {relativeTime(grant.created_at)}</small>{grant.scope.contracts.length > 0 && <small>{scopeDescription(grant.scope.contracts)}</small>}</div>
       <div className="request-decision">
         <section className="request-section">
-          <div><strong>Permissions</strong><small>{allowedOperations.length} available actions across {permissionGroups.length} {plural(permissionGroups.length, "category", "categories")}.</small></div>
+          <div><strong>Permissions</strong><small>You can remove previously approved actions here. An application must request any additional access separately.</small></div>
           <RequestPermissionChoices groups={permissionGroups} selected={operations} onChange={setOperations} />
         </section>
         <footer className="request-footer">
@@ -526,8 +584,8 @@ function GrantEditor({ grant, busy, onAct, onNotice }: { grant: GrantSummary; bu
             <button className="button primary" disabled={busy || !changed || selectedPermissionCount === 0} onClick={() => void onAct(async () => {
               if (grant.collection_kind === "hosted") await window.mdbaseConnect.updateHostedGrant({ grantId: grant.id, operations });
               else await window.mdbaseConnect.updateGrant({ grantId: grant.id, operations });
-              onNotice(`${grant.application_name} permissions were updated.`);
-            })}>Save changes</button>
+              onNotice(`Narrower access for ${grant.application_name} was saved.`);
+            })}>Save narrower access</button>
           </div>
         </footer>
       </div>

@@ -136,6 +136,7 @@ export function Collections({
   cloudConfigured,
   mirrors,
   mirrorTarget,
+  detailTarget,
   authorityConflicts,
   busy,
   copiedCollectionPath,
@@ -144,6 +145,7 @@ export function Collections({
   onCreate,
   onRegisterCopy,
   onMirrorTargetHandled,
+  onDetailTargetHandled,
   onAct,
   onNotice
 }: {
@@ -152,6 +154,7 @@ export function Collections({
   cloudConfigured: boolean;
   mirrors: DesktopMirrorSummary[];
   mirrorTarget: string | null;
+  detailTarget: string | null;
   authorityConflicts: AuthorityConflict[];
   busy: boolean;
   copiedCollectionPath: string | null;
@@ -160,12 +163,13 @@ export function Collections({
   onCreate(): void;
   onRegisterCopy(): void;
   onMirrorTargetHandled(): void;
+  onDetailTargetHandled(): void;
   onAct(action: () => Promise<void>): Promise<void>;
   onNotice(value: string): void;
 }) {
   return (
     <section className="collection-section">
-      <SectionHeading title="Collections" note="Main copies and synced folders are shown separately.">
+      <SectionHeading title="Collections" note="Adding an existing folder validates it in place. mdbase does not move or upload its files. Main copies and synced folders are shown separately.">
         <button className="button secondary" disabled={busy} onClick={onAdd}>Add existing</button>
         <button className="button primary" disabled={busy} onClick={onCreate}>Create collection</button>
       </SectionHeading>
@@ -223,7 +227,9 @@ export function Collections({
                 key={collection.id}
                 collection={collection}
                 cloudConfigured={cloudConfigured}
+                openDetails={detailTarget === collection.id}
                 busy={busy}
+                onTargetHandled={onDetailTargetHandled}
                 onAct={onAct}
                 onNotice={onNotice}
               />
@@ -251,8 +257,10 @@ export function Collections({
                 collection={collection}
                 mirrors={mirrors}
                 openMirror={mirrorTarget === collection.id}
+                openDetails={detailTarget === collection.id}
                 busy={busy}
                 onTargetHandled={onMirrorTargetHandled}
+                onDetailTargetHandled={onDetailTargetHandled}
                 onAct={onAct}
                 onNotice={onNotice}
               />
@@ -264,16 +272,23 @@ export function Collections({
   );
 }
 
-function CollectionRow({ collection, cloudConfigured, busy, onAct, onNotice }: {
+function CollectionRow({ collection, cloudConfigured, openDetails, busy, onTargetHandled, onAct, onNotice }: {
   collection: CollectionSummary;
   cloudConfigured: boolean;
+  openDetails: boolean;
   busy: boolean;
+  onTargetHandled(): void;
   onAct(action: () => Promise<void>): Promise<void>;
   onNotice(value: string): void;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(collection.display_name);
   const [description, setDescription] = useState(collection.description ?? "");
+  useEffect(() => {
+    if (!openDetails) return;
+    setEditing(true);
+    onTargetHandled();
+  }, [onTargetHandled, openDetails]);
   useEffect(() => {
     if (!editing) {
       setName(collection.display_name);
@@ -366,16 +381,20 @@ function HostedCollectionRow({
   collection,
   mirrors,
   openMirror,
+  openDetails,
   busy,
   onTargetHandled,
+  onDetailTargetHandled,
   onAct,
   onNotice
 }: {
   collection: HostedCollectionSummary;
   mirrors: DesktopMirrorSummary[];
   openMirror: boolean;
+  openDetails: boolean;
   busy: boolean;
   onTargetHandled(): void;
+  onDetailTargetHandled(): void;
   onAct(action: () => Promise<void>): Promise<void>;
   onNotice(value: string): void;
 }) {
@@ -399,6 +418,11 @@ function HostedCollectionRow({
       onTargetHandled();
     }
   }, [onTargetHandled, openMirror]);
+  useEffect(() => {
+    if (!openDetails) return;
+    setEditing(true);
+    onDetailTargetHandled();
+  }, [onDetailTargetHandled, openDetails]);
   useEffect(() => {
     if (!editing) setName(collection.display_name);
   }, [collection.display_name, editing]);

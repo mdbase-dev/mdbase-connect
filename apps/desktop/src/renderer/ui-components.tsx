@@ -11,6 +11,7 @@ import {
 } from "@mdbase/connect-ui/theme";
 import React, { useEffect, useRef, useState } from "react";
 import type { ConnectionDotState } from "./connection-state.mjs";
+import { markPairingCompleted } from "./onboarding-state.mjs";
 import { message, type Route } from "./view-model";
 
 export function PairingPanel({ resumeAuthorization = false }: { resumeAuthorization?: boolean }) {
@@ -28,6 +29,7 @@ export function PairingPanel({ resumeAuthorization = false }: { resumeAuthorizat
         const result = await window.mdbaseConnect.pairingStatus(pairing.pairingId);
         if (result.status === "paired") {
           window.clearInterval(timer);
+          markPairingCompleted(localStorage);
           setCompleting(true);
         }
       } catch (error) {
@@ -56,12 +58,12 @@ export function PairingPanel({ resumeAuthorization = false }: { resumeAuthorizat
     <section className="pairing-panel">
       <div className="pairing-intro">
         <p className="eyebrow">Account connection</p>
-        <h2>{pairing ? "Finish in your browser." : resumeAuthorization ? "Connect this computer to continue." : "Connect this computer."}</h2>
+        <h2>{pairing ? "Finish in your browser." : resumeAuthorization ? "Connect this computer to continue." : "Connect this computer to mdbase"}</h2>
         <p>{pairing
           ? "Sign in and approve this computer. This window updates automatically, and there is no code to copy."
           : resumeAuthorization
             ? "Your application request will keep waiting. Sign in so you can choose a folder on this computer, then continue the same request."
-            : "Sign in so approved applications can find collections on this computer. Folder locations remain private."}</p>
+            : "Sign in so applications can discover your collections and you can manage their access. Local folders remain on this computer, and their locations stay private."}</p>
       </div>
       {pairError && <div className="message error-message">{pairError}</div>}
       {pairing ? (
