@@ -3,14 +3,23 @@ import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const developmentDeployment = Object.freeze({
-  editorOrigin: "https://editor-staging.mdbase.dev",
-  connectOrigin: "https://connect-staging.mdbase.dev",
-  project: "mdbase-editor",
-  branch: "staging",
-  domain: "editor-staging.mdbase.dev",
-  wranglerVersion: "4.114.0"
+export const developmentDeployments = Object.freeze({
+  lab: Object.freeze({
+    editorOrigin: "https://candidate-b.mdbase-editor.pages.dev",
+    connectOrigin: "https://mdbase-connect-lab.onrender.com",
+    project: "mdbase-editor",
+    branch: "candidate-b",
+    wranglerVersion: "4.114.0"
+  }),
+  staging: Object.freeze({
+    editorOrigin: "https://editor-staging.mdbase.dev",
+    connectOrigin: "https://connect-staging.mdbase.dev",
+    project: "mdbase-editor",
+    branch: "staging",
+    wranglerVersion: "4.114.0"
+  })
 });
+export const developmentDeployment = developmentDeployments.lab;
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const manifestPath = resolve(repoRoot, "apps/editor/public/.well-known/mdbase-app.json");
@@ -20,13 +29,22 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
 }
 
 export async function deployDevelopmentEditor(environment, run = runCommand) {
+  const target = environment.MDBASE_ENV ?? "lab";
+  if (target !== "lab" && target !== "staging") {
+    throw new Error("Development editor deployments are restricted to lab and staging.");
+  }
+  const deployment = developmentDeployments[target];
+  if (environment.MDBASE_CONNECT_URL && environment.MDBASE_CONNECT_URL !== deployment.connectOrigin) {
+    throw new Error(`MDBASE_CONNECT_URL does not match the ${target} environment.`);
+  }
   const previousManifest = await readFile(manifestPath);
   const deploymentEnvironment = {
     ...environment,
-    MDBASE_EDITOR_ORIGIN: developmentDeployment.editorOrigin,
+    MDBASE_ENV: target,
+    MDBASE_EDITOR_ORIGIN: deployment.editorOrigin,
     MDBASE_EDITOR_BASE_PATH: "/",
-    MDBASE_CONNECT_URL: developmentDeployment.connectOrigin,
-    VITE_MDBASE_CONNECT_URL: developmentDeployment.connectOrigin
+    MDBASE_CONNECT_URL: deployment.connectOrigin,
+    VITE_MDBASE_CONNECT_URL: deployment.connectOrigin
   };
 
   try {
@@ -35,23 +53,23 @@ export async function deployDevelopmentEditor(environment, run = runCommand) {
     await run("node", [
       "apps/editor/scripts/verify-deployment-manifest.mjs",
       "apps/editor/dist/.well-known/mdbase-app.json",
-      `${developmentDeployment.editorOrigin}/`,
-      developmentDeployment.connectOrigin
+      `${deployment.editorOrigin}/`,
+      deployment.connectOrigin
     ], deploymentEnvironment);
     await run("pnpm", [
       "dlx",
-      `wrangler@${developmentDeployment.wranglerVersion}`,
+      `wrangler@${deployment.wranglerVersion}`,
       "pages",
       "deploy",
       "apps/editor/dist",
-      `--project-name=${developmentDeployment.project}`,
-      `--branch=${developmentDeployment.branch}`
+      `--project-name=${deployment.project}`,
+      `--branch=${deployment.branch}`
     ], deploymentEnvironment);
     await run("node", [
       "apps/editor/scripts/verify-deployment-manifest.mjs",
-      `${developmentDeployment.editorOrigin}/.well-known/mdbase-app.json`,
-      `${developmentDeployment.editorOrigin}/`,
-      developmentDeployment.connectOrigin
+      `${deployment.editorOrigin}/.well-known/mdbase-app.json`,
+      `${deployment.editorOrigin}/`,
+      deployment.connectOrigin
     ], {
       ...deploymentEnvironment,
       MDBASE_MANIFEST_VERIFY_ATTEMPTS: "12",
@@ -60,7 +78,7 @@ export async function deployDevelopmentEditor(environment, run = runCommand) {
     await run("node", [
       "apps/editor/scripts/verify-deployment-assets.mjs",
       "apps/editor/dist/assets",
-      `${developmentDeployment.editorOrigin}/`
+      `${deployment.editorOrigin}/`
     ], {
       ...deploymentEnvironment,
       MDBASE_ASSET_VERIFY_ATTEMPTS: "61",
@@ -70,7 +88,7 @@ export async function deployDevelopmentEditor(environment, run = runCommand) {
     await writeFile(manifestPath, previousManifest);
   }
 
-  console.log(`Development editor deployed: ${developmentDeployment.editorOrigin}/`);
+  console.log(`${target.toUpperCase()} editor deployed: ${deployment.editorOrigin}/`);
 }
 
 async function runCommand(command, args, env) {
