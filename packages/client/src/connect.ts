@@ -42,11 +42,12 @@ import {
   MemoryGrantKeyStore,
   type GrantKeyStore
 } from "./crypto.js";
-import { connectError, serverConnectError } from "./errors.js";
+import { MdbaseConnectError, connectError, serverConnectError } from "./errors.js";
 import {
   DEFAULT_OPERATIONS,
   type Application,
   type StoredAuthorization,
+  type StoredAuthorizationCompletion,
   type StoredConnectionIndex,
   type StoredToken
 } from "./internal-types.js";
@@ -252,7 +253,10 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
   async authorize(
     options: MdbaseAuthorizeOptions = {}
   ): Promise<MdbaseAuthorizationOutcome<Frontmatter>> {
-    return withRequestBudget(options, this.timeouts.requestMs, (budget) =>
+    const authorizationTimeout = options.presentation === "popup"
+      ? 10 * 60 * 1_000
+      : this.timeouts.requestMs;
+    return withRequestBudget(options, authorizationTimeout, (budget) =>
       this.authorizeWithinBudget({ ...options, signal: budget.signal, timeoutMs: null })
     );
   }
@@ -268,7 +272,8 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     }
     const portableDeclared = typeof this.manifest !== "string"
       && this.manifest.distribution === "portable";
-    const popup = portableDeclared
+    const popupRequested = options.presentation === "popup" || portableDeclared;
+    const popup = popupRequested
       && !options.openVerification
       && !this.navigate
       && typeof window !== "undefined"
@@ -293,13 +298,13 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         options.openVerification ? null : popup
       );
     }
-    popup?.close();
-    return this.authorizeWeb(application, options);
+    return this.authorizeWeb(application, options, popup);
   }
 
   private async authorizeWeb(
     application: Application,
-    options: MdbaseAuthorizeOptions
+    options: MdbaseAuthorizeOptions,
+    popup: Window | null
   ): Promise<MdbaseAuthorizationOutcome<Frontmatter>> {
     const { verifier, challenge } = await createPkce();
     const state = randomBase64Url(24);
@@ -363,7 +368,8 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       keyHandle,
       authorizationId,
       applicationAgreementPublicKey: grantKey.agreementPublicKey,
-      applicationSigningPublicKey: grantKey.signingPublicKey
+      applicationSigningPublicKey: grantKey.signingPublicKey,
+      ...(options.presentation === "popup" && popup ? { presentation: "popup" as const } : {})
     };
     this.storage.setItem(this.pendingKey(state), JSON.stringify(pending));
     try {
@@ -406,6 +412,11 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
           "The authorization service returned an invalid authorization response."
         );
       }
+      if (options.presentation === "popup" && popup) {
+        popup.location.href = body.authorization_uri;
+        return await this.waitForPopupAuthorization(state, pending, popup, options.signal!);
+      }
+      popup?.close();
       if (this.navigate) await this.navigate(body.authorization_uri);
       else if (typeof location !== "undefined") location.assign(body.authorization_uri);
       else {
@@ -416,12 +427,56 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       }
       return { kind: "redirecting" };
     } catch (error) {
+      popup?.close();
       this.storage.removeItem(this.pendingKey(state));
       await this.keyStore.delete(keyHandle);
       if (options.signal?.aborted) {
         throw authorizationAbort(options.signal, "Application authorization was cancelled.", error);
       }
       throw error;
+    }
+  }
+
+  private async waitForPopupAuthorization(
+    state: string,
+    pending: StoredAuthorization,
+    popup: Window,
+    signal: AbortSignal
+  ): Promise<MdbaseAuthorizationOutcome<Frontmatter>> {
+    const completionKey = this.completionKey(state);
+    try {
+      while (true) {
+        const completion = parseStored<StoredAuthorizationCompletion>(this.storage.getItem(completionKey));
+        if (completion?.version === 1) {
+          this.storage.removeItem(completionKey);
+          if (completion.status === "failed") {
+            throw serverConnectError(completion.code, completion.message, {
+              details: completion.returnTo ? { return_to: completion.returnTo } : undefined
+            });
+          }
+          const connection = this.connection(completion.collectionId);
+          if (!connection) {
+            throw connectError("invalid_callback", "Authorization completed without a usable saved connection.");
+          }
+          return {
+            kind: "connected",
+            connection,
+            ...(completion.returnTo ? { returnTo: completion.returnTo } : {})
+          };
+        }
+        if (popup.closed) {
+          throw connectError("authorization_cancelled", "The Connect approval window was closed before a decision.");
+        }
+        await abortableDelay(200, signal);
+      }
+    } finally {
+      popup.close();
+      this.storage.removeItem(completionKey);
+      const outstanding = parseStored<StoredAuthorization>(this.storage.getItem(this.pendingKey(state)));
+      if (outstanding?.state === state) {
+        this.storage.removeItem(this.pendingKey(state));
+        if (pending.keyHandle) await this.keyStore.delete(pending.keyHandle);
+      }
     }
   }
 
@@ -710,9 +765,30 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         "Authorization callback is missing its state."
       ));
     }
+    const pending = parseStored<StoredAuthorization>(this.storage.getItem(this.pendingKey(state)));
+    const popupAttempt = pending?.presentation === "popup";
     const existing = this.completionPromises.get(state);
     if (existing) return existing;
-    const completion = this.performAuthorizationCompletion(callbackUrl, state, signal);
+    const completion = this.performAuthorizationCompletion(callbackUrl, state, signal)
+      .then((result) => {
+        if (popupAttempt) this.writeAuthorizationCompletion(state, {
+          version: 1,
+          status: "connected",
+          collectionId: result.connection.collectionId,
+          ...(result.returnTo ? { returnTo: result.returnTo } : {})
+        });
+        return result;
+      })
+      .catch((error: unknown) => {
+        if (popupAttempt) this.writeAuthorizationCompletion(state, {
+          version: 1,
+          status: "failed",
+          code: error instanceof MdbaseConnectError ? error.code : "invalid_callback",
+          message: error instanceof Error ? error.message : "Authorization could not be completed.",
+          ...(pending?.returnTo ? { returnTo: pending.returnTo } : {})
+        });
+        throw error;
+      });
     const shared = completion.finally(() => {
       if (this.completionPromises.get(state) === shared) this.completionPromises.delete(state);
     });
@@ -965,6 +1041,14 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
 
   private pendingKey(state: string): string {
     return `${this.storagePrefix()}:pending:${state}`;
+  }
+
+  private completionKey(state: string): string {
+    return `${this.storagePrefix()}:completion:${state}`;
+  }
+
+  private writeAuthorizationCompletion(state: string, completion: StoredAuthorizationCompletion): void {
+    this.storage.setItem(this.completionKey(state), JSON.stringify(completion));
   }
 
   private storagePrefix(): string {

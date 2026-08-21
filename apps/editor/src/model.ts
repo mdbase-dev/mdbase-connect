@@ -194,6 +194,7 @@ export interface CollectionGateway {
 
 export interface CollectionAuthorizationOptions {
   signal?: AbortSignal;
+  presentation?: "redirect" | "popup";
 }
 
 export type TypeDocument = CollectionTypeDocument;

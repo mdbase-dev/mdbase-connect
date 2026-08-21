@@ -1737,6 +1737,21 @@ select {
   display: grid;
 }
 
+.permission-delta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 1.2rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--line);
+  color: var(--ink-muted);
+  font-size: 0.7rem;
+}
+
+.permission-delta strong {
+  color: var(--ink);
+  font-family: var(--mono);
+}
+
 .permission-capabilities {
   display: grid;
   margin: 0;

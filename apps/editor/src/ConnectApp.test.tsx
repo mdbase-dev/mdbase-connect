@@ -238,7 +238,7 @@ describe("ConnectApp", () => {
 
     expect(await screen.findByText("No computers connected")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open mdbase connect" })).toHaveAttribute("href", "mdbase-connect://open");
-    expect(screen.getByRole("link", { name: "Install the latest release" })).toHaveAttribute("href", "https://github.com/mdbase-dev/mdbase-connect/releases/latest");
+    expect(screen.getByRole("link", { name: "Install the latest release" })).toHaveAttribute("href", "https://mdbase.dev/downloads/");
   });
 
   it("shows each pending request once and describes application access plainly", async () => {

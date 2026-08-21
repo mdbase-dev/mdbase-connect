@@ -44,7 +44,7 @@ const serverUrl = new URLSearchParams(location.search).get("server")
   ?? import.meta.env.VITE_MDBASE_CONNECT_URL
   ?? "https://connect.mdbase.dev";
 const management = new ConnectManagementClient(serverUrl);
-const desktopReleaseUrl = "https://github.com/mdbase-dev/mdbase-connect/releases/latest";
+const desktopReleaseUrl = "https://mdbase.dev/downloads/";
 const allOperations = [
   "describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate",
   "create", "update", "delete", "rename", "create_view_source", "update_view_source", "delete_view_source",

@@ -569,6 +569,28 @@ export function registerAuthorizationRoutes(
       [requestId, user.id]
     );
     if (!authorization.rows[0]) return reply.code(404).send(apiError("authorization_not_found", "Authorization request expired or was not found."));
+    const activeGrants = await options.db.query<{
+      collection_id: string;
+      operations: string[];
+    }>(
+      `SELECT COALESCE(col.local_id, g.hosted_collection_id::text) AS collection_id,
+              g.operations
+       FROM grants g
+       LEFT JOIN collections col ON col.id = g.collection_id
+       WHERE g.user_id = $1 AND g.application_id = $2
+         AND g.activated_at IS NOT NULL AND g.revoked_at IS NULL`,
+      [user.id, authorization.rows[0].application_id]
+    );
+    const operationsByCollection = new Map<string, Set<string>>();
+    for (const grant of activeGrants.rows) {
+      const operations = operationsByCollection.get(grant.collection_id) ?? new Set<string>();
+      for (const operation of grant.operations) operations.add(operation);
+      operationsByCollection.set(grant.collection_id, operations);
+    }
+    const existingAccess = [...operationsByCollection].map(([collection_id, operations]) => ({
+      collection_id,
+      operations: [...operations].sort()
+    }));
     const local = requiresHostedCollection(authorization.rows[0].requirements)
       ? { collections: [], unavailable_connectors: [] }
       : await liveAuthorizationCollections(options.db, relay, user.id, requestId);
@@ -619,7 +641,10 @@ export function registerAuthorizationRoutes(
       ...hostedCollections
     ];
     return {
-      authorization: authorization.rows[0],
+      authorization: {
+        ...authorization.rows[0],
+        existing_access: existingAccess
+      },
       hosted_collections_available: options.hostedCollections === true,
       unavailable_connectors: local.unavailable_connectors,
       collections: requiresHostedCollection(authorization.rows[0].requirements)
