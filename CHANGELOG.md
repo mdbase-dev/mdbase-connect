@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.1.0-beta.81
+
+Beta.81 permits applications to work with collections containing records that
+do not yet satisfy their schemas.
+
+- Application setup and direct type-pack installation no longer reject an
+  otherwise structurally valid collection because installing the types exposes
+  record-schema violations. Setup assessments continue to report baseline,
+  final, introduced, and resolved diagnostic counts.
+- Hosted saved views can evaluate the parsed frontmatter of schema-invalid
+  records without failing the whole view. The records retain their validation
+  diagnostics, while malformed frontmatter, malformed relationships, and
+  body-dependent projection gaps remain fail-closed.
+
 ## 0.1.0-beta.80
 
 Beta.80 fixes type-pack updates that rename a resource's source while retaining
