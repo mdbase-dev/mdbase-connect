@@ -1,0 +1,39 @@
+# syntax=docker/dockerfile:1.7
+FROM rust:1.94.0-bookworm AS build
+
+ARG MDBASE_RS_REPOSITORY=https://github.com/callumalpass/mdbase-rs.git
+ARG MDBASE_RS_REVISION
+
+COPY deploy/docker/mdbase-rs-revision /build/mdbase-rs-revision
+RUN revision="${MDBASE_RS_REVISION:-$(tr -d '\r\n' < /build/mdbase-rs-revision)}" \
+ && test -n "$revision" \
+ && git clone --filter=blob:none "$MDBASE_RS_REPOSITORY" /build/mdbase-rs \
+ && git -C /build/mdbase-rs checkout --detach "$revision"
+
+WORKDIR /build/mdbase-connect
+COPY Cargo.toml ./
+COPY deploy/docker/Cargo.lock.hosted-provider ./Cargo.lock
+COPY crates crates
+COPY config config
+COPY templates templates
+RUN --mount=type=cache,id=client-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=client-cargo-git,target=/usr/local/cargo/git/db,sharing=locked \
+    --mount=type=cache,id=client-target,target=/build/mdbase-connect/target,sharing=locked \
+    cargo build --locked --release -p mdbase-cli \
+ && mkdir -p /build/output \
+ && cp target/release/mdbase /build/output/mdbase
+
+FROM debian:bookworm-slim AS runtime
+
+ARG MDBASE_CONNECT_REVISION
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --create-home --uid 10001 mdbase
+
+COPY --from=build /build/output/mdbase /usr/local/bin/mdbase
+
+ENV RENDER_GIT_COMMIT=${MDBASE_CONNECT_REVISION}
+USER mdbase
+ENTRYPOINT ["/usr/local/bin/mdbase"]
+CMD ["--help"]

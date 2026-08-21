@@ -39,7 +39,8 @@ jobs:
     outputs:
       mdbase_rs_revision: ${{ steps.source.outputs.mdbase_rs_revision }}
     steps:
-      - name: Require an open, green, exact pull-request head
+      - id: qualification
+        name: Require an open, fully qualified, exact pull-request head
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -63,6 +64,7 @@ jobs:
               and .head.sha == $commit
               and .head.repo.full_name == $repository
             ' >/dev/null <<<"$pull"
+          jq -e 'any(.labels[]?; .name == "ci:full")' >/dev/null <<<"$pull"
 
           runs=$(gh run list \
             --repo "$GITHUB_REPOSITORY" \
@@ -70,14 +72,16 @@ jobs:
             --commit "$SOURCE_COMMIT" \
             --event pull_request \
             --limit 20 \
-            --json status,conclusion,headSha,event,url)
-          jq -e --arg commit "$SOURCE_COMMIT" '
-            any(.[];
+            --json databaseId,status,conclusion,headSha,event,url)
+          run_id=$(jq -er --arg commit "$SOURCE_COMMIT" '
+            [.[] | select(
               .headSha == $commit
               and .event == "pull_request"
               and .status == "completed"
-              and .conclusion == "success")
-            ' >/dev/null <<<"$runs"
+              and .conclusion == "success")]
+            | sort_by(.databaseId) | last | .databaseId
+            ' <<<"$runs")
+          echo "run_id=$run_id" >>"$GITHUB_OUTPUT"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -91,6 +95,15 @@ jobs:
           revision=$(tr -d '\r\n' <deploy/docker/mdbase-rs-revision)
           [[ $revision =~ ^[0-9a-f]{40}$ ]]
           echo "mdbase_rs_revision=$revision" >>"$GITHUB_OUTPUT"
+
+      - name: Verify the full qualification artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          scripts/ci/verify-qualified-commit
+          "$SOURCE_COMMIT"
+          "${{ steps.qualification.outputs.run_id }}"
+          pull_request
 
   publish:
     needs: authorize
@@ -114,6 +127,9 @@ jobs:
           - component: mcp
             package: mdbase-connect-mcp
             dockerfile: deploy/docker/Dockerfile.mcp
+          - component: client
+            package: mdbase-connect-client
+            dockerfile: deploy/docker/Dockerfile.client
     env:
       IMAGE: ghcr.io/mdbase-dev/${{ matrix.package }}
 
@@ -154,6 +170,25 @@ jobs:
           dockerfile: deploy/docker/Dockerfile.hosted-provider
           skip-extraction: ${{ steps.hosted-provider-cache.outputs.cache-hit }}
 
+      - name: Restore client Cargo cache mounts
+        if: matrix.component == 'client'
+        id: client-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: client-cache-mounts
+          key: staging-client-cargo-${{ hashFiles('deploy/docker/Cargo.lock.hosted-provider', 'deploy/docker/mdbase-rs-revision') }}-${{ env.SOURCE_COMMIT }}
+          restore-keys: |
+            staging-client-cargo-${{ hashFiles('deploy/docker/Cargo.lock.hosted-provider', 'deploy/docker/mdbase-rs-revision') }}-
+
+      - name: Inject client Cargo cache mounts
+        if: matrix.component == 'client'
+        uses: reproducible-containers/buildkit-cache-dance@5b81f4d29dc8397a7d341dba3aeecc7ec54d6361 # v3.3.0
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          cache-dir: client-cache-mounts
+          dockerfile: deploy/docker/Dockerfile.client
+          skip-extraction: ${{ steps.client-cache.outputs.cache-hit }}
+
       - id: build
         name: Build immutable staging image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
@@ -172,6 +207,14 @@ jobs:
           cache-to: type=gha,mode=max,scope=candidate-b-staging-${{ matrix.package }}
           provenance: mode=max
           sbom: true
+
+      - name: Smoke-test the candidate client image
+        if: matrix.component == 'client'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          expected=$(jq -r .version package.json)
+          docker run --rm "$IMAGE@$DIGEST" --version | grep -F -- "$expected"
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2

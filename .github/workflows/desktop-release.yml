@@ -19,17 +19,21 @@ on:
       - "pnpm-workspace.yaml"
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
   group: desktop-release-${{ github.ref }}
-  cancel-in-progress: false
+  # Tag publication must finish once started. Pull-request regressions are
+  # replaceable and should not make every superseded commit wait its turn.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
     if: startsWith(github.ref, 'refs/tags/v')
     name: ${{ matrix.label }}
     permissions:
+      actions: read
       contents: read
       id-token: write
     strategy:
@@ -70,6 +74,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: mdbase-connect
+
+      - name: Require exact full Server CI qualification
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/ci/verify-qualified-commit "$GITHUB_SHA"
 
       - id: version
         shell: bash
@@ -212,8 +222,6 @@ jobs:
             pnpm check:release-readiness -- --stable
           fi
       - run: pnpm build
-      - run: pnpm typecheck
-      - run: pnpm test
       - run: pnpm --filter @mdbase/connect-desktop make
 
       - name: Verify macOS release mode

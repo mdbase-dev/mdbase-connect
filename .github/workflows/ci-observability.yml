@@ -1,0 +1,64 @@
+name: Server CI timings
+
+on:
+  workflow_run:
+    workflows: [Server CI]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Capture one bounded jobs snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_EVENT: ${{ github.event.workflow_run.event }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          STARTED_AT: ${{ github.event.workflow_run.run_started_at }}
+          UPDATED_AT: ${{ github.event.workflow_run.updated_at }}
+        run: |
+          gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" \
+            >job-pages.json
+          jq -n \
+            --arg run_id "$RUN_ID" --arg head_sha "$HEAD_SHA" \
+            --arg event "$SOURCE_EVENT" --arg conclusion "$CONCLUSION" \
+            --arg started_at "$STARTED_AT" --arg updated_at "$UPDATED_AT" \
+            --slurpfile pages job-pages.json '
+              def seconds($start; $end):
+                if ($start == null or $end == null) then null
+                else (($end | fromdateiso8601) - ($start | fromdateiso8601)) end;
+              ($pages | map(.[]?.jobs // []) | add) as $jobs
+              | {schema_version:1,run_id:($run_id|tonumber),head_sha:$head_sha,
+                  event:$event,conclusion:$conclusion,started_at:$started_at,
+                  completed_at:$updated_at,
+                  duration_seconds:seconds($started_at;$updated_at),
+                  jobs:[$jobs[] | {id,name,status,conclusion,run_attempt,
+                    started_at,completed_at,
+                    duration_seconds:seconds(.started_at;.completed_at),
+                    steps:[.steps[]? | {number,name,status,conclusion,
+                      started_at,completed_at,
+                      duration_seconds:seconds(.started_at;.completed_at)}]}]}
+            ' >server-ci-timings.json
+          {
+            echo '## Server CI timing report'
+            echo
+            echo '| Job | Result | Seconds | Attempt |'
+            echo '|---|---:|---:|---:|'
+            jq -r '.jobs | sort_by(-(.duration_seconds // 0))[]
+              | "| \(.name) | \(.conclusion // .status) | \(.duration_seconds // "-") | \(.run_attempt // 1) |"' \
+              server-ci-timings.json
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: server-ci-timings-${{ github.event.workflow_run.id }}
+          path: server-ci-timings.json
+          if-no-files-found: error
+          retention-days: 90

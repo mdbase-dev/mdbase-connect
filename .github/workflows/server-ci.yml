@@ -4,8 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  merge_group:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -13,13 +16,60 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  classify:
+    name: Select qualification depth
+    runs-on: ubuntu-24.04
+    outputs:
+      run_full: ${{ steps.depth.outputs.run_full }}
+      upstream_run_id: ${{ steps.depth.outputs.upstream_run_id }}
+    steps:
+      - id: depth
+        name: Reuse only an exact merge-queue qualification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            if jq -e 'any(.pull_request.labels[]?; .name == "ci:full")' \
+              "$GITHUB_EVENT_PATH" >/dev/null
+            then
+              echo 'run_full=true' >>"$GITHUB_OUTPUT"
+            else
+              echo 'run_full=false' >>"$GITHUB_OUTPUT"
+            fi
+            echo 'upstream_run_id=' >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == merge_group ]]; then
+            echo 'run_full=true' >>"$GITHUB_OUTPUT"
+            echo 'upstream_run_id=' >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          runs=$(gh api --method GET \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/server-ci.yml/runs" \
+            --field head_sha="$GITHUB_SHA" --field event=merge_group \
+            --field status=completed)
+          upstream=$(jq -r --arg sha "$GITHUB_SHA" '
+            [.workflow_runs[] | select(
+              .head_sha == $sha and .event == "merge_group"
+              and .conclusion == "success"
+            )] | sort_by(.run_number) | last | .id // empty' <<<"$runs")
+          if [[ -n $upstream ]]; then
+            echo 'run_full=false' >>"$GITHUB_OUTPUT"
+            echo "upstream_run_id=$upstream" >>"$GITHUB_OUTPUT"
+          else
+            echo 'run_full=true' >>"$GITHUB_OUTPUT"
+            echo 'upstream_run_id=' >>"$GITHUB_OUTPUT"
+          fi
+
   windows-filesystem:
     name: Filesystem durability (${{ matrix.os }})
+    needs: classify
+    if: needs.classify.outputs.run_full == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-15, windows-2025]
+        os: [macos-15, windows-2025]
     defaults:
       run:
         working-directory: mdbase-connect
@@ -54,6 +104,8 @@ jobs:
 
   runtime-testbed:
     name: Runtime interoperability testbed
+    needs: classify
+    if: needs.classify.outputs.run_full == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -104,6 +156,8 @@ jobs:
           --timeout-ms 120000
 
   node:
+    needs: classify
+    if: needs.classify.outputs.run_full == 'true' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -132,6 +186,7 @@ jobs:
       # the timeout so a cache miss on a slow day fails fast instead of
       # silently consuming an hour.
       - uses: actions/cache@v4
+        if: needs.classify.outputs.run_full == 'true'
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
@@ -142,19 +197,39 @@ jobs:
       # every run pays the same cost -- so this path gets a wider budget than
       # the cached path. It is still bounded: the 2026-08-19 hang ran 75
       # minutes unbounded.
-      - if: steps.playwright-cache.outputs.cache-hit != 'true'
+      - if: needs.classify.outputs.run_full == 'true' && steps.playwright-cache.outputs.cache-hit != 'true'
         run: pnpm exec playwright install --with-deps chromium
         timeout-minutes: 30
-      - if: steps.playwright-cache.outputs.cache-hit == 'true'
+      - if: needs.classify.outputs.run_full == 'true' && steps.playwright-cache.outputs.cache-hit == 'true'
         run: pnpm exec playwright install chromium
         timeout-minutes: 5
-      - run: pnpm test:browser-storage
-      - run: pnpm test:accessibility
+      - if: needs.classify.outputs.run_full == 'true'
+        run: pnpm test:browser-storage
+      - if: needs.classify.outputs.run_full == 'true'
+        run: pnpm test:accessibility
       - run: pnpm typecheck
       - run: pnpm test
-      - run: pnpm package:audit
+      - if: needs.classify.outputs.run_full == 'true'
+        run: pnpm package:audit
+      - name: Pack qualified public packages
+        if: needs.classify.outputs.run_full == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/npm-packages"
+          while IFS=$'\t' read -r package_name package_dir; do
+            pnpm --dir "$package_dir" pack \
+              --pack-destination "$RUNNER_TEMP/npm-packages"
+          done < <(node scripts/public-packages.mjs)
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: needs.classify.outputs.run_full == 'true'
+        with:
+          name: qualified-npm-packages
+          path: ${{ runner.temp }}/npm-packages/*.tgz
+          if-no-files-found: error
+          retention-days: 90
 
-  server-container:
+  server-container-full:
+    needs: classify
+    if: needs.classify.outputs.run_full == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -167,8 +242,26 @@ jobs:
           MDBASE_CONNECT_E2E_BUILD=0
           node test/system/run.mjs --suite container --no-prepare
 
+  server-container:
+    needs: [classify, server-container-full]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Preserve the required check during migration
+        env:
+          RUN_FULL: ${{ needs.classify.outputs.run_full }}
+          FULL_RESULT: ${{ needs.server-container-full.result }}
+        run: |
+          if [[ "$RUN_FULL" == true ]]; then
+            [[ "$FULL_RESULT" == success ]]
+          else
+            echo 'Container qualification is deferred to the full merge lane.'
+          fi
+
   previous-release-upgrade:
     name: Previous release upgrade and OAuth
+    needs: classify
+    if: needs.classify.outputs.run_full == 'true'
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -194,6 +287,8 @@ jobs:
 
   previous-provider-upgrade:
     name: Previous provider notification recovery
+    needs: classify
+    if: needs.classify.outputs.run_full == 'true'
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -217,7 +312,9 @@ jobs:
       - name: Exercise the previous-provider recovery contract
         run: test/upgrade/provider-from-previous
 
-  hosted-provider:
+  hosted-provider-full:
+    needs: classify
+    if: needs.classify.outputs.run_full == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -303,3 +400,96 @@ jobs:
       # plane uses the same packaged Docker boundary as production.
       - run: node test/system/run.mjs --suite desktop --no-prepare
         timeout-minutes: 20
+
+  hosted-provider:
+    needs: [classify, hosted-provider-full]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Preserve the required check during migration
+        env:
+          RUN_FULL: ${{ needs.classify.outputs.run_full }}
+          FULL_RESULT: ${{ needs.hosted-provider-full.result }}
+        run: |
+          if [[ "$RUN_FULL" == true ]]; then
+            [[ "$FULL_RESULT" == success ]]
+          else
+            echo 'Rust and system qualification is deferred to the full merge lane.'
+          fi
+
+  qualification:
+    name: Qualification
+    if: always()
+    needs:
+      - classify
+      - windows-filesystem
+      - runtime-testbed
+      - node
+      - server-container
+      - server-container-full
+      - previous-release-upgrade
+      - previous-provider-upgrade
+      - hosted-provider
+      - hosted-provider-full
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require the selected qualification lane
+        env:
+          RUN_FULL: ${{ needs.classify.outputs.run_full }}
+          UPSTREAM_RUN_ID: ${{ needs.classify.outputs.upstream_run_id }}
+          WINDOWS: ${{ needs.windows-filesystem.result }}
+          RUNTIME: ${{ needs.runtime-testbed.result }}
+          NODE: ${{ needs.node.result }}
+          CONTAINER: ${{ needs.server-container-full.result }}
+          SERVER_UPGRADE: ${{ needs.previous-release-upgrade.result }}
+          PROVIDER_UPGRADE: ${{ needs.previous-provider-upgrade.result }}
+          PROVIDER: ${{ needs.hosted-provider-full.result }}
+        run: |
+          if [[ "$RUN_FULL" == true ]]; then
+            for result in "$WINDOWS" "$RUNTIME" "$NODE" "$CONTAINER" \
+              "$SERVER_UPGRADE" "$PROVIDER_UPGRADE" "$PROVIDER"
+            do
+              [[ $result == success ]]
+            done
+          elif [[ -z "$UPSTREAM_RUN_ID" ]]; then
+            [[ "$NODE" == success ]]
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Record immutable qualification inputs
+        env:
+          RUN_FULL: ${{ needs.classify.outputs.run_full }}
+          UPSTREAM_RUN_ID: ${{ needs.classify.outputs.upstream_run_id }}
+        run: |
+          kind=fast
+          [[ "$RUN_FULL" == true || -n "$UPSTREAM_RUN_ID" ]] && kind=full
+          tree=$(git rev-parse HEAD^{tree})
+          jq -n \
+            --arg commit "$GITHUB_SHA" \
+            --arg tree "$tree" \
+            --arg kind "$kind" \
+            --arg event "$GITHUB_EVENT_NAME" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --arg upstream_run_id "$UPSTREAM_RUN_ID" \
+            --arg pnpm_lock_sha256 "$(sha256sum pnpm-lock.yaml | cut -d' ' -f1)" \
+            --arg cargo_lock_sha256 "$(sha256sum deploy/docker/Cargo.lock.hosted-provider | cut -d' ' -f1)" \
+            --arg mdbase_rs_revision "$(tr -d '\r\n' <deploy/docker/mdbase-rs-revision)" \
+            --arg workflow_sha256 "$(sha256sum .github/workflows/server-ci.yml | cut -d' ' -f1)" \
+            '{schema_version:1,qualification:$kind,commit:$commit,tree:$tree,
+              event:$event,run_id:$run_id,
+              upstream_run_id:(if $upstream_run_id == "" then null else $upstream_run_id end),
+              inputs:{pnpm_lock_sha256:$pnpm_lock_sha256,
+                cargo_lock_sha256:$cargo_lock_sha256,
+                mdbase_rs_revision:$mdbase_rs_revision,
+                workflow_sha256:$workflow_sha256}}' \
+            >qualification.json
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: server-qualification
+          path: qualification.json
+          if-no-files-found: error
+          retention-days: 90
