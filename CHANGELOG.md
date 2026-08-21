@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.1.0-beta.80
+
+Beta.80 fixes type-pack updates that rename a resource's source while retaining
+the same installed target.
+
+- Type-pack retirement planning now treats an installed target as owned by the
+  desired pack even when its source path changed. Previously the planner could
+  adopt the resource from its new source and then retire the same target under
+  its old source receipt. For packs containing an exact data contract, that
+  removed the contract after adopting it and left implementing types invalid.
+- The fix preserves the desired target and retires only resources whose targets
+  are genuinely absent from the desired pack. A regression test covers renamed
+  schema, contract, and seed sources, including collection reopen validation.
+
 ## 0.1.0-beta.79
 
 Beta.79 fixes a durable write race in the engine and a credential expiry that
