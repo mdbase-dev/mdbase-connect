@@ -2601,6 +2601,9 @@ describe("authorization renewal", () => {
     expect(open).toHaveBeenCalledOnce();
     expect(open).toHaveBeenCalledWith("", "mdbase-connect-authorization", "popup,width=620,height=760");
     await vi.waitFor(() => expect(popup.location.href).toContain("https://connect.example/oauth/authorize"));
+    // Cross-Origin-Opener-Policy can sever the proxy while the window remains
+    // alive. Completion must be driven by shared callback state, not `closed`.
+    popup.closed = true;
     await expect(manager.completeAuthorization(
       `https://tasks.example/callback?code=popup-code&state=${state}`
     )).resolves.toMatchObject({ ok: true });

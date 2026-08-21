@@ -464,9 +464,9 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
             ...(completion.returnTo ? { returnTo: completion.returnTo } : {})
           };
         }
-        if (popup.closed) {
-          throw connectError("authorization_cancelled", "The Connect approval window was closed before a decision.");
-        }
+        // Connect uses cross-origin opener isolation. Once navigation reaches
+        // Connect, browsers may report this live window as `closed`; the
+        // callback record, abort signal, or request budget owns completion.
         await abortableDelay(200, signal);
       }
     } finally {
