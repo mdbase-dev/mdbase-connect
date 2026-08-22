@@ -3079,6 +3079,87 @@ describe("authorization renewal", () => {
       .toBe("Bearer hsa_direct");
   });
 
+  it("preserves a typed hosted HTTP failure when an error body is not JSON", async () => {
+    const { connect } = hostedConnection(["query"]);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
+      "<html>Render WAF reference secret-body-marker</html>",
+      { status: 403, headers: { "content-type": "text/html" } }
+    ));
+
+    const outcome = await connect.query();
+
+    expect(outcome).toMatchObject({
+      ok: false,
+      problem: {
+        code: "operation_failed",
+        message: "Collection operation failed."
+      }
+    });
+    expect(JSON.stringify(outcome)).not.toContain("secret-body-marker");
+  });
+
+  it("keeps malformed successful hosted responses classified as invalid", async () => {
+    const { connect } = hostedConnection(["query"]);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
+      "<html>unexpected success</html>",
+      { status: 200, headers: { "content-type": "text/html" } }
+    ));
+
+    await expect(connect.query()).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "invalid_operation_response" }
+    });
+  });
+
+  it("keeps a malformed successful hosted mutation response ambiguous", async () => {
+    const { connect } = hostedConnection(["create"]);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
+      "<html>unexpected success</html>",
+      { status: 200, headers: { "content-type": "text/html" } }
+    ));
+
+    await expect(connect.create({ path: "ambiguous.md", frontmatter: {} }))
+      .resolves.toMatchObject({
+        ok: false,
+        problem: { code: "operation_outcome_unknown", operation_outcome: "unknown" }
+      });
+    expect(connect.pendingMutations()).toHaveLength(1);
+  });
+
+  it("treats a non-JSON hosted mutation rejection as rejected, not ambiguous", async () => {
+    const { connect } = hostedConnection(["create"]);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
+      "<html>request denied</html>",
+      { status: 403, headers: { "content-type": "text/html" } }
+    ));
+
+    await expect(connect.create({ path: "denied.md", frontmatter: {} })).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "operation_failed", operation_outcome: "rejected" }
+    });
+    expect(connect.pendingMutations()).toEqual([]);
+  });
+
+  it.each([408, 425, 429, 500, 503])(
+    "keeps a non-JSON hosted mutation response at status %i ambiguous",
+    async (status) => {
+      const { connect } = hostedConnection(["create"]);
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
+        "<html>transient secret-body-marker</html>",
+        { status, headers: { "content-type": "text/html" } }
+      ));
+
+      const outcome = await connect.create({ path: `ambiguous-${status}.md`, frontmatter: {} });
+
+      expect(outcome).toMatchObject({
+        ok: false,
+        problem: { code: "operation_outcome_unknown", operation_outcome: "unknown" }
+      });
+      expect(JSON.stringify(outcome)).not.toContain("secret-body-marker");
+      expect(connect.pendingMutations()).toHaveLength(1);
+    }
+  );
+
   it("keeps hosted sync credentials private and refreshes them for the offline transport", async () => {
     const storage = new MemoryStorage();
     const serverUrl = "https://connect.example";
@@ -4285,6 +4366,41 @@ async function encryptedConnection() {
     applicationId: "01922222-2222-7222-8222-222222222222",
     connect: manager.connection(collectionId)!
   };
+}
+
+function hostedConnection(operations: Array<"query" | "create">) {
+  const storage = new MemoryStorage();
+  const serverUrl = "https://connect.example";
+  const providerUrl = "https://provider.example";
+  const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
+  storage.setItem(storedTokenKey(serverUrl, manifestUrl, TEST_COLLECTION_ID), JSON.stringify({
+    version: 1,
+    accessToken: "mdb_control",
+    refreshToken: "ref_current",
+    clientId: TEST_APPLICATION_ID,
+    collectionId: TEST_COLLECTION_ID,
+    collectionName: "Worklog",
+    operations,
+    scope: { contracts: [WORK_ITEM_CONTRACT], access: "contract" },
+    expiresAt: Date.now() + 60_000,
+    refreshExpiresAt: Date.now() + 120_000,
+    authority: {
+      operationsUrl: `${providerUrl}/v1/authorities/${TEST_COLLECTION_ID}/operations`,
+      syncUrl: `${providerUrl}/v1/authorities/${TEST_COLLECTION_ID}/sync`,
+      filesUrl: `${providerUrl}/v1/authorities/${TEST_COLLECTION_ID}/files`,
+      replicaId: "00000000-0000-0000-0000-000000000003",
+      version: 1,
+      accessToken: "hsa_direct"
+    }
+  }));
+  const manager = new MdbaseConnect({
+    serverUrl,
+    manifest: manifestUrl,
+    redirectUri: "https://tasks.example/callback",
+    storage,
+    relayEncryption: "disabled"
+  });
+  return { connect: manager.connection(TEST_COLLECTION_ID)! };
 }
 
 async function encryptedFixtureResponse(

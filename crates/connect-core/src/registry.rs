@@ -211,6 +211,8 @@ pub enum ConnectError {
     InvalidTimer(String),
     #[error("Timer authority error: {0}")]
     TimerRuntime(String),
+    #[error("{message}")]
+    Timer { code: String, message: String },
     #[error(transparent)]
     Provider(#[from] mdbase::runtime::ProviderError),
 }
@@ -269,6 +271,7 @@ impl ConnectError {
             Self::File { code, .. } => code.as_str(),
             Self::InvalidTimer(_) => "invalid_timer_request",
             Self::TimerRuntime(_) => "timer_runtime_failed",
+            Self::Timer { code, .. } => code.as_str(),
             Self::Provider(error) => error.code(),
         }
     }

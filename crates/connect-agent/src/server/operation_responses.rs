@@ -230,7 +230,7 @@ pub(super) fn operation_problem(error: &ConnectError) -> ConnectProblem {
         return collection_setup_problem("collection_configuration_invalid", error);
     }
     let code = match error.code() {
-        "invalid_input" | "invalid_timer_request" => "invalid_request",
+        "invalid_input" => "invalid_request",
         "collection_provider_failed"
         | "io_failed"
         | "registry_failed"
@@ -331,6 +331,37 @@ mod tests {
         assert_eq!(
             problem.operation_outcome,
             Some(ConnectOperationOutcome::NotSent)
+        );
+    }
+
+    #[test]
+    fn timer_operation_codes_cross_the_connector_boundary() {
+        for code in ["invalid_timer_request", "timer_criterion_not_authorized"] {
+            let problem = operation_problem(&ConnectError::Timer {
+                code: code.to_string(),
+                message: "The timer request was rejected.".to_string(),
+            });
+
+            assert_eq!(problem.code, "unknown");
+            assert_eq!(problem.server_code.as_deref(), Some(code));
+            assert_eq!(
+                problem.operation_outcome,
+                Some(ConnectOperationOutcome::Rejected)
+            );
+        }
+    }
+
+    #[test]
+    fn internal_timer_errors_keep_the_established_operation_failure_contract() {
+        let problem = operation_problem(&ConnectError::TimerRuntime(
+            "The timer store failed.".to_string(),
+        ));
+
+        assert_eq!(problem.code, "operation_failed");
+        assert_eq!(problem.server_code, None);
+        assert_eq!(
+            problem.operation_outcome,
+            Some(ConnectOperationOutcome::Rejected)
         );
     }
 }

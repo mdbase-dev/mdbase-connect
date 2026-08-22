@@ -325,6 +325,7 @@ export class ConnectionTransport {
       )
     });
     let body: any;
+    let malformedHostedHttpFailure = false;
     try {
       body = await decodeJsonResponse(
         response,
@@ -332,15 +333,24 @@ export class ConnectionTransport {
         "The collection authority returned a response that is not valid JSON."
       );
     } catch (cause) {
-      if (attempt.pendingMutation) throw unknownMutationOutcome(attempt.requestId, cause);
-      throw connectError(
-        "invalid_operation_response",
-        "The collection authority returned a response that is not valid JSON.",
-        { cause }
-      );
+      if (!response.ok && token.authority && isDefinitiveHostedHttpRejection(response.status)) {
+        malformedHostedHttpFailure = true;
+      } else {
+        if (attempt.pendingMutation) throw unknownMutationOutcome(attempt.requestId, cause);
+        throw connectError(
+          "invalid_operation_response",
+          "The collection authority returned a response that is not valid JSON.",
+          { cause }
+        );
+      }
     }
     if (!response.ok) {
-      const error = apiError(body, "operation_failed", "Collection operation failed.", response.status);
+      const error = malformedHostedHttpFailure
+        ? serverConnectError("operation_failed", "Collection operation failed.", {
+            status: response.status,
+            operationOutcome: "rejected"
+          })
+        : apiError(body, "operation_failed", "Collection operation failed.", response.status);
       const recovery = await retryBusy(error);
       if (recovery.retried) return recovery.result;
       if (error.code === "fresh_request_required"
@@ -996,4 +1006,10 @@ export class ConnectionTransport {
       void this.keyStore.delete(pending.keyHandle).catch(() => undefined);
     }
   }
+}
+
+function isDefinitiveHostedHttpRejection(status: number): boolean {
+  return status >= 400
+    && status < 500
+    && ![408, 425, 429].includes(status);
 }
