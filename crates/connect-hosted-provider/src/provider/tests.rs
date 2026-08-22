@@ -1,6 +1,5 @@
-use super::operation_dispatch::{
-    ensure_collection_setup_declaration_binding, validate_hosted_operation_input,
-};
+use super::operation_dispatch::ensure_collection_setup_declaration_binding;
+use super::operation_input::validate_hosted_operation_input;
 use super::*;
 use mdbase_connect_protocol::CollectionFileDescriptor;
 use serde_json::Map;
