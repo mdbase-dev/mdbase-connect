@@ -23,10 +23,10 @@
     { "id": "apply_type_pack", "input_schema_version": 1, "mutation": "always" },
     { "id": "assess_collection_setup", "input_schema_version": 1, "mutation": "never" },
     { "id": "apply_collection_setup", "input_schema_version": 1, "mutation": "always" },
-    { "id": "list_timers", "input_schema_version": 1, "mutation": "never" },
-    { "id": "put_timer", "input_schema_version": 1, "mutation": "always" },
-    { "id": "cancel_timer", "input_schema_version": 1, "mutation": "always" },
-    { "id": "reconcile_timers", "input_schema_version": 1, "mutation": "always" },
+    { "id": "list_timers", "input_schema_version": 1, "mutation": "never", "requires_timer_criterion": true },
+    { "id": "put_timer", "input_schema_version": 1, "mutation": "always", "requires_timer_criterion": true },
+    { "id": "cancel_timer", "input_schema_version": 1, "mutation": "always", "requires_timer_criterion": true },
+    { "id": "reconcile_timers", "input_schema_version": 1, "mutation": "always", "requires_timer_criterion": true },
     { "id": "sync", "input_schema_version": 1, "mutation": "sync_action" }
   ],
   "file_control_messages": [

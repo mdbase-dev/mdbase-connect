@@ -1078,6 +1078,36 @@ describe("mdbase connect server", () => {
     const applicationManifestDigest =
       registration.json().application.manifest_digest as string;
     const verifier = "portable-verifier-that-is-long-enough-for-pkce-0001";
+    const timerProof = await testApplicationAuthorization({
+      applicationId,
+      applicationDeclarationId: manifest.id,
+      applicationManifestDigest,
+      flow: "device_code",
+      codeChallenge: pkceChallenge(verifier),
+      requestedOperations: ["put_timer"],
+      collectionId
+    });
+    const timerDevice = await app.inject({
+      method: "POST",
+      url: "/oauth/device_authorization",
+      headers: {
+        origin: "null",
+        "content-type": "application/x-www-form-urlencoded"
+      },
+      payload: new URLSearchParams({
+        client_id: applicationId,
+        operations: "put_timer",
+        collection_id: collectionId,
+        code_challenge: pkceChallenge(verifier),
+        code_challenge_method: "S256",
+        application_authorization: JSON.stringify(timerProof)
+      }).toString()
+    });
+    expect(timerDevice.statusCode).toBe(400);
+    expect(timerDevice.json().error.message).toBe(
+      "Timer operations require an mdbase.runtime.timer.fired notification criterion."
+    );
+
     const proof = await testApplicationAuthorization({
       applicationId,
       applicationDeclarationId: manifest.id,
