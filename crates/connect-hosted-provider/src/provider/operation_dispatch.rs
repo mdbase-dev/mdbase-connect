@@ -34,6 +34,23 @@ impl HostedProvider {
             }
         };
         authorize_application_operation(&replica, operation, request_origin)?;
+        let mutating = mdbase_connect_protocol::is_mutating_operation(operation, &input);
+        if mutating {
+            if let Some(result) = self
+                .replay_terminal_operation_mutation(
+                    collection_id,
+                    &replica,
+                    operation,
+                    request_id,
+                    &input,
+                )
+                .await?
+            {
+                duplicate_replay(operation);
+                return result;
+            }
+        }
+        validate_hosted_operation_input(operation, &input)?;
         let portable_selector = matches!(
             operation,
             "query" | "read" | "create" | "update" | "delete" | "rename"
@@ -41,7 +58,7 @@ impl HostedProvider {
         let contract_scope = self
             .contract_scope(collection_id, &replica, portable_selector)
             .await?;
-        if mdbase_connect_protocol::is_mutating_operation(operation, &input) {
+        if mutating {
             let claim = self
                 .claim_operation_mutation(collection_id, &replica, operation, request_id, &input)
                 .await?;

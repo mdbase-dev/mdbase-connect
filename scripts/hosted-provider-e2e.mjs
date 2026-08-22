@@ -22,6 +22,7 @@ import {
   authorizationContractRequirements,
   MDBASE_RECORD_CREATED_CONTRACT,
   MDBASE_TIMER_FIRED_CONTRACT,
+  mutationFingerprint,
   OPERATION_TRANSPORT_PROTOCOL_VERSION
 } from "../packages/protocol/dist/index.js";
 import { availableTcpPort, delay } from "./lib/test-runtime.mjs";
@@ -342,12 +343,110 @@ try {
         allowed_types: [],
         contract_scope: [],
         full_collection: true,
-        allowed_operations: ["create", "rename", "delete", "create_type"],
+        allowed_operations: ["changes", "create", "rename", "delete", "create_type"],
         grant_id: crypto.randomUUID(),
         token: fullReplicaToken
       }
     }
   );
+  const recordsBeforeInvalidCreate = await postgresQuery(
+    `SELECT count(*) FROM hosted_provider_records WHERE collection_id = '${provisionCollectionId}'`
+  );
+  const journalBeforeInvalidCreate = await postgresQuery(
+    `SELECT count(*) FROM hosted_provider_mutation_journal WHERE replica_id = '${fullReplicaId}'`
+  );
+  const invalidCreate = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/create`,
+    {
+      method: "POST",
+      token: fullReplicaToken,
+      body: { document: "---\ntitle: Must not be created\n---\n" }
+    }
+  );
+  assert.equal(invalidCreate.status, 400, JSON.stringify(invalidCreate.body));
+  assert.equal(invalidCreate.body.error.code, "invalid_request");
+  assert.match(invalidCreate.body.error.message, /`document`/);
+  assert.equal(
+    await postgresQuery(
+      `SELECT count(*) FROM hosted_provider_records WHERE collection_id = '${provisionCollectionId}'`
+    ),
+    recordsBeforeInvalidCreate
+  );
+  assert.equal(
+    await postgresQuery(
+      `SELECT count(*) FROM hosted_provider_mutation_journal WHERE replica_id = '${fullReplicaId}'`
+    ),
+    journalBeforeInvalidCreate
+  );
+  const omittedChanges = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/changes`,
+    { method: "POST", token: fullReplicaToken, body: {} }
+  );
+  assert.equal(omittedChanges.status, 200, JSON.stringify(omittedChanges.body));
+  assert.deepEqual(omittedChanges.body.result.events, []);
+  assert.equal(omittedChanges.body.result.has_more, false);
+  assert.equal(Number.isSafeInteger(omittedChanges.body.result.cursor), true);
+  const clampedChanges = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/changes`,
+    { method: "POST", token: fullReplicaToken, body: { after: 0, limit: 501 } }
+  );
+  assert.equal(clampedChanges.status, 200, JSON.stringify(clampedChanges.body));
+  for (const [input, field] of [
+    [{ since: 0 }, "since"],
+    [{ after: -1 }, "after"],
+    [{ after: 1.5 }, "after"],
+    [{ after: null }, "after"],
+    [{ limit: "10" }, "limit"]
+  ]) {
+    const invalidChanges = await rawRequest(
+      provider.url,
+      `/v1/authorities/${provisionCollectionId}/operations/changes`,
+      { method: "POST", token: fullReplicaToken, body: input }
+    );
+    assert.equal(invalidChanges.status, 400, JSON.stringify(invalidChanges.body));
+    assert.equal(invalidChanges.body.error.code, "invalid_request");
+    assert.equal(invalidChanges.body.error.message.includes(`\`${field}\``), true);
+  }
+  const legacyReplayRequestId = crypto.randomUUID();
+  const legacyReplayBaseInput = { path: "legacy-input-replay.md" };
+  const legacyReplayResult = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/create`,
+    {
+      method: "POST",
+      token: fullReplicaToken,
+      requestId: legacyReplayRequestId,
+      body: legacyReplayBaseInput
+    }
+  );
+  assert.equal(legacyReplayResult.status, 200, JSON.stringify(legacyReplayResult.body));
+  const legacyReplayInput = {
+    ...legacyReplayBaseInput,
+    document: "This field was ignored by older providers."
+  };
+  const legacyReplayDigest = Buffer.from(
+    await mutationFingerprint("create", legacyReplayInput),
+    "base64url"
+  ).toString("hex");
+  await postgresQuery(
+    `UPDATE hosted_provider_mutation_journal
+     SET input_digest = decode('${legacyReplayDigest}', 'hex')
+     WHERE replica_id = '${fullReplicaId}' AND request_id = '${legacyReplayRequestId}'`
+  );
+  const legacyReplay = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/create`,
+    {
+      method: "POST",
+      token: fullReplicaToken,
+      requestId: legacyReplayRequestId,
+      body: legacyReplayInput
+    }
+  );
+  assert.deepEqual(legacyReplay.body, legacyReplayResult.body);
   for (const fixture of [
     {
       path: "workout.md",

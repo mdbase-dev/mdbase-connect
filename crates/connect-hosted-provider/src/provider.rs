@@ -82,6 +82,7 @@ mod mutation_receipt;
 mod mutations;
 mod operation_context;
 mod operation_dispatch;
+mod operation_input;
 mod operation_queries;
 mod operation_reads;
 mod operation_records;
@@ -108,6 +109,7 @@ use lifecycle_states::{
 };
 pub use lifecycle_states::{ProviderAuthorityImportState, ProviderAuthorityTransferState};
 use operation_context::RecordOperationContext;
+use operation_input::*;
 use persistence::*;
 use policy::*;
 pub use projections::{
