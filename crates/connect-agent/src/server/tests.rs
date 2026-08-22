@@ -11,6 +11,149 @@ use tokio::net::UnixStream;
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
+async fn access_snapshot_response(
+    cloud: CloudControlClient,
+) -> mdbase_connect_protocol::ControlResponse {
+    let test_root = tempfile::tempdir().unwrap();
+    let registry = CollectionRegistry::open(test_root.path().join("state")).unwrap();
+    let watcher = CollectionWatchService::start(registry.clone());
+    let state = Arc::new(AgentState::new(registry, watcher, Some(cloud)));
+    state
+        .execute(ControlRequest::new(ControlCommand::AccessSnapshot))
+        .await
+}
+
+#[tokio::test]
+async fn access_snapshot_falls_back_only_when_the_control_plane_is_unavailable() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    drop(listener);
+    let response = access_snapshot_response(CloudControlClient::new(
+        format!("http://{address}"),
+        "connector-token".to_string(),
+    ))
+    .await;
+
+    assert!(response.ok, "{:?}", response.error);
+    let snapshot = response.result.unwrap();
+    assert_eq!(snapshot["configured"], true);
+    assert_eq!(snapshot["online"], false);
+}
+
+#[tokio::test]
+async fn access_snapshot_falls_back_for_transient_http_statuses() {
+    for status in [
+        axum::http::StatusCode::REQUEST_TIMEOUT,
+        axum::http::StatusCode::TOO_MANY_REQUESTS,
+        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+    ] {
+        let app = axum::Router::new().route(
+            "/v1/connectors/control",
+            axum::routing::get(move || async move {
+                (
+                    status,
+                    axum::Json(serde_json::json!({
+                        "error": {
+                            "code": "temporary_control_failure",
+                            "message": "Try again."
+                        }
+                    })),
+                )
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let response = access_snapshot_response(CloudControlClient::new(
+            format!("http://{address}"),
+            "connector-token".to_string(),
+        ))
+        .await;
+
+        assert!(response.ok, "HTTP {status}: {:?}", response.error);
+        assert_eq!(response.result.unwrap()["online"], false);
+        server.abort();
+    }
+}
+
+#[tokio::test]
+async fn access_snapshot_propagates_malformed_control_plane_json() {
+    let app = axum::Router::new().route(
+        "/v1/connectors/control",
+        axum::routing::get(|| async { "not json" }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let response = access_snapshot_response(CloudControlClient::new(
+        format!("http://{address}"),
+        "connector-token".to_string(),
+    ))
+    .await;
+
+    assert!(!response.ok);
+    assert_eq!(response.error.unwrap().code, "serialization_failed");
+    server.abort();
+}
+
+#[tokio::test]
+async fn access_snapshot_propagates_control_plane_protocol_failures() {
+    let app = axum::Router::new().route(
+        "/v1/connectors/control",
+        axum::routing::get(|| async { axum::Json(serde_json::json!({ "online": true })) }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let response = access_snapshot_response(CloudControlClient::new(
+        format!("http://{address}"),
+        "connector-token".to_string(),
+    ))
+    .await;
+
+    assert!(!response.ok);
+    assert_eq!(response.error.unwrap().code, "serialization_failed");
+    server.abort();
+}
+
+#[tokio::test]
+async fn access_snapshot_propagates_structured_cloud_errors() {
+    let app = axum::Router::new().route(
+        "/v1/connectors/control",
+        axum::routing::get(|| async {
+            (
+                axum::http::StatusCode::UNAUTHORIZED,
+                axum::Json(serde_json::json!({
+                    "error": {
+                        "code": "connector_authentication_failed",
+                        "message": "Connector authentication failed."
+                    }
+                })),
+            )
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let response = access_snapshot_response(CloudControlClient::new(
+        format!("http://{address}"),
+        "connector-token".to_string(),
+    ))
+    .await;
+
+    assert!(!response.ok);
+    assert_eq!(
+        response.error.unwrap().code,
+        "connector_authentication_failed"
+    );
+    server.abort();
+}
+
 #[tokio::test]
 async fn listening_callback_runs_after_the_control_socket_is_reachable() {
     // Darwin's sockaddr_un path is substantially shorter than Linux's. Use

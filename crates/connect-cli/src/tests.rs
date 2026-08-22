@@ -70,6 +70,45 @@ fn human_status_is_quiet_and_explicit() {
 }
 
 #[test]
+fn human_access_output_names_control_plane_reachability() {
+    let value = serde_json::json!({
+        "online": false,
+        "pending_authorizations": [],
+        "grants": []
+    });
+    assert_eq!(
+        render_human(OutputKind::Access, &value),
+        "Control plane: unreachable\nPending requests: 0\nActive grants: 0"
+    );
+}
+
+#[test]
+fn human_whoami_output_distinguishes_account_configuration_from_reachability() {
+    let value = serde_json::json!({
+        "configured": true,
+        "online": false,
+        "account": null
+    });
+    assert_eq!(
+        render_human(OutputKind::Account, &value),
+        "Account configured on this computer\nControl plane: unreachable"
+    );
+}
+
+#[test]
+fn human_login_account_output_does_not_invent_control_plane_status() {
+    let value = serde_json::json!({
+        "user_name": "Callum",
+        "user_email": "callum@example.com",
+        "connector_name": "Workstation"
+    });
+    assert_eq!(
+        render_human(OutputKind::Account, &value),
+        "Callum\ncallum@example.com\nWorkstation"
+    );
+}
+
+#[test]
 fn collection_table_has_stable_columns() {
     let value = serde_json::json!([{
         "display_name": "Notes",

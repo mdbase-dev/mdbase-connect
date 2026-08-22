@@ -84,6 +84,11 @@ Diagnostics go to stderr. Stable error codes determine non-zero exit status.
 Commands that identify an existing collection, mirror, request, or grant use
 its stable ID.
 
+For `whoami` and `access list`, `online` means the connector could reach the
+Connect control plane. It does not describe independently authorized direct
+access to hosted collections, which can remain available when the control plane
+is unreachable or this computer is not connected to an account.
+
 `daemon run` is the foreground primitive used by service managers, containers,
 tests, and debugging. `daemon install` registers a per-user launch agent,
 systemd user unit, or Windows per-user background task. It must not require an

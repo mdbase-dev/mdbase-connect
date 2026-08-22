@@ -168,7 +168,12 @@ pub(super) fn render_human(kind: OutputKind, value: &Value) -> String {
                 .unwrap_or(&[]);
             let grants = value["grants"].as_array().map(Vec::as_slice).unwrap_or(&[]);
             format!(
-                "Pending requests: {}\nActive grants: {}",
+                "Control plane: {}\nPending requests: {}\nActive grants: {}",
+                if value["online"].as_bool().unwrap_or(false) {
+                    "reachable"
+                } else {
+                    "unreachable"
+                },
                 requests.len(),
                 grants.len()
             )
@@ -189,15 +194,27 @@ pub(super) fn render_human(kind: OutputKind, value: &Value) -> String {
             if value["configured"] == Value::Bool(false) {
                 return "This computer is not connected to an account.".to_string();
             }
-            let account = value.get("account").unwrap_or(value);
-            let user = account["user_name"].as_str().unwrap_or("Connected");
+            let account = value
+                .get("account")
+                .filter(|account| !account.is_null())
+                .unwrap_or(value);
+            let user = account["user_name"]
+                .as_str()
+                .unwrap_or("Account configured on this computer");
             let email = account["user_email"].as_str().unwrap_or("");
             let computer = account["connector_name"].as_str().unwrap_or("");
-            [user, email, computer]
+            let mut lines = [user, email, computer]
                 .into_iter()
                 .filter(|value| !value.is_empty())
-                .collect::<Vec<_>>()
-                .join("\n")
+                .collect::<Vec<_>>();
+            if let Some(online) = value.get("online").and_then(Value::as_bool) {
+                lines.push(if online {
+                    "Control plane: reachable"
+                } else {
+                    "Control plane: unreachable"
+                });
+            }
+            lines.join("\n")
         }
         OutputKind::Mirrors => render_rows(
             value.as_array().map(Vec::as_slice).unwrap_or(&[]),
