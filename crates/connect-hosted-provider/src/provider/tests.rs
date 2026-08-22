@@ -1,4 +1,6 @@
-use super::operation_dispatch::ensure_collection_setup_declaration_binding;
+use super::operation_dispatch::{
+    ensure_collection_setup_declaration_binding, validate_hosted_operation_input,
+};
 use super::*;
 use mdbase_connect_protocol::CollectionFileDescriptor;
 use serde_json::Map;
@@ -6,6 +8,44 @@ use serde_json::Map;
 #[test]
 fn rollback_binaries_tolerate_newer_additive_migrations() {
     assert!(hosted_migrator().ignore_missing);
+}
+
+#[test]
+fn hosted_create_rejects_unknown_top_level_fields() {
+    let error = validate_hosted_operation_input(
+        "create",
+        &json!({"path": "one.md", "document": "# Not a create input"}),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, "invalid_request");
+    assert!(error.message.contains("`document`"));
+}
+
+#[test]
+fn hosted_changes_distinguishes_omitted_and_invalid_inputs() {
+    validate_hosted_operation_input("changes", &json!({})).unwrap();
+    validate_hosted_operation_input("changes", &json!({"after": 0, "limit": 500})).unwrap();
+    validate_hosted_operation_input("changes", &json!({"limit": 501})).unwrap();
+
+    for input in [
+        json!({"since": 0}),
+        json!({"after": -1}),
+        json!({"after": 1.5}),
+        json!({"after": null}),
+        json!({"limit": "10"}),
+        json!({"limit": null}),
+        json!({"limit": 1.5}),
+        json!({"limit": -1}),
+        json!({"limit": 0}),
+    ] {
+        assert_eq!(
+            validate_hosted_operation_input("changes", &input)
+                .unwrap_err()
+                .code,
+            "invalid_request",
+            "input: {input}"
+        );
+    }
 }
 
 #[test]
