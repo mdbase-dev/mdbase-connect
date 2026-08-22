@@ -48,9 +48,13 @@ They are never truncated or normalized.
 
 Password login is available at `POST /v1/auth/password/login`. Invitation
 inspection and redemption use `POST /v1/auth/password/invitation` and
-`POST /v1/auth/password/signup`. All three require an exact same-origin
-`Origin` header. Successful login and signup issue the same HTTP-only,
-same-site session cookie used by external providers.
+`POST /v1/auth/password/signup`. Public password registration requests,
+inspects, and redeems an email-verification challenge through
+`POST /v1/auth/password/signup/request`,
+`POST /v1/auth/password/signup/verification`, and
+`POST /v1/auth/password/signup/public`. All authentication mutations require
+an exact same-origin `Origin` header. Successful login and signup issue the
+same HTTP-only, same-site session cookie used by external providers.
 
 Password recovery uses `POST /v1/auth/password/recovery` to request a link and
 `POST /v1/auth/password/reset` to redeem it. The request endpoint always
@@ -88,6 +92,15 @@ referrers. The portal removes the fragment from browser history immediately,
 then submits the token in a same-origin JSON request. Neither application logs
 nor database rows may contain the plaintext token.
 
+Public signup verification uses the equivalent fragment-only boundary:
+`/signup#verification=<token>`. The request endpoint returns the same `202`
+body whether the address is available or belongs to an existing account. Both
+paths perform the same challenge write, but only available addresses receive
+the link. Challenges are one-hour and single-use;
+requesting another invalidates the previous challenge. Account creation,
+verified email ownership, password credential, agreement acceptance, session,
+entitlement, and starter-collection scheduling commit in one transaction.
+
 Password reset links use the same boundary:
 `/reset-password#reset=<token>`. The challenge expires after one hour.
 Requesting another link invalidates the previous active challenge before
@@ -112,11 +125,12 @@ as soon as PostgreSQL commits it. If authentication volume later warrants a
 cache, invalidation must use PostgreSQL notifications or a similarly shared
 mechanism; an instance-local TTL alone must not weaken emergency shutdown.
 
-Password registration currently supports `invite` mode only. `open` continues
-to govern configured external providers, but it does not advertise password
-signup: public password registration needs a separate email-verification flow.
-This prevents an operator setting from silently creating unverified
-email/password accounts.
+Password invitations are redeemable in both `invite` and `open` modes so a
+policy transition does not strand issued invitations. Public password signup
+is advertised only in `open` mode, and only when password authentication, the
+shared abuse limiter, current legal documents, audited email delivery, and a
+runtime email transport are all available. The server never creates an
+unverified email/password account.
 
 ## Abuse controls
 
@@ -126,11 +140,11 @@ addresses or IP addresses and never unkeyed hashes of low-entropy identifiers.
 Separate scopes cover normalized email, source network, account, and global
 send volume.
 
-Recovery requests allow three attempts per normalized address and ten per
-source network per hour. Reset redemption is separately limited by token and
-source network. All scopes also consume the shared global authentication
-limit. The unauthenticated HTTP response remains generic until a limit is
-crossed.
+Recovery and public-signup requests allow three attempts per normalized
+address and ten per source network per hour. Reset and signup-verification
+redemption are separately limited by token and source network. All scopes also
+consume the shared global authentication limit. The unauthenticated request
+response remains generic until a limit is crossed.
 
 The application will own limit duration, escalation, and cleanup policy. The
 database table owns only the shared counter state. This lets the beta use
@@ -179,11 +193,11 @@ Password signup also requires
 the exact documents represented by the database policy versions. Both must use
 HTTPS outside loopback development.
 
-Password recovery additionally requires
+Password recovery and public password registration additionally require
 `MDBASE_CONNECT_RESEND_API_KEY` and `MDBASE_CONNECT_EMAIL_FROM` on the Connect
 runtime and `email_delivery_enabled` in the audited database policy. The portal
-does not advertise recovery unless the shared rate limiter, password
-authentication, email-delivery policy, and runtime transport are all active.
+does not advertise either capability unless its complete dependency set is
+active.
 
 ## Instance administration
 

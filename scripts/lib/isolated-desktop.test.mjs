@@ -65,3 +65,23 @@ test("explicit development overrides remain available without reading production
   assert.equal(configuration.childEnvironment.MDBASE_CONNECT_HOME, connectHome);
   assert.equal(configuration.childEnvironment.MDBASE_CONNECT_REGISTER_DEEP_LINKS, "1");
 });
+
+test("registry-provided environments configure Electron without staging-only flags", async () => {
+  const configuration = await isolatedDesktopConfiguration({
+    MDBASE_ENV: "lab",
+    MDBASE_CONNECT_URL: "https://mdbase-connect-lab.onrender.com",
+    MDBASE_EDITOR_URL: "https://candidate-b.mdbase-editor.pages.dev",
+    MDBASE_CONNECT_LOOPBACK_PORT: "28487"
+  }, [], async () => 1);
+
+  assert.equal(configuration.namedEnvironment, "lab");
+  assert.equal(configuration.loopbackPort, "28487");
+  assert.equal(
+    configuration.childEnvironment.VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL,
+    "https://mdbase-connect-lab.onrender.com"
+  );
+  assert.equal(
+    configuration.childEnvironment.MDBASE_EDITOR_URL,
+    "https://candidate-b.mdbase-editor.pages.dev"
+  );
+});

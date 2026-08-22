@@ -34,7 +34,7 @@ ignored by Git and must not be copied into images or backups.
 ## DNS, TLS, and authentication
 
 Choose a public HTTPS origin such as `https://connect.example.com`.
-Authentication may use GitHub, invited email/password accounts, or both.
+Authentication may use GitHub, verified email/password accounts, or both.
 
 For GitHub, create an OAuth application with:
 
@@ -52,7 +52,10 @@ must be stable and identical across every Connect instance. Leave registration
 `closed` and password authentication disabled in the database until deployment
 and migration checks pass. Then use the audited operator CLI described in
 [`account-authentication.md`](./account-authentication.md) to configure document
-versions, enable invite mode, and create invitations.
+versions, enable invite mode, and create invitations. To enable public password
+registration later, configure the runtime email transport, enable audited email
+delivery, and move the registration policy to `open`; public signup is not
+advertised unless every dependency is active.
 
 The optional `auth-admin` Compose profile runs the same CLI as a hardened
 one-shot container without exposing an administration endpoint. For example:
@@ -70,8 +73,9 @@ account mutation. In particular, restore does not revive any credential
 revoked by suspension.
 
 Populate `RESEND_API_KEY` and `EMAIL_FROM` to deliver invitations with
-`invite create --send-email enabled` and to offer password recovery in the
-Connect portal. The same restricted sending credential is passed to the
+`invite create --send-email enabled`, offer password recovery, and support
+verified public password signup in the Connect portal. The same restricted
+sending credential is passed to the
 one-shot operator CLI and the Connect runtime. Without it, the CLI returns the
 sensitive invitation URL for delivery through another trusted process and the
 portal does not advertise password recovery.

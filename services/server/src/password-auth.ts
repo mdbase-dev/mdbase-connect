@@ -252,7 +252,7 @@ export class PasswordAccountService {
   async acceptInvitation(input: AcceptInvitationInput): Promise<PasswordSession> {
     const name = requiredText(input.name, 100, "Account name");
     if (input.invitationToken.length > 200) throw new InvalidInvitationError();
-    requireSignupEnabled(await this.policy.current());
+    requireInvitationSignupEnabled(await this.policy.current());
     const invitationHash = tokenHash(input.invitationToken);
     const preliminary = await this.db.query<InvitationRow>(
       `SELECT invitation.id, invitation.email, invitation.normalized_email,
@@ -277,7 +277,7 @@ export class PasswordAccountService {
     try {
       await connection.query("BEGIN");
       const settings = await this.policy.currentForAccountChange(connection);
-      requireSignupEnabled(settings);
+      requireInvitationSignupEnabled(settings);
       const invitation = await connection.query<
         Omit<InvitationRow, "entitlement_profile">
       >(
@@ -395,7 +395,7 @@ export class PasswordAccountService {
   async invitationDetails(invitationToken: string): Promise<InvitationDetails> {
     if (invitationToken.length > 200) throw new InvalidInvitationError();
     const settings = await this.policy.current();
-    requireSignupEnabled(settings);
+    requireInvitationSignupEnabled(settings);
     const invitation = await this.db.query<InvitationRow>(
       `SELECT id, email, normalized_email, terms_version, privacy_version,
               expires_at
@@ -646,10 +646,10 @@ function requiredAgreements(settings: AuthenticationSettings): {
   };
 }
 
-function requireSignupEnabled(settings: AuthenticationSettings): void {
+function requireInvitationSignupEnabled(settings: AuthenticationSettings): void {
   if (
     !settings.passwordAuthEnabled
-    || settings.registrationMode !== "invite"
+    || !["invite", "open"].includes(settings.registrationMode)
   ) {
     throw new PasswordAuthenticationUnavailableError();
   }

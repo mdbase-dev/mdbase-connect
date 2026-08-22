@@ -24,6 +24,7 @@ const { app } = await buildApp({
   db,
   revision: process.env.RENDER_GIT_COMMIT,
   publicUrl: runtime.publicUrl,
+  environment: runtime.environment,
   portalDist,
   devAuth: runtime.devAuth,
   tailscaleAuth: runtime.tailscaleAuth,
