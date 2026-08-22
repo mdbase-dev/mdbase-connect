@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
+import { parse } from "yaml";
 import { createDatabase, type DatabasePool } from "./db.js";
 import {
   hostedContracts,
-  HostedAuthorityRegistry
+  HostedAuthorityRegistry,
+  hostedResources
 } from "./hosted.js";
 
 let database: DatabasePool | undefined;
@@ -12,6 +14,29 @@ afterEach(async () => database?.end());
 describe("hosted collection profiles", () => {
   it("keeps generic mdbase collections independent of application contracts", () => {
     expect(hostedContracts("mdbase")).toEqual([]);
+  });
+
+  it.each(["mdbase", "onboarding"])("allows neutral Base paths in fresh %s templates", (name) => {
+    const resources = hostedResources(name);
+    const configuration = resources.documents[0]!;
+    expect(resources.revision).toBe("mdbase-template:2");
+    expect(configuration).toMatchObject({
+      path: "mdbase.yaml",
+      kind: "configuration"
+    });
+    expect(parse(configuration.document)).toEqual({
+      spec_version: "0.3.0",
+      settings: {
+        types_folder: "_types",
+        default_validation: "error",
+        timezone: "UTC"
+      },
+      "x-obsidian": {
+        bases: {
+          include: ["views/**/*.base"]
+        }
+      }
+    });
   });
 });
 
