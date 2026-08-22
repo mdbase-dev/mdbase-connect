@@ -122,7 +122,7 @@ describe("mdbase connect server", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       status: "ready",
       provider: {
-        version: "0.1.0-beta.81",
+        version: "0.1.0-beta.82",
         capabilities: [
           ...HOSTED_PROVIDER_REQUIRED_CAPABILITIES,
           HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY
