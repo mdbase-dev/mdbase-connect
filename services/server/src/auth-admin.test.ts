@@ -465,6 +465,158 @@ describe("authentication operator command", () => {
     ]);
   });
 
+  it("reconciles active hosted accounts as one resumable private batch", async () => {
+    const context = await fixture();
+    const activeA = "10000000-0000-4000-8000-000000000091";
+    const activeB = "10000000-0000-4000-8000-000000000092";
+    const suspended = "10000000-0000-4000-8000-000000000093";
+    const empty = "10000000-0000-4000-8000-000000000094";
+    for (const [id, status] of [
+      [activeA, "active"],
+      [activeB, "active"],
+      [suspended, "suspended"],
+      [empty, "active"]
+    ]) {
+      await context.db.query(
+        `INSERT INTO users (id, email, name, suspended_at)
+         VALUES ($1, $2, 'Batch account', $3)`,
+        [id, `${id}@example.com`, status === "suspended" ? new Date() : null]
+      );
+    }
+    let grantSequence = 100;
+    for (const userId of [activeA, activeB, suspended]) {
+      grantSequence += 1;
+      await runAuthAdminCommand([
+        "entitlements", "grant",
+        "--user", userId,
+        "--profile", "beta_v1",
+        "--operation-id", `20000000-0000-4000-8000-000000000${grantSequence}`,
+        "--actor", "operator:test",
+        "--reason", "Prepare batch fixture"
+      ], context);
+    }
+    for (const [id, userId] of [
+      ["40000000-0000-4000-8000-000000000091", activeA],
+      ["40000000-0000-4000-8000-000000000092", activeA],
+      ["40000000-0000-4000-8000-000000000093", activeB],
+      ["40000000-0000-4000-8000-000000000094", suspended]
+    ]) {
+      await context.db.query(
+        `INSERT INTO hosted_collections (id, user_id, display_name, template)
+         VALUES ($1, $2, 'Batch collection', 'blank')`,
+        [id, userId]
+      );
+    }
+    const accounts = await context.db.query<{
+      user_id: string;
+      provider_account_id: string;
+    }>(
+      `SELECT user_id, provider_account_id FROM account_storage_accounts
+       WHERE user_id IN ($1, $2)`,
+      [activeA, activeB]
+    );
+    const accountByUser = new Map(
+      accounts.rows.map((row) => [row.user_id, row.provider_account_id])
+    );
+    const calls: string[] = [];
+    const usage = new Map<string, HostedAccountUsage>();
+    let failOnce = true;
+    const provider = {
+      async upsertAccount(
+        accountId: string,
+        entitlementRevision: number,
+        limits: HostedAccountLimits
+      ) {
+        calls.push(accountId);
+        if (accountId === accountByUser.get(activeB) && failOnce) {
+          failOnce = false;
+          throw new Error("provider interruption");
+        }
+        const next = {
+          account_id: accountId,
+          entitlement_revision: entitlementRevision,
+          collection_count: 0,
+          live_content_bytes: 0,
+          live_file_bytes: 0,
+          retained_file_bytes: 0,
+          ...limits
+        };
+        usage.set(accountId, next);
+        return next;
+      },
+      async reconcileCollectionAccount(accountId: string) {
+        const current = usage.get(accountId);
+        if (!current) throw new Error("Account was not reconciled.");
+        usage.set(accountId, {
+          ...current,
+          collection_count: current.collection_count + 1
+        });
+      },
+      async accountUsage(accountId: string) {
+        const current = usage.get(accountId);
+        if (!current) throw new Error("Account was not reconciled.");
+        return current;
+      }
+    } as unknown as HostedProviderClient;
+    const command = [
+      "entitlements", "reconcile",
+      "--active-hosted", "enabled",
+      "--operation-id", "20000000-0000-4000-8000-000000000199",
+      "--actor", "operator:test",
+      "--reason", "Release reconciliation"
+    ];
+
+    await expect(runAuthAdminCommand(command, {
+      ...context,
+      hostedProvider: provider
+    })).rejects.toThrow("provider interruption");
+    expect(calls).toEqual([
+      accountByUser.get(activeA),
+      accountByUser.get(activeB)
+    ]);
+
+    const result = await runAuthAdminCommand(command, {
+      ...context,
+      hostedProvider: provider
+    });
+    expect(result).toEqual({
+      operation_id: "20000000-0000-4000-8000-000000000199",
+      scope: "active_hosted",
+      reconciled_accounts: 2,
+      hosted_collections: 3,
+      reconciled_collections: 3,
+      users_inspected: 4
+    });
+    expect(JSON.stringify(result)).not.toContain(activeA);
+    expect(JSON.stringify(result)).not.toContain(activeB);
+    expect(calls).toEqual([
+      accountByUser.get(activeA),
+      accountByUser.get(activeB),
+      accountByUser.get(activeB)
+    ]);
+
+    expect(await runAuthAdminCommand(command, {
+      ...context,
+      hostedProvider: provider
+    })).toEqual(result);
+    expect(calls).toHaveLength(3);
+    const audits = await context.db.query<{ user_id: string }>(
+      `SELECT user_id FROM audit_events
+       WHERE event_type = 'entitlement.reconciled' ORDER BY user_id`
+    );
+    expect(audits.rows).toEqual([
+      { user_id: activeA },
+      { user_id: activeB }
+    ]);
+    await expect(runAuthAdminCommand([
+      ...command.slice(0, -1),
+      "Different request"
+    ], {
+      ...context,
+      hostedProvider: provider
+    })).rejects.toThrow(/different request/);
+  });
+
   it("reports privacy-minimal compatibility usage and fail-closed sunset gates", async () => {
     const context = await fixture();
     const userId = "10000000-0000-4000-8000-000000000079";
