@@ -25,6 +25,12 @@ impl DirectoryMirror {
                 }
                 return self.apply_prepared(&mut state).await;
             }
+            if state.last_completed_plan.as_deref() == Some(reviewed.fingerprint.as_str()) {
+                return Ok(completed_result(
+                    reviewed.fingerprint.clone(),
+                    self.status_from_state(Some(state)),
+                ));
+            }
         }
         let inspection = self.inspect_plan().await?;
         if inspection.plan.fingerprint != reviewed.fingerprint {
@@ -47,14 +53,26 @@ impl DirectoryMirror {
         &self,
         fingerprint: &str,
     ) -> Result<MirrorApplyResult, MirrorError> {
-        let plan = self.inspect().await?;
-        if plan.fingerprint != fingerprint {
-            return Err(MirrorError::new(
-                "sync_plan_stale",
-                "Reviewed plan fingerprint is stale.",
-            ));
+        let _lease = MirrorLease::acquire(&self.lock_file)?;
+        if let Some(mut state) = self.read_state()? {
+            if let Some(batch) = &state.batch {
+                if batch.plan.fingerprint != fingerprint {
+                    return Err(stale_fingerprint());
+                }
+                return self.apply_prepared(&mut state).await;
+            }
+            if state.last_completed_plan.as_deref() == Some(fingerprint) {
+                return Ok(completed_result(
+                    fingerprint.to_string(),
+                    self.status_from_state(Some(state)),
+                ));
+            }
         }
-        self.apply(&plan).await
+        let inspection = self.inspect_plan().await?;
+        if inspection.plan.fingerprint != fingerprint {
+            return Err(stale_fingerprint());
+        }
+        self.apply_inspection(inspection).await
     }
 
     pub(super) async fn apply_inspection(
@@ -131,6 +149,27 @@ impl DirectoryMirror {
         };
         Ok(result(outcome, &plan, status, execution.completed, None))
     }
+}
+
+fn completed_result(fingerprint: String, checkpoint: MirrorStatus) -> MirrorApplyResult {
+    MirrorApplyResult {
+        status: if checkpoint.state == MirrorStatusState::Attention {
+            "attention".into()
+        } else {
+            "applied".into()
+        },
+        plan_fingerprint: fingerprint,
+        applied: 0,
+        pending: checkpoint.pending,
+        checkpoint_cursor: checkpoint.cursor,
+        conflicts: checkpoint.conflicts.len(),
+        issues: Vec::new(),
+        failure: None,
+    }
+}
+
+fn stale_fingerprint() -> MirrorError {
+    MirrorError::new("sync_plan_stale", "Reviewed plan fingerprint is stale.")
 }
 
 fn result(

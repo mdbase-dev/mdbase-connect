@@ -114,6 +114,15 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         }
         return this.executePrepared(state, options.signal);
       }
+      if (state?.last_completed_plan === plan.fingerprint) {
+        const checkpoint = checkpointMirrorStatus(state, this.mode);
+        return mirrorApplyResult(
+          checkpoint.state === "attention" ? "attention" : "applied",
+          { ...plan, issues: [] },
+          checkpoint,
+          0
+        );
+      }
       const inspection = await this.inspectDetailed(state);
       if (inspection.plan.fingerprint !== plan.fingerprint) {
         return mirrorApplyResult(

@@ -185,6 +185,88 @@ describe("platform-neutral directory mirror", () => {
     expect(fileSystem.files.get("notes/00000.md")).toBe("changed outside the plan");
   });
 
+  it("acknowledges a reviewed plan already completed by background sync", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(1));
+    const replicaId = hosted.registerReplica({ name: "Reviewed mirror", mode: "read_only" });
+    const mirror = new DirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem: new TestFileSystem(),
+      stateStore: new MemoryMirrorStateStore(),
+      runtime: deterministicRuntime()
+    });
+
+    const reviewed = await mirror.inspect();
+    await mirror.sync();
+
+    await expect(mirror.apply(reviewed)).resolves.toMatchObject({
+      status: "applied",
+      plan_fingerprint: reviewed.fingerprint,
+      applied: 0
+    });
+  });
+
+  it("does not echo caller-mutated issues when acknowledging a completed plan", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(1));
+    const replicaId = hosted.registerReplica({ name: "Reviewed mirror", mode: "read_only" });
+    const mirror = new DirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem: new TestFileSystem(),
+      stateStore: new MemoryMirrorStateStore(),
+      runtime: deterministicRuntime()
+    });
+
+    const reviewed = await mirror.inspect();
+    await mirror.sync();
+    reviewed.issues.push({
+      code: "caller_supplied",
+      message: "This issue was not produced by the mirror.",
+      path: "untrusted.md",
+      blocking: true
+    });
+
+    await expect(mirror.apply(reviewed)).resolves.toMatchObject({
+      status: "applied",
+      issues: []
+    });
+  });
+
+  it("gives a newer prepared batch precedence over completed plan acknowledgement", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(1));
+    const replicaId = hosted.registerReplica({ name: "Reviewed mirror", mode: "read_only" });
+    const stateStore = new MemoryMirrorStateStore();
+    const mirror = new DirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem: new TestFileSystem(),
+      stateStore,
+      runtime: deterministicRuntime()
+    });
+
+    const reviewed = await mirror.inspect();
+    await mirror.sync();
+    const state = (await stateStore.read())!;
+    state.batch = {
+      phase: "prepared",
+      plan: { ...reviewed, fingerprint: "sha256:newer-pending-plan" },
+      next_action: 0,
+      receipts: [],
+      payloads: {
+        documents: {},
+        records: {},
+        resources: {},
+        files: {},
+        local_files: {},
+        mutations: {}
+      },
+      checkpoint_before: { generation: state.generation ?? 0, cursor: state.cursor },
+      checkpoint_after: { generation: (state.generation ?? 0) + 1, cursor: state.cursor }
+    };
+    await stateStore.write(state);
+
+    await expect(mirror.apply(reviewed)).rejects.toMatchObject({
+      code: "mirror_recovery_required"
+    });
+  });
+
   it("plans a byte-preserving local move as one identity-preserving move", async () => {
     const hosted = new MemoryAuthority();
     hosted.seed(records(1));
