@@ -21,8 +21,8 @@ for newly created hosted collections.
 - Control-plane availability reports transport reachability without masking
   malformed protocol responses or structured authorization failures.
 - The hosted provider uses mdbase-rs revision
-  `e0d7d1c75377be3cf77f480c2df94de4ce6f6288` for the unsettled-path commit
-  race fix.
+  `4f861ba14b685e952ed7e7be869e3980a9eda613` so canonical Markdown views are
+  classified and committed as resources through the single-writer runtime.
 
 ## 0.1.0-beta.83
 
