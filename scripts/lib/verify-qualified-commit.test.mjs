@@ -99,6 +99,23 @@ fi
   assert.equal(result.status, 0, result.stderr);
   assert.match(await readFile(output, "utf8"), /artifact_run_id=321/);
 
+  run("git", ["config", "core.autocrlf", "true"], { cwd: fixture });
+  for (const path of [
+    "pnpm-lock.yaml",
+    "deploy/docker/Cargo.lock.hosted-provider",
+    ".github/workflows/server-ci.yml",
+  ]) {
+    const absolutePath = join(fixture, path);
+    const content = await readFile(absolutePath, "utf8");
+    await writeFile(absolutePath, content.replaceAll("\n", "\r\n"));
+  }
+  const crlfCheckout = spawnSync(verifier, [commit], {
+    cwd: fixture,
+    env: environment,
+    encoding: "utf8",
+  });
+  assert.equal(crlfCheckout.status, 0, crlfCheckout.stderr);
+
   await writeFile(join(fixture, "pnpm-lock.yaml"), "changed\n");
   const mismatched = spawnSync(verifier, [commit], {
     cwd: fixture,
@@ -106,5 +123,5 @@ fi
     encoding: "utf8",
   });
   assert.notEqual(mismatched.status, 0);
-  assert.match(mismatched.stderr, /not bound to this exact checkout/);
+  assert.match(mismatched.stderr, /differ from the exact checkout/);
 });

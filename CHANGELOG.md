@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## 0.1.0-beta.83
+
+Beta.83 makes Connect onboarding and collection management simpler and more
+consistent across browser applications, the desktop client, and the portal.
+
+- Account-first onboarding now carries the user's intent through pairing,
+  explains existing-folder setup, and ends with durable collection receipts.
+- Applications can opt into a focused popup authorization flow with redirect
+  fallback, isolated-window recovery, and in-place completion in the original
+  application session.
+- Reauthorization clearly separates existing access from newly requested
+  actions, while grant editing remains limited to narrowing or revoking access.
+- Authority transfer uses one consequential approval with readiness, progress,
+  application and replica impact, completion, and retired-authority history.
+- Desktop, Connect management, and transactional approval terminology now
+  distinguishes durable configuration from individual data operations.
+- Windows release qualification now compares canonical repository content so
+  Git's CRLF checkout conversion cannot block an exact qualified commit.
+
 ## 0.1.0-beta.82
 
 Beta.82 keeps hosted saved views usable when an ordinary Markdown record cannot
