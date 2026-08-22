@@ -45,7 +45,7 @@ export function ConnectScreen({ notice, missingCapabilities = [], connections, o
     <button className="connect-button" onClick={onConnect}>{updatingAccess
       ? "Update access"
       : connections.length
-        ? "Choose another collection"
+        ? "Connect another collection"
         : "Choose a collection"} <ChevronRight aria-hidden="true" /></button>
     <p className="access-copy">{updatingAccess
       ? "mdbase connect keeps the access you already approved and shows only what needs to be added."
@@ -82,7 +82,7 @@ export function CollectionSwitcher({ activeCollectionId, connections, displayNam
       })}
     </div>
     <footer>
-      <button className="collection-connect-another" onClick={onConnect}><FilePlus2 aria-hidden="true" />Choose another collection</button>
+      <button className="collection-connect-another" onClick={onConnect}><FilePlus2 aria-hidden="true" />Connect another collection</button>
     </footer>
   </Dialog>;
 }

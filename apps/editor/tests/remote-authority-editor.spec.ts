@@ -15,12 +15,16 @@ test("chooses a remote authority collection and performs CRUD through its provid
 
   await page.goto("/");
   await expect(page.getByText("Choose the collection you want to write in.")).toBeVisible();
+  const popupPromise = page.waitForEvent("popup");
   await page.getByRole("button", { name: "Choose a collection" }).click();
-  await expect(page).toHaveURL(/connect\.mdbase\.dev\/oauth\/authorize/);
-  const collection = page.getByRole("combobox", { name: "Collection" });
+  const popup = await popupPromise;
+  await expect(popup).toHaveURL(/connect\.mdbase\.dev\/oauth\/authorize/);
+  const collection = popup.getByRole("combobox", { name: "Collection" });
   await expect(collection).toHaveValue(collectionId);
   await expect(collection).toContainText("Hosted writing · Hosted by mdbase");
-  await page.getByRole("button", { name: "Allow access" }).click();
+  const popupClosed = popup.waitForEvent("close");
+  await popup.getByRole("button", { name: "Allow access" }).click();
+  await popupClosed;
 
   await expect(page.getByRole("heading", { name: "Hosted writing" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Welcome to hosted writing");
@@ -65,20 +69,28 @@ test("returns to the newly chosen remote authority when switching collections", 
   await authority.install();
 
   await page.goto("/");
+  const firstPopupPromise = page.waitForEvent("popup");
   await page.getByRole("button", { name: "Choose a collection" }).click();
-  await expect(page).toHaveURL(/connect\.mdbase\.dev\/oauth\/authorize/);
-  await page.getByRole("button", { name: "Allow access" }).click();
+  const firstPopup = await firstPopupPromise;
+  await expect(firstPopup).toHaveURL(/connect\.mdbase\.dev\/oauth\/authorize/);
+  const firstPopupClosed = firstPopup.waitForEvent("close");
+  await firstPopup.getByRole("button", { name: "Allow access" }).click();
+  await firstPopupClosed;
   await expect(page.getByRole("heading", { name: "Hosted writing" })).toBeVisible();
 
   await page.getByRole("button", {
     name: "Switch collection, current collection Hosted writing"
   }).click();
-  await page.getByRole("button", { name: "Choose another collection" }).click();
+  const secondPopupPromise = page.waitForEvent("popup");
+  await page.getByRole("button", { name: "Connect another collection" }).click();
 
-  await expect(page).toHaveURL(/connect\.mdbase\.dev\/oauth\/authorize/);
-  const collection = page.getByRole("combobox", { name: "Collection" });
+  const secondPopup = await secondPopupPromise;
+  await expect(secondPopup).toHaveURL(/connect\.mdbase\.dev\/oauth\/authorize/);
+  const collection = secondPopup.getByRole("combobox", { name: "Collection" });
   await collection.selectOption(secondCollectionId);
-  await page.getByRole("button", { name: "Allow access" }).click();
+  const secondPopupClosed = secondPopup.waitForEvent("close");
+  await secondPopup.getByRole("button", { name: "Allow access" }).click();
+  await secondPopupClosed;
 
   await expect(page).toHaveURL(new RegExp(`collection=${secondCollectionId}`));
   await expect(page.getByRole("heading", { name: "Research" })).toBeVisible();

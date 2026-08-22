@@ -89,6 +89,10 @@ export interface PendingAuthorization {
   requirements: ApplicationRequirements;
   provisions: ApplicationProvisions;
   notifications: ApplicationNotifications;
+  existing_access?: Array<{
+    collection_id: string;
+    operations: string[];
+  }>;
   available_collections?: AvailableCollection[];
   unavailable_connectors?: UnavailableConnector[];
 }

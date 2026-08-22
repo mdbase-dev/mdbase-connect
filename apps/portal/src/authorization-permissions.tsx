@@ -1,6 +1,22 @@
 import { groupAuthorizationOperations } from "@mdbase/connect-ui/access";
 import type { PendingAuthorization } from "./api";
 
+export function PermissionDelta({ existingAccess, collectionId, selected }: {
+  existingAccess: PendingAuthorization["existing_access"];
+  collectionId: string;
+  selected: ReadonlySet<string>;
+}) {
+  const existing = new Set(existingAccess?.find((access) =>
+    access.collection_id === collectionId)?.operations ?? []);
+  if (existing.size === 0) return null;
+  const approved = [...selected].filter((operation) => existing.has(operation)).length;
+  const added = selected.size - approved;
+  return <div className="permission-delta" role="note">
+    <span><strong>{approved}</strong> already approved</span>
+    <span><strong>{added}</strong> {added === 1 ? "action" : "actions"} added by this request</span>
+  </div>;
+}
+
 export function PermissionCapabilitySummary({
   groups,
   selected,

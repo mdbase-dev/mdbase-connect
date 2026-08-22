@@ -6,6 +6,12 @@ import {
   plural,
   relativeTime
 } from "./view-model";
+import {
+  clearTransferProgress,
+  readTransferProgress,
+  writeTransferProgress,
+  type AuthorityTransferReceipt
+} from "./onboarding-state.mjs";
 
 const FILE_CLASS_OPTIONS: Array<{
   value: DesktopFileMediaClass;
@@ -133,9 +139,11 @@ function SelectiveSyncSettings({ value, disabled, onChange }: {
 export function Collections({
   collections,
   hosted,
+  grants,
   cloudConfigured,
   mirrors,
   mirrorTarget,
+  detailTarget,
   authorityConflicts,
   busy,
   copiedCollectionPath,
@@ -144,14 +152,19 @@ export function Collections({
   onCreate,
   onRegisterCopy,
   onMirrorTargetHandled,
+  onDetailTargetHandled,
   onAct,
+  onTransfer,
+  onTransferComplete,
   onNotice
 }: {
   collections: CollectionSummary[];
   hosted: HostedControlSnapshot;
+  grants: GrantSummary[];
   cloudConfigured: boolean;
   mirrors: DesktopMirrorSummary[];
   mirrorTarget: string | null;
+  detailTarget: string | null;
   authorityConflicts: AuthorityConflict[];
   busy: boolean;
   copiedCollectionPath: string | null;
@@ -160,12 +173,29 @@ export function Collections({
   onCreate(): void;
   onRegisterCopy(): void;
   onMirrorTargetHandled(): void;
+  onDetailTargetHandled(): void;
   onAct(action: () => Promise<void>): Promise<void>;
+  onTransfer(action: () => Promise<void>): Promise<void>;
+  onTransferComplete(receipt: AuthorityTransferReceipt): void;
   onNotice(value: string): void;
 }) {
+  const localIds = new Set(collections.map((collection) => collection.id));
+  const retiredByLocalId = new Map<string, HostedCollectionSummary[]>();
+  for (const collection of hosted.hosted_collections) {
+    if (collection.authority_state !== "transferred" || !collection.transferred_collection_id
+      || !localIds.has(collection.transferred_collection_id)) continue;
+    const history = retiredByLocalId.get(collection.transferred_collection_id) ?? [];
+    history.push(collection);
+    retiredByLocalId.set(collection.transferred_collection_id, history);
+  }
+  const visibleHosted = hosted.hosted_collections.filter((collection) =>
+    collection.authority_state !== "transferred"
+      || !collection.transferred_collection_id
+      || !localIds.has(collection.transferred_collection_id)
+  );
   return (
     <section className="collection-section">
-      <SectionHeading title="Collections" note="Main copies and synced folders are shown separately.">
+      <SectionHeading title="Collections" note="Adding an existing folder validates it in place. mdbase does not move or upload its files. Main copies and synced folders are shown separately.">
         <button className="button secondary" disabled={busy} onClick={onAdd}>Add existing</button>
         <button className="button primary" disabled={busy} onClick={onCreate}>Create collection</button>
       </SectionHeading>
@@ -222,9 +252,15 @@ export function Collections({
               <CollectionRow
                 key={collection.id}
                 collection={collection}
+                grants={grants}
+                authorityHistory={retiredByLocalId.get(collection.id) ?? []}
                 cloudConfigured={cloudConfigured}
+                openDetails={detailTarget === collection.id}
                 busy={busy}
+                onTargetHandled={onDetailTargetHandled}
                 onAct={onAct}
+                onTransfer={onTransfer}
+                onTransferComplete={onTransferComplete}
                 onNotice={onNotice}
               />
             ))}
@@ -239,21 +275,26 @@ export function Collections({
             : hosted.online
               ? "Available to approved apps without this computer."
               : "Hosted controls are offline; last known state is shown."}
-          count={hosted.hosted_collections.length}
+          count={visibleHosted.length}
         />
-        {hosted.hosted_collections.length === 0 ? (
+        {visibleHosted.length === 0 ? (
           <Empty title="No hosted collections" text="Create one to keep its main copy available without this computer, with an optional synced folder here." />
         ) : (
           <div className="collection-list">
-            {hosted.hosted_collections.map((collection) => (
+            {visibleHosted.map((collection) => (
               <HostedCollectionRow
                 key={collection.id}
                 collection={collection}
+                grants={grants}
                 mirrors={mirrors}
                 openMirror={mirrorTarget === collection.id}
+                openDetails={detailTarget === collection.id}
                 busy={busy}
                 onTargetHandled={onMirrorTargetHandled}
+                onDetailTargetHandled={onDetailTargetHandled}
                 onAct={onAct}
+                onTransfer={onTransfer}
+                onTransferComplete={onTransferComplete}
                 onNotice={onNotice}
               />
             ))}
@@ -264,16 +305,34 @@ export function Collections({
   );
 }
 
-function CollectionRow({ collection, cloudConfigured, busy, onAct, onNotice }: {
+function CollectionRow({ collection, grants, authorityHistory, cloudConfigured, openDetails, busy, onTargetHandled, onAct, onTransfer, onTransferComplete, onNotice }: {
   collection: CollectionSummary;
+  grants: GrantSummary[];
+  authorityHistory: HostedCollectionSummary[];
   cloudConfigured: boolean;
+  openDetails: boolean;
   busy: boolean;
+  onTargetHandled(): void;
   onAct(action: () => Promise<void>): Promise<void>;
+  onTransfer(action: () => Promise<void>): Promise<void>;
+  onTransferComplete(receipt: AuthorityTransferReceipt): void;
   onNotice(value: string): void;
 }) {
+  const savedTransfer = readTransferProgress(localStorage);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(collection.display_name);
   const [description, setDescription] = useState(collection.description ?? "");
+  const [transferReviewing, setTransferReviewing] = useState(savedTransfer?.collectionId === collection.id);
+  const [transferStarted, setTransferStarted] = useState(savedTransfer?.collectionId === collection.id);
+  const [transferPhase, setTransferPhase] = useState<"uploading" | "finishing" | null>(null);
+  const affectedApplications = uniqueNames(grants
+    .filter((grant) => grant.collection_id === collection.id && grant.revocation_status !== "revoked")
+    .map((grant) => grant.application_name));
+  useEffect(() => {
+    if (!openDetails) return;
+    setEditing(true);
+    onTargetHandled();
+  }, [onTargetHandled, openDetails]);
   useEffect(() => {
     if (!editing) {
       setName(collection.display_name);
@@ -304,6 +363,10 @@ function CollectionRow({ collection, cloudConfigured, busy, onAct, onNotice }: {
           <button className="quiet-action" disabled={busy} onClick={() => void onAct(async () => { await window.mdbaseConnect.setCollectionEnabled(collection.id, !collection.enabled); onNotice(collection.enabled ? `${collection.display_name} is no longer available to remote applications.` : `${collection.display_name} is available again.`); })}>{collection.enabled ? "Disable" : "Enable"}</button>
         </div>
       </div>
+      {authorityHistory.length > 0 && <div className="authority-history" role="note">
+        <strong>History and recovery</strong>
+        <span>{authorityHistory.map((entry) => `${entry.display_name}: hosted copy retained for recovery`).join(" · ")}</span>
+      </div>}
       {editing && <div className="collection-editor">
         <form className="collection-editor-form" onSubmit={(event) => { event.preventDefault(); void onAct(async () => { const updated = await window.mdbaseConnect.updateCollectionMetadata({ collectionId: collection.id, name, description }); setEditing(false); onNotice(`${updated.display_name} details were saved to mdbase.yaml.`); }); }}>
           <section className="collection-editor-section">
@@ -331,28 +394,64 @@ function CollectionRow({ collection, cloudConfigured, busy, onAct, onNotice }: {
             <small>Keep this collection available without this computer while this folder continues to sync edits both ways.</small>
           </div>
           <div className="collection-config-actions">
-            <button
+            {!transferReviewing && <button
               type="button"
               className="button secondary"
-              disabled={busy || !cloudConfigured || !collection.enabled}
-              onClick={() => {
-                if (!window.confirm(
-                  `Make ${collection.display_name} available without this computer? `
-                  + "The main copy will move to mdbase, existing app access for this folder will be revoked, "
-                  + "and this folder will continue to sync edits both ways."
-                )) return;
-                void onAct(async () => {
-                  await window.mdbaseConnect.transferCollectionAuthority(collection.id);
-                  setEditing(false);
-                  onNotice(`${collection.display_name} is now available without this computer. This folder will stay in sync.`);
-                });
-              }}
-            >
-              Make available without this computer
-            </button>
+              disabled={busy || transferPhase !== null || !cloudConfigured || !collection.enabled}
+              onClick={() => setTransferReviewing(true)}
+            >Review main-copy move</button>}
             {!cloudConfigured && <small>Connect this computer to an account first.</small>}
           </div>
         </section>
+        {transferReviewing && <AuthorityTransferPreflight
+          currentMainCopy={`Folder on this computer · ${collection.path}`}
+          proposedMainCopy="Hosted by mdbase"
+          sourceReady={collection.enabled ? "Ready and available" : "Unavailable"}
+          targetReady={cloudConfigured ? "Connected to mdbase" : "Not connected"}
+          lastSync="The exact snapshot is verified while it uploads."
+          inventory="Record, file, and byte counts are bounded and checked during the transfer."
+          applications={affectedApplications}
+          replicas={[]}
+          recovery={`The folder at ${collection.path} remains as a synced folder after the move.`}
+          cancellation="Cancellation remains safe until the final authority fence begins. After activation starts, Connect resumes the exact transfer instead of reopening both copies."
+          instruction="Keep Connect open and this computer awake until the receipt appears."
+          phase={transferPhase === "uploading" ? "Uploading and verifying the snapshot" : transferPhase === "finishing" ? "Fencing the old authority and activating mdbase" : null}
+          action={transferStarted ? "Resume main-copy move" : "Move main copy to mdbase"}
+          disabled={!collection.enabled || !cloudConfigured}
+          onCancel={() => setTransferReviewing(false)}
+          onApprove={() => {
+            setTransferStarted(true);
+            setTransferPhase("uploading");
+            writeTransferProgress(localStorage, {
+              collectionId: collection.id,
+              collectionName: collection.display_name,
+              direction: "local_to_hosted",
+              phase: "uploading"
+            });
+            void onTransfer(async () => {
+              try {
+                const result = await window.mdbaseConnect.transferCollectionAuthority(collection.id);
+                setTransferPhase("finishing");
+                onTransferComplete({
+                  collectionId: result.mirror.collection_id,
+                  collectionName: collection.display_name,
+                  direction: "local_to_hosted",
+                  newMainCopy: "Hosted by mdbase",
+                  oldAuthority: `Folder retained as a synced copy · ${collection.path}`,
+                  applications: affectedApplications,
+                  replicas: [],
+                  completedAt: new Date().toISOString()
+                });
+                clearTransferProgress(localStorage);
+                setTransferStarted(false);
+                setEditing(false);
+                setTransferReviewing(false);
+              } finally {
+                setTransferPhase(null);
+              }
+            });
+          }}
+        />}
         <div className="collection-danger-row">
           <small>Removing this collection from mdbase connect never deletes its files.</small>
           <button className="quiet-action danger" disabled={busy} onClick={() => { if (window.confirm(`Remove ${collection.display_name} from mdbase connect? Its files will not be deleted.`)) void onAct(async () => { await window.mdbaseConnect.removeCollection(collection.id); onNotice(`${collection.display_name} was removed.`); }); }}>Remove from mdbase connect</button>
@@ -364,19 +463,29 @@ function CollectionRow({ collection, cloudConfigured, busy, onAct, onNotice }: {
 
 function HostedCollectionRow({
   collection,
+  grants,
   mirrors,
   openMirror,
+  openDetails,
   busy,
   onTargetHandled,
+  onDetailTargetHandled,
   onAct,
+  onTransfer,
+  onTransferComplete,
   onNotice
 }: {
   collection: HostedCollectionSummary;
+  grants: GrantSummary[];
   mirrors: DesktopMirrorSummary[];
   openMirror: boolean;
+  openDetails: boolean;
   busy: boolean;
   onTargetHandled(): void;
+  onDetailTargetHandled(): void;
   onAct(action: () => Promise<void>): Promise<void>;
+  onTransfer(action: () => Promise<void>): Promise<void>;
+  onTransferComplete(receipt: AuthorityTransferReceipt): void;
   onNotice(value: string): void;
 }) {
   const [editing, setEditing] = useState(openMirror);
@@ -385,8 +494,12 @@ function HostedCollectionRow({
   const [mode, setMode] = useState<"read_only" | "read_write">("read_write");
   const [syncPolicy, setSyncPolicy] = useState<DesktopSelectiveSyncPolicy>(emptySelectiveSyncPolicy);
   const [promotionStarting, setPromotionStarting] = useState(false);
+  const [promotionReviewing, setPromotionReviewing] = useState(false);
   const mirror = mirrors.find((candidate) => candidate.collection_id === collection.id);
   const activeReplicas = collection.replicas.filter((replica) => replica.revocation_status !== "revoked");
+  const affectedApplications = uniqueNames(grants
+    .filter((grant) => grant.collection_id === collection.id && grant.revocation_status !== "revoked")
+    .map((grant) => grant.application_name));
   const editorCollectionId = collection.authority_state === "active"
     ? collection.id
     : collection.authority_state === "transferred"
@@ -400,11 +513,19 @@ function HostedCollectionRow({
     }
   }, [onTargetHandled, openMirror]);
   useEffect(() => {
+    if (!openDetails) return;
+    setEditing(true);
+    onDetailTargetHandled();
+  }, [onDetailTargetHandled, openDetails]);
+  useEffect(() => {
     if (!editing) setName(collection.display_name);
   }, [collection.display_name, editing]);
   useEffect(() => {
     setSyncPolicy(mirror?.selective_sync ?? emptySelectiveSyncPolicy());
   }, [mirror?.replica_id, JSON.stringify(mirror?.selective_sync)]);
+  useEffect(() => {
+    if (mirror?.promotion_pending) setPromotionReviewing(true);
+  }, [mirror?.promotion_pending]);
 
   async function chooseMirrorFolder() {
     const selected = await window.mdbaseConnect.chooseMirrorFolder();
@@ -577,42 +698,54 @@ function HostedCollectionRow({
                 <strong>{promotion.title}</strong>
                 <small>{promotion.detail}</small>
               </div>
-              <button
+              {!promotionReviewing && <button
                 type="button"
                 className="button secondary"
                 disabled={busy || !promotion.enabled}
-                onClick={() => {
-                  if (
-                    !mirror.promotion_pending
-                    && !window.confirm(
-                      `Use this folder as the main copy of ${collection.display_name}? `
-                      + `${mirror.path} will become the main copy. Hosted changes will stop, `
-                      + "and existing application access and other synced folders will be revoked. "
-                      + "You will confirm this change in your browser."
-                    )
-                  ) return;
-                  setPromotionStarting(true);
-                  void onAct(async () => {
-                    onNotice(
-                      mirror.promotion_pending
-                        ? "Resuming the main-copy change. Keep mdbase connect open."
-                        : "Confirm the main-copy change in your browser, then return to mdbase connect."
-                    );
-                    try {
-                      await window.mdbaseConnect.promoteMirrorAuthority(
-                        mirror.replica_id
-                      );
-                      setEditing(false);
-                      onNotice(`${collection.display_name} now uses this folder as its main copy. Applications need fresh access.`);
-                    } finally {
-                      setPromotionStarting(false);
-                    }
-                  });
-                }}
+                onClick={() => setPromotionReviewing(true)}
               >
-                {promotion.button}
-              </button>
+                {mirror.promotion_pending ? "Review and resume" : "Review main-copy move"}
+              </button>}
             </div>
+            {promotionReviewing && <AuthorityTransferPreflight
+              currentMainCopy="Hosted by mdbase"
+              proposedMainCopy={`Folder on this computer · ${mirror.path}`}
+              sourceReady={collection.authority_state === "active" ? "Hosted authority is active" : "Authority move is already in progress"}
+              targetReady={mirror.state === "up_to_date" ? "Synced and ready" : promotion.detail}
+              lastSync={mirror.last_synced_at ? `Last successful sync ${relativeTime(mirror.last_synced_at)}` : "No successful sync recorded yet"}
+              inventory="Record, file, and byte counts are verified against the hosted snapshot before authority changes."
+              applications={affectedApplications}
+              replicas={activeReplicas.filter((replica) => replica.id !== mirror.replica_id).map((replica) => replica.name)}
+              recovery="The hosted authority is retained as recovery history after it stops accepting changes. Local files in retired replicas remain on their computers."
+              cancellation="Cancellation is available while waiting for approval and preparation. It is unavailable after authority fencing begins."
+              instruction="Keep Connect open and this computer awake while it synchronizes, verifies, registers, and activates the folder."
+              phase={mirror.promotion?.phase ? promotion.detail : promotionStarting ? "Opening browser approval" : null}
+              action={mirror.promotion_pending ? "Resume main-copy move" : "Continue to approval"}
+              disabled={!promotion.enabled}
+              onCancel={() => setPromotionReviewing(false)}
+              onApprove={() => {
+                setPromotionStarting(true);
+                void onTransfer(async () => {
+                  try {
+                    const result = await window.mdbaseConnect.promoteMirrorAuthority(mirror.replica_id);
+                    onTransferComplete({
+                      collectionId: result.collection_id,
+                      collectionName: collection.display_name,
+                      direction: "hosted_to_local",
+                      newMainCopy: result.path,
+                      oldAuthority: "Hosted copy retained for recovery",
+                      applications: affectedApplications,
+                      replicas: activeReplicas.filter((replica) => replica.id !== mirror.replica_id).map((replica) => replica.name),
+                      completedAt: new Date().toISOString()
+                    });
+                    setEditing(false);
+                    setPromotionReviewing(false);
+                  } finally {
+                    setPromotionStarting(false);
+                  }
+                });
+              }}
+            />}
           </section>
         )}
         {activeReplicas.some((replica) => replica.id !== mirror?.replica_id) && (
@@ -645,4 +778,66 @@ function HostedCollectionRow({
       </div>}
     </article>
   );
+}
+
+function AuthorityTransferPreflight({
+  currentMainCopy,
+  proposedMainCopy,
+  sourceReady,
+  targetReady,
+  lastSync,
+  inventory,
+  applications,
+  replicas,
+  recovery,
+  cancellation,
+  instruction,
+  phase,
+  action,
+  disabled,
+  onCancel,
+  onApprove
+}: {
+  currentMainCopy: string;
+  proposedMainCopy: string;
+  sourceReady: string;
+  targetReady: string;
+  lastSync: string;
+  inventory: string;
+  applications: string[];
+  replicas: string[];
+  recovery: string;
+  cancellation: string;
+  instruction: string;
+  phase: string | null;
+  action: string;
+  disabled: boolean;
+  onCancel(): void;
+  onApprove(): void;
+}) {
+  return <div className="authority-transfer-preflight" role="region" aria-label="Main-copy move review">
+    <div className="authority-transfer-route">
+      <div><span>Current main copy</span><strong>{currentMainCopy}</strong><small>{sourceReady}</small></div>
+      <span aria-hidden="true">→</span>
+      <div><span>Proposed main copy</span><strong>{proposedMainCopy}</strong><small>{targetReady}</small></div>
+    </div>
+    <dl className="authority-transfer-facts">
+      <div><dt>Latest sync</dt><dd>{lastSync}</dd></div>
+      <div><dt>Transfer inventory</dt><dd>{inventory}</dd></div>
+      <div><dt>Applications revoked</dt><dd>{applications.length ? applications.join(", ") : "No active application grants"}</dd></div>
+      <div><dt>Other replicas retired</dt><dd>{replicas.length ? replicas.join(", ") : "No other active replicas"}</dd></div>
+      <div><dt>Recovery</dt><dd>{recovery}</dd></div>
+      <div><dt>Cancellation boundary</dt><dd>{cancellation}</dd></div>
+    </dl>
+    <p className="authority-transfer-instruction">{instruction}</p>
+    {phase && <div className="authority-transfer-phase" role="status"><StatusDot state="connecting" /><strong>{phase}</strong></div>}
+    <div className="authority-transfer-actions">
+      <button type="button" className="button secondary" disabled={phase !== null} onClick={onCancel}>Back</button>
+      <button type="button" className="button primary" disabled={disabled || phase !== null} onClick={onApprove}>{action}</button>
+    </div>
+  </div>;
+}
+
+function uniqueNames(names: string[]): string[] {
+  return [...new Set(names)].sort((left, right) => left.localeCompare(right));
 }

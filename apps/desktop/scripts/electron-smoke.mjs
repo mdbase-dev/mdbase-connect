@@ -43,7 +43,7 @@ try {
   if (screenshot) await window.screenshot({ path: screenshot, animations: "disabled" });
   await window.getByRole("button", { name: "Cancel" }).click();
   await window.getByRole("button", { name: /App access/ }).click();
-  await window.getByRole("heading", { name: "Connect this computer." }).waitFor();
+  await window.getByRole("heading", { name: "Connect this computer to mdbase" }).waitFor();
   await window.getByRole("button", { name: /Overview/ }).click();
   const title = await window.title();
   if (title !== "mdbase connect") throw new Error(`Unexpected window title: ${title}`);

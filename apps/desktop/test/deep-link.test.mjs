@@ -19,7 +19,7 @@ test("authorization links preserve the exact request route", () => {
 });
 
 test("other supported links retain their existing routes", () => {
-  assert.equal(routeForDeepLink("mdbase-connect://paired"), "overview");
+  assert.equal(routeForDeepLink("mdbase-connect://paired"), "paired");
   assert.equal(
     routeForDeepLink("mdbase-connect://mirror?collection=collection-1"),
     "collections:mirror:collection-1"

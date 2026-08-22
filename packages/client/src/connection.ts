@@ -140,6 +140,8 @@ export type MdbaseAuthorizationTarget =
 
 export interface MdbaseAuthorizeOptions extends ConnectRequestOptions {
   operations?: CollectionOperation[];
+  /** Keep a web application loaded while Connect owns the approval ceremony. */
+  presentation?: "redirect" | "popup";
   /** Choose any compatible collection, or require one exact collection. */
   target?: MdbaseAuthorizationTarget;
   /** App-local location to restore after the authorization callback. */
@@ -152,6 +154,7 @@ export interface MdbaseAuthorizeOptions extends ConnectRequestOptions {
 
 export interface MdbaseConnectionAuthorizeOptions extends ConnectRequestOptions {
   operations?: CollectionOperation[];
+  presentation?: "redirect" | "popup";
   returnTo?: string;
   onDeviceCode?: (authorization: MdbaseDeviceAuthorization) => void;
   openVerification?: (authorization: MdbaseDeviceAuthorization) => void | Promise<void>;

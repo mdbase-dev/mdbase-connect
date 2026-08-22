@@ -32,6 +32,7 @@ import {
   FilePermissionSummary,
   NotificationAccess,
   PermissionCapabilitySummary,
+  PermissionDelta,
   PermissionChoices
 } from "./authorization-permissions";
 import {
@@ -44,7 +45,6 @@ import {
   scopeDescription
 } from "./portal-model";
 import { Loading, PageBrand, useSystemTheme } from "./portal-ui";
-
 export function DeviceAuthorization() {
   const initialCode = formatDeviceCode(new URLSearchParams(location.search).get("user_code") ?? "");
   const [code, setCode] = useState(initialCode);
@@ -284,7 +284,7 @@ function DesktopContinuation({ request, onReviewHere }: {
         <a className="button primary link-button" href={desktopUrl}>Open mdbase connect</a>
         <button className="button secondary" type="button" onClick={onReviewHere}>Review in this browser</button>
       </div>
-      <p className="field-note">If the desktop app does not open, <a href="https://github.com/mdbase-dev/mdbase-connect/releases/latest" target="_blank" rel="noreferrer">install the latest release</a>, then return to this page. The request expires {relativeTime(request.expires_at)}.</p>
+      <p className="field-note">If the desktop app does not open, <a href="https://mdbase.dev/downloads/" target="_blank" rel="noreferrer">install the current Connect release</a>, then return to this page. The request expires {relativeTime(request.expires_at)}.</p>
     </section>
   );
 }
@@ -862,6 +862,7 @@ export function ApprovalForm({
           <small>{permissionCount} requested actions across {permissionCategoryCount} {permissionCategoryCount === 1 ? "capability" : "capabilities"}.</small>
         </div>
         <div className="approval-section-content authorization-permissions">
+          {selected && <PermissionDelta existingAccess={request.existing_access} collectionId={selected.id} selected={operations} />}
           <PermissionCapabilitySummary groups={permissionGroups} selected={operations} files={request.requirements.files} />
           {permissionGroups.length > 0 && <PermissionChoices
             groups={permissionGroups}

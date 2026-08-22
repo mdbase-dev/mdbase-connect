@@ -33,6 +33,7 @@ import {
 } from "./connection.js";
 import type { MdbaseConnectOptions } from "./connect-options.js";
 import type { MdbaseConnectionInfo } from "./connection-types.js";
+import { addConnectionId, connectionIds, removeConnectionId } from "./connection-index.js";
 import {
   authorizationAbort,
   declarationIdFromFamilyIdentity
@@ -47,9 +48,13 @@ import {
   DEFAULT_OPERATIONS,
   type Application,
   type StoredAuthorization,
-  type StoredConnectionIndex,
   type StoredToken
 } from "./internal-types.js";
+import {
+  prepareAuthorizationWindow,
+  publishPopupAuthorizationCompletion,
+  waitForPopupAuthorization
+} from "./popup-authorization.js";
 import { uniqueOperations } from "./operation-helpers.js";
 import {
   pendingMutationsUseKey,
@@ -252,7 +257,10 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
   async authorize(
     options: MdbaseAuthorizeOptions = {}
   ): Promise<MdbaseAuthorizationOutcome<Frontmatter>> {
-    return withRequestBudget(options, this.timeouts.requestMs, (budget) =>
+    const authorizationTimeout = options.presentation === "popup"
+      ? 10 * 60 * 1_000
+      : this.timeouts.requestMs;
+    return withRequestBudget(options, authorizationTimeout, (budget) =>
       this.authorizeWithinBudget({ ...options, signal: budget.signal, timeoutMs: null })
     );
   }
@@ -260,31 +268,14 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
   private async authorizeWithinBudget(
     options: MdbaseAuthorizeOptions
   ): Promise<MdbaseAuthorizationOutcome<Frontmatter>> {
-    if (typeof location === "undefined" && !this.navigate && !options.openVerification) {
-      throw connectError(
-        "browser_required",
-        "Authorization navigation requires a browser environment."
-      );
-    }
     const portableDeclared = typeof this.manifest !== "string"
       && this.manifest.distribution === "portable";
-    const popup = portableDeclared
-      && !options.openVerification
-      && !this.navigate
-      && typeof window !== "undefined"
-      ? window.open(
-          "",
-          "mdbase-connect-authorization",
-          "popup,width=620,height=760"
-        )
-      : null;
-    let application: Application;
-    try {
-      application = await this.registerWithinBudget(options.signal!);
-    } catch (error) {
-      popup?.close();
-      throw error;
-    }
+    const { application, popup } = await prepareAuthorizationWindow({
+      options,
+      portableDeclared,
+      navigate: this.navigate,
+      register: (signal) => this.registerWithinBudget(signal)
+    });
     if (application.distribution === "portable") {
       if (options.openVerification) popup?.close();
       return this.authorizePortable(
@@ -293,13 +284,13 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         options.openVerification ? null : popup
       );
     }
-    popup?.close();
-    return this.authorizeWeb(application, options);
+    return this.authorizeWeb(application, options, popup);
   }
 
   private async authorizeWeb(
     application: Application,
-    options: MdbaseAuthorizeOptions
+    options: MdbaseAuthorizeOptions,
+    popup: Window | null
   ): Promise<MdbaseAuthorizationOutcome<Frontmatter>> {
     const { verifier, challenge } = await createPkce();
     const state = randomBase64Url(24);
@@ -363,7 +354,8 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       keyHandle,
       authorizationId,
       applicationAgreementPublicKey: grantKey.agreementPublicKey,
-      applicationSigningPublicKey: grantKey.signingPublicKey
+      applicationSigningPublicKey: grantKey.signingPublicKey,
+      ...(options.presentation === "popup" && popup ? { presentation: "popup" as const } : {})
     };
     this.storage.setItem(this.pendingKey(state), JSON.stringify(pending));
     try {
@@ -406,6 +398,20 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
           "The authorization service returned an invalid authorization response."
         );
       }
+      if (options.presentation === "popup" && popup) {
+        popup.location.href = body.authorization_uri;
+        return await waitForPopupAuthorization({
+          storage: this.storage,
+          storagePrefix: this.storagePrefix(),
+          state,
+          pending,
+          popup,
+          signal: options.signal!,
+          keyStore: this.keyStore,
+          connection: (collectionId) => this.connection(collectionId)
+        });
+      }
+      popup?.close();
       if (this.navigate) await this.navigate(body.authorization_uri);
       else if (typeof location !== "undefined") location.assign(body.authorization_uri);
       else {
@@ -416,6 +422,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       }
       return { kind: "redirecting" };
     } catch (error) {
+      popup?.close();
       this.storage.removeItem(this.pendingKey(state));
       await this.keyStore.delete(keyHandle);
       if (options.signal?.aborted) {
@@ -710,9 +717,18 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         "Authorization callback is missing its state."
       ));
     }
+    const pending = parseStored<StoredAuthorization>(this.storage.getItem(this.pendingKey(state)));
+    const popupAttempt = pending?.presentation === "popup";
     const existing = this.completionPromises.get(state);
     if (existing) return existing;
-    const completion = this.performAuthorizationCompletion(callbackUrl, state, signal);
+    const completion = publishPopupAuthorizationCompletion({
+      storage: this.storage,
+      storagePrefix: this.storagePrefix(),
+      state,
+      pending,
+      popupAttempt,
+      completion: this.performAuthorizationCompletion(callbackUrl, state, signal)
+    });
     const shared = completion.finally(() => {
       if (this.completionPromises.get(state) === shared) this.completionPromises.delete(state);
     });
@@ -813,7 +829,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
 
   connections(): MdbaseConnectionInfo[] {
     const connections: MdbaseConnectionInfo[] = [];
-    for (const collectionId of this.connectionIds()) {
+    for (const collectionId of connectionIds(this.storage, this.storagePrefix())) {
       const info = this.connection(collectionId)?.info();
       if (info) connections.push(info);
     }
@@ -861,7 +877,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       void this.keyStore.delete(previous.keyHandle).catch(() => undefined);
     }
     this.storage.setItem(this.tokenKey(collectionId), JSON.stringify(token));
-    this.addConnectionId(collectionId);
+    addConnectionId(this.storage, this.storagePrefix(), collectionId);
     this.invalidatedConnections.delete(collectionId);
     this.connectionCache.delete(collectionId);
     this.emitConnections();
@@ -927,13 +943,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     for (const transport of ["web_push", "fcm"] as const) {
       this.storage.removeItem(this.notificationKey(collectionId, transport));
     }
-    this.storage.setItem(
-      this.connectionsKey(),
-      JSON.stringify({
-        version: 1,
-        collectionIds: this.connectionIds().filter((id) => id !== collectionId)
-      } satisfies StoredConnectionIndex)
-    );
+    removeConnectionId(this.storage, this.storagePrefix(), collectionId);
     this.connectionCache.delete(collectionId);
     this.emitConnections();
   }
@@ -969,28 +979,6 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
 
   private storagePrefix(): string {
     return `mdbase-connect:${this.serverUrl}:${this.manifestSource}`;
-  }
-
-  private connectionsKey(): string {
-    return `${this.storagePrefix()}:connections`;
-  }
-
-  private connectionIds(): string[] {
-    const index = parseStored<StoredConnectionIndex>(this.storage.getItem(this.connectionsKey()));
-    return index?.version === 1 && Array.isArray(index.collectionIds)
-      && index.collectionIds.every((collectionId) => typeof collectionId === "string")
-      ? index.collectionIds
-      : [];
-  }
-
-  private addConnectionId(collectionId: string): void {
-    this.storage.setItem(
-      this.connectionsKey(),
-      JSON.stringify({
-        version: 1,
-        collectionIds: [...new Set([...this.connectionIds(), collectionId])]
-      } satisfies StoredConnectionIndex)
-    );
   }
 
   private emitConnections(): void {

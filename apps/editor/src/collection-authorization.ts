@@ -14,7 +14,7 @@ export function useCollectionAuthorization(input: {
 }) {
   async function authorizeCollection(target: CollectionAuthorizationTarget) {
     const previous = input.gateway.sessionSnapshot();
-    await input.gateway.authorize(target);
+    await input.gateway.authorize(target, { presentation: "popup" });
     const next = input.gateway.sessionSnapshot();
     input.setSessionSnapshot(next);
     if (

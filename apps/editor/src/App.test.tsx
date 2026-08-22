@@ -991,10 +991,10 @@ describe("mdbase editor", () => {
     });
     render(<App gateway={disconnected} />);
 
-    await userEvent.click(await screen.findByRole("button", { name: "Choose another collection" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Connect another collection" }));
 
     expect(authorize).toHaveBeenCalledOnce();
-    expect(authorize).toHaveBeenCalledWith("choose");
+    expect(authorize).toHaveBeenCalledWith("choose", { presentation: "popup" });
   });
 
   it("authorizes the requested collection from a portal deep link", async () => {
@@ -1013,10 +1013,10 @@ describe("mdbase editor", () => {
     });
     render(<App gateway={disconnected} />);
 
-    await userEvent.click(await screen.findByRole("button", { name: "Choose another collection" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Connect another collection" }));
 
     expect(authorize).toHaveBeenCalledOnce();
-    expect(authorize).toHaveBeenCalledWith("selected");
+    expect(authorize).toHaveBeenCalledWith("selected", { presentation: "popup" });
   });
 
   it("returns to collection authorization when the SDK invalidates a stale grant", async () => {
@@ -1046,7 +1046,7 @@ describe("mdbase editor", () => {
     expect(screen.getByText(/edit notes and move notes/i)).toBeInTheDocument();
     expect(screen.getByText(/shows only what needs to be added/i)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Update access" }));
-    expect(authorize).toHaveBeenCalledWith("selected");
+    expect(authorize).toHaveBeenCalledWith("selected", { presentation: "popup" });
   });
 
   it("keeps note editing available when only optional type access is missing", async () => {
@@ -1068,7 +1068,7 @@ describe("mdbase editor", () => {
     expect(await screen.findByRole("heading", { name: "Type access needed" })).toBeInTheDocument();
     expect(screen.getByText(/Notes are ready/i)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Update access" }));
-    expect(authorize).toHaveBeenCalledWith("selected");
+    expect(authorize).toHaveBeenCalledWith("selected", { presentation: "popup" });
   });
 
   it("shows a dropped connection and offers an immediate retry", async () => {

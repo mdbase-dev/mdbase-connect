@@ -326,11 +326,16 @@ describe("live connector-mediated authorization", () => {
       "replacement",
       installationIdentity
     );
-    const replacementOffer = (await app.inject({
+    const replacementPending = await app.inject({
       method: "GET",
       url: `/v1/authorization-requests/${replacementRequestId}`,
       headers: { cookie }
-    })).json().collections[0];
+    });
+    expect(replacementPending.json().authorization.existing_access).toEqual([{
+      collection_id: serverCollectionId,
+      operations: ["describe"]
+    }]);
+    const replacementOffer = replacementPending.json().collections[0];
     const replacement = await app.inject({
       method: "POST",
       url: `/v1/authorization-requests/${replacementRequestId}/approve`,
@@ -574,7 +579,7 @@ describe("live connector-mediated authorization", () => {
         peer: "connector"
       },
       minimum_connector_version: "0.1.0-beta.33",
-      update_url: "https://github.com/mdbase-dev/mdbase-connect/releases/latest"
+      update_url: "https://mdbase.dev/downloads/"
     });
     const [code] = await closePromise;
     expect(code).toBe(4406);
@@ -593,7 +598,7 @@ describe("live connector-mediated authorization", () => {
       connector_version: "0.1.0-beta.30",
       incompatibility_code: "transport_protocol_incompatible",
       minimum_connector_version: "0.1.0-beta.33",
-      connector_update_url: "https://github.com/mdbase-dev/mdbase-connect/releases/latest"
+      connector_update_url: "https://mdbase.dev/downloads/"
     });
     const overview = await app.inject({ method: "GET", url: "/v1/me", headers: { cookie } });
     expect(overview.json().connectors).toContainEqual(expect.objectContaining({
@@ -601,7 +606,7 @@ describe("live connector-mediated authorization", () => {
       connector_version: "0.1.0-beta.30",
       compatibility: "upgrade_required",
       minimum_connector_version: "0.1.0-beta.33",
-      update_url: "https://github.com/mdbase-dev/mdbase-connect/releases/latest"
+      update_url: "https://mdbase.dev/downloads/"
     }));
 
     const compatibleConnector = (await app.inject({

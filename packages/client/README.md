@@ -193,6 +193,22 @@ await session.authorize("choose");   // any compatible collection
 await session.authorize({ collectionId }); // exact adoption/migration target
 ```
 
+Web applications can keep their current page visible while Connect owns the
+collection and permission decision:
+
+```ts
+await session.authorize("choose", { presentation: "popup" });
+```
+
+Call popup authorization directly from a click or other user gesture. The SDK
+pre-opens one Connect window (browsers may show it as a tab), waits for the
+registered callback to complete in that window, updates the existing session,
+and closes it. If the browser blocks the popup, the same request safely falls
+back to the existing full-page redirect. `presentation: "redirect"` remains
+the default. Applications still run their ordinary callback handling in the
+popup; Connect remains the sole owner of compatible collection choice and exact
+permission review.
+
 Collection IDs are opaque non-secret locators that may appear in browser
 history and logs. Grants remain the authorization boundary, and names are
 display text that may change.

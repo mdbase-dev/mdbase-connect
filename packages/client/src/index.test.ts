@@ -2539,6 +2539,126 @@ describe("authorization renewal", () => {
     });
   });
 
+  it("keeps a web application loaded while popup authorization completes", async () => {
+    const storage = new MemoryStorage();
+    const popup = {
+      closed: false,
+      location: { href: "" },
+      close: vi.fn(() => { popup.closed = true; })
+    };
+    const open = vi.fn(() => popup);
+    const closeAuthorizationWindow = vi.fn();
+    vi.stubGlobal("window", { open, close: closeAuthorizationWindow });
+    vi.stubGlobal("location", { assign: vi.fn() });
+    let state = "";
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      const url = String(request);
+      if (url.endsWith("/v1/apps/register")) {
+        return jsonResponse({ application: registeredApplication() });
+      }
+      if (url.endsWith("/oauth/authorization_request")) {
+        const form = new URLSearchParams(String(init?.body));
+        const proof = JSON.parse(form.get("application_authorization")!);
+        state = proof.binding.state;
+        return jsonResponse({
+          authorization_id: proof.binding.authorization_id,
+          authorization_uri: `https://connect.example/oauth/authorize?request_id=${proof.binding.authorization_id}`,
+          expires_in: 600
+        });
+      }
+      if (url.endsWith("/oauth/token")) {
+        return jsonResponse({
+          access_token: "mdb_popup",
+          expires_in: 3600,
+          collection_id: TEST_COLLECTION_ID,
+          collection_name: "Popup tasks",
+          operations: ["query"],
+          scope: { contracts: [], access: "full_collection" }
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    const manager = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifest: {
+        manifest_version: 1,
+        id: "dev.tasks",
+        name: "Tasks",
+        homepage: "https://tasks.example/",
+        redirect_uris: ["https://tasks.example/callback"]
+      },
+      redirectUri: "https://tasks.example/callback",
+      storage,
+      keyStore: new MemoryGrantKeyStore(),
+      identityStore: new MemoryApplicationIdentityStore(),
+      relayEncryption: "disabled"
+    });
+
+    const authorization = manager.authorize({
+      presentation: "popup",
+      operations: ["query"],
+      returnTo: "/today"
+    });
+    expect(open).toHaveBeenCalledOnce();
+    expect(open).toHaveBeenCalledWith("", "mdbase-connect-authorization", "popup,width=620,height=760");
+    await vi.waitFor(() => expect(popup.location.href).toContain("https://connect.example/oauth/authorize"));
+    // Cross-Origin-Opener-Policy can sever the proxy while the window remains
+    // alive. Completion must be driven by shared callback state, not `closed`.
+    popup.closed = true;
+    await expect(manager.completeAuthorization(
+      `https://tasks.example/callback?code=popup-code&state=${state}`
+    )).resolves.toMatchObject({ ok: true });
+    await expect(authorization).resolves.toMatchObject({
+      ok: true,
+      value: {
+        kind: "connected",
+        returnTo: "/today",
+        connection: { collectionId: TEST_COLLECTION_ID }
+      }
+    });
+    expect(popup.close).toHaveBeenCalled();
+    expect(closeAuthorizationWindow).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to full-page redirect when a web popup is blocked", async () => {
+    const assign = vi.fn();
+    vi.stubGlobal("window", { open: vi.fn(() => null) });
+    vi.stubGlobal("location", { assign });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/v1/apps/register")) {
+        return jsonResponse({ application: registeredApplication() });
+      }
+      const form = new URLSearchParams(String(init?.body));
+      const proof = JSON.parse(form.get("application_authorization")!);
+      return jsonResponse({
+        authorization_id: proof.binding.authorization_id,
+        authorization_uri: "https://connect.example/oauth/authorize?request_id=blocked-popup",
+        expires_in: 600
+      });
+    });
+    const manager = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifest: {
+        manifest_version: 1,
+        id: "dev.tasks",
+        name: "Tasks",
+        homepage: "https://tasks.example/",
+        redirect_uris: ["https://tasks.example/callback"]
+      },
+      redirectUri: "https://tasks.example/callback",
+      storage: new MemoryStorage(),
+      keyStore: new MemoryGrantKeyStore(),
+      identityStore: new MemoryApplicationIdentityStore(),
+      relayEncryption: "disabled"
+    });
+
+    await expect(manager.authorize({ presentation: "popup" })).resolves.toMatchObject({
+      ok: true,
+      value: { kind: "redirecting" }
+    });
+    expect(assign).toHaveBeenCalledWith("https://connect.example/oauth/authorize?request_id=blocked-popup");
+  });
+
   it("signs v2 recovery only when an exact pending mutation matches the target and operation", async () => {
     const storage = new MemoryStorage();
     const target = TEST_COLLECTION_ID;

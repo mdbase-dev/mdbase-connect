@@ -10,7 +10,7 @@ import type { WebSocket } from "ws";
 const HANDSHAKE_TIMEOUT_MS = 5_000;
 const INCOMPATIBLE_CLOSE_CODE = 4406;
 export const CONNECTOR_UPDATE_URL =
-  "https://github.com/mdbase-dev/mdbase-connect/releases/latest";
+  "https://mdbase.dev/downloads/";
 
 export interface RelayHello {
   protocol_version: number;

@@ -17,7 +17,7 @@ export function routeForDeepLink(value: string | undefined): string | null {
       const collectionId = url.searchParams.get("collection");
       return collectionId ? `collections:mirror:${collectionId}` : "collections";
     }
-    if (url.hostname === "paired") return "overview";
+    if (url.hostname === "paired") return "paired";
   } catch {
     return null;
   }

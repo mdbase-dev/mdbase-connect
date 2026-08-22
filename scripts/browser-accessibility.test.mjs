@@ -413,6 +413,12 @@ async function auditDesktopRoutes() {
   const page = await browser.newPage();
   const errors = watchPageErrors(page);
   await page.addInitScript((pendingAuthorization) => {
+    localStorage.setItem("mdbase:collection-completion", JSON.stringify({
+      collectionId: "55555555-5555-4555-8555-555555555555",
+      collectionName: "Personal notes",
+      authority: "local",
+      path: "/home/example/Personal notes"
+    }));
     const status = {
       protocol_version: 1,
       state: "connected",
@@ -466,7 +472,9 @@ async function auditDesktopRoutes() {
       setLaunchAtLogin: async () => ({ enabled: false, available: true }),
       checkForUpdates: async () => updateStatus,
       installUpdate: async () => updateStatus,
-      openAuthorization: async () => undefined
+      openAuthorization: async () => undefined,
+      openPath: async () => undefined,
+      openEditor: async () => undefined
     };
   }, desktopAuthorizationFixture("44444444-4444-4444-8444-444444444444"));
   await page.goto(servers[1].origin);
@@ -474,6 +482,10 @@ async function auditDesktopRoutes() {
   await page.getByRole("button", { name: "Add existing folder" }).waitFor();
   await page.getByRole("button", { name: "Create collection" }).waitFor();
   await page.getByRole("button", { name: "Pause app access" }).waitFor();
+  await page.getByRole("heading", { name: "Personal notes is connected." }).waitFor();
+  await page.getByRole("button", { name: "Open folder" }).waitFor();
+  await page.getByRole("button", { name: "Use in application" }).waitFor();
+  await page.getByText("The folder path stays private.", { exact: true }).waitFor();
   await auditPage(page, "desktop overview", { keyboard: true });
 
   for (const route of [
@@ -485,7 +497,7 @@ async function auditDesktopRoutes() {
     await page.getByRole("button", { name: route[0] }).click();
     await page.getByRole("heading", { name: route[1] }).waitFor();
     if (route[0] === "App access") {
-      await page.getByRole("button", { name: "Review in portal" }).waitFor();
+      await page.getByRole("button", { name: "Review in Connect" }).waitFor();
       assert.equal(await page.getByRole("button", { name: "Reject" }).count(), 0);
     }
     await auditPage(page, `desktop ${route[0].toLowerCase()}`);

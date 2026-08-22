@@ -55,15 +55,23 @@ manifest=$temporary/qualification.json
   printf 'Qualification artifact or checkout identity is invalid.\n' >&2
   exit 1
 }
+# Pull-request artifacts record GitHub's synthetic merge SHA while the run API
+# identifies the PR head. Accept that SHA only for the artifact from this exact
+# run, and still require its qualified tree to equal the head tree checked out
+# by the publisher.
 jq -e \
   --arg commit "$commit" \
+  --arg event "$expected_event" \
+  --arg run_id "$run_id" \
   --arg tree "$(git rev-parse HEAD^{tree})" \
   --arg pnpm "$(sha256_file pnpm-lock.yaml)" \
   --arg cargo "$(sha256_file deploy/docker/Cargo.lock.hosted-provider)" \
   --arg revision "$(tr -d '\r\n' <deploy/docker/mdbase-rs-revision)" \
   --arg workflow "$(sha256_file .github/workflows/server-ci.yml)" '
     .schema_version == 1 and .qualification == "full"
-    and .commit == $commit and .tree == $tree
+    and (.commit == $commit or
+      ($event == "pull_request" and .event == $event and .run_id == $run_id))
+    and .tree == $tree
     and .inputs.pnpm_lock_sha256 == $pnpm
     and .inputs.cargo_lock_sha256 == $cargo
     and .inputs.mdbase_rs_revision == $revision

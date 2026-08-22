@@ -36,7 +36,12 @@ export interface StoredAuthorization {
   authorizationId?: string;
   applicationAgreementPublicKey?: string;
   applicationSigningPublicKey?: string;
+  presentation?: "popup";
 }
+
+export type StoredAuthorizationCompletion =
+  | { version: 1; status: "connected"; collectionId: string; returnTo?: string }
+  | { version: 1; status: "failed"; code: string; message: string; returnTo?: string };
 
 export interface StoredToken {
   version: 1;
