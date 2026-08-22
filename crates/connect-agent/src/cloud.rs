@@ -24,6 +24,29 @@ pub struct CloudControlClient {
     connector_token: String,
 }
 
+pub(crate) enum CloudSnapshotError {
+    Unavailable(ConnectError),
+    Failed(ConnectError),
+}
+
+impl CloudSnapshotError {
+    fn request(error: reqwest::Error) -> Self {
+        let unavailable = error.is_connect() || error.is_timeout() || error.is_body();
+        let error = ConnectError::Cloud(error.to_string());
+        if unavailable {
+            Self::Unavailable(error)
+        } else {
+            Self::Failed(error)
+        }
+    }
+
+    pub(crate) fn into_connect_error(self) -> ConnectError {
+        match self {
+            Self::Unavailable(error) | Self::Failed(error) => error,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RemoteAuthorityTransfer {
     pub id: uuid::Uuid,
@@ -75,8 +98,26 @@ impl CloudControlClient {
         }
     }
 
-    pub async fn snapshot(&self) -> Result<AccessSnapshot, ConnectError> {
-        self.json(Method::GET, "/v1/connectors/control", None).await
+    pub(crate) async fn snapshot(&self) -> Result<AccessSnapshot, CloudSnapshotError> {
+        let response = self
+            .client
+            .get(format!("{}/v1/connectors/control", self.server_url))
+            .timeout(Duration::from_secs(15))
+            .bearer_auth(&self.connector_token)
+            .send()
+            .await
+            .map_err(CloudSnapshotError::request)?;
+        let status = response.status();
+        if transient_snapshot_status(status) {
+            return Err(CloudSnapshotError::Unavailable(ConnectError::Cloud(
+                format!("Cloud request failed with transient HTTP {status}"),
+            )));
+        }
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(CloudSnapshotError::request)?;
+        decode_bytes(status, &bytes).map_err(CloudSnapshotError::Failed)
     }
 
     pub fn server_url(&self) -> &str {
@@ -658,6 +699,13 @@ impl CloudControlClient {
     }
 }
 
+fn transient_snapshot_status(status: reqwest::StatusCode) -> bool {
+    matches!(
+        status,
+        reqwest::StatusCode::REQUEST_TIMEOUT | reqwest::StatusCode::TOO_MANY_REQUESTS
+    ) || status.is_server_error()
+}
+
 fn safe_import_source(root: &Path, relative: &str) -> Result<PathBuf, ConnectError> {
     if relative.starts_with('/')
         || relative.contains('\\')
@@ -760,8 +808,15 @@ fn validate_import_prepared_part(
 async fn decode<T: DeserializeOwned>(response: Response) -> Result<T, ConnectError> {
     let status = response.status();
     let bytes = response.bytes().await.map_err(cloud_error)?;
+    decode_bytes(status, &bytes)
+}
+
+fn decode_bytes<T: DeserializeOwned>(
+    status: reqwest::StatusCode,
+    bytes: &[u8],
+) -> Result<T, ConnectError> {
     if !status.is_success() {
-        if let Ok(body) = serde_json::from_slice::<Value>(&bytes) {
+        if let Ok(body) = serde_json::from_slice::<Value>(bytes) {
             if let (Some(code), Some(message)) = (
                 body.pointer("/error/code").and_then(Value::as_str),
                 body.pointer("/error/message").and_then(Value::as_str),
@@ -776,7 +831,7 @@ async fn decode<T: DeserializeOwned>(response: Response) -> Result<T, ConnectErr
             "Cloud request failed with HTTP {status}"
         )));
     }
-    serde_json::from_slice(&bytes).map_err(ConnectError::from)
+    serde_json::from_slice(bytes).map_err(ConnectError::from)
 }
 
 fn cloud_error(error: reqwest::Error) -> ConnectError {

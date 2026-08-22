@@ -254,7 +254,10 @@ impl AgentState {
         params: &mdbase_connect_protocol::AuthorizationApproveParams,
     ) -> Result<serde_json::Value, ConnectError> {
         let cloud = self.cloud()?;
-        let snapshot = cloud.snapshot().await?;
+        let snapshot = cloud
+            .snapshot()
+            .await
+            .map_err(crate::cloud::CloudSnapshotError::into_connect_error)?;
         let pending = snapshot
             .pending_authorizations
             .iter()
@@ -348,7 +351,7 @@ impl AgentState {
         };
         let mut snapshot = match cloud.snapshot().await {
             Ok(snapshot) => snapshot,
-            Err(error) => {
+            Err(crate::cloud::CloudSnapshotError::Unavailable(error)) => {
                 tracing::debug!(%error, "cloud control snapshot unavailable; using local cache");
                 mdbase_connect_protocol::AccessSnapshot {
                     configured: true,
@@ -359,6 +362,7 @@ impl AgentState {
                     authority_conflicts: Vec::new(),
                 }
             }
+            Err(error) => return Err(error.into_connect_error()),
         };
         let collections = self.registry.list()?;
         for pending in &mut snapshot.pending_authorizations {
