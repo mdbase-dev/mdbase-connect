@@ -39,12 +39,14 @@ pub fn resources(template: &str, timezone: &str) -> ApiResult<CollectionTemplate
 }
 
 fn mdbase(timezone: &str, records: Vec<StoredDocument>) -> CollectionTemplate {
+    // Keep this revision and configuration aligned with the TypeScript reference
+    // authority's mdbaseResources; each authority must provision collections itself.
     let configuration = format!(
-        "spec_version: 0.3.0\nsettings:\n  types_folder: _types\n  default_validation: error\n  timezone: {timezone}\n"
+        "spec_version: 0.3.0\nsettings:\n  types_folder: _types\n  default_validation: error\n  timezone: {timezone}\nx-obsidian:\n  bases:\n    include:\n      - views/**/*.base\n"
     );
     CollectionTemplate {
         resources: SyncCollectionResources {
-            revision: "mdbase-template:1".to_string(),
+            revision: "mdbase-template:2".to_string(),
             spec_version: "0.3.0".to_string(),
             types: Vec::new(),
             contracts: Vec::new(),
@@ -117,7 +119,7 @@ mod tests {
     #[test]
     fn generic_mdbase_template_has_no_application_contracts() {
         let template = resources("mdbase", "Australia/Melbourne").unwrap();
-        assert_eq!(template.resources.revision, "mdbase-template:1");
+        assert_eq!(template.resources.revision, "mdbase-template:2");
         assert!(template.resources.types.is_empty());
         assert!(template.resources.contracts.is_empty());
         assert!(template.records.is_empty());
@@ -136,6 +138,32 @@ mod tests {
         assert!(template.documents[0]
             .document
             .contains("timezone: Australia/Melbourne"));
+    }
+
+    #[test]
+    fn fresh_templates_allow_neutral_obsidian_base_paths() {
+        for name in ["mdbase", "onboarding"] {
+            let template = resources(name, "UTC").unwrap();
+            assert_eq!(template.resources.revision, "mdbase-template:2");
+            let configuration: serde_json::Value =
+                serde_yaml::from_str(&template.documents[0].document).unwrap();
+            assert_eq!(
+                configuration,
+                serde_json::json!({
+                    "spec_version": "0.3.0",
+                    "settings": {
+                        "types_folder": "_types",
+                        "default_validation": "error",
+                        "timezone": "UTC"
+                    },
+                    "x-obsidian": {
+                        "bases": {
+                            "include": ["views/**/*.base"]
+                        }
+                    }
+                })
+            );
+        }
     }
 
     #[test]

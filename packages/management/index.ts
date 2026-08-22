@@ -97,6 +97,7 @@ export interface HostedReplica {
 export interface HostedCollection {
   id: string;
   display_name: string;
+  /** Creation-time profile; changing templates does not update an existing collection. */
   template: "mdbase";
   provider_url: string;
   spec_version: string;

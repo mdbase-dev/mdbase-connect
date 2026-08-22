@@ -52,6 +52,23 @@ write set, and commits it with replication state. This is an adapter around the
 engine, not a second implementation of matching, validation, querying, links,
 or lifecycle behavior.
 
+Fresh hosted collection templates include the application-neutral
+`x-obsidian.bases.include` value `views/**/*.base`, so applications can create
+Base sources in the conventional directory without first changing collection
+configuration. Templates apply only during creation: existing collections keep
+their persisted `mdbase.yaml` and do not inherit later template revisions.
+
+`create_view_source` validates an explicit path according to its extension.
+Paths ending in `.base` contain Obsidian Bases YAML and must match an
+`x-obsidian.bases.include` glob. Paths ending in `.md` contain a canonical
+`mdbase.view` Markdown document with mapping frontmatter; a Base YAML document
+cannot be moved to the `.md` fallback unchanged. Pathless creation defaults to
+`views/<slug>.md` unless `x-obsidian.bases.default_for_new_views` is enabled.
+
+The Rust production provider and TypeScript in-process reference authority each
+construct this template because they are independent authorities; mirrored
+semantic tests pin the revision and parsed configuration in both implementations.
+
 ## Durable model
 
 The production schema is normalized around these relations:
