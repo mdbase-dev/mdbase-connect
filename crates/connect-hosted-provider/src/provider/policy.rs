@@ -4,6 +4,12 @@ pub(super) fn authorize_application_operation(
     operation: &str,
     request_origin: Option<&str>,
 ) -> ApiResult<()> {
+    if operation == "batch" {
+        return Err(ApiError::bad_request(
+            "unsupported_operation",
+            "Hosted batch operations are owner-only and cannot be executed through an application grant.",
+        ));
+    }
     if !replica
         .allowed_operations
         .iter()

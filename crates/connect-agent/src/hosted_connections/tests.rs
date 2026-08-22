@@ -62,6 +62,82 @@ struct ProviderState {
 }
 
 #[tokio::test]
+async fn hosted_cli_rejects_timer_authorization_before_server_contact() {
+    let directory = tempfile::tempdir().unwrap();
+    let cloud = CloudControlClient::new(
+        "http://127.0.0.1:1".to_string(),
+        "con_123456789012345678901234".to_string(),
+    );
+    let manager = HostedConnectionManager::open(directory.path(), &cloud).unwrap();
+
+    for operation in mdbase_connect_protocol::TIMER_CRITERION_OPERATIONS {
+        let error = manager
+            .begin_authorization(HostedConnectionAuthorizeParams {
+                collection_id: Uuid::new_v4(),
+                operations: vec![operation.to_string()],
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "unsupported_cli_operation");
+        assert!(error.to_string().contains(operation));
+    }
+}
+
+#[tokio::test]
+async fn persisted_hosted_cli_grants_cannot_execute_timer_operations() {
+    let directory = tempfile::tempdir().unwrap();
+    let cloud = CloudControlClient::new(
+        "http://127.0.0.1:1".to_string(),
+        "con_123456789012345678901234".to_string(),
+    );
+    let manager = HostedConnectionManager::open(directory.path(), &cloud).unwrap();
+    let collection_id = Uuid::new_v4();
+    let now = Utc::now();
+    manager
+        .upsert(HostedConnectionEntry {
+            collection_id,
+            collection_name: "Legacy CLI connection".to_string(),
+            application_id: Uuid::new_v4(),
+            grant_id: Uuid::new_v4(),
+            operations: mdbase_connect_protocol::TIMER_CRITERION_OPERATIONS
+                .iter()
+                .map(|operation| operation.to_string())
+                .collect(),
+            operations_url: format!("http://127.0.0.1:1/v1/authorities/{collection_id}/operations"),
+            proof_public_key: "legacy-key".to_string(),
+            access_expires_at: (now + ChronoDuration::hours(1)).to_rfc3339(),
+            refresh_expires_at: (now + ChronoDuration::days(30)).to_rfc3339(),
+        })
+        .unwrap();
+
+    for operation in mdbase_connect_protocol::TIMER_CRITERION_OPERATIONS {
+        let error = manager
+            .operation(collection_id, operation, json!({}))
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "unsupported_cli_operation");
+        assert!(error.to_string().contains(operation));
+    }
+}
+
+#[tokio::test]
+async fn hosted_batch_is_rejected_before_grant_lookup() {
+    let directory = tempfile::tempdir().unwrap();
+    let cloud = CloudControlClient::new(
+        "http://127.0.0.1:1".to_string(),
+        "con_123456789012345678901234".to_string(),
+    );
+    let manager = HostedConnectionManager::open(directory.path(), &cloud).unwrap();
+
+    let error = manager
+        .operation(Uuid::new_v4(), "batch", json!({"operations": []}))
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "unsupported_operation");
+    assert!(error.to_string().contains("owner-only"));
+}
+
+#[tokio::test]
 async fn hosted_query_uses_a_signed_direct_provider_request_without_a_mirror() {
     let _environment = TEST_ENV.lock().await;
     std::env::set_var("MDBASE_CONNECT_ENV", "test");
@@ -353,6 +429,11 @@ async fn test_register_application(
 ) -> Json<Value> {
     assert_eq!(body["manifest"]["id"], CLI_APPLICATION_ID);
     assert_eq!(body["manifest"]["distribution"], "portable");
+    assert_eq!(
+        body["manifest"]["requirements"]["capabilities"]["required"],
+        json!(CLI_APPLICATION_CAPABILITIES)
+    );
+    assert!(body["manifest"]["notifications"].is_null());
     Json(json!({
         "application": {
             "id": state.application_id,

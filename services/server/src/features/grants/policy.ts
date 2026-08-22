@@ -2,9 +2,12 @@ import { randomUUID } from "node:crypto";
 import {
   areCollectionOperations,
   isCollectionOperation,
+  MDBASE_TIMER_FIRED_CONTRACT,
+  operationRequiresTimerCriterion,
   operationsForApplicationCapabilities
 } from "@mdbase-dev/connect-protocol";
 import type {
+  ApplicationNotifications,
   ApplicationProvisions,
   ApplicationRequirements,
   CollectionContractDescriptor,
@@ -104,6 +107,27 @@ export function assertOperationsAllowedByRequirements(
       requirements?.capabilities
         ? "The requested collection operations exceed the application's declared capabilities."
         : "Saved views, collection-wide validation, and type definitions require the application manifest to request full collection access."
+    );
+  }
+}
+
+export function assertOperationsAllowedByApplication(
+  operations: readonly string[],
+  requirements: ApplicationRequirements | null | undefined,
+  notifications: ApplicationNotifications
+): void {
+  assertOperationsAllowedByRequirements(operations, requirements);
+  if (
+    areCollectionOperations(operations)
+    && operations.some(operationRequiresTimerCriterion)
+    && !notifications.criteria.some(({ event }) =>
+      event.id === MDBASE_TIMER_FIRED_CONTRACT.id
+      && event.version === MDBASE_TIMER_FIRED_CONTRACT.version
+      && event.digest === MDBASE_TIMER_FIRED_CONTRACT.digest
+    )
+  ) {
+    throw new RequestValidationError(
+      "Timer operations require an mdbase.runtime.timer.fired notification criterion."
     );
   }
 }

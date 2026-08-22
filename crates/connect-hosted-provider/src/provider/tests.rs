@@ -879,6 +879,11 @@ fn application_capabilities_bind_operations_mode_and_origin() {
         .unwrap();
     let denied_create = authorize_application_operation(&replica, "create", None).unwrap_err();
     assert_eq!(denied_create.code, "insufficient_access");
+    let denied_batch =
+        authorize_application_operation(&replica, "batch", Some("https://tasks.example"))
+            .unwrap_err();
+    assert_eq!(denied_batch.code, "unsupported_operation");
+    assert_eq!(denied_batch.status, StatusCode::BAD_REQUEST);
     assert_eq!(
         denied_create.details,
         Some(serde_json::json!({

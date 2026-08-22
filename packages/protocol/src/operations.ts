@@ -150,6 +150,13 @@ export const MUTATING_OPERATION_IDENTIFIERS = [
   "file_control:abort_file_transfer"
 ] as const;
 
+const TIMER_CRITERION_OPERATIONS: ReadonlySet<string> = new Set([
+  "list_timers",
+  "put_timer",
+  "cancel_timer",
+  "reconcile_timers"
+]);
+
 export type MutationOperationIdentifier = typeof MUTATING_OPERATION_IDENTIFIERS[number];
 
 const COLLECTION_OPERATION_SET: ReadonlySet<string> = new Set(COLLECTION_OPERATIONS);
@@ -161,6 +168,10 @@ export function isCollectionOperation(value: string): value is CollectionOperati
 
 export function areCollectionOperations(values: readonly string[]): values is readonly CollectionOperation[] {
   return values.every(isCollectionOperation);
+}
+
+export function operationRequiresTimerCriterion(operation: CollectionOperation): boolean {
+  return TIMER_CRITERION_OPERATIONS.has(operation);
 }
 
 export function isFileControlMessageType(value: string): value is FileControlMessageType {

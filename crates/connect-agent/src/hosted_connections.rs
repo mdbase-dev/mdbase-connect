@@ -5,12 +5,13 @@ use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use mdbase_connect_core::{ConnectError, SystemSecretStore};
 use mdbase_connect_protocol::{
     application_installation_id, authorization_requires_durable_mutation, is_collection_operation,
-    is_mutating_operation, ApplicationAuthorizationBinding, ApplicationAuthorizationFlow,
-    ApplicationAuthorizationProof, ConnectContractRequirements, HostedConnectionAuthorization,
-    HostedConnectionAuthorizationStatus, HostedConnectionAuthorizeParams, HostedConnectionSummary,
-    OperationRequest, OperationResponse, AUTHORITY_PROOF_DOMAIN, AUTHORITY_PROOF_NONCE_HEADER,
-    AUTHORITY_PROOF_SIGNATURE_HEADER, AUTHORITY_PROOF_TIMESTAMP_HEADER, AUTHORITY_PROOF_VERSION,
-    AUTHORITY_PROOF_VERSION_HEADER, OPERATION_TRANSPORT_PROTOCOL_VERSION,
+    is_mutating_operation, operation_requires_timer_criterion, ApplicationAuthorizationBinding,
+    ApplicationAuthorizationFlow, ApplicationAuthorizationProof, ConnectContractRequirements,
+    HostedConnectionAuthorization, HostedConnectionAuthorizationStatus,
+    HostedConnectionAuthorizeParams, HostedConnectionSummary, OperationRequest, OperationResponse,
+    AUTHORITY_PROOF_DOMAIN, AUTHORITY_PROOF_NONCE_HEADER, AUTHORITY_PROOF_SIGNATURE_HEADER,
+    AUTHORITY_PROOF_TIMESTAMP_HEADER, AUTHORITY_PROOF_VERSION, AUTHORITY_PROOF_VERSION_HEADER,
+    OPERATION_TRANSPORT_PROTOCOL_VERSION,
 };
 use p256::ecdsa::signature::Signer;
 use p256::ecdsa::{Signature, SigningKey};
@@ -32,6 +33,30 @@ use uuid::Uuid;
 const REGISTRY_VERSION: u32 = 1;
 const CLI_APPLICATION_ID: &str = "dev.mdbase.cli";
 const CLI_APPLICATION_NAME: &str = "mdbase CLI";
+const CLI_APPLICATION_CAPABILITIES: &[&str] = &[
+    "collection.inspect",
+    "records.watch",
+    "records.read",
+    "records.query",
+    "records.validate",
+    "records.create",
+    "records.update",
+    "records.delete",
+    "records.rename",
+    "views.list",
+    "views.execute",
+    "views.source.read",
+    "views.source.create",
+    "views.source.update",
+    "views.source.delete",
+    "definitions.read",
+    "definitions.create",
+    "definitions.update",
+    "definitions.type-pack.inspect",
+    "definitions.type-pack.apply",
+    "collection.setup.apply",
+    "sync.offline-replica",
+];
 const MAX_HOSTED_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -195,6 +220,17 @@ impl HostedConnectionManager {
         let mut operations = params.operations;
         operations.sort();
         operations.dedup();
+        if let Some(operation) = operations
+            .iter()
+            .find(|operation| operation_requires_timer_criterion(operation))
+        {
+            return Err(ConnectError::CloudProblem {
+                code: "unsupported_cli_operation".to_string(),
+                message: format!(
+                    "The mdbase CLI cannot request {operation} because its portable application manifest has no timer notification criteria."
+                ),
+            });
+        }
         if operations.is_empty()
             || operations
                 .iter()
@@ -494,6 +530,21 @@ impl HostedConnectionManager {
         operation: &str,
         input: Value,
     ) -> Result<Value, ConnectError> {
+        if operation == "batch" {
+            return Err(ConnectError::CloudProblem {
+                code: "unsupported_operation".to_string(),
+                message: "Hosted batch operations are owner-only and cannot be executed through an application grant."
+                    .to_string(),
+            });
+        }
+        if operation_requires_timer_criterion(operation) {
+            return Err(ConnectError::CloudProblem {
+                code: "unsupported_cli_operation".to_string(),
+                message: format!(
+                    "The mdbase CLI cannot execute {operation} because its application manifest has no timer notification criteria."
+                ),
+            });
+        }
         let (entry, credentials) = self.fresh_connection(collection_id, false).await?;
         if !entry.operations.iter().any(|allowed| allowed == operation) {
             return Err(ConnectError::AccessDenied(format!(
@@ -776,7 +827,14 @@ impl HostedConnectionManager {
                     "distribution": "portable",
                     "id": CLI_APPLICATION_ID,
                     "name": CLI_APPLICATION_NAME,
-                    "requirements": {"access": "full_collection", "contracts": []}
+                    "requirements": {
+                        "access": "full_collection",
+                        "contracts": [],
+                        "capabilities": {
+                            "contract_version": 1,
+                            "required": CLI_APPLICATION_CAPABILITIES
+                        }
+                    }
                 }
             }))
             .send()
