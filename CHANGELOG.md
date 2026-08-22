@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+## 0.1.0-beta.84
+
+Beta.84 tightens hosted operation correctness and enables Obsidian Base views
+for newly created hosted collections.
+
+- Fresh hosted collections provision `views/**/*.base` alongside canonical
+  Markdown sources, with aligned Rust and TypeScript template semantics.
+- Hosted entitlement reconciliation is resumable, idempotent, and protected
+  from overlapping operator batches.
+- Background sync can acknowledge reviewed plans it already completed while
+  retaining pending recovery and stale-plan protections.
+- Hosted operations reject unknown or mistyped inputs, preserve authoritative
+  persisted mutation outcomes, and distinguish safe rejection from uncertain
+  non-JSON responses.
+- CLI and server authorization now align owner-only batch and timer operations
+  with generated protocol metadata.
+- Control-plane availability reports transport reachability without masking
+  malformed protocol responses or structured authorization failures.
+- The hosted provider uses mdbase-rs revision
+  `4f861ba14b685e952ed7e7be869e3980a9eda613` so canonical Markdown views are
+  classified and committed as resources through the single-writer runtime.
+
 ## 0.1.0-beta.83
 
 Beta.83 makes Connect onboarding and collection management simpler and more
