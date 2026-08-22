@@ -6656,6 +6656,120 @@ async fn candidate_b_obsidian_base_uses_persisted_backlink_graph() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn hosted_base_skips_a_malformed_record_and_returns_readable_rows() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    fixture
+        .enable_obsidian_base_pattern("views/**/*.base")
+        .await;
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let replica_id: Uuid = replica.get("id");
+    let scope_epoch = u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap();
+    put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        Uuid::now_v7(),
+        None,
+        "tasks/readable.md",
+        "---\nstatus: open\ntags: [task]\n---\nReadable task\n",
+    )
+    .await;
+    put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        Uuid::now_v7(),
+        None,
+        "tasks/malformed.md",
+        "---\nstatus: [unterminated\n---\n#task\nUnreadable task\n",
+    )
+    .await;
+    complete_generation(&fixture).await;
+
+    let source = r#"views:
+  - type: tasknotesTaskList
+    name: Tasks
+    filters: 'file.hasTag("task")'
+    order: [status, file.name]
+"#;
+
+    let token = format!("malformed-base-{}", Uuid::new_v4());
+    fixture
+        .provider
+        .register_replica(
+            fixture.collection_id,
+            RegisterReplica {
+                replica_id: Uuid::now_v7(),
+                name: "Malformed Base record acceptance".to_string(),
+                purpose: ReplicaPurpose::Application,
+                mode: SyncReplicaMode::ReadWrite,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
+                allowed_operations: vec![
+                    "create_view_source".to_string(),
+                    "execute_view".to_string(),
+                ],
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: Vec::new(),
+                file_capability: None,
+                allowed_origin: None,
+                proof_public_key: None,
+                grant_id: Some(Uuid::now_v7()),
+                application_declaration_id: None,
+                application_declaration_digest: None,
+                token: token.clone(),
+                token_ttl_seconds: None,
+            },
+        )
+        .await
+        .unwrap();
+    let created = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "create_view_source",
+            Uuid::new_v4(),
+            json!({"path": "views/tasks.base", "document": source}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(created["valid"], true);
+
+    let result = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "execute_view",
+            Uuid::new_v4(),
+            json!({"path": "views/tasks.base", "view": "tasks"}),
+            None,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(result["valid"], true);
+    assert_eq!(result["result"]["meta"]["total_count"], 1);
+    assert_eq!(result["result"]["results"][0]["path"], "tasks/readable.md");
+    assert_eq!(
+        result["result"]["diagnostics"][0]["code"],
+        "hosted_base_record_skipped"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
 async fn candidate_b_base_candidate_prunes_over_scan_budget() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");

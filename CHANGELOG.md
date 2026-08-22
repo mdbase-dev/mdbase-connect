@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 0.1.0-beta.82
+
+Beta.82 keeps hosted saved views usable when an ordinary Markdown record cannot
+be parsed completely.
+
+- Hosted Obsidian Base evaluation now omits semantically incomplete candidate
+  and related records after first verifying their projection integrity. One
+  malformed frontmatter document therefore no longer aborts every readable row
+  in the view.
+- The successful view response includes a `hosted_base_record_skipped` warning
+  so applications can explain the omission without exposing record paths from
+  contract-scoped collections. Stale or integrity-invalid projections,
+  incomplete required query context, and structural resource failures remain
+  fail-closed.
+
 ## 0.1.0-beta.81
 
 Beta.81 permits applications to work with collections containing records that
