@@ -22,6 +22,18 @@ export async function openDatabase(
       implementation: () => true
     });
     memory.public.registerFunction({
+      name: "pg_try_advisory_lock",
+      args: [DataType.integer, DataType.integer],
+      returns: DataType.bool,
+      implementation: () => true
+    });
+    memory.public.registerFunction({
+      name: "pg_advisory_unlock",
+      args: [DataType.integer, DataType.integer],
+      returns: DataType.bool,
+      implementation: () => true
+    });
+    memory.public.registerFunction({
       name: "replace",
       args: [DataType.text, DataType.text, DataType.text],
       returns: DataType.text,

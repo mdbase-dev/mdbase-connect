@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabasePool } from "./db.js";
 import { compatibilityReport } from "./auth-admin-compatibility.js";
+import { reconcileActiveHostedEntitlements } from "./auth-admin-entitlements.js";
 import {
   AuthenticationPolicyStore,
   type AuthenticationSettings
@@ -193,16 +194,30 @@ async function reconcileEntitlements(
     );
   }
   const flags = parseFlags(argv, new Set([
-    "user", "all", "operation-id", "actor", "reason"
+    "user", "all", "active-hosted", "operation-id", "actor", "reason"
   ]));
   const operationId = requiredFlag(flags, "operation-id");
   const actor = requiredFlag(flags, "actor");
   const reason = requiredFlag(flags, "reason");
   const all = flags.has("all")
     && enabledFlag(requiredFlag(flags, "all"), "all");
-  if (all === flags.has("user")) {
+  const activeHosted = flags.has("active-hosted")
+    && enabledFlag(requiredFlag(flags, "active-hosted"), "active-hosted");
+  const selectors = Number(all) + Number(activeHosted) + Number(flags.has("user"));
+  if (selectors !== 1) {
     throw new AuthAdminUsageError(
-      "Entitlement reconciliation requires exactly one of --user or --all enabled."
+      "Entitlement reconciliation requires exactly one of --user, --all enabled, or --active-hosted enabled."
+    );
+  }
+  if (activeHosted) {
+    return reconcileActiveHostedEntitlements(
+      context.db,
+      context.hostedProvider,
+      {
+        operationId,
+        actor,
+        reason
+      }
     );
   }
   const userIds = all
@@ -952,7 +967,7 @@ export function usage(): string {
     "  auth-admin beta list [--status pending|invited] [--limit <n>] [--cursor <cursor>]",
     "  auth-admin entitlements show --user <uuid|email>",
     "  auth-admin entitlements grant --user <uuid|email> --profile <code> --operation-id <uuid> --actor <id> --reason <text>",
-    "  auth-admin entitlements reconcile (--user <uuid|email> | --all enabled) --operation-id <uuid> --actor <id> --reason <text>",
+    "  auth-admin entitlements reconcile (--user <uuid|email> | --all enabled | --active-hosted enabled) --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin users list [--status active|suspended] [--limit <n>] [--cursor <cursor>]",
     "  auth-admin users show --user <uuid|email>",
     "  auth-admin users suspend --user <uuid|email> --operation-id <uuid> --actor <id> --reason <text>",
