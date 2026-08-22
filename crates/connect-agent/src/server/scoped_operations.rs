@@ -74,13 +74,7 @@ impl AgentState {
                 .and_then(|timers| {
                     timers
                         .operation(collection_id, grant.clone(), operation, input.clone())
-                        .map_err(|error| {
-                            if error.internal {
-                                ConnectError::TimerRuntime(error.message)
-                            } else {
-                                ConnectError::InvalidTimer(error.message)
-                            }
-                        })
+                        .map_err(timer_connect_error)
                 });
             profile_operation(transport, operation, started, 0, &result);
             return result;
@@ -132,5 +126,46 @@ impl AgentState {
         );
         profile_operation(transport, operation, started, synchronize_us.get(), &result);
         result
+    }
+}
+
+fn timer_connect_error(error: mdbase_connect_runtime::TimerOperationError) -> ConnectError {
+    if error.internal {
+        ConnectError::TimerRuntime(error.message)
+    } else {
+        ConnectError::Timer {
+            code: error.code,
+            message: error.message,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::timer_connect_error;
+    use mdbase_connect_core::ConnectError;
+    use mdbase_connect_runtime::TimerOperationError;
+
+    #[test]
+    fn public_timer_errors_preserve_their_codes() {
+        let error = timer_connect_error(TimerOperationError {
+            code: "timer_criterion_not_authorized".to_string(),
+            message: "The criterion is not authorized.".to_string(),
+            internal: false,
+        });
+
+        assert_eq!(error.code(), "timer_criterion_not_authorized");
+    }
+
+    #[test]
+    fn internal_timer_errors_use_the_runtime_failure_contract() {
+        let error = timer_connect_error(TimerOperationError {
+            code: "store_failed".to_string(),
+            message: "The timer store failed.".to_string(),
+            internal: true,
+        });
+
+        assert!(matches!(&error, ConnectError::TimerRuntime(_)));
+        assert_eq!(error.code(), "timer_runtime_failed");
     }
 }

@@ -74,6 +74,7 @@ import {
   retryExplicitConnectorBusy
 } from "./transient-retry.js";
 import { probeLoopbackAccess, tokenSupportsDirectAccess } from "./direct-access.js";
+import { decodeHostedOperationResponse } from "./hosted-operation-response.js";
 
 export type {
   ConnectionTransportInternals,
@@ -324,23 +325,17 @@ export class ConnectionTransport {
         knownRejected
       )
     });
-    let body: any;
+    let decoded;
     try {
-      body = await decodeJsonResponse(
-        response,
-        "invalid_operation_response",
-        "The collection authority returned a response that is not valid JSON."
-      );
+      decoded = await decodeHostedOperationResponse(response, token.authority !== undefined);
     } catch (cause) {
       if (attempt.pendingMutation) throw unknownMutationOutcome(attempt.requestId, cause);
-      throw connectError(
-        "invalid_operation_response",
-        "The collection authority returned a response that is not valid JSON.",
-        { cause }
-      );
+      throw cause;
     }
+    const body = decoded.body;
     if (!response.ok) {
-      const error = apiError(body, "operation_failed", "Collection operation failed.", response.status);
+      const error = decoded.httpError
+        ?? apiError(body, "operation_failed", "Collection operation failed.", response.status);
       const recovery = await retryBusy(error);
       if (recovery.retried) return recovery.result;
       if (error.code === "fresh_request_required"

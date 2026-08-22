@@ -343,9 +343,7 @@ impl HostedProvider {
                         ApiError::internal("mdbase-rs returned a non-object record document.")
                     })?;
                     if let Some(semantic) = semantic_result {
-                        if let Some(fields) = semantic.result.as_object() {
-                            value.extend(fields.clone());
-                        }
+                        merge_semantic_receipt_extras(context.operation, value, &semantic.result);
                         document.diagnostics.extend(semantic.diagnostics);
                     }
                     if context.operation == "rename" {
@@ -375,5 +373,52 @@ impl HostedProvider {
             ApiError::internal(format!("Hosted operation could not serialize: {error}"))
         })?;
         Ok(result)
+    }
+}
+
+fn merge_semantic_receipt_extras(
+    operation: &str,
+    persisted: &mut serde_json::Map<String, Value>,
+    semantic: &Value,
+) {
+    if operation == "rename" {
+        if let Some(references) = semantic.get("references_updated") {
+            persisted.insert("references_updated".to_string(), references.clone());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::merge_semantic_receipt_extras;
+    use serde_json::{json, Map, Value};
+
+    #[test]
+    fn semantic_receipt_extras_cannot_replace_persisted_record_fields() {
+        let mut persisted = Map::from_iter([
+            ("revision".to_string(), json!("persisted-revision")),
+            (
+                "file".to_string(),
+                json!({"mtime": "persisted-mtime", "size": 42}),
+            ),
+        ]);
+        let staged = json!({
+            "revision": "staged-revision",
+            "file": {"mtime": null, "size": 0},
+            "references_updated": [{"path": "notes/reference.md"}],
+        });
+
+        merge_semantic_receipt_extras("create", &mut persisted, &staged);
+        assert_eq!(persisted["revision"], "persisted-revision");
+        assert_eq!(persisted["file"]["mtime"], "persisted-mtime");
+        assert!(!persisted.contains_key("references_updated"));
+
+        merge_semantic_receipt_extras("rename", &mut persisted, &staged);
+        assert_eq!(persisted["revision"], "persisted-revision");
+        assert_eq!(persisted["file"]["size"], 42);
+        assert_eq!(
+            persisted["references_updated"],
+            Value::Array(vec![json!({"path": "notes/reference.md"})])
+        );
     }
 }

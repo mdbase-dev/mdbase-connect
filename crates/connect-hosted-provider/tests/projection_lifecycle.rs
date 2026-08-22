@@ -5154,7 +5154,64 @@ async fn exercise_candidate_b_projection_lifecycle() {
         .await
         .unwrap();
     assert_eq!(target_created["valid"], true);
-    let target_revision = target_created["result"]["revision"]
+    let target_read = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &writer_token,
+            "read",
+            Uuid::new_v4(),
+            json!({"path": "notes/app-target.md"}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(target_created["result"], target_read["result"]);
+    DateTime::parse_from_rfc3339(
+        target_created["result"]["file"]["mtime"]
+            .as_str()
+            .expect("hosted create receipts expose persisted file mtime"),
+    )
+    .expect("hosted create receipt file mtime is RFC 3339");
+
+    let target_updated = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &writer_token,
+            "update",
+            Uuid::new_v4(),
+            json!({
+                "path": "notes/app-target.md",
+                "patch": {"title": "Updated application target"},
+                "if_revision": target_created["result"]["revision"],
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    let target_read_after_update = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &writer_token,
+            "read",
+            Uuid::new_v4(),
+            json!({"path": "notes/app-target.md"}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(target_updated["result"], target_read_after_update["result"]);
+    assert_eq!(
+        target_updated["result"]["file"],
+        target_read_after_update["result"]["file"]
+    );
+    assert_eq!(
+        target_updated["result"]["revision"],
+        target_read_after_update["result"]["revision"]
+    );
+    let target_revision = target_updated["result"]["revision"]
         .as_str()
         .unwrap()
         .to_string();
