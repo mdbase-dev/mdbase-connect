@@ -169,7 +169,7 @@ async function completeAccount(
     await connection.query(
       `INSERT INTO audit_events
          (id, user_id, event_type, subject_id, metadata)
-       VALUES ($1, $2, 'entitlement.reconciled', $2, $3::jsonb)`,
+       VALUES ($1, $2, 'entitlement.reconciled', $4, $3::jsonb)`,
       [
         randomUUID(),
         userId,
@@ -179,7 +179,8 @@ async function completeAccount(
           operation_id: mutation.operationId,
           entitlement_revision: entitlementRevision,
           reconciled_collections: reconciledCollections
-        })
+        }),
+        userId
       ]
     );
     await connection.query(
