@@ -2,13 +2,58 @@ use super::*;
 use axum::body::Bytes;
 use axum::extract::{OriginalUri, Path as AxumPath, State};
 use axum::http::HeaderMap;
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use p256::ecdsa::signature::Verifier;
 use p256::ecdsa::VerifyingKey;
 use std::sync::Arc;
 
 static TEST_ENV: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+#[tokio::test]
+async fn non_json_hosted_http_errors_preserve_status_without_leaking_the_body() {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let app = Router::new().route(
+        "/error",
+        get(|| async {
+            (
+                StatusCode::FORBIDDEN,
+                "<html>Render WAF secret-body-marker</html>",
+            )
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let response = reqwest::get(format!("http://{address}/error"))
+        .await
+        .unwrap();
+    let error = decode_response::<Value>(response).await.unwrap_err();
+    assert_eq!(error.code(), "hosted_http_error");
+    assert_eq!(
+        error.to_string(),
+        "Hosted request failed with HTTP 403 Forbidden."
+    );
+    assert!(!error.to_string().contains("secret-body-marker"));
+    server.abort();
+}
+
+#[tokio::test]
+async fn non_json_successful_hosted_responses_remain_invalid() {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let app = Router::new().route("/success", get(|| async { "not json" }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let response = reqwest::get(format!("http://{address}/success"))
+        .await
+        .unwrap();
+    let error = decode_response::<Value>(response).await.unwrap_err();
+    assert_eq!(error.code(), "invalid_hosted_response");
+    server.abort();
+}
 
 #[derive(Clone)]
 struct ProviderState {

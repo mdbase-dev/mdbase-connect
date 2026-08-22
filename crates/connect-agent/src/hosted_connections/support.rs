@@ -157,9 +157,18 @@ pub(super) async fn response_value(
         }
         bytes.extend_from_slice(&chunk);
     }
-    let value: Value = serde_json::from_slice(&bytes).map_err(|_| ConnectError::CloudProblem {
-        code: "invalid_hosted_response".to_string(),
-        message: "Connect returned a malformed hosted response.".to_string(),
+    let value: Value = serde_json::from_slice(&bytes).map_err(|_| {
+        if status.is_success() {
+            ConnectError::CloudProblem {
+                code: "invalid_hosted_response".to_string(),
+                message: "Connect returned a malformed hosted response.".to_string(),
+            }
+        } else {
+            ConnectError::CloudProblem {
+                code: "hosted_http_error".to_string(),
+                message: format!("Hosted request failed with HTTP {status}."),
+            }
+        }
     })?;
     Ok((status, value))
 }
