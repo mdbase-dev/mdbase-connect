@@ -196,8 +196,11 @@ test("recovers from a stale local grant without bypassing the connector", async 
     );
   }, { configuredServerUrl: serverUrl, configuredManifestPath: manifestPath })).toBeNull();
 
+  const popupPromise = page.waitForEvent("popup");
   await page.getByRole("button", { name: "Choose a collection" }).click();
-  await expect(page).toHaveURL(/connect\.mdbase\.dev\/oauth\/authorize/);
+  const popup = await popupPromise;
+  await expect(popup).toHaveURL(/connect\.mdbase\.dev\/oauth\/authorize/);
+  await popup.close();
 });
 
 async function json(route: Route, body: unknown, status = 200): Promise<void> {
