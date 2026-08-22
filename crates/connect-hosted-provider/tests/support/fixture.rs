@@ -153,9 +153,12 @@ impl FileLifecycleFixture {
             .decrypt_bytes(&data_key, config.get("document_ciphertext"), &config_aad)
             .expect("test configuration decrypts");
         let mut document = String::from_utf8(current).expect("test configuration is UTF-8");
-        document.push_str(&format!(
-            "x-obsidian:\n  bases:\n    include:\n      - {pattern}\n"
-        ));
+        let default_pattern = "      - views/**/*.base\n";
+        assert!(
+            document.contains(default_pattern),
+            "hosted fixture template includes the default Base path"
+        );
+        document = document.replacen(default_pattern, &format!("      - {pattern}\n"), 1);
         let revision = format!("sha256:{:x}", Sha256::digest(document.as_bytes()));
         let ciphertext = self
             .crypto
