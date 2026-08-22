@@ -1760,6 +1760,91 @@ async fn writable_initial_file_collision_preserves_identity_and_resolves_exact_b
 }
 
 #[tokio::test]
+async fn reviewed_plan_completed_by_background_sync_is_idempotently_acknowledged() {
+    let source = record("one.md", "One");
+    let (_temporary, mirror, _authority) = harness(SyncReplicaMode::ReadOnly, vec![source]);
+
+    let reviewed = mirror.inspect().await.unwrap();
+    mirror.sync().await.unwrap();
+    assert_eq!(
+        mirror
+            .read_state()
+            .unwrap()
+            .unwrap()
+            .last_completed_plan
+            .as_deref(),
+        Some(reviewed.fingerprint.as_str())
+    );
+
+    let result = mirror
+        .apply_fingerprint(&reviewed.fingerprint)
+        .await
+        .unwrap();
+    assert_eq!(result.status, "applied");
+    assert_eq!(result.plan_fingerprint, reviewed.fingerprint);
+    assert_eq!(result.applied, 0);
+    assert!(result.failure.is_none());
+}
+
+#[tokio::test]
+async fn completed_plan_acknowledgement_does_not_echo_caller_issues() {
+    let source = record("one.md", "One");
+    let (_temporary, mirror, _authority) = harness(SyncReplicaMode::ReadOnly, vec![source]);
+
+    let mut reviewed = mirror.inspect().await.unwrap();
+    mirror.sync().await.unwrap();
+    reviewed.issues.push(MirrorPlanIssue {
+        code: "caller_supplied".into(),
+        message: "This issue was not produced by the mirror.".into(),
+        path: Some("untrusted.md".into()),
+        blocking: true,
+    });
+
+    let result = mirror.apply(&reviewed).await.unwrap();
+    assert_eq!(result.status, "applied");
+    assert!(result.issues.is_empty());
+}
+
+#[tokio::test]
+async fn newer_prepared_batch_takes_precedence_over_completed_plan_acknowledgement() {
+    let source = record("one.md", "One");
+    let (_temporary, mirror, authority) = harness(SyncReplicaMode::ReadOnly, vec![source]);
+
+    let reviewed = mirror.inspect().await.unwrap();
+    mirror.sync().await.unwrap();
+    authority.emit_put(record("two.md", "Two"));
+    let inspection = mirror.inspect_plan().await.unwrap();
+    assert_ne!(inspection.plan.fingerprint, reviewed.fingerprint);
+    mirror.prepare_batch(inspection).unwrap();
+
+    let error = mirror.apply(&reviewed).await.unwrap_err();
+    assert_eq!(error.code, "mirror_recovery_required");
+    let error = mirror
+        .apply_fingerprint(&reviewed.fingerprint)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, "sync_plan_stale");
+}
+
+#[tokio::test]
+async fn apply_fingerprint_still_rejects_a_truly_stale_reviewed_plan() {
+    let (_temporary, mirror, _authority) = harness(SyncReplicaMode::ReadWrite, Vec::new());
+
+    let reviewed = mirror.inspect().await.unwrap();
+    fs::write(
+        mirror.root().join("arrived-after-review.md"),
+        "new local file",
+    )
+    .unwrap();
+
+    let error = mirror
+        .apply_fingerprint(&reviewed.fingerprint)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, "sync_plan_stale");
+}
+
+#[tokio::test]
 async fn inspection_is_deterministic_read_only_and_apply_rejects_a_stale_plan() {
     let (_temporary, mirror, authority) = harness(SyncReplicaMode::ReadWrite, Vec::new());
 
