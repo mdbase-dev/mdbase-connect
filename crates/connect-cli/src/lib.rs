@@ -547,6 +547,14 @@ impl CliError {
         }
     }
 
+    fn unsupported_cli_operation(message: impl Into<String>) -> Self {
+        Self {
+            code: "unsupported_cli_operation".to_string(),
+            message: message.into(),
+            exit_code: 2,
+        }
+    }
+
     fn internal(message: impl Into<String>) -> Self {
         Self {
             code: "internal_error".to_string(),
@@ -554,6 +562,35 @@ impl CliError {
             exit_code: 1,
         }
     }
+}
+
+fn hosted_cli_authorization_operations(
+    operations: Vec<String>,
+    read_only: bool,
+) -> Result<Vec<String>, CliError> {
+    if let Some(operation) = operations
+        .iter()
+        .find(|operation| mdbase_connect_protocol::operation_requires_timer_criterion(operation))
+    {
+        return Err(CliError::unsupported_cli_operation(format!(
+            "The mdbase CLI cannot request {operation} because it has no timer notification criteria."
+        )));
+    }
+    if !operations.is_empty() {
+        return Ok(operations);
+    }
+    Ok(COLLECTION_OPERATIONS
+        .iter()
+        .filter(|operation| {
+            !mdbase_connect_protocol::operation_requires_timer_criterion(operation)
+                && (!read_only
+                    || (**operation != "sync"
+                        && !mdbase_connect_protocol::MUTATING_OPERATION_IDENTIFIERS
+                            .iter()
+                            .any(|mutation| mutation.split(':').next() == Some(**operation))))
+        })
+        .map(|operation| (*operation).to_string())
+        .collect())
 }
 
 async fn execute(args: Args) -> Result<i32, CliError> {
@@ -781,23 +818,7 @@ async fn execute_connect(
             read_only,
             no_open,
         }) => {
-            let operations = if operations.is_empty() {
-                COLLECTION_OPERATIONS
-                    .iter()
-                    .filter(|operation| {
-                        !read_only
-                            || (**operation != "sync"
-                                && !mdbase_connect_protocol::MUTATING_OPERATION_IDENTIFIERS
-                                    .iter()
-                                    .any(|mutation| {
-                                        mutation.split(':').next() == Some(**operation)
-                                    }))
-                    })
-                    .map(|operation| (*operation).to_string())
-                    .collect()
-            } else {
-                operations
-            };
+            let operations = hosted_cli_authorization_operations(operations, read_only)?;
             let begun = successful_result(
                 send(
                     &endpoint,

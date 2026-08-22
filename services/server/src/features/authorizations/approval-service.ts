@@ -33,6 +33,7 @@ import { audit } from "../../platform/audit-events.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import {
   allowedTypesForRequirements,
+  assertOperationsAllowedByApplication,
   assertCollectionSupportsOperations,
   contractsSatisfy,
   requiredContractsForRequirements,
@@ -118,6 +119,11 @@ export async function approvePortalAuthorization(
       await connection.query("ROLLBACK");
       return false;
     }
+    assertOperationsAllowedByApplication(
+      pending.requested_operations,
+      pending.requirements,
+      pending.notifications
+    );
     if (pending.collection_id && pending.collection_id !== input.collectionId) {
       throw new RequestValidationError(
         "This authorization request is restricted to a different collection."
@@ -614,6 +620,11 @@ export async function approveHostedAuthorization(
       await connection.query("ROLLBACK");
       return false;
     }
+    assertOperationsAllowedByApplication(
+      pending.requested_operations,
+      pending.requirements,
+      pending.notifications
+    );
     await connection.query(
       "SELECT id FROM hosted_collections WHERE id = $1 FOR UPDATE",
       [input.collectionId]

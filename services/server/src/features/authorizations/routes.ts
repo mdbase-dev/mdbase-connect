@@ -46,6 +46,7 @@ import {
 } from "../../platform/request-authentication.js";
 import {
   assertCollectionSupportsOperations,
+  assertOperationsAllowedByApplication,
   assertOperationsAllowedByRequirements,
   contractsSatisfy,
   requiredContractsForRequirements,
@@ -118,8 +119,9 @@ export function registerAuthorizationRoutes(
       family_identity: string;
       manifest_digest: string | null;
       requirements: ApplicationRequirements;
+      notifications: ApplicationNotifications;
     }>(
-      "SELECT id, distribution, family_identity, manifest_digest, requirements FROM applications WHERE id = $1",
+      "SELECT id, distribution, family_identity, manifest_digest, requirements, notifications FROM applications WHERE id = $1",
       [input.client_id]
     );
     if (
@@ -142,9 +144,10 @@ export function registerAuthorizationRoutes(
         "At least one record operation or file capability is required."
       ));
     }
-    assertOperationsAllowedByRequirements(
+    assertOperationsAllowedByApplication(
       requestedOperations,
-      application.rows[0].requirements
+      application.rows[0].requirements,
+      application.rows[0].notifications
     );
     const proof = await verifyApplicationAuthorization(
       input.application_authorization,

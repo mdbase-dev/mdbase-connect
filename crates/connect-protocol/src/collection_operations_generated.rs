@@ -68,8 +68,19 @@ pub const MUTATING_OPERATION_IDENTIFIERS: &[&str] = &[
     "file_control:abort_file_transfer",
 ];
 
+pub const TIMER_CRITERION_OPERATIONS: &[&str] = &[
+    "list_timers",
+    "put_timer",
+    "cancel_timer",
+    "reconcile_timers",
+];
+
 pub fn is_collection_operation(operation: &str) -> bool {
     COLLECTION_OPERATIONS.contains(&operation)
+}
+
+pub fn operation_requires_timer_criterion(operation: &str) -> bool {
+    TIMER_CRITERION_OPERATIONS.contains(&operation)
 }
 
 pub fn operation_input_schema_version(operation: &str, input: &Value) -> Option<u32> {

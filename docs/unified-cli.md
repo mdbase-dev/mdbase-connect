@@ -75,15 +75,20 @@ mdbase --collection <collection-id> query --types task
 
 The first command uses device authorization and browser approval. `--read-only`
 requests only non-mutating operations; `--operations` requests an explicit
-comma-separated subset. Grant credentials and the proof key are kept in the
-operating-system credential store. `hosted connections` lists these grants and
-`hosted disconnect` revokes one without deleting the collection.
+comma-separated subset. The default excludes timer operations, and the CLI
+rejects explicit timer requests because its portable application manifest has
+no notification criteria. Applications with declared timer notification
+criteria may still request those operations. Grant credentials and the proof
+key are kept in the operating-system credential store. `hosted connections`
+lists these grants and `hosted disconnect` revokes one without deleting the
+collection.
 
 Commands that are inherently filesystem-local, such as collection
 initialization or cache repair, reject `--collection` with a stable
 `unsupported_target` diagnostic. Portable record, type, view, query, and
 validation operations use the same operation name and JSON input for both
-targets.
+targets. Batch execution is owner-only and therefore supports `--root` but not
+hosted `--collection` application grants; it fails with `unsupported_operation`.
 
 ## Process and installation model
 

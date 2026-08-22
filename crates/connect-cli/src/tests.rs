@@ -200,6 +200,25 @@ fn hosted_authorization_is_an_explicit_interactive_command() {
 }
 
 #[test]
+fn hosted_cli_timer_operations_are_not_authorizable() {
+    let defaults = hosted_cli_authorization_operations(Vec::new(), false).unwrap();
+    assert!(defaults.iter().any(|operation| operation == "create"));
+    assert!(!defaults
+        .iter()
+        .any(|operation| mdbase_connect_protocol::operation_requires_timer_criterion(operation)));
+
+    for operation in COLLECTION_OPERATIONS
+        .iter()
+        .filter(|operation| mdbase_connect_protocol::operation_requires_timer_criterion(operation))
+    {
+        let error =
+            hosted_cli_authorization_operations(vec![operation.to_string()], false).unwrap_err();
+        assert_eq!(error.code, "unsupported_cli_operation");
+        assert!(error.message.contains(operation));
+    }
+}
+
+#[test]
 fn hosted_connections_have_a_quiet_human_table() {
     let rendered = render_human(
         OutputKind::HostedConnections,
