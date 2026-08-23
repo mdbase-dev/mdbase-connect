@@ -183,6 +183,8 @@
 .connect-pending-banner strong { font-size: 0.76rem; }
 .connect-pending-banner small { color: var(--muted); font-size: 0.75rem; }
 .connect-pending-banner b { color: var(--accent-strong); font-size: 0.75rem; white-space: nowrap; }
+.connect-pending-banner > .connect-banner-actions { display: flex; align-items: center; gap: 10px; }
+.connect-banner-actions button { min-height: 36px; padding: 6px 10px; font-size: 0.75rem; }
 
 .connect-main {
   min-width: 0;
@@ -426,13 +428,48 @@ button.danger:disabled {
   font-size: 0.78rem;
 }
 
-.connect-inline-form input {
+.connect-inline-form input,
+.connect-inline-form select,
+.connect-role-select select {
   min-height: 36px;
   padding: 7px 10px;
   border: 1px solid var(--line-strong);
   border-radius: 5px;
   background: var(--white);
+  color: var(--ink);
+  font: inherit;
 }
+
+.connect-sharing-form {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.45fr) minmax(220px, 1fr) minmax(110px, 0.35fr) auto;
+}
+
+.connect-sharing-form label { width: auto; }
+.connect-sharing-form > p {
+  grid-column: 1 / 4;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+.connect-sharing-form > div { grid-column: 4; grid-row: 1 / 3; align-self: end; }
+
+.connect-sharing-link {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.7fr) minmax(240px, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 4px;
+  border-bottom: 1px solid var(--line);
+}
+.connect-sharing-link > div { display: grid; gap: 2px; }
+.connect-sharing-link small { color: var(--muted); font-size: 0.75rem; line-height: 1.4; }
+.connect-sharing-link input { min-width: 0; min-height: 36px; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--soft); color: var(--muted); }
+.connect-sharing-link button { min-height: 36px; color: var(--accent-strong); font-size: 0.75rem; }
+.connect-role-select select { min-width: 104px; }
+.connect-role-select select:disabled { opacity: 0.6; }
+.connect-member-row { grid-template-columns: minmax(190px, 1fr) auto auto; }
 
 .connect-inline-form > div {
   display: flex;
@@ -1111,7 +1148,8 @@ button.danger:disabled {
     margin: 20px auto -8px;
   }
 
-  .connect-pending-banner b {
+  .connect-pending-banner b,
+  .connect-pending-banner > .connect-banner-actions {
     grid-column: 2;
   }
 
@@ -1134,6 +1172,13 @@ button.danger:disabled {
   .connect-inline-form label {
     width: 100%;
   }
+
+  .connect-sharing-form { grid-template-columns: 1fr; }
+  .connect-sharing-form > p,
+  .connect-sharing-form > div { grid-column: 1; grid-row: auto; }
+  .connect-sharing-link { grid-template-columns: 1fr; }
+  .connect-member-row { grid-template-columns: 1fr; gap: 8px; }
+  .connect-role-select select { min-height: 44px; }
 
   .connect-account-details > div {
     grid-template-columns: 1fr;

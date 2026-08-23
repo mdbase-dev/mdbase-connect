@@ -2,6 +2,8 @@ import {
   ConnectManagementClient,
   ManagementApiError,
   type HostedCollection,
+  type HostedCollectionInvitation,
+  type HostedCollectionMember,
   type ManagementOverview,
   type ManagementRequestOptions
 } from "@mdbase/connect-management";
@@ -60,6 +62,7 @@ export function ConnectApp() {
   const [refreshError, setRefreshError] = useState("");
   const [mutationError, setMutationError] = useState("");
   const [navigationOpen, setNavigationOpen] = useState(false);
+  const [invitationToken, setInvitationToken] = useState(invitationTokenFromHash);
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const busyRef = useRef(new Set<string>());
   const refreshGenerationRef = useRef(0);
@@ -149,6 +152,24 @@ export function ConnectApp() {
     return succeeded;
   }
 
+  async function acceptSharedCollection() {
+    if (!invitationToken) return;
+    let collectionId: string | undefined;
+    const accepted = await perform("accept-collection-invitation", async (options) => {
+      const result = await management.acceptCollectionInvitation(invitationToken, options);
+      collectionId = result.membership.collection_id;
+    });
+    if (!accepted) return;
+    clearInvitationHash();
+    setInvitationToken(null);
+    if (collectionId) navigate("overview", collectionId);
+  }
+
+  function dismissSharedCollection() {
+    clearInvitationHash();
+    setInvitationToken(null);
+  }
+
   function navigate(next: ConnectView, collectionId?: string) {
     const path = next === "overview" ? "/connect" : `/connect/${next}`;
     const url = new URL(location.href);
@@ -157,7 +178,7 @@ export function ConnectApp() {
       url.searchParams.set("collection", collectionId);
       rememberCollection(collectionId);
     }
-    history.pushState(null, "", `${url.pathname}${url.search}`);
+    history.pushState(null, "", `${url.pathname}${url.search}${url.hash}`);
     setView(next);
     setNavigationOpen(false);
   }
@@ -242,9 +263,14 @@ export function ConnectApp() {
     </aside>
     <main className="connect-main">
       {(mutationError || refreshError) && <div className="connect-notice error" role="alert"><Warning aria-hidden="true" />{mutationError || refreshError}<button onClick={() => mutationError ? setMutationError("") : setRefreshError("")}>Dismiss</button></div>}
+      {invitationToken && <CollectionInvitationBanner
+        busy={busy.has("accept-collection-invitation")}
+        onAccept={() => void acceptSharedCollection()}
+        onDismiss={dismissSharedCollection}
+      />}
       {pendingRequest && <PendingRequestBanner request={pendingRequest} collectionName={pendingCollection?.name} count={data.pending_authorizations.length} />}
       {activeView === "overview" && (selectedCollection
-        ? <CollectionOverview collection={selectedCollection} applications={selectedApplications} navigate={navigate} />
+        ? <CollectionOverview collection={selectedCollection} applications={selectedApplications} busy={busy} perform={perform} navigate={navigate} />
         : <Collections data={data} busy={busy} perform={perform} navigate={navigate} />)}
       {activeView === "storage" && selectedCollection && <Storage collection={selectedCollection} busy={busy} perform={perform} />}
       {activeView === "access" && selectedCollection && <CollectionAccess collection={selectedCollection} groups={selectedApplications} busy={busy} perform={perform} />}
@@ -253,6 +279,18 @@ export function ConnectApp() {
       {activeView === "computers" && <Computers data={data} busy={busy} perform={perform} />}
       {activeView === "account" && <AccountManagement client={management} overview={data} sessions={sessions} onOverviewRefresh={refresh} onDeleted={() => setAccountDeleted(true)} />}
     </main>
+  </div>;
+}
+
+function CollectionInvitationBanner({ busy, onAccept, onDismiss }: {
+  busy: boolean;
+  onAccept(): void;
+  onDismiss(): void;
+}) {
+  return <div className="connect-pending-banner connect-sharing-banner" role="status">
+    <Notebook aria-hidden="true" />
+    <span><strong>A collection was shared with you</strong><small>Accept to add it to your collections. The invitation is bound to this account.</small></span>
+    <span className="connect-banner-actions"><button disabled={busy} onClick={onDismiss}>Not now</button><button className="connect-primary-action" disabled={busy} onClick={onAccept}>{busy ? "Accepting…" : "Accept"}</button></span>
   </div>;
 }
 
@@ -272,9 +310,11 @@ function PendingRequestBanner({ request, collectionName, count }: {
   </a>;
 }
 
-function CollectionOverview({ collection, applications, navigate }: {
+function CollectionOverview({ collection, applications, busy, perform, navigate }: {
   collection: CollectionRow;
   applications: ApplicationAccessGroup<Grant>[];
+  busy: BusyOperations;
+  perform: PerformOperation;
   navigate(view: ConnectView, collectionId?: string): void;
 }) {
   return <Page title={collection.name} intro="Manage where this collection lives and which applications can use it.">
@@ -287,11 +327,118 @@ function CollectionOverview({ collection, applications, navigate }: {
       {applications.map((application) => <div className="connect-row" key={application.applicationId}><div><strong>{application.applicationName}</strong><small>{host(application.grants[0].homepage)}</small></div><span>{permissionSummary(application.grants)}</span><RouteLink view="access" collectionId={collection.id} navigate={navigate}>Review</RouteLink></div>)}
       {applications.length === 0 && <Empty title="No connected applications" body="Applications appear after you approve access to this collection." />}
     </section>
+    {collection.kind === "hosted" && collection.source.access.can_manage_members && <CollectionSharingPanel collection={collection.source} busy={busy} perform={perform} />}
     <section>
       <SectionTitle title="Connection" />
       <div className="connect-row"><div><strong>{collection.status}</strong><small>{connectionDescription(collection)}</small></div><span className={`connect-status ${collection.available ? "online" : "idle"}`}><i />{collection.status}</span></div>
     </section>
   </Page>;
+}
+
+function CollectionSharingPanel({ collection, busy, perform }: {
+  collection: HostedCollection;
+  busy: BusyOperations;
+  perform: PerformOperation;
+}) {
+  const [members, setMembers] = useState<HostedCollectionMember[]>();
+  const [invitations, setInvitations] = useState<HostedCollectionInvitation[]>();
+  const [loadError, setLoadError] = useState("");
+  const [inviting, setInviting] = useState(false);
+  const [targetMode, setTargetMode] = useState<"email" | "invitee_code">("email");
+  const [target, setTarget] = useState("");
+  const [role, setRole] = useState<"viewer" | "editor">("viewer");
+  const [shareLink, setShareLink] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const load = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const [memberResult, invitationResult] = await Promise.all([
+        management.collectionMembers(collection.id, { signal }),
+        management.collectionInvitations(collection.id, { signal })
+      ]);
+      if (signal?.aborted) return;
+      setMembers(memberResult.members);
+      setInvitations(invitationResult.invitations);
+      setLoadError("");
+    } catch (reason) {
+      if (!signal?.aborted) setLoadError(errorMessage(reason));
+    }
+  }, [collection.id]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
+  }, [load]);
+
+  async function invite(event: FormEvent) {
+    event.preventDefault();
+    const invitationTarget = target.trim();
+    if (!invitationTarget) return;
+    let token = "";
+    const succeeded = await perform(
+      `sharing-invite-${collection.id}`,
+      async (options) => {
+        const created = await management.createCollectionInvitation(
+          collection.id,
+          targetMode === "email"
+            ? { email: invitationTarget, role }
+            : { invitee_code: invitationTarget, role },
+          options
+        );
+        token = created.invitation.token;
+      }
+    );
+    if (!succeeded) return;
+    setTarget("");
+    setInviting(false);
+    setCopied(false);
+    setShareLink(collectionInvitationUrl(token));
+    await load();
+  }
+
+  async function mutate(id: string, action: (options: ManagementRequestOptions) => Promise<void>) {
+    if (await perform(id, action)) await load();
+  }
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(shareLink);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  const activeInvitations = invitations?.filter((invitation) => invitation.state === "pending") ?? [];
+  return <section className="connect-sharing">
+    <SectionTitle
+      title="People & sharing"
+      count={members?.length}
+      action={<button onClick={() => { setInviting(true); setShareLink(""); }}><Plus aria-hidden="true" />Invite person</button>}
+    />
+    {loadError && <div className="connect-notice error" role="alert">{loadError}<button onClick={() => void load()}>Try again</button></div>}
+    {inviting && <form className="connect-inline-form connect-sharing-form" onSubmit={(event) => void invite(event)}>
+      <label><span>Invite using</span><select value={targetMode} onChange={(event) => { setTargetMode(event.target.value as "email" | "invitee_code"); setTarget(""); }}><option value="email">Verified email</option><option value="invitee_code">Sharing code</option></select></label>
+      <label><span>{targetMode === "email" ? "Email address" : "Sharing code"}</span><input autoFocus type={targetMode === "email" ? "email" : "text"} maxLength={targetMode === "email" ? 320 : 32} value={target} onChange={(event) => setTarget(event.target.value)} placeholder={targetMode === "email" ? "person@example.com" : "ABCD-EFGH"} /></label>
+      <label><span>Role</span><select value={role} onChange={(event) => setRole(event.target.value as "viewer" | "editor")}><option value="viewer">Viewer</option><option value="editor">Editor</option></select></label>
+      <p>{role === "viewer" ? "Can read this collection and connect read-only apps or folders." : "Can edit, configure apps, rename, and manage non-owner members."}</p>
+      <div><button type="button" onClick={() => setInviting(false)}>Cancel</button><button className="connect-primary-action" disabled={!target.trim() || busy.has(`sharing-invite-${collection.id}`)}>{busy.has(`sharing-invite-${collection.id}`) ? "Creating…" : "Create invitation"}</button></div>
+    </form>}
+    {shareLink && <div className="connect-sharing-link" role="status"><div><strong>Invitation ready</strong><small>Send this private link to the invited person. It only works for the matching verified account.</small></div><input aria-label="Collection invitation link" readOnly value={shareLink} onFocus={(event) => event.currentTarget.select()} /><button onClick={() => void copyLink()}>{copied ? "Copied" : "Copy link"}</button></div>}
+    {members?.map((member) => <div className="connect-row connect-member-row" key={member.id ?? "owner"}>
+      <div><strong>{member.name}</strong><small>{member.kind === "owner" ? "Collection owner" : member.state === "changing" ? "Changing permissions after provider cleanup" : member.state === "revoking" ? "Removing access from every replica" : member.role === "editor" ? "Can edit and manage members" : "Can view and connect read-only apps"}</small></div>
+      {member.kind === "owner" ? <span>Owner</span> : <>
+        <label className="connect-role-select"><span className="sr-only">Role for {member.name}</span><select value={member.role} disabled={member.state !== "active" || busy.has(`member-role-${member.id}`)} onChange={(event) => void mutate(`member-role-${member.id}`, (options) => management.changeCollectionMemberRole(collection.id, member.id!, event.target.value as "viewer" | "editor", options))}><option value="viewer">Viewer</option><option value="editor">Editor</option></select></label>
+        <ConfirmAction className="danger" label={member.state === "revoking" ? "Removing…" : "Remove"} question={`Remove ${member.name} from ${collection.display_name}? Their application and folder access will also be revoked.`} confirmLabel="Remove access" busy={member.state !== "active" || busy.has(`member-revoke-${member.id}`)} onConfirm={() => void mutate(`member-revoke-${member.id}`, (options) => management.revokeCollectionMember(collection.id, member.id!, options))} />
+      </>}
+    </div>)}
+    {members === undefined && !loadError && <p className="connect-muted" role="status">Loading people…</p>}
+    {activeInvitations.length > 0 && <>
+      <SectionTitle title="Pending invitations" count={activeInvitations.length} />
+      {activeInvitations.map((invitation) => <div className="connect-row" key={invitation.id}><div><strong>{invitation.submitted_email ?? "Invitee code"}</strong><small>{invitation.role === "editor" ? "Editor" : "Viewer"} · Expires {relativeTime(invitation.expires_at)}</small></div><span>Pending</span><ConfirmAction className="danger" label="Cancel" question="Cancel this collection invitation?" confirmLabel="Cancel invitation" busy={busy.has(`invitation-cancel-${invitation.id}`)} onConfirm={() => void mutate(`invitation-cancel-${invitation.id}`, (options) => management.cancelCollectionInvitation(collection.id, invitation.id, options))} /></div>)}
+    </>}
+  </section>;
 }
 
 function Storage({ collection, busy, perform }: {
@@ -403,8 +550,8 @@ function HostedCollectionRow({ collection, busy, perform, manage, showReplicas =
       {manage && <RouteLink view="overview" collectionId={manage.collectionId} navigate={manage.navigate}>Manage</RouteLink>}
       {editorId && <a href={editorCollectionUrl(editorId)}>Open</a>}
       {active && <a href={`mdbase-connect://mirror?collection=${encodeURIComponent(collection.id)}`}>Sync folder</a>}
-      {active && <InlineRename value={collection.display_name} inputLabel={`Rename ${collection.display_name}`} busy={busy.has(`collection-${collection.id}`)} onSubmit={(name) => perform(`collection-${collection.id}`, (options) => management.renameHostedCollection(collection.id, name, options))} />}
-      <ConfirmAction className="danger" label="Delete" question={`Delete ${collection.display_name} and all of its hosted data? This cannot be undone.`} confirmLabel="Delete permanently" busy={busy.has(`collection-${collection.id}`)} onConfirm={() => void perform(`collection-${collection.id}`, (options) => management.deleteHostedCollection(collection.id, options))} />
+      {active && collection.access.can_rename_collection && <InlineRename value={collection.display_name} inputLabel={`Rename ${collection.display_name}`} busy={busy.has(`collection-${collection.id}`)} onSubmit={(name) => perform(`collection-${collection.id}`, (options) => management.renameHostedCollection(collection.id, name, options))} />}
+      {collection.access.can_delete_collection && <ConfirmAction className="danger" label="Delete" question={`Delete ${collection.display_name} and all of its hosted data? This cannot be undone.`} confirmLabel="Delete permanently" busy={busy.has(`collection-${collection.id}`)} onConfirm={() => void perform(`collection-${collection.id}`, (options) => management.deleteHostedCollection(collection.id, options))} />}
     </div>
     {showReplicas && replicas.length > 0 && <details className="connect-row-detail"><summary>Synced folders</summary>{replicas.map((replica) => <div key={replica.id}>
       <span><strong>{replica.name}</strong><small>{replica.mode === "read_only" ? "Downloads only" : "Two-way sync"}</small></span>
@@ -604,6 +751,32 @@ function viewLabel(view: ConnectView): string {
   if (view === "applications") return "Applications";
   if (view === "computers") return "Computers";
   return "Account & sessions";
+}
+
+function invitationTokenFromHash(): string | null {
+  const parameters = new URLSearchParams(location.hash.replace(/^#/, ""));
+  const token = parameters.get("collection-invitation");
+  return token?.startsWith("cinv_") ? token : null;
+}
+
+function clearInvitationHash(): void {
+  if (!location.hash) return;
+  const url = new URL(location.href);
+  const parameters = new URLSearchParams(url.hash.replace(/^#/, ""));
+  parameters.delete("collection-invitation");
+  url.hash = parameters.toString();
+  history.replaceState(
+    null,
+    "",
+    `${url.pathname}${url.search}${url.hash}`
+  );
+}
+
+function collectionInvitationUrl(token: string): string {
+  const url = new URL("/connect", location.origin);
+  url.searchParams.set("server", new URL(management.baseUrl).origin);
+  url.hash = new URLSearchParams({ "collection-invitation": token }).toString();
+  return url.href;
 }
 
 function collectionPreferenceKey(): string {

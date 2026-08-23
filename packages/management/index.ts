@@ -94,6 +94,36 @@ export interface HostedReplica {
   } | null;
 }
 
+export interface HostedCollectionAccess {
+  relationship: "owner" | "member";
+  role: "owner" | "viewer" | "editor";
+  can_authorize_applications: boolean;
+  can_manage_collection: boolean;
+  can_rename_collection: boolean;
+  can_delete_collection: boolean;
+  can_manage_members: boolean;
+}
+
+export interface HostedCollectionMember {
+  kind: "owner" | "member";
+  id?: string;
+  name: string;
+  role: "owner" | "viewer" | "editor";
+  state: "active" | "changing" | "revoking";
+  accepted_at: string;
+  revoked_at?: string | null;
+}
+
+export interface HostedCollectionInvitation {
+  id: string;
+  target_mode: "email" | "invitee_code";
+  submitted_email: string | null;
+  role: "viewer" | "editor";
+  state: "pending" | "accepted" | "revoked" | "expired";
+  expires_at: string;
+  created_at: string;
+}
+
 export interface HostedCollection {
   id: string;
   display_name: string;
@@ -106,6 +136,7 @@ export interface HostedCollection {
   authority_epoch: number;
   transferred_collection_id: string | null;
   created_at: string;
+  access: HostedCollectionAccess;
   replicas: HostedReplica[];
 }
 
@@ -124,6 +155,7 @@ export interface ManagementOverview {
       max_application_replicas_per_collection: number;
       max_hosted_collections: number;
       max_files_per_collection: number;
+      max_collection_member_seats: number;
     };
     usage: null | {
       hosted_collections: number;
@@ -319,6 +351,99 @@ export class ConnectManagementClient {
 
   deleteHostedCollection(id: string, options?: ManagementRequestOptions): Promise<void> {
     return this.request(`/v1/hosted/collections/${encodeURIComponent(id)}`, { method: "DELETE" }, options);
+  }
+
+  collectionMembers(
+    collectionId: string,
+    options?: ManagementRequestOptions
+  ): Promise<{ members: HostedCollectionMember[] }> {
+    return this.request(
+      `/v1/hosted/collections/${encodeURIComponent(collectionId)}/members`,
+      {},
+      options
+    );
+  }
+
+  collectionInvitations(
+    collectionId: string,
+    options?: ManagementRequestOptions
+  ): Promise<{ invitations: HostedCollectionInvitation[] }> {
+    return this.request(
+      `/v1/hosted/collections/${encodeURIComponent(collectionId)}/invitations`,
+      {},
+      options
+    );
+  }
+
+  createCollectionInvitation(
+    collectionId: string,
+    input:
+      | { email: string; role: "viewer" | "editor" }
+      | { invitee_code: string; role: "viewer" | "editor" },
+    options?: ManagementRequestOptions
+  ): Promise<{
+    invitation: HostedCollectionInvitation & { collection_id: string; token: string };
+  }> {
+    return this.request(
+      `/v1/hosted/collections/${encodeURIComponent(collectionId)}/invitations`,
+      { method: "POST", body: JSON.stringify(input) },
+      options
+    );
+  }
+
+  cancelCollectionInvitation(
+    collectionId: string,
+    invitationId: string,
+    options?: ManagementRequestOptions
+  ): Promise<void> {
+    return this.request(
+      `/v1/hosted/collections/${encodeURIComponent(collectionId)}/invitations/${encodeURIComponent(invitationId)}`,
+      { method: "DELETE" },
+      options
+    );
+  }
+
+  changeCollectionMemberRole(
+    collectionId: string,
+    membershipId: string,
+    role: "viewer" | "editor",
+    options?: ManagementRequestOptions
+  ): Promise<void> {
+    return this.request(
+      `/v1/hosted/collections/${encodeURIComponent(collectionId)}/members/${encodeURIComponent(membershipId)}`,
+      { method: "PATCH", body: JSON.stringify({ role }) },
+      options
+    );
+  }
+
+  revokeCollectionMember(
+    collectionId: string,
+    membershipId: string,
+    options?: ManagementRequestOptions
+  ): Promise<void> {
+    return this.request(
+      `/v1/hosted/collections/${encodeURIComponent(collectionId)}/members/${encodeURIComponent(membershipId)}`,
+      { method: "DELETE" },
+      options
+    );
+  }
+
+  acceptCollectionInvitation(
+    token: string,
+    options?: ManagementRequestOptions
+  ): Promise<{ membership: { id: string; collection_id: string; role: "viewer" | "editor"; state: "active" } }> {
+    return this.request("/v1/hosted/collection-invitations/accept", {
+      method: "POST",
+      body: JSON.stringify({ token })
+    }, options);
+  }
+
+  createCollectionInvitationCode(
+    options?: ManagementRequestOptions
+  ): Promise<{ invitation_code: string; expires_at: string }> {
+    return this.request("/v1/hosted/collection-invitation-codes", {
+      method: "POST"
+    }, options);
   }
 
   revokeReplica(id: string, options?: ManagementRequestOptions): Promise<void> {

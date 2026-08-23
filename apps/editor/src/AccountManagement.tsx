@@ -34,6 +34,10 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
   const [deletionPassword, setDeletionPassword] = useState("");
   const [reauthenticationToken] = useState(tokenFromFragment);
   const [googleAction, setGoogleAction] = useState<"link" | "delete" | null>(null);
+  const [sharingCode, setSharingCode] = useState<{
+    code: string;
+    expiresAt: string;
+  }>();
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -91,6 +95,23 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
   function finishOperation(id: string): void {
     busyRef.current.delete(id);
     setBusy(new Set(busyRef.current));
+  }
+
+  async function createSharingCode() {
+    if (!beginOperation("sharing-code")) return;
+    setError("");
+    try {
+      const created = await client.createCollectionInvitationCode();
+      setSharingCode({
+        code: created.invitation_code,
+        expiresAt: created.expires_at
+      });
+      setNotice("A new one-use sharing code is ready.");
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
+      finishOperation("sharing-code");
+    }
   }
 
   async function changePassword(event: FormEvent) {
@@ -197,6 +218,14 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
           </form>}
         </div>}
       </div>}
+    </section>
+
+    <section>
+      <SectionTitle title="Sharing code" note="Use this when someone cannot invite your verified email address." />
+      <div className="connect-account-row">
+        <div><strong>{sharingCode?.code ?? "No active code shown"}</strong><small>{sharingCode ? `One use · expires ${relativeTime(sharingCode.expiresAt)}` : "Generate a private code, then send it to the collection owner."}</small></div>
+        <button className="connect-account-action" disabled={busy.has("sharing-code")} onClick={() => void createSharingCode()}>{busy.has("sharing-code") ? "Generating…" : sharingCode ? "Generate a new code" : "Generate code"}</button>
+      </div>
     </section>
 
     {account.authentication.managed && <section>
