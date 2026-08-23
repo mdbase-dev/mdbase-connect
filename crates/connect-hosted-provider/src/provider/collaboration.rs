@@ -589,6 +589,7 @@ impl HostedProvider {
 mod batches;
 #[cfg(test)]
 mod phase3_batch_tests;
+mod tickets;
 
 fn parse_lifecycle(value: String) -> ApiResult<CollaborationRoomLifecycle> {
     match value.as_str() {
