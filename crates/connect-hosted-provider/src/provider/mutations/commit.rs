@@ -23,7 +23,7 @@ pub(super) async fn commit_hosted_write_set_in(
     collection_id: Uuid,
     data_key: &[u8; 32],
     collection: &PgRow,
-    source_replica_id: Uuid,
+    source_replica_id: Option<Uuid>,
     write_set: HostedWriteSet,
     notification_runtime_active: bool,
 ) -> ApiResult<HostedWriteSetCommit> {
@@ -44,8 +44,33 @@ pub(super) async fn commit_hosted_write_set_in(
     )?;
 
     let mut deltas = Vec::with_capacity(write_set.changed.len());
-    for (record_id, after, _) in &write_set.changed {
+    let mut changed_ids = BTreeSet::new();
+    for (record_id, after, document) in &write_set.changed {
+        if !changed_ids.insert(*record_id) {
+            return Err(ApiError::internal(
+                "The hosted write set contains a duplicate record identity.",
+            ));
+        }
         let before = write_set.before_records.get(record_id);
+        if before.is_some_and(|record| record.record_id != *record_id)
+            || after
+                .as_ref()
+                .is_some_and(|record| record.record_id != *record_id)
+            || (before.is_none() && after.is_none())
+        {
+            return Err(ApiError::internal(
+                "The hosted write set contains an inconsistent record identity.",
+            ));
+        }
+        match (after, document) {
+            (Some(record), Some(document)) if record.document.as_str() == document.as_str() => {}
+            (None, _) => {}
+            _ => {
+                return Err(ApiError::internal(
+                    "The hosted write set disagrees with its exact document.",
+                ))
+            }
+        }
         let before_bytes = before
             .map(|record| record.document.len() as u64)
             .unwrap_or_default();
@@ -60,6 +85,11 @@ pub(super) async fn commit_hosted_write_set_in(
             ));
         }
         deltas.push((before.is_some(), before_bytes, after.is_some(), after_bytes));
+    }
+    if !changed_ids.contains(&write_set.primary_record_id) {
+        return Err(ApiError::internal(
+            "The hosted write set omits its primary record identity.",
+        ));
     }
     let (next_record_count, next_content_bytes) =
         quota_totals(record_count, content_bytes, &deltas);
@@ -178,16 +208,7 @@ pub(super) async fn commit_hosted_write_set_in(
             .execute(&mut **transaction)
             .await?;
         }
-        if let Some(record) = after {
-            let document = document.ok_or_else(|| {
-                ApiError::internal("The hosted write set omitted its exact document.")
-            })?;
-            if record.document != document {
-                return Err(ApiError::internal(
-                    "The hosted write set disagrees with its exact document.",
-                ));
-            }
-        }
+        debug_assert!(after.is_none() || document.is_some());
     }
     provider
         .maintain_active_projection_changes(

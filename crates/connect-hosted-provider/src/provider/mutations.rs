@@ -578,7 +578,7 @@ impl HostedProvider {
             collection_id,
             &data_key,
             &collection,
-            replica.id,
+            Some(replica.id),
             commit::HostedWriteSet {
                 before_records,
                 changed: execution.changed,
