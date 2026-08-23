@@ -20,6 +20,7 @@ export interface TransactionalEmailConfig {
 export interface RuntimeConfig {
   host: string;
   publicUrl: string;
+  environment: string;
   devAuth: boolean;
   tailscaleAuth: boolean;
   githubAuth: GitHubAuthConfig | null;
@@ -45,6 +46,12 @@ export interface RuntimeConfig {
 
 export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
   const publicUrl = new URL(config.publicUrl);
+  const environment = config.environment.trim();
+  if (!/^[a-z][a-z0-9-]{0,31}$/.test(environment)) {
+    throw new Error(
+      "MDBASE_CONNECT_ENVIRONMENT must be a lowercase environment identifier."
+    );
+  }
   const localPublicOrigin = isLoopback(publicUrl.hostname);
   if (publicUrl.username || publicUrl.password || publicUrl.pathname !== "/" || publicUrl.search || publicUrl.hash) {
     throw new Error("PUBLIC_URL must be an origin without credentials, a path, a query, or a fragment.");
@@ -112,11 +119,6 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
     ...(config.managementOrigins ?? []),
     ...(editorOrigin ? [editorOrigin] : [])
   ].map((origin) => validatePublicOrigin(origin, "MDBASE_CONNECT_MANAGEMENT_ORIGINS"));
-  if (betaAccessOrigin && config.authRateLimitSecret === null) {
-    throw new Error(
-      "Beta access requests require MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET."
-    );
-  }
   if (config.authenticationLegalDocuments) {
     validatePublicDocumentUrl(
       config.authenticationLegalDocuments.termsUrl,
@@ -212,6 +214,7 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
   return {
     ...config,
     publicUrl: publicUrl.origin,
+    environment,
     betaAccessOrigin,
     managementOrigins: [...new Set(managementOrigins)],
     editorOrigin,
@@ -310,6 +313,7 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
   return validateRuntimeConfig({
     host,
     publicUrl: env.PUBLIC_URL ?? `http://${host}:${port}`,
+    environment: env.MDBASE_CONNECT_ENVIRONMENT?.trim() || "unspecified",
     devAuth: env.MDBASE_CONNECT_DEV_AUTH === "1",
     tailscaleAuth: env.MDBASE_CONNECT_TAILSCALE_AUTH === "1",
     githubAuth: githubConfigured ? { clientId, clientSecret, allowedUserIds } : null,

@@ -6,9 +6,11 @@ import { createRoot } from "react-dom/client";
 import { AppErrorBoundary } from "./AppErrorBoundary";
 import { DemoCollectionGateway } from "./demo-gateway";
 import { ConnectCollectionGateway } from "./gateway";
+import { EnvironmentBadge } from "./EnvironmentBadge";
 import "@mdbase/connect-ui/motion.css";
 import "./phosphor-icons.generated.css";
 import "./styles.css";
+import "./environment-badge.css";
 
 const EditorApp = lazy(() => import("./App").then((module) => ({ default: module.App })));
 const ConnectWorkspace = lazy(() => import("./ConnectApp").then((module) => ({ default: module.ConnectApp })));
@@ -25,5 +27,5 @@ const gateway = demoCount > 0
   : new ConnectCollectionGateway();
 
 createRoot(document.getElementById("root")!).render(
-  <StrictMode><AppErrorBoundary><Suspense fallback={<div className="route-loading" aria-live="polite">Opening mdbase…</div>}>{connectWorkspace ? <ConnectWorkspace /> : <EditorApp gateway={gateway} />}</Suspense></AppErrorBoundary></StrictMode>
+  <StrictMode><AppErrorBoundary><EnvironmentBadge /><Suspense fallback={<div className="route-loading" aria-live="polite">Opening mdbase…</div>}>{connectWorkspace ? <ConnectWorkspace /> : <EditorApp gateway={gateway} />}</Suspense></AppErrorBoundary></StrictMode>
 );

@@ -65,3 +65,55 @@ test("explicit development overrides remain available without reading production
   assert.equal(configuration.childEnvironment.MDBASE_CONNECT_HOME, connectHome);
   assert.equal(configuration.childEnvironment.MDBASE_CONNECT_REGISTER_DEEP_LINKS, "1");
 });
+
+test("registry-provided environments configure Electron without staging-only flags", async () => {
+  const configuration = await isolatedDesktopConfiguration({
+    MDBASE_ENV: "lab",
+    MDBASE_CONNECT_URL: "https://mdbase-connect-lab.onrender.com",
+    MDBASE_EDITOR_URL: "https://candidate-b.mdbase-editor.pages.dev",
+    MDBASE_CONNECT_LOOPBACK_PORT: "28487"
+  }, [], async () => 1);
+
+  assert.equal(configuration.namedEnvironment, "lab");
+  assert.equal(configuration.loopbackPort, "28487");
+  assert.equal(
+    configuration.childEnvironment.VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL,
+    "https://mdbase-connect-lab.onrender.com"
+  );
+  assert.equal(
+    configuration.childEnvironment.MDBASE_EDITOR_URL,
+    "https://candidate-b.mdbase-editor.pages.dev"
+  );
+});
+
+test("named environments reject incomplete or conflicting endpoint pairs", async () => {
+  await assert.rejects(
+    isolatedDesktopConfiguration({
+      MDBASE_ENV: "lab",
+      MDBASE_CONNECT_URL: "https://mdbase-connect-lab.onrender.com"
+    }, [], async () => 1),
+    /require both Connect and editor URLs/
+  );
+  await assert.rejects(
+    isolatedDesktopConfiguration({ MDBASE_ENV: "production" }, [], async () => 1),
+    /require explicit Connect and editor URLs/
+  );
+  await assert.rejects(
+    isolatedDesktopConfiguration({
+      MDBASE_CONNECT_URL: "https://connect.mdbase.dev",
+      VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL: "https://connect-staging.mdbase.dev",
+      MDBASE_EDITOR_URL: "https://editor.mdbase.dev"
+    }, [], async () => 1),
+    /server targets must match/
+  );
+});
+
+test("staging flags reject endpoint overrides from another environment", async () => {
+  await assert.rejects(
+    isolatedDesktopConfiguration({
+      MDBASE_CONNECT_URL: "https://connect.mdbase.dev",
+      MDBASE_EDITOR_URL: "https://editor.mdbase.dev"
+    }, ["--staging"], async () => 1),
+    /requires the staging Connect service/
+  );
+});

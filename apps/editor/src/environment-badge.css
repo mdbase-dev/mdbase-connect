@@ -1,0 +1,39 @@
+.environment-badge {
+  position: fixed;
+  z-index: 10000;
+  top: 5px;
+  right: 5px;
+  padding: 4px 7px 3px;
+  border: 1px solid currentColor;
+  background: #f4f7f7;
+  box-shadow: 2px 2px 0 rgb(20 34 35 / 14%);
+  color: #34585d;
+  font: 500 9px/1.2 "Azeret Mono", ui-monospace, monospace;
+  letter-spacing: 0.14em;
+  pointer-events: none;
+  text-transform: uppercase;
+}
+
+.environment-badge.is-lab {
+  background: #fff2c7;
+  color: #7b4d00;
+}
+
+.environment-badge.is-staging {
+  background: #ffebe8;
+  color: #8d3029;
+}
+
+.environment-badge.is-local {
+  background: #e5f5f8;
+  color: #176377;
+}
+
+@media (max-width: 640px) {
+  .environment-badge {
+    top: 3px;
+    right: 3px;
+    padding: 3px 5px 2px;
+    font-size: 8px;
+  }
+}

@@ -32,6 +32,10 @@ import {
   PasswordRecoveryUnavailableError
 } from "../password-recovery.js";
 import { PasswordPolicyError } from "../password.js";
+import {
+  InvalidPublicSignupVerificationError,
+  PublicSignupUnavailableError
+} from "../public-signup.js";
 import { InvalidEmailAddressError } from "../email-identity.js";
 import {
   ConnectorOperationError,
@@ -194,6 +198,12 @@ export function registerErrorHandler(app: FastifyInstance): void {
         "This password reset link is invalid, expired, or has already been used."
       ));
     }
+    if (error instanceof InvalidPublicSignupVerificationError) {
+      return reply.code(400).send(apiError(
+        "invalid_signup_verification",
+        "This email verification link is invalid, expired, or has already been used."
+      ));
+    }
     if (error instanceof PasswordPolicyError) {
       return reply.code(400).send(apiError("invalid_password", error.message));
     }
@@ -213,6 +223,12 @@ export function registerErrorHandler(app: FastifyInstance): void {
       return reply.code(503).send(apiError(
         "password_recovery_unavailable",
         "Password recovery is temporarily unavailable."
+      ));
+    }
+    if (error instanceof PublicSignupUnavailableError) {
+      return reply.code(503).send(apiError(
+        "public_signup_unavailable",
+        "Public account creation is temporarily unavailable."
       ));
     }
     if (error instanceof AuthenticationPolicyIncompleteError) {

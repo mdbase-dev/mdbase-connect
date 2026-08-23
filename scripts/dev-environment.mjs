@@ -25,6 +25,7 @@ const environment = await createConnectEnvironment({
   allowLocalApps: true,
   environment: {
     PUBLIC_URL: origins.publicUrl,
+    MDBASE_CONNECT_ENVIRONMENT: "local",
     MDBASE_CONNECT_MANAGEMENT_ORIGINS: origins.managementOrigins.join(","),
     MDBASE_EDITOR_ORIGIN: origins.editorOrigin,
     MDBASE_CONNECT_REGISTRATION: "invite",

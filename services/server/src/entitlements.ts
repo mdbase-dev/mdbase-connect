@@ -108,6 +108,44 @@ export async function materializeInvitationEntitlement(
   };
 }
 
+export async function materializePublicSignupEntitlement(
+  db: DatabaseQueryable,
+  userId: string
+): Promise<{ providerAccountId: string; entitlementRevision: number }> {
+  await db.query(
+    `INSERT INTO account_entitlement_grants
+       (id, user_id, profile_code, source, source_reference)
+     VALUES ($1, $2, $3, 'subscription', 'public_signup_v1')
+     ON CONFLICT DO NOTHING`,
+    [randomUUID(), userId, BETA_ENTITLEMENT_PROFILE]
+  );
+  const account = await db.query<{
+    provider_account_id: string;
+    entitlement_revision: string | number;
+  }>(
+    `INSERT INTO account_storage_accounts
+       (user_id, provider_account_id)
+     VALUES ($1, $2)
+     ON CONFLICT (user_id) DO UPDATE SET
+       updated_at = account_storage_accounts.updated_at
+     RETURNING provider_account_id, entitlement_revision`,
+    [userId, randomUUID()]
+  );
+  await db.query(
+    `INSERT INTO account_email_preferences (user_id)
+     VALUES ($1)
+     ON CONFLICT (user_id) DO NOTHING`,
+    [userId]
+  );
+  return {
+    providerAccountId: account.rows[0]!.provider_account_id,
+    entitlementRevision: safeNumber(
+      account.rows[0]!.entitlement_revision,
+      "entitlement revision"
+    )
+  };
+}
+
 export async function ensureDevelopmentEntitlement(
   db: DatabaseQueryable,
   userId: string

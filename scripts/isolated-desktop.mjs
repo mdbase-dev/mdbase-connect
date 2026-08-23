@@ -25,9 +25,11 @@ export async function isolatedDesktopConfiguration(
   allocatePort = availablePort
 ) {
   const staging = arguments_.includes("--staging");
+  const namedEnvironment = environment.MDBASE_ENV?.trim()
+    || (staging ? "staging" : "development");
   const profileDirectory = staging
     ? stagingDesktop.profileDirectory
-    : "desktop-development-profile";
+    : `desktop-${namedEnvironment}-profile`;
   const userData = resolve(
     environment.MDBASE_CONNECT_DEV_USER_DATA
       ?? resolve(repoRoot, ".tmp", profileDirectory)
@@ -39,20 +41,56 @@ export async function isolatedDesktopConfiguration(
     ?? (staging ? stagingDesktop.loopbackPort : String(await allocatePort()));
   const childEnvironment = {
     ...environment,
+    VITE_MDBASE_ENV: environment.VITE_MDBASE_ENV ?? namedEnvironment,
     MDBASE_CONNECT_HOME: connectHome,
     MDBASE_CONNECT_USER_DATA_DIR: userData,
     MDBASE_CONNECT_LOOPBACK_PORT: loopbackPort,
     MDBASE_CONNECT_REGISTER_DEEP_LINKS:
       environment.MDBASE_CONNECT_REGISTER_DEEP_LINKS ?? "0"
   };
+  const serverTargets = [
+    environment.MDBASE_CONNECT_URL,
+    environment.MDBASE_CONNECT_SERVER_URL,
+    environment.VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL
+  ].map((value) => value?.trim()).filter(Boolean);
+  const distinctServerTargets = [...new Set(serverTargets)];
+  if (distinctServerTargets.length > 1) {
+    throw new Error("Isolated desktop Connect server targets must match.");
+  }
+  const configuredServer = distinctServerTargets[0];
+  const configuredEditor = environment.MDBASE_EDITOR_URL?.trim();
   if (staging) {
-    childEnvironment.MDBASE_EDITOR_URL =
-      environment.MDBASE_EDITOR_URL ?? stagingDesktop.editorUrl;
+    if (configuredServer && configuredServer !== stagingDesktop.serverUrl) {
+      throw new Error("The staging desktop requires the staging Connect service.");
+    }
+    if (configuredEditor && configuredEditor !== stagingDesktop.editorUrl) {
+      throw new Error("The staging desktop requires the staging editor.");
+    }
+    childEnvironment.MDBASE_EDITOR_URL = stagingDesktop.editorUrl;
     childEnvironment.VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL =
-      environment.VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL ?? stagingDesktop.serverUrl;
+      stagingDesktop.serverUrl;
+  } else {
+    if (Boolean(configuredServer) !== Boolean(configuredEditor)) {
+      throw new Error(
+        "Named isolated desktop environments require both Connect and editor URLs."
+      );
+    }
+    if (
+      ["lab", "staging", "production"].includes(namedEnvironment)
+      && !configuredServer
+    ) {
+      throw new Error(
+        `${namedEnvironment} isolated desktops require explicit Connect and editor URLs.`
+      );
+    }
+    if (configuredServer && configuredEditor) {
+      childEnvironment.MDBASE_EDITOR_URL = configuredEditor;
+      childEnvironment.VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL = configuredServer;
+    }
   }
   return {
     staging,
+    namedEnvironment,
     fresh: arguments_.includes("--fresh"),
     userData,
     connectHome,
@@ -79,8 +117,11 @@ export async function runIsolatedDesktop(
   console.log(`Isolated Electron profile: ${configuration.userData}`);
   console.log(`Isolated connector state: ${configuration.connectHome}`);
   console.log(`Connector loopback port: ${configuration.loopbackPort}`);
-  if (configuration.staging) {
-    console.log(`Staging Connect service: ${stagingDesktop.serverUrl}`);
+  if (configuration.childEnvironment.VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL) {
+    console.log(
+      `${configuration.namedEnvironment} Connect service: `
+      + configuration.childEnvironment.VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL
+    );
   }
   console.log("The normal mdbase connect profile and credentials will not be read.");
 
