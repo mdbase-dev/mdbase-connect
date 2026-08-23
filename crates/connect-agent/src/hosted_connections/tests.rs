@@ -433,6 +433,7 @@ async fn test_register_application(
         body["manifest"]["requirements"]["capabilities"]["required"],
         json!(CLI_APPLICATION_CAPABILITIES)
     );
+    assert!(!CLI_APPLICATION_CAPABILITIES.contains(&"collection.setup.apply"));
     assert!(body["manifest"]["notifications"].is_null());
     Json(json!({
         "application": {

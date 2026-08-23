@@ -54,7 +54,6 @@ const CLI_APPLICATION_CAPABILITIES: &[&str] = &[
     "definitions.update",
     "definitions.type-pack.inspect",
     "definitions.type-pack.apply",
-    "collection.setup.apply",
     "sync.offline-replica",
 ];
 const MAX_HOSTED_RESPONSE_BYTES: usize = 32 * 1024 * 1024;

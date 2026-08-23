@@ -568,6 +568,14 @@ fn hosted_cli_authorization_operations(
     operations: Vec<String>,
     read_only: bool,
 ) -> Result<Vec<String>, CliError> {
+    if operations
+        .iter()
+        .any(|operation| operation == "collection.setup.apply")
+    {
+        return Err(CliError::unsupported_cli_operation(
+            "The mdbase CLI cannot request collection.setup.apply because it declares no setup provisions.",
+        ));
+    }
     if let Some(operation) = operations
         .iter()
         .find(|operation| mdbase_connect_protocol::operation_requires_timer_criterion(operation))
@@ -583,6 +591,7 @@ fn hosted_cli_authorization_operations(
         .iter()
         .filter(|operation| {
             !mdbase_connect_protocol::operation_requires_timer_criterion(operation)
+                && **operation != "collection.setup.apply"
                 && (!read_only
                     || (**operation != "sync"
                         && !mdbase_connect_protocol::MUTATING_OPERATION_IDENTIFIERS
