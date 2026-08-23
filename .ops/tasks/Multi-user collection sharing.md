@@ -10,7 +10,7 @@ tags:
   - editor
   - tasknotes
 created_at: 2026-08-23T00:00:00+10:00
-updated_at: 2026-08-23T23:05:00+10:00
+updated_at: 2026-08-24T00:16:00+10:00
 type: task
 ---
 
@@ -68,27 +68,46 @@ Validation evidence:
 
 ### 2. Invitations and management API
 
-- Dedicated invitation records and opaque tokens/codes.
-- Existing verified-user acceptance without account enumeration.
-- Transactional seat enforcement at acceptance.
-- Owner/editor list, invite, resend/cancel, role-change, and revoke APIs.
-- Owner-only enforcement for owner, authority, billing, seat, and permanent
-  deletion controls.
-- Audit events and non-leaking errors for every lifecycle transition.
+Implemented:
 
-### 3. Portal and Editor UX
+- Dedicated hashed invitation tokens and one-use invitee-generated codes.
+- Existing verified-user acceptance without account enumeration; unresolved
+  email invitations are deliberately unclaimable in this initial scope.
+- Transactional owner-funded seat enforcement at acceptance and release only
+  after provider-backed revocation completes.
+- Owner/editor list, invite, cancel, role-change, and revoke APIs.
+- Exact invitation policy snapshots copied into immutable membership revisions.
+- Owner-only enforcement for authority, billing, seat, and permanent deletion
+  controls, with privacy-safe audit events and errors.
+- Account, inviter, invitee-code, collection-deletion, expiry, replay, IDOR, and
+  cascade regression coverage.
 
-- Collection sharing panel with members, pending invitations, role presets, and
-  explicit transition states.
-- Shared collection labels and permission-aware controls in Editor.
-- Reauthorization UX after downgrade or authority transfer.
+### 3. Editor UX
+
+Implemented:
+
+- People & sharing panel with verified-email and sharing-code invitations,
+  role presets, copyable fragment-bound links, pending invitations, and explicit
+  changing/revoking states.
+- Account-level one-use sharing-code generation.
+- Shared collection discovery and permission-aware rename/delete controls.
+- Invitation acceptance that preserves unrelated sensitive fragment state.
+- Management-client and Editor component coverage, including viewer gating.
 
 ### 4. Consumer and LAB acceptance
 
-- Isolated users and vaults in `mdbase-env` LAB.
-- Viewer/editor/owner, stale-write, files, provisioning, revocation, and transfer
-  scenarios in Editor and TaskNotes.
-- Browser, daemon, restart, provider-outage, and privacy/IDOR regression passes.
+Deterministic server, management-client, Editor, full workspace, and provider
+system coverage is complete. Disposable PostgreSQL 18 executions passed for the
+foundation lifecycle, all control-plane migrations, and a concurrent final-seat
+invitation race (exactly one acceptance succeeded and one received the typed seat
+limit error).
+
+LAB preflight now passes, but the sharing branch is not deployed there. Complete
+isolated multi-account Editor and TaskNotes acceptance against the PR build before
+production enablement:
+
+- viewer/editor/owner, stale-write, files, provisioning, revocation, and transfer;
+- browser, daemon, restart, provider-outage, privacy, and IDOR regression passes.
 
 ### 5. Local authority sharing
 
