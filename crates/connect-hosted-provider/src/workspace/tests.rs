@@ -201,6 +201,62 @@ fn adapts_sync_update_patches_for_the_supported_v03_engine() {
 }
 
 #[test]
+fn ordinary_exact_document_updates_accept_transient_collaborative_body_states() {
+    let record_id = Uuid::new_v4();
+    let mut workspace = AuthorityWorkspace::materialize(resources(), []).unwrap();
+    let created = workspace
+        .execute_semantic(
+            record_id,
+            "create",
+            &Map::from_iter([
+                ("path".to_string(), json!("tasks/collaborative.md")),
+                (
+                    "frontmatter".to_string(),
+                    json!({"type": "task", "title": "Collaborative"}),
+                ),
+                ("body".to_string(), json!("Initial body\n")),
+                ("types".to_string(), json!(["task"])),
+            ]),
+        )
+        .unwrap();
+    let mut revision = created.changed[0].1.as_ref().unwrap().revision.clone();
+    let large_paste = format!("# Large paste\n\n{}\n", "x".repeat(128 * 1024));
+    let bodies = [
+        "",
+        "#",
+        "# Incomplete heading",
+        "-",
+        "- partial list item\n- ",
+        "An incomplete [[link",
+        "```yaml\ntitle: [unterminated\n",
+        "Emoji 👩🏽‍💻 and combining e\u{301}\n",
+        large_paste.as_str(),
+    ];
+
+    for body in bodies {
+        // The semantic `body` convenience field serializes a canonical trailing
+        // newline and therefore cannot materialize exact live Y.Text states.
+        // Collaboration uses the ordinary exact-document update path while
+        // retaining the existing frontmatter bytes.
+        let document = format!("---\ntype: task\ntitle: Collaborative\n---\n{body}");
+        let updated = workspace
+            .execute_semantic(
+                record_id,
+                "update",
+                &Map::from_iter([
+                    ("document".to_string(), json!(document)),
+                    ("if_revision".to_string(), json!(revision)),
+                ]),
+            )
+            .unwrap();
+        assert!(updated.envelope.valid, "body rejected: {body:?}");
+        let record = updated.changed[0].1.as_ref().unwrap();
+        assert_eq!(record.body, body);
+        revision = record.revision.clone();
+    }
+}
+
+#[test]
 fn keeps_record_and_path_indexes_consistent_across_mutations() {
     let record_id = Uuid::new_v4();
     let mut workspace = AuthorityWorkspace::materialize(resources(), []).unwrap();
