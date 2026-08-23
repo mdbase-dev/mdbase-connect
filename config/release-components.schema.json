@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mdbase.dev/schemas/release-components/v1",
+  "title": "mdbase product release component contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "repository", "publication", "sourceDependencies", "components"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "repository": { "const": "mdbase-dev/mdbase-connect" },
+    "publication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workflow", "artifactName", "certificateIdentity", "certificateIssuer"],
+      "properties": {
+        "workflow": { "const": "publish-images.yml" },
+        "artifactName": { "const": "release-bundle" },
+        "certificateIdentity": { "type": "string", "pattern": "^https://github\\.com/" },
+        "certificateIssuer": { "const": "https://token.actions.githubusercontent.com" }
+      }
+    },
+    "sourceDependencies": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "revisionFile"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "revisionFile": { "type": "string" }
+        }
+      }
+    },
+    "components": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "required", "kind", "image", "dockerfile", "context", "platform", "attestationType"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "required": { "type": "boolean" },
+          "kind": { "const": "oci-image" },
+          "image": { "type": "string", "pattern": "^ghcr\\.io/mdbase-dev/[a-z0-9-]+$" },
+          "dockerfile": { "type": "string", "pattern": "^deploy/docker/Dockerfile\\.[A-Za-z0-9-]+$" },
+          "context": { "const": "." },
+          "platform": { "const": "linux/amd64" },
+          "attestationType": { "const": "https://mdbase.dev/attestations/release-image/v1" }
+        }
+      }
+    }
+  }
+}

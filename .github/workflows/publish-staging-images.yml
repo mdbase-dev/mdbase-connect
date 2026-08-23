@@ -37,6 +37,7 @@ jobs:
     runs-on: ubuntu-24.04
     environment: candidate-b-staging-images
     outputs:
+      component_matrix: ${{ steps.source.outputs.component_matrix }}
       mdbase_rs_revision: ${{ steps.source.outputs.mdbase_rs_revision }}
     steps:
       - id: qualification
@@ -94,6 +95,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
           revision=$(tr -d '\r\n' <deploy/docker/mdbase-rs-revision)
           [[ $revision =~ ^[0-9a-f]{40}$ ]]
+          matrix=$(node scripts/release-components.mjs --github-matrix)
+          echo "component_matrix=$matrix" >>"$GITHUB_OUTPUT"
           echo "mdbase_rs_revision=$revision" >>"$GITHUB_OUTPUT"
 
       - name: Verify the full qualification artifact
@@ -116,20 +119,7 @@ jobs:
       packages: write
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - component: connect
-            package: mdbase-connect-server
-            dockerfile: deploy/docker/Dockerfile.server
-          - component: hosted-provider
-            package: mdbase-connect-hosted-provider
-            dockerfile: deploy/docker/Dockerfile.hosted-provider
-          - component: mcp
-            package: mdbase-connect-mcp
-            dockerfile: deploy/docker/Dockerfile.mcp
-          - component: client
-            package: mdbase-connect-client
-            dockerfile: deploy/docker/Dockerfile.client
+      matrix: ${{ fromJSON(needs.authorize.outputs.component_matrix) }}
     env:
       IMAGE: ghcr.io/mdbase-dev/${{ matrix.package }}
 
@@ -193,9 +183,9 @@ jobs:
         name: Build immutable staging image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
-          context: .
+          context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64
+          platforms: ${{ matrix.platform }}
           push: true
           tags: ${{ env.IMAGE }}:candidate-b-staging-sha-${{ env.SOURCE_COMMIT }}
           build-args: MDBASE_CONNECT_REVISION=${{ env.SOURCE_COMMIT }}
