@@ -5,11 +5,13 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
 use tempfile::NamedTempFile;
 
 const SERVICE: &str = "dev.mdbase.connect";
 const RELAY_IDENTITY_SECRET: &str = "relay-identity";
 const LEGACY_RELAY_IDENTITY_FILE: &str = "relay-identity.key";
+static SYSTEM_SECRET_STORE_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Clone)]
 pub struct SystemSecretStore {
@@ -206,6 +208,7 @@ impl SystemSecretStore {
         if let SecretBackend::InsecureTestFile(path) = &self.backend {
             return Ok(read_test_secrets(path)?.values.get(name).cloned());
         }
+        let _guard = lock_system_secret_store()?;
         match self.entry(name)?.get_password() {
             Ok(secret) => Ok(Some(secret)),
             Err(keyring::Error::NoEntry) => Ok(None),
@@ -219,6 +222,7 @@ impl SystemSecretStore {
             secrets.values.insert(name.to_string(), secret.to_string());
             return write_test_secrets(path, &secrets);
         }
+        let _guard = lock_system_secret_store()?;
         self.entry(name)?
             .set_password(secret)
             .map_err(|error| secret_error("store", error))
@@ -230,11 +234,18 @@ impl SystemSecretStore {
             secrets.values.remove(name);
             return write_test_secrets(path, &secrets);
         }
+        let _guard = lock_system_secret_store()?;
         match self.entry(name)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(error) => Err(secret_error("delete", error)),
         }
     }
+}
+
+fn lock_system_secret_store() -> Result<MutexGuard<'static, ()>, ConnectError> {
+    SYSTEM_SECRET_STORE_LOCK.lock().map_err(|_| {
+        ConnectError::CredentialStore("The operating-system credential store lock failed.".into())
+    })
 }
 
 fn read_test_secrets(path: &Path) -> Result<TestSecrets, ConnectError> {
