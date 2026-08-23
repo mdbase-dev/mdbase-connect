@@ -5,6 +5,7 @@ members = [
   "crates/connect-mirror",
   "crates/connect-agent",
   "crates/connect-cli",
+  "crates/connect-collaboration",
   "crates/connect-hosted-provider",
   "crates/connect-runtime",
   "crates/connect-testbed-adapter",
@@ -66,6 +67,7 @@ tower-http = { version = "0.7.0", features = ["cors", "limit", "request-id", "tr
 unicode-normalization = "0.1"
 uuid = { version = "1", features = ["v4", "v5", "v7", "serde"] }
 url = "2"
+yrs = "=0.26.0"
 zeroize = { version = "1", features = ["derive"] }
 zstd = "0.13"
 
