@@ -10,6 +10,54 @@ fn rollback_binaries_tolerate_newer_additive_migrations() {
 }
 
 #[test]
+fn phase_3a_storage_migration_is_additive_and_fully_bound() {
+    let migration = include_str!("../../migrations/0039_hosted_collaboration_storage.sql");
+    for required in [
+        "hosted_provider_collaboration_documents",
+        "hosted_provider_collaboration_updates",
+        "hosted_provider_collaboration_receipts",
+        "hosted_provider_collaboration_tickets",
+        "profile = 'markdown-body-yjs-v13'",
+        "collaboration_epoch bigint NOT NULL CHECK (collaboration_epoch > 0)",
+        "REFERENCES hosted_provider_records(collection_id, record_id)",
+        "REFERENCES hosted_provider_replicas(id, collection_id)",
+        "live_collaboration_bytes",
+        "account_collaboration_quota_exceeded",
+    ] {
+        assert!(
+            migration.contains(required),
+            "missing migration contract: {required}"
+        );
+    }
+    assert!(!migration.contains("DROP TABLE"));
+    assert!(!migration.contains("payload_ciphertext"));
+}
+
+#[test]
+fn collaboration_limits_fail_closed_for_zero_and_inconsistent_values() {
+    let defaults = CollaborationLimits::default();
+    assert!(defaults.validate().is_ok());
+    assert!(CollaborationLimits {
+        max_update_bytes: 0,
+        ..defaults
+    }
+    .validate()
+    .is_err());
+    assert!(CollaborationLimits {
+        max_snapshot_bytes: 1,
+        ..defaults
+    }
+    .validate()
+    .is_err());
+    assert!(CollaborationLimits {
+        compaction_threshold: defaults.max_retained_updates + 1,
+        ..defaults
+    }
+    .validate()
+    .is_err());
+}
+
+#[test]
 fn hosted_create_rejects_unknown_top_level_fields() {
     let error = validate_hosted_operation_input(
         "create",

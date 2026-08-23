@@ -3,8 +3,9 @@ use std::{net::IpAddr, sync::Arc, time::Duration};
 use axum::{http::StatusCode, response::IntoResponse, routing::get, Json, Router};
 use clap::{Parser, ValueEnum};
 use mdbase_connect_hosted_provider::{
-    app, ApiResult, AppState, HostedNotificationConfig, HostedProvider, KeyWrappingBackend,
-    KeyWrappingConfig, ProviderCrypto, ProviderLimits, R2BlobStore, R2Config, R2InsecureHttpConfig,
+    app, ApiResult, AppState, CollaborationLimits, HostedNotificationConfig, HostedProvider,
+    KeyWrappingBackend, KeyWrappingConfig, ProviderCrypto, ProviderLimits, R2BlobStore, R2Config,
+    R2InsecureHttpConfig,
 };
 use tokio::{net::TcpListener, signal};
 use tracing_subscriber::EnvFilter;
@@ -81,6 +82,48 @@ struct Arguments {
         default_value_t = 2_097_152
     )]
     max_bytes_per_document: u64,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_COLLAB_MAX_UPDATE_BYTES",
+        default_value_t = 1_048_576
+    )]
+    collaboration_max_update_bytes: u64,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_COLLAB_MAX_SNAPSHOT_BYTES",
+        default_value_t = 4_194_304
+    )]
+    collaboration_max_snapshot_bytes: u64,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_COLLAB_MAX_DOCUMENT_BYTES",
+        default_value_t = 2_097_152
+    )]
+    collaboration_max_document_bytes: u64,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_COLLAB_MAX_RETAINED_UPDATES",
+        default_value_t = 10_000
+    )]
+    collaboration_max_retained_updates: u64,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_COLLAB_MAX_RETAINED_UPDATE_BYTES",
+        default_value_t = 67_108_864
+    )]
+    collaboration_max_retained_update_bytes: u64,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_COLLAB_TICKET_TTL_SECONDS",
+        default_value_t = 30
+    )]
+    collaboration_ticket_ttl_seconds: u64,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_COLLAB_COMPACTION_THRESHOLD",
+        default_value_t = 100
+    )]
+    collaboration_compaction_threshold: u64,
     #[arg(
         long,
         env = "MDBASE_CONNECT_HOSTED_MAX_MIRROR_REPLICAS_PER_COLLECTION",
@@ -214,6 +257,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .install_default()
         .expect("the TLS crypto provider must be installed before starting the hosted provider");
     let arguments = Arguments::parse();
+    let collaboration_limits = CollaborationLimits {
+        max_update_bytes: arguments.collaboration_max_update_bytes,
+        max_snapshot_bytes: arguments.collaboration_max_snapshot_bytes,
+        max_document_bytes: arguments.collaboration_max_document_bytes,
+        max_retained_updates: arguments.collaboration_max_retained_updates,
+        max_retained_update_bytes: arguments.collaboration_max_retained_update_bytes,
+        ticket_ttl_seconds: arguments.collaboration_ticket_ttl_seconds,
+        compaction_threshold: arguments.collaboration_compaction_threshold,
+    }
+    .validate()
+    .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
     if arguments.maintenance_interval_seconds == 0 {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -264,6 +318,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_file_bytes_per_collection: arguments.max_file_bytes_per_collection,
         max_stored_file_bytes_per_collection: arguments.max_stored_file_bytes_per_collection,
         max_bytes_per_file: arguments.max_bytes_per_file,
+        collaboration: collaboration_limits,
     };
     let notification_config =
         arguments

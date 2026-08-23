@@ -1,5 +1,6 @@
 mod backup_admin;
 mod blob_store;
+mod collaboration;
 mod crypto;
 mod error;
 mod execution_budget;
@@ -19,6 +20,10 @@ pub use blob_store::{
     BlobByteStream, BlobStore, BlobStreamError, PresignedPart, R2BlobStore, R2Config,
     R2InsecureHttpConfig, UploadedPart,
 };
+pub use collaboration::{
+    decrypt_room_bytes, encrypt_room_bytes, AadKind, CollaborationMode, CollaborationState,
+    RoomIdentity, COLLABORATION_PROFILE,
+};
 pub use crypto::ProviderCrypto;
 pub use error::{ApiError, ApiResult};
 pub use execution_budget::{
@@ -35,13 +40,13 @@ pub use key_wrapping::{
 pub use notifications::{HostedNotificationConfig, HostedNotificationRuntime};
 pub use provider::run_hosted_cutover_migrations;
 pub use provider::{
-    DiagnosticSection, DrainStateDiagnostic, HostedDiagnostics, HostedMutationJournalDiagnostics,
-    HostedProjectionBatch, HostedProjectionGeneration, HostedProjectionIndexPlan,
-    HostedProjectionIndexPlanEntry, HostedProjectionStatus, HostedProjectionVerification,
-    HostedProvider, HostedQueryActivity, MigrationLedgerDiagnostic, NotificationRecoveryState,
-    NotificationRecoveryStatus, PrepareAuthorityImport, PrepareAuthorityTransfer,
-    ProjectionProgressDiagnostic, ProjectionReadinessDiagnostic, ProviderAccountLimits,
-    ProviderAccountUsage, ProviderAuthorityImport, ProviderAuthorityImportState,
-    ProviderAuthorityTransfer, ProviderAuthorityTransferState, ProviderLimits, RegisterReplica,
-    ReplicaPurpose, ResourceChangeDiagnostic, StorageDiagnostic,
+    CollaborationLimits, DiagnosticSection, DrainStateDiagnostic, HostedDiagnostics,
+    HostedMutationJournalDiagnostics, HostedProjectionBatch, HostedProjectionGeneration,
+    HostedProjectionIndexPlan, HostedProjectionIndexPlanEntry, HostedProjectionStatus,
+    HostedProjectionVerification, HostedProvider, HostedQueryActivity, MigrationLedgerDiagnostic,
+    NotificationRecoveryState, NotificationRecoveryStatus, PrepareAuthorityImport,
+    PrepareAuthorityTransfer, ProjectionProgressDiagnostic, ProjectionReadinessDiagnostic,
+    ProviderAccountLimits, ProviderAccountUsage, ProviderAuthorityImport,
+    ProviderAuthorityImportState, ProviderAuthorityTransfer, ProviderAuthorityTransferState,
+    ProviderLimits, RegisterReplica, ReplicaPurpose, ResourceChangeDiagnostic, StorageDiagnostic,
 };

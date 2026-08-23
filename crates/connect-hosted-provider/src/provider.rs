@@ -141,6 +141,52 @@ impl KeyReadinessState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CollaborationLimits {
+    pub max_update_bytes: u64,
+    pub max_snapshot_bytes: u64,
+    pub max_document_bytes: u64,
+    pub max_retained_updates: u64,
+    pub max_retained_update_bytes: u64,
+    pub ticket_ttl_seconds: u64,
+    pub compaction_threshold: u64,
+}
+
+impl Default for CollaborationLimits {
+    fn default() -> Self {
+        Self {
+            max_update_bytes: 1_048_576,
+            max_snapshot_bytes: 4_194_304,
+            max_document_bytes: 2_097_152,
+            max_retained_updates: 10_000,
+            max_retained_update_bytes: 67_108_864,
+            ticket_ttl_seconds: 30,
+            compaction_threshold: 100,
+        }
+    }
+}
+
+impl CollaborationLimits {
+    pub fn validate(self) -> Result<Self, &'static str> {
+        if self.max_update_bytes == 0
+            || self.max_snapshot_bytes == 0
+            || self.max_document_bytes == 0
+            || self.max_retained_updates == 0
+            || self.max_retained_update_bytes == 0
+            || self.ticket_ttl_seconds == 0
+            || self.compaction_threshold == 0
+        {
+            return Err("hosted collaboration limits must be greater than zero");
+        }
+        if self.max_snapshot_bytes < self.max_document_bytes
+            || self.compaction_threshold > self.max_retained_updates
+        {
+            return Err("hosted collaboration limits are inconsistent");
+        }
+        Ok(self)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ProviderLimits {
     pub max_records_per_collection: u64,
@@ -152,6 +198,7 @@ pub struct ProviderLimits {
     pub max_file_bytes_per_collection: u64,
     pub max_stored_file_bytes_per_collection: u64,
     pub max_bytes_per_file: u64,
+    pub collaboration: CollaborationLimits,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -190,6 +237,7 @@ impl Default for ProviderLimits {
             max_file_bytes_per_collection: 5 * 1024 * 1024 * 1024,
             max_stored_file_bytes_per_collection: 10 * 1024 * 1024 * 1024,
             max_bytes_per_file: 1024 * 1024 * 1024,
+            collaboration: CollaborationLimits::default(),
         }
     }
 }

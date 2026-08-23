@@ -1,6 +1,6 @@
 # ADR 0012: Hosted real-time collaboration materializes one exact Markdown body
 
-- Status: accepted for development-only prototypes
+- Status: accepted for development-only prototypes; Phase 3A storage foundation implemented
 - Date: 2026-08-24
 
 ## Context
@@ -106,6 +106,16 @@ advance the epoch.
 
 The Connect control plane resolves authorization and lifecycle but never
 receives record content, Yjs updates, selections, or room awareness.
+
+## Phase 3A storage foundation
+
+The hosted provider now has an additive, encrypted persistence foundation for
+collaboration documents, incremental updates, idempotent receipts, and
+single-use session tickets. Room identity is enforced as collection, stable
+record, positive epoch, and the exact v1 profile. Provider-owned resource
+limits and separate collaboration-byte accounting are fail-closed at startup.
+This does not add a room engine, transport, authorization path, readiness
+support, or public capability; collaboration remains unadvertised.
 
 ## Development gates
 
