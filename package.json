@@ -13,6 +13,7 @@
     "check:npm-bootstrap": "node scripts/check-npm-package-bootstrap.mjs",
     "check:release-readiness": "node scripts/check-release-readiness.mjs",
     "check:workspace-pins": "node scripts/check-workspace-pins.mjs",
+    "canary:hosted-read": "node scripts/hosted-read-canary.mjs",
     "generate:problems": "node scripts/generate-connect-problems.mjs",
     "check:problems": "node scripts/generate-connect-problems.mjs --check",
     "generate:operations": "node scripts/generate-operation-catalog.mjs",
