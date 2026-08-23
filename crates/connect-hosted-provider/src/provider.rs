@@ -18,16 +18,16 @@ use mdbase_connect_protocol::{
     ApplicationCollectionSetupProvisions, ApplicationCollectionSetupRequirements,
     ApplicationProvisions, ApplicationRequirements, ApplyCollectionSetupInput, ApplyTypePackInput,
     AssessCollectionSetupInput, AssessTypePackInput, AuthorityImportManifest,
-    AuthorityImportRecord, AuthorityImportRecordPage, AuthoritySnapshotRecord, CollectionChange,
-    CollectionChangesPage, CollectionContractDescriptor,
+    AuthorityImportRecord, AuthorityImportRecordPage, AuthoritySnapshotRecord, CollaborationAccess,
+    CollectionChange, CollectionChangesPage, CollectionContractDescriptor,
     CollectionContractImplementationDescriptor, CollectionDescription, CollectionTypeDescriptor,
     ContractRequirement, ContractSetupChoice, ContractSetupMode, FileAction, FileCapability,
-    FileScope, GrantSummary, SyncChange, SyncChangesPage, SyncCollectionResources, SyncConflict,
-    SyncFileSnapshotPage, SyncFileSnapshotPageKind, SyncMutation, SyncMutationError,
-    SyncMutationOperation, SyncMutationReceipt, SyncRecord, SyncReplicaMode, SyncResourceDocument,
-    SyncSession, SyncSnapshotPage, SyncSnapshotRecord, TypePackProvision, AUTHORITY_PROOF_DOMAIN,
-    AUTHORITY_PROOF_VERSION, CONTROL_PROTOCOL_VERSION, FILE_PROTOCOL_VERSION,
-    SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS, SYNC_PROTOCOL_VERSION,
+    FileScope, GrantSummary, ReplicaCollaborationCapability, SyncChange, SyncChangesPage,
+    SyncCollectionResources, SyncConflict, SyncFileSnapshotPage, SyncFileSnapshotPageKind,
+    SyncMutation, SyncMutationError, SyncMutationOperation, SyncMutationReceipt, SyncRecord,
+    SyncReplicaMode, SyncResourceDocument, SyncSession, SyncSnapshotPage, SyncSnapshotRecord,
+    TypePackProvision, AUTHORITY_PROOF_DOMAIN, AUTHORITY_PROOF_VERSION, CONTROL_PROTOCOL_VERSION,
+    FILE_PROTOCOL_VERSION, SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS, SYNC_PROTOCOL_VERSION,
 };
 use mdbase_connect_runtime::contract_scope::{ContractScope, ContractSelector};
 use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
@@ -593,6 +593,8 @@ pub struct RegisterReplica {
     #[serde(default)]
     pub file_capability: Option<FileCapability>,
     #[serde(default)]
+    pub collaboration_capability: Option<ReplicaCollaborationCapability>,
+    #[serde(default)]
     pub allowed_origin: Option<String>,
     #[serde(default)]
     pub proof_public_key: Option<String>,
@@ -623,6 +625,8 @@ pub struct UpdateApplicationReplica {
     pub operation_transport_recovery_protocols: Vec<u32>,
     #[serde(default)]
     pub file_capability: Option<FileCapability>,
+    #[serde(default)]
+    pub collaboration_capability: Option<ReplicaCollaborationCapability>,
     #[serde(default)]
     pub allowed_origin: Option<String>,
     #[serde(default)]
@@ -731,6 +735,9 @@ struct Replica {
     operation_transport_protocol: Option<u32>,
     operation_transport_recovery_protocols: Vec<u32>,
     file_capability: Option<FileCapability>,
+    // Read by the Phase 3 room authorizer; persisted and validated in Phase 2.
+    #[allow(dead_code)]
+    collaboration_capability: Option<ReplicaCollaborationCapability>,
     allowed_origin: Option<String>,
     proof_public_key: Option<String>,
     grant_id: Option<Uuid>,

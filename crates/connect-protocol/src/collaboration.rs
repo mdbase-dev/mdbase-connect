@@ -52,6 +52,21 @@ impl TryFrom<u8> for CollaborationMessageKind {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReplicaCollaborationCapability {
+    pub contract_version: u32,
+    pub profiles: Vec<String>,
+    pub access: CollaborationAccess,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CollaborationAccess {
+    ReadOnly,
+    ReadWrite,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct CollaborationFrame {
     pub kind: CollaborationMessageKind,

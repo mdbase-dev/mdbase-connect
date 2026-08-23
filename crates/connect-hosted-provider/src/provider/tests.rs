@@ -96,7 +96,7 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
     assert!(finalize.contains("admission_lease_expires_at > clock_timestamp()"));
     assert!(finalize.contains("admission_fence_token = NULL"));
     assert!(finalize.contains("admission_owner_expires_at = NULL"));
-    assert!(preflight.contains("expected exact successful final ledger 1-37"));
+    assert!(preflight.contains("expected exact successful final ledger 1-38"));
     assert!(preflight.contains("attest-hosted-provider-migration-ledger.sql"));
     assert!(preflight.contains("admission_fence_token = requested_token"));
     assert!(preflight.contains("DELETE FROM hosted_provider_query_cursors"));
@@ -114,7 +114,7 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
         assert!(!preflight.contains(&format!("DELETE FROM {canonical}")));
     }
     assert!(final_preflight.contains("REPEATABLE READ READ ONLY"));
-    assert!(final_preflight.contains("expected exact successful final ledger 1-37"));
+    assert!(final_preflight.contains("expected exact successful final ledger 1-38"));
     assert!(final_preflight.contains("migration checksum mismatch at version(s)"));
     assert!(final_preflight.contains("required final relation/index objects are absent"));
     assert!(final_preflight.contains("differ from the exact contract"));
@@ -726,6 +726,7 @@ fn application_capabilities_bind_operations_mode_and_origin() {
         operation_transport_protocol: Some(3),
         operation_transport_recovery_protocols: vec![2],
         file_capability: None,
+        collaboration_capability: None,
         allowed_origin: Some("https://tasks.example".to_string()),
         proof_public_key: None,
         grant_id: Some(Uuid::new_v4()),
@@ -767,6 +768,7 @@ fn application_capabilities_bind_operations_mode_and_origin() {
         operation_transport_recovery_protocols: portable_capability
             .operation_transport_recovery_protocols,
         file_capability: portable_capability.file_capability,
+        collaboration_capability: None,
         allowed_origin: portable_capability.allowed_origin,
         proof_public_key: portable_capability.proof_public_key,
         grant_id: portable_capability.grant_id,
@@ -844,6 +846,7 @@ fn application_capabilities_bind_operations_mode_and_origin() {
         operation_transport_recovery_protocols: contract_capability
             .operation_transport_recovery_protocols,
         file_capability: contract_capability.file_capability,
+        collaboration_capability: None,
         allowed_origin: contract_capability.allowed_origin,
         proof_public_key: contract_capability.proof_public_key,
         grant_id: contract_capability.grant_id,
@@ -868,6 +871,7 @@ fn application_capabilities_bind_operations_mode_and_origin() {
             .operation_transport_recovery_protocols
             .clone(),
         file_capability: capability.file_capability,
+        collaboration_capability: None,
         allowed_origin: capability.allowed_origin,
         proof_public_key: capability.proof_public_key,
         grant_id: capability.grant_id,
@@ -914,6 +918,65 @@ fn application_capabilities_bind_operations_mode_and_origin() {
 }
 
 #[test]
+fn collaboration_capabilities_are_exact_application_bindings() {
+    let signing_key = p256::ecdsa::SigningKey::random(&mut rand_core::OsRng);
+    let mut capability = RegisterReplica {
+        replica_id: Uuid::new_v4(),
+        name: "Collaborative app".to_string(),
+        purpose: ReplicaPurpose::Application,
+        mode: SyncReplicaMode::ReadOnly,
+        allowed_types: Vec::new(),
+        contract_scope: Vec::new(),
+        full_collection: true,
+        allowed_operations: vec!["read".to_string()],
+        operation_transport_protocol: Some(3),
+        operation_transport_recovery_protocols: Vec::new(),
+        file_capability: None,
+        collaboration_capability: Some(ReplicaCollaborationCapability {
+            contract_version: 1,
+            profiles: vec!["markdown-body-yjs-v13".to_string()],
+            access: CollaborationAccess::ReadOnly,
+        }),
+        allowed_origin: Some("https://editor.example".to_string()),
+        proof_public_key: Some(
+            URL_SAFE_NO_PAD.encode(
+                signing_key
+                    .verifying_key()
+                    .to_encoded_point(false)
+                    .as_bytes(),
+            ),
+        ),
+        grant_id: Some(Uuid::new_v4()),
+        application_declaration_id: Some("dev.mdbase.editor".to_string()),
+        application_declaration_digest: Some(format!("sha256:{}", "a".repeat(64))),
+        token: "x".repeat(40),
+        token_ttl_seconds: Some(3600),
+    };
+    validate_replica_capability(&capability).unwrap();
+
+    capability.collaboration_capability.as_mut().unwrap().access = CollaborationAccess::ReadWrite;
+    assert_eq!(
+        validate_replica_capability(&capability).unwrap_err().code,
+        "invalid_collaboration_capability"
+    );
+    capability.mode = SyncReplicaMode::ReadWrite;
+    capability.allowed_operations.push("update".to_string());
+    validate_replica_capability(&capability).unwrap();
+
+    capability.full_collection = false;
+    assert_eq!(
+        validate_replica_capability(&capability).unwrap_err().code,
+        "invalid_collaboration_capability"
+    );
+    capability.full_collection = true;
+    capability.purpose = ReplicaPurpose::Mirror;
+    assert_eq!(
+        validate_replica_capability(&capability).unwrap_err().code,
+        "invalid_collaboration_capability"
+    );
+}
+
+#[test]
 fn collection_setup_assess_and_apply_require_matching_declaration_binding() {
     let mut capability = RegisterReplica {
         replica_id: Uuid::new_v4(),
@@ -930,6 +993,7 @@ fn collection_setup_assess_and_apply_require_matching_declaration_binding() {
         operation_transport_protocol: Some(3),
         operation_transport_recovery_protocols: vec![2],
         file_capability: None,
+        collaboration_capability: None,
         allowed_origin: Some("https://tasks.example".to_string()),
         proof_public_key: None,
         grant_id: Some(Uuid::new_v4()),
@@ -991,6 +1055,7 @@ fn assess_collection_setup_alone_requires_declaration_binding() {
         operation_transport_protocol: Some(3),
         operation_transport_recovery_protocols: vec![2],
         file_capability: None,
+        collaboration_capability: None,
         allowed_origin: Some("https://tasks.example".to_string()),
         proof_public_key: None,
         grant_id: Some(Uuid::new_v4()),
@@ -1067,6 +1132,7 @@ fn mirror_sync_credentials_are_not_browser_capabilities() {
         operation_transport_protocol: None,
         operation_transport_recovery_protocols: Vec::new(),
         file_capability: None,
+        collaboration_capability: None,
         allowed_origin: None,
         proof_public_key: None,
         grant_id: None,
@@ -1095,6 +1161,7 @@ fn rejects_write_operations_on_read_only_application_capabilities() {
         operation_transport_protocol: Some(3),
         operation_transport_recovery_protocols: vec![2],
         file_capability: None,
+        collaboration_capability: None,
         allowed_origin: Some("https://tasks.example".to_string()),
         proof_public_key: None,
         grant_id: Some(Uuid::new_v4()),
@@ -1130,6 +1197,7 @@ fn file_capabilities_are_independent_scoped_and_mode_checked() {
                 folders: vec!["Assets".to_string()],
             },
         }),
+        collaboration_capability: None,
         allowed_origin: Some("https://assets.example".to_string()),
         proof_public_key: None,
         grant_id: Some(Uuid::new_v4()),
@@ -1152,6 +1220,7 @@ fn file_capabilities_are_independent_scoped_and_mode_checked() {
             .operation_transport_recovery_protocols
             .clone(),
         file_capability: capability.file_capability.clone(),
+        collaboration_capability: None,
         allowed_origin: capability.allowed_origin.clone(),
         proof_public_key: None,
         grant_id: capability.grant_id,
