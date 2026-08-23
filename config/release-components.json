@@ -1,0 +1,59 @@
+{
+  "$schema": "./release-components.schema.json",
+  "schemaVersion": 1,
+  "repository": "mdbase-dev/mdbase-connect",
+  "publication": {
+    "workflow": "publish-images.yml",
+    "artifactName": "release-bundle",
+    "certificateIdentity": "https://github.com/mdbase-dev/mdbase-connect/.github/workflows/publish-images.yml@refs/heads/main",
+    "certificateIssuer": "https://token.actions.githubusercontent.com"
+  },
+  "sourceDependencies": [
+    {
+      "id": "mdbase-rs",
+      "revisionFile": "deploy/docker/mdbase-rs-revision"
+    }
+  ],
+  "components": [
+    {
+      "id": "connect",
+      "required": true,
+      "kind": "oci-image",
+      "image": "ghcr.io/mdbase-dev/mdbase-connect-server",
+      "dockerfile": "deploy/docker/Dockerfile.server",
+      "context": ".",
+      "platform": "linux/amd64",
+      "attestationType": "https://mdbase.dev/attestations/release-image/v1"
+    },
+    {
+      "id": "hosted-provider",
+      "required": true,
+      "kind": "oci-image",
+      "image": "ghcr.io/mdbase-dev/mdbase-connect-hosted-provider",
+      "dockerfile": "deploy/docker/Dockerfile.hosted-provider",
+      "context": ".",
+      "platform": "linux/amd64",
+      "attestationType": "https://mdbase.dev/attestations/release-image/v1"
+    },
+    {
+      "id": "mcp",
+      "required": true,
+      "kind": "oci-image",
+      "image": "ghcr.io/mdbase-dev/mdbase-connect-mcp",
+      "dockerfile": "deploy/docker/Dockerfile.mcp",
+      "context": ".",
+      "platform": "linux/amd64",
+      "attestationType": "https://mdbase.dev/attestations/release-image/v1"
+    },
+    {
+      "id": "client",
+      "required": true,
+      "kind": "oci-image",
+      "image": "ghcr.io/mdbase-dev/mdbase-connect-client",
+      "dockerfile": "deploy/docker/Dockerfile.client",
+      "context": ".",
+      "platform": "linux/amd64",
+      "attestationType": "https://mdbase.dev/attestations/release-image/v1"
+    }
+  ]
+}

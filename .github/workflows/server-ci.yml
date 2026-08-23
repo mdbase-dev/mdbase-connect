@@ -171,6 +171,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm version:check
       - run: pnpm check:release-readiness
+      - run: pnpm check:release-components
       - run: pnpm audit:dependencies
       - run: pnpm check:architecture
       # Workspace packages publish their declarations from dist, so build the
@@ -185,7 +186,7 @@ jobs:
       # Cache the browser so most runs never contact a mirror at all, and keep
       # the timeout so a cache miss on a slow day fails fast instead of
       # silently consuming an hour.
-      - uses: actions/cache@v4
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: needs.classify.outputs.run_full == 'true'
         id: playwright-cache
         with:
@@ -373,7 +374,7 @@ jobs:
       # Cache the browser so most runs never contact a mirror at all, and keep
       # the timeout so a cache miss on a slow day fails fast instead of
       # silently consuming an hour.
-      - uses: actions/cache@v4
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
