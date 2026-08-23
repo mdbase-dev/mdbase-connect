@@ -52,8 +52,10 @@ inspection and redemption use `POST /v1/auth/password/invitation` and
 inspects, and redeems an email-verification challenge through
 `POST /v1/auth/password/signup/request`,
 `POST /v1/auth/password/signup/verification`, and
-`POST /v1/auth/password/signup/public`. All authentication mutations require
-an exact same-origin `Origin` header. Successful login and signup issue the
+`POST /v1/auth/password/signup/public`. The request may include a same-origin
+`return_to`; it is carried through the verification email so account creation
+can resume the original authorization or transactional flow. All authentication
+mutations require an exact same-origin `Origin` header. Successful login and signup issue the
 same HTTP-only, same-site session cookie used by external providers.
 
 Password recovery uses `POST /v1/auth/password/recovery` to request a link and

@@ -14,11 +14,16 @@ const verification = {
 };
 
 describe("public signup verification email", () => {
-  it("keeps the one-time token in a fragment-only account setup link", () => {
-    const rendered = renderPublicSignupVerificationEmail(verification);
+  it("keeps the one-time token in the fragment and a same-origin return target", () => {
+    const verificationUrl = new URL(verification.verificationUrl);
+    verificationUrl.searchParams.set("return_to", "/authorize/request?source=signup");
+    const rendered = renderPublicSignupVerificationEmail({
+      ...verification,
+      verificationUrl: verificationUrl.href
+    });
     expect(rendered.subject).toBe("Verify your email for mdbase connect");
-    expect(rendered.text).toContain(verification.verificationUrl);
-    expect(rendered.html).toContain(verification.verificationUrl);
+    expect(rendered.text).toContain(verificationUrl.href);
+    expect(rendered.html).toContain(verificationUrl.href.replaceAll("&", "&amp;"));
     expect(rendered.html).not.toContain("<script");
   });
 
@@ -37,6 +42,11 @@ describe("public signup verification email", () => {
       ...verification,
       verificationUrl:
         "https://connect.example/login#verification=vfy_abcdefghijklmnopqrstuvwxyz0123456789ABCDE"
+    })).toThrow(/URL is invalid/u);
+    expect(() => renderPublicSignupVerificationEmail({
+      ...verification,
+      verificationUrl:
+        "https://connect.example/signup?return_to=https%3A%2F%2Fevil.example%2Fauthorize%2Frequest#verification=vfy_abcdefghijklmnopqrstuvwxyz0123456789ABCDE"
     })).toThrow(/URL is invalid/u);
   });
 

@@ -33,7 +33,10 @@ import {
 import { sendPublicSignupVerificationEmail } from "../../public-signup-email.js";
 import { PASSWORD_MAX_UTF8_BYTES } from "../../password.js";
 import type { AuthenticationLegalDocuments } from "../../runtime-config.js";
-import { apiError } from "../../platform/http-errors.js";
+import {
+  apiError,
+  RequestValidationError
+} from "../../platform/http-errors.js";
 import { requireSameOrigin } from "../../platform/request-security.js";
 import { setSessionCookie } from "../../platform/session-cookies.js";
 
@@ -232,9 +235,14 @@ export function registerPasswordAuthRoutes(
       throw new AuthenticationPolicyIncompleteError();
     }
     const input = z.object({
-      email: z.email().max(320)
+      email: z.email().max(320),
+      return_to: z.string().max(2_048).optional()
     }).strict().parse(request.body);
     const normalizedEmail = normalizeEmailAddress(input.email);
+    const returnTarget = safePublicSignupReturnTarget(
+      input.return_to,
+      options.publicUrl
+    );
     const allowed = await consumeAuthenticationLimits(
       authenticationRateLimiter,
       [
@@ -278,8 +286,11 @@ export function registerPasswordAuthRoutes(
         {
           challengeId: verification.challengeId,
           to: verification.email,
-          verificationUrl:
-            `${options.publicUrl}/signup#verification=${encodeURIComponent(verification.token)}`,
+          verificationUrl: publicSignupVerificationUrl(
+            options.publicUrl,
+            verification.token,
+            returnTarget
+          ),
           expiresAt: verification.expiresAt
         }
       );
@@ -696,6 +707,39 @@ export function registerPasswordAuthRoutes(
       other_sessions_signed_out: true
     };
   });
+}
+
+function safePublicSignupReturnTarget(
+  value: string | undefined,
+  publicUrl: string
+): string | null {
+  if (!value) return null;
+  const publicOrigin = new URL(publicUrl).origin;
+  let target: URL;
+  try {
+    target = new URL(value, publicOrigin);
+  } catch {
+    throw new RequestValidationError("Public signup return target is invalid.");
+  }
+  if (
+    target.origin !== publicOrigin
+    || target.username
+    || target.password
+  ) {
+    throw new RequestValidationError("Public signup return target is invalid.");
+  }
+  return `${target.pathname}${target.search}${target.hash}`;
+}
+
+function publicSignupVerificationUrl(
+  publicUrl: string,
+  verificationToken: string,
+  returnTarget: string | null
+): string {
+  const url = new URL("/signup", publicUrl);
+  if (returnTarget) url.searchParams.set("return_to", returnTarget);
+  url.hash = new URLSearchParams({ verification: verificationToken }).toString();
+  return url.href;
 }
 
 async function consumeAuthenticationLimits(

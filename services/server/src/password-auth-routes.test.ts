@@ -354,17 +354,37 @@ describe("password authentication HTTP boundary", () => {
       payload: { email: "person@example.com" }
     });
     expect(crossOrigin.statusCode).toBe(403);
+    const externalReturn = await app.inject({
+      method: "POST",
+      url: "/v1/auth/password/signup/request",
+      headers: { origin },
+      payload: {
+        email: "person@example.com",
+        return_to: "https://evil.example/authorize/request"
+      }
+    });
+    expect(externalReturn.statusCode).toBe(400);
+
     const requested = await app.inject({
       method: "POST",
       url: "/v1/auth/password/signup/request",
       headers: { origin },
-      payload: { email: "Person@Example.com" }
+      payload: {
+        email: "Person@Example.com",
+        return_to: "/authorize/request?source=signup#resume"
+      }
     });
     expect(requested.statusCode).toBe(202);
     expect(deliveries).toHaveLength(1);
-    const verificationToken = new URL(
+    const verificationUrl = new URL(
       deliveries[0]!.text.match(/https:\/\/[^\s]+/u)![0]
-    ).hash.slice("#verification=".length);
+    );
+    expect(verificationUrl.pathname).toBe("/signup");
+    expect(verificationUrl.searchParams.get("return_to"))
+      .toBe("/authorize/request?source=signup#resume");
+    const verificationToken = new URLSearchParams(
+      verificationUrl.hash.slice(1)
+    ).get("verification")!;
     expect(verificationToken).toMatch(/^vfy_/u);
     expect(JSON.stringify((await db.query(
       "SELECT token_hash FROM authentication_challenges"

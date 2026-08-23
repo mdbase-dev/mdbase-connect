@@ -48,16 +48,45 @@ export async function isolatedDesktopConfiguration(
     MDBASE_CONNECT_REGISTER_DEEP_LINKS:
       environment.MDBASE_CONNECT_REGISTER_DEEP_LINKS ?? "0"
   };
-  const configuredServer = environment.MDBASE_CONNECT_URL?.trim()
-    || environment.MDBASE_CONNECT_SERVER_URL?.trim();
+  const serverTargets = [
+    environment.MDBASE_CONNECT_URL,
+    environment.MDBASE_CONNECT_SERVER_URL,
+    environment.VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL
+  ].map((value) => value?.trim()).filter(Boolean);
+  const distinctServerTargets = [...new Set(serverTargets)];
+  if (distinctServerTargets.length > 1) {
+    throw new Error("Isolated desktop Connect server targets must match.");
+  }
+  const configuredServer = distinctServerTargets[0];
   const configuredEditor = environment.MDBASE_EDITOR_URL?.trim();
-  if (staging || configuredServer || configuredEditor) {
-    childEnvironment.MDBASE_EDITOR_URL =
-      configuredEditor ?? stagingDesktop.editorUrl;
+  if (staging) {
+    if (configuredServer && configuredServer !== stagingDesktop.serverUrl) {
+      throw new Error("The staging desktop requires the staging Connect service.");
+    }
+    if (configuredEditor && configuredEditor !== stagingDesktop.editorUrl) {
+      throw new Error("The staging desktop requires the staging editor.");
+    }
+    childEnvironment.MDBASE_EDITOR_URL = stagingDesktop.editorUrl;
     childEnvironment.VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL =
-      environment.VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL
-      ?? configuredServer
-      ?? stagingDesktop.serverUrl;
+      stagingDesktop.serverUrl;
+  } else {
+    if (Boolean(configuredServer) !== Boolean(configuredEditor)) {
+      throw new Error(
+        "Named isolated desktop environments require both Connect and editor URLs."
+      );
+    }
+    if (
+      ["lab", "staging", "production"].includes(namedEnvironment)
+      && !configuredServer
+    ) {
+      throw new Error(
+        `${namedEnvironment} isolated desktops require explicit Connect and editor URLs.`
+      );
+    }
+    if (configuredServer && configuredEditor) {
+      childEnvironment.MDBASE_EDITOR_URL = configuredEditor;
+      childEnvironment.VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL = configuredServer;
+    }
   }
   return {
     staging,

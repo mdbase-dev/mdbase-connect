@@ -94,11 +94,21 @@ function safeVerificationUrl(value: string): string {
   const url = new URL(value);
   const fragment = new URLSearchParams(url.hash.slice(1));
   const token = fragment.get("verification") ?? "";
+  const returnTargets = url.searchParams.getAll("return_to");
+  const returnTarget = returnTargets[0]
+    ? new URL(returnTargets[0], url.origin)
+    : null;
   if (
     url.username
     || url.password
     || url.pathname !== "/signup"
-    || url.search
+    || [...url.searchParams.keys()].some((key) => key !== "return_to")
+    || returnTargets.length > 1
+    || (returnTarget !== null && (
+      returnTarget.origin !== url.origin
+      || returnTarget.username
+      || returnTarget.password
+    ))
     || [...fragment.keys()].some((key) => key !== "verification")
     || !/^vfy_[A-Za-z0-9_-]{32,196}$/u.test(token)
     || (url.protocol !== "https:" && !isLoopback(url.hostname))

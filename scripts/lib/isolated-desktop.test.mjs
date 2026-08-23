@@ -85,3 +85,35 @@ test("registry-provided environments configure Electron without staging-only fla
     "https://candidate-b.mdbase-editor.pages.dev"
   );
 });
+
+test("named environments reject incomplete or conflicting endpoint pairs", async () => {
+  await assert.rejects(
+    isolatedDesktopConfiguration({
+      MDBASE_ENV: "lab",
+      MDBASE_CONNECT_URL: "https://mdbase-connect-lab.onrender.com"
+    }, [], async () => 1),
+    /require both Connect and editor URLs/
+  );
+  await assert.rejects(
+    isolatedDesktopConfiguration({ MDBASE_ENV: "production" }, [], async () => 1),
+    /require explicit Connect and editor URLs/
+  );
+  await assert.rejects(
+    isolatedDesktopConfiguration({
+      MDBASE_CONNECT_URL: "https://connect.mdbase.dev",
+      VITE_MDBASE_CONNECT_DEFAULT_SERVER_URL: "https://connect-staging.mdbase.dev",
+      MDBASE_EDITOR_URL: "https://editor.mdbase.dev"
+    }, [], async () => 1),
+    /server targets must match/
+  );
+});
+
+test("staging flags reject endpoint overrides from another environment", async () => {
+  await assert.rejects(
+    isolatedDesktopConfiguration({
+      MDBASE_CONNECT_URL: "https://connect.mdbase.dev",
+      MDBASE_EDITOR_URL: "https://editor.mdbase.dev"
+    }, ["--staging"], async () => 1),
+    /requires the staging Connect service/
+  );
+});

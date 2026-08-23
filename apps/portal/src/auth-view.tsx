@@ -429,7 +429,7 @@ export function Signup({
     try {
       await api("/v1/auth/password/signup/request", {
         method: "POST",
-        body: JSON.stringify({ email })
+        body: JSON.stringify({ email, return_to: returnTarget() })
       });
       setRequestSubmitted(true);
     } catch (reason) {
