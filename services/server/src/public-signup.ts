@@ -13,7 +13,7 @@ import {
   type AuthenticationSettings
 } from "./authentication-policy.js";
 import { scheduleStarterCollection } from "./account-onboarding.js";
-import { scheduleBetaWelcomeEmail } from "./beta-welcome-email.js";
+import { scheduleOpenBetaWelcomeEmail } from "./beta-welcome-email.js";
 import { materializePublicSignupEntitlement } from "./entitlements.js";
 import { hashPassword } from "./password.js";
 import { randomToken, tokenHash } from "./security.js";
@@ -236,7 +236,7 @@ export class PublicSignupService {
         [userId, input.termsVersion, input.privacyVersion]
       );
       await materializePublicSignupEntitlement(connection, userId);
-      await scheduleBetaWelcomeEmail(connection, { userId, emailIdentityId });
+      await scheduleOpenBetaWelcomeEmail(connection, { userId, emailIdentityId });
       await scheduleStarterCollection(connection, userId, input.timezone ?? "UTC");
       await connection.query(
         `INSERT INTO sessions

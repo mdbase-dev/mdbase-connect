@@ -106,6 +106,12 @@ the link. Challenges are one-hour and single-use;
 requesting another invalidates the previous challenge. Account creation,
 verified email ownership, password credential, agreement acceptance, session,
 entitlement, and starter-collection scheduling commit in one transaction.
+Public signup assigns the permanent `open_beta_v1` profile: 1 GiB live hosted
+storage, 2 GiB retained file storage, three hosted collections in total
+(including the starter collection), 2 MiB per Markdown document, 250 MiB per
+file, 10,000 files per collection, 10 mirror replicas per collection, and 50
+application replicas per collection. Invitation-based `beta_v1` grants retain
+their existing ten-collection allowance.
 
 Password reset links use the same boundary:
 `/reset-password#reset=<token>`. The challenge expires after one hour.

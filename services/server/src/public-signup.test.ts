@@ -57,22 +57,28 @@ describe("public password signup", () => {
       profile_code: string;
       source_reference: string;
       timezone: string;
+      message_kind: string;
+      template_version: number;
     }>(
       `SELECT identity.verified_at, session.provider, entitlement.profile_code,
-              entitlement.source_reference, onboarding.timezone
+              entitlement.source_reference, onboarding.timezone,
+              email_job.message_kind, email_job.template_version
        FROM email_identities identity
        JOIN sessions session ON session.user_id = identity.user_id
        JOIN account_entitlement_grants entitlement
          ON entitlement.user_id = identity.user_id
        JOIN account_onboarding onboarding ON onboarding.user_id = identity.user_id
+       JOIN email_jobs email_job ON email_job.user_id = identity.user_id
        WHERE identity.user_id = $1`,
       [account.user.id]
     );
     expect(materialized.rows[0]).toMatchObject({
       provider: "password",
-      profile_code: "beta_v1",
+      profile_code: "open_beta_v1",
       source_reference: "public_signup_v1",
-      timezone: "Australia/Melbourne"
+      timezone: "Australia/Melbourne",
+      message_kind: "open_beta_welcome",
+      template_version: 1
     });
     expect(materialized.rows[0]?.verified_at).toBeInstanceOf(Date);
     const agreements = await db.query<{
