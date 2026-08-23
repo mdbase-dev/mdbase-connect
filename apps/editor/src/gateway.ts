@@ -17,6 +17,10 @@ import {
   type TypePackAssessment,
   type TypePackProvision
 } from "@mdbase-dev/connect";
+import {
+  applyConnectServerOverride,
+  connectServerUrl
+} from "./connect-endpoint";
 import { persistedBody, titlePatch } from "./note";
 import type {
   CollectionGateway,
@@ -82,14 +86,9 @@ export class ConnectCollectionGateway implements CollectionGateway {
   private readonly renamePreflights = new Map<string, import("@mdbase-dev/connect").RenamePreflightResult>();
   private readonly deletePreflights = new Map<string, import("@mdbase-dev/connect").DeletePreflightResult>();
 
-  constructor(serverUrl = new URLSearchParams(location.search).get("server")
-      ?? import.meta.env.VITE_MDBASE_CONNECT_URL
-      ?? "https://connect.mdbase.dev") {
+  constructor(serverUrl = connectServerUrl()) {
     const appRoot = new URL(import.meta.env.BASE_URL, location.href);
-    const redirectUri = new URL(appRoot);
-    if (new URLSearchParams(location.search).has("server")) {
-      redirectUri.searchParams.set("server", new URL(serverUrl).origin);
-    }
+    const redirectUri = applyConnectServerOverride(new URL(appRoot), serverUrl);
     const connect = new MdbaseConnect<NoteFrontmatter>({
       serverUrl,
       manifest: new URL(".well-known/mdbase-app.json", appRoot).href,
