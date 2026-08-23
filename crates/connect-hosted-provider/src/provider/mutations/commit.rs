@@ -2,22 +2,22 @@ use super::*;
 use crate::provider::projections::ActiveProjectionChange;
 
 /// The already-staged exact records and documents for one hosted write set.
-pub(super) struct HostedWriteSet {
-    pub(super) before_records: BTreeMap<Uuid, SyncRecord>,
-    pub(super) changed: Vec<(Uuid, Option<SyncRecord>, Option<String>)>,
-    pub(super) primary_record_id: Uuid,
+pub(crate) struct HostedWriteSet {
+    pub(crate) before_records: BTreeMap<Uuid, SyncRecord>,
+    pub(crate) changed: Vec<(Uuid, Option<SyncRecord>, Option<String>)>,
+    pub(crate) primary_record_id: Uuid,
 }
 
-pub(super) struct HostedWriteSetCommit {
-    pub(super) head: u64,
-    pub(super) primary: Option<SyncRecord>,
+pub(crate) struct HostedWriteSetCommit {
+    pub(crate) head: u64,
+    pub(crate) primary: Option<SyncRecord>,
 }
 
 /// Persist an exact hosted write set into a caller-owned transaction.
 ///
 /// This function deliberately does not perform authorization, journal work, receipt
 /// work, transaction control, logging, or notification recovery.
-pub(super) async fn commit_hosted_write_set_in(
+pub(crate) async fn commit_hosted_write_set_in(
     transaction: &mut Transaction<'_, Postgres>,
     provider: &HostedProvider,
     collection_id: Uuid,

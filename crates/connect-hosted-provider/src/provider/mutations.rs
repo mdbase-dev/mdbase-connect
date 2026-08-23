@@ -3,6 +3,7 @@ use super::operation_reads::{compile_point_catalog, load_direct_record, DirectRe
 use super::*;
 
 mod commit;
+pub(crate) use commit::{commit_hosted_write_set_in, HostedWriteSet};
 
 struct MutationExecution<'a> {
     journal_lease: Option<&'a HostedMutationLease>,
