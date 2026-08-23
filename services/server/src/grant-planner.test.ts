@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type {
   CollectionContractDescriptor,
   CollectionOperation,
+  FileCapability,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
 import { operationsForApplicationCapabilities } from "@mdbase-dev/connect-protocol";
@@ -97,6 +98,90 @@ describe("planCollectionGrant", () => {
         protocol_version: 1,
         actions: ["list", "read", "add"],
         scope: { kind: "selected_folders", folders: ["Assets"] }
+      }
+    });
+  });
+
+  it("rejects file actions and folders outside the approving user's ceiling", () => {
+    const viewerFiles: FileCapability = {
+      kind: "files",
+      protocol_version: 1,
+      actions: ["list", "read"],
+      scope: { kind: "selected_folders", folders: ["Shared"] }
+    };
+    const member = { ...owner, relationship: "member" as const, fileCeiling: viewerFiles };
+
+    expect(() => planCollectionGrant({
+      requestedOperations: [],
+      applicationOperationCeiling: [],
+      requirements: {
+        contracts: [],
+        files: {
+          actions: ["list", "read", "add"],
+          scope: { kind: "selected_folders", folders: ["Shared"] }
+        }
+      },
+      availableContracts: [],
+      access: member
+    })).toThrow("file actions");
+
+    expect(() => planCollectionGrant({
+      requestedOperations: [],
+      applicationOperationCeiling: [],
+      requirements: {
+        contracts: [],
+        files: {
+          actions: ["list", "read"],
+          scope: { kind: "collection" }
+        }
+      },
+      availableContracts: [],
+      access: member
+    })).toThrow("collection-wide file access");
+
+    expect(() => planCollectionGrant({
+      requestedOperations: [],
+      applicationOperationCeiling: [],
+      requirements: {
+        contracts: [],
+        files: {
+          actions: ["list", "read"],
+          scope: { kind: "selected_folders", folders: ["Private"] }
+        }
+      },
+      availableContracts: [],
+      access: member
+    })).toThrow("file folders");
+  });
+
+  it("accepts an exact bounded file requirement without widening it", () => {
+    const member = {
+      ...owner,
+      relationship: "member" as const,
+      fileCeiling: {
+        kind: "files" as const,
+        protocol_version: 1 as const,
+        actions: ["list", "read"] as const,
+        scope: { kind: "selected_folders" as const, folders: ["Shared"] }
+      }
+    };
+    expect(planCollectionGrant({
+      requestedOperations: [],
+      applicationOperationCeiling: [],
+      requirements: {
+        contracts: [],
+        files: {
+          actions: ["list", "read"],
+          scope: { kind: "selected_folders", folders: ["Shared"] }
+        }
+      },
+      availableContracts: [],
+      access: member
+    })).toMatchObject({
+      replicaMode: "read_only",
+      fileCapability: {
+        actions: ["list", "read"],
+        scope: { kind: "selected_folders", folders: ["Shared"] }
       }
     });
   });

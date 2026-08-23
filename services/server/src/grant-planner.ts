@@ -46,6 +46,7 @@ export function planCollectionGrant(input: {
     ) {
       throw new GrantPlanningError("File capabilities require at least one unique action.");
     }
+    assertFileRequirementWithinCeiling(fileRequirement, input.access.fileCeiling);
   }
   const applicationOperations = new Set(input.applicationOperationCeiling);
   if (operations.some((operation) => !applicationOperations.has(operation))) {
@@ -91,6 +92,30 @@ export function planCollectionGrant(input: {
       : "read_only",
     ...(fileCapability ? { fileCapability } : {})
   };
+}
+
+function assertFileRequirementWithinCeiling(
+  requirement: NonNullable<ApplicationRequirements["files"]>,
+  ceiling: FileCapability
+): void {
+  const allowedActions = new Set(ceiling.actions);
+  if (requirement.actions.some((action) => !allowedActions.has(action))) {
+    throw new GrantPlanningError(
+      "The approving user may not grant one or more requested file actions."
+    );
+  }
+  if (ceiling.scope.kind === "collection") return;
+  if (requirement.scope.kind === "collection") {
+    throw new GrantPlanningError(
+      "The approving user may not grant collection-wide file access."
+    );
+  }
+  const allowedFolders = new Set(ceiling.scope.folders);
+  if (requirement.scope.folders.some((folder) => !allowedFolders.has(folder))) {
+    throw new GrantPlanningError(
+      "The approving user may not grant access to one or more requested file folders."
+    );
+  }
 }
 
 export function fileCapabilityForRequirements(

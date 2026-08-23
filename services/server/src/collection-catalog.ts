@@ -1,6 +1,7 @@
 import type { CollectionContractDescriptor } from "@mdbase-dev/connect-protocol";
 import type { DatabaseQueryable } from "./db.js";
 import type { HostedTemplate } from "./hosted.js";
+import { resolveActiveMembershipPolicy } from "./collection-policy.js";
 
 export type CollectionAuthorityKind = "local" | "hosted";
 
@@ -68,15 +69,35 @@ export async function listHostedCollectionsVisibleToUser(
     transferred_collection_id: string | null;
     created_at: string | Date;
   }>(
-    `SELECT id, user_id, display_name, template, provider_url, contracts,
-            authority_state, authority_epoch, transferred_collection_id,
-            created_at
-     FROM hosted_collections
-     WHERE user_id = $1
-     ORDER BY display_name`,
+    `SELECT hosted.id, hosted.user_id, hosted.display_name, hosted.template,
+            hosted.provider_url, hosted.contracts, hosted.authority_state,
+            hosted.authority_epoch, hosted.transferred_collection_id,
+            hosted.created_at
+     FROM hosted_collections hosted
+     LEFT JOIN collection_memberships membership
+       ON membership.collection_id = hosted.id
+      AND membership.user_id = $1
+      AND membership.state = 'active'
+      AND membership.revoked_at IS NULL
+     LEFT JOIN collection_membership_policies policy
+       ON policy.id = membership.current_policy_id
+      AND policy.membership_id = membership.id
+      AND policy.revision = membership.current_policy_revision
+     WHERE hosted.user_id = $1
+        OR (hosted.authority_state = 'active' AND policy.id IS NOT NULL)
+     ORDER BY hosted.display_name`,
     [userId]
   );
-  return result.rows.map(hostedEntry);
+  const visible = await Promise.all(result.rows.map(async (row) => {
+    if (row.user_id === userId) return row;
+    const policy = await resolveActiveMembershipPolicy(db, {
+      collectionId: row.id,
+      ownerUserId: row.user_id,
+      userId
+    });
+    return policy ? row : null;
+  }));
+  return visible.flatMap((row) => row ? [hostedEntry(row)] : []);
 }
 
 export async function resolveLocalCollection(

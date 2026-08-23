@@ -7,9 +7,14 @@ import type {
 import {
   requireCollectionAction,
   resolveHostedCollectionAccess,
-  resolveLocalCollectionAccess
+  resolveLocalCollectionAccess,
+  type CollectionAccessContext
 } from "../../collection-access.js";
 import type { DatabaseQueryable } from "../../db.js";
+import {
+  matchesMembershipBinding,
+  membershipBindingForAccess
+} from "../../collection-membership-binding.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
 import { randomToken, tokenHash } from "../../security.js";
 import { authorityUrl } from "../../platform/authority-url.js";
@@ -57,6 +62,12 @@ export async function issueApplicationTokens(
     file_capability: FileCapability | null;
     proof_public_key: string | null;
     application_origin: string;
+    membership_id: string | null;
+    membership_policy_id: string | null;
+    membership_policy_revision: number | null;
+    replica_membership_id: string | null;
+    replica_membership_policy_id: string | null;
+    replica_membership_policy_revision: number | null;
   }>(
     `SELECT g.user_id,
             COALESCE(col.local_id, g.hosted_collection_id) AS collection_id,
@@ -64,7 +75,11 @@ export async function issueApplicationTokens(
             COALESCE(col.display_name, hosted.display_name) AS collection_name,
             g.hosted_collection_id, g.hosted_replica_id, hosted.provider_url,
             g.operations, g.scope, g.encryption, g.file_capability,
-            g.proof_public_key,
+            g.proof_public_key, g.membership_id, g.membership_policy_id,
+            g.membership_policy_revision,
+            replica.membership_id AS replica_membership_id,
+            replica.membership_policy_id AS replica_membership_policy_id,
+            replica.membership_policy_revision AS replica_membership_policy_revision,
             CASE WHEN g.application_origin = '' THEN app.homepage
                  ELSE g.application_origin END AS application_origin
      FROM grants g
@@ -81,7 +96,7 @@ export async function issueApplicationTokens(
   );
   if (!grant.rows[0]) throw new RequestValidationError("The application grant is no longer active.");
   if (grant.rows[0].hosted_collection_id) {
-    requireCollectionAction(
+    const access = requireCollectionAction(
       await resolveHostedCollectionAccess(
         db,
         grant.rows[0].user_id,
@@ -89,6 +104,7 @@ export async function issueApplicationTokens(
       ),
       "application.authorize"
     );
+    assertCurrentMembershipBinding(grant.rows[0], access);
   } else if (grant.rows[0].local_authority_row_id) {
     requireCollectionAction(
       await resolveLocalCollectionAccess(
@@ -164,4 +180,30 @@ export async function issueApplicationTokens(
     application_origin: normalizedApplicationOrigin(grant.rows[0].application_origin),
     ...(authority ? { authority } : {})
   };
+}
+
+function assertCurrentMembershipBinding(
+  grant: {
+    membership_id: string | null;
+    membership_policy_id: string | null;
+    membership_policy_revision: number | null;
+    replica_membership_id: string | null;
+    replica_membership_policy_id: string | null;
+    replica_membership_policy_revision: number | null;
+  },
+  access: CollectionAccessContext
+): void {
+  const expected = membershipBindingForAccess(access);
+  if (
+    !matchesMembershipBinding(grant, expected)
+    || !matchesMembershipBinding({
+      membership_id: grant.replica_membership_id,
+      membership_policy_id: grant.replica_membership_policy_id,
+      membership_policy_revision: grant.replica_membership_policy_revision
+    }, expected)
+  ) {
+    throw new RequestValidationError(
+      "The application grant no longer matches the current collection membership."
+    );
+  }
 }

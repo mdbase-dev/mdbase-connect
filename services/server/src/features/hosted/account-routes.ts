@@ -202,10 +202,10 @@ export function registerHostedAccountRoutes(
         id: string;
         display_name: string;
       }>(
-        `UPDATE hosted_collections SET display_name = $3
-         WHERE id = $1 AND user_id = $2
+        `UPDATE hosted_collections SET display_name = $2
+         WHERE id = $1 AND authority_state = 'active'
          RETURNING id, display_name`,
-        [collectionId, user.id, input.display_name]
+        [collectionId, input.display_name]
       );
       if (!renamed.rows[0]) {
         return hostedCollectionNotFound(reply);

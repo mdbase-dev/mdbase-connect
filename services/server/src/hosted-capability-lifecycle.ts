@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabasePool, DatabaseQueryable } from "./db.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
+import { finalizeReadyMembershipTransitions } from "./collection-membership-lifecycle.js";
 
 interface RevocationJob {
   id: string;
@@ -251,6 +252,9 @@ export class ProviderRevocationWorker {
 
   private async drainAvailable(limit: number): Promise<number> {
     let completed = 0;
+    // Reconcile first so a crash after durable provider-job completion cannot
+    // strand a membership transition indefinitely.
+    await finalizeReadyMembershipTransitions(this.db);
     while (completed < limit) {
       const job = await claimRevocationJob(this.db);
       if (!job) break;
@@ -268,6 +272,7 @@ export class ProviderRevocationWorker {
            WHERE id = $1`,
           [job.id]
         );
+        await finalizeReadyMembershipTransitions(this.db);
         completed += 1;
       } catch (error) {
         await rescheduleRevocationJob(this.db, job, error);

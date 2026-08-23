@@ -89,9 +89,9 @@ describe("instance administration", () => {
     );
     await db.query(
       `INSERT INTO hosted_replicas
-         (id, collection_id, name, purpose, mode, token_hash)
-       VALUES ($1, $2, 'Application', 'application', 'read_write', $3)`,
-      [replicaId, collectionId, tokenHash("provider")]
+         (id, collection_id, authorized_user_id, name, purpose, mode, token_hash)
+       VALUES ($1, $2, $3, 'Application', 'application', 'read_write', $4)`,
+      [replicaId, collectionId, userId, tokenHash("provider")]
     );
     await db.query(
       `INSERT INTO pairing_requests
@@ -301,9 +301,9 @@ describe("instance administration", () => {
     );
     await db.query(
       `INSERT INTO hosted_replicas
-         (id, collection_id, name, purpose, mode, token_hash)
-       VALUES ($1, $2, 'Mirror', 'mirror', 'read_write', $3)`,
-      [randomUUID(), collectionId, tokenHash("provider")]
+         (id, collection_id, authorized_user_id, name, purpose, mode, token_hash)
+       VALUES ($1, $2, $3, 'Mirror', 'mirror', 'read_write', $4)`,
+      [randomUUID(), collectionId, userId, tokenHash("provider")]
     );
     const service = new InstanceAdminService(db, {
       async revokeReplica() {

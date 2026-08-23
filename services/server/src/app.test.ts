@@ -20,6 +20,10 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
+import {
+  createHostedCollectionMembership,
+  membershipPolicyPreset
+} from "./collection-policy.js";
 import { HostedProviderClient } from "./hosted-provider.js";
 import { authorityProofMessage } from "./authority-proof.js";
 import { pkceChallenge, tokenHash } from "./security.js";
@@ -1367,6 +1371,257 @@ describe("mdbase connect server", () => {
       deviceCode: expiredDevice.json().device_code,
       verifier
     })).json()).toMatchObject({ error: "expired_token" });
+  });
+
+  it("authorizes a hosted member with an exact persisted policy binding", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const hostedProvider = {
+      url: "https://sync.example",
+      ready: vi.fn(),
+      upsertAccount: vi.fn().mockResolvedValue({}),
+      createCollection: vi.fn(),
+      renameCollection: vi.fn(),
+      deleteCollection: vi.fn(),
+      provisionTypePacks: vi.fn(),
+      provisionApplicationSetup: vi.fn(),
+      registerReplica: vi.fn(),
+      updateApplicationReplica: vi.fn(),
+      revokeReplica: vi.fn(),
+      upsertNotificationGrant: vi.fn(),
+      revokeNotificationGrant: vi.fn(),
+      rotateReplicaToken: vi.fn(),
+      compactThrough: vi.fn()
+    } as unknown as HostedProviderClient;
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      hostedCollections: true,
+      hostedProvider,
+      publicUrl: "http://connect.test"
+    });
+    resources.push(() => app.close());
+
+    const ownerSession = await app.inject({
+      method: "POST",
+      url: "/v1/dev/session",
+      payload: { name: "Sharing owner", email: "sharing-owner@example.com" }
+    });
+    const ownerSetCookie = ownerSession.headers["set-cookie"]!;
+    const ownerCookie = (Array.isArray(ownerSetCookie) ? ownerSetCookie[0] : ownerSetCookie)
+      .split(";")[0];
+    const memberSession = await app.inject({
+      method: "POST",
+      url: "/v1/dev/session",
+      payload: { name: "Sharing member", email: "sharing-member@example.com" }
+    });
+    const memberSetCookie = memberSession.headers["set-cookie"]!;
+    const memberCookie = (Array.isArray(memberSetCookie) ? memberSetCookie[0] : memberSetCookie)
+      .split(";")[0];
+    const owner = await db.query<{ id: string }>(
+      "SELECT id FROM users WHERE email = 'sharing-owner@example.com'"
+    );
+    const member = await db.query<{ id: string }>(
+      "SELECT id FROM users WHERE email = 'sharing-member@example.com'"
+    );
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/hosted/collections",
+      headers: { cookie: ownerCookie },
+      payload: {
+        display_name: "Shared hosted notes",
+        template: "mdbase",
+        timezone: "Australia/Melbourne"
+      }
+    });
+    expect(created.statusCode, JSON.stringify(created.json())).toBe(201);
+    const collectionId = created.json().collection.id as string;
+    const membership = await createHostedCollectionMembership(db, {
+      collectionId,
+      ownerUserId: owner.rows[0]!.id,
+      userId: member.rows[0]!.id,
+      role: "editor"
+    });
+    const renamed = await app.inject({
+      method: "PATCH",
+      url: `/v1/hosted/collections/${collectionId}`,
+      headers: { cookie: memberCookie },
+      payload: { display_name: "Renamed by editor" }
+    });
+    expect(renamed.statusCode, JSON.stringify(renamed.json())).toBe(200);
+    expect(hostedProvider.renameCollection).toHaveBeenCalledWith(
+      collectionId,
+      "Renamed by editor"
+    );
+    await expect(db.query<{ display_name: string }>(
+      "SELECT display_name FROM hosted_collections WHERE id = $1",
+      [collectionId]
+    )).resolves.toMatchObject({ rows: [{ display_name: "Renamed by editor" }] });
+    const deniedDelete = await app.inject({
+      method: "DELETE",
+      url: `/v1/hosted/collections/${collectionId}`,
+      headers: { cookie: memberCookie }
+    });
+    expect(deniedDelete.statusCode).toBe(404);
+    expect(hostedProvider.deleteCollection).not.toHaveBeenCalled();
+
+    const manifest: MdbaseAppManifest = {
+      manifest_version: 1,
+      distribution: "portable",
+      id: "dev.mdbase.shared-editor-test",
+      name: "Shared editor test",
+      project_url: "https://apps.example/shared-editor-test",
+      requirements: {
+        contracts: [],
+        access: "full_collection",
+        collection_kind: "hosted"
+      }
+    };
+    const registration = await app.inject({
+      method: "POST",
+      url: "/v1/apps/register",
+      payload: { manifest }
+    });
+    const applicationId = registration.json().application.id as string;
+    const applicationManifestDigest = registration.json().application.manifest_digest as string;
+    const verifier = "shared-member-verifier-that-is-long-enough-0001";
+    const proof = await testApplicationAuthorization({
+      applicationId,
+      applicationDeclarationId: manifest.id,
+      applicationManifestDigest,
+      flow: "device_code",
+      codeChallenge: pkceChallenge(verifier),
+      requestedOperations: ["read", "update"],
+      collectionId,
+      grantAgreementPublicKey: p256PublicKey(),
+      grantSigningPublicKey: p256PublicKey()
+    });
+    const device = await app.inject({
+      method: "POST",
+      url: "/oauth/device_authorization",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      payload: new URLSearchParams({
+        client_id: applicationId,
+        operations: "read,update",
+        collection_id: collectionId,
+        code_challenge: pkceChallenge(verifier),
+        code_challenge_method: "S256",
+        application_authorization: JSON.stringify(proof)
+      }).toString()
+    });
+    expect(device.statusCode, JSON.stringify(device.json())).toBe(200);
+    const lookup = await app.inject({
+      method: "POST",
+      url: "/v1/device-authorization-requests/lookup",
+      headers: { cookie: memberCookie },
+      payload: { user_code: device.json().user_code }
+    });
+    expect(lookup.statusCode, JSON.stringify(lookup.json())).toBe(200);
+    const requestId = lookup.json().request_id as string;
+    const available = await app.inject({
+      method: "GET",
+      url: `/v1/authorization-requests/${requestId}`,
+      headers: { cookie: memberCookie }
+    });
+    expect(available.json().collections).toContainEqual(
+      expect.objectContaining({
+        id: collectionId,
+        kind: "hosted",
+        access: expect.objectContaining({ role: "editor", relationship: "member" })
+      })
+    );
+    const viewerPolicyId = randomUUID();
+    const viewerPolicy = membershipPolicyPreset("viewer");
+    await db.query(
+      `INSERT INTO collection_membership_policies
+         (id, membership_id, revision, role, preset_version, actions,
+          operations, scope_ceiling, file_ceiling)
+       VALUES ($1, $2, 2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb)`,
+      [
+        viewerPolicyId,
+        membership.membershipId,
+        viewerPolicy.role,
+        viewerPolicy.presetVersion,
+        JSON.stringify(viewerPolicy.actions),
+        JSON.stringify(viewerPolicy.operations),
+        JSON.stringify(viewerPolicy.scopeCeiling),
+        JSON.stringify(viewerPolicy.fileCeiling)
+      ]
+    );
+    await db.query(
+      `UPDATE collection_memberships
+       SET current_policy_id = $2, current_policy_revision = 2
+       WHERE id = $1`,
+      [membership.membershipId, viewerPolicyId]
+    );
+    const staleApproval = await app.inject({
+      method: "POST",
+      url: `/v1/authorization-requests/${requestId}/approve`,
+      headers: { cookie: memberCookie },
+      payload: {
+        collection_id: collectionId,
+        operations: ["read", "update"]
+      }
+    });
+    expect(staleApproval.statusCode).toBe(400);
+    expect(hostedProvider.registerReplica).not.toHaveBeenCalled();
+
+    await db.query(
+      `UPDATE collection_memberships
+       SET current_policy_id = $2, current_policy_revision = 1
+       WHERE id = $1`,
+      [membership.membershipId, membership.id]
+    );
+    const approved = await app.inject({
+      method: "POST",
+      url: `/v1/authorization-requests/${requestId}/approve`,
+      headers: { cookie: memberCookie },
+      payload: {
+        collection_id: collectionId,
+        operations: ["read", "update"]
+      }
+    });
+    expect(approved.statusCode, JSON.stringify(approved.json())).toBe(200);
+
+    const binding = await db.query<{
+      user_id: string;
+      logical_collection_id: string;
+      membership_id: string;
+      membership_policy_id: string;
+      membership_policy_revision: number;
+      replica_membership_id: string;
+      replica_membership_policy_id: string;
+      replica_membership_policy_revision: number;
+    }>(
+      `SELECT grant_record.user_id, grant_record.logical_collection_id,
+              grant_record.membership_id, grant_record.membership_policy_id,
+              grant_record.membership_policy_revision,
+              replica.membership_id AS replica_membership_id,
+              replica.membership_policy_id AS replica_membership_policy_id,
+              replica.membership_policy_revision AS replica_membership_policy_revision
+       FROM grants grant_record
+       JOIN hosted_replicas replica ON replica.id = grant_record.hosted_replica_id
+       WHERE grant_record.user_id = $1 AND grant_record.hosted_collection_id = $2
+         AND grant_record.revoked_at IS NULL`,
+      [member.rows[0]!.id, collectionId]
+    );
+    expect(binding.rows).toEqual([{
+      user_id: member.rows[0]!.id,
+      logical_collection_id: collectionId,
+      membership_id: membership.membershipId,
+      membership_policy_id: membership.id,
+      membership_policy_revision: membership.revision,
+      replica_membership_id: membership.membershipId,
+      replica_membership_policy_id: membership.id,
+      replica_membership_policy_revision: membership.revision
+    }]);
+    expect(hostedProvider.registerReplica).toHaveBeenCalledWith(
+      collectionId,
+      expect.objectContaining({
+        mode: "read_write",
+        allowedOperations: ["read", "update"]
+      })
+    );
   });
 
   it("adopts a legacy hosted grant for one portable v2 installation without another replica", async () => {

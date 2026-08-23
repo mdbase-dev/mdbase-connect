@@ -426,10 +426,10 @@ export async function renameHostedCollectionForUser(
     id: string;
     display_name: string;
   }>(
-    `UPDATE hosted_collections SET display_name = $3
-     WHERE id = $1 AND user_id = $2
+    `UPDATE hosted_collections SET display_name = $2
+     WHERE id = $1 AND authority_state = 'active'
      RETURNING id, display_name`,
-    [collectionId, userId, displayName]
+    [collectionId, displayName]
   );
   await audit(
     options.db,
