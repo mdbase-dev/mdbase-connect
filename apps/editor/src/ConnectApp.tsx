@@ -673,11 +673,9 @@ function editorSurfaceUrls(collectionId?: string): { notes: string; types: strin
 }
 
 function editorCollectionUrl(collectionId: string): string {
-  const url = applyConnectServerOverride(
-    new URL("/", location.origin),
-    management.baseUrl
-  );
+  const url = new URL("/", location.origin);
   url.searchParams.set("collection", collectionId);
+  applyConnectServerOverride(url, management.baseUrl);
   return url.href;
 }
 
