@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import {
+  backfillLegacyAccountCreationEmailClaims
+} from "./account-creation-email-claims.js";
 import type {
   DatabaseConnection,
   DatabasePool,
@@ -42,6 +45,9 @@ export async function runControlPlaneMigrations(
       connection,
       options.directory ?? resolve(import.meta.dirname, "../migrations")
     );
+    if (await tableExists(connection, "account_creation_email_claims")) {
+      await backfillLegacyAccountCreationEmailClaims(connection);
+    }
   } finally {
     if (options.lock) {
       await connection

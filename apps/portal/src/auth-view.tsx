@@ -4,7 +4,8 @@ import { api, ApiError } from "./api";
 import {
   isAuthorizationReturnTarget,
   message,
-  returnTarget
+  returnTarget,
+  signInUrl
 } from "./portal-model";
 import { Loading, PageBrand } from "./portal-ui";
 
@@ -517,7 +518,7 @@ export function Signup({
             </button>
           </form>
         )}
-        <a className="quiet-auth-link" href="/login">Return to sign in</a>
+        <a className="quiet-auth-link" href={signInUrl()}>Return to sign in</a>
       </section>
     </main>
   );
@@ -609,7 +610,7 @@ export function Signup({
             </button>
           </form>
         )}
-        <a className="quiet-auth-link" href="/login">Return to sign in</a>
+        <a className="quiet-auth-link" href={signInUrl()}>Return to sign in</a>
       </section>
     </main>
   );

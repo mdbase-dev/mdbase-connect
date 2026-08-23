@@ -56,7 +56,9 @@ describe("database migrations", () => {
       "0018_account_onboarding",
       "0019_authorization_binding_v5_compatibility",
       "0020_protocol_usage_telemetry",
-      "0021_device_authorization_origin"
+      "0021_device_authorization_origin",
+      "0022_account_creation_email_claims",
+      "0023_open_beta_entitlement"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -70,6 +72,12 @@ describe("database migrations", () => {
          AND column_name = 'file_capability'`
     );
     expect(fileCapability.rows).toHaveLength(1);
+    const emailClaims = await db.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_name = 'account_creation_email_claims'
+         AND column_name = 'normalized_email'`
+    );
+    expect(emailClaims.rows).toHaveLength(1);
 
     await expect(assertControlPlaneMigrationsCurrent(db)).resolves.toBeUndefined();
     await runControlPlaneMigrations(db);
@@ -77,6 +85,33 @@ describe("database migrations", () => {
       "SELECT id FROM schema_migrations ORDER BY id"
     );
     expect(repeated.rows).toEqual(applied.rows);
+  });
+
+  it("backfills legacy user emails with canonical normalization", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const userId = randomUUID();
+    await db.query(
+      `INSERT INTO users (id, email, name)
+       VALUES ($1, ' User@bücher.de ', 'Legacy user')`,
+      [userId]
+    );
+
+    await runControlPlaneMigrations(db);
+    const claim = await db.query<{
+      normalized_email: string;
+      user_id: string;
+      source: string;
+    }>(
+      `SELECT normalized_email, user_id, source
+       FROM account_creation_email_claims WHERE user_id = $1`,
+      [userId]
+    );
+    expect(claim.rows).toEqual([{
+      normalized_email: "user@xn--bcher-kva.de",
+      user_id: userId,
+      source: "legacy_user"
+    }]);
   });
 
   it("preserves v2 local grants as revoked reauthorization records during the v3 break", async () => {
@@ -540,7 +575,9 @@ describe("database migrations", () => {
       "0018_account_onboarding",
       "0019_authorization_binding_v5_compatibility",
       "0020_protocol_usage_telemetry",
-      "0021_device_authorization_origin"
+      "0021_device_authorization_origin",
+      "0022_account_creation_email_claims",
+      "0023_open_beta_entitlement"
     ]);
   });
 

@@ -18,7 +18,11 @@ the following tables:
 Matching email text never links accounts. Linking requires an authenticated
 session for the existing account plus fresh proof of the identity being added.
 An OAuth callback may update presentation data for its existing provider
-subject, but it cannot claim an email identity owned by another account.
+subject, but it cannot create another account with a verified email already
+claimed for account creation. The user must sign in to that account and link the
+provider from account settings instead. Account-creation claims are reserved in
+the same transaction as the new account; authenticated provider linking does
+not transfer them or infer ownership from matching email text.
 
 Email normalization is deliberately conservative and versioned. Version 1
 trims outer whitespace, applies Unicode NFC, lower-cases the local and domain
@@ -102,6 +106,12 @@ the link. Challenges are one-hour and single-use;
 requesting another invalidates the previous challenge. Account creation,
 verified email ownership, password credential, agreement acceptance, session,
 entitlement, and starter-collection scheduling commit in one transaction.
+Public signup assigns the permanent `open_beta_v1` profile: 1 GiB live hosted
+storage, 2 GiB retained file storage, three hosted collections in total
+(including the starter collection), 2 MiB per Markdown document, 250 MiB per
+file, 10,000 files per collection, 10 mirror replicas per collection, and 50
+application replicas per collection. Invitation-based `beta_v1` grants retain
+their existing ten-collection allowance.
 
 Password reset links use the same boundary:
 `/reset-password#reset=<token>`. The challenge expires after one hour.
@@ -143,10 +153,12 @@ Separate scopes cover normalized email, source network, account, and global
 send volume.
 
 Recovery and public-signup requests allow three attempts per normalized
-address and ten per source network per hour. Reset and signup-verification
-redemption are separately limited by token and source network. All scopes also
-consume the shared global authentication limit. The unauthenticated request
-response remains generic until a limit is crossed.
+address and ten per source network per hour. Signup-verification preview and
+account redemption use separate token, source-network, and global scopes so
+reloading a valid link cannot consume the budget needed to create the account.
+Reset and signup redemption remain independently limited by token and source
+network. The unauthenticated request response remains generic until a limit is
+crossed.
 
 The application will own limit duration, escalation, and cleanup policy. The
 database table owns only the shared counter state. This lets the beta use
