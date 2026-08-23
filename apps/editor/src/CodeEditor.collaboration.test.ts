@@ -33,7 +33,7 @@ describe("CodeMirror collaboration profile spike", () => {
     );
 
     const remote = "Remote ✨\n";
-    body.insert(body.length, remote, "remote-provider");
+    doc.transact(() => body.insert(body.length, remote), "remote-provider");
     expect(view.state.doc.toString()).toBe(`${body.toString()}`);
     expect(new TextEncoder().encode(view.state.doc.toString()))
       .toEqual(new TextEncoder().encode(body.toString()));

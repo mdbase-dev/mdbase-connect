@@ -1,5 +1,6 @@
 import { EditorState } from "@codemirror/state";
 import { keymap, EditorView } from "@codemirror/view";
+import { validateCollaborationBody } from "@mdbase-dev/connect-collaboration";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { yCollab, yUndoManagerKeymap } from "y-codemirror.next";
 import * as Y from "yjs";
@@ -9,15 +10,9 @@ const INITIAL_BODY = "# Heading 👋\n\nCafé and e\u0301 stay distinct\n\nConcu
 type Peer = "a" | "b";
 type Packet = { from: Peer; update: Uint8Array };
 
-function validProfileBody(value: string): boolean {
-  return !value.includes("\0") && !value.includes("\r") && ![...value].some((char) => {
-    const code = char.codePointAt(0) ?? 0;
-    return code >= 0xd800 && code <= 0xdfff;
-  });
-}
-
 export function CollaborationBrowserHarness() {
   const [online, setOnline] = useState(true);
+  const onlineRef = useRef(true);
   const [admission, setAdmission] = useState("ready");
   const views = useRef<{ a?: EditorView; b?: EditorView }>({});
   const docs = useRef({ a: new Y.Doc(), b: new Y.Doc() });
@@ -43,19 +38,23 @@ export function CollaborationBrowserHarness() {
         views.current[peer]?.dispatch({ changes: { from, to, insert }, userEvent: "input" });
       },
       remoteInsert(peer: Peer, index: number, text: string) {
-        docs.current[peer].getText("body").insert(index, text, "remote-provider");
+        const target = docs.current[peer];
+        target.transact(() => target.getText("body").insert(index, text), "remote-provider");
       },
       queuedPackets: () => packets.current.length,
       setOnline(value: boolean) {
+        onlineRef.current = value;
         setOnline(value);
       },
       deliver(options: { reverse?: boolean; duplicate?: boolean } = {}) {
+        if (!onlineRef.current) return false;
         const pending = options.reverse ? [...packets.current].reverse() : [...packets.current];
         packets.current = [];
         for (const packet of options.duplicate ? [...pending, ...pending] : pending) {
           const target = packet.from === "a" ? b : a;
           Y.applyUpdate(target, packet.update, "transport");
         }
+        return true;
       },
       reconnectFromStateVectors() {
         const aToB = Y.encodeStateAsUpdate(a, Y.encodeStateVector(b));
@@ -65,15 +64,26 @@ export function CollaborationBrowserHarness() {
         packets.current = [];
       },
       admit(value: string) {
-        const accepted = validProfileBody(value);
-        setAdmission(accepted ? "accepted" : "rejected");
-        return accepted;
+        try {
+          validateCollaborationBody(value, 2 * 1024 * 1024);
+          setAdmission("accepted");
+          return true;
+        } catch {
+          setAdmission("rejected");
+          return false;
+        }
       },
       text(peer: Peer) {
         return docs.current[peer].getText("body").toString();
       },
+      editorText(peer: Peer) {
+        return views.current[peer]?.state.doc.toString() ?? "";
+      },
       stopUndoCapturing(peer: Peer) {
         undoManagers.current[peer]?.stopCapturing();
+      },
+      undoDepth(peer: Peer) {
+        return undoManagers.current[peer]?.undoStack.length ?? 0;
       }
     };
     Object.assign(window, { __collaborationHarness: api });
@@ -85,17 +95,11 @@ export function CollaborationBrowserHarness() {
     };
   }, []);
 
-  useEffect(() => {
-    if (online) return;
-    // The transport remains controllable while disconnected; this state is deliberately
-    // not wired into the editor or a production provider.
-  }, [online]);
-
   return <main aria-label="Browser collaboration harness" style={{ padding: 24, fontFamily: "sans-serif" }}>
-    <h1>Phase 0 browser collaboration harness</h1>
+    <h1>Browser adapter smoke-test harness</h1>
     <p data-testid="scope-note">In-page transport only; no provider authorization, persistence, or WebSockets.</p>
-    <p data-testid="connection-state">{online ? "connected" : "disconnected"}</p>
-    <p data-testid="admission-state">profile admission: {admission}</p>
+    <p data-testid="connection-state" aria-live="polite">{online ? "connected" : "disconnected"}</p>
+    <p data-testid="admission-state" aria-live="polite">profile admission: {admission}</p>
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
       <HarnessEditor label="Editor A" peer="a" doc={docs.current.a} views={views} undoManagers={undoManagers} />
       <HarnessEditor label="Editor B" peer="b" doc={docs.current.b} views={views} undoManagers={undoManagers} />
@@ -138,11 +142,13 @@ declare global {
       remoteInsert: (peer: Peer, index: number, text: string) => void;
       queuedPackets: () => number;
       setOnline: (value: boolean) => void;
-      deliver: (options?: { reverse?: boolean; duplicate?: boolean }) => void;
+      deliver: (options?: { reverse?: boolean; duplicate?: boolean }) => boolean;
       reconnectFromStateVectors: () => void;
       admit: (value: string) => boolean;
       text: (peer: Peer) => string;
+      editorText: (peer: Peer) => string;
       stopUndoCapturing: (peer: Peer) => void;
+      undoDepth: (peer: Peer) => number;
     };
   }
 }

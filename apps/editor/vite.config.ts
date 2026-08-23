@@ -7,9 +7,22 @@ const buildId = (process.env.MDBASE_EDITOR_BUILD_ID ?? process.env.GITHUB_SHA ??
   .slice(0, 12)
   .replace(/[^a-zA-Z0-9_-]/gu, "-");
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   base: basePath,
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      name: "mdbase-editor-e2e-entry",
+      transformIndexHtml: {
+        order: "pre",
+        handler(html) {
+          return mode === "e2e"
+            ? html.replace("/src/main.tsx", "/src/main.e2e.tsx")
+            : html;
+        }
+      }
+    }
+  ],
   build: {
     target: "es2022",
     sourcemap: true,
@@ -28,4 +41,4 @@ export default defineConfig({
     testTimeout: 15_000,
     include: ["src/**/*.test.{ts,tsx}"]
   }
-});
+}));
