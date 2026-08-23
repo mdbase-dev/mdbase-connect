@@ -244,6 +244,9 @@ fn hosted_cli_timer_operations_are_not_authorizable() {
     assert!(defaults.iter().any(|operation| operation == "create"));
     assert!(!defaults
         .iter()
+        .any(|operation| operation == "collection.setup.apply"));
+    assert!(!defaults
+        .iter()
         .any(|operation| mdbase_connect_protocol::operation_requires_timer_criterion(operation)));
 
     for operation in COLLECTION_OPERATIONS
@@ -255,6 +258,11 @@ fn hosted_cli_timer_operations_are_not_authorizable() {
         assert_eq!(error.code, "unsupported_cli_operation");
         assert!(error.message.contains(operation));
     }
+
+    let setup =
+        hosted_cli_authorization_operations(vec!["collection.setup.apply".to_string()], false)
+            .unwrap_err();
+    assert_eq!(setup.code, "unsupported_cli_operation");
 }
 
 #[test]

@@ -36,7 +36,7 @@ if (args.includes("connections")) {
   const connections = mode === "missing-grant" ? [] : [{collection_id:"${COLLECTION}",collection_name:"${NAME}",operations,credential:"${SECRET}"}];
   process.stdout.write(JSON.stringify(connections));
 } else if (operation === "describe") {
-  process.stdout.write(JSON.stringify({valid:true,result:{collection_id:"${COLLECTION}",display_name:"${NAME}",secret:"${SECRET}"},diagnostics:[]}));
+  process.stdout.write(JSON.stringify({collection_id:"${COLLECTION}",display_name:"${NAME}",secret:"${SECRET}"}));
 } else if (operation === "read") {
   process.stdout.write(JSON.stringify({valid:true,result:{path:"${MARKER_PATH}",document:${JSON.stringify(DOCUMENT)},body:"${SECRET}"},diagnostics:[]}));
 } else { process.exit(3); }

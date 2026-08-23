@@ -223,7 +223,7 @@ export async function runCanary(argv = process.argv.slice(2), environmentVariabl
     });
 
     await runStage("describe", async () => {
-      const described = operationResult(await operation("describe", "describe", {}), "describe");
+      const described = await operation("describe", "describe", {});
       if (described?.collection_id !== options.collectionId
           || described?.display_name !== options.expectedCollectionName) {
         throw new CanaryError("describe", "collection_mismatch");
