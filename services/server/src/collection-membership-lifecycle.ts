@@ -13,6 +13,7 @@ import type {
   DatabasePool,
   DatabaseQueryable
 } from "./db.js";
+import { audit } from "./platform/audit-events.js";
 
 export interface MembershipTransitionResult {
   membershipId: string;
@@ -88,6 +89,27 @@ export async function changeHostedCollectionMembershipRole(
         [membership.id, policyId, revision]
       );
     }
+    await audit(
+      connection,
+      input.actorUserId,
+      "collection_membership.role_change_requested",
+      membership.id,
+      {
+        collection_id: input.collectionId,
+        role: input.role,
+        policy_revision: revision,
+        state: pendingProviderRevocations === 0 ? "active" : "changing"
+      }
+    );
+    if (pendingProviderRevocations === 0) {
+      await audit(
+        connection,
+        input.actorUserId,
+        "collection_membership.role_changed",
+        membership.id,
+        { collection_id: input.collectionId, policy_revision: revision }
+      );
+    }
     await connection.query("COMMIT");
     return {
       membershipId: membership.id,
@@ -139,12 +161,37 @@ export async function revokeHostedCollectionMembership(
          WHERE id = $1`,
         [membership.id]
       );
+      await connection.query(
+        `UPDATE account_collection_member_seats
+         SET released_at = COALESCE(released_at, now())
+         WHERE membership_id = $1`,
+        [membership.id]
+      );
     } else {
       await connection.query(
         `UPDATE collection_memberships
          SET state = 'revoking', updated_at = now()
          WHERE id = $1`,
         [membership.id]
+      );
+    }
+    await audit(
+      connection,
+      input.actorUserId,
+      "collection_membership.revocation_requested",
+      membership.id,
+      {
+        collection_id: input.collectionId,
+        state: pendingProviderRevocations === 0 ? "revoked" : "revoking"
+      }
+    );
+    if (pendingProviderRevocations === 0) {
+      await audit(
+        connection,
+        input.actorUserId,
+        "collection_membership.revoked",
+        membership.id,
+        { collection_id: input.collectionId }
       );
     }
     await connection.query("COMMIT");
@@ -221,6 +268,18 @@ export async function finalizeReadyMembershipTransitions(
           [candidate.id, membership.pending_policy_id,
             membership.pending_policy_revision]
         );
+        if (updated.rowCount === 1) {
+          await audit(
+            connection,
+            null,
+            "collection_membership.role_changed",
+            candidate.id,
+            {
+              collection_id: candidate.collection_id,
+              policy_revision: membership.pending_policy_revision
+            }
+          );
+        }
         finalized += updated.rowCount ?? 0;
       } else {
         const updated = await connection.query(
@@ -230,6 +289,23 @@ export async function finalizeReadyMembershipTransitions(
            WHERE id = $1 AND state = 'revoking'`,
           [candidate.id]
         );
+        if (updated.rowCount === 1) {
+          await connection.query(
+            `UPDATE account_collection_member_seats
+             SET released_at = COALESCE(released_at, now())
+             WHERE membership_id = $1`,
+            [candidate.id]
+          );
+        }
+        if (updated.rowCount === 1) {
+          await audit(
+            connection,
+            null,
+            "collection_membership.revoked",
+            candidate.id,
+            { collection_id: candidate.collection_id }
+          );
+        }
         finalized += updated.rowCount ?? 0;
       }
       await connection.query("COMMIT");
@@ -299,21 +375,28 @@ async function revokeDerivedCapabilities(
   collectionId: string,
   reason: string
 ): Promise<number> {
-  const replicas = await db.query<{
-    id: string;
-    grant_id: string | null;
-  }>(
-    `SELECT replica.id, grant_record.id AS grant_id
-     FROM hosted_replicas replica
-     LEFT JOIN grants grant_record
-       ON grant_record.hosted_replica_id = replica.id
-      AND grant_record.membership_id = $1
-     WHERE replica.membership_id = $1
-       AND replica.collection_id = $2
-       AND replica.authorized_user_id = $3
-       AND replica.revoked_at IS NULL
-     FOR UPDATE OF replica`,
+  const replicas = await db.query<{ id: string }>(
+    `SELECT id FROM hosted_replicas
+     WHERE membership_id = $1 AND collection_id = $2
+       AND authorized_user_id = $3 AND revoked_at IS NULL
+     FOR UPDATE`,
     [membershipId, collectionId, userId]
+  );
+  const grants = await db.query<{
+    id: string;
+    hosted_replica_id: string;
+  }>(
+    `SELECT id, hosted_replica_id FROM grants
+     WHERE membership_id = $1
+       AND hosted_replica_id IN (
+         SELECT id FROM hosted_replicas
+         WHERE membership_id = $1 AND collection_id = $2
+           AND authorized_user_id = $3
+       )`,
+    [membershipId, collectionId, userId]
+  );
+  const grantByReplica = new Map(
+    grants.rows.map((grant) => [grant.hosted_replica_id, grant.id])
   );
   await db.query(
     `UPDATE grants
@@ -363,7 +446,8 @@ async function revokeDerivedCapabilities(
          (id, replica_id, grant_id, collection_id, reason)
        VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT DO NOTHING`,
-      [randomUUID(), replica.id, replica.grant_id, collectionId, reason]
+      [randomUUID(), replica.id, grantByReplica.get(replica.id) ?? null,
+        collectionId, reason]
     );
   }
   return replicas.rows.length;

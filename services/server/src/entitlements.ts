@@ -18,6 +18,7 @@ export interface EffectiveEntitlement {
   maxApplicationReplicasPerCollection: number;
   maxHostedCollections: number;
   maxFilesPerCollection: number;
+  maxCollectionMemberSeats: number;
 }
 
 export class HostedEntitlementRequiredError extends Error {
@@ -44,6 +45,7 @@ interface EntitlementProfileRow {
   max_application_replicas_per_collection: string | number;
   max_hosted_collections: string | number;
   max_files_per_collection: string | number;
+  max_collection_member_seats: string | number;
 }
 
 export async function attachInvitationEntitlement(
@@ -182,7 +184,8 @@ export async function effectiveEntitlement(
             profile.max_mirror_replicas_per_collection,
             profile.max_application_replicas_per_collection,
             profile.max_hosted_collections,
-            profile.max_files_per_collection
+            profile.max_files_per_collection,
+            profile.max_collection_member_seats
      FROM account_entitlement_grants entitlement_grant
      JOIN entitlement_profiles profile
        ON profile.code = entitlement_grant.profile_code
@@ -210,7 +213,11 @@ export async function effectiveEntitlement(
       "max_application_replicas_per_collection"
     ),
     maxHostedCollections: maximum(profiles.rows, "max_hosted_collections"),
-    maxFilesPerCollection: maximum(profiles.rows, "max_files_per_collection")
+    maxFilesPerCollection: maximum(profiles.rows, "max_files_per_collection"),
+    maxCollectionMemberSeats: maximum(
+      profiles.rows,
+      "max_collection_member_seats"
+    )
   };
 }
 

@@ -59,7 +59,8 @@ describe("database migrations", () => {
       "0021_device_authorization_origin",
       "0022_collection_membership_foundations",
       "0022a_local_collection_identity_backfill",
-      "0023_grant_replica_membership_binding"
+      "0023_grant_replica_membership_binding",
+      "0024_hosted_collection_invitations_and_seats"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -78,14 +79,20 @@ describe("database migrations", () => {
        WHERE table_name IN (
          'collection_identities',
          'collection_memberships',
-         'collection_membership_policies'
+         'collection_membership_policies',
+         'collection_invitation_codes',
+         'collection_invitations',
+         'account_collection_member_seats'
        )`
     );
     expect(new Set(sharingTables.rows.map(({ table_name }) => table_name))).toEqual(
       new Set([
         "collection_identities",
         "collection_memberships",
-        "collection_membership_policies"
+        "collection_membership_policies",
+        "collection_invitation_codes",
+        "collection_invitations",
+        "account_collection_member_seats"
       ])
     );
 
@@ -561,7 +568,8 @@ describe("database migrations", () => {
       "0021_device_authorization_origin",
       "0022_collection_membership_foundations",
       "0022a_local_collection_identity_backfill",
-      "0023_grant_replica_membership_binding"
+      "0023_grant_replica_membership_binding",
+      "0024_hosted_collection_invitations_and_seats"
     ]);
   });
 

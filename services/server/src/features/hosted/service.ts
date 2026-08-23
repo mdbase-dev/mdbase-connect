@@ -468,10 +468,19 @@ export async function deleteHostedCollectionForUser(
        WHERE hosted_collection_id = $1 AND user_id = $2`,
       [collectionId, userId]
     );
-    await connection.query(
+    const deleted = await connection.query<{ id: string }>(
       `DELETE FROM hosted_collections
-       WHERE id = $1 AND user_id = $2`,
+       WHERE id = $1 AND user_id = $2
+       RETURNING id`,
       [collectionId, userId]
+    );
+    if (!deleted.rows[0]) {
+      await connection.query("ROLLBACK");
+      return false;
+    }
+    await connection.query(
+      "DELETE FROM collection_identities WHERE id = $1",
+      [collectionId]
     );
     await audit(
       connection,

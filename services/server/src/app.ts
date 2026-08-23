@@ -49,6 +49,7 @@ import { registerConnectorRelayRoute } from "./features/connectors/relay-route.j
 import { registerConnectorGrantRoutes } from "./features/grants/connector-routes.js";
 import { registerConnectorHostedRoutes } from "./features/hosted/connector-routes.js";
 import { registerHostedAccountRoutes } from "./features/hosted/account-routes.js";
+import { registerHostedSharingRoutes } from "./features/hosted/sharing-routes.js";
 import { registerReferenceSyncRoutes } from "./features/hosted/reference-sync-routes.js";
 import { registerMirrorPairingRoutes } from "./features/mirrors/pairing-routes.js";
 import { registerNotificationRoutes } from "./features/notifications/routes.js";
@@ -378,6 +379,11 @@ export async function buildApp(options: BuildOptions) {
     hostedCollections: options.hostedCollections,
     hostedProvider: options.hostedProvider,
     hostedReference
+  });
+  registerHostedSharingRoutes(app, {
+    db: options.db,
+    hostedCollections: options.hostedCollections,
+    tailscaleAuth: options.tailscaleAuth
   });
   registerOnboardingRoutes(app, {
     db: options.db,

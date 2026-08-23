@@ -133,10 +133,17 @@ describe("collection membership policy", () => {
       role: "viewer"
     });
 
-    await expect(database.query(
+    await database.query(
       "UPDATE collection_memberships SET current_policy_revision = 2 WHERE id = $1",
       [policy.membershipId]
-    )).rejects.toThrow();
+    );
+    await expect(resolveActiveMembershipPolicy(database, {
+      collectionId, ownerUserId: ownerId, userId: memberId
+    })).resolves.toBeNull();
+    await database.query(
+      "UPDATE collection_memberships SET current_policy_revision = 1 WHERE id = $1",
+      [policy.membershipId]
+    );
     await database.query(
       `UPDATE collection_membership_policies
        SET operations = '["future_operation"]'::jsonb WHERE id = $1`,

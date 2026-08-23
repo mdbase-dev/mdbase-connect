@@ -52,7 +52,8 @@ describe("account entitlements", () => {
       maxMirrorReplicasPerCollection: 10,
       maxApplicationReplicasPerCollection: 50,
       maxHostedCollections: 10,
-      maxFilesPerCollection: 10_000
+      maxFilesPerCollection: 10_000,
+      maxCollectionMemberSeats: 10
     });
   });
 

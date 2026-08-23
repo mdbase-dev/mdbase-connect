@@ -235,7 +235,8 @@ export function registerAccountOverviewRoute(
           max_application_replicas_per_collection:
             entitlement.maxApplicationReplicasPerCollection,
           max_hosted_collections: entitlement.maxHostedCollections,
-          max_files_per_collection: entitlement.maxFilesPerCollection
+          max_files_per_collection: entitlement.maxFilesPerCollection,
+          max_collection_member_seats: entitlement.maxCollectionMemberSeats
         },
         usage: hostedUsage ? {
           hosted_collections: hostedUsage.collection_count,

@@ -42,6 +42,8 @@ import {
   RelayUnavailableError
 } from "../relay.js";
 import { CollectionAccessDeniedError } from "../collection-access.js";
+import { CollectionInvitationError } from "../collection-invitations.js";
+import { CollectionMembershipPolicyError } from "../collection-policy.js";
 import { GrantPlanningError } from "../grant-planner.js";
 import {
   apiError,
@@ -79,6 +81,22 @@ export function registerErrorHandler(app: FastifyInstance): void {
     }
     if (error instanceof GrantPlanningError) {
       return reply.code(400).send(apiError("invalid_grant", error.message));
+    }
+    if (error instanceof CollectionInvitationError) {
+      const status = error.code === "collection_sharing_not_found"
+        ? 404
+        : error.code === "collection_member_seat_unavailable"
+          ? 409
+          : 400;
+      return reply.code(status).send(apiError(error.code, error.message));
+    }
+    if (error instanceof CollectionMembershipPolicyError) {
+      const notFound = error.code === "collection_unavailable"
+        || error.code === "membership_unavailable";
+      return reply.code(notFound ? 404 : 409).send(apiError(
+        notFound ? "collection_sharing_not_found" : error.code,
+        notFound ? "Collection sharing is unavailable." : error.message
+      ));
     }
     if (error instanceof CollectionAccessDeniedError) {
       return reply.code(403).send(apiError("collection_access_denied", error.message));

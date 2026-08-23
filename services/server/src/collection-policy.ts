@@ -9,7 +9,10 @@ import {
 import { z } from "zod";
 import { requiresWriteReplica } from "./collection-operation-policy.js";
 import { collectionContractDescriptorSchema } from "./protocol-schemas.js";
-import type { DatabasePool, DatabaseQueryable } from "./db.js";
+import type {
+  DatabasePool,
+  DatabaseQueryable
+} from "./db.js";
 
 export const COLLECTION_ACTIONS = [
   "collection.discover",
@@ -183,91 +186,135 @@ export async function createHostedCollectionMembership(
         "The collection is not available for membership changes."
       );
     }
-    if (input.userId === input.ownerUserId) {
-      throw new CollectionMembershipPolicyError(
-        "owner_is_not_member",
-        "The collection owner cannot be represented as a membership."
-      );
-    }
-
-    await connection.query(
-      `INSERT INTO collection_identities (id, owner_user_id)
-       VALUES ($1, $2)
-       ON CONFLICT (id) DO NOTHING`,
-      [input.collectionId, input.ownerUserId]
-    );
-    const identity = await connection.query<{ owner_user_id: string }>(
-      "SELECT owner_user_id FROM collection_identities WHERE id = $1 FOR UPDATE",
-      [input.collectionId]
-    );
-    if (identity.rows[0]?.owner_user_id !== input.ownerUserId) {
-      throw new CollectionMembershipPolicyError(
-        "collection_identity_mismatch",
-        "The collection identity does not match its current owner."
-      );
-    }
-    const existing = await connection.query<{ id: string }>(
-      `SELECT id FROM collection_memberships
-       WHERE collection_id = $1 AND user_id = $2 AND revoked_at IS NULL
-       FOR UPDATE`,
-      [input.collectionId, input.userId]
-    );
-    if (existing.rows[0]) {
-      throw new CollectionMembershipPolicyError(
-        "membership_exists",
-        "The user already has an active membership for this collection."
-      );
-    }
-
-    const membershipId = randomUUID();
-    const policyId = randomUUID();
-    const revision = 1;
-    const preset = membershipPolicyPreset(input.role);
-    await connection.query(
-      `INSERT INTO collection_memberships
-         (id, collection_id, user_id, invited_by_user_id)
-       VALUES ($1, $2, $3, $4)`,
-      [membershipId, input.collectionId, input.userId, input.invitedByUserId ?? input.ownerUserId]
-    );
-    await connection.query(
-      `INSERT INTO collection_membership_policies
-         (id, membership_id, revision, role, preset_version, actions,
-          operations, scope_ceiling, file_ceiling)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb)`,
-      [
-        policyId,
-        membershipId,
-        revision,
-        preset.role,
-        preset.presetVersion,
-        JSON.stringify(preset.actions),
-        JSON.stringify(preset.operations),
-        JSON.stringify(preset.scopeCeiling),
-        JSON.stringify(preset.fileCeiling)
-      ]
-    );
-    await connection.query(
-      `UPDATE collection_memberships
-       SET current_policy_id = $2, current_policy_revision = $3, updated_at = now()
-       WHERE id = $1`,
-      [membershipId, policyId, revision]
-    );
-    await connection.query("COMMIT");
-    return {
-      id: policyId,
-      membershipId,
+    const policy = await insertHostedCollectionMembershipPolicy(connection, {
       collectionId: input.collectionId,
-      userId: input.userId,
       ownerUserId: input.ownerUserId,
-      revision,
-      ...preset
-    };
+      userId: input.userId,
+      invitedByUserId: input.invitedByUserId ?? input.ownerUserId,
+      snapshot: membershipPolicyPreset(input.role)
+    });
+    await connection.query("COMMIT");
+    return policy;
   } catch (error) {
     await connection.query("ROLLBACK");
     throw error;
   } finally {
     connection.release();
   }
+}
+
+export async function insertHostedCollectionMembershipPolicy(
+  db: DatabaseQueryable,
+  input: {
+    collectionId: string;
+    ownerUserId: string;
+    userId: string;
+    invitedByUserId: string | null;
+    snapshot: MembershipPolicySnapshot;
+  }
+): Promise<CollectionMembershipPolicy> {
+  if (input.userId === input.ownerUserId) {
+    throw new CollectionMembershipPolicyError(
+      "owner_is_not_member",
+      "The collection owner cannot be represented as a membership."
+    );
+  }
+  await db.query(
+    `INSERT INTO collection_identities (id, owner_user_id)
+     VALUES ($1, $2)
+     ON CONFLICT (id) DO NOTHING`,
+    [input.collectionId, input.ownerUserId]
+  );
+  const identity = await db.query<{ owner_user_id: string }>(
+    "SELECT owner_user_id FROM collection_identities WHERE id = $1 FOR UPDATE",
+    [input.collectionId]
+  );
+  if (identity.rows[0]?.owner_user_id !== input.ownerUserId) {
+    throw new CollectionMembershipPolicyError(
+      "collection_identity_mismatch",
+      "The collection identity does not match its current owner."
+    );
+  }
+  const existing = await db.query<{ id: string }>(
+    `SELECT id FROM collection_memberships
+     WHERE collection_id = $1 AND user_id = $2 AND revoked_at IS NULL
+     FOR UPDATE`,
+    [input.collectionId, input.userId]
+  );
+  if (existing.rows[0]) {
+    throw new CollectionMembershipPolicyError(
+      "membership_exists",
+      "The user already has an active membership for this collection."
+    );
+  }
+  const parsedSnapshot = storedPolicySchema.pick({
+    role: true,
+    preset_version: true,
+    actions: true,
+    operations: true,
+    scope_ceiling: true,
+    file_ceiling: true
+  }).safeParse({
+    role: input.snapshot.role,
+    preset_version: input.snapshot.presetVersion,
+    actions: input.snapshot.actions,
+    operations: input.snapshot.operations,
+    scope_ceiling: input.snapshot.scopeCeiling,
+    file_ceiling: input.snapshot.fileCeiling
+  });
+  if (!parsedSnapshot.success) {
+    throw new CollectionMembershipPolicyError(
+      "invalid_policy_snapshot",
+      "The membership policy snapshot is invalid."
+    );
+  }
+  const membershipId = randomUUID();
+  const policyId = randomUUID();
+  const revision = 1;
+  const snapshot = parsedSnapshot.data;
+  await db.query(
+    `INSERT INTO collection_memberships
+       (id, collection_id, user_id, invited_by_user_id)
+     VALUES ($1, $2, $3, $4)`,
+    [membershipId, input.collectionId, input.userId, input.invitedByUserId]
+  );
+  await db.query(
+    `INSERT INTO collection_membership_policies
+       (id, membership_id, revision, role, preset_version, actions,
+        operations, scope_ceiling, file_ceiling)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb)`,
+    [
+      policyId,
+      membershipId,
+      revision,
+      snapshot.role,
+      snapshot.preset_version,
+      JSON.stringify(snapshot.actions),
+      JSON.stringify(snapshot.operations),
+      JSON.stringify(snapshot.scope_ceiling),
+      JSON.stringify(snapshot.file_ceiling)
+    ]
+  );
+  await db.query(
+    `UPDATE collection_memberships
+     SET current_policy_id = $2, current_policy_revision = $3, updated_at = now()
+     WHERE id = $1`,
+    [membershipId, policyId, revision]
+  );
+  return {
+    id: policyId,
+    membershipId,
+    collectionId: input.collectionId,
+    userId: input.userId,
+    ownerUserId: input.ownerUserId,
+    revision,
+    role: snapshot.role,
+    presetVersion: snapshot.preset_version,
+    actions: snapshot.actions,
+    operations: snapshot.operations,
+    scopeCeiling: snapshot.scope_ceiling,
+    fileCeiling: snapshot.file_ceiling
+  };
 }
 
 export async function resolveActiveMembershipPolicy(

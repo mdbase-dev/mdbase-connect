@@ -1624,6 +1624,182 @@ describe("mdbase connect server", () => {
     );
   });
 
+  it("manages hosted invitations and memberships without leaking collection access", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const hostedProvider = {
+      url: "https://sync.example",
+      ready: vi.fn(),
+      upsertAccount: vi.fn().mockResolvedValue({}),
+      createCollection: vi.fn(),
+      renameCollection: vi.fn(),
+      deleteCollection: vi.fn(),
+      provisionTypePacks: vi.fn(),
+      provisionApplicationSetup: vi.fn(),
+      registerReplica: vi.fn(),
+      updateApplicationReplica: vi.fn(),
+      revokeReplica: vi.fn(),
+      upsertNotificationGrant: vi.fn(),
+      revokeNotificationGrant: vi.fn(),
+      rotateReplicaToken: vi.fn(),
+      compactThrough: vi.fn()
+    } as unknown as HostedProviderClient;
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      hostedCollections: true,
+      hostedProvider,
+      publicUrl: "http://connect.test"
+    });
+    resources.push(() => app.close());
+    const session = async (name: string, email: string) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/dev/session",
+        payload: { name, email }
+      });
+      const setCookie = response.headers["set-cookie"]!;
+      return (Array.isArray(setCookie) ? setCookie[0] : setCookie).split(";")[0];
+    };
+    const ownerCookie = await session("Owner", "route-owner@example.com");
+    const memberCookie = await session("Member", "route-member@example.com");
+    const outsiderCookie = await session("Outsider", "route-outsider@example.com");
+    await db.query(
+      `INSERT INTO email_identities
+         (id, user_id, email, normalized_email, verified_at, is_primary)
+       SELECT $1, id, email, email, now(), true FROM users
+       WHERE email = 'route-member@example.com'`,
+      [randomUUID()]
+    );
+    await db.query(
+      `INSERT INTO email_identities
+         (id, user_id, email, normalized_email, verified_at, is_primary)
+       SELECT $1, id, email, email, now(), true FROM users
+       WHERE email = 'route-outsider@example.com'`,
+      [randomUUID()]
+    );
+    const collection = await app.inject({
+      method: "POST",
+      url: "/v1/hosted/collections",
+      headers: { cookie: ownerCookie },
+      payload: {
+        display_name: "Route sharing",
+        template: "mdbase",
+        timezone: "Australia/Melbourne"
+      }
+    });
+    const collectionId = collection.json().collection.id as string;
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/v1/hosted/collections/${collectionId}/invitations`,
+      headers: { cookie: ownerCookie },
+      payload: { email: "route-member@example.com", role: "viewer" }
+    });
+    expect(created.statusCode, JSON.stringify(created.json())).toBe(202);
+    expect(created.headers["cache-control"]).toBe("no-store");
+    const token = created.json().invitation.token as string;
+    expect(token).toMatch(/^cinv_/);
+
+    const hidden = await app.inject({
+      method: "GET",
+      url: `/v1/hosted/collections/${collectionId}/members`,
+      headers: { cookie: outsiderCookie }
+    });
+    expect(hidden.statusCode).toBe(404);
+    expect(hidden.json()).toMatchObject({
+      error: { code: "collection_sharing_not_found" }
+    });
+    const wrongAccount = await app.inject({
+      method: "POST",
+      url: "/v1/hosted/collection-invitations/accept",
+      headers: { cookie: outsiderCookie },
+      payload: { token }
+    });
+    expect(wrongAccount.statusCode).toBe(400);
+    expect(wrongAccount.json()).toMatchObject({
+      error: { code: "invalid_collection_invitation" }
+    });
+    const accepted = await app.inject({
+      method: "POST",
+      url: "/v1/hosted/collection-invitations/accept",
+      headers: { cookie: memberCookie },
+      payload: { token }
+    });
+    expect(accepted.statusCode, JSON.stringify(accepted.json())).toBe(201);
+    const membershipId = accepted.json().membership.id as string;
+
+    const members = await app.inject({
+      method: "GET",
+      url: `/v1/hosted/collections/${collectionId}/members`,
+      headers: { cookie: ownerCookie }
+    });
+    expect(members.statusCode).toBe(200);
+    expect(members.headers["cache-control"]).toBe("no-store");
+    expect(members.json().members).toEqual([
+      expect.objectContaining({ kind: "owner", role: "owner" }),
+      expect.objectContaining({
+        kind: "member",
+        id: membershipId,
+        role: "viewer",
+        state: "active"
+      })
+    ]);
+    expect(JSON.stringify(members.json())).not.toContain("route-member@example.com");
+
+    const promoted = await app.inject({
+      method: "PATCH",
+      url: `/v1/hosted/collections/${collectionId}/members/${membershipId}`,
+      headers: { cookie: ownerCookie },
+      payload: { role: "editor" }
+    });
+    expect(promoted.statusCode, JSON.stringify(promoted.json())).toBe(200);
+    expect(promoted.json().membership).toMatchObject({
+      id: membershipId,
+      role: "editor",
+      state: "active",
+      policy_revision: 2
+    });
+    const editorInvitation = await app.inject({
+      method: "POST",
+      url: `/v1/hosted/collections/${collectionId}/invitations`,
+      headers: { cookie: memberCookie },
+      payload: { email: "route-outsider@example.com", role: "viewer" }
+    });
+    expect(editorInvitation.statusCode, JSON.stringify(editorInvitation.json())).toBe(202);
+    const invitationId = editorInvitation.json().invitation.id as string;
+    const cancelled = await app.inject({
+      method: "DELETE",
+      url: `/v1/hosted/collections/${collectionId}/invitations/${invitationId}`,
+      headers: { cookie: memberCookie }
+    });
+    expect(cancelled.statusCode).toBe(204);
+
+    const revoked = await app.inject({
+      method: "DELETE",
+      url: `/v1/hosted/collections/${collectionId}/members/${membershipId}`,
+      headers: { cookie: ownerCookie }
+    });
+    expect(revoked.statusCode, JSON.stringify(revoked.json())).toBe(200);
+    expect(revoked.json().membership).toMatchObject({ state: "revoked" });
+    const seat = await db.query<{ released_at: Date | string | null }>(
+      `SELECT released_at FROM account_collection_member_seats
+       WHERE membership_id = $1`,
+      [membershipId]
+    );
+    expect(seat.rows[0]?.released_at).not.toBeNull();
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/v1/hosted/collections/${collectionId}`,
+      headers: { cookie: ownerCookie }
+    });
+    expect(deleted.statusCode, JSON.stringify(deleted.json())).toBe(200);
+    await expect(db.query(
+      "SELECT id FROM collection_identities WHERE id = $1",
+      [collectionId]
+    )).resolves.toMatchObject({ rows: [] });
+  });
+
   it("adopts a legacy hosted grant for one portable v2 installation without another replica", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
