@@ -749,7 +749,7 @@ export async function approveHostedAuthorization(
       requirements: pending.requirements,
       availableContracts: availableDescriptors,
       access: currentAccess,
-      collaborationSupported: provider.collaborationSupported?.() ?? false
+      providerCollaboration: provider.collaborationSupport?.() ?? undefined
     });
     const scope = plan.scope;
     const allowedTypes = allowedTypesForRequirements(

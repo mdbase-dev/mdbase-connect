@@ -351,7 +351,10 @@ describe("hosted provider control client", () => {
       internalToken: "internal-secret"
     });
     await expect(provider.ready()).resolves.toBeUndefined();
-    expect(provider.collaborationSupported()).toBe(true);
+    expect(provider.collaborationSupport()).toEqual({
+      contract_version: 1,
+      profiles: ["markdown-body-yjs-v13"]
+    });
   });
 
   it("accepts core readiness while durable notification delivery is degraded", async () => {

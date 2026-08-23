@@ -204,7 +204,10 @@ describe("planCollectionGrant", () => {
       requirements,
       availableContracts: [],
       access: owner,
-      collaborationSupported: true
+      providerCollaboration: {
+        contract_version: 1,
+        profiles: ["markdown-body-yjs-v13"]
+      }
     });
     expect(editor.collaborationCapability).toEqual({
       contract_version: 1,
@@ -226,7 +229,10 @@ describe("planCollectionGrant", () => {
           access: "read_only"
         }
       },
-      collaborationSupported: true
+      providerCollaboration: {
+        contract_version: 1,
+        profiles: ["markdown-body-yjs-v13"]
+      }
     });
     expect(viewer.collaborationCapability?.access).toBe("read_only");
     expect(planCollectionGrant({
@@ -242,7 +248,10 @@ describe("planCollectionGrant", () => {
       requirements,
       availableContracts: [],
       access: { ...owner, collaborationCeiling: null },
-      collaborationSupported: true
+      providerCollaboration: {
+        contract_version: 1,
+        profiles: ["markdown-body-yjs-v13"]
+      }
     }).collaborationCapability).toBeUndefined();
   });
 

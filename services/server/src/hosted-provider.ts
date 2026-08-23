@@ -157,7 +157,10 @@ export class HostedProviderClient {
   readonly url: string;
   private readonly endpointUrl: string;
   private readonly internalToken: string;
-  private collaborationAvailable = false;
+  private collaborationContract: {
+    contract_version: 1;
+    profiles: ["markdown-body-yjs-v13"];
+  } | null = null;
 
   constructor(config: HostedProviderConfig) {
     this.endpointUrl = new URL(config.url).origin;
@@ -185,11 +188,18 @@ export class HostedProviderClient {
       );
     }
     const support = result.provider.contract_support as ConnectContractSupport;
-    this.collaborationAvailable = support.collaboration?.includes(1) === true;
+    this.collaborationContract = support.collaboration?.includes(1) === true
+      ? { contract_version: 1, profiles: ["markdown-body-yjs-v13"] }
+      : null;
   }
 
-  collaborationSupported(): boolean {
-    return this.collaborationAvailable;
+  collaborationSupport(): {
+    contract_version: 1;
+    profiles: ["markdown-body-yjs-v13"];
+  } | null {
+    return this.collaborationContract
+      ? structuredClone(this.collaborationContract)
+      : null;
   }
 
   authorizesInternalToken(candidate: string | null): boolean {

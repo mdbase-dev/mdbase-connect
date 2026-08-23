@@ -80,6 +80,7 @@ export async function createHostedCollectionInvitation(
     collectionId: string;
     actorUserId: string;
     role: CollectionMembershipRole;
+    collaboration?: boolean;
     target: { email: string } | { inviteeCode: string };
   }
 ): Promise<CreatedCollectionInvitation> {
@@ -99,7 +100,9 @@ export async function createHostedCollectionInvitation(
     );
     const token = randomToken("cinv");
     const expiresAt = new Date(Date.now() + INVITATION_TTL_MS);
-    const snapshot = membershipPolicyPreset(input.role);
+    const snapshot = membershipPolicyPreset(input.role, {
+      collaboration: input.collaboration === true
+    });
     let targetMode: "email" | "invitee_code";
     let submittedEmail: string | null = null;
     let targetUserId: string | null = null;

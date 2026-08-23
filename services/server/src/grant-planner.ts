@@ -38,7 +38,10 @@ export function planCollectionGrant(input: {
   requirements: ApplicationRequirements;
   availableContracts: readonly CollectionContractDescriptor[];
   access: CollectionAccessContext;
-  collaborationSupported?: boolean;
+  providerCollaboration?: {
+    contract_version: 1;
+    profiles: ["markdown-body-yjs-v13"];
+  };
 }): GrantPlan {
   const operations = [...new Set(input.requestedOperations)];
   const fileRequirement = input.requirements.files;
@@ -93,7 +96,7 @@ export function planCollectionGrant(input: {
     requirements: input.requirements,
     operations,
     access: input.access,
-    supported: input.collaborationSupported === true
+    provider: input.providerCollaboration
   });
   return {
     operations,
@@ -111,13 +114,23 @@ function collaborationCapabilityForGrant(input: {
   requirements: ApplicationRequirements;
   operations: readonly CollectionOperation[];
   access: CollectionAccessContext;
-  supported: boolean;
+  provider: {
+    contract_version: 1;
+    profiles: ["markdown-body-yjs-v13"];
+  } | undefined;
 }): ReplicaCollaborationCapability | undefined {
   if (
-    !input.supported
+    !input.provider
     || !requestsRecordCollaboration(input.requirements.capabilities)
     || !input.access.collaborationCeiling
     || !input.operations.includes("read")
+  ) return undefined;
+  if (
+    input.provider.contract_version
+      !== input.access.collaborationCeiling.contract_version
+    || input.provider.profiles.length !== 1
+    || input.provider.profiles[0]
+      !== input.access.collaborationCeiling.profiles[0]
   ) return undefined;
   const write = input.operations.includes("update")
     && input.access.collaborationCeiling.access === "read_write";

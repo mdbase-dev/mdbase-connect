@@ -15,7 +15,8 @@ afterEach(async () => database?.end());
 
 describe("collection membership policy", () => {
   it("freezes exact viewer and editor ceilings without owner authority", () => {
-    const viewer = membershipPolicyPreset("viewer");
+    expect(membershipPolicyPreset("viewer").collaborationCeiling).toBeNull();
+    const viewer = membershipPolicyPreset("viewer", { collaboration: true });
     expect(viewer.actions).toEqual([
       "collection.discover",
       "record.read",
@@ -34,7 +35,7 @@ describe("collection membership policy", () => {
       access: "read_only"
     });
 
-    const editor = membershipPolicyPreset("editor");
+    const editor = membershipPolicyPreset("editor", { collaboration: true });
     expect(editor.operations).toEqual(COLLECTION_OPERATIONS);
     expect(editor.actions).toEqual([
       "collection.discover",

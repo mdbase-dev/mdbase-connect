@@ -91,8 +91,13 @@ export function operationsForApplicationCapabilities(
 }
 
 export function capabilityOperations(
-  capability: ApplicationCapabilityId
+  capability: ApplicationCapabilityId,
+  contractVersion: 1 | 2 = APPLICATION_CAPABILITY_CONTRACT_VERSION
 ): CollectionOperation[] {
+  if (
+    contractVersion === LEGACY_APPLICATION_CAPABILITY_CONTRACT_VERSION
+    && !(capability in APPLICATION_CAPABILITY_DEFINITIONS_V1)
+  ) throw new Error("Capability is unavailable in application capability contract v1.");
   return [...APPLICATION_CAPABILITY_DEFINITIONS_V2[capability]];
 }
 

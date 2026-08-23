@@ -62,7 +62,10 @@ function effectiveCapability(
   manifest: MdbaseAppManifest,
   connection: MdbaseConnectionInfo
 ): MdbaseEffectiveCapability {
-  const operations = capabilityOperations(id);
+  const operations = capabilityOperations(
+    id,
+    manifest.requirements?.capabilities?.contract_version ?? 1
+  );
   const missingOperations = operations.filter(
     (operation) => !connection.operations.includes(operation)
   );

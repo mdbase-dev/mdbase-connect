@@ -66,6 +66,7 @@ describe("hosted collection invitations", () => {
       collectionId,
       actorUserId: ownerId,
       role: "editor",
+      collaboration: true,
       target: { email: "member@example.com" }
     });
     await database.query(
@@ -91,8 +92,9 @@ describe("hosted collection invitations", () => {
     const materialized = await database.query<{
       operations: string[];
       actions: string[];
+      collaboration_ceiling: unknown;
     }>(
-      `SELECT policy.operations, policy.actions
+      `SELECT policy.operations, policy.actions, policy.collaboration_ceiling
        FROM collection_memberships membership
        JOIN collection_membership_policies policy
          ON policy.id = membership.current_policy_id
@@ -106,7 +108,12 @@ describe("hosted collection invitations", () => {
         "record.read",
         "application.authorize",
         "mirror.enroll"
-      ]
+      ],
+      collaboration_ceiling: {
+        contract_version: 1,
+        profiles: ["markdown-body-yjs-v13"],
+        access: "read_write"
+      }
     });
     const seats = await database.query<{ count: string | number }>(
       `SELECT count(*) AS count FROM account_collection_member_seats

@@ -7,7 +7,8 @@ import {
   APPLICATION_CAPABILITY_CONTRACT_VERSION,
   APPLICATION_CAPABILITY_DEFINITIONS,
   APPLICATION_CAPABILITY_DEFINITIONS_V1,
-  LEGACY_APPLICATION_CAPABILITY_CONTRACT_VERSION
+  LEGACY_APPLICATION_CAPABILITY_CONTRACT_VERSION,
+  capabilityOperations
 } from "../dist/index.js";
 import {
   AppManifestValidationError,
@@ -167,6 +168,10 @@ test("v2 collaboration intent is hosted, full-collection, and read-bound", () =>
   const legacy = manifest();
   legacy.requirements.capabilities.optional.push("records.collaborate");
   assert.equal(validateAppManifest(legacy).valid, false);
+  assert.throws(
+    () => capabilityOperations("records.collaborate", 1),
+    /unavailable/
+  );
 });
 
 test("published v1 and v2 capability catalogues match their executable contracts", async () => {

@@ -30,6 +30,7 @@ export async function changeHostedCollectionMembershipRole(
     actorUserId: string;
     membershipId: string;
     role: CollectionMembershipRole;
+    collaboration?: boolean;
   }
 ): Promise<MembershipTransitionResult> {
   const connection = await db.connect();
@@ -47,7 +48,9 @@ export async function changeHostedCollectionMembershipRole(
     );
     const revision = Number(membership.current_policy_revision) + 1;
     const policyId = randomUUID();
-    const preset = membershipPolicyPreset(input.role);
+    const preset = membershipPolicyPreset(input.role, {
+      collaboration: input.collaboration === true
+    });
     await connection.query(
       `INSERT INTO collection_membership_policies
          (id, membership_id, revision, role, preset_version, actions,

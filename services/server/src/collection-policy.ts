@@ -144,7 +144,8 @@ export interface MembershipPolicySnapshot {
 }
 
 export function membershipPolicyPreset(
-  role: CollectionMembershipRole
+  role: CollectionMembershipRole,
+  options: { collaboration?: boolean } = {}
 ): MembershipPolicySnapshot {
   const editor = role === "editor";
   return {
@@ -159,11 +160,13 @@ export function membershipPolicyPreset(
       actions: [...(editor ? EDITOR_FILE_ACTIONS : VIEWER_FILE_ACTIONS)],
       scope: { kind: "collection" }
     },
-    collaborationCeiling: {
-      contract_version: 1,
-      profiles: ["markdown-body-yjs-v13"],
-      access: editor ? "read_write" : "read_only"
-    }
+    collaborationCeiling: options.collaboration
+      ? {
+          contract_version: 1,
+          profiles: ["markdown-body-yjs-v13"],
+          access: editor ? "read_write" : "read_only"
+        }
+      : null
   };
 }
 
@@ -180,6 +183,7 @@ export async function createHostedCollectionMembership(
     userId: string;
     role: CollectionMembershipRole;
     invitedByUserId?: string;
+    collaboration?: boolean;
   }
 ): Promise<CollectionMembershipPolicy> {
   const connection = await db.connect();
@@ -206,7 +210,9 @@ export async function createHostedCollectionMembership(
       ownerUserId: input.ownerUserId,
       userId: input.userId,
       invitedByUserId: input.invitedByUserId ?? input.ownerUserId,
-      snapshot: membershipPolicyPreset(input.role)
+      snapshot: membershipPolicyPreset(input.role, {
+        collaboration: input.collaboration === true
+      })
     });
     await connection.query("COMMIT");
     return policy;

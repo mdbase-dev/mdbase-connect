@@ -48,10 +48,10 @@ ALTER TABLE grants
       AND collaboration_capability->'profiles' = '["markdown-body-yjs-v13"]'::jsonb
       AND collaboration_capability->>'access' IN ('read_only', 'read_write')
       AND scope->>'access' = 'full_collection'
-      AND operations::text LIKE '%"read"%'
+      AND operations @> '["read"]'::jsonb
       AND (
         collaboration_capability->>'access' = 'read_only'
-        OR operations::text LIKE '%"update"%'
+        OR operations @> '["update"]'::jsonb
       )
     )
   );

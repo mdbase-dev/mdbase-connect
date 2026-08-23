@@ -95,7 +95,16 @@ export async function issueApplicationTokens(
      WHERE g.id = $1 AND g.revoked_at IS NULL
        AND g.activated_at IS NOT NULL
        AND u.suspended_at IS NULL
-       AND (g.hosted_replica_id IS NULL OR replica.revoked_at IS NULL)`,
+       AND (g.hosted_replica_id IS NULL OR (
+         replica.revoked_at IS NULL
+         AND (
+           g.collaboration_capability = replica.collaboration_capability
+           OR (
+             g.collaboration_capability IS NULL
+             AND replica.collaboration_capability IS NULL
+           )
+         )
+       ))`,
     [grantId]
   );
   if (!grant.rows[0]) throw new RequestValidationError("The application grant is no longer active.");

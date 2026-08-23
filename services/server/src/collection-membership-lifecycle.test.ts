@@ -24,7 +24,8 @@ describe("hosted collection membership lifecycle", () => {
       collectionId: fixture.collectionId,
       actorUserId: fixture.ownerId,
       membershipId: fixture.policy.membershipId,
-      role: "viewer"
+      role: "viewer",
+      collaboration: true
     });
 
     expect(changed).toMatchObject({
@@ -36,7 +37,11 @@ describe("hosted collection membership lifecycle", () => {
       collectionId: fixture.collectionId,
       ownerUserId: fixture.ownerId,
       userId: fixture.memberId
-    })).resolves.toMatchObject({ role: "viewer", revision: 2 });
+    })).resolves.toMatchObject({
+      role: "viewer",
+      revision: 2,
+      collaborationCeiling: { access: "read_only" }
+    });
   });
 
   it("blocks access while changing and activates the new role after provider cleanup", async () => {
