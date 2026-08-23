@@ -1,6 +1,6 @@
 # ADR 0012: Hosted real-time collaboration materializes one exact Markdown body
 
-- Status: accepted for development-only prototypes; Phase 3A storage foundation implemented
+- Status: accepted for development-only prototypes; internal Phase 3 persistence and batch engine implemented, transport disabled
 - Date: 2026-08-24
 
 ## Context

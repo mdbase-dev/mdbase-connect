@@ -16,9 +16,11 @@ covered update rows in the same transaction. Because the snapshot is a full
 state update, old state vectors remain synchronizable. Metadata-only repair
 fences active epochs and creates the next epoch from the authoritative record.
 
-The durable collaboration batch writer is intentionally disabled in this
-review boundary. The existing ordinary mutation write-set committer still owns
-record/version/change/head/receipt persistence; no parallel collaboration
-persistence path, acknowledgement, broadcast, transport, readiness signal, or
-Editor behavior has been introduced. Batch writes will be enabled only after
-that committer is extracted and shared by both mutation paths.
+A later Phase 3C review boundary extracted the ordinary hosted write-set
+committer and added a crate-private collaboration batch path that uses it for
+the same record/version/change/head/projection/outbox transaction. The batch
+path also persists encrypted Yrs updates and idempotent receipts, exact
+ciphertext quota totals, and bounded compaction in that transaction. It remains
+unreachable from HTTP or WebSocket routes and cannot acknowledge or broadcast:
+transport, tickets, readiness advertisement, and Editor behavior are still
+disabled pending Phase 4 authorization and crash/restart acceptance.
