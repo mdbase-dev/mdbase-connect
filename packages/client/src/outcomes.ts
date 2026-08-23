@@ -29,6 +29,7 @@ export type ConnectOutcome<
 export type CommonOperationProblemCode =
   | "access_denied"
   | "access_paused"
+  | "application_declaration_mismatch"
   | "authorization_binding_incompatible"
   | "authorization_expired"
   | "capability_contract_incompatible"
@@ -63,6 +64,7 @@ export type CommonOperationProblemCode =
 export const COMMON_OPERATION_PROBLEM_CODES = [
   "access_denied",
   "access_paused",
+  "application_declaration_mismatch",
   "authorization_binding_incompatible",
   "authorization_expired",
   "capability_contract_incompatible",
@@ -123,6 +125,7 @@ export const REGISTRATION_PROBLEM_CODES = [
 export type AuthorizationProblemCode =
   | RegistrationProblemCode
   | "access_denied"
+  | "application_declaration_mismatch"
   | "application_identity_unavailable"
   | "approval_window_blocked"
   | "authorization_binding_incompatible"
@@ -159,6 +162,7 @@ export type AuthorizationProblemCode =
 export const AUTHORIZATION_PROBLEM_CODES = [
   ...REGISTRATION_PROBLEM_CODES,
   "access_denied",
+  "application_declaration_mismatch",
   "application_identity_unavailable",
   "approval_window_blocked",
   "authorization_binding_incompatible",
@@ -245,12 +249,20 @@ export type SessionProblemCode =
   | AuthorizationProblemCode
   | "collection_not_ready"
   | "collection_not_selected"
+  | "operation_cancelled"
+  | "session_destroyed"
+  | "session_not_started"
+  | "session_starting"
   | "unknown_collection";
 
 export const SESSION_PROBLEM_CODES = [
   ...AUTHORIZATION_PROBLEM_CODES,
   "collection_not_ready",
   "collection_not_selected",
+  "operation_cancelled",
+  "session_destroyed",
+  "session_not_started",
+  "session_starting",
   "unknown_collection"
 ] as const satisfies readonly SessionProblemCode[];
 

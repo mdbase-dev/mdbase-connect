@@ -96,6 +96,7 @@ import { useFileAssetStore } from "./use-file-assets";
 import { useFileWorkspace } from "./use-file-workspace";
 import { useEmbeddedNoteReferences } from "./note-embeds";
 import { useVisibleEmbedKeys } from "./use-visible-embed-keys";
+import { useSessionLifecycle } from "./use-session-lifecycle";
 import {
   BacklinksPanel,
   EmptyEditor,
@@ -605,43 +606,18 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setSessionSnapshot
   });
 
+  const { retrySessionStart } = useSessionLifecycle({
+    gateway,
+    start,
+    setSessionSnapshot,
+    setNotice,
+    setPhase
+  });
+
   useEffect(() => {
     if (phase !== "ready" || !structureComplete || listLoading || contentComplete || contentIndexing || contentError) return;
     void loadContentIndex();
   }, [contentComplete, contentError, contentIndexing, listLoading, loadContentIndex, phase, structureComplete]);
-
-  useEffect(() => {
-    let alive = true;
-    let stopSessionChanges: (() => void) | undefined;
-    void (async () => {
-      try {
-        const initial = await gateway.startSession();
-        if (!alive) return;
-        setSessionSnapshot(initial);
-        stopSessionChanges = gateway.onSessionChange((snapshot) => {
-          setSessionSnapshot(snapshot);
-          if (snapshot.status !== "ready") {
-            setPhase((current) => current === "starting" ? current : "disconnected");
-          }
-        });
-        const snapshot = gateway.sessionSnapshot();
-        setSessionSnapshot(snapshot);
-        const connection = snapshot.status === "ready" ? snapshot.connection : null;
-        if (connection && missingCoreCapabilities(connection).length === 0) await start();
-        else {
-          setPhase("disconnected");
-        }
-      } catch (error) {
-        if (!alive) return;
-        setNotice(gatewayError(error));
-        setPhase("disconnected");
-      }
-    })();
-    return () => {
-      alive = false;
-      stopSessionChanges?.();
-    };
-  }, [gateway, start]);
 
   useEffect(() => {
     if (phase !== "ready" || !connectionSummary) return;
@@ -1754,10 +1730,19 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   if (phase === "starting") return <OpeningScreen />;
   if (phase === "disconnected") return <>
     <ConnectScreen
-      notice={notice}
+      notice={sessionSnapshot.status === "start_failed"
+        ? sessionSnapshot.problem.message
+        : sessionSnapshot.status === "destroyed"
+          ? "This editor session has been closed. Reload the editor to start a new session."
+          : notice}
       missingCapabilities={missingCoreCapabilities(connectionSummary)}
       connections={sessionSnapshot.connections}
-      onConnect={() => void connectFromConnectScreen()}
+      onConnect={() => void (sessionSnapshot.status === "start_failed"
+        ? retrySessionStart()
+        : connectFromConnectScreen())}
+      actionLabel={sessionSnapshot.status === "start_failed" ? "Retry opening editor" : undefined}
+      hideSavedConnections={sessionSnapshot.status === "start_failed"}
+      fatal={sessionSnapshot.status === "destroyed"}
       onOpen={(collectionId) => void openSavedCollection(collectionId)}
       onForget={requestForgetConnection}
     />

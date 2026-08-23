@@ -6,6 +6,7 @@ import {
   type CollectionFileDescriptor,
   type CollectionDescription,
   type MdbaseConnection,
+  type MdbaseApplicationSessionSnapshot,
   type MdbaseDesiredTimer,
   type QueryInput,
   type UpdateInput
@@ -13,7 +14,8 @@ import {
 import {
   MdbaseCollectionClient,
   createPkce,
-  type MdbaseCollectionTransport
+  type MdbaseCollectionTransport,
+  type MdbaseSessionSnapshot
 } from "@mdbase-dev/connect/advanced";
 import {
   IndexedDbGrantKeyStore,
@@ -28,6 +30,7 @@ void createPkce;
 void IndexedDbGrantKeyStore;
 void MemoryApplicationIdentityStore;
 void (null as ConnectRequestOptions | MdbaseConnection | MdbaseCollectionTransport | null);
+void (null as MdbaseSessionSnapshot | null);
 
 const canonicalQuery: QueryInput = {
   types: ["note"],
@@ -71,6 +74,14 @@ void timer;
 void file;
 void description;
 
+export function renderLifecycle(snapshot: MdbaseApplicationSessionSnapshot): string {
+  if (snapshot.status === "not_started") return "Start";
+  if (snapshot.status === "starting") return "Starting";
+  if (snapshot.status === "start_failed") return snapshot.problem.message;
+  if (snapshot.status === "destroyed") return "Closed";
+  return snapshot.status;
+}
+
 // @ts-expect-error wire spelling is rejected at the application boundary.
 const wireQueryTypo: QueryInput = { order_by: [{ field: "file.path" }] };
 // @ts-expect-error canonical queries use a CEL string, not an untyped filter object.
@@ -94,6 +105,7 @@ export async function compiledQuickstart(
   connect: InstanceType<typeof MdbaseConnect>,
   lifetime: AbortController
 ): Promise<void> {
+  void connect.connectionApplicationId("01911111-1111-7111-8111-111111111111");
   const session = connect.application({ selection: new MdbaseBrowserSelection() });
   const started = await session.start({ signal: lifetime.signal, timeoutMs: 20_000 });
   if (!started.ok) {
@@ -131,6 +143,8 @@ export async function compiledQuickstart(
     { signal: lifetime.signal, timeoutMs: 20_000 }
   );
   watched.ok && watched.value.close();
+  const cleared = session.clearSelection();
+  if (!cleared.ok) void cleared.problem.recovery;
 }
 
 // @ts-expect-error low-level clients do not belong to the golden-path root.

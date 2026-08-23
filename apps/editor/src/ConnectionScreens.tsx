@@ -9,13 +9,16 @@ import { Wordmark } from "./Brand";
 import { Dialog } from "./Dialog";
 import type { ConnectionSummary } from "./model";
 
-export function ConnectScreen({ notice, missingCapabilities = [], connections, onConnect, onOpen, onForget }: {
+export function ConnectScreen({ notice, missingCapabilities = [], connections, onConnect, onOpen, onForget, actionLabel, hideSavedConnections = false, fatal = false }: {
   notice?: string;
   missingCapabilities?: string[];
   connections: ConnectionSummary[];
   onConnect: () => void;
   onOpen: (collectionId: string) => void;
   onForget: (connection: ConnectionSummary) => void;
+  actionLabel?: string;
+  hideSavedConnections?: boolean;
+  fatal?: boolean;
 }) {
   const updatingAccess = missingCapabilities.length > 0;
   return <main className="connect-screen"><section>
@@ -24,7 +27,7 @@ export function ConnectScreen({ notice, missingCapabilities = [], connections, o
     <p className="connect-copy">{updatingAccess
       ? `Update access to ${accessSummary(missingCapabilities)} in this collection.`
       : "Choose the collection you want to write in."}</p>
-    {connections.length > 0 && <div className="saved-collections" aria-label="Recent collections">
+    {!fatal && !hideSavedConnections && connections.length > 0 && <div className="saved-collections" aria-label="Recent collections">
       <p>Recent collections</p>
       {connections.map((connection) => {
         const name = connection.displayName ?? "Untitled collection";
@@ -42,14 +45,14 @@ export function ConnectScreen({ notice, missingCapabilities = [], connections, o
         </div>;
       })}
     </div>}
-    <button className="connect-button" onClick={onConnect}>{updatingAccess
+    {!fatal && <button className="connect-button" onClick={onConnect}>{actionLabel ?? (updatingAccess
       ? "Update access"
       : connections.length
         ? "Connect another collection"
-        : "Choose a collection"} <ChevronRight aria-hidden="true" /></button>
-    <p className="access-copy">{updatingAccess
+        : "Choose a collection")} <ChevronRight aria-hidden="true" /></button>}
+    {!fatal && <p className="access-copy">{updatingAccess
       ? "mdbase connect keeps the access you already approved and shows only what needs to be added."
-      : "You’ll continue to mdbase connect. Sign in if asked, choose a collection, and approve mdbase editor. You’ll return here automatically; your files stay where they are."}</p>
+      : "You’ll continue to mdbase connect. Sign in if asked, choose a collection, and approve mdbase editor. You’ll return here automatically; your files stay where they are."}</p>}
     <details className="compatibility-help"><summary>Collection not listed?</summary><p>The editor opens mdbase 0.3 collections. For an older collection, use mdbase to upgrade a copy, verify that copy, then choose it here. Your original files can stay untouched while you check the result.</p></details>
     {notice && <p className="connect-error" role="alert">{notice}</p>}
   </section></main>;

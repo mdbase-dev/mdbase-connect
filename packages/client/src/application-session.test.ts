@@ -2,14 +2,38 @@ import { describe, expect, it, vi } from "vitest";
 import type { MdbaseAppManifest } from "@mdbase-dev/connect-protocol";
 import {
   MdbaseApplicationSession,
+  MdbaseConnectError,
   MdbaseMemorySelection,
   MdbaseMemoryVerificationStore,
   type CollectionSetupAssessment,
   type TypePackAssessment
 } from "./index.js";
-import { connectSuccess } from "./outcomes.js";
+import { connectProblem } from "./errors.js";
+import { connectFailure, connectSuccess } from "./outcomes.js";
 
 const collectionId = "00000000-0000-0000-0000-000000000042";
+
+function deferred<Value>() {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+function setupAssessment(applicationId = "dev.mdbase.session-test"): CollectionSetupAssessment {
+  return {
+    status: "provision",
+    applicable: true,
+    applicationId,
+    declarationDigest: `sha256:${"a".repeat(64)}`,
+    provisionDigest: `sha256:${"b".repeat(64)}`,
+    collectionRevision: `sha256:${"c".repeat(64)}`,
+    finalCollectionRevision: `sha256:${"d".repeat(64)}`,
+    configuration: [],
+    typePacks: [],
+    finalResourceRevisions: {},
+    assessmentDigest: `sha256:${"e".repeat(64)}`
+  };
+}
 
 function manifest(overrides: Partial<MdbaseAppManifest> = {}): MdbaseAppManifest {
   return {
@@ -105,6 +129,7 @@ function connectFixture(
     connections: () => [connected.value.info()],
     connection: (id: string) => id === collectionId ? connected.value : null,
     unavailableReason: () => null,
+    connectionApplicationId: () => "01922222-2222-7222-8222-222222222222",
     onConnectionsChange,
     authorize,
     completeAuthorization: vi.fn()
@@ -153,7 +178,8 @@ describe("MdbaseApplicationSession", () => {
     const cancelled = session.start({ signal: controller.signal, timeoutMs: null });
     const continuing = session.start({ timeoutMs: null });
     controller.abort("framework remount");
-    await expect(cancelled).rejects.toMatchObject({
+    await expect(cancelled).resolves.toMatchObject({
+      ok: false,
       problem: { code: "operation_cancelled", operation_outcome: "not_sent" }
     });
     releaseRegistration(await successfulRegistration());
@@ -173,7 +199,8 @@ describe("MdbaseApplicationSession", () => {
 
     const abandoned = session.start({ signal: controller.signal, timeoutMs: null });
     controller.abort("strict mode cleanup");
-    await expect(abandoned).rejects.toMatchObject({
+    await expect(abandoned).resolves.toMatchObject({
+      ok: false,
       problem: { code: "operation_cancelled", operation_outcome: "not_sent" }
     });
 
@@ -182,7 +209,7 @@ describe("MdbaseApplicationSession", () => {
     expect(fixture.onConnectionsChange).toHaveBeenCalledOnce();
   });
 
-  it("destroys owned listeners and supports a Strict Mode-style restart", async () => {
+  it("destroys owned listeners and makes destroy terminal", async () => {
     const fixture = connectFixture(manifest());
     const session = new MdbaseApplicationSession(fixture.facade as never, {
       selection: new MdbaseMemorySelection()
@@ -193,12 +220,395 @@ describe("MdbaseApplicationSession", () => {
     const callsBeforeDestroy = staleListener.mock.calls.length;
 
     session.destroy();
-    await session.start();
+    const restarted = await session.start();
 
     expect(fixture.removeConnectionsListener).toHaveBeenCalledOnce();
-    expect(fixture.onConnectionsChange).toHaveBeenCalledTimes(2);
-    expect(staleListener).toHaveBeenCalledTimes(callsBeforeDestroy);
+    expect(fixture.onConnectionsChange).toHaveBeenCalledOnce();
+    expect(staleListener).toHaveBeenCalledTimes(callsBeforeDestroy + 1);
+    expect(fixture.register).toHaveBeenCalledOnce();
+    expect(restarted).toMatchObject({ ok: false, problem: { code: "session_destroyed" } });
+    expect(session.getSnapshot()).toEqual({ status: "destroyed", connections: [] });
+  });
+
+  it.each(["authorize", "ensureCapabilities"] as const)(
+    "aborts and fences in-flight %s publication on destroy",
+    async (method) => {
+      const fixture = connectFixture(manifest(), ["describe", "read"]);
+      const pending = deferred<ReturnType<typeof connectSuccess>>();
+      let signal: AbortSignal | undefined;
+      fixture.authorize.mockImplementationOnce((options) => {
+        signal = options?.signal;
+        return pending.promise as never;
+      });
+      const selection = new MdbaseMemorySelection();
+      const finishAuthorization = vi.spyOn(selection, "finishAuthorization");
+      const session = new MdbaseApplicationSession(fixture.facade as never, { selection });
+      await session.start();
+
+      const operation = method === "authorize"
+        ? session.authorize("choose", { timeoutMs: null })
+        : session.ensureCapabilities(["records.update"], { timeoutMs: null });
+      await vi.waitFor(() => expect(signal).toBeInstanceOf(AbortSignal));
+      session.destroy();
+      expect(signal?.aborted).toBe(true);
+      pending.resolve(connectSuccess({ kind: "connected", connection: fixture.value }));
+
+      await expect(operation).resolves.toMatchObject({ problem: { code: "session_destroyed" } });
+      expect(session.getSnapshot()).toEqual({ status: "destroyed", connections: [] });
+      expect(finishAuthorization).not.toHaveBeenCalled();
+    }
+  );
+
+  it("aborts and fences an in-flight callback on destroy", async () => {
+    const fixture = connectFixture(manifest());
+    const pending = deferred<ReturnType<typeof connectSuccess>>();
+    let signal: AbortSignal | undefined;
+    fixture.facade.completeAuthorization.mockImplementationOnce((_url, options) => {
+      signal = options?.signal;
+      return pending.promise as never;
+    });
+    const selection = new MdbaseMemorySelection();
+    const finishAuthorization = vi.spyOn(selection, "finishAuthorization");
+    const session = new MdbaseApplicationSession(fixture.facade as never, { selection });
+    await session.start();
+
+    const operation = session.handleAuthorizationCallback(
+      "https://session.example/callback?code=secret&state=secret",
+      { timeoutMs: null }
+    );
+    await vi.waitFor(() => expect(signal).toBeInstanceOf(AbortSignal));
+    session.destroy();
+    expect(signal?.aborted).toBe(true);
+    pending.resolve(connectSuccess({ connection: fixture.value }));
+
+    await expect(operation).resolves.toMatchObject({ problem: { code: "session_destroyed" } });
+    expect(session.getSnapshot()).toEqual({ status: "destroyed", connections: [] });
+    expect(finishAuthorization).not.toHaveBeenCalled();
+  });
+
+  it("aborts and fences collection setup apply without masking an unknown mutation outcome", async () => {
+    const declaration = manifest({
+      requirements: {
+        contracts: [],
+        capabilities: {
+          contract_version: 1,
+          required: ["collection.inspect", "records.read", "collection.setup.apply"]
+        }
+      }
+    });
+    const assessment = setupAssessment(declaration.id);
+    const fixture = connectFixture(
+      declaration,
+      ["describe", "read", "assess_collection_setup", "apply_collection_setup"],
+      assessment
+    );
+    const pending = deferred<ReturnType<typeof connectSuccess>>();
+    let signal: AbortSignal | undefined;
+    fixture.applyCollectionSetup.mockImplementationOnce((_input, options) => {
+      signal = options?.signal;
+      return pending.promise as never;
+    });
+    const session = new MdbaseApplicationSession(fixture.facade as never, {
+      selection: new MdbaseMemorySelection()
+    });
+    await session.start();
+
+    const operation = session.applyCollectionSetup({ timeoutMs: null });
+    await vi.waitFor(() => expect(signal).toBeInstanceOf(AbortSignal));
+    session.destroy();
+    expect(signal?.aborted).toBe(true);
+    pending.resolve(connectFailure(connectProblem(
+      "operation_outcome_unknown",
+      "The setup may have been applied.",
+      { operationOutcome: "unknown" }
+    )) as never);
+
+    await expect(operation).resolves.toMatchObject({
+      problem: { code: "operation_outcome_unknown", operation_outcome: "unknown" }
+    });
+    expect(fixture.applyCollectionSetup).toHaveBeenCalledOnce();
+    expect(session.getSnapshot()).toEqual({ status: "destroyed", connections: [] });
+    expect(fixture.value.assessCollectionSetup).toHaveBeenCalledOnce();
+  });
+
+  it("publishes start failures with the original typed problem and retries", async () => {
+    const fixture = connectFixture(manifest());
+    fixture.register.mockResolvedValueOnce(connectFailure(connectProblem(
+      "temporarily_unavailable",
+      "Registration is unavailable."
+    )));
+    const session = new MdbaseApplicationSession(fixture.facade as never, {
+      selection: new MdbaseMemorySelection()
+    });
+
+    expect(session.getSnapshot()).toEqual({ status: "not_started", connections: [] });
+    const first = await session.start();
+    expect(first).toMatchObject({ ok: false, problem: { code: "temporarily_unavailable" } });
+    expect(session.getSnapshot()).toMatchObject({
+      status: "start_failed",
+      problem: { code: "temporarily_unavailable", message: "Registration is unavailable." }
+    });
+
+    await expect(session.start()).resolves.toMatchObject({ ok: true });
     expect(fixture.register).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns lifecycle outcomes without synchronously throwing", async () => {
+    const fixture = connectFixture(manifest());
+    const session = new MdbaseApplicationSession(fixture.facade as never, {
+      selection: new MdbaseMemorySelection()
+    });
+
+    expect(session.select(collectionId)).toMatchObject({ problem: { code: "session_not_started" } });
+    expect(session.clearSelection()).toMatchObject({ problem: { code: "session_not_started" } });
+    expect(session.forget(collectionId)).toMatchObject({ problem: { code: "session_not_started" } });
+    const authorization = session.authorize("choose");
+    const callback = session.handleAuthorizationCallback("https://session.example/callback?code=x&state=y");
+    const capabilities = session.ensureCapabilities(["records.read"]);
+    const setup = session.applyCollectionSetup();
+
+    await expect(authorization).resolves.toMatchObject({ problem: { code: "session_not_started" } });
+    await expect(callback).resolves.toMatchObject({ problem: { code: "session_not_started" } });
+    await expect(capabilities).resolves.toMatchObject({ problem: { code: "session_not_started" } });
+    await expect(setup).resolves.toMatchObject({ problem: { code: "session_not_started" } });
+  });
+
+  it("waits for an in-progress start before handling a callback", async () => {
+    const fixture = connectFixture(manifest());
+    const successfulRegistration = fixture.register.getMockImplementation()!;
+    let releaseRegistration!: (value: Awaited<ReturnType<typeof successfulRegistration>>) => void;
+    fixture.register.mockImplementationOnce(() => new Promise((resolve) => {
+      releaseRegistration = resolve;
+    }));
+    fixture.facade.completeAuthorization.mockResolvedValue(connectSuccess({
+      connection: fixture.value,
+      returnTo: "/"
+    }));
+    const session = new MdbaseApplicationSession(fixture.facade as never, {
+      selection: new MdbaseMemorySelection()
+    });
+
+    const starting = session.start({ timeoutMs: null });
+    expect(session.getSnapshot().status).toBe("starting");
+    const callback = session.handleAuthorizationCallback(
+      "https://session.example/callback?code=x&state=y",
+      { timeoutMs: null }
+    );
+    expect(fixture.facade.completeAuthorization).not.toHaveBeenCalled();
+    releaseRegistration(await successfulRegistration());
+
+    await expect(starting).resolves.toMatchObject({ ok: true });
+    await expect(callback).resolves.toMatchObject({ ok: true });
+    expect(fixture.facade.completeAuthorization).toHaveBeenCalledOnce();
+  });
+
+  it("returns a typed timeout and abandons shared startup after its last waiter", async () => {
+    const fixture = connectFixture(manifest());
+    fixture.register.mockImplementationOnce(() => new Promise(() => undefined));
+    const session = new MdbaseApplicationSession(fixture.facade as never, {
+      selection: new MdbaseMemorySelection()
+    });
+
+    await expect(session.start({ timeoutMs: 1 })).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "timeout", operation_outcome: "not_sent" }
+    });
+    expect(session.getSnapshot().status).toBe("not_started");
+  });
+
+  it("abandons provisional setup verification and fences stale publications after timeout", async () => {
+    vi.useFakeTimers();
+    const declaration = manifest({
+      requirements: {
+        contracts: [],
+        capabilities: {
+          contract_version: 1,
+          required: ["collection.inspect", "records.read", "collection.setup.apply"]
+        }
+      }
+    });
+    const fixture = connectFixture(
+      declaration,
+      ["describe", "read", "assess_collection_setup", "apply_collection_setup"]
+    );
+    let resolveAssessment!: (value: never) => void;
+    fixture.value.assessCollectionSetup.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveAssessment = resolve as (value: never) => void;
+    }));
+    const selection = new MdbaseMemorySelection();
+    const select = vi.spyOn(selection, "select");
+    const session = new MdbaseApplicationSession(fixture.facade as never, { selection });
+
+    const starting = session.start({ timeoutMs: 1_000 });
+    await vi.waitFor(() => expect(fixture.value.assessCollectionSetup).toHaveBeenCalledOnce());
+    expect(session.getSnapshot().status).toBe("checking_setup");
+    expect(session.select(collectionId)).toMatchObject({ problem: { code: "session_starting" } });
+    expect(session.clearSelection()).toMatchObject({ problem: { code: "session_starting" } });
+    expect(session.forget(collectionId)).toMatchObject({ problem: { code: "session_starting" } });
+    expect(fixture.value.forget).not.toHaveBeenCalled();
+    expect(select).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(starting).resolves.toMatchObject({ problem: { code: "timeout" } });
+    expect(session.getSnapshot().status).toBe("not_started");
+    expect(fixture.removeConnectionsListener).toHaveBeenCalledOnce();
+
+    resolveAssessment(connectSuccess({}) as never);
+    await vi.runAllTimersAsync();
+    expect(session.getSnapshot().status).toBe("not_started");
+  });
+
+  it("returns the exact startup problem from every lifecycle-dependent method", async () => {
+    const fixture = connectFixture(manifest());
+    fixture.register.mockResolvedValueOnce(connectFailure(connectProblem(
+      "temporarily_unavailable",
+      "Registration is unavailable."
+    )));
+    const session = new MdbaseApplicationSession(fixture.facade as never, {
+      selection: new MdbaseMemorySelection()
+    });
+    await session.start();
+    const snapshot = session.getSnapshot();
+    if (snapshot.status !== "start_failed") throw new Error("Expected startup failure.");
+
+    const syncOutcomes = [
+      session.select(collectionId),
+      session.clearSelection(),
+      session.forget(collectionId)
+    ];
+    for (const outcome of syncOutcomes) {
+      expect(outcome.ok || outcome.problem).toBe(snapshot.problem);
+    }
+    for (const outcome of await Promise.all([
+      session.authorize("choose"),
+      session.handleAuthorizationCallback("https://session.example/callback?code=x&state=y"),
+      session.completeAuthorization("https://session.example/callback?code=x&state=y"),
+      session.ensureCapabilities(["records.read"]),
+      session.applyCollectionSetup()
+    ])) {
+      expect(outcome.ok || outcome.problem).toBe(snapshot.problem);
+    }
+  });
+
+  it("turns thrown expected startup problems into start_failed and restores unknown throws", async () => {
+    const expectedFixture = connectFixture(manifest());
+    const expectedProblem = connectProblem("temporarily_unavailable", "Registration threw.");
+    expectedFixture.register.mockRejectedValueOnce(new MdbaseConnectError(expectedProblem));
+    const expected = new MdbaseApplicationSession(expectedFixture.facade as never, {
+      selection: new MdbaseMemorySelection()
+    });
+
+    await expect(expected.start()).resolves.toMatchObject({ ok: false, problem: expectedProblem });
+    expect(expected.getSnapshot()).toMatchObject({ status: "start_failed", problem: expectedProblem });
+
+    const unknownFixture = connectFixture(manifest());
+    unknownFixture.register.mockRejectedValueOnce(new Error("broken fixture"));
+    const unknown = new MdbaseApplicationSession(unknownFixture.facade as never, {
+      selection: new MdbaseMemorySelection()
+    });
+    await expect(unknown.start()).rejects.toThrow("broken fixture");
+    expect(unknown.getSnapshot().status).toBe("not_started");
+  });
+
+  it("requires reauthorization for a saved grant bound to a previous application identity without checking setup", async () => {
+    const fixture = connectFixture(manifest());
+    fixture.facade.connectionApplicationId = () => "01911111-1111-7111-8111-111111111111";
+    const session = new MdbaseApplicationSession(fixture.facade as never, {
+      selection: new MdbaseMemorySelection()
+    });
+
+    const started = await session.start();
+
+    expect(started).toMatchObject({ ok: true, value: { status: "authorization_required" } });
+    expect(fixture.value.assessCollectionSetup).not.toHaveBeenCalled();
+    expect(fixture.authorize).not.toHaveBeenCalled();
+  });
+
+  it("treats a missing validated connection application identity as requiring authorization", async () => {
+    const fixture = connectFixture(manifest());
+    fixture.facade.connectionApplicationId = () => null;
+    const session = new MdbaseApplicationSession(fixture.facade as never, {
+      selection: new MdbaseMemorySelection()
+    });
+
+    await expect(session.start()).resolves.toMatchObject({
+      ok: true,
+      value: { status: "authorization_required" }
+    });
+  });
+
+  it("classifies an authority declaration mismatch as authorization required rather than blocked", async () => {
+    const declaration = manifest({
+      requirements: {
+        contracts: [],
+        capabilities: {
+          contract_version: 1,
+          required: ["collection.inspect", "records.read", "collection.setup.apply"]
+        }
+      }
+    });
+    const fixture = connectFixture(
+      declaration,
+      ["describe", "read", "assess_collection_setup", "apply_collection_setup"]
+    );
+    fixture.value.assessCollectionSetup.mockResolvedValue(connectFailure(connectProblem(
+      "application_declaration_mismatch",
+      "The saved grant belongs to an earlier application declaration."
+    )) as never);
+    const session = new MdbaseApplicationSession(fixture.facade as never, {
+      selection: new MdbaseMemorySelection()
+    });
+
+    const started = await session.start();
+
+    expect(started).toMatchObject({ ok: true, value: { status: "authorization_required" } });
+    expect(session.getSnapshot().status).not.toBe("blocked");
+  });
+
+  it("reviews setup drift after explicit selected reauthorization succeeds", async () => {
+    const declaration = manifest({
+      requirements: {
+        contracts: [],
+        capabilities: {
+          contract_version: 1,
+          required: ["collection.inspect", "records.read", "collection.setup.apply"]
+        }
+      }
+    });
+    const assessment: CollectionSetupAssessment = {
+      status: "provision",
+      applicable: true,
+      applicationId: declaration.id,
+      declarationDigest: `sha256:${"a".repeat(64)}`,
+      provisionDigest: `sha256:${"b".repeat(64)}`,
+      collectionRevision: `sha256:${"c".repeat(64)}`,
+      finalCollectionRevision: `sha256:${"d".repeat(64)}`,
+      configuration: [],
+      typePacks: [],
+      finalResourceRevisions: {},
+      assessmentDigest: `sha256:${"e".repeat(64)}`
+    };
+    const fixture = connectFixture(
+      declaration,
+      ["describe", "read", "assess_collection_setup", "apply_collection_setup"],
+      assessment
+    );
+    let savedApplicationId = "01911111-1111-7111-8111-111111111111";
+    fixture.facade.connectionApplicationId = () => savedApplicationId;
+    fixture.authorize.mockImplementationOnce(async () => {
+      savedApplicationId = "01922222-2222-7222-8222-222222222222";
+      return connectSuccess({ kind: "connected", connection: fixture.value });
+    });
+    const session = new MdbaseApplicationSession(fixture.facade as never, {
+      selection: new MdbaseMemorySelection()
+    });
+    await session.start();
+
+    const authorized = await session.authorize("selected");
+
+    expect(authorized).toMatchObject({ ok: true, value: { kind: "connected" } });
+    expect(session.getSnapshot()).toMatchObject({ status: "setup_review_required" });
+    expect(fixture.value.assessCollectionSetup).toHaveBeenCalledOnce();
   });
 
   it("compiles manifest capabilities and never accepts an application operation array", async () => {
@@ -296,8 +706,8 @@ describe("MdbaseApplicationSession", () => {
 
     expect(fixture.authorize).toHaveBeenCalledWith(expect.objectContaining({
       operations: ["describe", "read", "update"],
-      signal: controller.signal,
-      timeoutMs: 4321
+      signal: expect.any(AbortSignal),
+      timeoutMs: null
     }));
   });
 

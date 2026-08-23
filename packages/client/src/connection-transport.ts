@@ -36,6 +36,7 @@ import type {
 } from "./operation-types.js";
 import { ConnectionFileTransport } from "./connection-file-transport.js";
 import { authorityProofHeaders } from "./authority-proof.js";
+import { performAuthorizationRefresh } from "./authorization-refresh.js";
 import { PendingMutationStore } from "./pending-mutation-store.js";
 import {
   directFallbackStatus,
@@ -54,7 +55,6 @@ import {
 import {
   apiError,
   decodeJsonResponse,
-  oauthErrorCode,
   parseStored,
 } from "./runtime-utils.js";
 import { readStoredToken } from "./stored-token.js";
@@ -65,6 +65,8 @@ import {
 } from "./request-budget.js";
 import { sendAuthoritySyncRequest } from "./authority-sync-request.js";
 import { freshEncryptedRequest } from "./fresh-encrypted-request.js";
+import { GrantKeyLeaseSet, retainCurrentGrantToken } from "./grant-key-leases.js";
+import { SharedOperationMap } from "./shared-operation.js";
 import type {
   ConnectionTransportInternals,
   ConnectionTransportOptions
@@ -93,7 +95,7 @@ export class ConnectionTransport {
   private readonly timeouts: ResolvedConnectTimeouts;
   private readonly pendingMutationStore: PendingMutationStore;
   readonly files: ConnectionFileTransport;
-  private refreshPromise: Promise<StoredToken> | null = null;
+  private readonly refreshOperations = new SharedOperationMap<StoredToken>();
   private directStatus: DirectAccessStatus;
   private currentRoute: MdbaseConnectionRoute = "relay";
   private directFailures = 0;
@@ -117,8 +119,10 @@ export class ConnectionTransport {
       keyStore: this.keyStore,
       serverUrl: this.serverUrl,
       loopbackUrl: this.loopbackUrl,
+      collectionId: this.collectionId,
+      currentToken: () => this.currentToken(),
       authorizedToken: (signal) => this.authorizedToken({ signal, timeoutMs: null }),
-      refreshAuthorization: (signal) => this.refreshAuthorization(signal),
+      refreshAuthorization: (signal) => this.refreshAuthorization({ signal, timeoutMs: null }),
       shouldAttemptDirect: (token) => this.shouldAttemptDirect(token),
       onDirectAvailable: () => {
         this.markDirectAvailable();
@@ -126,6 +130,8 @@ export class ConnectionTransport {
       },
       onDirectUnavailable: () => this.markDirectUnavailable(),
       onRelayAvailable: () => this.setRoute("relay"),
+      acquireGrantKeyLease: (collectionId, keyHandle, signal) =>
+        this.internals.acquireGrantKeyLease(collectionId, keyHandle, signal),
       authorityProofHeaders: (token, method, url, body, credential) =>
         authorityProofHeaders(this.keyStore, token, method, url, body, credential)
     });
@@ -246,8 +252,29 @@ export class ConnectionTransport {
     knownRejectedMutationRetry = false
   ): Promise<Result> {
     throwIfCancelled(options.signal);
-    let token = this.currentToken();
-    if (!token) throw connectError("not_authorized", "Connect this application before accessing a collection.");
+    const leases = this.grantKeyLeases();
+    try {
+      const token = await retainCurrentGrantToken(() => this.currentToken(), leases, options.signal);
+      if (!token) throw connectError("not_authorized", "Connect this application before accessing a collection.");
+      await leases.retain(storedPending?.keyHandle, options.signal);
+      return await this.performLeasedOperation<Result>(token, operation, input, options, leases,
+        storedPending, freshReadRetried, connectorBusyRetries, knownRejectedMutationRetry);
+    } finally {
+      leases.release();
+    }
+  }
+
+  private async performLeasedOperation<Result>(
+    token: StoredToken,
+    operation: CollectionOperation,
+    input: unknown,
+    options: OperationRequestOptions,
+    leases: GrantKeyLeaseSet,
+    storedPending?: PendingMutation,
+    freshReadRetried = false,
+    connectorBusyRetries = 0,
+    knownRejectedMutationRetry = false
+  ): Promise<Result> {
     if (!token.operations.includes(operation)) {
       throw connectError("insufficient_access", `This connection does not allow ${operation}.`, {
         details: {
@@ -259,14 +286,17 @@ export class ConnectionTransport {
     }
     let tryDirect = await this.shouldAttemptDirect(token);
     if (!tryDirect) {
-      token = await this.authorizedToken({ signal: options.signal, timeoutMs: null });
-      if (!token) throw connectError("not_authorized", "Reconnect this application to continue.");
+      const authorized = await this.authorizedToken({ signal: options.signal, timeoutMs: null });
+      if (!authorized) throw connectError("not_authorized", "Reconnect this application to continue.");
+      const current = await retainCurrentGrantToken(() => this.currentToken(), leases, options.signal);
+      if (!current) throw connectError("not_authorized", "Reconnect this application to continue.");
+      token = current;
     }
     const pendingRequestId = storedPending?.requestId
       ?? (isMutation(operation, input) ? crypto.randomUUID() : undefined);
     let attempt: OperationAttempt;
     try {
-      attempt = await this.sendOperation(token, operation, input, tryDirect, options,
+      attempt = await this.sendOperation(token, operation, input, tryDirect, leases, options,
         pendingRequestId, knownRejectedMutationRetry);
     } catch (error) {
       throw operationTransportError(
@@ -296,10 +326,13 @@ export class ConnectionTransport {
         );
       }
       if (attempt.pendingMutation) this.clearPendingMutation(attempt.requestId);
-      token = await this.refreshAuthorization(options.signal);
+      token = await this.refreshAuthorization({ signal: options.signal, timeoutMs: null });
+      const current = await retainCurrentGrantToken(() => this.currentToken(), leases, options.signal);
+      if (!current) throw connectError("not_authorized", "Reconnect this application to continue.");
+      token = current;
       tryDirect = await this.shouldAttemptDirect(token);
       try {
-        attempt = await this.sendOperation(token, operation, input, tryDirect, options,
+        attempt = await this.sendOperation(token, operation, input, tryDirect, leases, options,
           pendingRequestId, knownRejectedMutationRetry);
       } catch (error) {
         throw operationTransportError(
@@ -469,16 +502,12 @@ export class ConnectionTransport {
     options: ConnectRequestOptions = {}
   ): Promise<Result> {
     return withCooperativeRequestBudget(options, this.timeouts.syncMs, async (budget) => {
-      let token = await this.authorizedToken({ signal: budget.signal, timeoutMs: null });
-      if (!token?.authority
-          || token.collectionId !== collectionId
-          || token.authority.replicaId !== replicaId) {
-        throw connectError(
-          "authority_authorization_changed",
-          "Reconnect this collection authority before synchronizing."
-        );
-      }
+      const leases = this.grantKeyLeases();
       try {
+        let token = await retainCurrentGrantToken(() => this.currentToken(), leases, budget.signal);
+        if (token) await this.authorizedToken({ signal: budget.signal, timeoutMs: null });
+        token = await retainCurrentGrantToken(() => this.currentToken(), leases, budget.signal);
+        requireSyncAuthorization(token, collectionId, replicaId);
         let response = await sendAuthoritySyncRequest(
           this.keyStore,
           token,
@@ -488,15 +517,9 @@ export class ConnectionTransport {
           budget.signal
         );
         if (response.status === 401 && token.refreshToken) {
-          token = await this.refreshAuthorization(budget.signal);
-          if (!token.authority
-              || token.collectionId !== collectionId
-              || token.authority.replicaId !== replicaId) {
-            throw connectError(
-              "authority_authorization_changed",
-              "Reconnect this collection authority before synchronizing."
-            );
-          }
+          token = await this.refreshAuthorization({ signal: budget.signal, timeoutMs: null });
+          token = await retainCurrentGrantToken(() => this.currentToken(), leases, budget.signal);
+          requireSyncAuthorization(token, collectionId, replicaId);
           response = await sendAuthoritySyncRequest(
             this.keyStore,
             token,
@@ -527,6 +550,8 @@ export class ConnectionTransport {
           mutationRequestId,
           "hosted_provider_unavailable"
         );
+      } finally {
+        leases.release();
       }
     });
   }
@@ -536,6 +561,7 @@ export class ConnectionTransport {
     operation: CollectionOperation,
     input: unknown,
     tryDirect: boolean,
+    leases: GrantKeyLeaseSet,
     options: OperationRequestOptions = {},
     pendingRequestId?: string,
     knownRejectedMutationRetry = false
@@ -693,9 +719,14 @@ export class ConnectionTransport {
       }
       let relayToken: StoredToken;
       try {
-        relayToken = token.expiresAt > Date.now() + 30_000
-          ? token
-          : await this.refreshAuthorization(options.signal);
+        if (token.expiresAt <= Date.now() + 30_000) {
+          await this.refreshAuthorization({ signal: options.signal, timeoutMs: null });
+        }
+        const current = await retainCurrentGrantToken(
+          () => this.currentToken(), leases, options.signal
+        );
+        if (!current) throw connectError("not_authorized", "Reconnect this application to continue.");
+        relayToken = current;
       } catch (error) {
         if (pendingMutation && (directDeliveryUncertain || resumingMutation)) throw unknownMutationOutcome(requestId, error);
         throw error;
@@ -884,77 +915,29 @@ export class ConnectionTransport {
       this.internals.removeToken(this.collectionId, token.keyHandle);
       return null;
     }
-    return this.refreshAuthorization(options.signal);
+    return this.refreshAuthorization(options);
   }
 
-  private refreshAuthorization(signal?: AbortSignal): Promise<StoredToken> {
-    if (this.refreshPromise) return this.refreshPromise;
-    this.refreshPromise = this.performRefresh(signal).finally(() => {
-      this.refreshPromise = null;
-    });
-    return this.refreshPromise;
+  private refreshAuthorization(options: ConnectRequestOptions = {}): Promise<StoredToken> {
+    return this.refreshOperations.run("refresh", options, this.timeouts.requestMs, (signal) =>
+      this.performRefresh(signal));
   }
 
   private async performRefresh(signal?: AbortSignal): Promise<StoredToken> {
-    const current = this.currentToken();
-    if (!current?.refreshToken) {
-      throw connectError("not_authorized", "Reconnect this application to continue.");
+    const leases = this.grantKeyLeases();
+    try {
+      const current = await retainCurrentGrantToken(() => this.currentToken(), leases, signal);
+      return await performAuthorizationRefresh({
+        current, serverUrl: this.serverUrl, keyStore: this.keyStore, signal,
+        currentToken: () => this.currentToken(),
+        directCapable: (token) => this.directCapable(token),
+        removeToken: (keyHandle) => this.internals.removeToken(this.collectionId, keyHandle),
+        storeTokenResponse: (body, clientId, keyHandle) =>
+          this.storeTokenResponse(body, clientId, keyHandle)
+      });
+    } finally {
+      leases.release();
     }
-    if ((current.refreshExpiresAt ?? 0) <= Date.now()) {
-      throw connectError(
-        "relay_authorization_expired",
-        "Direct access is still available on this computer, but using the relay requires reconnecting this application."
-      );
-    }
-    const attemptedRefreshToken = current.refreshToken;
-    const refreshUrl = `${this.serverUrl}/oauth/token`;
-    const refreshBody = new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: current.refreshToken,
-      client_id: current.clientId
-    }).toString();
-    const proof = current.authority
-      ? await authorityProofHeaders(
-          this.keyStore,
-          current,
-          "POST",
-          refreshUrl,
-          refreshBody,
-          current.refreshToken
-        )
-      : {};
-    const response = await fetch(refreshUrl, {
-      method: "POST",
-      headers: {
-        "content-type": "application/x-www-form-urlencoded",
-        ...proof
-      },
-      body: refreshBody,
-      signal
-    });
-    const body = await decodeJsonResponse(
-      response,
-      "invalid_token_response",
-      "The authorization service returned an invalid token response."
-    );
-    if (!response.ok) {
-      const latest = this.currentToken();
-      if (latest?.refreshToken && latest.refreshToken !== attemptedRefreshToken) {
-        return latest;
-      }
-      if (!this.directCapable(current)) {
-        this.internals.removeToken(this.collectionId, current.keyHandle);
-      }
-      if ((oauthErrorCode(body) ?? body?.error?.code) === "invalid_grant") {
-        throw connectError(
-          "authorization_expired",
-          body?.error_description ?? body?.error?.message ?? "Reconnect this application to continue.",
-          { status: response.status }
-        );
-      }
-      throw apiError(body, "authorization_expired", "Reconnect this application to continue.", response.status);
-    }
-    return this.storeTokenResponse(body, current.clientId, current.keyHandle);
   }
 
   private storeTokenResponse(body: any, clientId: string, keyHandle?: string): StoredToken {
@@ -986,9 +969,27 @@ export class ConnectionTransport {
 
   private clearPendingMutation(requestId: string): void {
     const pending = this.pendingMutationStore.take(requestId);
-    const currentKeyHandle = this.currentToken()?.keyHandle;
-    if (pending?.keyHandle && pending.keyHandle !== currentKeyHandle) {
-      void this.keyStore.delete(pending.keyHandle).catch(() => undefined);
+    if (pending?.keyHandle) {
+      this.internals.deleteGrantKeyWhenUnused(this.collectionId, pending.keyHandle);
     }
   }
+
+  private grantKeyLeases(): GrantKeyLeaseSet {
+    return new GrantKeyLeaseSet(this.collectionId, (collectionId, keyHandle, signal) =>
+      this.internals.acquireGrantKeyLease(collectionId, keyHandle, signal));
+  }
+}
+
+function requireSyncAuthorization(
+  token: StoredToken | null,
+  collectionId: string,
+  replicaId: string
+): asserts token is StoredToken & { authority: NonNullable<StoredToken["authority"]> } {
+  if (token?.authority
+      && token.collectionId === collectionId
+      && token.authority.replicaId === replicaId) return;
+  throw connectError(
+    "authority_authorization_changed",
+    "Reconnect this collection authority before synchronizing."
+  );
 }

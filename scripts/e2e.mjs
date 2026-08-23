@@ -819,9 +819,9 @@ implements:
   );
   const mismatchedTaskNotesBody = await mismatchedTaskNotesSetup.json();
   if (mismatchedTaskNotesSetup.status !== 403
-      || mismatchedTaskNotesBody.problem?.code !== "access_denied") {
+      || mismatchedTaskNotesBody.problem?.code !== "application_declaration_mismatch") {
     throw new Error(
-      `TaskNotes setup accepted the wrong declaration: ${JSON.stringify(mismatchedTaskNotesBody)}`
+      `TaskNotes setup did not reject the wrong declaration: ${JSON.stringify(mismatchedTaskNotesBody)}`
     );
   }
   await cliJson(["access", "revoke", taskNotesToken.body.grant_id]);

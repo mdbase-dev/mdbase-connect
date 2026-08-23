@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **Breaking:** `MdbaseApplicationSession` replaces `opening` with explicit
+  `not_started`, `starting`, `start_failed`, and terminal `destroyed` lifecycle
+  snapshots. `start_failed` carries the original typed problem and `start()`
+  retries it.
+- **Breaking:** lifecycle-dependent async methods now resolve typed lifecycle,
+  timeout, and cancellation outcomes while sharing an in-progress startup
+  budget. `select`, `clearSelection`, and `forget` return lifecycle-aware
+  `ConnectOutcome` values. Provisional startup returns `session_starting`, and
+  failed startup methods reuse the exact `start_failed.problem` object.
+- Saved grants bound to a previous registered application identity now surface
+  `application_declaration_mismatch` as `authorization_required` before setup
+  checks. Migration requires an explicit `authorize("selected")`; Connect
+  preserves pending mutation recovery and does not replay it automatically.
+
 ## 0.1.0-beta.84
 
 Beta.84 tightens hosted operation correctness and enables Obsidian Base views

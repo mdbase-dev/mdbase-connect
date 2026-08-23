@@ -18,6 +18,15 @@ export function isAuthorizationCallbackUrl(value: string): boolean {
     && (url.searchParams.has("code") || url.searchParams.has("error"));
 }
 
+export function authorizationCallbackState(value: string): string | null {
+  try {
+    const state = new URL(value).searchParams.get("state");
+    return state && state.length > 0 ? state : null;
+  } catch {
+    return null;
+  }
+}
+
 export function authorizationReturnToFromProblem(problem: ConnectProblem): string | undefined {
   if (!problem.details
       || typeof problem.details !== "object"

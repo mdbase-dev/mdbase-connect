@@ -914,7 +914,7 @@ fn application_capabilities_bind_operations_mode_and_origin() {
 }
 
 #[test]
-fn collection_setup_capabilities_require_and_enforce_their_declaration_binding() {
+fn collection_setup_assess_and_apply_require_matching_declaration_binding() {
     let mut capability = RegisterReplica {
         replica_id: Uuid::new_v4(),
         name: "Tasks app".to_string(),
@@ -923,7 +923,10 @@ fn collection_setup_capabilities_require_and_enforce_their_declaration_binding()
         allowed_types: Vec::new(),
         contract_scope: Vec::new(),
         full_collection: true,
-        allowed_operations: vec!["apply_collection_setup".to_string()],
+        allowed_operations: vec![
+            "assess_collection_setup".to_string(),
+            "apply_collection_setup".to_string(),
+        ],
         operation_transport_protocol: Some(3),
         operation_transport_recovery_protocols: vec![2],
         file_capability: None,
@@ -960,6 +963,46 @@ fn collection_setup_capabilities_require_and_enforce_their_declaration_binding()
         .unwrap_err()
         .code,
         "application_declaration_mismatch"
+    );
+    assert_eq!(
+        ensure_collection_setup_declaration_binding(
+            capability.application_declaration_id.as_deref(),
+            capability.application_declaration_digest.as_deref(),
+            "dev.mdbase.tasks",
+            &format!("sha256:{}", "b".repeat(64)),
+        )
+        .unwrap_err()
+        .code,
+        "application_declaration_mismatch"
+    );
+}
+
+#[test]
+fn assess_collection_setup_alone_requires_declaration_binding() {
+    let capability = RegisterReplica {
+        replica_id: Uuid::new_v4(),
+        name: "Tasks app".to_string(),
+        purpose: ReplicaPurpose::Application,
+        mode: SyncReplicaMode::ReadOnly,
+        allowed_types: Vec::new(),
+        contract_scope: Vec::new(),
+        full_collection: true,
+        allowed_operations: vec!["assess_collection_setup".to_string()],
+        operation_transport_protocol: Some(3),
+        operation_transport_recovery_protocols: vec![2],
+        file_capability: None,
+        allowed_origin: Some("https://tasks.example".to_string()),
+        proof_public_key: None,
+        grant_id: Some(Uuid::new_v4()),
+        application_declaration_id: None,
+        application_declaration_digest: None,
+        token: "x".repeat(40),
+        token_ttl_seconds: Some(3600),
+    };
+
+    assert_eq!(
+        validate_replica_capability(&capability).unwrap_err().code,
+        "application_declaration_required"
     );
 }
 

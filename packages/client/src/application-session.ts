@@ -3,6 +3,8 @@ import {
   operationsForApplicationCapabilities,
   type ApplicationCapabilityId,
   type ApplicationCapabilityRequirements,
+  type ConnectProblem,
+  type ConnectProblemCode,
   type JsonObject,
   type MdbaseAppManifest,
   type TypePackProvision
@@ -15,7 +17,7 @@ import type {
   MdbaseConnection
 } from "./connection.js";
 import type { MdbaseConnectionInfo } from "./connection-types.js";
-import { connectProblem } from "./errors.js";
+import { MdbaseConnectError, connectProblem } from "./errors.js";
 import {
   connectFailure,
   connectSuccess,
@@ -34,7 +36,6 @@ import type {
 } from "./operation-types.js";
 import {
   createRequestBudget,
-  requestAbortReason,
   resolveConnectTimeouts,
   type ResolvedConnectTimeouts,
   withRequestBudget
@@ -51,6 +52,7 @@ export interface MdbaseApplicationSessionConnect<Frontmatter extends JsonObject 
   extends MdbaseSessionConnect<Frontmatter> {
   register(options?: ConnectRequestOptions): Promise<ConnectOutcome<Application, RegistrationProblemCode>>;
   manifest(options?: ConnectRequestOptions): Promise<ConnectOutcome<MdbaseAppManifest, RegistrationProblemCode>>;
+  connectionApplicationId(collectionId: string): string | null;
 }
 
 export interface MdbaseApplicationSessionOptions {
@@ -114,8 +116,20 @@ interface ApplicationSessionContext {
   connections: MdbaseConnectionInfo[];
 }
 
+type LifecycleProblemCode =
+  | "session_destroyed"
+  | "session_not_started"
+  | "session_starting";
+
 export type MdbaseApplicationSessionSnapshot =
-  | { status: "opening"; connections: MdbaseConnectionInfo[] }
+  | { status: "not_started"; connections: MdbaseConnectionInfo[] }
+  | { status: "starting"; connections: MdbaseConnectionInfo[] }
+  | {
+      status: "start_failed";
+      problem: ConnectProblem<SessionProblemCode>;
+      connections: MdbaseConnectionInfo[];
+    }
+  | { status: "destroyed"; connections: MdbaseConnectionInfo[] }
   | { status: "unselected"; connections: MdbaseConnectionInfo[] }
   | ({ status: "authorization_required" } & ApplicationSessionContext)
   | ({ status: "checking_setup" } & ApplicationSessionContext)
@@ -140,7 +154,7 @@ export type MdbaseApplicationSessionSnapshot =
 export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObject> {
   private readonly listeners = new Set<() => void>();
   private readonly verificationStore: MdbaseApplicationVerificationStore;
-  private snapshot: MdbaseApplicationSessionSnapshot = { status: "opening", connections: [] };
+  private snapshot: MdbaseApplicationSessionSnapshot = { status: "not_started", connections: [] };
   private manifest: MdbaseAppManifest | null = null;
   private application: Application | null = null;
   private base: MdbaseSession<Frontmatter> | null = null;
@@ -149,6 +163,7 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
   private setupTypePackAdoptions: Record<string, Record<string, string>> | null = null;
   private verificationGeneration = 0;
   private lifecycleGeneration = 0;
+  private readonly operationControllers = new Set<AbortController>();
   private startOperation: {
     promise: Promise<ConnectOutcome<MdbaseApplicationSessionSnapshot, SessionProblemCode>>;
     controller: AbortController;
@@ -165,22 +180,55 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
   }
 
   start(options?: ConnectRequestOptions): Promise<ConnectOutcome<MdbaseApplicationSessionSnapshot, SessionProblemCode>> {
+    if (this.snapshot.status === "destroyed") {
+      return Promise.resolve(connectFailure(connectProblem(
+        "session_destroyed",
+        "This application session has been destroyed."
+      )));
+    }
     if (this.base && !this.startOperation) return Promise.resolve(connectSuccess(this.snapshot));
     const operation = this.startOperation ?? this.beginStart();
+    return this.waitForStart(operation, options, this.timeouts.watchStartMs);
+  }
+
+  private async waitForStart(
+    operation: NonNullable<MdbaseApplicationSession<Frontmatter>["startOperation"]>,
+    options: ConnectRequestOptions | undefined,
+    timeoutMs: number | null
+  ): Promise<ConnectOutcome<MdbaseApplicationSessionSnapshot, SessionProblemCode>> {
     operation.waiters += 1;
-    return withRequestBudget(options, this.timeouts.watchStartMs, () => operation.promise)
-      .finally(() => {
-        operation.waiters -= 1;
-        if (operation.waiters === 0 && this.startOperation === operation) {
-          operation.controller.abort();
-          this.startOperation = null;
-          this.lifecycleGeneration += 1;
-        }
-      });
+    try {
+      return await withRequestBudget(options, timeoutMs, () => operation.promise);
+    } catch (error) {
+      if (error instanceof MdbaseConnectError) {
+        return connectFailure(error.problem as ConnectProblem<SessionProblemCode>);
+      }
+      throw error;
+    } finally {
+      operation.waiters -= 1;
+      if (operation.waiters === 0 && this.startOperation === operation) {
+        this.abandonStart(operation);
+      }
+    }
+  }
+
+  private abandonStart(
+    operation: NonNullable<MdbaseApplicationSession<Frontmatter>["startOperation"]>
+  ): void {
+    operation.controller.abort();
+    this.startOperation = null;
+    this.lifecycleGeneration += 1;
+    this.verificationGeneration += 1;
+    if (this.base) this.cleanupBase(this.base);
+    this.application = null;
+    this.manifest = null;
+    this.setupAssessment = null;
+    this.setupTypePackAdoptions = null;
+    this.publish({ status: "not_started", connections: this.connect.connections() });
   }
 
   private beginStart() {
-    this.snapshot = { status: "opening", connections: [] };
+    this.publish({ status: "starting", connections: this.connect.connections() });
     const controller = new AbortController();
     const generation = ++this.lifecycleGeneration;
     const operation = {
@@ -204,13 +252,39 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     options: ConnectRequestOptions,
     generation: number
   ): Promise<ConnectOutcome<MdbaseApplicationSessionSnapshot, SessionProblemCode>> {
+    try {
+      return await this.performStartWithinBudget(options, generation);
+    } catch (error) {
+      if (error instanceof MdbaseConnectError) {
+        return this.startFailure(
+          error.problem as ConnectProblem<SessionProblemCode>,
+          generation
+        );
+      }
+      if (generation === this.lifecycleGeneration) {
+        this.verificationGeneration += 1;
+        if (this.base) this.cleanupBase(this.base);
+        this.application = null;
+        this.manifest = null;
+        this.setupAssessment = null;
+        this.setupTypePackAdoptions = null;
+        this.publish({ status: "not_started", connections: this.connect.connections() });
+      }
+      throw error;
+    }
+  }
+
+  private async performStartWithinBudget(
+    options: ConnectRequestOptions,
+    generation: number
+  ): Promise<ConnectOutcome<MdbaseApplicationSessionSnapshot, SessionProblemCode>> {
     const registration = await this.connect.register(options);
-    if (!registration.ok) return registration;
+    if (!registration.ok) return this.startFailure(registration.problem, generation);
     const manifest = await this.connect.manifest(options);
-    if (!manifest.ok) return manifest;
+    if (!manifest.ok) return this.startFailure(manifest.problem, generation);
     const capabilities = manifest.value.requirements?.capabilities;
     if (!capabilities) {
-      return connectFailure(connectProblem(
+      return this.startFailure(connectProblem(
         "invalid_application_manifest",
         "Application sessions require a versioned semantic capability contract.",
         {
@@ -223,10 +297,14 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
             }]
           }
         }
-      ));
+      ), generation);
     }
     if (generation !== this.lifecycleGeneration || options.signal?.aborted) {
-      throw requestAbortReason(options.signal ?? new AbortController().signal);
+      return connectFailure(connectProblem(
+        "operation_cancelled",
+        "Application session startup was cancelled.",
+        { operationOutcome: "not_sent" }
+      ));
     }
     this.application = registration.value;
     this.manifest = manifest.value;
@@ -240,17 +318,27 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
       const started = await base.start(options);
       if (!started.ok) {
         this.cleanupBase(base);
-        return started;
+        return this.startFailure(started.problem, generation);
       }
       if (generation !== this.lifecycleGeneration || options.signal?.aborted) {
-        throw requestAbortReason(options.signal ?? new AbortController().signal);
+        this.cleanupBase(base);
+        return connectFailure(connectProblem(
+          "operation_cancelled",
+          "Application session startup was cancelled.",
+          { operationOutcome: "not_sent" }
+        ));
       }
       this.stopBase = base.subscribe(() => {
         if (this.base === base) void this.refresh();
       });
       await this.refresh(true, options);
       if (generation !== this.lifecycleGeneration || options.signal?.aborted) {
-        throw requestAbortReason(options.signal ?? new AbortController().signal);
+        this.cleanupBase(base);
+        return connectFailure(connectProblem(
+          "operation_cancelled",
+          "Application session startup was cancelled.",
+          { operationOutcome: "not_sent" }
+        ));
       }
       return connectSuccess(this.snapshot);
     } catch (error) {
@@ -259,17 +347,34 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     }
   }
 
+  private startFailure(
+    problem: ConnectProblem<SessionProblemCode>,
+    generation: number
+  ): ConnectOutcome<MdbaseApplicationSessionSnapshot, SessionProblemCode> {
+    if (generation === this.lifecycleGeneration) {
+      this.publish({
+        status: "start_failed",
+        problem,
+        connections: this.connect.connections()
+      });
+    }
+    return connectFailure(problem);
+  }
+
   destroy(): void {
+    if (this.snapshot.status === "destroyed") return;
     this.lifecycleGeneration += 1;
     this.verificationGeneration += 1;
     this.startOperation?.controller.abort();
     this.startOperation = null;
+    for (const controller of this.operationControllers) controller.abort();
+    this.operationControllers.clear();
     if (this.base) this.cleanupBase(this.base);
     this.application = null;
     this.manifest = null;
     this.setupAssessment = null;
     this.setupTypePackAdoptions = null;
-    this.snapshot = { status: "opening", connections: [] };
+    this.publish({ status: "destroyed", connections: [] });
     this.listeners.clear();
   }
 
@@ -298,40 +403,74 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
   select(
     collectionId: string,
     options: { history?: MdbaseSelectionHistory } = {}
-  ) {
-    return this.requireBase().select(collectionId, options);
+  ): ConnectOutcome<MdbaseConnection<Frontmatter>, SessionProblemCode> {
+    const base = this.lifecycleBase();
+    return base.ok ? base.value.select(collectionId, options) : base;
   }
 
-  clearSelection(options: { history?: MdbaseSelectionHistory } = {}): void {
-    this.requireBase().clearSelection(options);
+  clearSelection(options: { history?: MdbaseSelectionHistory } = {}): ConnectOutcome<void, SessionProblemCode> {
+    const base = this.lifecycleBase();
+    if (!base.ok) return base;
+    base.value.clearSelection(options);
+    return connectSuccess(undefined);
   }
 
-  forget(collectionId: string): void {
-    this.requireBase().forget(collectionId);
+  forget(collectionId: string): ConnectOutcome<void, SessionProblemCode> {
+    const base = this.lifecycleBase();
+    if (!base.ok) return base;
+    base.value.forget(collectionId);
+    return connectSuccess(undefined);
   }
 
   authorize(
     target: "choose" | "selected" | { collectionId: string },
     options: Omit<MdbaseAuthorizeOptions, "operations" | "returnTo" | "target"> = {}
   ): Promise<ConnectOutcome<MdbaseAuthorizationOutcome<Frontmatter>, SessionProblemCode>> {
-    return this.requireBase().authorize(target, options);
+    return this.withLifecycleBase(options, async (base, requestOptions, generation) => {
+      const outcome = await base.authorize(target, { ...options, ...requestOptions });
+      if (outcome.ok && outcome.value.kind === "connected" && this.lifecycleCurrent(generation)) {
+        await this.refresh(true, requestOptions);
+      }
+      return outcome;
+    });
   }
 
   handleAuthorizationCallback(
     callbackUrl: string | URL,
     options?: ConnectRequestOptions
-  ): Promise<ConnectOutcome<MdbaseConnection<Frontmatter>, AuthorizationProblemCode>> {
-    return this.requireBase().handleAuthorizationCallback(String(callbackUrl), options);
+  ): Promise<ConnectOutcome<MdbaseConnection<Frontmatter>, SessionProblemCode>> {
+    const exactUrl = String(callbackUrl);
+    const joinsStartupCallback = this.startOperation !== null
+      && this.options.selection.authorizationCallback() === exactUrl;
+    return this.withLifecycleBase(options, async (base, requestOptions, generation) => {
+      if (joinsStartupCallback) {
+        const current = base.getSnapshot();
+        if (current.status === "ready") return connectSuccess(current.connection);
+        return connectFailure(connectProblem("collection_not_ready", "Authorization did not produce a ready collection."));
+      }
+      const outcome = await base.handleAuthorizationCallback(exactUrl, requestOptions);
+      if (outcome.ok && this.lifecycleCurrent(generation)) await this.refresh(true, requestOptions);
+      return outcome;
+    });
   }
 
   completeAuthorization(
     callbackUrl?: string | URL,
     options?: ConnectRequestOptions
-  ): Promise<ConnectOutcome<MdbaseConnection<Frontmatter>, AuthorizationProblemCode>> {
-    return this.requireBase().handleAuthorizationCallback(
-      callbackUrl === undefined ? defaultCallbackUrl() : String(callbackUrl),
-      options
-    );
+  ): Promise<ConnectOutcome<MdbaseConnection<Frontmatter>, SessionProblemCode>> {
+    const exactUrl = callbackUrl === undefined ? defaultCallbackUrl() : String(callbackUrl);
+    const joinsStartupCallback = this.startOperation !== null
+      && this.options.selection.authorizationCallback() === exactUrl;
+    return this.withLifecycleBase(options, async (base, requestOptions, generation) => {
+      if (joinsStartupCallback) {
+        const current = base.getSnapshot();
+        if (current.status === "ready") return connectSuccess(current.connection);
+        return connectFailure(connectProblem("collection_not_ready", "Authorization did not produce a ready collection."));
+      }
+      const outcome = await base.handleAuthorizationCallback(exactUrl, requestOptions);
+      if (outcome.ok && this.lifecycleCurrent(generation)) await this.refresh(true, requestOptions);
+      return outcome;
+    });
   }
 
   ensureCapabilities(
@@ -342,36 +481,52 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     | { kind: "unchanged"; connection: MdbaseConnection<Frontmatter> },
     SessionProblemCode
   >> {
-    const manifestRequirements = this.requireManifest().requirements?.capabilities;
-    const declared = new Set([
-      ...(manifestRequirements?.required ?? []),
-      ...(manifestRequirements?.optional ?? [])
-    ]);
-    if (capabilities.some((capability) => !declared.has(capability))) {
-      return Promise.resolve(connectFailure(connectProblem(
-        "invalid_application_manifest",
-        "Applications may only request capabilities declared in their manifest.",
-        {
-          details: {
-            issues: [{
-              path: "/requirements/capabilities",
-              keyword: "undeclaredCapability",
-              message: "must declare every capability requested by the application",
-              params: {
-                requested: capabilities,
-                declared: [...declared]
-              }
-            }]
+    return this.withLifecycleBase(options, (base, requestOptions, generation) => {
+      const manifestRequirements = this.manifest!.requirements?.capabilities;
+      const declared = new Set([
+        ...(manifestRequirements?.required ?? []),
+        ...(manifestRequirements?.optional ?? [])
+      ]);
+      if (capabilities.some((capability) => !declared.has(capability))) {
+        return Promise.resolve(connectFailure(connectProblem(
+          "invalid_application_manifest",
+          "Applications may only request capabilities declared in their manifest.",
+          {
+            details: {
+              issues: [{
+                path: "/requirements/capabilities",
+                keyword: "undeclaredCapability",
+                message: "must declare every capability requested by the application",
+                params: {
+                  requested: capabilities,
+                  declared: [...declared]
+                }
+              }]
+            }
           }
+        )));
+      }
+      return base.ensureOperations(operationsForIds(capabilities), requestOptions).then(async (outcome) => {
+        if (outcome.ok && outcome.value.kind === "connected" && this.lifecycleCurrent(generation)) {
+          await this.refresh(true, requestOptions);
         }
-      )));
-    }
-    return this.requireBase().ensureOperations(operationsForIds(capabilities), options);
+        return outcome;
+      });
+    });
   }
 
-  async applyCollectionSetup(options?: ConnectRequestOptions): Promise<ConnectOutcome<
+  applyCollectionSetup(options?: ConnectRequestOptions): Promise<ConnectOutcome<
     MdbaseApplicationSessionSnapshot,
-    CollectionTypeProblemCode | "collection_not_ready"
+    CollectionTypeProblemCode | SessionProblemCode
+  >> {
+    return this.withLifecycleBase(options, (_base, requestOptions, generation) =>
+      this.applyCollectionSetupStarted(requestOptions, generation)
+    );
+  }
+
+  private async applyCollectionSetupStarted(options: ConnectRequestOptions, generation: number): Promise<ConnectOutcome<
+    MdbaseApplicationSessionSnapshot,
+    CollectionTypeProblemCode | SessionProblemCode | "collection_not_ready"
   >> {
     if (this.snapshot.status !== "setup_review_required" || !this.setupAssessment) {
       return connectFailure(connectProblem(
@@ -399,22 +554,29 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
         .filter((pack) => pack.status === "downgrade")
         .map((pack) => pack.desired.id)
     };
-    const budget = createRequestBudget(options, this.timeouts.requestMs);
-    const requestOptions = { signal: budget.signal, timeoutMs: null };
-    try {
-      const applied = await connection.applyCollectionSetup(input, requestOptions);
-      if (!applied.ok) return applied;
-      this.setupAssessment = null;
-      this.setupTypePackAdoptions = null;
-      await this.verifySetup(
-        this.context(connection),
-        ++this.verificationGeneration,
-        requestOptions
-      );
-      return connectSuccess(this.snapshot);
-    } finally {
-      budget.dispose();
+    const applied = await connection.applyCollectionSetup(input, options);
+    if (!this.lifecycleCurrent(generation)) {
+      if (!applied.ok && applied.problem.code === "operation_outcome_unknown") {
+        return connectFailure(applied.problem);
+      }
+      return connectFailure(connectProblem("session_destroyed", lifecycleProblemMessage("session_destroyed")));
     }
+    if (!applied.ok) {
+      if (applied.problem.code === "application_declaration_mismatch") {
+        this.setupAssessment = null;
+        this.setupTypePackAdoptions = null;
+        this.publish({ status: "authorization_required", ...this.context(connection) });
+      }
+      return applied;
+    }
+    this.setupAssessment = null;
+    this.setupTypePackAdoptions = null;
+    await this.verifySetup(
+      this.context(connection),
+      ++this.verificationGeneration,
+      options
+    );
+    return connectSuccess(this.snapshot);
   }
 
   private async refresh(awaitVerification = false, options?: ConnectRequestOptions): Promise<void> {
@@ -432,7 +594,14 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
       this.publish(current);
       return;
     }
+    if (current.status !== "ready") return;
     const context = this.context(current.connection);
+    if (
+      this.connect.connectionApplicationId(current.collectionId) !== this.application?.id
+    ) {
+      this.publish({ status: "authorization_required", ...context });
+      return;
+    }
     if (
       !context.capabilities.requiredAvailable
       || !accessRequirementSatisfied(this.manifest, context.info)
@@ -470,7 +639,9 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
       : await connection.assessCollectionSetup(initialInput);
     if (generation !== this.verificationGeneration) return;
     if (!outcome.ok) {
-      this.publish({ status: "blocked", problem: outcome.problem, ...context });
+      this.publish(outcome.problem.code === "application_declaration_mismatch"
+        ? { status: "authorization_required", ...context }
+        : { status: "blocked", problem: outcome.problem, ...context });
       return;
     }
     if (!outcome.value.applicable) {
@@ -484,7 +655,9 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
           : await connection.assessCollectionSetup(this.collectionSetupInput(adoptions));
         if (generation !== this.verificationGeneration) return;
         if (!outcome.ok) {
-          this.publish({ status: "blocked", problem: outcome.problem, ...context });
+          this.publish(outcome.problem.code === "application_declaration_mismatch"
+            ? { status: "authorization_required", ...context }
+            : { status: "blocked", problem: outcome.problem, ...context });
           return;
         }
         this.setupTypePackAdoptions = adoptions;
@@ -540,14 +713,104 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
   }
 
   private publish(snapshot: MdbaseApplicationSessionSnapshot): void {
+    if (this.snapshot.status === "destroyed" && snapshot.status !== "destroyed") return;
     if (JSON.stringify(this.snapshot) === JSON.stringify(snapshot)) return;
     this.snapshot = snapshot;
     for (const listener of this.listeners) listener();
   }
 
-  private requireBase(): MdbaseSession<Frontmatter> {
-    if (!this.base) throw new Error("Start the application session before using it.");
-    return this.base;
+  private lifecycleBase(): ConnectOutcome<MdbaseSession<Frontmatter>, SessionProblemCode> {
+    const status = this.snapshot.status;
+    if (this.startOperation || status === "starting") {
+      return connectFailure(connectProblem(
+        "session_starting",
+        "The application session is still starting."
+      ));
+    }
+    if (this.snapshot.status === "start_failed") return connectFailure(this.snapshot.problem);
+    if (this.base) return connectSuccess(this.base);
+    const code = status === "destroyed"
+      ? "session_destroyed"
+      : "session_not_started";
+    return connectFailure(connectProblem(code, lifecycleProblemMessage(code)));
+  }
+
+  private async withLifecycleBase<Value, Code extends ConnectProblemCode>(
+    options: ConnectRequestOptions | undefined,
+    operation: (
+      base: MdbaseSession<Frontmatter>,
+      options: ConnectRequestOptions,
+      generation: number
+    ) => Promise<ConnectOutcome<Value, Code>>
+  ): Promise<ConnectOutcome<Value, Code | SessionProblemCode>> {
+    const lifecycle = this.beginLifecycleOperation(options);
+    const budget = createRequestBudget(lifecycle.options, this.timeouts.requestMs);
+    const requestOptions = { signal: budget.signal, timeoutMs: null };
+    try {
+      const starting = this.startOperation;
+      if (starting) {
+        const started = await this.waitForStart(starting, requestOptions, null);
+        if (!started.ok) return started;
+      }
+      if (!this.lifecycleCurrent(lifecycle.generation)) {
+        return connectFailure(connectProblem(
+          "session_destroyed",
+          lifecycleProblemMessage("session_destroyed")
+        ) as ConnectProblem<Code | SessionProblemCode>);
+      }
+      const base = this.lifecycleBase();
+      if (!base.ok) return base;
+      const outcome = await operation(base.value, requestOptions, lifecycle.generation);
+      if (!this.lifecycleCurrent(lifecycle.generation)) return this.destroyedOutcome(outcome);
+      return outcome;
+    } catch (error) {
+      if (error instanceof MdbaseConnectError) {
+        if (!this.lifecycleCurrent(lifecycle.generation)) {
+          if (error.problem.code === "operation_outcome_unknown") {
+            return connectFailure(error.problem as ConnectProblem<Code | SessionProblemCode>);
+          }
+          return connectFailure(connectProblem(
+            "session_destroyed",
+            lifecycleProblemMessage("session_destroyed")
+          ) as ConnectProblem<Code | SessionProblemCode>);
+        }
+        return connectFailure(error.problem as ConnectProblem<Code | SessionProblemCode>);
+      }
+      throw error;
+    } finally {
+      budget.dispose();
+      lifecycle.dispose();
+    }
+  }
+
+  private beginLifecycleOperation(options: ConnectRequestOptions = {}) {
+    const controller = new AbortController();
+    const abort = () => controller.abort(options.signal?.reason);
+    if (options.signal?.aborted) abort();
+    else options.signal?.addEventListener("abort", abort, { once: true });
+    this.operationControllers.add(controller);
+    return {
+      generation: this.lifecycleGeneration,
+      options: { ...options, signal: controller.signal },
+      dispose: () => {
+        options.signal?.removeEventListener("abort", abort);
+        this.operationControllers.delete(controller);
+      }
+    };
+  }
+
+  private lifecycleCurrent(generation: number): boolean {
+    return this.snapshot.status !== "destroyed" && generation === this.lifecycleGeneration;
+  }
+
+  private destroyedOutcome<Code extends ConnectProblemCode>(
+    outcome: ConnectOutcome<unknown, Code>
+  ): ConnectOutcome<never, Code | SessionProblemCode> {
+    if (!outcome.ok && outcome.problem.code === "operation_outcome_unknown") return outcome;
+    return connectFailure(connectProblem(
+      "session_destroyed",
+      lifecycleProblemMessage("session_destroyed")
+    ) as ConnectProblem<Code | SessionProblemCode>);
   }
 
   private requireManifest(): MdbaseAppManifest {
@@ -670,6 +933,12 @@ function declarationIdFromFamilyIdentity(familyIdentity: string): string {
     throw new Error("The registered application has no valid declaration identity.");
   }
   return familyIdentity.slice(prefix.length);
+}
+
+function lifecycleProblemMessage(code: LifecycleProblemCode): string {
+  if (code === "session_destroyed") return "This application session has been destroyed.";
+  if (code === "session_starting") return "The application session is still starting.";
+  return "Start the application session before using it.";
 }
 
 function defaultVerificationStore(): MdbaseApplicationVerificationStore {

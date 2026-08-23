@@ -5,6 +5,7 @@ export const CONNECT_PROBLEM_VERSION = 1 as const;
 export const CONNECT_PROBLEM_CATALOG = {
   "access_denied": { category: "authorization", recovery: "reauthorize" },
   "access_paused": { category: "availability", recovery: "resume_connector_access" },
+  "application_declaration_mismatch": { category: "authorization", recovery: "reauthorize" },
   "application_identity_unavailable": { category: "compatibility", recovery: "upgrade_application" },
   "approval_window_blocked": { category: "authorization", recovery: "reauthorize" },
   "authority_authorization_changed": { category: "authorization", recovery: "reauthorize" },
@@ -103,6 +104,9 @@ export const CONNECT_PROBLEM_CATALOG = {
   "relay_unavailable": { category: "availability", recovery: "retry" },
   "sandbox_unsupported": { category: "compatibility", recovery: "fix_request" },
   "scope_denied": { category: "authorization", recovery: "reauthorize" },
+  "session_destroyed": { category: "cancellation", recovery: "none" },
+  "session_not_started": { category: "validation", recovery: "fix_request" },
+  "session_starting": { category: "availability", recovery: "retry" },
   "stale_file_revision": { category: "conflict", recovery: "refresh" },
   "storage_required": { category: "compatibility", recovery: "none" },
   "sync_failed": { category: "availability", recovery: "retry" },
@@ -134,6 +138,7 @@ export interface ConnectProblemDetailsByCode {
   "return_to"?: string;
 };
   "access_paused": undefined;
+  "application_declaration_mismatch": undefined;
   "application_identity_unavailable": undefined;
   "approval_window_blocked": {
   "user_code": string;
@@ -292,6 +297,9 @@ export interface ConnectProblemDetailsByCode {
   "relay_unavailable": undefined;
   "sandbox_unsupported": undefined;
   "scope_denied": undefined;
+  "session_destroyed": undefined;
+  "session_not_started": undefined;
+  "session_starting": undefined;
   "stale_file_revision": undefined;
   "storage_required": undefined;
   "sync_failed": undefined;
@@ -323,6 +331,12 @@ export interface ConnectProblemByCode {
     code: "access_paused";
     category: "availability";
     recovery: "resume_connector_access";
+    details?: never;
+  };
+  "application_declaration_mismatch": ConnectProblemBase & {
+    code: "application_declaration_mismatch";
+    category: "authorization";
+    recovery: "reauthorize";
     details?: never;
   };
   "application_identity_unavailable": ConnectProblemBase & {
@@ -911,6 +925,24 @@ export interface ConnectProblemByCode {
     code: "scope_denied";
     category: "authorization";
     recovery: "reauthorize";
+    details?: never;
+  };
+  "session_destroyed": ConnectProblemBase & {
+    code: "session_destroyed";
+    category: "cancellation";
+    recovery: "none";
+    details?: never;
+  };
+  "session_not_started": ConnectProblemBase & {
+    code: "session_not_started";
+    category: "validation";
+    recovery: "fix_request";
+    details?: never;
+  };
+  "session_starting": ConnectProblemBase & {
+    code: "session_starting";
+    category: "availability";
+    recovery: "retry";
     details?: never;
   };
   "stale_file_revision": ConnectProblemBase & {

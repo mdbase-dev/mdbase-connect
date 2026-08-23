@@ -939,6 +939,54 @@ describe("mdbase editor", () => {
     expect(events.indexOf("complete")).toBeLessThan(events.indexOf("describe"));
   });
 
+  it("offers an explicit retry for startup failure", async () => {
+    const gateway = new DemoCollectionGateway(1);
+    const lifecycle = Object.create(gateway) as CollectionGateway;
+    const failed: CollectionSessionSnapshot = {
+      status: "start_failed",
+      problem: { message: "Connect is temporarily unavailable.", recovery: "retry" },
+      connections: [{ collectionId: "saved-notes", displayName: "Saved Notes", operations: [] }]
+    };
+    const unselected: CollectionSessionSnapshot = { status: "unselected", connections: [] };
+    const startSession = vi.fn()
+      .mockResolvedValueOnce(failed)
+      .mockResolvedValueOnce(unselected);
+    lifecycle.startSession = startSession;
+    lifecycle.sessionSnapshot = () => failed;
+    lifecycle.onSessionChange = () => () => undefined;
+
+    render(<App gateway={lifecycle} />);
+    const retry = await screen.findByRole("button", { name: "Retry opening editor" });
+    expect(screen.getByRole("alert")).toHaveTextContent("Connect is temporarily unavailable.");
+    expect(screen.queryByText("Saved Notes")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Saved Notes/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Forget from this browser/i })).not.toBeInTheDocument();
+
+    await userEvent.click(retry);
+
+    await waitFor(() => expect(startSession).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole("button", { name: "Choose a collection" })).toBeInTheDocument();
+  });
+
+  it("renders destroyed lifecycle as fatal without a connect action", async () => {
+    const gateway = new DemoCollectionGateway(1);
+    const lifecycle = Object.create(gateway) as CollectionGateway;
+    const destroyed: CollectionSessionSnapshot = {
+      status: "destroyed",
+      connections: [{ collectionId: "saved-notes", displayName: "Saved Notes", operations: [] }]
+    };
+    lifecycle.startSession = vi.fn(async () => destroyed);
+    lifecycle.sessionSnapshot = () => destroyed;
+    lifecycle.onSessionChange = () => () => undefined;
+
+    render(<App gateway={lifecycle} />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Reload the editor");
+    expect(screen.queryByRole("button", { name: /collection|editor/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("Saved Notes")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Forget|Open/i })).not.toBeInTheDocument();
+  });
+
   it("forgets one saved connection from the connection screen without implying deletion or revocation", async () => {
     const gateway = new DemoCollectionGateway(1);
     const disconnected = Object.create(gateway) as CollectionGateway;

@@ -12,6 +12,7 @@ interface StoredTokenResponseOptions {
   clientId: string;
   keyHandle?: string;
   previous: StoredToken | null;
+  retiredKeyHandles?: string[];
   defaultApplicationOrigin: string;
   pinConnectorIdentity(connectorId: string, publicKey: string): void;
 }
@@ -21,6 +22,7 @@ export function storedTokenFromResponse({
   clientId,
   keyHandle,
   previous,
+  retiredKeyHandles,
   defaultApplicationOrigin,
   pinConnectorIdentity
 }: StoredTokenResponseOptions): StoredToken {
@@ -115,6 +117,7 @@ export function storedTokenFromResponse({
     fileCapability: body.file_capability ?? undefined,
     applicationOrigin: body.application_origin ?? defaultApplicationOrigin,
     keyHandle,
+    ...(retiredKeyHandles?.length ? { retiredKeyHandles } : {}),
     savedAt: Date.now(),
     authority: body.authority ? {
       operationsUrl: body.authority.operations_url,

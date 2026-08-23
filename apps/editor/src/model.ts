@@ -48,6 +48,12 @@ export interface ConnectionSummary {
 
 export type CollectionSessionSnapshot =
   | { status: "unselected"; connections: ConnectionSummary[] }
+  | {
+      status: "start_failed";
+      problem: { message: string; recovery: string };
+      connections: ConnectionSummary[];
+    }
+  | { status: "destroyed"; connections: ConnectionSummary[] }
   | { status: "ready"; connection: ConnectionSummary; connections: ConnectionSummary[] }
   | {
       status: "unavailable";

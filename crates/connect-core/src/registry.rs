@@ -148,6 +148,8 @@ pub enum ConnectError {
     InvalidInput(String),
     #[error("Application access denied: {0}")]
     AccessDenied(String),
+    #[error("Application declaration mismatch: {0}")]
+    ApplicationDeclarationMismatch(String),
     #[error("Remote access is paused on this computer")]
     AccessPaused,
     #[error("Encrypted relay request was rejected")]
@@ -235,6 +237,7 @@ impl ConnectError {
             Self::UnsupportedOperation(_) => "unsupported_operation",
             Self::InvalidInput(_) => "invalid_input",
             Self::AccessDenied(_) => "access_denied",
+            Self::ApplicationDeclarationMismatch(_) => "application_declaration_mismatch",
             Self::AccessPaused => "access_paused",
             Self::EncryptedRelayRejected => "encrypted_relay_rejected",
             Self::OperationCancelled => "operation_cancelled",

@@ -475,6 +475,31 @@ function injectConnection(
   return { authorize };
 }
 
+describe("ConnectCollectionGateway lifecycle", () => {
+  it("preserves retryable startup failure and terminal destruction", async () => {
+    const gateway = new ConnectCollectionGateway("https://connect.example");
+    const problem = connectProblem("temporarily_unavailable", "Startup is unavailable.");
+    let snapshot: MdbaseApplicationSessionSnapshot = {
+      status: "start_failed",
+      problem,
+      connections: []
+    };
+    injectSession(gateway, {
+      getSnapshot: () => snapshot,
+      start: async () => connectFailure(problem)
+    });
+
+    await expect(gateway.startSession()).resolves.toEqual({
+      status: "start_failed",
+      problem,
+      connections: []
+    });
+
+    snapshot = { status: "destroyed", connections: [] };
+    expect(gateway.sessionSnapshot()).toEqual({ status: "destroyed", connections: [] });
+  });
+});
+
 function injectSession(
   gateway: ConnectCollectionGateway,
   session: {
