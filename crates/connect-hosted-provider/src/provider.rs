@@ -27,7 +27,8 @@ use mdbase_connect_protocol::{
     SyncMutation, SyncMutationError, SyncMutationOperation, SyncMutationReceipt, SyncRecord,
     SyncReplicaMode, SyncResourceDocument, SyncSession, SyncSnapshotPage, SyncSnapshotRecord,
     TypePackProvision, AUTHORITY_PROOF_DOMAIN, AUTHORITY_PROOF_VERSION, CONTROL_PROTOCOL_VERSION,
-    FILE_PROTOCOL_VERSION, SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS, SYNC_PROTOCOL_VERSION,
+    FILE_PROTOCOL_VERSION, MAX_COLLABORATION_PAYLOAD_BYTES,
+    SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS, SYNC_PROTOCOL_VERSION,
 };
 use mdbase_connect_runtime::contract_scope::{ContractScope, ContractSelector};
 use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
@@ -155,7 +156,7 @@ pub struct CollaborationLimits {
 impl Default for CollaborationLimits {
     fn default() -> Self {
         Self {
-            max_update_bytes: 1_048_576,
+            max_update_bytes: MAX_COLLABORATION_PAYLOAD_BYTES as u64,
             max_snapshot_bytes: 4_194_304,
             max_document_bytes: 2_097_152,
             max_retained_updates: 10_000,
@@ -178,7 +179,8 @@ impl CollaborationLimits {
         {
             return Err("hosted collaboration limits must be greater than zero");
         }
-        if self.max_snapshot_bytes < self.max_document_bytes
+        if self.max_update_bytes > MAX_COLLABORATION_PAYLOAD_BYTES as u64
+            || self.max_snapshot_bytes < self.max_document_bytes
             || self.compaction_threshold > self.max_retained_updates
         {
             return Err("hosted collaboration limits are inconsistent");

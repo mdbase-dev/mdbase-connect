@@ -85,7 +85,7 @@ struct Arguments {
     #[arg(
         long,
         env = "MDBASE_CONNECT_HOSTED_COLLAB_MAX_UPDATE_BYTES",
-        default_value_t = 1_048_576
+        default_value_t = 262_144
     )]
     collaboration_max_update_bytes: u64,
     #[arg(

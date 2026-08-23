@@ -59,7 +59,8 @@ CREATE TABLE hosted_provider_collaboration_updates (
     REFERENCES hosted_provider_collaboration_documents(collection_id, record_id, collaboration_epoch, profile)
     ON DELETE CASCADE,
   FOREIGN KEY (replica_id, collection_id)
-    REFERENCES hosted_provider_replicas(id, collection_id) ON DELETE SET NULL
+    REFERENCES hosted_provider_replicas(id, collection_id)
+    ON DELETE SET NULL (replica_id)
 );
 
 CREATE INDEX hosted_provider_collaboration_updates_replay_idx
@@ -78,7 +79,6 @@ CREATE TABLE hosted_provider_collaboration_receipts (
   sequence bigint NOT NULL CHECK (sequence > 0),
   created_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (collection_id, record_id, collaboration_epoch, profile, replica_id, client_mutation_id),
-  UNIQUE (collection_id, record_id, collaboration_epoch, profile, mutation_digest),
   FOREIGN KEY (collection_id, record_id, collaboration_epoch, profile)
     REFERENCES hosted_provider_collaboration_documents(collection_id, record_id, collaboration_epoch, profile)
     ON DELETE CASCADE,
@@ -94,10 +94,18 @@ CREATE TABLE hosted_provider_collaboration_tickets (
   collaboration_epoch bigint NOT NULL CHECK (collaboration_epoch > 0),
   profile text NOT NULL CHECK (profile = 'markdown-body-yjs-v13'),
   mode text NOT NULL CHECK (mode IN ('read_only', 'read_write')),
+  allowed_origin text NOT NULL
+    CHECK (length(allowed_origin) BETWEEN 1 AND 2048),
+  proof_public_key_digest bytea,
+  scope_epoch bigint NOT NULL CHECK (scope_epoch >= 0),
   expires_at timestamptz NOT NULL,
   consumed_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
-  CHECK (octet_length(ticket_hash) > 0),
+  CHECK (octet_length(ticket_hash) = 32),
+  CHECK (
+    proof_public_key_digest IS NULL
+    OR octet_length(proof_public_key_digest) = 32
+  ),
   CHECK (expires_at > created_at),
   CHECK (consumed_at IS NULL OR consumed_at >= created_at),
   FOREIGN KEY (replica_id, collection_id)
@@ -114,7 +122,21 @@ CREATE OR REPLACE FUNCTION hosted_provider_validate_collaboration_ticket_consump
 RETURNS trigger AS $$
 BEGIN
   IF OLD.consumed_at IS NOT NULL OR NEW.consumed_at IS NULL
-     OR NEW.consumed_at > NEW.expires_at OR NEW.consumed_at > now() THEN
+     OR now() >= OLD.expires_at
+     OR NEW.consumed_at >= OLD.expires_at
+     OR NEW.consumed_at > now()
+     OR NEW.ticket_hash IS DISTINCT FROM OLD.ticket_hash
+     OR NEW.replica_id IS DISTINCT FROM OLD.replica_id
+     OR NEW.collection_id IS DISTINCT FROM OLD.collection_id
+     OR NEW.record_id IS DISTINCT FROM OLD.record_id
+     OR NEW.collaboration_epoch IS DISTINCT FROM OLD.collaboration_epoch
+     OR NEW.profile IS DISTINCT FROM OLD.profile
+     OR NEW.mode IS DISTINCT FROM OLD.mode
+     OR NEW.allowed_origin IS DISTINCT FROM OLD.allowed_origin
+     OR NEW.proof_public_key_digest IS DISTINCT FROM OLD.proof_public_key_digest
+     OR NEW.scope_epoch IS DISTINCT FROM OLD.scope_epoch
+     OR NEW.expires_at IS DISTINCT FROM OLD.expires_at
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
     RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'collaboration_ticket_not_single_use_or_expired';
   END IF;
   RETURN NEW;
@@ -122,8 +144,8 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER hosted_provider_collaboration_ticket_consumption
-BEFORE UPDATE OF consumed_at ON hosted_provider_collaboration_tickets
-FOR EACH ROW WHEN (OLD.consumed_at IS DISTINCT FROM NEW.consumed_at)
+BEFORE UPDATE ON hosted_provider_collaboration_tickets
+FOR EACH ROW
 EXECUTE FUNCTION hosted_provider_validate_collaboration_ticket_consumption();
 
 -- Keep collaboration overhead separate from ordinary content/file accounting.

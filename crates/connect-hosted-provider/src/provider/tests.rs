@@ -50,6 +50,12 @@ fn collaboration_limits_fail_closed_for_zero_and_inconsistent_values() {
     .validate()
     .is_err());
     assert!(CollaborationLimits {
+        max_update_bytes: mdbase_connect_protocol::MAX_COLLABORATION_PAYLOAD_BYTES as u64 + 1,
+        ..defaults
+    }
+    .validate()
+    .is_err());
+    assert!(CollaborationLimits {
         compaction_threshold: defaults.max_retained_updates + 1,
         ..defaults
     }
