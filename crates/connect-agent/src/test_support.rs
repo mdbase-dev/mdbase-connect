@@ -95,6 +95,7 @@ pub(crate) fn application_security_with_contracts(
         }),
         requested_operations: operations.to_vec(),
         requested_files,
+        requested_collaboration: None,
         collection_id: Some(collection_id),
     };
     let signature: Signature = installation_signing.sign(&binding.signing_message().unwrap());
