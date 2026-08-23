@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.1.0-beta.85
+
+Beta.85 makes SDK startup explicit and turns application declaration drift into
+a safe, recoverable reauthorization flow.
+
 - **Breaking:** `MdbaseApplicationSession` replaces `opening` with explicit
   `not_started`, `starting`, `start_failed`, and terminal `destroyed` lifecycle
   snapshots. `start_failed` carries the original typed problem and `start()`
@@ -15,6 +20,10 @@
   `application_declaration_mismatch` as `authorization_required` before setup
   checks. Migration requires an explicit `authorize("selected")`; Connect
   preserves pending mutation recovery and does not replay it automatically.
+- Grant-key rotation preserves in-flight and durable mutation recovery across
+  browser contexts, then removes retired key material only when it is safe.
+- The editor gates collection actions on successful startup and provides an
+  explicit retry path for recoverable startup failures.
 
 ## 0.1.0-beta.84
 
