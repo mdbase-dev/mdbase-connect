@@ -313,9 +313,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       throw error;
     }
     const operations = uniqueOperations(options.operations ?? DEFAULT_OPERATIONS);
-    const collaboration = requestsRecordCollaboration(
-      application.requirements?.capabilities
-    );
+    const collaboration = requestedCollaboration(application.requirements?.capabilities);
     const issuedAt = new Date();
     const proof = await signApplicationAuthorization({
       protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
@@ -349,12 +347,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       ...(application.requirements?.files
         ? { requested_files: application.requirements.files }
         : {}),
-      ...(collaboration ? {
-        requested_collaboration: {
-          contract_version: COLLABORATION_CONTRACT_VERSION,
-          profiles: ["markdown-body-yjs-v13"] as ["markdown-body-yjs-v13"]
-        }
-      } : {}),
+      ...(collaboration ? { requested_collaboration: collaboration } : {}),
       ...(targetCollectionId ? { collection_id: targetCollectionId } : {})
     }, installation);
     const pending: StoredAuthorization = {
@@ -471,9 +464,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       throw error;
     }
     const operations = uniqueOperations(options.operations ?? DEFAULT_OPERATIONS);
-    const collaboration = requestsRecordCollaboration(
-      application.requirements?.capabilities
-    );
+    const collaboration = requestedCollaboration(application.requirements?.capabilities);
     const authorizationId = crypto.randomUUID();
     const issuedAt = new Date();
     const proof = await signApplicationAuthorization({
@@ -506,12 +497,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       ...(application.requirements?.files
         ? { requested_files: application.requirements.files }
         : {}),
-      ...(collaboration ? {
-        requested_collaboration: {
-          contract_version: COLLABORATION_CONTRACT_VERSION,
-          profiles: ["markdown-body-yjs-v13"] as ["markdown-body-yjs-v13"]
-        }
-      } : {}),
+      ...(collaboration ? { requested_collaboration: collaboration } : {}),
       ...(options.target?.kind === "collection"
         ? { collection_id: options.target.collectionId }
         : {})
@@ -1007,4 +993,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     const connections = this.connections();
     for (const listener of this.listeners) listener(connections);
   }
+}
+function requestedCollaboration(input: Parameters<typeof requestsRecordCollaboration>[0]) {
+  return requestsRecordCollaboration(input) ? { contract_version: COLLABORATION_CONTRACT_VERSION, profiles: ["markdown-body-yjs-v13"] as ["markdown-body-yjs-v13"] } : undefined;
 }

@@ -24,10 +24,7 @@ import {
   type CollectionAccessContext
 } from "../../collection-access.js";
 import type { DatabasePool } from "../../db.js";
-import {
-  matchesMembershipBinding,
-  membershipBindingForAccess
-} from "../../collection-membership-binding.js";
+import { matchesMembershipBinding, membershipBindingForAccess } from "../../collection-membership-binding.js";
 import { contractRequirements } from "../../hosted.js";
 import { HostedProviderClient } from "../../hosted-provider.js";
 import { hostedReplicaCollectionOperations } from "../../hosted-replica-policy.js";
@@ -46,12 +43,9 @@ import {
   requiresHostedCollection
 } from "../grants/policy.js";
 import { syncHostedNotificationGrant } from "../grants/service.js";
-import {
-  applicationOriginForRedirect,
-  normalizedApplicationOrigin
-} from "./redirects.js";
+import { applicationOriginForRedirect, normalizedApplicationOrigin } from "./redirects.js";
 import { declarationIdFromFamilyIdentity } from "../applications/identity.js";
-
+const jsonOrNull = (value: unknown) => value ? JSON.stringify(value) : null;
 export async function approvePortalAuthorization(
   db: DatabasePool,
   relay: RelayHub,
@@ -851,9 +845,7 @@ export async function approveHostedAuthorization(
           membershipBinding?.membershipId ?? null,
           membershipBinding?.policyId ?? null,
           membershipBinding?.policyRevision ?? null,
-          plan.collaborationCapability
-            ? JSON.stringify(plan.collaborationCapability)
-            : null
+          jsonOrNull(plan.collaborationCapability)
         ]
       );
       await connection.query(
@@ -875,9 +867,7 @@ export async function approveHostedAuthorization(
           pending.application_signing_public_key,
           applicationOrigin,
           plan.fileCapability ? JSON.stringify(plan.fileCapability) : null,
-          plan.collaborationCapability
-            ? JSON.stringify(plan.collaborationCapability)
-            : null,
+          jsonOrNull(plan.collaborationCapability),
           JSON.stringify(pending.notifications.criteria),
           JSON.stringify(pending.application_authorization),
           applicationInstallationId,
@@ -920,9 +910,7 @@ export async function approveHostedAuthorization(
           membershipBinding?.membershipId ?? null,
           membershipBinding?.policyId ?? null,
           membershipBinding?.policyRevision ?? null,
-          plan.collaborationCapability
-            ? JSON.stringify(plan.collaborationCapability)
-            : null
+          jsonOrNull(plan.collaborationCapability)
         ]
       );
       await connection.query(
@@ -947,9 +935,7 @@ export async function approveHostedAuthorization(
           pending.application_signing_public_key,
           applicationOrigin,
           plan.fileCapability ? JSON.stringify(plan.fileCapability) : null,
-          plan.collaborationCapability
-            ? JSON.stringify(plan.collaborationCapability)
-            : null,
+          jsonOrNull(plan.collaborationCapability),
           JSON.stringify(pending.notifications.criteria),
           JSON.stringify(pending.application_authorization),
           applicationInstallationId,
