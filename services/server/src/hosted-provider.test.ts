@@ -342,7 +342,8 @@ describe("hosted provider control client", () => {
         operation_transport: [2, 3],
         authorization_binding: [3, 4, 5, 6],
         semantic_capabilities: [1, 2],
-        durable_mutation: [1, 2]
+        durable_mutation: [1, 2],
+        collaboration: [1, 2]
       })
     ), { status: 200 }));
     const provider = new HostedProviderClient({
@@ -350,6 +351,7 @@ describe("hosted provider control client", () => {
       internalToken: "internal-secret"
     });
     await expect(provider.ready()).resolves.toBeUndefined();
+    expect(provider.collaborationSupported()).toBe(true);
   });
 
   it("accepts core readiness while durable notification delivery is degraded", async () => {

@@ -3,9 +3,13 @@ import type {
   CollectionContractDescriptor,
   CollectionOperation,
   FileCapability,
-  GrantScope
+  GrantScope,
+  ReplicaCollaborationCapability
 } from "@mdbase-dev/connect-protocol";
-import { FILE_PROTOCOL_VERSION } from "@mdbase-dev/connect-protocol";
+import {
+  FILE_PROTOCOL_VERSION,
+  requestsRecordCollaboration
+} from "@mdbase-dev/connect-protocol";
 import type { CollectionAccessContext } from "./collection-access.js";
 import {
   requiresFullCollectionAccess,
@@ -19,6 +23,7 @@ export interface GrantPlan {
   scope: GrantScope;
   replicaMode: "read_only" | "read_write";
   fileCapability?: FileCapability;
+  collaborationCapability?: ReplicaCollaborationCapability;
 }
 
 /**
@@ -33,6 +38,7 @@ export function planCollectionGrant(input: {
   requirements: ApplicationRequirements;
   availableContracts: readonly CollectionContractDescriptor[];
   access: CollectionAccessContext;
+  collaborationSupported?: boolean;
 }): GrantPlan {
   const operations = [...new Set(input.requestedOperations)];
   const fileRequirement = input.requirements.files;
@@ -83,6 +89,12 @@ export function planCollectionGrant(input: {
   );
   const scope = intersectScope(applicationScope, input.access.scopeCeiling);
   const fileCapability = fileCapabilityForRequirements(input.requirements);
+  const collaborationCapability = collaborationCapabilityForGrant({
+    requirements: input.requirements,
+    operations,
+    access: input.access,
+    supported: input.collaborationSupported === true
+  });
   return {
     operations,
     scope,
@@ -90,7 +102,29 @@ export function planCollectionGrant(input: {
       || fileRequirement?.actions.some((action) => WRITE_FILE_ACTIONS.has(action))
       ? "read_write"
       : "read_only",
-    ...(fileCapability ? { fileCapability } : {})
+    ...(fileCapability ? { fileCapability } : {}),
+    ...(collaborationCapability ? { collaborationCapability } : {})
+  };
+}
+
+function collaborationCapabilityForGrant(input: {
+  requirements: ApplicationRequirements;
+  operations: readonly CollectionOperation[];
+  access: CollectionAccessContext;
+  supported: boolean;
+}): ReplicaCollaborationCapability | undefined {
+  if (
+    !input.supported
+    || !requestsRecordCollaboration(input.requirements.capabilities)
+    || !input.access.collaborationCeiling
+    || !input.operations.includes("read")
+  ) return undefined;
+  const write = input.operations.includes("update")
+    && input.access.collaborationCeiling.access === "read_write";
+  return {
+    contract_version: 1,
+    profiles: ["markdown-body-yjs-v13"],
+    access: write ? "read_write" : "read_only"
   };
 }
 

@@ -2,7 +2,8 @@ import {
   COLLECTION_OPERATIONS,
   type CollectionOperation,
   type FileCapability,
-  type GrantScope
+  type GrantScope,
+  type ReplicaCollaborationCapability
 } from "@mdbase-dev/connect-protocol";
 import type { DatabaseQueryable } from "./db.js";
 import {
@@ -33,6 +34,7 @@ export interface CollectionAccessContext {
   operationCeiling: ReadonlySet<CollectionOperation>;
   scopeCeiling: GrantScope;
   fileCeiling: FileCapability;
+  collaborationCeiling: ReplicaCollaborationCapability | null;
 }
 
 export interface CollectionAccessView {
@@ -126,7 +128,12 @@ export function ownerAccess(
     actions: OWNER_ACTIONS,
     operationCeiling: OWNER_OPERATIONS,
     scopeCeiling: { access: "full_collection", contracts: [] },
-    fileCeiling: structuredClone(OWNER_FILE_CEILING)
+    fileCeiling: structuredClone(OWNER_FILE_CEILING),
+    collaborationCeiling: {
+      contract_version: 1,
+      profiles: ["markdown-body-yjs-v13"],
+      access: "read_write"
+    }
   };
 }
 
@@ -145,7 +152,10 @@ export function memberAccess(
     actions: new Set(policy.actions),
     operationCeiling: new Set(policy.operations),
     scopeCeiling: structuredClone(policy.scopeCeiling),
-    fileCeiling: structuredClone(policy.fileCeiling)
+    fileCeiling: structuredClone(policy.fileCeiling),
+    collaborationCeiling: policy.collaborationCeiling
+      ? structuredClone(policy.collaborationCeiling)
+      : null
   };
 }
 

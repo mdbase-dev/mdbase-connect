@@ -4,6 +4,7 @@ import type { StoredToken } from "./internal-types.js";
 import {
   parseGrantScope,
   validAuthorityTokenResponse,
+  validCollaborationCapability,
   validFileCapability
 } from "./runtime-utils.js";
 
@@ -47,6 +48,22 @@ export function storedTokenFromResponse({
     throw connectError(
       "invalid_token_response",
       "Authorization returned conflicting collection transports."
+    );
+  }
+  if (body.collaboration_capability !== null
+      && body.collaboration_capability !== undefined
+      && (
+        !validCollaborationCapability(body.collaboration_capability)
+        || !body.authority
+        || scope.access !== "full_collection"
+        || !Array.isArray(body.operations)
+        || !body.operations.includes("read")
+        || (body.collaboration_capability.access === "read_write"
+          && !body.operations.includes("update"))
+      )) {
+    throw connectError(
+      "invalid_token_response",
+      "Authorization returned an invalid collaboration capability."
     );
   }
   if (body.file_capability !== null && body.file_capability !== undefined
@@ -115,6 +132,7 @@ export function storedTokenFromResponse({
     grantId: body.grant_id,
     encryption: body.encryption ?? undefined,
     fileCapability: body.file_capability ?? undefined,
+    collaborationCapability: body.collaboration_capability ?? undefined,
     applicationOrigin: body.application_origin ?? defaultApplicationOrigin,
     keyHandle,
     ...(retiredKeyHandles?.length ? { retiredKeyHandles } : {}),

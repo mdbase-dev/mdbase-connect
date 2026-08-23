@@ -459,6 +459,7 @@ interface InvitationRow {
   operations: MembershipPolicySnapshot["operations"];
   scope_ceiling: MembershipPolicySnapshot["scopeCeiling"];
   file_ceiling: MembershipPolicySnapshot["fileCeiling"];
+  collaboration_ceiling: MembershipPolicySnapshot["collaborationCeiling"];
   state: string;
   expires_at: Date | string;
 }
@@ -581,9 +582,11 @@ async function insertInvitation(
     `INSERT INTO collection_invitations
        (id, collection_id, invited_by_user_id, target_mode, submitted_email,
         target_user_id, invitation_code_id, token_hash, role, preset_version,
-        actions, operations, scope_ceiling, file_ceiling, expires_at)
+        actions, operations, scope_ceiling, file_ceiling,
+        collaboration_ceiling, expires_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-             $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb, $15)`,
+             $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb, $15::jsonb,
+             $16)`,
     [
       input.id,
       input.collectionId,
@@ -599,6 +602,9 @@ async function insertInvitation(
       JSON.stringify(input.snapshot.operations),
       JSON.stringify(input.snapshot.scopeCeiling),
       JSON.stringify(input.snapshot.fileCeiling),
+      input.snapshot.collaborationCeiling
+        ? JSON.stringify(input.snapshot.collaborationCeiling)
+        : null,
       input.expiresAt
     ]
   );
@@ -611,7 +617,8 @@ function invitationSnapshot(row: InvitationRow): MembershipPolicySnapshot {
     actions: row.actions,
     operations: row.operations,
     scopeCeiling: row.scope_ceiling,
-    fileCeiling: row.file_ceiling
+    fileCeiling: row.file_ceiling,
+    collaborationCeiling: row.collaboration_ceiling
   };
 }
 

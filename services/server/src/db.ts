@@ -34,6 +34,18 @@ export async function openDatabase(
       implementation: () => true
     });
     memory.public.registerFunction({
+      name: "jsonb_typeof",
+      args: [DataType.jsonb],
+      returns: DataType.text,
+      implementation: (value: unknown) => Array.isArray(value)
+        ? "array"
+        : value === null
+          ? "null"
+          : typeof value === "object"
+            ? "object"
+            : typeof value
+    });
+    memory.public.registerFunction({
       name: "replace",
       args: [DataType.text, DataType.text, DataType.text],
       returns: DataType.text,

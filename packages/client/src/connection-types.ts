@@ -3,6 +3,7 @@ import type {
   FileCapability,
   GrantScope,
   JsonObject,
+  ReplicaCollaborationCapability,
   SyncChangesPage,
   SyncMutation,
   SyncMutationReceipt,
@@ -26,6 +27,7 @@ export interface MdbaseConnectionInfo {
   operations: CollectionOperation[];
   scope: GrantScope;
   fileCapability?: FileCapability;
+  collaborationCapability?: ReplicaCollaborationCapability;
   authority:
     | { kind: "hosted"; durability: "provider" }
     | { kind: "connector"; durability: "computer" };

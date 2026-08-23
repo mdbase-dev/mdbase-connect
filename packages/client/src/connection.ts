@@ -4,7 +4,8 @@ import type {
   FileCapability,
   GrantScope,
   JsonObject,
-  MdbaseOperationEnvelope
+  MdbaseOperationEnvelope,
+  ReplicaCollaborationCapability
 } from "@mdbase-dev/connect-protocol";
 import { MdbaseCollectionClient } from "./collection-client.js";
 import {
@@ -268,6 +269,10 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     return this.transport.currentToken()?.fileCapability ?? null;
   }
 
+  get collaborationCapability(): ReplicaCollaborationCapability | null {
+    return this.transport.currentToken()?.collaborationCapability ?? null;
+  }
+
   get directAccess(): DirectAccessStatus {
     return this.transport.directAccess;
   }
@@ -291,6 +296,9 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       operations: [...token.operations],
       scope: token.scope,
       ...(token.fileCapability ? { fileCapability: token.fileCapability } : {}),
+      ...(token.collaborationCapability
+        ? { collaborationCapability: token.collaborationCapability }
+        : {}),
       authority: token.authority
         ? { kind: "hosted", durability: "provider" }
         : { kind: "connector", durability: "computer" },

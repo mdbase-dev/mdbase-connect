@@ -27,6 +27,12 @@ export const COLLABORATION_MESSAGE_KIND = {
 
 export type CollaborationMessageKind = keyof typeof COLLABORATION_MESSAGE_KIND;
 
+export interface ReplicaCollaborationCapability {
+  contract_version: 1;
+  profiles: [typeof COLLABORATION_PROFILE];
+  access: "read_only" | "read_write";
+}
+
 export interface CollaborationFrame {
   kind: CollaborationMessageKind;
   metadata: Record<string, unknown>;

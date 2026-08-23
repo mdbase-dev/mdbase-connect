@@ -31,7 +31,7 @@ export interface MdbaseEffectiveCapability {
 }
 
 export interface MdbaseEffectiveCapabilities {
-  contractVersion: 1;
+  contractVersion: 1 | 2;
   values: Partial<Record<ApplicationCapabilityId, MdbaseEffectiveCapability>>;
   requiredAvailable: boolean;
 }
@@ -48,7 +48,7 @@ export function effectiveCapabilities(
     values[id] = effectiveCapability(id, required.has(id), manifest, connection);
   }
   return {
-    contractVersion: 1,
+    contractVersion: requirements.contract_version,
     values,
     requiredAvailable: requirements.required.every(
       (id) => values[id]?.state === "available"
@@ -73,7 +73,7 @@ function effectiveCapability(
     missingOperations,
     evidence: [{
       source: "application" as const,
-      fact: `${required ? "Required" : "Optional"} in capability contract v1.`
+      fact: `${required ? "Required" : "Optional"} in capability contract v${manifest.requirements?.capabilities?.contract_version ?? 1}.`
     }]
   };
   if (missingOperations.length > 0) {
@@ -107,6 +107,19 @@ function effectiveCapability(
           fact: `Missing ${missingContracts.map(({ id, version }) => `${id}@${version}`).join(", ")}.`
         }],
         details: { missingContracts }
+      };
+    }
+  }
+  if (id === "records.collaborate") {
+    if (!connection.collaborationCapability) {
+      return {
+        ...base,
+        state: "unsupported",
+        reason: "This authority or grant does not provide live record collaboration.",
+        evidence: [...base.evidence, {
+          source: "authority",
+          fact: "No collaboration profile was negotiated."
+        }]
       };
     }
   }

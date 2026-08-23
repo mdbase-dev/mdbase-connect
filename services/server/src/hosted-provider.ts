@@ -6,6 +6,7 @@ import type {
   ContractSetupChoice,
   FileCapability,
   GrantSummary,
+  ReplicaCollaborationCapability,
   TypePackProvision
 } from "@mdbase-dev/connect-protocol";
 import {
@@ -54,6 +55,7 @@ export interface HostedReplicaEnrollment {
   operationTransportProtocol?: number;
   operationTransportRecoveryProtocols?: number[];
   fileCapability?: FileCapability;
+  collaborationCapability?: ReplicaCollaborationCapability;
   allowedOrigin?: string;
   proofPublicKey?: string;
   grantId?: string;
@@ -155,6 +157,7 @@ export class HostedProviderClient {
   readonly url: string;
   private readonly endpointUrl: string;
   private readonly internalToken: string;
+  private collaborationAvailable = false;
 
   constructor(config: HostedProviderConfig) {
     this.endpointUrl = new URL(config.url).origin;
@@ -181,6 +184,12 @@ export class HostedProviderClient {
         new Error("Hosted provider capability report is incompatible.")
       );
     }
+    const support = result.provider.contract_support as ConnectContractSupport;
+    this.collaborationAvailable = support.collaboration?.includes(1) === true;
+  }
+
+  collaborationSupported(): boolean {
+    return this.collaborationAvailable;
   }
 
   authorizesInternalToken(candidate: string | null): boolean {
@@ -438,6 +447,9 @@ export class HostedProviderClient {
             }
           : {}),
         ...(replica.fileCapability ? { file_capability: replica.fileCapability } : {}),
+        ...(replica.collaborationCapability
+          ? { collaboration_capability: replica.collaborationCapability }
+          : {}),
         ...(replica.allowedOrigin ? { allowed_origin: replica.allowedOrigin } : {}),
         ...(replica.proofPublicKey ? { proof_public_key: replica.proofPublicKey } : {}),
         ...(replica.grantId ? { grant_id: replica.grantId } : {}),
@@ -496,6 +508,7 @@ export class HostedProviderClient {
       operationTransportProtocol: number;
       operationTransportRecoveryProtocols: number[];
       fileCapability?: FileCapability;
+      collaborationCapability?: ReplicaCollaborationCapability;
       allowedOrigin: string | undefined;
       proofPublicKey: string;
       applicationDeclarationId: string;
@@ -518,6 +531,9 @@ export class HostedProviderClient {
         operation_transport_recovery_protocols:
           policy.operationTransportRecoveryProtocols,
         ...(policy.fileCapability ? { file_capability: policy.fileCapability } : {}),
+        ...(policy.collaborationCapability
+          ? { collaboration_capability: policy.collaborationCapability }
+          : {}),
         allowed_origin: policy.allowedOrigin,
         proof_public_key: policy.proofPublicKey,
         application_declaration_id: policy.applicationDeclarationId,
