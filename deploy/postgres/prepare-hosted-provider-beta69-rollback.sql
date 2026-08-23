@@ -40,15 +40,15 @@ BEGIN
   FROM _sqlx_migrations;
   SELECT count(*)
     INTO missing_migrations
-  FROM generate_series(1, 39) AS required(version)
+  FROM generate_series(1, 40) AS required(version)
   WHERE NOT EXISTS (
     SELECT 1 FROM _sqlx_migrations applied
     WHERE applied.version = required.version AND applied.success
   );
-  IF migration_count <> 39 OR minimum_version <> 1 OR maximum_version <> 39
+  IF migration_count <> 40 OR minimum_version <> 1 OR maximum_version <> 40
      OR failed_migrations <> 0 OR missing_migrations <> 0 THEN
     RAISE EXCEPTION
-      'beta69_rollback_blocked: expected exact successful final ledger 1-39';
+      'beta69_rollback_blocked: expected exact successful final ledger 1-40';
   END IF;
 
   SELECT count(*) INTO invalid_states

@@ -11,6 +11,9 @@ use crate::collaboration::{decrypt_room_bytes, encrypt_room_bytes, AadKind, Room
 use mdbase_connect_collaboration::{CollaborationError, MarkdownBodyDocument};
 use sha2::{Digest, Sha256};
 
+const MAX_COLLABORATION_BATCH_UPDATES: usize = 64;
+const MAX_COLLABORATION_BATCH_BYTES: u64 = 1024 * 1024;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum CollaborationRoomLifecycle {
     Active,
@@ -26,6 +29,7 @@ pub(super) struct CollaborationRoom {
     pub current_sequence: u64,
     pub snapshot_sequence: u64,
     pub retained_update_bytes: u64,
+    pub record_sequence: u64,
     pub lifecycle: CollaborationRoomLifecycle,
 }
 
@@ -141,6 +145,7 @@ impl HostedProvider {
                 current_sequence: 0,
                 snapshot_sequence: 0,
                 retained_update_bytes: 0,
+                record_sequence,
                 lifecycle: CollaborationRoomLifecycle::Active,
             });
         };
@@ -414,6 +419,7 @@ impl HostedProvider {
             current_sequence,
             snapshot_sequence,
             retained_update_bytes: retained_bytes,
+            record_sequence,
             lifecycle: state,
         })
     }
@@ -466,6 +472,11 @@ impl HostedProvider {
         )
         .bind(room.collection_id).bind(room.record_id).bind(to_i64(room.epoch, "collaboration epoch")?).bind(room.profile)
         .bind(to_i64(loaded.current_sequence, "collaboration sequence")?).execute(&mut **transaction).await?;
+        let receipt_bytes: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(sum(octet_length(receipt_ciphertext)),0) FROM hosted_provider_collaboration_receipts WHERE collection_id=$1 AND record_id=$2 AND collaboration_epoch=$3 AND profile=$4",
+        )
+        .bind(room.collection_id).bind(room.record_id).bind(to_i64(room.epoch, "collaboration epoch")?).bind(room.profile)
+        .fetch_one(&mut **transaction).await?;
         sqlx::query(
             "UPDATE hosted_provider_collaboration_documents
              SET snapshot_ciphertext=$5, state_vector_ciphertext=$6,
@@ -481,7 +492,8 @@ impl HostedProvider {
         .bind(&vector_ciphertext)
         .bind(to_i64(loaded.current_sequence, "collaboration sequence")?)
         .bind(to_i64(
-            (snapshot_ciphertext.len() + vector_ciphertext.len()) as u64,
+            (snapshot_ciphertext.len() + vector_ciphertext.len()) as u64
+                + number(receipt_bytes, "receipt bytes")?,
             "collaboration bytes",
         )?)
         .execute(&mut **transaction)
@@ -622,6 +634,21 @@ impl HostedProvider {
                 "A collaboration batch must contain an update.",
             ));
         }
+        if input.contributions.len() > MAX_COLLABORATION_BATCH_UPDATES {
+            return Err(ApiError::quota(
+                "collaboration_batch_too_large",
+                "The collaboration batch contains too many updates.",
+            ));
+        }
+        let mut mutation_ids = BTreeSet::new();
+        if input.contributions.iter().any(|contribution| {
+            !mutation_ids.insert((contribution.replica_id, contribution.client_mutation_id))
+        }) {
+            return Err(ApiError::bad_request(
+                "duplicate_collaboration_mutation_id",
+                "A collaboration batch contains a duplicate mutation identity.",
+            ));
+        }
         let room = RoomIdentity::new(
             input.collection_id,
             input.record_id,
@@ -641,6 +668,12 @@ impl HostedProvider {
             .collect::<Vec<_>>();
         lock_ids.sort_unstable();
         lock_ids.dedup();
+        if lock_ids.len() != 1 {
+            return Err(ApiError::bad_request(
+                "multi_replica_collaboration_batch_unsupported",
+                "Each durable collaboration batch must have one contributing replica.",
+            ));
+        }
         // Replica is the first lock in the global order. Do not resolve the
         // collection key until these rows have all passed capability checks.
         for replica_id in &lock_ids {
@@ -675,6 +708,8 @@ impl HostedProvider {
                     && cap.profiles == vec![crate::COLLABORATION_PROFILE.to_owned()]
                     && cap.access == CollaborationAccess::ReadWrite
             });
+            let unscoped = row.get::<Vec<String>, _>("allowed_types").is_empty()
+                && row.get::<Vec<String>, _>("contract_scope").is_empty();
             let binding_complete = row.get::<Option<Uuid>, _>("grant_id").is_some()
                 && row.get::<Option<String>, _>("allowed_origin").is_some()
                 && row.get::<Option<Vec<u8>>, _>("proof_public_key").is_some()
@@ -688,6 +723,7 @@ impl HostedProvider {
                 || purpose != "application"
                 || mode != "read_write"
                 || !row.get::<bool, _>("full_collection")
+                || !unscoped
                 || !operations.iter().any(|op| op == "read")
                 || !operations.iter().any(|op| op == "update")
                 || !exact_profile
@@ -763,7 +799,7 @@ impl HostedProvider {
                 ));
             }
             let digest = digest_bytes(&contribution.update);
-            let existing = sqlx::query("SELECT mutation_digest, receipt_ciphertext FROM hosted_provider_collaboration_receipts WHERE collection_id=$1 AND record_id=$2 AND collaboration_epoch=$3 AND profile=$4 AND replica_id=$5 AND client_mutation_id=$6")
+            let existing = sqlx::query("SELECT mutation_digest, receipt_ciphertext, sequence FROM hosted_provider_collaboration_receipts WHERE collection_id=$1 AND record_id=$2 AND collaboration_epoch=$3 AND profile=$4 AND replica_id=$5 AND client_mutation_id=$6")
                 .bind(input.collection_id).bind(input.record_id).bind(to_i64(input.epoch, "collaboration epoch")?).bind(room.profile).bind(contribution.replica_id).bind(contribution.client_mutation_id).fetch_optional(&mut **transaction).await?;
             if let Some(row) = existing {
                 let stored: Vec<u8> = row.get("mutation_digest");
@@ -779,11 +815,19 @@ impl HostedProvider {
                     Some(contribution.client_mutation_id),
                     row.get("receipt_ciphertext"),
                 )?;
-                receipts.push(
-                    serde_json::from_slice(&plaintext).map_err(|_| {
-                        ApiError::internal("Stored collaboration receipt is invalid.")
-                    })?,
-                );
+                let receipt: CollaborationBatchReceipt = serde_json::from_slice(&plaintext)
+                    .map_err(|_| ApiError::internal("Stored collaboration receipt is invalid."))?;
+                if receipt.replica_id != contribution.replica_id
+                    || receipt.client_mutation_id != contribution.client_mutation_id
+                    || receipt.sequence
+                        != number(row.get::<i64, _>("sequence"), "collaboration sequence")?
+                    || receipt.mutation_digest != digest
+                {
+                    return Err(ApiError::internal(
+                        "Stored collaboration receipt binding is invalid.",
+                    ));
+                }
+                receipts.push(receipt);
                 continue;
             }
             scratch
@@ -800,6 +844,7 @@ impl HostedProvider {
                 })?;
             total_updates = total_updates
                 .checked_add(contribution.update.len() as u64)
+                .filter(|bytes| *bytes <= MAX_COLLABORATION_BATCH_BYTES)
                 .ok_or_else(|| {
                     ApiError::quota(
                         "collaboration_batch_too_large",
@@ -849,7 +894,8 @@ impl HostedProvider {
             &document,
         )?;
         let pending_count = pending.len();
-        let notification_runtime_active = if self.notifications.is_some() {
+        let body_changed = document.as_bytes() != room_state.record.document.as_bytes();
+        let notification_runtime_active = if body_changed && self.notifications.is_some() {
             sqlx::query_scalar::<_, bool>(
                 "SELECT EXISTS(SELECT 1 FROM hosted_provider_notification_grants WHERE collection_id=$1)",
             )
@@ -859,21 +905,39 @@ impl HostedProvider {
         } else {
             false
         };
-        let committed = super::mutations::commit_hosted_write_set_in(
-            transaction,
-            self,
-            input.collection_id,
-            &data_key,
-            &collection,
-            (lock_ids.len() == 1).then_some(lock_ids[0]),
-            super::mutations::HostedWriteSet {
-                before_records: BTreeMap::from([(input.record_id, room_state.record.clone())]),
-                changed: vec![(input.record_id, Some(classified), Some(document))],
-                primary_record_id: input.record_id,
-            },
-            notification_runtime_active,
-        )
-        .await?;
+        let committed = if body_changed {
+            Some(
+                super::mutations::commit_hosted_write_set_in(
+                    transaction,
+                    self,
+                    input.collection_id,
+                    &data_key,
+                    &collection,
+                    Some(lock_ids[0]),
+                    super::mutations::HostedWriteSet {
+                        before_records: BTreeMap::from([(
+                            input.record_id,
+                            room_state.record.clone(),
+                        )]),
+                        changed: vec![(input.record_id, Some(classified), Some(document))],
+                        primary_record_id: input.record_id,
+                    },
+                    notification_runtime_active,
+                )
+                .await?,
+            )
+        } else {
+            None
+        };
+        let materialized_revision = committed
+            .as_ref()
+            .and_then(|commit| commit.primary.as_ref())
+            .map(|record| record.revision.clone())
+            .unwrap_or_else(|| room_state.record.revision.clone());
+        let record_sequence = committed
+            .as_ref()
+            .map(|commit| commit.head)
+            .unwrap_or(room_state.record_sequence);
         let mut sequence = room_state.current_sequence;
         for (contribution, digest) in pending {
             sequence = sequence
@@ -888,13 +952,13 @@ impl HostedProvider {
                 Some(contribution.client_mutation_id),
                 &contribution.update,
             )?;
-            sqlx::query("INSERT INTO hosted_provider_collaboration_updates (collection_id,record_id,collaboration_epoch,profile,sequence,update_ciphertext,update_digest,replica_id,client_mutation_id,materialized_revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)").bind(input.collection_id).bind(input.record_id).bind(to_i64(input.epoch, "collaboration epoch")?).bind(room.profile).bind(to_i64(sequence, "collaboration sequence")?).bind(&update_ciphertext).bind(&digest).bind(contribution.replica_id).bind(contribution.client_mutation_id).bind(committed.primary.as_ref().map(|r| r.revision.clone()).ok_or_else(|| ApiError::internal("Collaboration commit did not return the primary record."))?).execute(&mut **transaction).await?;
+            sqlx::query("INSERT INTO hosted_provider_collaboration_updates (collection_id,record_id,collaboration_epoch,profile,sequence,update_ciphertext,update_digest,replica_id,client_mutation_id,materialized_revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)").bind(input.collection_id).bind(input.record_id).bind(to_i64(input.epoch, "collaboration epoch")?).bind(room.profile).bind(to_i64(sequence, "collaboration sequence")?).bind(&update_ciphertext).bind(&digest).bind(contribution.replica_id).bind(contribution.client_mutation_id).bind(&materialized_revision).execute(&mut **transaction).await?;
             let receipt = CollaborationBatchReceipt {
                 replica_id: contribution.replica_id,
                 client_mutation_id: contribution.client_mutation_id,
                 sequence,
                 mutation_digest: digest,
-                record_sequence: committed.head,
+                record_sequence,
             };
             let receipt_plaintext = serde_json::to_vec(&receipt)
                 .map_err(|_| ApiError::internal("Collaboration receipt could not be encoded."))?;
@@ -910,17 +974,28 @@ impl HostedProvider {
             sqlx::query("INSERT INTO hosted_provider_collaboration_receipts (collection_id,record_id,collaboration_epoch,profile,replica_id,client_mutation_id,mutation_digest,receipt_ciphertext,sequence) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)").bind(input.collection_id).bind(input.record_id).bind(to_i64(input.epoch, "collaboration epoch")?).bind(room.profile).bind(contribution.replica_id).bind(contribution.client_mutation_id).bind(&receipt.mutation_digest).bind(&receipt_ciphertext).bind(to_i64(sequence, "collaboration sequence")?).execute(&mut **transaction).await?;
             receipts.push(receipt);
         }
-        let vector = scratch.state_vector_v1();
-        let vector_ciphertext = encrypt_room_bytes(
-            &self.crypto,
-            &data_key,
-            &room,
-            AadKind::StateVector,
-            room_state.snapshot_sequence,
-            None,
-            &vector,
-        )?;
-        sqlx::query("UPDATE hosted_provider_collaboration_documents SET state_vector_ciphertext=$5,current_sequence=$6,materialized_revision=$7,retained_update_count=retained_update_count+$8,retained_update_bytes=retained_update_bytes+$9,collaboration_bytes=collaboration_bytes,updated_at=now() WHERE collection_id=$1 AND record_id=$2 AND collaboration_epoch=$3 AND profile=$4").bind(input.collection_id).bind(input.record_id).bind(to_i64(input.epoch, "collaboration epoch")?).bind(room.profile).bind(vector_ciphertext).bind(to_i64(sequence, "collaboration sequence")?).bind(committed.primary.as_ref().unwrap().revision.clone()).bind(pending_count as i64).bind(to_i64(total_updates, "retained collaboration bytes")?).execute(&mut **transaction).await?;
+        let retained_update_bytes: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(sum(octet_length(update_ciphertext)),0) FROM hosted_provider_collaboration_updates WHERE collection_id=$1 AND record_id=$2 AND collaboration_epoch=$3 AND profile=$4 AND sequence>$5",
+        )
+        .bind(input.collection_id).bind(input.record_id).bind(to_i64(input.epoch, "collaboration epoch")?).bind(room.profile)
+        .bind(to_i64(room_state.snapshot_sequence, "snapshot sequence")?).fetch_one(&mut **transaction).await?;
+        if number(retained_update_bytes, "retained collaboration bytes")?
+            > self.limits.collaboration.max_retained_update_bytes
+        {
+            return Err(ApiError::quota(
+                "collaboration_retention_limit_exceeded",
+                "The retained collaboration update limit would be exceeded.",
+            ));
+        }
+        let collaboration_bytes: i64 = sqlx::query_scalar(
+            "SELECT octet_length(snapshot_ciphertext)+octet_length(state_vector_ciphertext)
+               + COALESCE((SELECT sum(octet_length(update_ciphertext)) FROM hosted_provider_collaboration_updates u WHERE u.collection_id=d.collection_id AND u.record_id=d.record_id AND u.collaboration_epoch=d.collaboration_epoch AND u.profile=d.profile),0)
+               + COALESCE((SELECT sum(octet_length(receipt_ciphertext)) FROM hosted_provider_collaboration_receipts r WHERE r.collection_id=d.collection_id AND r.record_id=d.record_id AND r.collaboration_epoch=d.collaboration_epoch AND r.profile=d.profile),0)
+             FROM hosted_provider_collaboration_documents d WHERE collection_id=$1 AND record_id=$2 AND collaboration_epoch=$3 AND profile=$4",
+        )
+        .bind(input.collection_id).bind(input.record_id).bind(to_i64(input.epoch, "collaboration epoch")?).bind(room.profile)
+        .fetch_one(&mut **transaction).await?;
+        sqlx::query("UPDATE hosted_provider_collaboration_documents SET current_sequence=$5,materialized_revision=$6,retained_update_count=retained_update_count+$7,retained_update_bytes=$8,collaboration_bytes=$9,updated_at=now() WHERE collection_id=$1 AND record_id=$2 AND collaboration_epoch=$3 AND profile=$4").bind(input.collection_id).bind(input.record_id).bind(to_i64(input.epoch, "collaboration epoch")?).bind(room.profile).bind(to_i64(sequence, "collaboration sequence")?).bind(&materialized_revision).bind(pending_count as i64).bind(retained_update_bytes).bind(collaboration_bytes).execute(&mut **transaction).await?;
         // Compaction is bounded and remains in this transaction. The full
         // snapshot preserves old state-vector diff semantics.
         let _ = self
