@@ -4,6 +4,7 @@
 //! has no transport or public capability advertisement. In particular, the
 //! batch writer remains disabled until the ordinary mutation write-set
 //! committer can be shared by both paths.
+#![allow(dead_code)] // Phase 3 room state is wired by the disabled Phase 4 transport.
 
 use super::*;
 use crate::collaboration::{decrypt_room_bytes, encrypt_room_bytes, AadKind, RoomIdentity};
@@ -267,6 +268,7 @@ impl HostedProvider {
         let update_count = updates.len() as u64;
         let mut expected = snapshot_sequence + 1;
         let mut retained_bytes = 0_u64;
+        let mut last_update_revision: Option<String> = None;
         for update in updates {
             let sequence = number(update.get::<i64, _>("sequence"), "update sequence")?;
             if sequence != expected || sequence > current_sequence {
@@ -291,18 +293,10 @@ impl HostedProvider {
             }
             let digest: Vec<u8> = update.get("update_digest");
             let mutation_id: Uuid = update.get("client_mutation_id");
-            // Phase 3B has no writer yet; the only valid retained-row
-            // invariant is the room's authoritative record revision.
-            let update_revision: String = update.get("materialized_revision");
-            if update_revision != record.revision {
-                return self
-                    .fence_room(
-                        transaction,
-                        &room,
-                        "collaboration update revision is inconsistent",
-                    )
-                    .await;
-            }
+            // Intermediate rows may each materialize a different ordinary
+            // revision. Only the final replayed update must name the room's
+            // authoritative materialized revision.
+            last_update_revision = Some(update.get("materialized_revision"));
             let plaintext = match decrypt_room_bytes(
                 &self.crypto,
                 data_key,
@@ -395,6 +389,9 @@ impl HostedProvider {
         }
         let materialized_revision: String = row.get("materialized_revision");
         if materialized_revision != record.revision
+            || last_update_revision
+                .as_ref()
+                .is_some_and(|revision| revision != &record.revision)
             || document.body().as_bytes() != record.body.as_bytes()
         {
             return self

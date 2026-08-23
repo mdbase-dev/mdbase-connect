@@ -1,5 +1,6 @@
 //! Hosted-only collaboration storage primitives. Transport and authorization
 //! deliberately remain outside this module.
+#![allow(dead_code)] // Phase 3 persistence is wired by the disabled Phase 4 transport.
 
 use mdbase_connect_collaboration::MARKDOWN_BODY_YJS_V13_PROFILE;
 use uuid::Uuid;
