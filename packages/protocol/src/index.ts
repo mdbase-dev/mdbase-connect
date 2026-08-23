@@ -149,7 +149,7 @@ export interface ApplicationNotifications {
  * exact declaration is independently identified and authorized by Connect.
  */
 interface MdbaseAppManifestBase {
-  manifest_version: 1;
+  manifest_version: 1 | 2;
   id: string;
   name: string;
   requirements?: ApplicationRequirements;

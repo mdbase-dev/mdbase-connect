@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { Ajv2020, type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
 import addFormatsModule from "ajv-formats";
 import appManifestSchema from "../schemas/mdbase-app.schema.json" with { type: "json" };
+import appManifestV2Schema from "../schemas/mdbase-app.v2.schema.json" with { type: "json" };
 import {
   isNativeRedirectUri,
   type ApplicationNotifications,
@@ -68,7 +69,9 @@ const ajv = new Ajv2020({
 const addFormats = addFormatsModule as unknown as (instance: Ajv2020) => Ajv2020;
 addFormats(ajv);
 ajv.addSchema(appManifestSchema);
+ajv.addSchema(appManifestV2Schema);
 const appManifestValidator = requiredValidator(String(appManifestSchema.$id));
+const appManifestV2Validator = requiredValidator(String(appManifestV2Schema.$id));
 
 /**
  * Validate the complete bundled application declaration accepted by Connect.
@@ -88,7 +91,10 @@ export function validateAppManifest(
   if (sizeIssue) return invalid([sizeIssue]);
 
   const candidate = options.allowLocal ? localManifestSchemaCandidate(value) : value;
-  const schemaResult = validationResult(appManifestValidator, candidate);
+  const validator = asObject(value).manifest_version === 2
+    ? appManifestV2Validator
+    : appManifestValidator;
+  const schemaResult = validationResult(validator, candidate);
   if (!schemaResult.valid) return schemaResult;
 
   const issues = [
@@ -534,6 +540,33 @@ function validateCapabilityRequirements(value: unknown): ManifestValidationIssue
   }
   const declared = new Set([...required, ...optional]);
   const provisions = asObject(manifest.provisions);
+  if (declared.has("records.collaborate")) {
+    const collaborationIsRequired = required.includes("records.collaborate");
+    if (
+      (collaborationIsRequired && !required.includes("records.read"))
+      || (!collaborationIsRequired && !declared.has("records.read"))
+    ) {
+      issues.push(issue(
+        "/requirements/capabilities",
+        "collaborationReadCapability",
+        "records.collaborate requires records.read at the same or stronger requirement level"
+      ));
+    }
+    if (requirements.access !== "full_collection") {
+      issues.push(issue(
+        "/requirements/access",
+        "collaborationAccess",
+        "must be full_collection for records.collaborate"
+      ));
+    }
+    if (requirements.collection_kind !== "hosted") {
+      issues.push(issue(
+        "/requirements/collection_kind",
+        "collaborationAuthority",
+        "must be hosted for records.collaborate"
+      ));
+    }
+  }
   if (
     Array.isArray(requirements.contracts)
     && requirements.contracts.length > 0
