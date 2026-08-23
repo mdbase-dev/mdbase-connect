@@ -99,7 +99,7 @@ Browser and native shells use one result shape:
 session.completeAuthorization(
   callbackUrl?: string | URL,
   options?: ConnectRequestOptions
-): Promise<ConnectOutcome<MdbaseConnection, AuthorizationProblemCode>>;
+): Promise<ConnectOutcome<MdbaseConnection, SessionProblemCode>>;
 ```
 
 Browsers may omit the URL to use the current location. Native shells pass the
@@ -114,6 +114,30 @@ timeout are the same typed outcomes on both platforms.
 `externalStore(session)` adapter. A documented React helper is a thin
 `useSyncExternalStore` call over that adapter; it introduces no SDK React state
 or second client.
+
+Lifecycle snapshots are explicit: `not_started`, `starting`, `start_failed`,
+and terminal `destroyed` replace the former ambiguous `opening` state.
+`start_failed.problem` is the original typed startup problem and `start()` may
+retry it. Concurrent startup callers share work while retaining independent
+cancellation; shared work is aborted only after its final waiter leaves.
+The advanced `MdbaseSession` surface exposes the same lifecycle snapshots and
+terminal destroy notification. Synchronous calls made while a provisional base
+is starting return `session_starting`; a startup failure is returned by exact
+problem-object identity from `start_failed.problem`.
+
+Lifecycle-dependent async methods wait for the current startup attempt within
+their one request budget. Idle, failed, destroyed, timed-out, and cancelled
+calls resolve to typed outcomes. `select`, `clearSelection`, and `forget` now
+return lifecycle-aware `ConnectOutcome` values instead of `void` or lifecycle
+exceptions.
+
+A token whose existing `clientId` differs from the currently registered
+application identity is an `application_declaration_mismatch` authorization
+problem with `reauthorize` recovery. Application sessions surface
+`authorization_required` before setup checks, including applications that do
+not manage setup. They retain the old grant and pending mutation recovery until
+explicit selected-collection authorization succeeds and never auto-open or
+auto-replay recovery work.
 
 ## Watch contract
 

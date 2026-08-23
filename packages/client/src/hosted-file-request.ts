@@ -53,15 +53,16 @@ export async function performHostedFileRequest<Result>(
   path: string,
   input: unknown,
   signal: AbortSignal | undefined,
-  refresh: () => Promise<StoredToken>,
-  proofHeaders: ProofHeaders
+  refresh: (signal?: AbortSignal) => Promise<StoredToken>,
+  proofHeaders: ProofHeaders,
+  retain: (token: StoredToken) => Promise<StoredToken> = async (token) => token
 ): Promise<Result> {
   let active = token;
   let response = await sendHostedFileRequest(
     active, method, path, input, signal, proofHeaders
   );
   if (response.status === 401 && active.refreshToken) {
-    active = await refresh();
+    active = await retain(await refresh(signal));
     if (!active.authority || !active.fileCapability) {
       throw connectError(
         "authority_authorization_changed",
@@ -93,15 +94,16 @@ export async function performHostedFilePartRequest(
   path: string,
   expectedLength: number,
   signal: AbortSignal | undefined,
-  refresh: () => Promise<StoredToken>,
-  proofHeaders: ProofHeaders
+  refresh: (signal?: AbortSignal) => Promise<StoredToken>,
+  proofHeaders: ProofHeaders,
+  retain: (token: StoredToken) => Promise<StoredToken> = async (token) => token
 ): Promise<ReadableStream<Uint8Array>> {
   let active = token;
   let response = await sendHostedFileRequest(
     active, "GET", path, undefined, signal, proofHeaders
   );
   if (response.status === 401 && active.refreshToken) {
-    active = await refresh();
+    active = await retain(await refresh(signal));
     if (!active.authority || !active.fileCapability) {
       throw connectError(
         "authority_authorization_changed",

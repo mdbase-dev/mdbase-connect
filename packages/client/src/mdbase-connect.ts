@@ -89,6 +89,10 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     return this.internals.unavailableReason(collectionId);
   }
 
+  connectionApplicationId(collectionId: string): string | null {
+    return this.internals.connectionApplicationId(collectionId);
+  }
+
   onConnectionsChange(listener: (connections: MdbaseConnectionInfo[]) => void): () => void {
     return this.internals.onConnectionsChange(listener);
   }

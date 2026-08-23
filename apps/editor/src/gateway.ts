@@ -108,7 +108,17 @@ export class ConnectCollectionGateway implements CollectionGateway {
   }
 
   async startSession(): Promise<CollectionSessionSnapshot> {
-    return summarizeSession(requireOutcome(await this.session.start()));
+    const started = await this.session.start();
+    if (started.ok) return summarizeSession(started.value);
+    const snapshot = this.session.getSnapshot();
+    if (snapshot.status === "start_failed" || snapshot.status === "destroyed") {
+      return summarizeSession(snapshot);
+    }
+    return {
+      status: "start_failed",
+      problem: started.problem,
+      connections: snapshot.connections.map(summarizeConnection)
+    };
   }
 
   onSessionChange(listener: (snapshot: CollectionSessionSnapshot) => void): () => void {
@@ -436,7 +446,15 @@ export class ConnectCollectionGateway implements CollectionGateway {
 
 function summarizeSession(snapshot: MdbaseApplicationSessionSnapshot): CollectionSessionSnapshot {
   const connections = snapshot.connections.map(summarizeConnection);
-  if (snapshot.status === "opening" || snapshot.status === "unselected") return { status: "unselected", connections };
+  if (
+    snapshot.status === "not_started"
+    || snapshot.status === "starting"
+    || snapshot.status === "unselected"
+  ) return { status: "unselected", connections };
+  if (snapshot.status === "start_failed") {
+    return { status: "start_failed", problem: snapshot.problem, connections };
+  }
+  if (snapshot.status === "destroyed") return { status: "destroyed", connections };
   if (snapshot.status === "unavailable") {
     return {
       status: "unavailable",

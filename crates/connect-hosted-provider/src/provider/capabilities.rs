@@ -240,10 +240,12 @@ pub(super) fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<
 }
 
 fn validate_application_declaration_binding(input: &RegisterReplica) -> ApiResult<()> {
-    let setup_allowed = input
-        .allowed_operations
-        .iter()
-        .any(|operation| operation == "apply_collection_setup");
+    let setup_allowed = input.allowed_operations.iter().any(|operation| {
+        matches!(
+            operation.as_str(),
+            "assess_collection_setup" | "apply_collection_setup"
+        )
+    });
     match (
         input.application_declaration_id.as_deref(),
         input.application_declaration_digest.as_deref(),

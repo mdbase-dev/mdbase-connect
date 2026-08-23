@@ -59,6 +59,8 @@ export interface StoredToken {
   fileCapability?: FileCapability;
   applicationOrigin?: string;
   keyHandle?: string;
+  /** Previous grant keys retained for durable pending-mutation recovery. */
+  retiredKeyHandles?: string[];
   savedAt: number;
   authority?: {
     operationsUrl: string;

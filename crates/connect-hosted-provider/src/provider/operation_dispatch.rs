@@ -202,6 +202,22 @@ impl HostedProvider {
             | "list_views"
             | "execute_view"
             | "read_view_source" => {
+                if operation == "assess_collection_setup" {
+                    let request =
+                        serde_json::from_value::<AssessCollectionSetupInput>(input.clone())
+                            .map_err(|error| {
+                                ApiError::bad_request(
+                                    "invalid_collection_setup",
+                                    format!("The collection setup assessment is invalid: {error}"),
+                                )
+                            })?;
+                    self.authorize_collection_setup_declaration(
+                        replica.id,
+                        &request.application_id,
+                        &request.declaration_digest,
+                    )
+                    .await?;
+                }
                 let (scoped_input, selector) = match (&contract_scope, operation) {
                     (Some(scope), "query") => scope.query_input(&input).map_err(scope_error)?,
                     (Some(scope), "read") => scope.read_input(&input).map_err(scope_error)?,
@@ -368,8 +384,12 @@ impl HostedProvider {
                         )
                     },
                 )?;
-                self.authorize_collection_setup_declaration(replica.id, &request)
-                    .await?;
+                self.authorize_collection_setup_declaration(
+                    replica.id,
+                    &request.setup.application_id,
+                    &request.setup.declaration_digest,
+                )
+                .await?;
                 self.write_collection_setup_apply_operation(
                     collection_id,
                     &request,
@@ -398,7 +418,8 @@ impl HostedProvider {
     async fn authorize_collection_setup_declaration(
         &self,
         replica_id: Uuid,
-        request: &ApplyCollectionSetupInput,
+        application_id: &str,
+        declaration_digest: &str,
     ) -> ApiResult<()> {
         let binding = sqlx::query(
             r#"SELECT application_declaration_id, application_declaration_digest
@@ -418,8 +439,8 @@ impl HostedProvider {
             binding
                 .get::<Option<String>, _>("application_declaration_digest")
                 .as_deref(),
-            &request.setup.application_id,
-            &request.setup.declaration_digest,
+            application_id,
+            declaration_digest,
         )
     }
 

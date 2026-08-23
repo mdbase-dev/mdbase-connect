@@ -75,6 +75,7 @@ pub fn connect_problem_definition(code: &str) -> Option<ConnectProblemDefinition
     match code {
         "access_denied" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Authorization, recovery: ConnectRecoveryAction::Reauthorize }),
         "access_paused" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Availability, recovery: ConnectRecoveryAction::ResumeConnectorAccess }),
+        "application_declaration_mismatch" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Authorization, recovery: ConnectRecoveryAction::Reauthorize }),
         "application_identity_unavailable" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Compatibility, recovery: ConnectRecoveryAction::UpgradeApplication }),
         "approval_window_blocked" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Authorization, recovery: ConnectRecoveryAction::Reauthorize }),
         "authority_authorization_changed" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Authorization, recovery: ConnectRecoveryAction::Reauthorize }),
@@ -173,6 +174,9 @@ pub fn connect_problem_definition(code: &str) -> Option<ConnectProblemDefinition
         "relay_unavailable" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Availability, recovery: ConnectRecoveryAction::Retry }),
         "sandbox_unsupported" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Compatibility, recovery: ConnectRecoveryAction::FixRequest }),
         "scope_denied" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Authorization, recovery: ConnectRecoveryAction::Reauthorize }),
+        "session_destroyed" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Cancellation, recovery: ConnectRecoveryAction::None }),
+        "session_not_started" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Validation, recovery: ConnectRecoveryAction::FixRequest }),
+        "session_starting" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Availability, recovery: ConnectRecoveryAction::Retry }),
         "stale_file_revision" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Conflict, recovery: ConnectRecoveryAction::Refresh }),
         "storage_required" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Compatibility, recovery: ConnectRecoveryAction::None }),
         "sync_failed" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Availability, recovery: ConnectRecoveryAction::Retry }),

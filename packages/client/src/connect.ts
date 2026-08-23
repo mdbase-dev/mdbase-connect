@@ -12,6 +12,7 @@ import {
   RELAY_ENCRYPTION_SUITE
 } from "@mdbase-dev/connect-protocol";
 import { abortableDelay } from "./async.js";
+import { authorizationCallbackState } from "./authorization-url.js";
 import type { MdbaseDeviceAuthorization } from "./authorization-types.js";
 import { randomBase64Url } from "./base64.js";
 import {
@@ -56,12 +57,9 @@ import {
   waitForPopupAuthorization
 } from "./popup-authorization.js";
 import { uniqueOperations } from "./operation-helpers.js";
-import {
-  pendingMutationsUseKey,
-  pendingRecoveryTransports,
-  removePendingMutations
-} from "./pending-recovery-transports.js";
+import { pendingRecoveryTransports, removePendingMutations } from "./pending-recovery-transports.js";
 import type { ConnectRequestOptions } from "./operation-types.js";
+import { GrantKeyLeaseRegistry } from "./grant-key-leases.js";
 import {
   resolveConnectTimeouts,
   type ResolvedConnectTimeouts,
@@ -89,6 +87,8 @@ import {
   validAuthorityTokenResponse
 } from "./runtime-utils.js";
 import { storedTokenFromResponse } from "./token-response.js";
+import { deleteUnusedGrantKey, planRetiredGrantKeys, storedTokenKeyHandles } from "./retired-grant-keys.js";
+import { SharedOperationMap } from "./shared-operation.js";
 
 export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
   readonly serverUrl: string;
@@ -106,7 +106,8 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
   readonly credentialStorage: MdbaseConnectEnvironment["credentialStorage"];
   private application: Application | null = null;
   private manifestPromise: Promise<MdbaseAppManifest> | null = null;
-  private readonly completionPromises = new Map<string, Promise<MdbaseAuthorizationResult<Frontmatter>>>();
+  private readonly completionPromises = new SharedOperationMap<MdbaseAuthorizationResult<Frontmatter>>();
+  private readonly grantKeyLeases: GrantKeyLeaseRegistry;
   private readonly connectionCache = new Map<string, MdbaseConnection<Frontmatter>>();
   private readonly listeners = new Set<(connections: MdbaseConnectionInfo[]) => void>();
   private readonly invalidatedConnections = new Map<string, MdbaseUnavailableReason>();
@@ -146,6 +147,8 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     );
     this.navigate = options.navigate;
     this.timeouts = resolveConnectTimeouts(options.timeouts);
+    this.grantKeyLeases = new GrantKeyLeaseRegistry(this.storagePrefix(), (collectionId, keyHandle) =>
+      this.deleteGrantKeyWhenUnused(collectionId, keyHandle));
     if (typeof window !== "undefined" && this.storage === window.localStorage) {
       window.addEventListener("storage", (event) => {
         if (event.storageArea !== this.storage || !event.key?.startsWith(this.storagePrefix())) return;
@@ -701,16 +704,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     callbackUrl: string,
     options: ConnectRequestOptions = {}
   ): Promise<MdbaseAuthorizationResult<Frontmatter>> {
-    return withRequestBudget(options, this.timeouts.requestMs, (budget) =>
-      this.completeAuthorizationWithinBudget(callbackUrl, budget.signal)
-    );
-  }
-
-  private completeAuthorizationWithinBudget(
-    callbackUrl: string,
-    signal: AbortSignal
-  ): Promise<MdbaseAuthorizationResult<Frontmatter>> {
-    const state = new URL(callbackUrl).searchParams.get("state");
+    const state = authorizationCallbackState(callbackUrl);
     if (!state) {
       return Promise.reject(connectError(
         "invalid_callback",
@@ -719,21 +713,16 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     }
     const pending = parseStored<StoredAuthorization>(this.storage.getItem(this.pendingKey(state)));
     const popupAttempt = pending?.presentation === "popup";
-    const existing = this.completionPromises.get(state);
-    if (existing) return existing;
-    const completion = publishPopupAuthorizationCompletion({
-      storage: this.storage,
-      storagePrefix: this.storagePrefix(),
-      state,
-      pending,
-      popupAttempt,
-      completion: this.performAuthorizationCompletion(callbackUrl, state, signal)
-    });
-    const shared = completion.finally(() => {
-      if (this.completionPromises.get(state) === shared) this.completionPromises.delete(state);
-    });
-    this.completionPromises.set(state, shared);
-    return shared;
+    return this.completionPromises.run(state, options, this.timeouts.requestMs, (signal) =>
+      publishPopupAuthorizationCompletion({
+        storage: this.storage,
+        storagePrefix: this.storagePrefix(),
+        state,
+        pending,
+        popupAttempt,
+        completion: this.performAuthorizationCompletion(callbackUrl, state, signal)
+      })
+    );
   }
 
   private async performAuthorizationCompletion(
@@ -852,6 +841,13 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     return this.invalidatedConnections.get(collectionId) ?? null;
   }
 
+  connectionApplicationId(collectionId: string): string | null {
+    // Null deliberately means the application must reauthorize.
+    if (!this.connection(collectionId)) return null;
+    const token = parseStored<StoredToken>(this.storage.getItem(this.tokenKey(collectionId)));
+    return typeof token?.clientId === "string" && token.clientId.length > 0 ? token.clientId : null;
+  }
+
   onConnectionsChange(listener: (connections: MdbaseConnectionInfo[]) => void): () => void {
     this.listeners.add(listener);
     listener(this.connections());
@@ -864,19 +860,22 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       throw connectError("invalid_token_response", "Authorization returned no collection ID.");
     }
     const previous = parseStored<StoredToken>(this.storage.getItem(this.tokenKey(collectionId)));
+    const retirement = planRetiredGrantKeys(this.storage,
+      this.pendingMutationKey(collectionId), previous, keyHandle,
+      this.grantKeyLeases.handles(collectionId),
+      this.grantKeyLeases.retainAutomaticallyRetiredKeys);
     const token = storedTokenFromResponse({
       body,
       clientId,
       keyHandle,
       previous,
+      retiredKeyHandles: retirement.retained,
       defaultApplicationOrigin: this.defaultApplicationOrigin(),
       pinConnectorIdentity: (connectorId, publicKey) =>
         this.pinConnectorIdentity(connectorId, publicKey)
     });
-    if (previous?.keyHandle && previous.keyHandle !== keyHandle) {
-      void this.keyStore.delete(previous.keyHandle).catch(() => undefined);
-    }
     this.storage.setItem(this.tokenKey(collectionId), JSON.stringify(token));
+    for (const handle of retirement.disposable) this.deleteGrantKeyWhenUnused(collectionId, handle);
     addConnectionId(this.storage, this.storagePrefix(), collectionId);
     this.invalidatedConnections.delete(collectionId);
     this.connectionCache.delete(collectionId);
@@ -925,21 +924,15 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     discardPending = false
   ): void {
     this.invalidatedConnections.set(collectionId, reason);
-    if (keyHandle && (discardPending || !pendingMutationsUseKey(
-      this.storage,
-      this.pendingMutationKey(collectionId),
-      keyHandle
-    ))) {
-      void this.keyStore.delete(keyHandle).catch(() => undefined);
-    }
+    const stored = parseStored<StoredToken>(this.storage.getItem(this.tokenKey(collectionId)));
+    const handles = storedTokenKeyHandles(stored, keyHandle);
     this.storage.removeItem(this.tokenKey(collectionId));
     if (discardPending) removePendingMutations(
       this.storage,
       this.pendingMutationKey(collectionId),
-      (pendingKeyHandle) => {
-        void this.keyStore.delete(pendingKeyHandle).catch(() => undefined);
-      }
+      (pendingKeyHandle) => handles.add(pendingKeyHandle)
     );
+    for (const handle of handles) this.deleteGrantKeyWhenUnused(collectionId, handle);
     for (const transport of ["web_push", "fcm"] as const) {
       this.storage.removeItem(this.notificationKey(collectionId, transport));
     }
@@ -947,6 +940,13 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     this.connectionCache.delete(collectionId);
     this.emitConnections();
   }
+
+  acquireGrantKeyLease(collectionId: string, keyHandle: string, signal?: AbortSignal): Promise<() => void> {
+    return this.grantKeyLeases.acquire(collectionId, keyHandle, signal); }
+  deleteGrantKeyWhenUnused(collectionId: string, keyHandle: string): void {
+    this.grantKeyLeases.deleteExclusive(collectionId, keyHandle, () => deleteUnusedGrantKey(
+      this.storage, this.keyStore, this.pendingMutationKey(collectionId),
+      this.tokenKey(collectionId), keyHandle)); }
 
   tokenKey(collectionId: string): string {
     return `${this.storagePrefix()}:token:${collectionId}`;

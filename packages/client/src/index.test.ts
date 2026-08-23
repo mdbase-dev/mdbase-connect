@@ -3,14 +3,16 @@ import {
   MdbaseBrowserSelection,
   MdbaseConnect,
   MdbaseConnectError,
+  MdbaseMemorySelection,
   isRetryableConnectError,
   parseMdbaseNativeNotificationData,
   parseMdbasePushPayload,
   showMdbasePushNotification
 } from "./index.js";
-import { connectError } from "./errors.js";
+import { connectError, connectProblem } from "./errors.js";
 import {
   ConnectOutcomeError,
+  connectFailure,
   connectSuccess,
   unwrapConnectOutcome
 } from "./outcomes.js";
@@ -21,9 +23,12 @@ import {
 } from "./crypto-entry.js";
 import { deriveP256SharedSecret } from "./crypto.js";
 import { MdbaseSession } from "./session.js";
+import { MdbaseConnectInternals } from "./connect.js";
+import type { ConnectRequestOptions } from "./operation-types.js";
 import type {
   GrantEncryption,
   EncryptedRelayOperationRequest,
+  JsonObject,
   MdbaseAppManifest,
   TypePackProvision
 } from "@mdbase-dev/connect-protocol";
@@ -2122,6 +2127,358 @@ describe("long mutation progress", () => {
 });
 
 describe("application sessions", () => {
+  it("coalesces advanced starts while preserving per-waiter cancellation", async () => {
+    const browser = installBrowser("https://tasks.example/auth/mdbase/callback?code=start&state=start");
+    const manager = managerWithConnections([TEST_COLLECTION_ID]);
+    let finish!: (value: ReturnType<typeof connectSuccess>) => void;
+    const completion = vi.spyOn(manager, "completeAuthorization").mockImplementationOnce(
+      () => new Promise((resolve) => { finish = resolve as typeof finish; }) as never
+    );
+    const session = new MdbaseSession(manager, { selection: new MdbaseBrowserSelection() });
+    const controller = new AbortController();
+    const first = session.start({ signal: controller.signal, timeoutMs: null });
+    const second = session.start({ timeoutMs: null });
+    controller.abort("detached waiter");
+    await expect(first).resolves.toMatchObject({ problem: { code: "operation_cancelled" } });
+    finish(connectSuccess({ connection: manager.connection(TEST_COLLECTION_ID)! }));
+
+    await expect(second).resolves.toMatchObject({ ok: true });
+    expect(completion).toHaveBeenCalledOnce();
+    expect(new URL(browser.href()).searchParams.get("code")).toBeNull();
+  });
+
+  it("gives same-state callback waiters independent cancellation and timeout budgets", async () => {
+    vi.useFakeTimers();
+    const manager = managerWithConnections([TEST_COLLECTION_ID]);
+    const selection = new MdbaseMemorySelection();
+    const session = new MdbaseSession(manager, { selection });
+    await session.start();
+    let finish!: (value: ReturnType<typeof connectSuccess>) => void;
+    let underlyingSignal: AbortSignal | undefined;
+    const completion = vi.spyOn(manager, "completeAuthorization").mockImplementationOnce(
+      (_url, options) => {
+        underlyingSignal = options?.signal;
+        return new Promise((resolve) => { finish = resolve as typeof finish; }) as never;
+      }
+    );
+    const callback = "https://tasks.example/callback?code=shared&state=shared";
+    const controller = new AbortController();
+
+    const cancelled = session.handleAuthorizationCallback(callback, {
+      signal: controller.signal,
+      timeoutMs: null
+    });
+    const timedOut = session.handleAuthorizationCallback(
+      "https://tasks.example/other-callback?code=different&state=shared",
+      { timeoutMs: 10 }
+    );
+    const continuing = session.handleAuthorizationCallback(
+      "https://tasks.example/callback?state=shared&code=reordered",
+      { timeoutMs: null }
+    );
+    controller.abort("caller left");
+
+    await expect(cancelled).resolves.toMatchObject({ problem: { code: "operation_cancelled" } });
+    await vi.advanceTimersByTimeAsync(10);
+    await expect(timedOut).resolves.toMatchObject({ problem: { code: "timeout" } });
+    expect(underlyingSignal?.aborted).toBe(false);
+    finish(connectSuccess({ connection: manager.connection(TEST_COLLECTION_ID)! }));
+
+    await expect(continuing).resolves.toMatchObject({ ok: true });
+    expect(completion).toHaveBeenCalledOnce();
+  });
+
+  it("does not start or join callback completion for a pre-aborted caller", async () => {
+    const manager = managerWithConnections([TEST_COLLECTION_ID]);
+    const session = new MdbaseSession(manager, { selection: new MdbaseMemorySelection() });
+    await session.start();
+    const completion = vi.spyOn(manager, "completeAuthorization");
+    const controller = new AbortController();
+    controller.abort("already cancelled");
+
+    await expect(session.handleAuthorizationCallback(
+      "https://tasks.example/callback?code=unused&state=unused",
+      { signal: controller.signal, timeoutMs: null }
+    )).resolves.toMatchObject({ problem: { code: "operation_cancelled" } });
+
+    expect(completion).not.toHaveBeenCalled();
+    expect((session as unknown as { callbackCompletions: Map<string, unknown> }).callbackCompletions.size).toBe(0);
+  });
+
+  it("does not impose a shared callback deadline on unlimited waiters", async () => {
+    vi.useFakeTimers();
+    const manager = managerWithConnections([TEST_COLLECTION_ID]);
+    const session = new MdbaseSession(manager, { selection: new MdbaseMemorySelection() });
+    await session.start();
+    let finish!: (value: ReturnType<typeof connectSuccess>) => void;
+    vi.spyOn(manager, "completeAuthorization").mockImplementationOnce(
+      () => new Promise((resolve) => { finish = resolve as typeof finish; }) as never
+    );
+
+    const completion = session.handleAuthorizationCallback(
+      "https://tasks.example/callback?code=slow&state=slow",
+      { timeoutMs: null }
+    );
+    await vi.advanceTimersByTimeAsync(30_001);
+    finish(connectSuccess({ connection: manager.connection(TEST_COLLECTION_ID)! }));
+
+    await expect(completion).resolves.toMatchObject({ ok: true });
+  });
+
+  it("aborts callback completion after its final waiter cancels", async () => {
+    const manager = managerWithConnections([TEST_COLLECTION_ID]);
+    const session = new MdbaseSession(manager, { selection: new MdbaseMemorySelection() });
+    await session.start();
+    let underlyingSignal: AbortSignal | undefined;
+    vi.spyOn(manager, "completeAuthorization").mockImplementationOnce((_url, options) => {
+      underlyingSignal = options?.signal;
+      return new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => reject(options.signal?.reason), { once: true });
+      }) as never;
+    });
+    const controller = new AbortController();
+    const completion = session.handleAuthorizationCallback(
+      "https://tasks.example/callback?code=abandon&state=abandon",
+      { signal: controller.signal, timeoutMs: null }
+    );
+
+    controller.abort("no waiters remain");
+
+    await expect(completion).resolves.toMatchObject({ problem: { code: "operation_cancelled" } });
+    expect(underlyingSignal?.aborted).toBe(true);
+    expect((session as unknown as { callbackCompletions: Map<string, unknown> }).callbackCompletions.size).toBe(0);
+  });
+
+  it("retries a startup callback after a retryable completion failure", async () => {
+    const browser = installBrowser(
+      "https://tasks.example/auth/mdbase/callback?code=retry-code&state=retry-state"
+    );
+    const manager = managerWithConnections([TEST_COLLECTION_ID]);
+    const completion = vi.spyOn(manager, "completeAuthorization")
+      .mockResolvedValueOnce(connectFailure(connectProblem(
+        "temporarily_unavailable",
+        "Try startup again."
+      )))
+      .mockResolvedValueOnce(connectSuccess({
+        connection: manager.connection(TEST_COLLECTION_ID)!
+      }));
+    const session = new MdbaseSession(manager, { selection: new MdbaseBrowserSelection() });
+
+    await expect(session.start()).resolves.toMatchObject({
+      problem: { code: "temporarily_unavailable", recovery: "retry" }
+    });
+    expect(session.getSnapshot()).toMatchObject({ status: "start_failed" });
+    expect(new URL(browser.href()).searchParams.get("code")).toBe("retry-code");
+
+    await expect(session.start()).resolves.toMatchObject({ ok: true });
+    expect(completion).toHaveBeenCalledTimes(2);
+    expect(new URL(browser.href()).searchParams.get("code")).toBeNull();
+  });
+
+  it("publishes expected thrown startup failures as start_failed", async () => {
+    const manager = managerWithConnections([TEST_COLLECTION_ID]);
+    const problem = connectProblem("temporarily_unavailable", "Connections are unavailable.");
+    vi.spyOn(manager, "onConnectionsChange").mockImplementationOnce(() => {
+      throw new MdbaseConnectError(problem);
+    });
+    const session = new MdbaseSession(manager, { selection: new MdbaseMemorySelection() });
+
+    const started = await session.start();
+
+    expect(started).toMatchObject({ ok: false, problem });
+    const snapshot = session.getSnapshot();
+    expect(snapshot).toMatchObject({ status: "start_failed", problem });
+    if (snapshot.status === "start_failed") expect(snapshot.problem).toBe(problem);
+  });
+
+  it("fences advanced authorize and ensureOperations after destroy", async () => {
+    for (const method of ["authorize", "ensureOperations"] as const) {
+      const manager = managerWithConnections([TEST_COLLECTION_ID]);
+      const selection = new MdbaseMemorySelection();
+      selection.select(TEST_COLLECTION_ID);
+      const finishAuthorization = vi.spyOn(selection, "finishAuthorization");
+      let finish!: (value: ReturnType<typeof connectSuccess>) => void;
+      let signal: AbortSignal | undefined;
+      vi.spyOn(manager, "authorize").mockImplementationOnce((options) => {
+        signal = options?.signal;
+        return new Promise((resolve) => { finish = resolve as typeof finish; }) as never;
+      });
+      const session = new MdbaseSession(manager, {
+        selection,
+        operations: ["query", "update"]
+      });
+      await session.start();
+
+      const operation = method === "authorize"
+        ? session.authorize("choose", { timeoutMs: null })
+        : session.ensureOperations(["update"], { timeoutMs: null });
+      await vi.waitFor(() => expect(signal).toBeInstanceOf(AbortSignal));
+      session.destroy();
+      expect(signal?.aborted).toBe(true);
+      finish(connectSuccess({
+        kind: "connected",
+        connection: manager.connection(TEST_COLLECTION_ID)!
+      }));
+
+      await expect(operation).resolves.toMatchObject({ problem: { code: "session_destroyed" } });
+      expect(session.getSnapshot()).toEqual({ status: "destroyed", connections: [] });
+      expect(finishAuthorization).not.toHaveBeenCalled();
+    }
+  });
+
+  it("releases settled callback state and permits a transient callback retry", async () => {
+    const manager = managerWithConnections([TEST_COLLECTION_ID]);
+    const completion = vi.spyOn(manager, "completeAuthorization")
+      .mockResolvedValueOnce(connectFailure(connectProblem(
+        "temporarily_unavailable",
+        "Try the callback again."
+      )))
+      .mockResolvedValueOnce(connectSuccess({
+        connection: manager.connection(TEST_COLLECTION_ID)!
+      }));
+    const session = new MdbaseSession(manager, { selection: new MdbaseMemorySelection() });
+    await session.start();
+    const callback = "https://tasks.example/callback?code=sensitive-code&state=sensitive-state";
+
+    await expect(session.handleAuthorizationCallback(callback)).resolves.toMatchObject({
+      problem: { code: "temporarily_unavailable" }
+    });
+    expect((session as unknown as { callbackCompletions: Map<string, unknown> }).callbackCompletions.size).toBe(0);
+    await expect(session.handleAuthorizationCallback(callback)).resolves.toMatchObject({ ok: true });
+
+    expect(completion).toHaveBeenCalledTimes(2);
+    expect((session as unknown as { callbackCompletions: Map<string, unknown> }).callbackCompletions.size).toBe(0);
+  });
+
+  it("joins browser callback completion between application startup and an explicit callback call", async () => {
+    const browser = installBrowser(
+      "https://tasks.example/auth/mdbase/callback?code=one&state=two"
+    );
+    const manager = managerWithConnections([TEST_COLLECTION_ID]);
+    vi.spyOn(manager, "register").mockResolvedValue(connectSuccess({
+      id: "00000000-0000-0000-0000-000000000001",
+      family_identity: "bundle:dev.mdbase.tasks",
+      manifest_digest: "ab".repeat(32),
+      name: "Tasks",
+      requirements: { contracts: [] }
+    }));
+    vi.spyOn(manager, "manifest").mockResolvedValue(connectSuccess({
+      manifest_version: 1,
+      id: "dev.mdbase.tasks",
+      name: "Tasks",
+      homepage: "https://tasks.example/",
+      redirect_uris: ["https://tasks.example/auth/mdbase/callback"],
+      requirements: {
+        contracts: [],
+        capabilities: { contract_version: 1, required: ["records.query"] }
+      }
+    }));
+    let finish!: (value: ReturnType<typeof connectSuccess>) => void;
+    const exchange = vi.spyOn(manager, "completeAuthorization").mockImplementationOnce(
+      () => new Promise((resolve) => { finish = resolve as typeof finish; }) as never
+    );
+    const application = manager.application({ selection: new MdbaseBrowserSelection() });
+
+    const starting = application.start({ timeoutMs: null });
+    await vi.waitFor(() => expect(exchange).toHaveBeenCalledOnce());
+    const explicit = application.completeAuthorization(browser.href(), { timeoutMs: null });
+    finish(connectSuccess({ connection: manager.connection(TEST_COLLECTION_ID)! }));
+
+    await expect(starting).resolves.toMatchObject({ ok: true });
+    await expect(explicit).resolves.toMatchObject({ ok: true });
+    expect(exchange).toHaveBeenCalledOnce();
+  });
+
+  it("fences advanced callback publication after destroy", async () => {
+    const browser = installBrowser("https://tasks.example/");
+    const manager = managerWithConnections([TEST_COLLECTION_ID]);
+    const session = new MdbaseSession(manager, { selection: new MdbaseBrowserSelection() });
+    await session.start();
+    browser.navigate("https://tasks.example/auth/mdbase/callback?code=late&state=late");
+    let finish!: (value: ReturnType<typeof connectSuccess>) => void;
+    vi.spyOn(manager, "completeAuthorization").mockImplementationOnce(
+      () => new Promise((resolve) => { finish = resolve as typeof finish; }) as never
+    );
+
+    const completion = session.handleAuthorizationCallback(browser.href());
+    session.destroy();
+    finish(connectSuccess({ connection: manager.connection(TEST_COLLECTION_ID)! }));
+
+    await expect(completion).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "session_destroyed" }
+    });
+    expect(session.getSnapshot().status).toBe("destroyed");
+    expect(new URL(browser.href()).searchParams.get("code")).toBe("late");
+  });
+
+  it("returns lifecycle outcomes from the advanced session and keeps destroy terminal", async () => {
+    const manager = managerWithConnections([TEST_COLLECTION_ID]);
+    const session = new MdbaseSession(manager, { selection: new MdbaseMemorySelection() });
+    const statuses: string[] = [];
+    session.subscribe(() => statuses.push(session.getSnapshot().status));
+
+    expect(session.getSnapshot().status).toBe("not_started");
+
+    expect(session.select(TEST_COLLECTION_ID)).toMatchObject({
+      ok: false,
+      problem: { code: "session_not_started" }
+    });
+    expect(session.clearSelection()).toMatchObject({
+      ok: false,
+      problem: { code: "session_not_started" }
+    });
+    await expect(session.authorize("choose")).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "session_not_started" }
+    });
+
+    await session.start();
+    session.destroy();
+    await expect(session.start()).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "session_destroyed" }
+    });
+    expect(statuses.at(-1)).toBe("destroyed");
+    expect(statuses.filter((status) => status === "destroyed")).toHaveLength(1);
+  });
+
+  it("reads application identity only from usable stored connections", () => {
+    const valid = managerWithConnections([TEST_COLLECTION_ID]);
+    expect(valid.connectionApplicationId(TEST_COLLECTION_ID))
+      .toBe("00000000-0000-0000-0000-000000000001");
+
+    const serverUrl = "https://connect.example";
+    const manifest = "https://tasks.example/manifest.json";
+    const storage = new MemoryStorage();
+    storage.setItem(storedTokenKey(serverUrl, manifest, TEST_COLLECTION_ID), JSON.stringify({
+      version: 1,
+      clientId: "legacy-client-without-a-token"
+    }));
+    storage.setItem(
+      `mdbase-connect:${serverUrl}:${manifest}:connections`,
+      storedConnectionIndex([TEST_COLLECTION_ID])
+    );
+    const malformed = new MdbaseConnect({
+      serverUrl,
+      manifest,
+      redirectUri: "https://tasks.example/callback",
+      storage,
+      relayEncryption: "disabled"
+    });
+    expect(malformed.connectionApplicationId(TEST_COLLECTION_ID)).toBeNull();
+    expect(storage.getItem(storedTokenKey(serverUrl, manifest, TEST_COLLECTION_ID))).toBeNull();
+
+    const hosted = hostedConnection(["query"]);
+    expect(hosted.manager.connectionApplicationId(TEST_COLLECTION_ID)).toBe(TEST_APPLICATION_ID);
+  });
+
+  it("reads application identity from a usable encrypted connector grant", async () => {
+    const fixture = await encryptedConnection();
+    expect(fixture.manager.connectionApplicationId(fixture.collectionId))
+      .toBe(fixture.applicationId);
+  });
+
   it("selects the only saved collection during startup", async () => {
     const browser = installBrowser("https://tasks.example/today?filter=open#focus");
     const manager = managerWithConnections([TEST_COLLECTION_ID]);
@@ -2379,11 +2736,11 @@ describe("application sessions", () => {
     void session.start();
 
     browser.navigate(`https://tasks.example/?collection=${secondId}`, true);
-    expect(changes).toEqual([secondId]);
+    expect(changes).toEqual([null, TEST_COLLECTION_ID, secondId]);
 
     stop();
     browser.navigate(`https://tasks.example/?collection=${TEST_COLLECTION_ID}`, true);
-    expect(changes).toEqual([secondId]);
+    expect(changes).toEqual([null, TEST_COLLECTION_ID, secondId]);
   });
 
   it("recognizes only authorization-shaped callbacks and cleans denied URLs", () => {
@@ -2408,6 +2765,81 @@ describe("application sessions", () => {
 });
 
 describe("authorization renewal", () => {
+  it("shares refresh work without either caller cancellation poisoning the other", async () => {
+    for (const cancelled of ["first", "second"] as const) {
+      const fixture = await grantRotationFixture([`refresh-${cancelled}`]);
+      const stored = JSON.parse(fixture.storage.getItem(fixture.tokenKey)!);
+      fixture.storage.setItem(fixture.tokenKey, JSON.stringify({
+        ...stored,
+        accessToken: "expired",
+        refreshToken: "refresh-token",
+        expiresAt: Date.now() - 1,
+        refreshExpiresAt: Date.now() + 60_000
+      }));
+      const transport = (fixture.internals.connection(fixture.collectionId)! as unknown as {
+        transport: { authorizedToken(options: ConnectRequestOptions): Promise<unknown> };
+      }).transport;
+      let underlyingSignal: AbortSignal | undefined;
+      let respond!: (response: Response) => void;
+      const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementationOnce(async (_input, init) => {
+        underlyingSignal = init?.signal;
+        return new Promise<Response>((resolve) => { respond = resolve; });
+      });
+      const firstController = new AbortController();
+      const secondController = new AbortController();
+      const first = transport.authorizedToken({ signal: firstController.signal, timeoutMs: null });
+      const second = transport.authorizedToken({ signal: secondController.signal, timeoutMs: null });
+      await vi.waitFor(() => expect(underlyingSignal).toBeInstanceOf(AbortSignal));
+
+      (cancelled === "first" ? firstController : secondController).abort("detached refresh waiter");
+      await expect(cancelled === "first" ? first : second)
+        .rejects.toMatchObject({ code: "operation_cancelled" });
+      expect(underlyingSignal?.aborted).toBe(false);
+      respond(jsonResponse({
+        access_token: "renewed",
+        refresh_token: "rotated-refresh",
+        expires_in: 3600,
+        refresh_expires_in: 60,
+        collection_id: fixture.collectionId,
+        collection_name: "Tasks",
+        operations: ["create"],
+        scope: { contracts: [], access: "full_collection" }
+      }));
+      await expect(cancelled === "first" ? second : first)
+        .resolves.toMatchObject({ accessToken: "renewed" });
+      fetchMock.mockRestore();
+    }
+  });
+
+  it("aborts refresh work after its final waiter cancels", async () => {
+    const fixture = await grantRotationFixture(["refresh-final"]);
+    const stored = JSON.parse(fixture.storage.getItem(fixture.tokenKey)!);
+    fixture.storage.setItem(fixture.tokenKey, JSON.stringify({
+      ...stored,
+      refreshToken: "refresh-token",
+      expiresAt: Date.now() - 1,
+      refreshExpiresAt: Date.now() + 60_000
+    }));
+    const transport = (fixture.internals.connection(fixture.collectionId)! as unknown as {
+      transport: { authorizedToken(options: ConnectRequestOptions): Promise<unknown> };
+    }).transport;
+    let underlyingSignal: AbortSignal | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementationOnce(async (_input, init) => {
+      underlyingSignal = init?.signal;
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+      });
+    });
+    const controller = new AbortController();
+    const refresh = transport.authorizedToken({ signal: controller.signal, timeoutMs: null });
+    await vi.waitFor(() => expect(underlyingSignal).toBeInstanceOf(AbortSignal));
+
+    controller.abort("last waiter left");
+
+    await expect(refresh).rejects.toMatchObject({ code: "operation_cancelled" });
+    expect(underlyingSignal?.aborted).toBe(true);
+  });
+
   it("keeps independent collection-bound connections and forgets only the selected one", () => {
     const storage = new MemoryStorage();
     const serverUrl = "https://connect.example";
@@ -2846,13 +3278,19 @@ describe("authorization renewal", () => {
       relayEncryption: "disabled"
     });
     const callback = "https://tasks.example/callback?code=single-use-code&state=callback-state";
+    const controller = new AbortController();
+    controller.abort("already cancelled");
 
-    const [first, second] = await Promise.all([
+    const [first, second, cancelled] = await Promise.all([
       connect.completeAuthorization(callback),
-      connect.completeAuthorization(callback)
+      connect.completeAuthorization(
+        "https://tasks.example/alternate?state=callback-state&code=another-code"
+      ),
+      connect.completeAuthorization(callback, { signal: controller.signal, timeoutMs: null })
     ]);
 
     expect(first).toEqual(second);
+    expect(cancelled).toMatchObject({ problem: { code: "operation_cancelled" } });
     const completed = unwrapConnectOutcome(first);
     expect(completed.connection.info()).toMatchObject({
       collectionId: TEST_COLLECTION_ID,
@@ -3283,6 +3721,8 @@ describe("authorization renewal", () => {
       .toBe("Bearer mdb_renewed");
     expect(JSON.parse(storage.getItem(storedTokenKey(serverUrl, manifestUrl, TEST_COLLECTION_ID))!))
       .toEqual(expect.objectContaining({ accessToken: "mdb_renewed", refreshToken: "ref_rotated" }));
+    expect(manager.connectionApplicationId(TEST_COLLECTION_ID))
+      .toBe("00000000-0000-0000-0000-000000000001");
   });
 
   it("uses a refresh credential rotated by another browser tab", async () => {
@@ -4189,7 +4629,543 @@ describe("bounded watch subscriptions", () => {
   });
 });
 
+async function grantRotationFixture(handles: string[]) {
+  const storage = new MemoryStorage();
+  const keyStore = new MemoryGrantKeyStore();
+  for (const handle of handles) await keyStore.create(handle);
+  const collectionId = TEST_COLLECTION_ID;
+  const prefix = "mdbase-connect:https://connect.example:bundle:dev.tasks";
+  const tokenKey = `${prefix}:token:${collectionId}`;
+  storage.setItem(tokenKey, JSON.stringify({
+    version: 1,
+    accessToken: "initial-token",
+    clientId: TEST_APPLICATION_ID,
+    collectionId,
+    collectionName: "Tasks",
+    operations: ["create"],
+    scope: { contracts: [], access: "full_collection" },
+    expiresAt: Date.now() + 60_000,
+    keyHandle: handles[0],
+    savedAt: Date.now()
+  }));
+  storage.setItem(`${prefix}:connections`, storedConnectionIndex([collectionId]));
+  const internals = new MdbaseConnectInternals({
+    serverUrl: "https://connect.example",
+    manifest: {
+      manifest_version: 1,
+      id: "dev.tasks",
+      name: "Tasks",
+      homepage: "https://tasks.example/",
+      redirect_uris: ["https://tasks.example/callback"]
+    },
+    redirectUri: "https://tasks.example/callback",
+    storage,
+    keyStore,
+    relayEncryption: "disabled"
+  });
+  const rotate = (keyHandle: string) => internals.storeTokenResponse({
+    access_token: `token-${keyHandle}`,
+    collection_id: collectionId,
+    collection_name: "Tasks",
+    operations: ["create"],
+    scope: { contracts: [], access: "full_collection" },
+    expires_in: 3600
+  }, TEST_APPLICATION_ID, keyHandle);
+  const addPending = (requestId: string, keyHandle: string) => {
+    storage.setItem(`${prefix}:pending-mutation:${collectionId}:${requestId}`, JSON.stringify({
+      collectionId,
+      keyHandle,
+      operation: "create",
+      inputFingerprint: `sha256:${requestId}`,
+      requestId,
+      createdAt: Date.now()
+    }));
+  };
+  return { storage, keyStore, collectionId, prefix, tokenKey, internals, rotate, addPending };
+}
+
 describe("durable pending mutation handles", () => {
+  it("leases a cross-context refreshed key before direct-to-relay fallback encryption", async () => {
+    const fixture = await encryptedConnection();
+    const internals = (fixture.manager as unknown as {
+      internals: MdbaseConnectInternals<JsonObject>;
+    }).internals;
+    const transport = (fixture.connect as unknown as {
+      transport: { performOperation<Result>(operation: "query", input: unknown): Promise<Result> };
+    }).transport;
+    const fallbackKey = await fixture.keyStore.create("fallback-key");
+    const nextKey = await fixture.keyStore.create("next-key");
+    const originalCounter = fixture.keyStore.nextCounter.bind(fixture.keyStore);
+    let resumeFallbackEncryption!: () => void;
+    vi.spyOn(fixture.keyStore, "nextCounter").mockImplementation(async (keyHandle) => {
+      if (keyHandle === "fallback-key") {
+        await new Promise<void>((resolve) => { resumeFallbackEncryption = resolve; });
+      }
+      return originalCounter(keyHandle);
+    });
+    const current = JSON.parse(fixture.storage.getItem(fixture.tokenKey)!);
+    fixture.storage.setItem(fixture.tokenKey, JSON.stringify({
+      ...current,
+      expiresAt: Date.now() - 1,
+      refreshExpiresAt: Date.now() + 60_000
+    }));
+    vi.spyOn(globalThis, "fetch")
+      .mockRejectedValueOnce(new TypeError("loopback unavailable"))
+      .mockImplementationOnce(async () => {
+        fixture.storage.setItem(fixture.tokenKey, JSON.stringify({
+          ...current,
+          accessToken: "other-tab-token",
+          refreshToken: "other-tab-refresh",
+          expiresAt: Date.now() + 60_000,
+          keyHandle: "fallback-key",
+          encryption: {
+            ...fixture.encryption,
+            key_id: "enc_fallback",
+            application_agreement_public_key: fallbackKey.agreementPublicKey
+          }
+        }));
+        return jsonResponse({ error: { code: "invalid_grant" } }, 400);
+      })
+      .mockRejectedValueOnce(new TypeError("relay unavailable"));
+
+    const operation = transport.performOperation("query", {});
+    await vi.waitFor(() => expect(resumeFallbackEncryption).toBeTypeOf("function"));
+    internals.storeTokenResponse({
+      access_token: "next-token",
+      collection_id: fixture.collectionId,
+      collection_name: "Encrypted notes",
+      operations: ["query"],
+      scope: { contracts: [], access: "full_collection" },
+      expires_in: 3600,
+      grant_id: fixture.grantId,
+      encryption: {
+        ...fixture.encryption,
+        key_id: "enc_next",
+        application_agreement_public_key: nextKey.agreementPublicKey
+      }
+    }, fixture.applicationId, "next-key");
+
+    expect(await fixture.keyStore.get("fallback-key")).not.toBeNull();
+    resumeFallbackEncryption();
+    await expect(operation).rejects.toMatchObject({ code: "relay_unavailable" });
+    await vi.waitFor(async () => expect(await fixture.keyStore.get("fallback-key")).toBeNull());
+  });
+
+  it("coordinates key rotation and explicit forget across managers with Web Locks", async () => {
+    vi.stubGlobal("navigator", { locks: mockWebLocks() });
+    const fixture = await grantRotationFixture(["old-key", "new-key"]);
+    const managerB = new MdbaseConnectInternals({
+      serverUrl: "https://connect.example",
+      manifest: {
+        manifest_version: 1,
+        id: "dev.tasks",
+        name: "Tasks",
+        homepage: "https://tasks.example/",
+        redirect_uris: ["https://tasks.example/callback"]
+      },
+      redirectUri: "https://tasks.example/callback",
+      storage: fixture.storage,
+      keyStore: fixture.keyStore,
+      relayEncryption: "disabled"
+    });
+    const releaseOld = await fixture.internals.acquireGrantKeyLease(
+      fixture.collectionId,
+      "old-key"
+    );
+
+    managerB.storeTokenResponse({
+      access_token: "new-token",
+      collection_id: fixture.collectionId,
+      collection_name: "Tasks",
+      operations: ["create"],
+      scope: { contracts: [], access: "full_collection" },
+      expires_in: 3600
+    }, TEST_APPLICATION_ID, "new-key");
+    await Promise.resolve();
+
+    expect(await fixture.keyStore.get("old-key")).not.toBeNull();
+    releaseOld();
+    await vi.waitFor(async () => expect(await fixture.keyStore.get("old-key")).toBeNull());
+
+    const releaseCurrent = await fixture.internals.acquireGrantKeyLease(
+      fixture.collectionId,
+      "new-key"
+    );
+    managerB.connection(fixture.collectionId)!.forget();
+    await Promise.resolve();
+    expect(await fixture.keyStore.get("new-key")).not.toBeNull();
+
+    releaseCurrent();
+    await vi.waitFor(async () => expect(await fixture.keyStore.get("new-key")).toBeNull());
+  });
+
+  it("re-reads another manager's rotation after paused shared-lock acquisition", async () => {
+    vi.stubGlobal("navigator", { locks: mockWebLocks() });
+    const fixture = await grantRotationFixture(["old-key", "new-key"]);
+    const managerB = new MdbaseConnectInternals({
+      serverUrl: "https://connect.example",
+      manifest: {
+        manifest_version: 1,
+        id: "dev.tasks",
+        name: "Tasks",
+        homepage: "https://tasks.example/",
+        redirect_uris: ["https://tasks.example/callback"]
+      },
+      redirectUri: "https://tasks.example/callback",
+      storage: fixture.storage,
+      keyStore: fixture.keyStore,
+      relayEncryption: "disabled"
+    });
+    const originalAcquire = fixture.internals.acquireGrantKeyLease.bind(fixture.internals);
+    let acquisitionStarted!: () => void;
+    let resumeAcquisition!: () => void;
+    const started = new Promise<void>((resolve) => { acquisitionStarted = resolve; });
+    const paused = new Promise<void>((resolve) => { resumeAcquisition = resolve; });
+    vi.spyOn(fixture.internals, "acquireGrantKeyLease")
+      .mockImplementationOnce(async (collectionId, keyHandle, signal) => {
+        acquisitionStarted();
+        await paused;
+        return originalAcquire(collectionId, keyHandle, signal);
+      });
+    const connection = fixture.internals.connection(fixture.collectionId)!;
+    connection.disableDirectAccess();
+    const transport = (connection as unknown as {
+      transport: { performOperation<Result>(operation: "create", input: unknown): Promise<Result> };
+    }).transport;
+    let authorization = "";
+    vi.spyOn(globalThis, "fetch").mockImplementationOnce(async (_input, init) => {
+      authorization = (init?.headers as Record<string, string>).authorization;
+      const request = JSON.parse(String(init?.body));
+      return jsonResponse({ protocol_version: 3, request_id: request.request_id, ok: true, result: {} });
+    });
+
+    const operation = transport.performOperation("create", {
+      path: "notes/rotated.md",
+      frontmatter: {}
+    });
+    await started;
+    managerB.storeTokenResponse({
+      access_token: "new-token",
+      collection_id: fixture.collectionId,
+      collection_name: "Tasks",
+      operations: ["create"],
+      scope: { contracts: [], access: "full_collection" },
+      expires_in: 3600
+    }, TEST_APPLICATION_ID, "new-key");
+    await vi.waitFor(async () => expect(await fixture.keyStore.get("old-key")).toBeNull());
+    resumeAcquisition();
+
+    await expect(operation).resolves.toEqual({});
+    expect(authorization).toBe("Bearer new-token");
+  });
+
+  it("retains automatically retired keys in browsers without Web Locks", async () => {
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("navigator", {});
+    const fixture = await grantRotationFixture(["old-key", "new-key"]);
+
+    fixture.rotate("new-key");
+    await Promise.resolve();
+
+    expect(await fixture.keyStore.get("old-key")).not.toBeNull();
+    expect(JSON.parse(fixture.storage.getItem(fixture.tokenKey)!)).toMatchObject({
+      retiredKeyHandles: ["old-key"]
+    });
+  });
+
+  it("keeps a grant leased while request encryption is paused during rotation", async () => {
+    const fixture = await encryptedConnection();
+    const internals = (fixture.manager as unknown as {
+      internals: MdbaseConnectInternals<JsonObject>;
+    }).internals;
+    const transport = (fixture.connect as unknown as {
+      transport: { performOperation<Result>(operation: "query", input: unknown): Promise<Result> };
+    }).transport;
+    const originalCounter = fixture.keyStore.nextCounter.bind(fixture.keyStore);
+    let resumeEncryption!: () => void;
+    vi.spyOn(fixture.keyStore, "nextCounter").mockImplementationOnce(async (keyHandle) => {
+      await new Promise<void>((resolve) => { resumeEncryption = resolve; });
+      return originalCounter(keyHandle);
+    });
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("transport unavailable"));
+
+    const operation = transport.performOperation("query", {});
+    await vi.waitFor(() => expect(resumeEncryption).toBeTypeOf("function"));
+    await rotateEncryptedFixture(fixture, internals);
+
+    expect(await fixture.keyStore.get("grant-key")).not.toBeNull();
+    expect(JSON.parse(fixture.storage.getItem(fixture.tokenKey)!)).toMatchObject({
+      retiredKeyHandles: ["grant-key"]
+    });
+
+    resumeEncryption();
+    await expect(operation).rejects.toMatchObject({ code: "relay_unavailable" });
+    await vi.waitFor(async () => expect(await fixture.keyStore.get("grant-key")).toBeNull());
+    expect(JSON.parse(fixture.storage.getItem(fixture.tokenKey)!)).not.toHaveProperty(
+      "retiredKeyHandles"
+    );
+  });
+
+  it("keeps a grant leased through response decryption during rotation", async () => {
+    const fixture = await encryptedConnection();
+    fixture.connect.disableDirectAccess();
+    const internals = (fixture.manager as unknown as {
+      internals: MdbaseConnectInternals<JsonObject>;
+    }).internals;
+    const transport = (fixture.connect as unknown as {
+      transport: { performOperation<Result>(operation: "query", input: unknown): Promise<Result> };
+    }).transport;
+    const originalGet = fixture.keyStore.get.bind(fixture.keyStore);
+    let grantReads = 0;
+    let resumeDecryption!: () => void;
+    vi.spyOn(fixture.keyStore, "get").mockImplementation(async (keyHandle) => {
+      if (keyHandle === "grant-key" && ++grantReads === 2) {
+        await new Promise<void>((resolve) => { resumeDecryption = resolve; });
+      }
+      return originalGet(keyHandle);
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementationOnce(async (_input, init) => {
+      const request = JSON.parse(String(init?.body)) as EncryptedRelayOperationRequest;
+      const envelope = await encryptedFixtureResponse(fixture, request, {
+        ok: true,
+        result: { rows: [] }
+      });
+      return jsonResponse({ envelope });
+    });
+
+    const operation = transport.performOperation<{ rows: unknown[] }>("query", {});
+    await vi.waitFor(() => expect(resumeDecryption).toBeTypeOf("function"));
+    await rotateEncryptedFixture(fixture, internals);
+
+    expect(await originalGet("grant-key")).not.toBeNull();
+    resumeDecryption();
+    await expect(operation).resolves.toEqual({ rows: [] });
+    await vi.waitFor(async () => expect(await originalGet("grant-key")).toBeNull());
+  });
+
+  it("keeps an operation grant leased across rotation until transport completion", async () => {
+    const fixture = await grantRotationFixture(["old-key", "new-key"]);
+    const connection = fixture.internals.connection(fixture.collectionId)!;
+    const transport = (connection as unknown as {
+      transport: { performOperation<Result>(operation: "create", input: unknown): Promise<Result> };
+    }).transport;
+    let finish!: (response: Response) => void;
+    let requestId = "";
+    vi.spyOn(globalThis, "fetch").mockImplementationOnce(async (_input, init) => {
+      requestId = JSON.parse(String(init?.body)).request_id;
+      return new Promise<Response>((resolve) => { finish = resolve; });
+    });
+
+    const operation = transport.performOperation("create", { path: "notes/leased.md", frontmatter: {} });
+    await vi.waitFor(() => expect(requestId).not.toBe(""));
+    fixture.rotate("new-key");
+
+    expect(await fixture.keyStore.get("old-key")).not.toBeNull();
+    expect(JSON.parse(fixture.storage.getItem(fixture.tokenKey)!)).toMatchObject({
+      retiredKeyHandles: ["old-key"]
+    });
+
+    finish(jsonResponse({ protocol_version: 3, request_id: requestId, ok: true, result: {} }));
+    await expect(operation).resolves.toEqual({});
+    await vi.waitFor(async () => expect(await fixture.keyStore.get("old-key")).toBeNull());
+    expect(JSON.parse(fixture.storage.getItem(fixture.tokenKey)!)).not.toHaveProperty(
+      "retiredKeyHandles"
+    );
+  });
+
+  it("keeps a shared retired key until the last pending mutation clears", async () => {
+    const fixture = await grantRotationFixture(["shared-key", "current-key"]);
+    fixture.addPending("first", "shared-key");
+    fixture.addPending("second", "shared-key");
+    fixture.rotate("current-key");
+    const connection = fixture.internals.connection(fixture.collectionId)!;
+    const transport = (connection as unknown as {
+      transport: { clearPendingMutation(requestId: string): void };
+    }).transport;
+
+    transport.clearPendingMutation("first");
+
+    expect(await fixture.keyStore.get("shared-key")).not.toBeNull();
+    expect(JSON.parse(fixture.storage.getItem(fixture.tokenKey)!)).toMatchObject({
+      retiredKeyHandles: ["shared-key"]
+    });
+
+    transport.clearPendingMutation("second");
+
+    await vi.waitFor(async () => expect(await fixture.keyStore.get("shared-key")).toBeNull());
+    expect(JSON.parse(fixture.storage.getItem(fixture.tokenKey)!)).not.toHaveProperty(
+      "retiredKeyHandles"
+    );
+  });
+
+  it("deletes an ordinary rotated key instead of retaining it in token metadata", async () => {
+    const fixture = await grantRotationFixture(["old-key", "new-key"]);
+
+    fixture.rotate("new-key");
+
+    await vi.waitFor(async () => expect(await fixture.keyStore.get("old-key")).toBeNull());
+    expect(JSON.parse(fixture.storage.getItem(fixture.tokenKey)!)).not.toHaveProperty(
+      "retiredKeyHandles"
+    );
+  });
+
+  it("keeps repeated rotation metadata bounded to keys still referenced by pending mutations", async () => {
+    const fixture = await grantRotationFixture(["recovery-key", "second-key", "third-key"]);
+    fixture.addPending("recovery", "recovery-key");
+
+    fixture.rotate("second-key");
+    fixture.rotate("third-key");
+
+    await vi.waitFor(async () => expect(await fixture.keyStore.get("second-key")).toBeNull());
+    expect(await fixture.keyStore.get("recovery-key")).not.toBeNull();
+    expect(JSON.parse(fixture.storage.getItem(fixture.tokenKey)!)).toMatchObject({
+      keyHandle: "third-key",
+      retiredKeyHandles: ["recovery-key"]
+    });
+  });
+
+  it("rediscovers pending grant keys when reauthorization follows implicit invalidation", async () => {
+    const fixture = await grantRotationFixture(["recovery-key", "new-key"]);
+    fixture.addPending("recovery", "recovery-key");
+    fixture.internals.removeToken(fixture.collectionId, "recovery-key");
+    expect(await fixture.keyStore.get("recovery-key")).not.toBeNull();
+
+    fixture.rotate("new-key");
+
+    expect(JSON.parse(fixture.storage.getItem(fixture.tokenKey)!)).toMatchObject({
+      retiredKeyHandles: ["recovery-key"]
+    });
+  });
+
+  it("retains a referenced grant during rotation but explicit forget discards its recovery state", async () => {
+    const storage = new MemoryStorage();
+    const keyStore = new MemoryGrantKeyStore();
+    await keyStore.create("old-grant-key");
+    await keyStore.create("new-grant-key");
+    const deleteKey = vi.spyOn(keyStore, "delete");
+    const collectionId = TEST_COLLECTION_ID;
+    const prefix = "mdbase-connect:https://connect.example:bundle:dev.tasks";
+    storage.setItem(`${prefix}:token:${collectionId}`, JSON.stringify({
+      version: 1,
+      accessToken: "old-token",
+      clientId: "01911111-1111-7111-8111-111111111111",
+      collectionId,
+      collectionName: "Tasks",
+      operations: ["create"],
+      scope: { contracts: [], access: "full_collection" },
+      expiresAt: Date.now() + 60_000,
+      keyHandle: "old-grant-key",
+      savedAt: Date.now()
+    }));
+    const pendingKey = `${prefix}:pending-mutation:${collectionId}:request-one`;
+    const pending = {
+      collectionId,
+      keyHandle: "old-grant-key",
+      operation: "create",
+      inputFingerprint: "sha256:pending",
+      requestId: "request-one",
+      createdAt: Date.now()
+    };
+    storage.setItem(pendingKey, JSON.stringify(pending));
+    const internals = new MdbaseConnectInternals({
+      serverUrl: "https://connect.example",
+      manifest: {
+        manifest_version: 1,
+        id: "dev.tasks",
+        name: "Tasks",
+        homepage: "https://tasks.example/",
+        redirect_uris: ["https://tasks.example/callback"]
+      },
+      redirectUri: "https://tasks.example/callback",
+      storage,
+      keyStore,
+      relayEncryption: "disabled"
+    });
+
+    internals.storeTokenResponse({
+      access_token: "new-token",
+      collection_id: collectionId,
+      collection_name: "Tasks",
+      operations: ["create"],
+      scope: { contracts: [], access: "full_collection" },
+      expires_in: 3600
+    }, "01922222-2222-7222-8222-222222222222", "new-grant-key");
+
+    expect(storage.getItem(pendingKey)).toBe(JSON.stringify(pending));
+    expect(deleteKey).not.toHaveBeenCalled();
+    expect(JSON.parse(storage.getItem(`${prefix}:token:${collectionId}`)!)).toMatchObject({
+      keyHandle: "new-grant-key",
+      retiredKeyHandles: ["old-grant-key"]
+    });
+    expect(await keyStore.get("old-grant-key")).not.toBeNull();
+    expect(internals.connectionApplicationId(collectionId))
+      .toBe("01922222-2222-7222-8222-222222222222");
+
+    const connection = internals.connection(collectionId)!;
+    connection.forget();
+    await vi.waitFor(async () => {
+      expect(await keyStore.get("new-grant-key")).toBeNull();
+      expect(await keyStore.get("old-grant-key")).toBeNull();
+    });
+    expect(storage.getItem(pendingKey)).toBeNull();
+  });
+
+  it("forgetAll cleans current, retired, and pending grant keys", async () => {
+    const storage = new MemoryStorage();
+    const keyStore = new MemoryGrantKeyStore();
+    await keyStore.create("retired-grant-key");
+    await keyStore.create("current-grant-key");
+    await keyStore.create("pending-grant-key");
+    const collectionId = TEST_COLLECTION_ID;
+    const prefix = "mdbase-connect:https://connect.example:bundle:dev.tasks";
+    storage.setItem(`${prefix}:token:${collectionId}`, JSON.stringify({
+      version: 1,
+      accessToken: "current-token",
+      clientId: TEST_APPLICATION_ID,
+      collectionId,
+      collectionName: "Tasks",
+      operations: ["query"],
+      scope: { contracts: [], access: "full_collection" },
+      expiresAt: Date.now() + 60_000,
+      keyHandle: "current-grant-key",
+      retiredKeyHandles: ["retired-grant-key"],
+      savedAt: Date.now()
+    }));
+    storage.setItem(`${prefix}:connections`, storedConnectionIndex([collectionId]));
+    storage.setItem(`${prefix}:pending-mutation:${collectionId}:pending`, JSON.stringify({
+      collectionId,
+      keyHandle: "pending-grant-key",
+      operation: "create",
+      inputFingerprint: "sha256:pending",
+      requestId: "pending",
+      createdAt: Date.now()
+    }));
+    const manager = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifest: {
+        manifest_version: 1,
+        id: "dev.tasks",
+        name: "Tasks",
+        homepage: "https://tasks.example/",
+        redirect_uris: ["https://tasks.example/callback"]
+      },
+      redirectUri: "https://tasks.example/callback",
+      storage,
+      keyStore,
+      relayEncryption: "disabled"
+    });
+
+    manager.forgetAll();
+
+    await vi.waitFor(async () => {
+      expect(await keyStore.get("current-grant-key")).toBeNull();
+      expect(await keyStore.get("retired-grant-key")).toBeNull();
+      expect(await keyStore.get("pending-grant-key")).toBeNull();
+    });
+    expect(storage.getItem(`${prefix}:token:${collectionId}`)).toBeNull();
+    expect(storage.getItem(`${prefix}:pending-mutation:${collectionId}:pending`)).toBeNull();
+  });
+
   it("recovers the stored plaintext protocol request without reconstructed input", async () => {
     const connection = watchConnection();
     const bodies: string[] = [];
@@ -4364,8 +5340,30 @@ async function encryptedConnection() {
     encryption,
     grantId: "01911111-1111-7111-8111-111111111111",
     applicationId: "01922222-2222-7222-8222-222222222222",
+    manager,
     connect: manager.connection(collectionId)!
   };
+}
+
+async function rotateEncryptedFixture(
+  fixture: Awaited<ReturnType<typeof encryptedConnection>>,
+  internals: MdbaseConnectInternals<JsonObject>
+): Promise<void> {
+  const rotated = await fixture.keyStore.create("rotated-key");
+  internals.storeTokenResponse({
+    access_token: "rotated-token",
+    collection_id: fixture.collectionId,
+    collection_name: "Encrypted notes",
+    operations: ["query"],
+    scope: { contracts: [], access: "full_collection" },
+    expires_in: 3600,
+    grant_id: "01955555-5555-7555-8555-555555555555",
+    encryption: {
+      ...fixture.encryption,
+      key_id: "enc_rotated",
+      application_agreement_public_key: rotated.agreementPublicKey
+    }
+  }, fixture.applicationId, "rotated-key");
 }
 
 function hostedConnection(operations: Array<"query" | "create">) {
@@ -4400,7 +5398,7 @@ function hostedConnection(operations: Array<"query" | "create">) {
     storage,
     relayEncryption: "disabled"
   });
-  return { connect: manager.connection(TEST_COLLECTION_ID)! };
+  return { connect: manager.connection(TEST_COLLECTION_ID)!, manager };
 }
 
 async function encryptedFixtureResponse(
@@ -4453,6 +5451,65 @@ async function encryptedFixtureResponse(
       .replaceAll("+", "-")
       .replaceAll("/", "_")
       .replace(/=+$/u, "")
+  };
+}
+
+function mockWebLocks() {
+  type Request = {
+    mode: "shared" | "exclusive";
+    signal?: AbortSignal;
+    callback: () => unknown;
+    resolve(value: unknown): void;
+    reject(error: unknown): void;
+    abort(): void;
+  };
+  const states = new Map<string, {
+    shared: number;
+    exclusive: boolean;
+    queue: Request[];
+  }>();
+  const drain = (state: { shared: number; exclusive: boolean; queue: Request[] }) => {
+    if (state.exclusive) return;
+    const start = (request: Request) => {
+      request.signal?.removeEventListener("abort", request.abort);
+      if (request.mode === "shared") state.shared += 1;
+      else state.exclusive = true;
+      Promise.resolve().then(request.callback).then(request.resolve, request.reject).finally(() => {
+        if (request.mode === "shared") state.shared -= 1;
+        else state.exclusive = false;
+        drain(state);
+      });
+    };
+    if (state.shared > 0) {
+      while (state.queue[0]?.mode === "shared") start(state.queue.shift()!);
+    } else if (state.queue[0]?.mode === "exclusive") start(state.queue.shift()!);
+    else while (state.queue[0]?.mode === "shared") start(state.queue.shift()!);
+  };
+  return {
+    request(name: string, options: { mode: "shared" | "exclusive"; signal?: AbortSignal }, callback: () => unknown) {
+      return new Promise((resolve, reject) => {
+        const state = states.get(name) ?? { shared: 0, exclusive: false, queue: [] };
+        states.set(name, state);
+        const request: Request = {
+          mode: options.mode,
+          signal: options.signal,
+          callback,
+          resolve,
+          reject,
+          abort: () => {
+            const index = state.queue.indexOf(request);
+            if (index >= 0) state.queue.splice(index, 1);
+            reject(options.signal?.reason);
+          }
+        };
+        if (options.signal?.aborted) request.abort();
+        else {
+          options.signal?.addEventListener("abort", request.abort, { once: true });
+          state.queue.push(request);
+          drain(state);
+        }
+      });
+    }
   };
 }
 

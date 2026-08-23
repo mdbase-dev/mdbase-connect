@@ -16,4 +16,8 @@ export type {
   MdbaseApplicationSessionConnect
 } from "./application-session.js";
 export { MdbaseSession } from "./session.js";
-export type { MdbaseSessionConnect, MdbaseSessionOptions } from "./session.js";
+export type {
+  MdbaseSessionConnect,
+  MdbaseSessionOptions,
+  MdbaseSessionSnapshot
+} from "./session.js";

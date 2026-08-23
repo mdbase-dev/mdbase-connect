@@ -151,10 +151,19 @@ versioned capabilities in their manifest; they never maintain a parallel array
 of protocol operations. Use `getSnapshot()` and `subscribe()` directly or
 through your framework's external-store integration.
 
-The session distinguishes `authorization_required`, `checking_setup`,
+Before and during startup the session distinguishes `not_started`, `starting`,
+and `start_failed`; the last state carries the original typed problem and a
+later `start()` retries. `destroyed` is terminal. Once started, the session
+distinguishes `authorization_required`, `checking_setup`,
 `setup_review_required`, `ready`, `unavailable`, and `blocked`. Setup
-inspection is read-only. If an update is needed, render the supplied plan and
-apply the exact assessment the user reviewed:
+inspection is read-only.
+While startup owns a provisional connection, synchronous methods return the
+catalogued `session_starting` outcome and cannot mutate selection or grants.
+After `start_failed`, every lifecycle-dependent method returns the exact
+`snapshot.problem` object.
+
+If an update is needed, render the supplied plan and apply the exact assessment
+the user reviewed:
 
 ```ts
 const snapshot = session.getSnapshot();
@@ -178,10 +187,28 @@ changes to the session. The session auto-selects only when exactly one saved
 connection exists. Switching is state-driven and must not reload the page:
 
 ```ts
-session.select(collectionId, { history: "replace" });
-session.clearSelection();
-session.forget(collectionId);
+const selected = session.select(collectionId, { history: "replace" });
+const cleared = session.clearSelection();
+const forgotten = session.forget(collectionId);
 ```
+
+These synchronous methods return lifecycle-aware `ConnectOutcome` values.
+Explicit `forget()` and `forgetAll()` remove the saved grant, all pending
+mutation recovery records for that connection, and coordinate grant-key cleanup
+with other tabs and workers through Web Locks. Browsers without Web Locks retain
+retired and forgotten key material in the configured key store rather than risk
+deleting a key another context is using; applications that require physical key
+removal must clear that store only after closing all application contexts.
+Automatic authorization invalidation keeps pending recovery state so
+reauthorization can resume an outcome-unknown mutation safely.
+Async lifecycle-dependent methods wait for an in-progress `start()` within the
+same request budget and return typed lifecycle, timeout, or cancellation
+outcomes rather than throwing for session state.
+
+If a saved grant belongs to an earlier registered identity for the same
+application declaration, the snapshot is `authorization_required`. Connect
+does not discard or replay that grant's pending mutations and does not open an
+authorization flow automatically; call `authorize("selected")` explicitly.
 
 Selection validates the saved authorization before changing the URL. Explicit
 unavailable IDs remain authoritative so applications can offer exact

@@ -6,3 +6,4 @@ export type {
   MdbaseApplicationVerificationStore,
   MdbaseApplicationSessionConnect
 } from "../src/application-session.js";
+export type { MdbaseSessionSnapshot } from "../src/session.js";

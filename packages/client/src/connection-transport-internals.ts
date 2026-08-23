@@ -11,6 +11,12 @@ export interface ConnectionTransportInternals {
     discardPending?: boolean
   ): void;
   storeTokenResponse(body: any, clientId: string, keyHandle?: string): StoredToken;
+  acquireGrantKeyLease(
+    collectionId: string,
+    keyHandle: string,
+    signal?: AbortSignal
+  ): Promise<() => void>;
+  deleteGrantKeyWhenUnused(collectionId: string, keyHandle: string): void;
   tokenKey(collectionId: string): string;
   pendingMutationKey(collectionId: string): string;
   directPreferenceKey(): string;

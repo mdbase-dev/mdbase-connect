@@ -22,6 +22,7 @@ import {
 } from "./errors.js";
 import { GrantFileTransferCipher } from "./file-crypto.js";
 import type { StoredToken } from "./internal-types.js";
+import { GrantKeyLeaseSet, retainCurrentGrantToken } from "./grant-key-leases.js";
 import {
   directFallbackStatus,
   loopbackRequest
@@ -38,12 +39,18 @@ interface LocalFileTransportOptions {
   keyStore: GrantKeyStore;
   serverUrl: string;
   loopbackUrl: string;
+  currentToken?(): StoredToken | null;
   authorizedToken(signal?: AbortSignal): Promise<StoredToken | null>;
   refreshAuthorization(signal?: AbortSignal): Promise<StoredToken>;
   shouldAttemptDirect(token: StoredToken): Promise<boolean>;
   onDirectAvailable(): void;
   onDirectUnavailable(): void;
   onRelayAvailable(): void;
+  acquireGrantKeyLease?(
+    collectionId: string,
+    keyHandle: string,
+    signal?: AbortSignal
+  ): Promise<() => void>;
 }
 
 /** Keeps grant-bound file crypto and loopback framing out of the operation transport. */
@@ -57,7 +64,13 @@ export class LocalFileTransport {
     input: unknown,
     signal?: AbortSignal
   ): Promise<Result> {
-    return this.controlAttempt<Result>(token, method, path, input, signal, false, 0);
+    const leases = this.grantKeyLeases(token.collectionId);
+    try {
+      token = await this.retainEntryToken(token, leases, signal);
+      return await this.controlAttempt<Result>(token, method, path, input, signal, false, 0, leases);
+    } finally {
+      leases.release();
+    }
   }
 
   private async controlAttempt<Result>(
@@ -67,7 +80,8 @@ export class LocalFileTransport {
     input: unknown,
     signal: AbortSignal | undefined,
     freshReadRetried: boolean,
-    connectorBusyRetries: number
+    connectorBusyRetries: number,
+    leases: GrantKeyLeaseSet
   ): Promise<Result> {
     requireEncryption(token);
     const controlInput = localFileControlInput(method, path, input);
@@ -103,7 +117,8 @@ export class LocalFileTransport {
           encryptedRequest,
           response,
           freshReadRetried,
-          connectorBusyRetries
+          connectorBusyRetries,
+          leases
         );
       }
       if (response) this.options.onDirectUnavailable();
@@ -112,12 +127,14 @@ export class LocalFileTransport {
       token = token.expiresAt > Date.now() + 30_000
         ? token
         : await this.options.refreshAuthorization(signal);
+      token = await this.retainEntryToken(token, leases, signal);
       requireLocalFileToken(token);
       encryptedRequest = await this.encryptControl(token, controlInput);
     }
     response = await this.sendRelayControl(token, encryptedRequest, signal);
     if (await refreshableBindingFailure(response, token)) {
       token = await this.options.refreshAuthorization(signal);
+      token = await this.retainEntryToken(token, leases, signal);
       requireLocalFileToken(token);
       encryptedRequest = await this.encryptControl(token, controlInput);
       response = await this.sendRelayControl(token, encryptedRequest, signal);
@@ -132,7 +149,8 @@ export class LocalFileTransport {
       encryptedRequest,
       response,
       freshReadRetried,
-      connectorBusyRetries
+      connectorBusyRetries,
+      leases
     );
   }
 
@@ -145,7 +163,8 @@ export class LocalFileTransport {
     encryptedRequest: EncryptedRelayOperationRequest,
     response: Response,
     freshReadRetried: boolean,
-    connectorBusyRetries: number
+    connectorBusyRetries: number,
+    leases: GrantKeyLeaseSet
   ): Promise<Result> {
     const body = await decodeJsonResponse(
       response,
@@ -169,7 +188,8 @@ export class LocalFileTransport {
           input,
           signal,
           freshReadRetried,
-          connectorBusyRetries + 1
+          connectorBusyRetries + 1,
+          leases
         );
       }
       if (error.code === "fresh_request_required"
@@ -182,7 +202,8 @@ export class LocalFileTransport {
           input,
           signal,
           true,
-          connectorBusyRetries
+          connectorBusyRetries,
+          leases
         );
       }
       throw error;
@@ -212,7 +233,8 @@ export class LocalFileTransport {
         input,
         signal,
         true,
-        connectorBusyRetries
+        connectorBusyRetries,
+        leases
       );
     }
     if (!decrypted.ok) {
@@ -227,7 +249,8 @@ export class LocalFileTransport {
           input,
           signal,
           freshReadRetried,
-          connectorBusyRetries + 1
+          connectorBusyRetries + 1,
+          leases
         );
       }
       throw error;
@@ -239,9 +262,28 @@ export class LocalFileTransport {
     session: FileTransferSession,
     chunkIndex: number,
     bytes: Uint8Array,
+    signal?: AbortSignal,
+    authorizedToken?: StoredToken
+  ): Promise<void> {
+    const token = authorizedToken ?? await this.localFileToken(session, "upload", signal);
+    const leases = this.grantKeyLeases(token.collectionId);
+    try {
+      const current = await this.retainEntryToken(token, leases, signal);
+      validateLocalFileToken(current, session, "upload");
+      return await this.uploadChunkWithLease(current, leases, session, chunkIndex, bytes, signal);
+    } finally {
+      leases.release();
+    }
+  }
+
+  private async uploadChunkWithLease(
+    token: StoredToken,
+    leases: GrantKeyLeaseSet,
+    session: FileTransferSession,
+    chunkIndex: number,
+    bytes: Uint8Array,
     signal?: AbortSignal
   ): Promise<void> {
-    const token = await this.localFileToken(session, "upload", signal);
     let deliveryToken = token;
     let encoded = await encryptedUploadChunk(
       this.options.keyStore,
@@ -276,6 +318,7 @@ export class LocalFileTransport {
     response = await this.sendRelayUpload(deliveryToken, encoded, signal);
     if (response.status === 401 && deliveryToken.refreshToken) {
       deliveryToken = await this.options.refreshAuthorization(signal);
+      deliveryToken = await this.retainEntryToken(deliveryToken, leases, signal);
       requireLocalFileToken(deliveryToken);
       encoded = await encryptedUploadChunk(
         this.options.keyStore,
@@ -305,9 +348,27 @@ export class LocalFileTransport {
   async downloadChunk(
     session: FileTransferSession,
     chunkIndex: number,
+    signal?: AbortSignal,
+    authorizedToken?: StoredToken
+  ): Promise<Uint8Array> {
+    let token = authorizedToken ?? await this.localFileToken(session, "download", signal);
+    const leases = this.grantKeyLeases(token.collectionId);
+    try {
+      token = await this.retainEntryToken(token, leases, signal);
+      validateLocalFileToken(token, session, "download");
+      return await this.downloadChunkWithLease(token, leases, session, chunkIndex, signal);
+    } finally {
+      leases.release();
+    }
+  }
+
+  private async downloadChunkWithLease(
+    token: StoredToken,
+    leases: GrantKeyLeaseSet,
+    session: FileTransferSession,
+    chunkIndex: number,
     signal?: AbortSignal
   ): Promise<Uint8Array> {
-    let token = await this.localFileToken(session, "download", signal);
     let response: Response | undefined;
     if (await this.options.shouldAttemptDirect(token)) {
       try {
@@ -331,6 +392,7 @@ export class LocalFileTransport {
     response = await this.sendRelayDownload(token, session, chunkIndex, signal);
     if (response.status === 401 && token.refreshToken) {
       token = await this.options.refreshAuthorization(signal);
+      token = await this.retainEntryToken(token, leases, signal);
       requireLocalFileToken(token);
       response = await this.sendRelayDownload(token, session, chunkIndex, signal);
     }
@@ -459,19 +521,49 @@ export class LocalFileTransport {
     signal?: AbortSignal
   ): Promise<StoredToken> {
     const token = await this.options.authorizedToken(signal);
-    if (!token || token.authority || !token.fileCapability || !token.encryption
-        || !token.grantId || !token.keyHandle
-        || session.direction !== direction
-        || session.protection !== "grant_aead_v1") {
-      throw connectError(
-        "not_authorized",
-        "This connection cannot use encrypted local file delivery."
-      );
-    }
-    framedChunkSize(session);
+    validateLocalFileToken(token, session, direction);
     return token;
   }
 
+  private grantKeyLeases(collectionId: string): GrantKeyLeaseSet {
+    return new GrantKeyLeaseSet(
+      collectionId,
+      this.options.acquireGrantKeyLease
+        ?? (() => Promise.resolve(() => undefined))
+    );
+  }
+
+  private async retainEntryToken(
+    snapshot: StoredToken,
+    leases: GrantKeyLeaseSet,
+    signal?: AbortSignal
+  ): Promise<StoredToken> {
+    if (!this.options.currentToken) {
+      await leases.retain(snapshot, signal);
+      return snapshot;
+    }
+    const current = await retainCurrentGrantToken(this.options.currentToken, leases, signal);
+    if (current) return current;
+    throw connectError("not_authorized", "Reconnect this application to continue.");
+  }
+
+}
+
+function validateLocalFileToken(
+  token: StoredToken | null,
+  session: FileTransferSession,
+  direction: "upload" | "download"
+): asserts token is StoredToken {
+  if (!token || token.authority || !token.fileCapability || !token.encryption
+      || !token.grantId || !token.keyHandle
+      || session.direction !== direction
+      || session.protection !== "grant_aead_v1") {
+    throw connectError(
+      "not_authorized",
+      "This connection cannot use encrypted local file delivery."
+    );
+  }
+  framedChunkSize(session);
 }
 
 function requireLocalFileToken(token: StoredToken): void {

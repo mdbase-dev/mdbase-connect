@@ -43,13 +43,18 @@ export function pendingMutationsUseKey(
   baseKey: string,
   keyHandle: string
 ): boolean {
+  return pendingMutationKeyHandles(storage, baseKey).has(keyHandle);
+}
+
+export function pendingMutationKeyHandles(storage: Storage, baseKey: string): Set<string> {
+  const handles = new Set<string>();
   for (let index = 0; index < storage.length; index += 1) {
     const key = storage.key(index);
     if (key !== baseKey && !key?.startsWith(`${baseKey}:`)) continue;
     const pending = parseStored<{ keyHandle?: string }>(storage.getItem(key));
-    if (pending?.keyHandle === keyHandle) return true;
+    if (pending?.keyHandle) handles.add(pending.keyHandle);
   }
-  return false;
+  return handles;
 }
 
 export function removePendingMutations(
