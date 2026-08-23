@@ -64,11 +64,29 @@ export function scopeDescription(contracts: ContractRequirement[]) {
   const names = contracts.map((contract) => `${contract.id} v${contract.version}`);
   return `Access is limited to records matching ${names.join(" and ")}.`;
 }
-export function returnTarget() {
-  const requested = new URLSearchParams(location.search).get("return_to");
-  if (!requested) return "/";
-  const target = new URL(requested, location.origin);
-  return target.origin === location.origin ? target.href : "/";
+type ReturnLocation = Pick<Location, "origin" | "search">;
+
+function validatedReturnTarget(currentLocation: ReturnLocation): URL | null {
+  const requested = new URLSearchParams(currentLocation.search).get("return_to");
+  if (!requested) return null;
+  try {
+    const target = new URL(requested, currentLocation.origin);
+    return target.origin === currentLocation.origin ? target : null;
+  } catch {
+    return null;
+  }
+}
+
+export function returnTarget(currentLocation: ReturnLocation = location) {
+  return validatedReturnTarget(currentLocation)?.href ?? "/";
+}
+
+export function signInUrl(currentLocation: ReturnLocation = location): string {
+  const target = validatedReturnTarget(currentLocation);
+  if (!target) return "/login";
+  const login = new URL("/login", currentLocation.origin);
+  login.searchParams.set("return_to", target.href);
+  return `${login.pathname}${login.search}`;
 }
 export type PortalBootstrapSecrets = Readonly<{
   invitationToken: string;

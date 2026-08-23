@@ -154,6 +154,74 @@ describe("public password signup", () => {
     expect(await service.create("google@example.com")).toBeNull();
   });
 
+  it("rejects a new external account after password signup claims the email", async () => {
+    const { db, service } = await fixture();
+    const verification = await service.create("shared@example.com");
+    await service.complete({
+      verificationToken: verification!.token,
+      name: "Password Account",
+      password: "a durable public account password",
+      termsVersion: "terms-2026-08",
+      privacyVersion: "privacy-2026-08"
+    });
+
+    await expect(createExternalSession(db, {
+      provider: "google",
+      subject: "same-email-google-subject",
+      name: "Google Account",
+      login: null,
+      email: "SHARED@example.com",
+      emailVerified: true,
+      avatarUrl: null
+    }, { allowAccountCreation: true })).rejects.toMatchObject({
+      name: "AccountUnavailableError"
+    });
+    expect((await db.query("SELECT id FROM users")).rows).toHaveLength(1);
+    expect((await db.query(
+      "SELECT provider, subject FROM external_identities"
+    )).rows).toHaveLength(0);
+    expect((await db.query(
+      `SELECT normalized_email, user_id
+       FROM account_creation_email_claims`
+    )).rows).toEqual([{
+      normalized_email: "shared@example.com",
+      user_id: (await db.query<{ id: string }>("SELECT id FROM users")).rows[0]!.id
+    }]);
+  });
+
+  it("allows only one account to win concurrent verified-email creation", async () => {
+    const { db, service } = await fixture();
+    const verification = await service.create("race@example.com");
+    const passwordCompletion = service.complete({
+      verificationToken: verification!.token,
+      name: "Password Account",
+      password: "a durable public account password",
+      termsVersion: "terms-2026-08",
+      privacyVersion: "privacy-2026-08"
+    });
+    const externalCompletion = createExternalSession(db, {
+      provider: "google",
+      subject: "race-google-subject",
+      name: "Google Account",
+      login: null,
+      email: "race@example.com",
+      emailVerified: true,
+      avatarUrl: null
+    }, { allowAccountCreation: true });
+
+    const results = await Promise.allSettled([
+      passwordCompletion,
+      externalCompletion
+    ]);
+    expect(results.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
+    expect(results.filter(({ status }) => status === "rejected")).toHaveLength(1);
+    expect((await db.query("SELECT id FROM users")).rows).toHaveLength(1);
+    expect((await db.query(
+      `SELECT normalized_email FROM account_creation_email_claims
+       WHERE normalized_email = 'race@example.com'`
+    )).rows).toHaveLength(1);
+  });
+
   it("rejects expired links and an identity claimed after verification was requested", async () => {
     const { db, service } = await fixture();
     const expired = await service.create("expired@example.com");

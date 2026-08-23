@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { capturePortalBootstrapSecrets, message } from "./src/portal-model.ts";
+import {
+  capturePortalBootstrapSecrets,
+  message,
+  returnTarget,
+  signInUrl
+} from "./src/portal-model.ts";
 
 test("captures one-time auth fragments before rendering and removes them from history", () => {
   const replacements = [];
@@ -44,6 +49,38 @@ test("does not rewrite unrelated fragments", () => {
     resetToken: ""
   });
   assert.equal(replaced, false);
+});
+
+test("preserves a same-origin signup return through sign in", () => {
+  const currentLocation = {
+    origin: "https://connect.example",
+    search: "?return_to=%2Fauthorize%2Frequest%3Fsource%3Dsignup%23resume"
+  };
+
+  assert.equal(
+    returnTarget(currentLocation),
+    "https://connect.example/authorize/request?source=signup#resume"
+  );
+  const login = new URL(signInUrl(currentLocation), currentLocation.origin);
+  assert.equal(login.pathname, "/login");
+  assert.equal(
+    login.searchParams.get("return_to"),
+    "https://connect.example/authorize/request?source=signup#resume"
+  );
+});
+
+test("does not preserve an invalid or cross-origin signup return", () => {
+  for (const requested of [
+    "https://evil.example/authorize/request",
+    "http://[invalid"
+  ]) {
+    const currentLocation = {
+      origin: "https://connect.example",
+      search: `?return_to=${encodeURIComponent(requested)}`
+    };
+    assert.equal(returnTarget(currentLocation), "/");
+    assert.equal(signInUrl(currentLocation), "/login");
+  }
 });
 
 test("renders the first collection setup diagnostic with its path", () => {

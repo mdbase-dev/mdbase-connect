@@ -1,4 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
+import {
+  accountCreationEmailClaimed,
+  reserveAccountCreationEmail
+} from "./account-creation-email-claims.js";
 import type { DatabasePool } from "./db.js";
 import {
   EMAIL_NORMALIZATION_VERSION,
@@ -55,11 +59,27 @@ export async function createExternalSession(
     }
     const userId = existing.rows[0]?.user_id ?? externalUserId(identity.provider, identity.subject);
     if (!existing.rows[0]) {
+      if (
+        normalizedEmail
+        && await accountCreationEmailClaimed(connection, normalizedEmail)
+      ) {
+        throw new AccountUnavailableError();
+      }
       await connection.query(
         `INSERT INTO users (id, email, name) VALUES ($1, NULL, $2)
          ON CONFLICT(id) DO NOTHING`,
         [userId, identity.name]
       );
+      if (
+        normalizedEmail
+        && !await reserveAccountCreationEmail(connection, {
+          normalizedEmail,
+          userId,
+          source: "external_identity"
+        })
+      ) {
+        throw new AccountUnavailableError();
+      }
     }
     await connection.query(
       `INSERT INTO external_identities
