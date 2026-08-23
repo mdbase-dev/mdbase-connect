@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 0.1.0-beta.86
+
+Beta.86 opens verified public password signup and makes non-production Connect
+environments explicit and isolated.
+
+- Public signup verifies email ownership before accepting a password, preserves
+  same-origin authorization return targets, rate-limits requests and token
+  redemption, and avoids revealing whether an account already exists.
+- New public accounts receive the standard beta entitlement, starter collection,
+  legal agreement records, and a signed-in browser session atomically.
+- Invitation signup remains available while registration is open, and the retired
+  beta-access request endpoint no longer stores submissions.
+- Server health identifies the deployment environment, while editor and desktop
+  tooling reject mismatched lab, staging, and production endpoint combinations.
+
 ## 0.1.0-beta.85
 
 Beta.85 makes SDK startup explicit and turns application declaration drift into
