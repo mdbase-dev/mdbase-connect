@@ -60,7 +60,8 @@ describe("database migrations", () => {
       "0022_collection_membership_foundations",
       "0022a_local_collection_identity_backfill",
       "0023_grant_replica_membership_binding",
-      "0024_hosted_collection_invitations_and_seats"
+      "0024_hosted_collection_invitations_and_seats",
+      "0025_authorization_binding_v6"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -569,7 +570,8 @@ describe("database migrations", () => {
       "0022_collection_membership_foundations",
       "0022a_local_collection_identity_backfill",
       "0023_grant_replica_membership_binding",
-      "0024_hosted_collection_invitations_and_seats"
+      "0024_hosted_collection_invitations_and_seats",
+      "0025_authorization_binding_v6"
     ]);
   });
 

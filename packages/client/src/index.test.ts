@@ -3144,12 +3144,12 @@ describe("authorization renewal", () => {
       target: { kind: "collection", collectionId: target }
     })).resolves.toMatchObject({ ok: true, value: { kind: "redirecting" } });
     expect(proof.binding).toMatchObject({
-      protocol_version: 5,
+      protocol_version: 6,
       collection_id: target,
       contracts: {
         operation_transport: 3,
         operation_transport_recovery: [2],
-        authorization_binding: 5,
+        authorization_binding: 6,
         semantic_capabilities: 1,
         durable_mutation: 1
       }

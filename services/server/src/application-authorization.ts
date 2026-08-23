@@ -8,6 +8,7 @@ import {
   authorizationSigningMessage,
   type ApplicationAuthorizationFlow,
   type ApplicationAuthorizationProof,
+  type ApplicationCollaborationRequirement,
   type ApplicationFileRequirement,
   type CollectionOperation
 } from "@mdbase-dev/connect-protocol";
@@ -16,6 +17,7 @@ import {
   CONNECT_CONTRACT_SUPPORT,
   LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION,
   OPERATION_TRANSPORT_PROTOCOL_VERSION,
+  PREVIOUS_AUTHORIZATION_BINDING_PROTOCOL_VERSION,
   isMutatingOperation,
   isSupportedAuthorizationBinding,
   isSupportedOperationTransport
@@ -47,6 +49,7 @@ const fileRequirementSchema = z.object({
 const bindingSchema = z.object({
   protocol_version: z.union([
     z.literal(APPLICATION_AUTHORIZATION_PROTOCOL_VERSION),
+    z.literal(PREVIOUS_AUTHORIZATION_BINDING_PROTOCOL_VERSION),
     z.literal(LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION)
   ]),
   authorization_id: z.uuid(),
@@ -71,10 +74,15 @@ const bindingSchema = z.object({
       .optional(),
     authorization_binding: z.number().int().positive(),
     semantic_capabilities: z.number().int().positive(),
-    durable_mutation: z.number().int().positive().optional()
+    durable_mutation: z.number().int().positive().optional(),
+    collaboration: z.number().int().positive().optional()
   }).strict(),
   requested_operations: z.array(z.string().min(1).max(100)).max(100),
   requested_files: fileRequirementSchema.optional(),
+  requested_collaboration: z.object({
+    contract_version: z.literal(1),
+    profiles: z.tuple([z.literal("markdown-body-yjs-v13")])
+  }).strict().optional(),
   collection_id: z.uuid().optional()
 }).strict();
 
@@ -93,6 +101,7 @@ export interface ExpectedApplicationAuthorization {
   codeChallenge: string;
   requestedOperations: CollectionOperation[];
   requestedFiles?: ApplicationFileRequirement;
+  requestedCollaboration?: ApplicationCollaborationRequirement;
   collectionId?: string;
   now?: Date;
 }
@@ -183,6 +192,10 @@ export async function verifyApplicationAuthorization(
     || binding.code_challenge !== expected.codeChallenge
     || !isDeepStrictEqual(binding.requested_operations, expected.requestedOperations)
     || !isDeepStrictEqual(binding.requested_files, expected.requestedFiles)
+    || !isDeepStrictEqual(
+      binding.requested_collaboration,
+      expected.requestedCollaboration
+    )
     || binding.collection_id !== expected.collectionId
   ) {
     throw new ApplicationAuthorizationError();
@@ -258,7 +271,7 @@ function assertContractRequirements(
       ...(operation ? { operation } : {})
     });
   }
-  if (binding.protocol_version === APPLICATION_AUTHORIZATION_PROTOCOL_VERSION
+  if (binding.protocol_version !== LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION
       && actual.operation_transport !== OPERATION_TRANSPORT_PROTOCOL_VERSION) {
     throw new ApplicationContractMismatchError("transport_protocol_incompatible", {
       contract: "operation_transport",
@@ -291,6 +304,11 @@ function assertContractRequirements(
   }
   const axes = [
     ["semantic_capabilities", "capability_contract_incompatible", 1],
+    [
+      "collaboration",
+      "capability_contract_incompatible",
+      expected.requestedCollaboration?.contract_version
+    ],
     [
       "durable_mutation",
       "durable_mutation_unsupported",

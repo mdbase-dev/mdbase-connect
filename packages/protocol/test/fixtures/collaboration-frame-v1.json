@@ -1,0 +1,21 @@
+{
+  "protocol_version": 1,
+  "frame": {
+    "kind": "update",
+    "metadata": {
+      "client_mutation_id": "018f0000-0000-7000-8000-000000000001",
+      "collaboration_epoch": 7,
+      "profile": "markdown-body-yjs-v13"
+    },
+    "payload": [
+      0,
+      1,
+      2,
+      127,
+      128,
+      255
+    ]
+  },
+  "encoded_bytes": 141,
+  "encoded_sha256": "802a036c0c1b8ad0f4ca80c681fc773921438cdd216047430390f002d113544f"
+}

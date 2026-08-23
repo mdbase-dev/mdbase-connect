@@ -280,6 +280,7 @@ impl HostedConnectionManager {
             ),
             requested_operations: operations.clone(),
             requested_files: None,
+            requested_collaboration: None,
             collection_id: Some(params.collection_id),
         };
         let message = binding

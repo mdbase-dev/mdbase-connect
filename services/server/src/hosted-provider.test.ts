@@ -340,7 +340,7 @@ describe("hosted provider control client", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(
       readinessDocument({
         operation_transport: [2, 3],
-        authorization_binding: [3, 4, 5],
+        authorization_binding: [3, 4, 5, 6],
         semantic_capabilities: [1, 2],
         durable_mutation: [1, 2]
       })

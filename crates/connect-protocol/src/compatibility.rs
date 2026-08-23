@@ -9,10 +9,12 @@ pub const SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS: &[u32] = &[
     OPERATION_TRANSPORT_PROTOCOL_VERSION,
     LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION,
 ];
-pub const AUTHORIZATION_BINDING_PROTOCOL_VERSION: u32 = 5;
+pub const AUTHORIZATION_BINDING_PROTOCOL_VERSION: u32 = 6;
+pub const PREVIOUS_AUTHORIZATION_BINDING_PROTOCOL_VERSION: u32 = 5;
 pub const LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION: u32 = 4;
 pub const SUPPORTED_AUTHORIZATION_BINDING_PROTOCOL_VERSIONS: &[u32] = &[
     AUTHORIZATION_BINDING_PROTOCOL_VERSION,
+    PREVIOUS_AUTHORIZATION_BINDING_PROTOCOL_VERSION,
     LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION,
 ];
 pub const SEMANTIC_CAPABILITY_CONTRACT_VERSION: u32 = 1;
@@ -107,7 +109,7 @@ impl ConnectContractRequirements {
             && self
                 .collaboration
                 .is_none_or(|version| version == COLLABORATION_CONTRACT_VERSION)
-            && (self.authorization_binding != AUTHORIZATION_BINDING_PROTOCOL_VERSION
+            && (self.authorization_binding == LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION
                 || self.operation_transport == OPERATION_TRANSPORT_PROTOCOL_VERSION)
             && self.operation_transport_recovery.iter().all(|version| {
                 *version != self.operation_transport

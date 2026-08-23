@@ -8,6 +8,7 @@ import type {
   GrantEncryption,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
+import { requestsRecordCollaboration } from "@mdbase-dev/connect-protocol";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { verifyApplicationAuthorization } from "../../application-authorization.js";
@@ -161,6 +162,7 @@ export function registerAuthorizationRoutes(
         codeChallenge: input.code_challenge,
         requestedOperations,
         requestedFiles: application.rows[0].requirements.files,
+        ...collaborationExpectation(application.rows[0].requirements),
         collectionId: input.collection_id
       }
     );
@@ -438,6 +440,7 @@ export function registerAuthorizationRoutes(
         codeChallenge: input.code_challenge,
         requestedOperations,
         requestedFiles: application.rows[0].requirements.files,
+        ...collaborationExpectation(application.rows[0].requirements),
         collectionId: input.collection_id
       }
     );
@@ -784,6 +787,22 @@ export function registerAuthorizationRoutes(
   });
 
   registerAuthorizationPollingRoutes(app, options);
+}
+
+function collaborationExpectation(requirements: ApplicationRequirements): {
+  requestedCollaboration?: {
+    contract_version: 1;
+    profiles: ["markdown-body-yjs-v13"];
+  };
+} {
+  return requestsRecordCollaboration(requirements.capabilities)
+    ? {
+        requestedCollaboration: {
+          contract_version: 1,
+          profiles: ["markdown-body-yjs-v13"]
+        }
+      }
+    : {};
 }
 
 async function hostedTypeCandidates(

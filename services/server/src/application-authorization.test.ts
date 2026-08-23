@@ -20,6 +20,17 @@ const proof: ApplicationAuthorizationProof = {
   binding: fixture.binding,
   signature: fixture.signature
 };
+const collaborationFixtureDocument = JSON.parse(readFileSync(
+  fileURLToPath(new URL(
+    "../../../packages/protocol/test/fixtures/application-authorization-v6.json",
+    import.meta.url
+  )),
+  "utf8"
+)) as ApplicationAuthorizationProof & { signing_message_sha256: string };
+const collaborationProof: ApplicationAuthorizationProof = {
+  binding: collaborationFixtureDocument.binding,
+  signature: collaborationFixtureDocument.signature
+};
 const beta55FixtureDocument = JSON.parse(readFileSync(
   fileURLToPath(new URL(
     "../../../packages/protocol/test/fixtures/application-authorization-beta55-v4.json",
@@ -50,6 +61,15 @@ describe("application authorization proofs", () => {
   it("verifies the shared Rust/browser fixture", async () => {
     await expect(verifyApplicationAuthorization(proof, expected))
       .resolves.toEqual(expect.objectContaining({ signature: fixture.signature }));
+  });
+
+  it("verifies the v6 collaboration request fixture", async () => {
+    await expect(verifyApplicationAuthorization(collaborationProof, {
+      ...expected,
+      requestedCollaboration: collaborationProof.binding.requested_collaboration
+    })).resolves.toEqual(collaborationProof);
+    await expect(verifyApplicationAuthorization(collaborationProof, expected))
+      .rejects.toBeInstanceOf(ApplicationAuthorizationError);
   });
 
   it("verifies the frozen beta55 protocol-2/v4 proof without rewriting it", async () => {
@@ -127,7 +147,7 @@ describe("application authorization proofs", () => {
       code: "authorization_binding_incompatible",
       details: {
         contract: "authorization_binding",
-        required: [5, 4],
+        required: [6, 5, 4],
         supported: [2],
         peer: "application"
       }
