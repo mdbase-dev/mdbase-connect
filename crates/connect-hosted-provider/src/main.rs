@@ -318,6 +318,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_file_bytes_per_collection: arguments.max_file_bytes_per_collection,
         max_stored_file_bytes_per_collection: arguments.max_stored_file_bytes_per_collection,
         max_bytes_per_file: arguments.max_bytes_per_file,
+        max_collaboration_bytes_per_collection: ProviderLimits::default()
+            .max_collaboration_bytes_per_collection,
+        max_collaboration_bytes_per_account: ProviderLimits::default()
+            .max_collaboration_bytes_per_account,
         collaboration: collaboration_limits,
     };
     let notification_config =

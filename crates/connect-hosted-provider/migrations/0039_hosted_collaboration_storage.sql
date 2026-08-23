@@ -240,3 +240,95 @@ AFTER INSERT OR DELETE OR UPDATE OF account_id, content_bytes, file_bytes,
   stored_file_bytes, collaboration_bytes
 ON hosted_provider_collections FOR EACH ROW
 EXECUTE FUNCTION hosted_provider_apply_account_usage();
+
+-- Collaboration aggregates are derived from ciphertext rows, never supplied by
+-- a caller. The trigger runs in the same transaction as every room mutation.
+CREATE OR REPLACE FUNCTION hosted_provider_refresh_collaboration_usage()
+RETURNS trigger AS $$
+DECLARE
+  target_collection uuid := COALESCE(NEW.collection_id, OLD.collection_id);
+  total bigint;
+BEGIN
+  SELECT COALESCE(sum(octet_length(d.snapshot_ciphertext)
+      + octet_length(d.state_vector_ciphertext)
+      + COALESCE((SELECT sum(octet_length(u.update_ciphertext))
+          FROM hosted_provider_collaboration_updates u
+          WHERE u.collection_id = d.collection_id AND u.record_id = d.record_id
+            AND u.collaboration_epoch = d.collaboration_epoch AND u.profile = d.profile), 0)
+      + COALESCE((SELECT sum(octet_length(r.receipt_ciphertext))
+          FROM hosted_provider_collaboration_receipts r
+          WHERE r.collection_id = d.collection_id AND r.record_id = d.record_id
+            AND r.collaboration_epoch = d.collaboration_epoch AND r.profile = d.profile), 0)), 0)
+    INTO total
+    FROM hosted_provider_collaboration_documents d
+    WHERE d.collection_id = target_collection;
+  UPDATE hosted_provider_collections
+    SET collaboration_bytes = total, updated_at = now()
+    WHERE id = target_collection;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION hosted_provider_check_collection_collaboration_quota()
+RETURNS trigger AS $$
+BEGIN
+  IF COALESCE(current_setting('mdbase.quota_reconciliation', true), '') <> 'on'
+     AND NEW.collaboration_bytes > NEW.max_collaboration_bytes THEN
+    RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'collection_collaboration_quota_exceeded';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS hosted_provider_collection_collaboration_quota
+  ON hosted_provider_collections;
+CREATE TRIGGER hosted_provider_collection_collaboration_quota
+BEFORE INSERT OR UPDATE OF collaboration_bytes, max_collaboration_bytes
+ON hosted_provider_collections FOR EACH ROW
+EXECUTE FUNCTION hosted_provider_check_collection_collaboration_quota();
+
+DROP TRIGGER IF EXISTS hosted_provider_collaboration_documents_usage
+  ON hosted_provider_collaboration_documents;
+CREATE TRIGGER hosted_provider_collaboration_documents_usage
+AFTER INSERT OR UPDATE OR DELETE ON hosted_provider_collaboration_documents
+FOR EACH ROW EXECUTE FUNCTION hosted_provider_refresh_collaboration_usage();
+DROP TRIGGER IF EXISTS hosted_provider_collaboration_updates_usage
+  ON hosted_provider_collaboration_updates;
+CREATE TRIGGER hosted_provider_collaboration_updates_usage
+AFTER INSERT OR UPDATE OR DELETE ON hosted_provider_collaboration_updates
+FOR EACH ROW EXECUTE FUNCTION hosted_provider_refresh_collaboration_usage();
+DROP TRIGGER IF EXISTS hosted_provider_collaboration_receipts_usage
+  ON hosted_provider_collaboration_receipts;
+CREATE TRIGGER hosted_provider_collaboration_receipts_usage
+AFTER INSERT OR UPDATE OR DELETE ON hosted_provider_collaboration_receipts
+FOR EACH ROW EXECUTE FUNCTION hosted_provider_refresh_collaboration_usage();
+
+-- Reconciliation is authoritative and transactional. It repairs both the
+-- per-document cache and the account counters without changing entitlements.
+CREATE OR REPLACE FUNCTION hosted_provider_reconcile_collaboration_account(target uuid)
+RETURNS void AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('mdbase-hosted-collaboration-quota-v1', 0));
+  PERFORM 1 FROM hosted_provider_accounts WHERE id = target FOR UPDATE;
+  UPDATE hosted_provider_collaboration_documents d SET collaboration_bytes =
+    octet_length(d.snapshot_ciphertext) + octet_length(d.state_vector_ciphertext)
+    + COALESCE((SELECT sum(octet_length(u.update_ciphertext)) FROM hosted_provider_collaboration_updates u
+       WHERE u.collection_id=d.collection_id AND u.record_id=d.record_id
+         AND u.collaboration_epoch=d.collaboration_epoch AND u.profile=d.profile),0)
+    + COALESCE((SELECT sum(octet_length(r.receipt_ciphertext)) FROM hosted_provider_collaboration_receipts r
+       WHERE r.collection_id=d.collection_id AND r.record_id=d.record_id
+         AND r.collaboration_epoch=d.collaboration_epoch AND r.profile=d.profile),0)
+  WHERE d.collection_id IN (SELECT id FROM hosted_provider_collections WHERE account_id=target);
+  UPDATE hosted_provider_collections c SET collaboration_bytes = COALESCE((
+    SELECT sum(d.collaboration_bytes) FROM hosted_provider_collaboration_documents d WHERE d.collection_id=c.id),0)
+  WHERE c.account_id = target;
+  UPDATE hosted_provider_accounts a SET
+    collection_count = (SELECT count(*) FROM hosted_provider_collections c WHERE c.account_id=a.id AND c.state <> 'deleting'),
+    live_content_bytes = COALESCE((SELECT sum(c.content_bytes) FROM hosted_provider_collections c WHERE c.account_id=a.id),0),
+    live_file_bytes = COALESCE((SELECT sum(c.file_bytes) FROM hosted_provider_collections c WHERE c.account_id=a.id),0),
+    retained_file_bytes = COALESCE((SELECT sum(c.stored_file_bytes) FROM hosted_provider_collections c WHERE c.account_id=a.id),0),
+    live_collaboration_bytes = COALESCE((SELECT sum(c.collaboration_bytes) FROM hosted_provider_collections c WHERE c.account_id=a.id),0),
+    updated_at = now()
+  WHERE a.id = target;
+END;
+$$ LANGUAGE plpgsql;

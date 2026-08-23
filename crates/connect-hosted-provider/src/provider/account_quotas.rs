@@ -58,6 +58,7 @@ impl HostedProvider {
                          max_application_replicas_per_collection = $8,
                          max_collections = $9,
                          max_files_per_collection = $10,
+                         max_collaboration_bytes = $11,
                          updated_at = now()
                        WHERE id = $1"#,
                 )
@@ -83,6 +84,10 @@ impl HostedProvider {
                 )?)
                 .bind(to_i64(limits.max_hosted_collections, "collection limit")?)
                 .bind(to_i64(limits.max_files_per_collection, "file count limit")?)
+                .bind(to_i64(
+                    self.limits.max_collaboration_bytes_per_account,
+                    "account collaboration safety limit",
+                )?)
                 .execute(&mut *transaction)
                 .await?;
             }
@@ -93,8 +98,9 @@ impl HostedProvider {
                       max_retained_file_bytes, max_document_bytes,
                       max_single_file_bytes, max_mirror_replicas_per_collection,
                       max_application_replicas_per_collection,
-                      max_collections, max_files_per_collection)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
+                      max_collections, max_files_per_collection,
+                      max_collaboration_bytes)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#,
             )
             .bind(account_id)
             .bind(to_i64(entitlement_revision, "entitlement revision")?)
@@ -118,9 +124,23 @@ impl HostedProvider {
             )?)
             .bind(to_i64(limits.max_hosted_collections, "collection limit")?)
             .bind(to_i64(limits.max_files_per_collection, "file count limit")?)
+            .bind(to_i64(
+                self.limits.max_collaboration_bytes_per_account,
+                "account collaboration safety limit",
+            )?)
             .execute(&mut *transaction)
             .await?;
         }
+        sqlx::query(
+            "UPDATE hosted_provider_accounts SET max_collaboration_bytes = $2, updated_at = now() WHERE id = $1",
+        )
+        .bind(account_id)
+        .bind(to_i64(
+            self.limits.max_collaboration_bytes_per_account,
+            "account collaboration safety limit",
+        )?)
+        .execute(&mut *transaction)
+        .await?;
         let usage = account_usage(&mut transaction, account_id).await?;
         transaction.commit().await?;
         Ok(usage)
@@ -153,20 +173,25 @@ impl HostedProvider {
         let result = sqlx::query(
             r#"UPDATE hosted_provider_collections SET
                  account_id = $2,
-                 max_content_bytes = $3,
-                 max_document_bytes = $4,
-                 max_mirror_replicas = $5,
-                 max_application_replicas = $6,
-                 max_files = $7,
-                 max_file_bytes = $3,
-                 max_stored_file_bytes = $8,
-                 max_single_file_bytes = $9,
+                 max_collaboration_bytes = $3,
+                 max_content_bytes = $4,
+                 max_document_bytes = $5,
+                 max_mirror_replicas = $6,
+                 max_application_replicas = $7,
+                 max_files = $8,
+                 max_file_bytes = $4,
+                 max_stored_file_bytes = $9,
+                 max_single_file_bytes = $10,
                  updated_at = now()
                WHERE id = $1 AND state <> 'deleting'
                  AND (account_id IS NULL OR account_id = $2)"#,
         )
         .bind(collection_id)
         .bind(account_id)
+        .bind(to_i64(
+            self.limits.max_collaboration_bytes_per_collection,
+            "collection collaboration safety limit",
+        )?)
         .bind(to_i64(
             account.limits.hosted_storage_bytes,
             "live storage limit",
@@ -200,6 +225,10 @@ impl HostedProvider {
                 "The hosted collection is missing or belongs to another account.",
             ));
         }
+        sqlx::query("SELECT hosted_provider_reconcile_collaboration_account($1)")
+            .bind(account_id)
+            .execute(&mut *transaction)
+            .await?;
         sqlx::query(
             r#"UPDATE hosted_provider_query_page_receipts
                SET account_id = $2
@@ -314,7 +343,8 @@ async fn account_usage(
                   max_application_replicas_per_collection,
                   max_collections, max_files_per_collection,
                   collection_count, live_content_bytes, live_file_bytes,
-                  retained_file_bytes
+                  retained_file_bytes, live_collaboration_bytes,
+                  max_collaboration_bytes
            FROM hosted_provider_accounts WHERE id = $1"#,
     )
     .bind(account_id)
@@ -334,6 +364,11 @@ async fn account_usage(
         live_content_bytes: number(row.get("live_content_bytes"), "content size")?,
         live_file_bytes: number(row.get("live_file_bytes"), "file size")?,
         retained_file_bytes: number(row.get("retained_file_bytes"), "retained file size")?,
+        live_collaboration_bytes: number(
+            row.get("live_collaboration_bytes"),
+            "collaboration size",
+        )?,
+        max_collaboration_bytes: number(row.get("max_collaboration_bytes"), "collaboration limit")?,
         limits: stored.limits,
     })
 }

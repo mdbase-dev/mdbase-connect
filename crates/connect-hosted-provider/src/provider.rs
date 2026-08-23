@@ -68,7 +68,6 @@ mod capabilities;
 mod collaboration;
 mod collections;
 mod compaction;
-pub use collaboration::{CollaborationBatch, CollaborationRoom, CollaborationRoomLifecycle};
 mod crypto_state;
 mod diagnostics;
 mod file_policy;
@@ -202,6 +201,9 @@ pub struct ProviderLimits {
     pub max_file_bytes_per_collection: u64,
     pub max_stored_file_bytes_per_collection: u64,
     pub max_bytes_per_file: u64,
+    /// Provider-owned collaboration ceilings; these are not control-plane entitlements.
+    pub max_collaboration_bytes_per_collection: u64,
+    pub max_collaboration_bytes_per_account: u64,
     pub collaboration: CollaborationLimits,
 }
 
@@ -225,6 +227,8 @@ pub struct ProviderAccountUsage {
     pub live_content_bytes: u64,
     pub live_file_bytes: u64,
     pub retained_file_bytes: u64,
+    pub live_collaboration_bytes: u64,
+    pub max_collaboration_bytes: u64,
     #[serde(flatten)]
     pub limits: ProviderAccountLimits,
 }
@@ -241,6 +245,8 @@ impl Default for ProviderLimits {
             max_file_bytes_per_collection: 5 * 1024 * 1024 * 1024,
             max_stored_file_bytes_per_collection: 10 * 1024 * 1024 * 1024,
             max_bytes_per_file: 1024 * 1024 * 1024,
+            max_collaboration_bytes_per_collection: 256 * 1024 * 1024,
+            max_collaboration_bytes_per_account: 2 * 1024 * 1024 * 1024,
             collaboration: CollaborationLimits::default(),
         }
     }

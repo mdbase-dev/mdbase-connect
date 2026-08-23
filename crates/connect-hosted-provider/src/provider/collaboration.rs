@@ -11,13 +11,13 @@ use mdbase_connect_collaboration::{CollaborationError, MarkdownBodyDocument};
 use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CollaborationRoomLifecycle {
+pub(super) enum CollaborationRoomLifecycle {
     Active,
     Closed,
     Rebuilding,
 }
 
-pub struct CollaborationRoom {
+pub(super) struct CollaborationRoom {
     pub identity: RoomIdentity,
     pub document: MarkdownBodyDocument,
     pub materialized_revision: String,
@@ -26,49 +26,30 @@ pub struct CollaborationRoom {
     pub lifecycle: CollaborationRoomLifecycle,
 }
 
-#[derive(Debug, Clone)]
-pub struct CollaborationBatch {
-    pub room: RoomIdentity,
-    pub contributing_replica_ids: Vec<Uuid>,
-    pub client_mutation_ids: Vec<Uuid>,
-    pub updates: Vec<Vec<u8>>,
-}
-
 impl HostedProvider {
-    /// Load or create a room in its own transaction. Fencing errors are
-    /// committed deliberately, so repair-required state survives the failed
-    /// load attempt.
-    pub async fn load_collaboration_room(
-        &self,
-        data_key: &[u8; 32],
-        room: RoomIdentity,
-    ) -> ApiResult<CollaborationRoom> {
-        let mut transaction = self.pool.begin().await?;
-        match self
-            .load_collaboration_room_in(&mut transaction, data_key, room)
-            .await
-        {
-            Ok(room) => {
-                transaction.commit().await?;
-                Ok(room)
-            }
-            Err(error) => {
-                transaction.commit().await?;
-                Err(error)
-            }
-        }
-    }
-
     /// Load or create a room while the caller's transaction owns the stable
     /// record lock. The record is the authority for both exact frontmatter
     /// bytes and the materialized body; CRDT state is accepted only after the
     /// latter has been checked.
-    pub async fn load_collaboration_room_in(
+    /// The caller must already have performed replica authorization. This
+    /// helper acquires locks in the ordinary order: collection, record,
+    /// collaboration document. It never resolves or accepts a caller key.
+    pub(super) async fn load_collaboration_room_in(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
         data_key: &[u8; 32],
         room: RoomIdentity,
     ) -> ApiResult<CollaborationRoom> {
+        sqlx::query("SELECT id FROM hosted_provider_collections WHERE id = $1 FOR UPDATE")
+            .bind(room.collection_id)
+            .fetch_optional(&mut **transaction)
+            .await?
+            .ok_or_else(|| {
+                ApiError::not_found(
+                    "collection_not_found",
+                    "The hosted collection does not exist.",
+                )
+            })?;
         let record_row = sqlx::query(
             "SELECT revision, sequence, payload_ciphertext FROM hosted_provider_records
              WHERE collection_id = $1 AND record_id = $2 FOR UPDATE",
@@ -89,7 +70,7 @@ impl HostedProvider {
         let existing = sqlx::query(
             "SELECT snapshot_ciphertext, state_vector_ciphertext, current_sequence,
                     materialized_revision, snapshot_sequence, retained_update_count,
-                    retained_update_bytes, state
+                    retained_update_bytes, collaboration_bytes, state
              FROM hosted_provider_collaboration_documents
              WHERE collection_id = $1 AND record_id = $2 AND collaboration_epoch = $3
                AND profile = $4 FOR UPDATE",
@@ -140,11 +121,11 @@ impl HostedProvider {
             .bind(room.record_id)
             .bind(to_i64(room.epoch, "collaboration epoch")?)
             .bind(room.profile)
-            .bind(snapshot_ciphertext)
-            .bind(vector_ciphertext)
+            .bind(&snapshot_ciphertext)
+            .bind(&vector_ciphertext)
             .bind(&record.revision)
             .bind(to_i64(
-                (snapshot.len() + vector.len()) as u64,
+                (snapshot_ciphertext.len() + vector_ciphertext.len()) as u64,
                 "collaboration bytes",
             )?)
             .execute(&mut **transaction)
@@ -159,7 +140,14 @@ impl HostedProvider {
             });
         };
 
-        let state = parse_lifecycle(row.get("state"))?;
+        let state = match parse_lifecycle(row.get("state")) {
+            Ok(state) => state,
+            Err(_) => {
+                return self
+                    .fence_room(transaction, &room, "collaboration lifecycle is corrupt")
+                    .await
+            }
+        };
         if state != CollaborationRoomLifecycle::Active {
             return Err(ApiError::conflict(
                 "collaboration_repair_required",
@@ -182,7 +170,7 @@ impl HostedProvider {
                 .await;
         }
         let snapshot_ciphertext: Vec<u8> = row.get("snapshot_ciphertext");
-        let snapshot = decrypt_room_bytes(
+        let snapshot = match decrypt_room_bytes(
             &self.crypto,
             data_key,
             &room,
@@ -190,8 +178,27 @@ impl HostedProvider {
             snapshot_sequence,
             None,
             &snapshot_ciphertext,
-        )?;
-        ensure_snapshot_limit(&snapshot, &self.limits.collaboration)?;
+        ) {
+            Ok(value) => value,
+            Err(_) => {
+                return self
+                    .fence_room(
+                        transaction,
+                        &room,
+                        "collaboration snapshot authentication failed",
+                    )
+                    .await
+            }
+        };
+        if ensure_snapshot_limit(&snapshot, &self.limits.collaboration).is_err() {
+            return self
+                .fence_room(
+                    transaction,
+                    &room,
+                    "collaboration snapshot exceeds the configured limit",
+                )
+                .await;
+        }
         let mut document = match MarkdownBodyDocument::from_snapshot(
             &snapshot,
             self.limits.collaboration.max_snapshot_bytes as usize,
@@ -205,7 +212,7 @@ impl HostedProvider {
             }
         };
         let vector_ciphertext: Vec<u8> = row.get("state_vector_ciphertext");
-        let stored_vector = decrypt_room_bytes(
+        let stored_vector = match decrypt_room_bytes(
             &self.crypto,
             data_key,
             &room,
@@ -213,7 +220,18 @@ impl HostedProvider {
             snapshot_sequence,
             None,
             &vector_ciphertext,
-        )?;
+        ) {
+            Ok(value) => value,
+            Err(_) => {
+                return self
+                    .fence_room(
+                        transaction,
+                        &room,
+                        "collaboration state vector authentication failed",
+                    )
+                    .await
+            }
+        };
         if stored_vector != document.state_vector_v1() {
             return self
                 .fence_room(
@@ -224,18 +242,29 @@ impl HostedProvider {
                 .await;
         }
         let updates = sqlx::query(
-            "SELECT sequence, update_ciphertext, update_digest, client_mutation_id
+            "SELECT sequence, update_ciphertext, update_digest, client_mutation_id, materialized_revision
              FROM hosted_provider_collaboration_updates
              WHERE collection_id=$1 AND record_id=$2 AND collaboration_epoch=$3 AND profile=$4
-               AND sequence > $5 ORDER BY sequence",
+               AND sequence > $5 ORDER BY sequence LIMIT $6",
         )
         .bind(room.collection_id)
         .bind(room.record_id)
         .bind(to_i64(room.epoch, "collaboration epoch")?)
         .bind(room.profile)
         .bind(to_i64(snapshot_sequence, "snapshot sequence")?)
+        .bind(to_i64(self.limits.collaboration.max_retained_updates.saturating_add(1), "retained update count")?)
         .fetch_all(&mut **transaction)
         .await?;
+        if updates.len() as u64 > self.limits.collaboration.max_retained_updates {
+            return self
+                .fence_room(
+                    transaction,
+                    &room,
+                    "retained collaboration update count exceeds the configured limit",
+                )
+                .await;
+        }
+        let update_count = updates.len() as u64;
         let mut expected = snapshot_sequence + 1;
         let mut retained_bytes = 0_u64;
         for update in updates {
@@ -261,12 +290,19 @@ impl HostedProvider {
                     .await;
             }
             let digest: Vec<u8> = update.get("update_digest");
-            if digest != digest_bytes(&ciphertext) {
+            let mutation_id: Uuid = update.get("client_mutation_id");
+            // Phase 3B has no writer yet; the only valid retained-row
+            // invariant is the room's authoritative record revision.
+            let update_revision: String = update.get("materialized_revision");
+            if update_revision != record.revision {
                 return self
-                    .fence_room(transaction, &room, "collaboration update digest is invalid")
+                    .fence_room(
+                        transaction,
+                        &room,
+                        "collaboration update revision is inconsistent",
+                    )
                     .await;
             }
-            let mutation_id: Uuid = update.get("client_mutation_id");
             let plaintext = match decrypt_room_bytes(
                 &self.crypto,
                 data_key,
@@ -287,6 +323,11 @@ impl HostedProvider {
                         .await
                 }
             };
+            if digest != digest_bytes(&plaintext) {
+                return self
+                    .fence_room(transaction, &room, "collaboration update digest is invalid")
+                    .await;
+            }
             if document
                 .apply_update_v1(
                     &plaintext,
@@ -300,6 +341,48 @@ impl HostedProvider {
                     .await;
             }
             expected += 1;
+        }
+        if update_count
+            != number(
+                row.get::<i64, _>("retained_update_count"),
+                "retained update count",
+            )?
+            || retained_bytes
+                != number(
+                    row.get::<i64, _>("retained_update_bytes"),
+                    "retained update bytes",
+                )?
+        {
+            return self
+                .fence_room(
+                    transaction,
+                    &room,
+                    "stored retained update metadata is inconsistent",
+                )
+                .await;
+        }
+        let receipt_bytes: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(sum(octet_length(receipt_ciphertext)), 0) FROM hosted_provider_collaboration_receipts WHERE collection_id=$1 AND record_id=$2 AND collaboration_epoch=$3 AND profile=$4",
+        )
+        .bind(room.collection_id).bind(room.record_id).bind(to_i64(room.epoch, "collaboration epoch")?).bind(room.profile)
+        .fetch_one(&mut **transaction).await?;
+        let expected_collaboration_bytes = snapshot_ciphertext.len() as u64
+            + vector_ciphertext.len() as u64
+            + retained_bytes
+            + number(receipt_bytes, "receipt bytes")?;
+        if expected_collaboration_bytes
+            != number(
+                row.get::<i64, _>("collaboration_bytes"),
+                "collaboration bytes",
+            )?
+        {
+            return self
+                .fence_room(
+                    transaction,
+                    &room,
+                    "stored collaboration bytes are inconsistent",
+                )
+                .await;
         }
         if expected != current_sequence.saturating_add(1) {
             return self
@@ -335,7 +418,7 @@ impl HostedProvider {
     /// Replace the durable snapshot at a bounded checkpoint. The full Yrs
     /// state is retained, so clients with an old state vector can still ask
     /// for a diff after incremental rows are removed.
-    pub async fn compact_collaboration_room_in(
+    pub(super) async fn compact_collaboration_room_in(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
         data_key: &[u8; 32],
@@ -371,6 +454,15 @@ impl HostedProvider {
             None,
             &vector,
         )?;
+        // Remove obsolete retained ciphertext first; each trigger refresh is
+        // authoritative, so a transient snapshot-plus-old-updates total can
+        // never bypass the collection quota.
+        sqlx::query(
+            "DELETE FROM hosted_provider_collaboration_updates
+             WHERE collection_id=$1 AND record_id=$2 AND collaboration_epoch=$3 AND profile=$4 AND sequence <= $5",
+        )
+        .bind(room.collection_id).bind(room.record_id).bind(to_i64(room.epoch, "collaboration epoch")?).bind(room.profile)
+        .bind(to_i64(loaded.current_sequence, "collaboration sequence")?).execute(&mut **transaction).await?;
         sqlx::query(
             "UPDATE hosted_provider_collaboration_documents
              SET snapshot_ciphertext=$5, state_vector_ciphertext=$6,
@@ -382,45 +474,35 @@ impl HostedProvider {
         .bind(room.record_id)
         .bind(to_i64(room.epoch, "collaboration epoch")?)
         .bind(room.profile)
-        .bind(snapshot_ciphertext)
-        .bind(vector_ciphertext)
+        .bind(&snapshot_ciphertext)
+        .bind(&vector_ciphertext)
         .bind(to_i64(loaded.current_sequence, "collaboration sequence")?)
         .bind(to_i64(
-            (snapshot.len() + vector.len()) as u64,
+            (snapshot_ciphertext.len() + vector_ciphertext.len()) as u64,
             "collaboration bytes",
         )?)
         .execute(&mut **transaction)
         .await?;
-        sqlx::query(
-            "DELETE FROM hosted_provider_collaboration_updates
-             WHERE collection_id=$1 AND record_id=$2 AND collaboration_epoch=$3 AND profile=$4 AND sequence <= $5",
-        )
-        .bind(room.collection_id).bind(room.record_id).bind(to_i64(room.epoch, "collaboration epoch")?).bind(room.profile)
-        .bind(to_i64(loaded.current_sequence, "collaboration sequence")?).execute(&mut **transaction).await?;
         Ok(true)
     }
 
-    /// Explicitly disabled until the ordinary write-set committer is shared.
-    /// Keeping this method absent from HTTP/WS routing proves that no partial
-    /// collaboration write can acknowledge or broadcast state.
-    pub async fn apply_collaboration_batch_in(
-        &self,
-        _transaction: Transaction<'_, Postgres>,
-        _batch: CollaborationBatch,
-    ) -> ApiResult<()> {
-        Err(ApiError::conflict(
-            "collaboration_not_enabled",
-            "Hosted collaboration writes are not enabled.",
-        ))
-    }
-
-    pub async fn repair_collaboration_room_in(
+    pub(super) async fn repair_collaboration_room_in(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
         data_key: &[u8; 32],
         collection_id: Uuid,
         record_id: Uuid,
     ) -> ApiResult<RoomIdentity> {
+        sqlx::query("SELECT id FROM hosted_provider_collections WHERE id=$1 FOR UPDATE")
+            .bind(collection_id)
+            .fetch_optional(&mut **transaction)
+            .await?
+            .ok_or_else(|| {
+                ApiError::not_found(
+                    "collection_not_found",
+                    "The hosted collection does not exist.",
+                )
+            })?;
         let record_row = sqlx::query("SELECT revision, payload_ciphertext, sequence FROM hosted_provider_records WHERE collection_id=$1 AND record_id=$2 FOR UPDATE")
             .bind(collection_id).bind(record_id).fetch_one(&mut **transaction).await?;
         let sequence = number(record_row.get::<i64, _>("sequence"), "record sequence")?;
@@ -429,9 +511,21 @@ impl HostedProvider {
             record_row.get("payload_ciphertext"),
             &current_record_aad(collection_id, record_id, sequence),
         )?;
-        let old_epoch: Option<i64> = sqlx::query_scalar("SELECT max(collaboration_epoch) FROM hosted_provider_collaboration_documents WHERE collection_id=$1 AND record_id=$2")
-            .bind(collection_id).bind(record_id).fetch_one(&mut **transaction).await?;
-        let epoch = number(old_epoch.unwrap_or(0), "collaboration epoch")?.saturating_add(1);
+        let old_epoch: Option<i64> = sqlx::query_scalar("SELECT max(collaboration_epoch) FROM hosted_provider_collaboration_documents WHERE collection_id=$1 AND record_id=$2 AND profile=$3")
+            .bind(collection_id).bind(record_id).bind(crate::COLLABORATION_PROFILE)
+            .fetch_one(&mut **transaction).await?;
+        let document = MarkdownBodyDocument::new(
+            &record.body,
+            self.limits.collaboration.max_document_bytes as usize,
+        )
+        .map_err(profile_error)?;
+        let snapshot = document.snapshot_v1();
+        ensure_snapshot_limit(&snapshot, &self.limits.collaboration)?;
+        let vector = document.state_vector_v1();
+        let epoch = u64::try_from(old_epoch.unwrap_or(0))
+            .map_err(|_| ApiError::internal("invalid collaboration repair epoch"))?
+            .checked_add(1)
+            .ok_or_else(|| ApiError::internal("collaboration repair epoch overflow"))?;
         let room = RoomIdentity::new(
             collection_id,
             record_id,
@@ -439,18 +533,32 @@ impl HostedProvider {
             crate::COLLABORATION_PROFILE,
         )
         .ok_or_else(|| ApiError::internal("invalid collaboration repair epoch"))?;
-        let document = MarkdownBodyDocument::new(
-            &record.body,
-            self.limits.collaboration.max_document_bytes as usize,
-        )
-        .map_err(profile_error)?;
-        let snapshot = document.snapshot_v1();
-        let vector = document.state_vector_v1();
-        sqlx::query("UPDATE hosted_provider_collaboration_documents SET state='rebuilding', updated_at=now() WHERE collection_id=$1 AND record_id=$2 AND state='active'").bind(collection_id).bind(record_id).execute(&mut **transaction).await?;
+        sqlx::query("UPDATE hosted_provider_collaboration_documents SET state='closed', updated_at=now() WHERE collection_id=$1 AND record_id=$2 AND profile=$3 AND state <> 'closed'")
+            .bind(collection_id).bind(record_id).bind(room.profile).execute(&mut **transaction).await?;
+        sqlx::query("DELETE FROM hosted_provider_collaboration_documents WHERE collection_id=$1 AND record_id=$2 AND profile=$3")
+            .bind(collection_id).bind(record_id).bind(room.profile).execute(&mut **transaction).await?;
+        let snapshot_ciphertext = encrypt_room_bytes(
+            &self.crypto,
+            data_key,
+            &room,
+            AadKind::Snapshot,
+            0,
+            None,
+            &snapshot,
+        )?;
+        let vector_ciphertext = encrypt_room_bytes(
+            &self.crypto,
+            data_key,
+            &room,
+            AadKind::StateVector,
+            0,
+            None,
+            &vector,
+        )?;
         sqlx::query("INSERT INTO hosted_provider_collaboration_documents (collection_id,record_id,collaboration_epoch,profile,snapshot_ciphertext,state_vector_ciphertext,materialized_revision,collaboration_bytes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)")
             .bind(collection_id).bind(record_id).bind(to_i64(epoch, "collaboration epoch")?).bind(room.profile)
-            .bind(encrypt_room_bytes(&self.crypto,data_key,&room,AadKind::Snapshot,0,None,&snapshot)?).bind(encrypt_room_bytes(&self.crypto,data_key,&room,AadKind::StateVector,0,None,&vector)?).bind(record.revision)
-            .bind(to_i64((snapshot.len()+vector.len()) as u64,"collaboration bytes")?).execute(&mut **transaction).await?;
+            .bind(&snapshot_ciphertext).bind(&vector_ciphertext).bind(record.revision)
+            .bind(to_i64((snapshot_ciphertext.len()+vector_ciphertext.len()) as u64,"collaboration bytes")?).execute(&mut **transaction).await?;
         Ok(room)
     }
 

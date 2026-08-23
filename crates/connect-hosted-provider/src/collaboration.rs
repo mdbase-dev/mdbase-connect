@@ -39,7 +39,7 @@ impl RoomIdentity {
         })
     }
 
-    pub fn aad(&self, kind: AadKind, sequence: u64, mutation_id: Option<Uuid>) -> Vec<u8> {
+    pub(crate) fn aad(&self, kind: AadKind, sequence: u64, mutation_id: Option<Uuid>) -> Vec<u8> {
         let mut aad = Vec::with_capacity(96);
         aad.extend_from_slice(b"mdbase/hosted-collaboration/v1\0");
         aad.extend_from_slice(self.collection_id.as_bytes());
@@ -58,7 +58,7 @@ impl RoomIdentity {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AadKind {
+pub(crate) enum AadKind {
     Snapshot,
     StateVector,
     Update,
@@ -76,7 +76,7 @@ impl AadKind {
     }
 }
 
-pub fn encrypt_room_bytes(
+pub(crate) fn encrypt_room_bytes(
     crypto: &ProviderCrypto,
     data_key: &[u8; 32],
     room: &RoomIdentity,
@@ -88,7 +88,7 @@ pub fn encrypt_room_bytes(
     crypto.encrypt_bytes(data_key, plaintext, &room.aad(kind, sequence, mutation_id))
 }
 
-pub fn decrypt_room_bytes(
+pub(crate) fn decrypt_room_bytes(
     crypto: &ProviderCrypto,
     data_key: &[u8; 32],
     room: &RoomIdentity,
