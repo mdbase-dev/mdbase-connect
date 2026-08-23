@@ -1,4 +1,8 @@
 import { randomUUID } from "node:crypto";
+import {
+  accountCreationEmailClaimed,
+  reserveAccountCreationEmail
+} from "./account-creation-email-claims.js";
 import type {
   DatabasePool,
   DatabaseQueryable
@@ -191,7 +195,7 @@ export class PasswordAccountService {
     const connection = await this.db.connect();
     try {
       await connection.query("BEGIN");
-      if (await identityExists(connection, normalizedEmail)) {
+      if (await accountCreationEmailClaimed(connection, normalizedEmail)) {
         throw new InvitationTargetConflictError();
       }
       await connection.query(
@@ -311,13 +315,20 @@ export class PasswordAccountService {
       ) {
         throw new InvalidInvitationError();
       }
-      if (await identityExists(connection, row.normalized_email)) {
+      if (await accountCreationEmailClaimed(connection, row.normalized_email)) {
         throw new InvitationTargetConflictError();
       }
       await connection.query(
         "INSERT INTO users (id, email, name) VALUES ($1, NULL, $2)",
         [userId, name]
       );
+      if (!await reserveAccountCreationEmail(connection, {
+        normalizedEmail: row.normalized_email,
+        userId,
+        source: "email_identity"
+      })) {
+        throw new InvitationTargetConflictError();
+      }
       const emailIdentityId = randomUUID();
       await connection.query(
         `INSERT INTO email_identities
@@ -665,25 +676,6 @@ function agreementsMatch(
   ) {
     throw new InvalidInvitationError();
   }
-}
-
-async function identityExists(
-  db: DatabaseQueryable,
-  normalizedEmail: string
-): Promise<boolean> {
-  const result = await db.query(
-    `SELECT user_id FROM email_identities
-     WHERE normalized_email = $1 AND retired_at IS NULL
-     UNION ALL
-     SELECT user_id FROM external_identities
-     WHERE normalized_email = $1 AND email_verified = true
-     UNION ALL
-     SELECT id AS user_id FROM users
-     WHERE email IS NOT NULL AND lower(email) = lower($1)
-     LIMIT 1`,
-    [normalizedEmail]
-  );
-  return Boolean(result.rows[0]);
 }
 
 function requiredText(value: string, maxLength: number, name: string): string {

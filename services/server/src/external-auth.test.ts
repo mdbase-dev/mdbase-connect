@@ -35,6 +35,14 @@ describe("external account sessions", () => {
       allowAccountCreation: false
     })).resolves.toMatchObject({ userId: created.userId });
     expect((await db.query("SELECT id FROM users")).rows).toHaveLength(1);
+    expect((await db.query(
+      `SELECT normalized_email, user_id, source
+       FROM account_creation_email_claims`
+    )).rows).toEqual([{
+      normalized_email: "invited@example.com",
+      user_id: created.userId,
+      source: "external_identity"
+    }]);
   });
 
   it("captures the account epoch and refuses sessions for suspended accounts", async () => {

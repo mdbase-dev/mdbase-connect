@@ -7,6 +7,8 @@ import {
 
 export const BETA_WELCOME_MESSAGE_KIND = "beta_welcome";
 export const BETA_WELCOME_TEMPLATE_VERSION = 1;
+export const OPEN_BETA_WELCOME_MESSAGE_KIND = "open_beta_welcome";
+export const OPEN_BETA_WELCOME_TEMPLATE_VERSION = 1;
 const BETA_WELCOME_DELAY_MS = 24 * 60 * 60 * 1_000;
 
 const SUBJECT = "A note about mdbase Connect";
@@ -33,20 +35,61 @@ export async function scheduleBetaWelcomeEmail(
   });
 }
 
+export async function scheduleOpenBetaWelcomeEmail(
+  db: DatabaseQueryable,
+  input: {
+    userId: string;
+    emailIdentityId: string;
+    signedUpAt?: Date;
+  }
+): Promise<{ id: string; duplicate: boolean }> {
+  return scheduleEmail(db, {
+    userId: input.userId,
+    emailIdentityId: input.emailIdentityId,
+    messageKind: OPEN_BETA_WELCOME_MESSAGE_KIND,
+    templateVersion: OPEN_BETA_WELCOME_TEMPLATE_VERSION,
+    category: "onboarding",
+    deduplicationKey:
+      `${OPEN_BETA_WELCOME_MESSAGE_KIND}:${input.userId}:v${OPEN_BETA_WELCOME_TEMPLATE_VERSION}`,
+    scheduledFor: new Date(
+      (input.signedUpAt ?? new Date()).getTime() + BETA_WELCOME_DELAY_MS
+    )
+  });
+}
+
 export function renderScheduledEmail(
   context: EmailRenderContext
 ): TransactionalEmail {
   if (
-    context.messageKind !== BETA_WELCOME_MESSAGE_KIND
-    || context.templateVersion !== BETA_WELCOME_TEMPLATE_VERSION
-  ) {
-    throw new TypeError("Scheduled email template is unavailable.");
-  }
-  return renderBetaWelcomeEmail(context);
+    context.messageKind === BETA_WELCOME_MESSAGE_KIND
+    && context.templateVersion === BETA_WELCOME_TEMPLATE_VERSION
+  ) return renderBetaWelcomeEmail(context);
+  if (
+    context.messageKind === OPEN_BETA_WELCOME_MESSAGE_KIND
+    && context.templateVersion === OPEN_BETA_WELCOME_TEMPLATE_VERSION
+  ) return renderOpenBetaWelcomeEmail(context);
+  throw new TypeError("Scheduled email template is unavailable.");
 }
 
 export function renderBetaWelcomeEmail(
   input: Pick<EmailRenderContext, "name" | "email">
+): TransactionalEmail {
+  return renderWelcomeEmail(input,
+    "Because you joined during the beta, your account has a 1 GB hosted-storage allowance that does not expire when the beta ends. It is shared across your Markdown files and other files. You can create up to 10 hosted collections, connect up to 10 replicas to each collection, store Markdown documents up to 2 MB, and store individual files up to 250 MB. I hope to offer paid plans with more storage later, and you'll be able to add one without losing your beta allowance."
+  );
+}
+
+export function renderOpenBetaWelcomeEmail(
+  input: Pick<EmailRenderContext, "name" | "email">
+): TransactionalEmail {
+  return renderWelcomeEmail(input,
+    "Because you joined during the open beta, your account has a 1 GB hosted-storage allowance that does not expire when the beta ends. It is shared across your Markdown files and other files. Your account also includes a 2 GB retained-file allowance, and each collection can contain up to 10,000 files. You can have up to 3 hosted collections in total, including the starter collection created with your account. Each collection can connect up to 10 synced folders and 50 application installations. Markdown documents can be up to 2 MB and individual files up to 250 MB. I hope to offer paid plans with more storage later, and you'll be able to add one without losing your beta allowance."
+  );
+}
+
+function renderWelcomeEmail(
+  input: Pick<EmailRenderContext, "name" | "email">,
+  entitlement: string
 ): TransactionalEmail {
   const paragraphs = [
     `Hi ${input.name},`,
@@ -56,7 +99,7 @@ export function renderBetaWelcomeEmail(
     "A lot of the software that we use, especially SaaS software, puts your data in its own database. This can make it difficult to use elsewhere or leave with the data when the software becomes unsuitable to your needs. The goal of mdbase is to enable users to enjoy good software while maintaining control of their data, with or without mdbase.",
     "There is one important thing to keep in mind, though. By design, an application you connect may be able to read data from a collection. If you give it write access, it may also be able to create, change, move, or delete files in that collection, and, again by design, those changes can be synchronized back to your computer. mdbase checks that each application stays within the permissions you've granted, but you should still only connect applications you trust, especially when they ask for write access.",
     "You can also build applications using the mdbase SDK. This is a way to make your own tools that work with your data online or offline, without giving a third-party application access to it.",
-    "Because you joined during the beta, your account has a 1 GB hosted-storage allowance that does not expire when the beta ends. It is shared across your Markdown files and other files. You can create up to 10 hosted collections, connect up to 10 replicas to each collection, store Markdown documents up to 2 MB, and store individual files up to 250 MB. I hope to offer paid plans with more storage later, and you'll be able to add one without losing your beta allowance.",
+    entitlement,
     "There will probably be some rough edges, so please let me know when something breaks, behaves unexpectedly, or is confusing. You can send an email to support@mdbase.dev or open an issue on GitHub. mdbase is early in its development and so feedback is super-helpful!",
     "Best,\nCallum."
   ];

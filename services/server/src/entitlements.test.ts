@@ -6,7 +6,9 @@ import {
   attachInvitationEntitlement,
   BETA_ENTITLEMENT_PROFILE,
   effectiveEntitlement,
-  materializeInvitationEntitlement
+  materializeInvitationEntitlement,
+  materializePublicSignupEntitlement,
+  OPEN_BETA_ENTITLEMENT_PROFILE
 } from "./entitlements.js";
 
 const resources: Array<() => Promise<void>> = [];
@@ -52,6 +54,26 @@ describe("account entitlements", () => {
       maxMirrorReplicasPerCollection: 10,
       maxApplicationReplicasPerCollection: 50,
       maxHostedCollections: 10,
+      maxFilesPerCollection: 10_000
+    });
+  });
+
+  it("materializes the permanent three-collection open Beta grant", async () => {
+    const { db, userId } = await fixture();
+
+    const first = await materializePublicSignupEntitlement(db, userId);
+    const replay = await materializePublicSignupEntitlement(db, userId);
+
+    expect(replay).toEqual(first);
+    expect(await effectiveEntitlement(db, userId)).toEqual({
+      profileCodes: [OPEN_BETA_ENTITLEMENT_PROFILE],
+      hostedStorageBytes: 1_073_741_824,
+      retainedFileBytes: 2_147_483_648,
+      maxDocumentBytes: 2_097_152,
+      maxSingleFileBytes: 262_144_000,
+      maxMirrorReplicasPerCollection: 10,
+      maxApplicationReplicasPerCollection: 50,
+      maxHostedCollections: 3,
       maxFilesPerCollection: 10_000
     });
   });
