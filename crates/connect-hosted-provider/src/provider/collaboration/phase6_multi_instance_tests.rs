@@ -329,9 +329,9 @@ async fn run(base: &str, schema: &str) {
     .await;
     commit_batch(
         &instance_a.provider,
+        &token_a,
         collection,
         record,
-        1,
         replica_a,
         Uuid::new_v4(),
         update_two,
@@ -346,9 +346,9 @@ async fn run(base: &str, schema: &str) {
     .await;
     commit_batch(
         &instance_a.provider,
+        &token_a,
         collection,
         record,
-        1,
         replica_a,
         Uuid::new_v4(),
         update_three,
@@ -390,9 +390,9 @@ async fn run(base: &str, schema: &str) {
     .await;
     commit_batch(
         &instance_a.provider,
+        &token_a,
         collection,
         record,
-        1,
         replica_a,
         Uuid::new_v4(),
         update_four,
@@ -520,9 +520,9 @@ async fn run(base: &str, schema: &str) {
     .await;
     commit_batch(
         &instance_a.provider,
+        &token_a,
         collection,
         record,
-        1,
         replica_a,
         Uuid::new_v4(),
         update_five,
@@ -602,9 +602,9 @@ async fn run(base: &str, schema: &str) {
     .await;
     commit_batch(
         &instance_a.provider,
+        &token_a,
         collection,
         record,
-        1,
         replica_a,
         Uuid::new_v4(),
         update_six,
@@ -779,9 +779,9 @@ async fn build_next_update(
 #[allow(clippy::too_many_arguments)]
 async fn commit_batch(
     provider: &HostedProvider,
+    token: &str,
     collection: Uuid,
     record: Uuid,
-    epoch: u64,
     replica: Uuid,
     mutation: Uuid,
     update: Vec<u8>,
@@ -793,10 +793,11 @@ async fn commit_batch(
             CollaborationBatchInput {
                 collection_id: collection,
                 record_id: record,
-                epoch,
+                epoch: 1,
                 contributions: vec![CollaborationBatchContribution {
                     replica_id: replica,
                     expected_scope_epoch: 1,
+                    expected_token_hash: token_hash(token).try_into().unwrap(),
                     client_mutation_id: mutation,
                     update,
                 }],

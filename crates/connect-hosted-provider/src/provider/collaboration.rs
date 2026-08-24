@@ -659,7 +659,9 @@ impl HostedProvider {
 mod batches;
 mod catchup;
 mod wakes;
-pub(crate) use batches::{CollaborationBatchContribution, CollaborationBatchInput};
+pub(crate) use batches::{
+    CollaborationBatchContribution, CollaborationBatchInput, CollaborationBatchReceipt,
+};
 pub(crate) use catchup::CollaborationCatchUpItem;
 pub(crate) use tickets::{CollaborationTicketRequest, ConsumedCollaborationTicket};
 pub(crate) use wakes::{
@@ -673,12 +675,18 @@ impl HostedProvider {
         room: RoomIdentity,
         replica_id: Uuid,
         scope_epoch: u64,
+        replica_token_hash: &[u8; 32],
     ) -> ApiResult<()> {
+        // The session stays bound to the credential fingerprint observed at
+        // ticket consumption. Token rotation rewrites the stored hash without
+        // touching the scope epoch, so this comparison is what ends rotated
+        // sessions; revocation and expiry are checked in the same row.
         let replica_epoch: Option<i64> = sqlx::query_scalar(
-            "SELECT scope_epoch FROM hosted_provider_replicas WHERE id=$1 AND collection_id=$2 AND revoked_at IS NULL AND token_expires_at > now()",
+            "SELECT scope_epoch FROM hosted_provider_replicas WHERE id=$1 AND collection_id=$2 AND token_hash=$3 AND revoked_at IS NULL AND token_expires_at > now()",
         )
         .bind(replica_id)
         .bind(room.collection_id)
+        .bind(replica_token_hash.as_slice())
         .fetch_optional(&self.pool)
         .await?;
         if replica_epoch != Some(to_i64(scope_epoch, "scope epoch")?) {
@@ -780,6 +788,10 @@ mod phase5_reconcile_tests;
 mod phase6_multi_instance_tests;
 #[cfg(test)]
 mod phase6_wake_channel_tests;
+#[cfg(test)]
+mod phase7_drain_revoke_support;
+#[cfg(test)]
+mod phase7_drain_revoke_tests;
 mod tickets;
 
 fn parse_lifecycle(value: String) -> ApiResult<CollaborationRoomLifecycle> {

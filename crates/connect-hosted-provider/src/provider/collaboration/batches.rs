@@ -9,6 +9,10 @@ const MAX_COLLABORATION_BATCH_BYTES: u64 = 1024 * 1024;
 pub(crate) struct CollaborationBatchContribution {
     pub replica_id: Uuid,
     pub expected_scope_epoch: u64,
+    /// Credential fingerprint bound to the contributor's live session. A
+    /// rotated or otherwise replaced credential cannot land updates even
+    /// inside the window before its socket closes.
+    pub expected_token_hash: [u8; 32],
     pub client_mutation_id: Uuid,
     pub update: Vec<u8>,
 }
@@ -106,7 +110,8 @@ impl HostedProvider {
                 "SELECT id, collection_id, purpose, mode, full_collection, allowed_types,
                         contract_scope, allowed_operations, collaboration_capability,
                         allowed_origin, proof_public_key, grant_id,
-                        application_declaration_id, application_declaration_digest, scope_epoch
+                        application_declaration_id, application_declaration_digest, scope_epoch,
+                        token_hash
                  FROM hosted_provider_replicas
                  WHERE id=$1 AND revoked_at IS NULL AND token_expires_at > now() FOR UPDATE",
             )
@@ -159,15 +164,26 @@ impl HostedProvider {
                     "The collaboration replica is not authorized for durable collaboration.",
                 ));
             }
-            if !input
+            let stored_scope_epoch = number(row.get::<i64, _>("scope_epoch"), "scope epoch")?;
+            let stored_token_hash: Vec<u8> = row.get("token_hash");
+            let mut contributions_match = input
                 .contributions
                 .iter()
-                .filter(|c| c.replica_id == *replica_id)
-                .all(|c| {
-                    number(row.get::<i64, _>("scope_epoch"), "scope epoch")
-                        .is_ok_and(|epoch| epoch == c.expected_scope_epoch)
-                })
-            {
+                .filter(|c| c.replica_id == *replica_id);
+            let scope_matches = contributions_match
+                .clone()
+                .all(|c| stored_scope_epoch == c.expected_scope_epoch);
+            let fingerprint_matches = contributions_match
+                .all(|c| stored_token_hash.as_slice() == c.expected_token_hash.as_slice());
+            if !scope_matches || !fingerprint_matches {
+                if !fingerprint_matches {
+                    // The session's credential fingerprint no longer matches:
+                    // the credential was rotated after this session was bound.
+                    return Err(ApiError::forbidden(
+                        "collaboration_scope_denied",
+                        "The collaboration session is no longer authorized.",
+                    ));
+                }
                 return Err(ApiError::conflict(
                     "scope_epoch_stale",
                     "The collaboration replica scope changed.",

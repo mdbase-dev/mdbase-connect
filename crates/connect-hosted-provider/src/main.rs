@@ -403,7 +403,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!(%address, "hosted provider listening");
 
     let result = axum::serve(listener, app(state.clone()))
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(collaboration_drain_shutdown(state.clone()))
         .await;
     if !state
         .stop_collaboration_wake_runtime(Duration::from_secs(10))
@@ -612,6 +612,22 @@ async fn shutdown_signal() {
     let _ = signal::ctrl_c().await;
     tracing::info!("shutdown requested");
     tokio::time::sleep(Duration::from_millis(10)).await;
+}
+
+/// The single shutdown signal drives collaboration drain before the Axum wait
+/// finishes: new tickets/upgrades/updates are rejected, already-started update
+/// batches finish, sockets receive close 1001, and every socket exits (bounded)
+/// while `axum::serve` waits on this future. Wake runtime and maintenance tasks
+/// are stopped afterwards in `main`.
+async fn collaboration_drain_shutdown(state: AppState) {
+    shutdown_signal().await;
+    state.begin_collaboration_session_drain();
+    if !state
+        .finish_collaboration_session_drain(Duration::from_secs(10))
+        .await
+    {
+        tracing::warn!("collaboration sessions did not drain within the shutdown budget");
+    }
 }
 
 #[cfg(test)]

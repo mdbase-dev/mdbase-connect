@@ -22,6 +22,11 @@ pub(crate) struct CollaborationTicketMetadata {
     pub origin: String,
     pub proof_public_key_digest: [u8; 32],
     pub scope_epoch: u64,
+    /// Replica credential fingerprint captured while the ticket row was locked
+    /// during consumption. Live sessions compare against it on every
+    /// reauthorization so a rotated token ends the session without needing a
+    /// scope bump.
+    pub replica_token_hash: [u8; 32],
     pub expires_at: DateTime<Utc>,
 }
 
@@ -167,6 +172,7 @@ impl HostedProvider {
                 origin: binding.origin,
                 proof_public_key_digest: binding.proof_digest,
                 scope_epoch: binding.scope_epoch,
+                replica_token_hash: binding.replica_token_hash,
                 expires_at,
             },
         })
@@ -273,6 +279,13 @@ impl HostedProvider {
         if consumed.rows_affected() != 1 {
             return Err(collaboration_denied());
         }
+        // Bind the session to the credential fingerprint observed under the
+        // replica lock. A later rotation changes the stored hash and every
+        // subsequent reauthorization of this session fails closed.
+        let stored_token_hash: Vec<u8> = replica_row.get("token_hash");
+        let replica_token_hash: [u8; 32] = stored_token_hash
+            .try_into()
+            .map_err(|_| collaboration_denied())?;
         transaction.commit().await?;
         Ok(ConsumedCollaborationTicket {
             metadata: CollaborationTicketMetadata {
@@ -282,6 +295,7 @@ impl HostedProvider {
                 origin: binding.origin,
                 proof_public_key_digest: binding.proof_digest,
                 scope_epoch: binding.scope_epoch,
+                replica_token_hash,
                 expires_at: row.get("expires_at"),
             },
         })
@@ -294,6 +308,7 @@ struct Binding {
     origin: String,
     proof_digest: [u8; 32],
     scope_epoch: u64,
+    replica_token_hash: [u8; 32],
 }
 
 async fn lock_and_load_collaboration_replica_by_id(
@@ -301,7 +316,7 @@ async fn lock_and_load_collaboration_replica_by_id(
     collection_id: Uuid,
     replica_id: Uuid,
 ) -> ApiResult<PgRow> {
-    sqlx::query("SELECT id, collection_id, purpose, mode, full_collection, allowed_types, contract_scope, allowed_operations, collaboration_capability, allowed_origin, proof_public_key, grant_id, application_declaration_id, application_declaration_digest, scope_epoch FROM hosted_provider_replicas WHERE collection_id=$1 AND id=$2 AND revoked_at IS NULL AND token_expires_at > now() FOR UPDATE")
+    sqlx::query("SELECT id, collection_id, purpose, mode, full_collection, allowed_types, contract_scope, allowed_operations, collaboration_capability, allowed_origin, proof_public_key, grant_id, application_declaration_id, application_declaration_digest, scope_epoch, token_hash FROM hosted_provider_replicas WHERE collection_id=$1 AND id=$2 AND revoked_at IS NULL AND token_expires_at > now() FOR UPDATE")
         .bind(collection_id).bind(replica_id).fetch_optional(&mut **transaction).await?
         .ok_or_else(collaboration_denied)
 }
@@ -311,7 +326,7 @@ async fn lock_and_load_collaboration_replica(
     collection_id: Uuid,
     hash: Vec<u8>,
 ) -> ApiResult<PgRow> {
-    sqlx::query("SELECT id, collection_id, purpose, mode, full_collection, allowed_types, contract_scope, allowed_operations, collaboration_capability, allowed_origin, proof_public_key, grant_id, application_declaration_id, application_declaration_digest, scope_epoch FROM hosted_provider_replicas WHERE collection_id=$1 AND token_hash=$2 AND revoked_at IS NULL AND token_expires_at > now() FOR UPDATE")
+    sqlx::query("SELECT id, collection_id, purpose, mode, full_collection, allowed_types, contract_scope, allowed_operations, collaboration_capability, allowed_origin, proof_public_key, grant_id, application_declaration_id, application_declaration_digest, scope_epoch, token_hash FROM hosted_provider_replicas WHERE collection_id=$1 AND token_hash=$2 AND revoked_at IS NULL AND token_expires_at > now() FOR UPDATE")
         .bind(collection_id).bind(hash).fetch_optional(&mut **transaction).await?
         .ok_or_else(collaboration_denied)
 }
@@ -370,11 +385,16 @@ fn collaboration_binding(
         .get::<Option<String>, _>("proof_public_key")
         .ok_or_else(collaboration_denied)?;
     let proof_digest: [u8; 32] = Sha256::digest(key.as_bytes()).into();
+    let stored_token_hash: Vec<u8> = row.get("token_hash");
+    let replica_token_hash: [u8; 32] = stored_token_hash
+        .try_into()
+        .map_err(|_| collaboration_denied())?;
     Ok(Binding {
         replica_id: row.get("id"),
         origin: origin.to_owned(),
         proof_digest,
         scope_epoch: number(row.get::<i64, _>("scope_epoch"), "scope epoch")?,
+        replica_token_hash,
     })
 }
 

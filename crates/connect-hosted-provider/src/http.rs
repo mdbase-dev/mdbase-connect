@@ -43,6 +43,7 @@ mod app_state;
 mod authentication;
 mod authority_import_files;
 mod collaboration;
+pub(crate) mod collaboration_sessions;
 mod diagnostics;
 mod files;
 mod projections;
@@ -460,6 +461,9 @@ async fn rotate_replica_token(
         .provider
         .rotate_replica_token(replica_id, &input.token, input.token_ttl_seconds)
         .await?;
+    // Live collaboration sessions are bound to the previous credential
+    // fingerprint; close them locally now that the rotation has committed.
+    state.target_close_replica_sessions(replica_id);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -470,6 +474,9 @@ async fn revoke_replica(
 ) -> ApiResult<StatusCode> {
     state.authorize_internal(&headers)?;
     state.provider.revoke_replica(replica_id).await?;
+    // Close this replica's local collaboration sessions immediately after the
+    // revocation commits; other instances converge via periodic reauthorization.
+    state.target_close_replica_sessions(replica_id);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -484,6 +491,9 @@ async fn update_replica_policy(
         .provider
         .update_application_replica(replica_id, input)
         .await?;
+    // A policy change or downgrade invalidates every live session bound to the
+    // previous capability; target-close them after the commit.
+    state.target_close_replica_sessions(replica_id);
     Ok(StatusCode::NO_CONTENT)
 }
 

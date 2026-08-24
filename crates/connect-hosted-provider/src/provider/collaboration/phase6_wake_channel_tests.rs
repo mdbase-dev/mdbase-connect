@@ -180,6 +180,7 @@ async fn run(base: &str, schema: &str) {
         contributions: vec![CollaborationBatchContribution {
             replica_id: replica,
             expected_scope_epoch: 1,
+            expected_token_hash: token_hash(&token).try_into().unwrap(),
             client_mutation_id: mutation_one,
             update: accepted_update.clone(),
         }],

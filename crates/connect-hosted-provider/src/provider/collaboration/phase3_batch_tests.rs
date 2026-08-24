@@ -225,6 +225,7 @@ async fn run(base: &str, schema: &str) {
                 contributions: vec![CollaborationBatchContribution {
                     replica_id: replica,
                     expected_scope_epoch: 1,
+                    expected_token_hash: token_hash(&token).try_into().unwrap(),
                     client_mutation_id: mutation,
                     update: update.clone(),
                 }],
@@ -247,6 +248,7 @@ async fn run(base: &str, schema: &str) {
                     contributions: vec![CollaborationBatchContribution {
                         replica_id: replica,
                         expected_scope_epoch: 1,
+                        expected_token_hash: token_hash(&token).try_into().unwrap(),
                         client_mutation_id: mutation,
                         update: update.clone(),
                     }],
@@ -302,6 +304,7 @@ async fn run(base: &str, schema: &str) {
                     contributions: vec![CollaborationBatchContribution {
                         replica_id: replica,
                         expected_scope_epoch: 1,
+                        expected_token_hash: token_hash(&token).try_into().unwrap(),
                         client_mutation_id: Uuid::new_v4(),
                         update: update.clone(),
                     }],
@@ -328,6 +331,7 @@ async fn run(base: &str, schema: &str) {
                 contributions: vec![CollaborationBatchContribution {
                     replica_id: replica,
                     expected_scope_epoch: 1,
+                    expected_token_hash: token_hash(&token).try_into().unwrap(),
                     client_mutation_id: Uuid::new_v4(),
                     update: update.clone(),
                 }],
@@ -350,6 +354,7 @@ async fn run(base: &str, schema: &str) {
                     contributions: vec![CollaborationBatchContribution {
                         replica_id: replica,
                         expected_scope_epoch: 1,
+                        expected_token_hash: token_hash(&token).try_into().unwrap(),
                         client_mutation_id: mutation,
                         update: vec![1, 2, 3],
                     }],
@@ -373,6 +378,7 @@ async fn run(base: &str, schema: &str) {
                     contributions: vec![CollaborationBatchContribution {
                         replica_id: replica,
                         expected_scope_epoch: 2,
+                        expected_token_hash: token_hash(&token).try_into().unwrap(),
                         client_mutation_id: Uuid::new_v4(),
                         update,
                     }],
@@ -440,6 +446,7 @@ async fn run(base: &str, schema: &str) {
                 contributions: vec![CollaborationBatchContribution {
                     replica_id: replica,
                     expected_scope_epoch: 1,
+                    expected_token_hash: token_hash(&token).try_into().unwrap(),
                     client_mutation_id: Uuid::new_v4(),
                     update: boundary_update,
                 }],

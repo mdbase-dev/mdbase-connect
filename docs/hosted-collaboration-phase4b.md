@@ -70,6 +70,31 @@ wakes coalesce into at most one queued high-water mark per active room, unknown
 rooms allocate nothing, and no lock is held across SQL, key unwrapping, or
 socket I/O. Listener reconnection and the sweep reconcile every active room,
 recovering missed terminal notifications without duplicate delivery. Disabled
-mode creates no listener or task and routes stay unavailable. Awareness,
-readiness advertisement, proactive revocation disconnects, and graceful socket
-drain remain future gates.
+mode creates no listener or task and routes stay unavailable.
+
+## Internal session drain and revocation slice
+
+The provider now owns a bounded session runtime for upgraded collaboration
+sockets with an `Accepting`, `Draining`, `Closing`, `Drained` lifecycle and RAII
+socket and in-flight-update guards. One shutdown signal drives the whole exit:
+drain begins first, rejecting new tickets, upgrades, and updates while any
+already-started update batch finishes and receives its acknowledgement, then
+every socket receives a WebSocket close (1001 going away) and the runtime awaits
+their exit before the Axum wait completes; the wake runtime and maintenance
+tasks stop afterwards.
+
+Every upgraded-socket database operation runs inside the same bounded request
+semaphore as ordinary requests plus one runtime-admission transaction, and both
+are released before any frame is written to the socket, so slow clients cannot
+pin admission. Admission suspension therefore reaches live sessions: they close
+at their next reauthorization instead of silently continuing.
+
+Sessions are bound at ticket consumption to the replica credential fingerprint
+observed under lock. Token rotation is detected without a scope bump: the local
+internal rotate/policy/revoke handlers target-close that replica's sessions
+immediately after their commit, and every session additionally reauthorizes
+against PostgreSQL every two seconds, so mutations committed on any instance
+converge to closure well under four seconds everywhere. The durable batch
+boundary also compares the fingerprint, so a rotated-away session cannot land an
+update inside the detection window. Awareness and readiness advertisement remain
+future gates.

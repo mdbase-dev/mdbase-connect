@@ -9,18 +9,22 @@ use mdbase_connect_protocol::{CollaborationFrame, CollaborationMessageKind};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
-use tokio::time::{timeout, Duration, Instant};
+use tokio::time::{Duration, Instant};
 use uuid::Uuid;
 
 use futures_util::StreamExt;
 
 use crate::{
     error::{ApiError, ApiResult},
+    http::collaboration_sessions::{
+        SessionCloseDirective, COLLABORATION_CLOSE_GOING_AWAY, DRAIN_DIRECTIVE, POLICY_DIRECTIVE,
+        SESSION_REAUTHORIZATION_INTERVAL,
+    },
     http::{bearer, request_origin, request_proof, AppState},
     provider::collaboration::{
-        spawn_wake_runtime, CollaborationBatchContribution, CollaborationBatchInput,
-        CollaborationCatchUpItem, CollaborationTicketRequest, CollaborationWake,
-        ConsumedCollaborationTicket, DEFAULT_WAKE_SWEEP_INTERVAL, WAKE_RECONCILE,
+        spawn_wake_runtime, CollaborationCatchUpItem, CollaborationTicketRequest,
+        CollaborationWake, ConsumedCollaborationTicket, DEFAULT_WAKE_SWEEP_INTERVAL,
+        WAKE_RECONCILE,
     },
     CollaborationMode, COLLABORATION_PROFILE,
 };
@@ -188,6 +192,10 @@ pub async fn ticket(
     if !state.collaboration_enabled() {
         return Err(unavailable());
     }
+    // Drain rejects new admissions before any database or proof work.
+    if !state.collaboration_sessions_accepting() {
+        return Err(draining());
+    }
     if body.len() > MAX_TICKET_BODY {
         return Err(ApiError::bad_request(
             "request_too_large",
@@ -247,6 +255,10 @@ pub async fn upgrade(
     if !state.collaboration_enabled() {
         return Err(unavailable());
     }
+    // Drain rejects new sockets before consuming a slot.
+    if !state.collaboration_sessions_accepting() {
+        return Err(draining());
+    }
     let origin = request_origin(&headers)
         .ok_or_else(|| {
             ApiError::forbidden(
@@ -267,10 +279,18 @@ async fn session(
     mut socket: WebSocket,
     state: AppState,
     origin: String,
-    _permit: tokio::sync::OwnedSemaphorePermit,
+    permit: tokio::sync::OwnedSemaphorePermit,
 ) {
-    let first = timeout(FIRST_FRAME_TIMEOUT, socket.next()).await;
-    let Some(Ok(Message::Binary(bytes))) = first.ok().flatten() else {
+    // Register before touching the protocol so drain tracks every socket,
+    // including ones that never authenticate. The RAII guard owns the slot
+    // permit and unregisters on every exit path.
+    let (socket_guard, mut close_rx, immediate) = state.register_collaboration_socket(permit);
+    if immediate {
+        send_server_close(&mut socket, DRAIN_DIRECTIVE).await;
+        return;
+    }
+    let first = select_first_frame(&mut socket, &mut close_rx).await;
+    let Some(Ok(Message::Binary(bytes))) = first else {
         return;
     };
     let Ok(frame) = CollaborationFrame::decode(&bytes) else {
@@ -285,14 +305,10 @@ async fn session(
     let Some(ticket) = frame.metadata.get("ticket").and_then(Value::as_str) else {
         return;
     };
-    let consumed = match state
-        .provider()
-        .consume_collaboration_ticket(ticket, Some(&origin))
-        .await
-    {
-        Ok(value) => value,
-        Err(_) => return,
+    let Ok(consumed) = state.session_consume_ticket(ticket, Some(&origin)).await else {
+        return;
     };
+    socket_guard.bind_replica(consumed.metadata.replica_id);
     let Ok(mut wakes) = state
         .collaboration_wakes()
         .subscribe(consumed.metadata.room)
@@ -313,6 +329,12 @@ async fn session(
     }
     let idle = tokio::time::sleep(AUTHENTICATED_IDLE_TIMEOUT);
     tokio::pin!(idle);
+    // Server-driven reauthorization: unlike client heartbeats this cannot be
+    // withheld by a hostile peer, so revocation, rotation, downgrade, and
+    // admission suspension converge to closure within one interval.
+    let mut server_reauthorization = tokio::time::interval(SESSION_REAUTHORIZATION_INTERVAL);
+    server_reauthorization.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    server_reauthorization.tick().await;
     let mut rate_window = Instant::now();
     let mut frame_count = 0_u32;
     let mut sync_count = 0_u32;
@@ -323,6 +345,16 @@ async fn session(
     loop {
         tokio::select! {
             _ = &mut idle => return,
+            directive = close_directive(&mut close_rx) => {
+                send_server_close(&mut socket, directive).await;
+                return;
+            }
+            _ = server_reauthorization.tick() => {
+                if state.session_reauthorize(&consumed).await.is_err() {
+                    send_server_close(&mut socket, POLICY_DIRECTIVE).await;
+                    return;
+                }
+            }
             incoming = socket.next() => {
                 let Some(Ok(message)) = incoming else { return; };
                 idle.as_mut().reset(Instant::now() + AUTHENTICATED_IDLE_TIMEOUT);
@@ -340,7 +372,7 @@ async fn session(
                     CollaborationMessageKind::SyncStep1 if exact_keys(&frame.metadata, &[]) => {
                         if sync_count >= MAX_SYNCS_PER_SECOND { return; }
                         sync_count += 1;
-                        let Ok((update, current_sequence)) = state.provider().collaboration_sync_step2(consumed.metadata.room, consumed.metadata.replica_id, consumed.metadata.scope_epoch, &frame.payload).await else { return; };
+                        let Ok((update, current_sequence)) = state.session_sync_step2(&consumed, &frame.payload).await else { return; };
                         // Everything through the observed durable sequence was
                         // just covered by this diff; wakes resume from here.
                         delivery.delivered_through = current_sequence;
@@ -363,8 +395,17 @@ async fn session(
                         if consumed.metadata.mode != CollaborationMode::ReadWrite || !exact_keys(&frame.metadata, &["client_mutation_id", "profile", "epoch"]) { return; }
                         let Some(client_id) = frame.metadata.get("client_mutation_id").and_then(Value::as_str).and_then(|v| Uuid::parse_str(v).ok()) else { return; };
                         if frame.metadata.get("profile").and_then(Value::as_str) != Some(COLLABORATION_PROFILE) || frame.metadata.get("epoch").and_then(Value::as_u64) != Some(consumed.metadata.room.epoch) { return; }
-                        let input = CollaborationBatchInput { collection_id: consumed.metadata.room.collection_id, record_id: consumed.metadata.room.record_id, epoch: consumed.metadata.room.epoch, contributions: vec![CollaborationBatchContribution { replica_id: consumed.metadata.replica_id, expected_scope_epoch: consumed.metadata.scope_epoch, client_mutation_id: client_id, update: frame.payload.clone() }] };
-                        let Ok((receipts, accepted)) = state.provider().commit_collaboration_batch(input).await else { return; };
+                        // Updates started before drain finishes and receive their
+                        // acknowledgement; updates arriving after drain began are
+                        // rejected with the going-away close.
+                        if !state.collaboration_sessions_accepting() {
+                            send_server_close(&mut socket, DRAIN_DIRECTIVE).await;
+                            return;
+                        }
+                        let in_flight = state.begin_collaboration_update();
+                        let committed = state.session_commit_update(&consumed, client_id, frame.payload.clone()).await;
+                        drop(in_flight);
+                        let Ok((receipts, accepted)) = committed else { return; };
                         let Some(receipt) = receipts.first() else { return; };
                         // Origin echo suppression is recorded from the stored
                         // receipt identities before any wake can be processed.
@@ -377,11 +418,18 @@ async fn session(
                             // woken by the transactional PostgreSQL notice.
                             state.collaboration_wakes().wake(&consumed.metadata.room, receipt.sequence).await;
                         }
+                        // Finish-then-close: honor a drain that arrived while
+                        // this batch was committing instead of accepting another
+                        // frame first.
+                        if let Some(directive) = pending_close(&mut close_rx) {
+                            send_server_close(&mut socket, directive).await;
+                            return;
+                        }
                     }
                     CollaborationMessageKind::Heartbeat => {
                         if !synced || !exact_keys(&frame.metadata, &[]) || !frame.payload.is_empty() || last_heartbeat.elapsed() < MIN_HEARTBEAT_INTERVAL { return; }
                         last_heartbeat = Instant::now();
-                        if state.provider().reauthorize_collaboration_session(consumed.metadata.room, consumed.metadata.replica_id, consumed.metadata.scope_epoch).await.is_err() { return; }
+                        if state.session_reauthorize(&consumed).await.is_err() { send_server_close(&mut socket, POLICY_DIRECTIVE).await; return; }
                         if send_frame(&mut socket, CollaborationFrame { kind: CollaborationMessageKind::Heartbeat, metadata: Default::default(), payload: Vec::new() }.encode().unwrap()).await.is_err() { return; }
                     }
                     CollaborationMessageKind::Awareness => { return; }
@@ -399,9 +447,68 @@ async fn session(
     }
 }
 
+/// Resolve as soon as the runtime directs this session to close. The sender
+/// lives exactly as long as this session's registry entry, so a dropped sender
+/// is treated fail-closed as a drain directive.
+async fn close_directive(
+    close_rx: &mut tokio::sync::watch::Receiver<Option<SessionCloseDirective>>,
+) -> SessionCloseDirective {
+    loop {
+        if let Some(directive) = *close_rx.borrow_and_update() {
+            return directive;
+        }
+        if close_rx.changed().await.is_err() {
+            return DRAIN_DIRECTIVE;
+        }
+    }
+}
+
+/// Non-suspending check for an already-pending directive, used right after a
+/// long operation completes so finish-then-close never waits for the next
+/// select round.
+fn pending_close(
+    close_rx: &mut tokio::sync::watch::Receiver<Option<SessionCloseDirective>>,
+) -> Option<SessionCloseDirective> {
+    *close_rx.borrow_and_update()
+}
+
+/// Read one pre-authentication frame while still honoring drain directives
+/// and the first-frame timeout.
+async fn select_first_frame(
+    socket: &mut WebSocket,
+    close_rx: &mut tokio::sync::watch::Receiver<Option<SessionCloseDirective>>,
+) -> Option<Result<Message, axum::Error>> {
+    let deadline = tokio::time::sleep(FIRST_FRAME_TIMEOUT);
+    tokio::pin!(deadline);
+    tokio::select! {
+        message = socket.next() => message,
+        _ = &mut deadline => None,
+        directive = close_directive(close_rx) => {
+            send_server_close(socket, directive).await;
+            None
+        }
+    }
+}
+
+/// Best-effort server-initiated WebSocket close carrying the directive's code.
+async fn send_server_close(socket: &mut WebSocket, directive: SessionCloseDirective) {
+    let reason = if directive.code == COLLABORATION_CLOSE_GOING_AWAY {
+        "draining"
+    } else {
+        "unauthorized"
+    };
+    let _ = socket
+        .send(Message::Close(Some(axum::extract::ws::CloseFrame {
+            code: directive.code,
+            reason: reason.into(),
+        })))
+        .await;
+}
+
 /// Deliver every durable update beyond the session cursor in contiguous order,
-/// reloading authoritative ciphertext from PostgreSQL each round. Per-socket
-/// authorization runs immediately before plaintext leaves the database lane.
+/// reloading authoritative ciphertext from PostgreSQL each round. Each round
+/// reauthorizes and loads inside one bounded admission lane, then releases it
+/// before any frame reaches the socket.
 async fn drain_durable_updates(
     socket: &mut WebSocket,
     state: &AppState,
@@ -413,24 +520,10 @@ async fn drain_durable_updates(
     for _ in 0..MAX_DRAIN_ROUNDS_PER_WAKE {
         let mut attempt = 0_u32;
         let items = loop {
-            let authorization = state
-                .provider()
-                .reauthorize_collaboration_session(
-                    room,
-                    consumed.metadata.replica_id,
-                    consumed.metadata.scope_epoch,
-                )
-                .await;
-            let result = match authorization {
-                Ok(()) => {
-                    state
-                        .provider()
-                        .collaboration_catch_up(room, delivery.delivered_through, target)
-                        .await
-                }
-                Err(error) => Err(error),
-            };
-            match result {
+            match state
+                .session_reauthorized_catch_up(consumed, delivery.delivered_through, target)
+                .await
+            {
                 Ok(items) => break items,
                 Err(error) if retryable_delivery_error(&error) && attempt < 2 => {
                     attempt += 1;
@@ -501,5 +594,12 @@ fn unavailable() -> ApiError {
         StatusCode::SERVICE_UNAVAILABLE,
         "collaboration_unavailable",
         "Hosted collaboration is unavailable.",
+    )
+}
+fn draining() -> ApiError {
+    ApiError::new(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "collaboration_draining",
+        "Hosted collaboration is draining and is not accepting new sessions.",
     )
 }

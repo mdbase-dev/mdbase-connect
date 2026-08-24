@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Hosted collaboration (still default-off and unadvertised) gains
+  provider-only session drain and revocation hardening: a bounded session
+  runtime with `Accepting`/`Draining`/`Closing`/`Drained` lifecycle wired to one
+  shutdown signal, WebSocket close 1001 after in-flight update batches finish,
+  upgraded-socket database operations bounded by the shared request semaphore
+  plus runtime admission, two-second server-driven session reauthorization bound
+  to the consumed credential fingerprint, and local target-close of replica
+  sessions after internal rotate/policy/revoke commits.
+
 ## 0.1.0-beta.85
 
 Beta.85 makes SDK startup explicit and turns application declaration drift into

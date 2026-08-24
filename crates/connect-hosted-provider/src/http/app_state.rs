@@ -12,6 +12,7 @@ use tokio::sync::Semaphore;
 
 use crate::{
     error::{ApiError, ApiResult},
+    http::collaboration_sessions::CollaborationSessionRuntime,
     provider::collaboration::{CollaborationWakeHub, CollaborationWakeRuntime},
     provider::HostedProvider,
 };
@@ -38,6 +39,11 @@ pub struct AppState {
     /// start call.
     pub(crate) collaboration_wake_runtime:
         Arc<tokio::sync::Mutex<Option<CollaborationWakeRuntime>>>,
+    /// Bounded registry of upgraded collaboration sockets with its
+    /// Accepting/Draining/Closing/Drained lifecycle, so shutdown can finish
+    /// started updates, close sockets with 1001, and await their exit.
+    /// Bounded by [`MAX_COLLABORATION_CONNECTIONS`] through the slot permit.
+    pub(crate) collaboration_sessions: Arc<CollaborationSessionRuntime>,
 }
 
 impl AppState {
@@ -55,6 +61,7 @@ impl AppState {
             collaboration_slots: Arc::new(Semaphore::new(MAX_COLLABORATION_CONNECTIONS)),
             collaboration_wakes: Arc::new(CollaborationWakeHub::new()),
             collaboration_wake_runtime: Arc::new(tokio::sync::Mutex::new(None)),
+            collaboration_sessions: Arc::new(CollaborationSessionRuntime::new()),
         })
     }
 

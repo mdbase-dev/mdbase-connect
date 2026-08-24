@@ -431,7 +431,12 @@ async fn run(base: &str, schema: &str) {
     assert_eq!(h_fence(harness.pool(), fourth).await, Some(2));
     harness
         .provider
-        .reauthorize_collaboration_session(room_two.identity, harness.replica, 1)
+        .reauthorize_collaboration_session(
+            room_two.identity,
+            harness.replica,
+            1,
+            &token_hash(&harness.token).try_into().unwrap(),
+        )
         .await
         .unwrap();
 
@@ -465,6 +470,7 @@ async fn run(base: &str, schema: &str) {
             contributions: vec![CollaborationBatchContribution {
                 replica_id: harness.replica,
                 expected_scope_epoch: 1,
+                expected_token_hash: token_hash(&harness.token).try_into().unwrap(),
                 client_mutation_id: Uuid::new_v4(),
                 update: second_round,
             }],
@@ -477,7 +483,12 @@ async fn run(base: &str, schema: &str) {
         RoomIdentity::new(harness.collection, fourth, 2, COLLABORATION_PROFILE).unwrap();
     let session_error = harness
         .provider
-        .reauthorize_collaboration_session(stale_session, harness.replica, 1)
+        .reauthorize_collaboration_session(
+            stale_session,
+            harness.replica,
+            1,
+            &token_hash(&harness.token).try_into().unwrap(),
+        )
         .await
         .unwrap_err();
     assert_eq!(session_error.code, "collaboration_scope_denied");
@@ -908,6 +919,7 @@ async fn h_batch(
                 contributions: vec![CollaborationBatchContribution {
                     replica_id: harness.replica,
                     expected_scope_epoch: 1,
+                    expected_token_hash: token_hash(&harness.token).try_into().unwrap(),
                     client_mutation_id,
                     update,
                 }],
