@@ -797,6 +797,10 @@ mod phase6_wake_channel_tests;
 mod phase7_drain_revoke_support;
 #[cfg(test)]
 mod phase7_drain_revoke_tests;
+#[cfg(test)]
+mod phase8_awareness_support;
+#[cfg(test)]
+mod phase8_awareness_tests;
 mod tickets;
 
 fn parse_lifecycle(value: String) -> ApiResult<CollaborationRoomLifecycle> {

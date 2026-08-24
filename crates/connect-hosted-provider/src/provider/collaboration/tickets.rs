@@ -1,5 +1,6 @@
 use super::*;
 use crate::collaboration::{CollaborationMode, COLLABORATION_PROFILE};
+use mdbase_connect_protocol::AwarenessColor;
 
 /// Internal request shape. Paths are resolved once to the stable record room;
 /// subsequent record renames deliberately retain that room and ticket binding.
@@ -27,6 +28,11 @@ pub(crate) struct CollaborationTicketMetadata {
     /// reauthorization so a rotated token ends the session without needing a
     /// scope bump.
     pub replica_token_hash: [u8; 32],
+    /// Server-derived presentation identity shown to other participants.
+    /// Captured from stored replica columns at consumption; never supplied by
+    /// the connecting client and never persisted outside process-local
+    /// awareness state.
+    pub identity: ReplicaAwarenessIdentity,
     pub expires_at: DateTime<Utc>,
 }
 
@@ -173,6 +179,7 @@ impl HostedProvider {
                 proof_public_key_digest: binding.proof_digest,
                 scope_epoch: binding.scope_epoch,
                 replica_token_hash: binding.replica_token_hash,
+                identity: stored_awareness_identity(&replica_row)?,
                 expires_at,
             },
         })
@@ -286,6 +293,7 @@ impl HostedProvider {
         let replica_token_hash: [u8; 32] = stored_token_hash
             .try_into()
             .map_err(|_| collaboration_denied())?;
+        let identity = stored_awareness_identity(&replica_row)?;
         transaction.commit().await?;
         Ok(ConsumedCollaborationTicket {
             metadata: CollaborationTicketMetadata {
@@ -296,10 +304,26 @@ impl HostedProvider {
                 proof_public_key_digest: binding.proof_digest,
                 scope_epoch: binding.scope_epoch,
                 replica_token_hash,
+                identity,
                 expires_at: row.get("expires_at"),
             },
         })
     }
+}
+
+/// Read the stored presentation identity from a locked replica row.
+/// Identity is mandatory for collaboration; a missing or invalid column
+/// value denies the ticket fail-closed instead of degrading to a
+/// client-controlled fallback.
+fn stored_awareness_identity(row: &PgRow) -> ApiResult<ReplicaAwarenessIdentity> {
+    let name: String = row
+        .try_get("awareness_name")
+        .map_err(|_| collaboration_denied())?;
+    let color: String = row
+        .try_get("awareness_color")
+        .map_err(|_| collaboration_denied())?;
+    let color = AwarenessColor::parse(&color).ok_or_else(collaboration_denied)?;
+    ReplicaAwarenessIdentity::new(name, color).map_err(|_| collaboration_denied())
 }
 
 #[derive(Debug)]
@@ -316,7 +340,7 @@ async fn lock_and_load_collaboration_replica_by_id(
     collection_id: Uuid,
     replica_id: Uuid,
 ) -> ApiResult<PgRow> {
-    sqlx::query("SELECT id, collection_id, purpose, mode, full_collection, allowed_types, contract_scope, allowed_operations, collaboration_capability, allowed_origin, proof_public_key, grant_id, application_declaration_id, application_declaration_digest, scope_epoch, token_hash FROM hosted_provider_replicas WHERE collection_id=$1 AND id=$2 AND revoked_at IS NULL AND token_expires_at > now() FOR UPDATE")
+    sqlx::query("SELECT id, collection_id, purpose, mode, full_collection, allowed_types, contract_scope, allowed_operations, collaboration_capability, awareness_name, awareness_color, allowed_origin, proof_public_key, grant_id, application_declaration_id, application_declaration_digest, scope_epoch, token_hash FROM hosted_provider_replicas WHERE collection_id=$1 AND id=$2 AND revoked_at IS NULL AND token_expires_at > now() FOR UPDATE")
         .bind(collection_id).bind(replica_id).fetch_optional(&mut **transaction).await?
         .ok_or_else(collaboration_denied)
 }
@@ -326,7 +350,7 @@ async fn lock_and_load_collaboration_replica(
     collection_id: Uuid,
     hash: Vec<u8>,
 ) -> ApiResult<PgRow> {
-    sqlx::query("SELECT id, collection_id, purpose, mode, full_collection, allowed_types, contract_scope, allowed_operations, collaboration_capability, allowed_origin, proof_public_key, grant_id, application_declaration_id, application_declaration_digest, scope_epoch, token_hash FROM hosted_provider_replicas WHERE collection_id=$1 AND token_hash=$2 AND revoked_at IS NULL AND token_expires_at > now() FOR UPDATE")
+    sqlx::query("SELECT id, collection_id, purpose, mode, full_collection, allowed_types, contract_scope, allowed_operations, collaboration_capability, awareness_name, awareness_color, allowed_origin, proof_public_key, grant_id, application_declaration_id, application_declaration_digest, scope_epoch, token_hash FROM hosted_provider_replicas WHERE collection_id=$1 AND token_hash=$2 AND revoked_at IS NULL AND token_expires_at > now() FOR UPDATE")
         .bind(collection_id).bind(hash).fetch_optional(&mut **transaction).await?
         .ok_or_else(collaboration_denied)
 }

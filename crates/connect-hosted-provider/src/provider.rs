@@ -15,20 +15,22 @@ use mdbase::{
 };
 use mdbase_connect_protocol::{
     authority_file_hash, authority_manifest_digest as snapshot_manifest_digest,
-    ApplicationCollectionSetupProvisions, ApplicationCollectionSetupRequirements,
-    ApplicationProvisions, ApplicationRequirements, ApplyCollectionSetupInput, ApplyTypePackInput,
-    AssessCollectionSetupInput, AssessTypePackInput, AuthorityImportManifest,
-    AuthorityImportRecord, AuthorityImportRecordPage, AuthoritySnapshotRecord, CollaborationAccess,
-    CollectionChange, CollectionChangesPage, CollectionContractDescriptor,
-    CollectionContractImplementationDescriptor, CollectionDescription, CollectionTypeDescriptor,
-    ContractRequirement, ContractSetupChoice, ContractSetupMode, FileAction, FileCapability,
-    FileScope, GrantSummary, ReplicaCollaborationCapability, SyncChange, SyncChangesPage,
+    validate_awareness_name, ApplicationCollectionSetupProvisions,
+    ApplicationCollectionSetupRequirements, ApplicationProvisions, ApplicationRequirements,
+    ApplyCollectionSetupInput, ApplyTypePackInput, AssessCollectionSetupInput, AssessTypePackInput,
+    AuthorityImportManifest, AuthorityImportRecord, AuthorityImportRecordPage,
+    AuthoritySnapshotRecord, CollaborationAccess, CollectionChange, CollectionChangesPage,
+    CollectionContractDescriptor, CollectionContractImplementationDescriptor,
+    CollectionDescription, CollectionTypeDescriptor, ContractRequirement, ContractSetupChoice,
+    ContractSetupMode, FileAction, FileCapability, FileScope, GrantSummary,
+    ReplicaAwarenessIdentity, ReplicaCollaborationCapability, SyncChange, SyncChangesPage,
     SyncCollectionResources, SyncConflict, SyncFileSnapshotPage, SyncFileSnapshotPageKind,
     SyncMutation, SyncMutationError, SyncMutationOperation, SyncMutationReceipt, SyncRecord,
     SyncReplicaMode, SyncResourceDocument, SyncSession, SyncSnapshotPage, SyncSnapshotRecord,
-    TypePackProvision, AUTHORITY_PROOF_DOMAIN, AUTHORITY_PROOF_VERSION, CONTROL_PROTOCOL_VERSION,
-    FILE_PROTOCOL_VERSION, MAX_COLLABORATION_PAYLOAD_BYTES,
-    SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS, SYNC_PROTOCOL_VERSION,
+    TypePackProvision, AUTHORITY_PROOF_DOMAIN, AUTHORITY_PROOF_VERSION,
+    AWARENESS_VISIBLE_TTL_SECONDS, CONTROL_PROTOCOL_VERSION, FILE_PROTOCOL_VERSION,
+    MAX_COLLABORATION_PAYLOAD_BYTES, SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS,
+    SYNC_PROTOCOL_VERSION,
 };
 use mdbase_connect_runtime::contract_scope::{ContractScope, ContractSelector};
 use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
@@ -152,6 +154,8 @@ pub struct CollaborationLimits {
     pub max_retained_updates: u64,
     pub max_retained_update_bytes: u64,
     pub ticket_ttl_seconds: u64,
+    /// How long an awareness participant stays visible without activity.
+    pub awareness_ttl_seconds: u64,
     pub compaction_threshold: u64,
 }
 
@@ -164,6 +168,7 @@ impl Default for CollaborationLimits {
             max_retained_updates: 10_000,
             max_retained_update_bytes: 67_108_864,
             ticket_ttl_seconds: 30,
+            awareness_ttl_seconds: AWARENESS_VISIBLE_TTL_SECONDS,
             compaction_threshold: 100,
         }
     }
@@ -177,6 +182,7 @@ impl CollaborationLimits {
             || self.max_retained_updates == 0
             || self.max_retained_update_bytes == 0
             || self.ticket_ttl_seconds == 0
+            || self.awareness_ttl_seconds == 0
             || self.compaction_threshold == 0
         {
             return Err("hosted collaboration limits must be greater than zero");
@@ -658,6 +664,11 @@ pub struct RegisterReplica {
     pub file_capability: Option<FileCapability>,
     #[serde(default)]
     pub collaboration_capability: Option<ReplicaCollaborationCapability>,
+    /// Server-derived presentation identity for collaboration awareness.
+    /// Required when a collaboration capability is present; never accepted
+    /// from clients at room time.
+    #[serde(default)]
+    pub awareness_identity: Option<ReplicaAwarenessIdentity>,
     #[serde(default)]
     pub allowed_origin: Option<String>,
     #[serde(default)]
@@ -691,6 +702,11 @@ pub struct UpdateApplicationReplica {
     pub file_capability: Option<FileCapability>,
     #[serde(default)]
     pub collaboration_capability: Option<ReplicaCollaborationCapability>,
+    /// Server-derived presentation identity. Changing it advances the scope
+    /// epoch, which ends live awareness participation through the existing
+    /// ticket-deletion and target-close policy hooks.
+    #[serde(default)]
+    pub awareness_identity: Option<ReplicaAwarenessIdentity>,
     #[serde(default)]
     pub allowed_origin: Option<String>,
     #[serde(default)]

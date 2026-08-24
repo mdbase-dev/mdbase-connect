@@ -17,6 +17,16 @@ impl HostedProvider {
         )
     }
 
+    /// Upper bound for awareness selection offsets, expressed in UTF-16 code
+    /// units against the configured document byte limit.
+    pub(crate) fn collaboration_max_document_units(&self) -> u32 {
+        u32::try_from(self.limits.collaboration.max_document_bytes).unwrap_or(u32::MAX)
+    }
+
+    pub(crate) fn collaboration_awareness_ttl(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.limits.collaboration.awareness_ttl_seconds)
+    }
+
     pub(super) async fn collection_key(
         &self,
         collection_id: Uuid,

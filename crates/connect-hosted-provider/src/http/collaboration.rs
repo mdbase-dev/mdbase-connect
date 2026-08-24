@@ -28,6 +28,10 @@ use crate::{
     },
     CollaborationMode, COLLABORATION_PROFILE,
 };
+use mdbase_connect_protocol::{
+    AwarenessHelloAdvertisement, ClientAwarenessUpdate, MAX_AWARENESS_UPDATES_PER_SECOND,
+    MIN_AWARENESS_UPDATE_SPACING_MS,
+};
 
 pub(crate) const MAX_TICKET_BODY: usize = 4 * 1024;
 const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(5);
@@ -320,6 +324,23 @@ async fn session(
     else {
         return;
     };
+    // Awareness: subscribe before joining so this member observes its own
+    // join's rebroadcast generation and learns the current participants. The
+    // identity comes exclusively from the consumed ticket's stored replica
+    // columns; clients can never supply name or color.
+    let mut awareness = state.subscribe_room_awareness(&consumed.metadata.room);
+    let awareness_guard = match state.join_room_awareness(
+        &consumed.metadata.room,
+        socket_guard.session_id(),
+        consumed.metadata.replica_id,
+        &consumed.metadata.identity,
+    ) {
+        Ok(guard) => guard,
+        Err(_) => {
+            send_server_close(&mut socket, POLICY_DIRECTIVE).await;
+            return;
+        }
+    };
     if send_frame(
         &mut socket,
         hello(&consumed, state.provider().collaboration_max_update_bytes())
@@ -331,6 +352,8 @@ async fn session(
     {
         return;
     }
+    // The max document position bound for client-supplied selection offsets.
+    let max_position = state.provider().collaboration_max_document_units();
     let idle = tokio::time::sleep(AUTHENTICATED_IDLE_TIMEOUT);
     tokio::pin!(idle);
     // Server-driven reauthorization: unlike client heartbeats this cannot be
@@ -346,6 +369,8 @@ async fn session(
     let mut frame_count = 0_u32;
     let mut sync_count = 0_u32;
     let mut update_count = 0_u32;
+    let mut awareness_count = 0_u32;
+    let mut last_awareness: Option<Instant> = None;
     let mut last_heartbeat = Instant::now() - MIN_HEARTBEAT_INTERVAL;
     let mut reauthorization_failures = 0_u8;
     let mut delivery = SessionDelivery::new();
@@ -359,7 +384,14 @@ async fn session(
             }
             _ = server_reauthorization.tick() => {
                 match state.session_reauthorize(&consumed).await {
-                    Ok(()) => reauthorization_failures = 0,
+                    Ok(()) => {
+                        reauthorization_failures = 0;
+                        // Each tick opportunistically expires stale
+                        // participants process-wide. The visibility lease is
+                        // deliberately NOT refreshed here: only client
+                        // activity proves presence.
+                        state.sweep_expired_room_awareness();
+                    }
                     Err(error) if retryable_delivery_error(&error) && reauthorization_failures < 1 => {
                         reauthorization_failures += 1;
                     }
@@ -379,9 +411,12 @@ async fn session(
                     frame_count = 0;
                     sync_count = 0;
                     update_count = 0;
+                    awareness_count = 0;
                 }
                 if frame_count >= MAX_FRAMES_PER_SECOND { return; }
                 frame_count += 1;
+                // Any session activity refreshes the visibility lease.
+                state.refresh_room_awareness(&consumed.metadata.room, awareness_guard.session_id());
                 match frame.kind {
                     CollaborationMessageKind::SyncStep1 if exact_keys(&frame.metadata, &[]) => {
                         if sync_count >= MAX_SYNCS_PER_SECOND { return; }
@@ -451,6 +486,42 @@ async fn session(
                             return;
                         }
                     }
+                    CollaborationMessageKind::Awareness => {
+                        if awareness_count >= MAX_AWARENESS_UPDATES_PER_SECOND { send_awareness_reject(&mut socket).await; return; }
+                        if let Some(last) = last_awareness {
+                            if last.elapsed() < Duration::from_millis(MIN_AWARENESS_UPDATE_SPACING_MS) {
+                                send_awareness_reject(&mut socket).await;
+                                return;
+                            }
+                        }
+                        // Reject and close: empty payload plus exactly
+                        // {status, selections} with bounded unique ranges.
+                        // Identity, text, path, unknown, or deep fields are
+                        // refused here without ever being applied.
+                        let parsed = if frame.payload.is_empty() {
+                            ClientAwarenessUpdate::from_metadata(&frame.metadata)
+                                .and_then(|update| match update.validate(max_position) {
+                                    Ok(()) => Ok(update),
+                                    Err(error) => Err(error),
+                                })
+                        } else {
+                            Err(mdbase_connect_protocol::AwarenessValidationError::PayloadNotEmpty)
+                        };
+                        let update = match parsed {
+                            Ok(update) => update,
+                            Err(_) => {
+                                send_awareness_reject(&mut socket).await;
+                                return;
+                            }
+                        };
+                        awareness_count += 1;
+                        last_awareness = Some(Instant::now());
+                        state.apply_room_awareness(&consumed.metadata.room, awareness_guard.session_id(), &update);
+                        if let Some(directive) = pending_close(&mut close_rx) {
+                            send_server_close(&mut socket, directive).await;
+                            return;
+                        }
+                    }
                     CollaborationMessageKind::Heartbeat => {
                         if !synced || !exact_keys(&frame.metadata, &[]) || !frame.payload.is_empty() || last_heartbeat.elapsed() < MIN_HEARTBEAT_INTERVAL { return; }
                         last_heartbeat = Instant::now();
@@ -460,7 +531,6 @@ async fn session(
                         }
                         if send_frame(&mut socket, CollaborationFrame { kind: CollaborationMessageKind::Heartbeat, metadata: Default::default(), payload: Vec::new() }.encode().unwrap()).await.is_err() { return; }
                     }
-                    CollaborationMessageKind::Awareness => { return; }
                     _ => { return; }
                 }
             }
@@ -470,6 +540,14 @@ async fn session(
                 if let Some(target) = delivery.target_for(wake) {
                     if drain_durable_updates(&mut socket, &state, &consumed, &mut delivery, target).await.is_err() { return; }
                 }
+            }
+            changed = awareness.changed() => {
+                // Coalesced complete-snapshot rebroadcast: at most one send
+                // per observed generation change, built from current locked
+                // room state so every member converges on identical order.
+                if changed.is_err() { return; }
+                awareness.borrow_and_update();
+                if send_awareness_snapshot(&mut socket, &state, &consumed.metadata.room).await.is_err() { return; }
             }
         }
     }
@@ -617,7 +695,38 @@ impl SessionDelivery {
 }
 
 fn hello(ticket: &ConsumedCollaborationTicket, max_update_bytes: u64) -> CollaborationFrame {
-    CollaborationFrame { kind: CollaborationMessageKind::Hello, metadata: json!({"profile": COLLABORATION_PROFILE, "mode": match ticket.metadata.mode { CollaborationMode::ReadOnly => "read_only", CollaborationMode::ReadWrite => "read_write" }, "epoch": ticket.metadata.room.epoch, "limits": {"max_update_bytes": max_update_bytes}}).as_object().unwrap().clone(), payload: Vec::new() }
+    let mut metadata = json!({"profile": COLLABORATION_PROFILE, "mode": match ticket.metadata.mode { CollaborationMode::ReadOnly => "read_only", CollaborationMode::ReadWrite => "read_write" }, "epoch": ticket.metadata.room.epoch, "limits": {"max_update_bytes": max_update_bytes}}).as_object().unwrap().clone();
+    // Explicitly advertise awareness as provider-instance scoped so no client
+    // can mistake local membership for cross-instance completeness.
+    for (key, value) in AwarenessHelloAdvertisement::new().to_metadata() {
+        metadata.insert(key, value);
+    }
+    CollaborationFrame {
+        kind: CollaborationMessageKind::Hello,
+        metadata,
+        payload: Vec::new(),
+    }
+}
+
+/// Send this member the complete replacement snapshot of its room.
+async fn send_awareness_snapshot(
+    socket: &mut WebSocket,
+    state: &AppState,
+    room: &crate::RoomIdentity,
+) -> Result<(), ()> {
+    let snapshot = state.room_awareness_snapshot(room);
+    let frame = CollaborationFrame {
+        kind: CollaborationMessageKind::Awareness,
+        metadata: snapshot.to_metadata(),
+        payload: Vec::new(),
+    };
+    let encoded = frame.encode().map_err(|_| ())?;
+    send_frame(socket, encoded).await.map_err(|_| ())
+}
+
+/// Reject an invalid or over-rate awareness frame and close the session.
+async fn send_awareness_reject(socket: &mut WebSocket) {
+    send_server_close(socket, POLICY_DIRECTIVE).await;
 }
 fn exact_keys(metadata: &serde_json::Map<String, Value>, expected: &[&str]) -> bool {
     metadata.len() == expected.len() && expected.iter().all(|key| metadata.contains_key(*key))

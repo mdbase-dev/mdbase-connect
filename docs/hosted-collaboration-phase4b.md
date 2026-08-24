@@ -39,6 +39,63 @@ admission boundary. Migration 0043 and its provider binary must be deployed as
 one admission-disabled cutover because older binaries do not create epoch
 fences. The Editor and SDK do not enable or expose live collaboration yet.
 
+## Internal awareness and presence slice
+
+Awareness is now implemented as strict ephemeral presence with the same
+default-off discipline as the rest of the slice. It remains unadvertised
+outside the collaboration socket, adds no public SDK surface, and never
+touches readiness.
+
+Clients never relay native Yjs awareness bytes or arbitrary JSON. The only
+client-to-server awareness frame carries an empty payload plus exactly
+`{status: "active" | "idle", selections: [{anchor, head}]}` -- at most four
+unique ranges, offsets bounded by the collaboration document limit, at most
+eight updates per second with at least 125 ms spacing. Unknown, deep,
+identity-bearing, textual, or path-bearing fields reject the frame and close
+the session.
+
+The server is the only authority for presentation identity. It broadcasts
+complete replacement snapshots of exactly `{participants: [{name, color,
+status, selections}]}` -- at most sixteen participants, at most four sessions
+per replica per process, colors drawn from a fixed eight-value palette, and
+display names bounded to one hundred scalars or four hundred UTF-8 bytes,
+trimmed, NFC, free of control characters and bidirectional overrides.
+Duplicate names and colors are allowed. Snapshots never carry user, replica,
+grant, session, account, or record identifiers, timestamps, emails, selected
+text, or arbitrary status strings.
+
+Identity is plumbed from the authenticated control-plane user at replica
+registration and policy update time (`awareness_identity` on the internal
+register/policy payloads): the display name comes from `users.name` -- never
+the email -- normalized to NFC and trimmed, degrading to the generic bounded
+identity `Participant`/`slate` when the stored name cannot satisfy the wire
+rules; the color is derived deterministically from SHA-256 over the domain
+separator `mdbase:collaboration-awareness-color:v1`, the collection UUID, and
+the user UUID, mapped onto the fixed palette. Migration 0044 stores these
+columns on hosted replicas, backfills existing rows (including ordinary
+non-collaboration replicas, harmlessly) with the generic identity, enforces
+the shape constraints in SQL, and stays compatible with binaries that predate
+it because the column defaults keep every previous INSERT path valid. A
+collaboration capability without an identity is rejected at registration, and
+changing the identity advances the scope epoch, deleting outstanding tickets;
+live sessions close through the existing policy hook. Ticket consumption
+extends its validated metadata with the stored identity, so connecting
+clients can never supply their own name or color.
+
+Awareness state is process-local only: it lives inside the session runtime as
+room membership RAII, ordered complete-snapshot generation counters, and a
+watch-coalesced rebroadcast per room. It never reaches SQL, the notification
+outbox, receipts, or logs. Hello advertises the exact contract
+`{version: 1, scope: "provider_instance", max_participants: 16,
+max_selections: 4, max_updates_per_second: 8, ttl_seconds: 30}` so no client
+can mistake local membership for cross-instance completeness; two provider
+instances on the same database explicitly do not exchange presence. Read-only
+sessions participate like read-write ones -- awareness gates nothing durable.
+Every session activity refreshes the visibility lease; participants whose
+lease lapses (thirty seconds by default) are swept and removed, as are
+sessions lost to close, drain, revocation, rotation, or downgrade. Draining
+the runtime ends all awareness deterministically.
+
 ## Internal multi-instance catch-up slice
 
 When the flag is enabled, an accepted collaboration batch queues one

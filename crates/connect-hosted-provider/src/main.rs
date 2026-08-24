@@ -126,6 +126,12 @@ struct Arguments {
     collaboration_ticket_ttl_seconds: u64,
     #[arg(
         long,
+        env = "MDBASE_CONNECT_HOSTED_COLLAB_AWARENESS_TTL_SECONDS",
+        default_value_t = 30
+    )]
+    collaboration_awareness_ttl_seconds: u64,
+    #[arg(
+        long,
         env = "MDBASE_CONNECT_HOSTED_COLLAB_COMPACTION_THRESHOLD",
         default_value_t = 100
     )]
@@ -270,6 +276,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_retained_updates: arguments.collaboration_max_retained_updates,
         max_retained_update_bytes: arguments.collaboration_max_retained_update_bytes,
         ticket_ttl_seconds: arguments.collaboration_ticket_ttl_seconds,
+        awareness_ttl_seconds: arguments.collaboration_awareness_ttl_seconds,
         compaction_threshold: arguments.collaboration_compaction_threshold,
     }
     .validate()

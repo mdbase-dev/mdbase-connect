@@ -12,9 +12,9 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use futures_util::{FutureExt, SinkExt, StreamExt};
 use mdbase_connect_collaboration::MarkdownBodyDocument;
 use mdbase_connect_protocol::{
-    CollaborationAccess, CollaborationFrame, CollaborationMessageKind,
-    ReplicaCollaborationCapability, SyncMutation, SyncMutationOperation, SyncReplicaMode,
-    AUTHORITY_PROOF_VERSION,
+    AwarenessColor, CollaborationAccess, CollaborationFrame, CollaborationMessageKind,
+    ReplicaAwarenessIdentity, ReplicaCollaborationCapability, SyncMutation, SyncMutationOperation,
+    SyncReplicaMode, AUTHORITY_PROOF_VERSION,
 };
 use p256::ecdsa::{signature::Signer, Signature};
 use reqwest::header::{HeaderName, HeaderValue, AUTHORIZATION, CONTENT_TYPE, ORIGIN};
@@ -26,6 +26,15 @@ use tokio_tungstenite::{
     connect_async, tungstenite::client::IntoClientRequest, tungstenite::Message,
 };
 use uuid::Uuid;
+
+/// The safe generic presentation identity used by development fixtures and
+/// backfilled rows; carries no user, replica, grant, or session identifier.
+pub(super) fn generic_awareness_identity() -> ReplicaAwarenessIdentity {
+    ReplicaAwarenessIdentity {
+        name: "Participant".into(),
+        color: AwarenessColor::Slate,
+    }
+}
 
 /// Local target-close fires immediately after the handler commits.
 pub(super) const LOCAL_CLOSE_DEADLINE: Duration = Duration::from_millis(1500);
@@ -155,6 +164,11 @@ pub(super) async fn register_collab_replica(
                 operation_transport_protocol: Some(3),
                 operation_transport_recovery_protocols: vec![2],
                 file_capability: None,
+
+                awareness_identity: Some(ReplicaAwarenessIdentity {
+                    name: "Participant".into(),
+                    color: AwarenessColor::Slate,
+                }),
                 collaboration_capability: Some(ReplicaCollaborationCapability {
                     contract_version: 1,
                     profiles: vec![COLLABORATION_PROFILE.into()],
@@ -244,8 +258,20 @@ pub(super) async fn open_synced_session(
         .send(Message::Binary(sync_frame(client.state_vector_v1()).into()))
         .await
         .unwrap();
-    let synced = recv_frame(&mut socket).await;
-    assert_eq!(synced.kind, CollaborationMessageKind::SyncStep2);
+    // Join/update awareness snapshots may legally interleave with the sync
+    // response; skip them here.
+    let synced = loop {
+        let frame = recv_frame(&mut socket).await;
+        match frame.kind {
+            CollaborationMessageKind::Awareness => continue,
+            other => {
+                break {
+                    assert_eq!(other, CollaborationMessageKind::SyncStep2);
+                    frame
+                }
+            }
+        }
+    };
     client
         .apply_update_v1(&synced.payload, 2 * 1024 * 1024, 2 * 1024 * 1024)
         .unwrap();
@@ -320,7 +346,7 @@ pub(super) async fn ws(
     socket
 }
 
-async fn authenticate(
+pub(super) async fn authenticate(
     socket: &mut tokio_tungstenite::WebSocketStream<
         tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
     >,
@@ -356,15 +382,22 @@ pub(super) async fn recv_frame_inner(
         .expect("socket error")
 }
 
+// Sanitized awareness snapshots are legitimate background traffic on any
+// authenticated socket; these scenarios never assert on them, so skip.
 pub(super) async fn recv_frame(
     socket: &mut tokio_tungstenite::WebSocketStream<
         tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
     >,
 ) -> CollaborationFrame {
-    let message = timeout(Duration::from_secs(4), recv_frame_inner(socket))
-        .await
-        .expect("timed out waiting for a frame");
-    CollaborationFrame::decode(message.into_data().as_ref()).unwrap()
+    loop {
+        let message = timeout(Duration::from_secs(4), recv_frame_inner(socket))
+            .await
+            .expect("timed out waiting for a frame");
+        let frame = CollaborationFrame::decode(message.into_data().as_ref()).unwrap();
+        if frame.kind != CollaborationMessageKind::Awareness {
+            return frame;
+        }
+    }
 }
 
 /// Require a server-initiated close carrying exactly `code` within `within`.
@@ -402,6 +435,10 @@ pub(super) async fn assert_close_code_within(
         Ok(Some(Ok(Message::Close(None)))) => {
             panic!("socket closed without a close code, expected {code}")
         }
+        // Awareness snapshots may legally interleave with the close.
+        Ok(Some(Ok(Message::Binary(_)))) => {
+            Box::pin(assert_close_code_within(socket, code, within)).await
+        }
         Ok(Some(Ok(message))) => {
             panic!("unexpected frame while awaiting close {code}: {message:?}")
         }
@@ -412,7 +449,7 @@ pub(super) async fn timeout_short<T>(future: impl std::future::Future<Output = T
     timeout(Duration::from_millis(300), future).await.ok()
 }
 
-async fn ticket_json(
+pub(super) async fn ticket_json(
     client: &reqwest::Client,
     address: SocketAddr,
     path: &str,
@@ -458,11 +495,17 @@ async fn ticket_json(
         .send()
         .await
         .unwrap();
-    assert_eq!(response.status(), reqwest::StatusCode::CREATED);
-    response.json::<Value>().await.unwrap()
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    assert_eq!(
+        status,
+        reqwest::StatusCode::CREATED,
+        "ticket endpoint returned {status}: {body}"
+    );
+    serde_json::from_str(&body).unwrap()
 }
 
-async fn ticket_http(
+pub(super) async fn ticket_http(
     client: &reqwest::Client,
     address: SocketAddr,
     path: &str,

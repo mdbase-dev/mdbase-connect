@@ -43,6 +43,10 @@ import {
   requiresHostedCollection
 } from "../grants/policy.js";
 import { syncHostedNotificationGrant } from "../grants/service.js";
+import {
+  buildApplicationReplicaPolicy
+} from "./replica-policy.js";
+import { resolveGrantAwarenessIdentity } from "../hosted/collaboration-identity.js";
 import { applicationOriginForRedirect, normalizedApplicationOrigin } from "./redirects.js";
 import { declarationIdFromFamilyIdentity } from "../applications/identity.js";
 const jsonOrNull = (value: unknown) => value ? JSON.stringify(value) : null;
@@ -765,6 +769,8 @@ export async function approveHostedAuthorization(
     const applicationInstallationId =
       pending.application_authorization.binding.application_installation_id;
     const membershipBinding = membershipBindingForAccess(currentAccess);
+    const awarenessIdentity = await resolveGrantAwarenessIdentity(connection, input.userId,
+      input.collectionId, plan.collaborationCapability !== undefined);
     const existing = await connection.query<{
       id: string;
       hosted_replica_id: string;
@@ -808,27 +814,21 @@ export async function approveHostedAuthorization(
       );
     }
 
-    const replicaPolicy = {
-      grantId,
-      mode: plan.replicaMode,
-      allowedTypes,
-      contractScope: scope.access === "contract" ? scope.contracts : [],
+    const binding = pending.application_authorization.binding.contracts;
+    const replicaPolicy = buildApplicationReplicaPolicy({
+      grantId, replicaMode: plan.replicaMode, allowedTypes,
+      scope: scope.access === "contract" ? scope.contracts : [],
       fullCollection: scope.access === "full_collection",
-      allowedOperations: hostedReplicaCollectionOperations(operations),
-      operationTransportProtocol:
-        pending.application_authorization.binding.contracts.operation_transport,
-      operationTransportRecoveryProtocols:
-        pending.application_authorization.binding.contracts
-          .operation_transport_recovery ?? [],
+      operations: hostedReplicaCollectionOperations(operations),
+      operationTransportProtocol: binding.operation_transport,
+      operationTransportRecoveryProtocols: binding.operation_transport_recovery ?? [],
       fileCapability: plan.fileCapability,
       collaborationCapability: plan.collaborationCapability,
-      allowedOrigin,
+      awarenessIdentity, allowedOrigin,
       proofPublicKey: pending.application_signing_public_key,
-      applicationDeclarationId: declarationIdFromFamilyIdentity(
-        pending.application_family_identity
-      ),
+      applicationDeclarationId: declarationIdFromFamilyIdentity(pending.application_family_identity),
       applicationDeclarationDigest: `sha256:${pending.application_manifest_digest}`
-    };
+    });
     if (retained) {
       await provider.updateApplicationReplica(replicaId, replicaPolicy);
       await connection.query(

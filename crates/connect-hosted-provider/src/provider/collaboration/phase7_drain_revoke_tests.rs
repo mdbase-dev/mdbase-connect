@@ -424,6 +424,7 @@ async fn phase7_revocation_rotation_downgrade_postgres() {
                     operation_transport_protocol: 3,
                     operation_transport_recovery_protocols: vec![2],
                     file_capability: None,
+                    awareness_identity: None,
                     collaboration_capability: None,
                     allowed_origin: Some(origin.into()),
                     proof_public_key: Some(public_key_c),

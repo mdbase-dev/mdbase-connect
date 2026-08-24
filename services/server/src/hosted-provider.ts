@@ -1,6 +1,7 @@
 import type {
   ApplicationProvisions,
   ApplicationRequirements,
+  AwarenessColorName,
   CollectionContractDescriptor,
   CollectionTypeDescriptor,
   ContractSetupChoice,
@@ -17,6 +18,12 @@ import {
 } from "@mdbase-dev/connect-protocol";
 import { hostedReplicaCollectionOperations } from "./hosted-replica-policy.js";
 import { safeEqual } from "./security.js";
+
+/** Server-derived awareness identity plumbed to provider replica storage. */
+export interface AwarenessPresentationIdentity {
+  name: string;
+  color: AwarenessColorName;
+}
 
 export interface HostedProviderConfig {
   url: string;
@@ -56,6 +63,8 @@ export interface HostedReplicaEnrollment {
   operationTransportRecoveryProtocols?: number[];
   fileCapability?: FileCapability;
   collaborationCapability?: ReplicaCollaborationCapability;
+  /** Server-derived presentation identity; required for collaboration. */
+  awarenessIdentity?: AwarenessPresentationIdentity;
   allowedOrigin?: string;
   proofPublicKey?: string;
   grantId?: string;
@@ -460,6 +469,9 @@ export class HostedProviderClient {
         ...(replica.collaborationCapability
           ? { collaboration_capability: replica.collaborationCapability }
           : {}),
+        ...(replica.awarenessIdentity
+          ? { awareness_identity: replica.awarenessIdentity }
+          : {}),
         ...(replica.allowedOrigin ? { allowed_origin: replica.allowedOrigin } : {}),
         ...(replica.proofPublicKey ? { proof_public_key: replica.proofPublicKey } : {}),
         ...(replica.grantId ? { grant_id: replica.grantId } : {}),
@@ -519,6 +531,7 @@ export class HostedProviderClient {
       operationTransportRecoveryProtocols: number[];
       fileCapability?: FileCapability;
       collaborationCapability?: ReplicaCollaborationCapability;
+      awarenessIdentity?: AwarenessPresentationIdentity;
       allowedOrigin: string | undefined;
       proofPublicKey: string;
       applicationDeclarationId: string;
@@ -543,6 +556,9 @@ export class HostedProviderClient {
         ...(policy.fileCapability ? { file_capability: policy.fileCapability } : {}),
         ...(policy.collaborationCapability
           ? { collaboration_capability: policy.collaborationCapability }
+          : {}),
+        ...(policy.awarenessIdentity
+          ? { awareness_identity: policy.awarenessIdentity }
           : {}),
         allowed_origin: policy.allowedOrigin,
         proof_public_key: policy.proofPublicKey,

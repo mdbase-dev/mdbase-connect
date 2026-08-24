@@ -113,6 +113,10 @@ async fn run_two_clients(base: &str, schema: &str) {
                     operation_transport_protocol: Some(3),
                     operation_transport_recovery_protocols: vec![2],
                     file_capability: None,
+
+                    awareness_identity: Some(
+                        super::phase7_drain_revoke_support::generic_awareness_identity(),
+                    ),
                     collaboration_capability: Some(ReplicaCollaborationCapability {
                         contract_version: 1,
                         profiles: vec![COLLABORATION_PROFILE.into()],
@@ -240,10 +244,21 @@ async fn run_two_clients(base: &str, schema: &str) {
     .unwrap();
     a.send(Message::Binary(sync1.clone().into())).await.unwrap();
     b.send(Message::Binary(sync1.into())).await.unwrap();
-    let sync_a = recv_frame(&mut a).await;
-    let sync_b = recv_frame(&mut b).await;
-    assert_eq!(sync_a.kind, CollaborationMessageKind::SyncStep2);
-    assert_eq!(sync_b.kind, CollaborationMessageKind::SyncStep2);
+    // Awareness join snapshots may legally interleave with sync responses.
+    let sync_a = loop {
+        let frame = recv_frame(&mut a).await;
+        if frame.kind != CollaborationMessageKind::Awareness {
+            assert_eq!(frame.kind, CollaborationMessageKind::SyncStep2);
+            break frame;
+        }
+    };
+    let sync_b = loop {
+        let frame = recv_frame(&mut b).await;
+        if frame.kind != CollaborationMessageKind::Awareness {
+            assert_eq!(frame.kind, CollaborationMessageKind::SyncStep2);
+            break frame;
+        }
+    };
     client_a
         .apply_update_v1(&sync_a.payload, 2 * 1024 * 1024, 2 * 1024 * 1024)
         .unwrap();
@@ -350,8 +365,13 @@ async fn run_two_clients(base: &str, schema: &str) {
         ))
         .await
         .unwrap();
-    let durable_sync = recv_frame(&mut reconnect).await;
-    assert_eq!(durable_sync.kind, CollaborationMessageKind::SyncStep2);
+    let durable_sync = loop {
+        let frame = recv_frame(&mut reconnect).await;
+        if frame.kind != CollaborationMessageKind::Awareness {
+            assert_eq!(frame.kind, CollaborationMessageKind::SyncStep2);
+            break frame;
+        }
+    };
     reloaded
         .apply_update_v1(&durable_sync.payload, 2 * 1024 * 1024, 2 * 1024 * 1024)
         .unwrap();
@@ -441,8 +461,13 @@ async fn run_two_clients(base: &str, schema: &str) {
         ))
         .await
         .unwrap();
-    let readmit_sync = recv_frame(&mut readmitted).await;
-    assert_eq!(readmit_sync.kind, CollaborationMessageKind::SyncStep2);
+    let readmit_sync = loop {
+        let frame = recv_frame(&mut readmitted).await;
+        if frame.kind != CollaborationMessageKind::Awareness {
+            assert_eq!(frame.kind, CollaborationMessageKind::SyncStep2);
+            break frame;
+        }
+    };
     readmit_client
         .apply_update_v1(&readmit_sync.payload, 2 * 1024 * 1024, 2 * 1024 * 1024)
         .unwrap();
@@ -799,28 +824,50 @@ async fn authenticate(
         .await
         .unwrap();
 }
+// Sanitized awareness snapshots are legitimate background traffic on any
+// authenticated socket; these scenarios never assert on them, so skip.
 async fn recv_frame(
     socket: &mut tokio_tungstenite::WebSocketStream<
         tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
     >,
 ) -> CollaborationFrame {
-    let message = timeout(Duration::from_secs(2), socket.next())
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-    CollaborationFrame::decode(message.into_data().as_ref()).unwrap()
+    loop {
+        let message = timeout(Duration::from_secs(2), socket.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let frame = CollaborationFrame::decode(message.into_data().as_ref()).unwrap();
+        if frame.kind != CollaborationMessageKind::Awareness {
+            return frame;
+        }
+    }
 }
 async fn assert_closed_without_binary(
     socket: &mut tokio_tungstenite::WebSocketStream<
         tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
     >,
 ) {
-    match timeout(Duration::from_secs(1), socket.next()).await {
-        Ok(None | Some(Ok(Message::Close(_)))) => {}
-        Ok(Some(Ok(other))) => panic!("unexpected pre-auth message: {other:?}"),
-        Ok(Some(Err(_))) => {}
-        Err(_) => panic!("invalid collaboration socket remained open"),
+    loop {
+        match timeout(Duration::from_secs(1), socket.next()).await {
+            Ok(None | Some(Ok(Message::Close(_)))) => return,
+            // Sanitized awareness snapshots carry no record content and may
+            // legally interleave with any post-authentication close.
+            Ok(Some(Ok(message @ Message::Binary(_)))) => {
+                if let Ok(frame) = CollaborationFrame::decode(match &message {
+                    Message::Binary(bytes) => bytes.as_ref(),
+                    _ => unreachable!(),
+                }) {
+                    if frame.kind == CollaborationMessageKind::Awareness {
+                        continue;
+                    }
+                }
+                panic!("unexpected pre-auth message: {message:?}");
+            }
+            Ok(Some(Ok(other))) => panic!("unexpected pre-auth message: {other:?}"),
+            Ok(Some(Err(_))) => return,
+            Err(_) => panic!("invalid collaboration socket remained open"),
+        }
     }
 }
 

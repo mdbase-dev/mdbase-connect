@@ -149,3 +149,274 @@ function canonicalValue(value: unknown, ancestors: WeakSet<object>): unknown {
 function invalid(): never {
   throw new CollaborationFrameError("collaboration_frame_invalid");
 }
+
+// ---------------------------------------------------------------------------
+// Strict ephemeral awareness wire types.
+//
+// Awareness is server-sanitized presentation state scoped to one provider
+// instance. Clients send an empty-payload Awareness frame whose metadata is
+// exactly {status, selections}; the server broadcasts complete replacement
+// snapshots of exactly {participants}. Names, colors, and every other
+// identity field are assigned from the authenticated control-plane user and
+// are never accepted from clients.
+// ---------------------------------------------------------------------------
+
+export const AWARENESS_PROTOCOL_VERSION = 1 as const;
+export const AWARENESS_SCOPE_PROVIDER_INSTANCE = "provider_instance" as const;
+export const MAX_AWARENESS_PARTICIPANTS = 16;
+export const MAX_AWARENESS_SELECTIONS = 4;
+export const MAX_AWARENESS_UPDATES_PER_SECOND = 8;
+export const MIN_AWARENESS_UPDATE_SPACING_MS = 125;
+export const AWARENESS_VISIBLE_TTL_SECONDS = 30;
+export const MAX_AWARENESS_NAME_SCALARS = 100;
+export const MAX_AWARENESS_NAME_BYTES = 400;
+
+export type AwarenessStatus = "active" | "idle";
+
+export type AwarenessColorName =
+  | "blue"
+  | "teal"
+  | "green"
+  | "amber"
+  | "orange"
+  | "rose"
+  | "violet"
+  | "slate";
+
+export const AWARENESS_COLORS: readonly AwarenessColorName[] = [
+  "blue",
+  "teal",
+  "green",
+  "amber",
+  "orange",
+  "rose",
+  "violet",
+  "slate"
+];
+
+export interface AwarenessSelectionRange {
+  anchor: number;
+  head: number;
+}
+
+export interface ClientAwarenessUpdate {
+  status: AwarenessStatus;
+  selections: AwarenessSelectionRange[];
+}
+
+export interface AwarenessParticipant {
+  name: string;
+  color: AwarenessColorName;
+  status: AwarenessStatus;
+  selections: AwarenessSelectionRange[];
+}
+
+export interface ServerAwarenessSnapshot {
+  participants: AwarenessParticipant[];
+}
+
+export interface AwarenessHelloAdvertisement {
+  version: typeof AWARENESS_PROTOCOL_VERSION;
+  scope: typeof AWARENESS_SCOPE_PROVIDER_INSTANCE;
+  max_participants: number;
+  max_selections: number;
+  max_updates_per_second: number;
+  ttl_seconds: number;
+}
+
+export class AwarenessMetadataError extends Error {
+  constructor(public readonly code:
+    | "awareness_shape_invalid"
+    | "awareness_too_many_selections"
+    | "awareness_duplicate_selection"
+    | "awareness_position_out_of_range"
+    | "awareness_too_many_participants"
+    | "awareness_name_invalid"
+    | "awareness_payload_not_empty") {
+    super(code);
+    this.name = "AwarenessMetadataError";
+  }
+}
+
+function shapeInvalid(): never {
+  throw new AwarenessMetadataError("awareness_shape_invalid");
+}
+
+/** Exact-key object check: no missing keys, no unknown keys, plain object. */
+function exactKeys(
+  value: unknown,
+  expected: readonly string[]
+): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return shapeInvalid();
+  }
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record);
+  if (keys.length !== expected.length) return shapeInvalid();
+  for (const key of expected) {
+    if (!(key in record)) return shapeInvalid();
+  }
+  return record;
+}
+
+function parseOffset(value: unknown): number {
+  if (typeof value !== "number" || !Number.isInteger(value)
+    || value < 0 || value > 0xFFFFFFFF) {
+    return shapeInvalid() as never;
+  }
+  return value;
+}
+
+function parseSelections(value: unknown): AwarenessSelectionRange[] {
+  if (!Array.isArray(value)) return shapeInvalid();
+  if (value.length > MAX_AWARENESS_SELECTIONS) {
+    throw new AwarenessMetadataError("awareness_too_many_selections");
+  }
+  const parsed: AwarenessSelectionRange[] = [];
+  for (const entry of value) {
+    const range = exactKeys(entry, ["anchor", "head"]);
+    const selection = { anchor: parseOffset(range.anchor), head: parseOffset(range.head) };
+    if (parsed.some((existing) =>
+      existing.anchor === selection.anchor && existing.head === selection.head
+    )) {
+      throw new AwarenessMetadataError("awareness_duplicate_selection");
+    }
+    parsed.push(selection);
+  }
+  return parsed;
+}
+
+/**
+ * Parse a client Awareness frame metadata strictly. Unknown, deep, identity,
+ * textual, or path fields reject; the frame payload must be empty.
+ */
+export function parseClientAwarenessMetadata(
+  metadata: Record<string, unknown>,
+  payload: Uint8Array,
+  maxPosition: number
+): ClientAwarenessUpdate {
+  if (payload.byteLength !== 0) {
+    throw new AwarenessMetadataError("awareness_payload_not_empty");
+  }
+  const exact = exactKeys(metadata, ["status", "selections"]);
+  if (exact.status !== "active" && exact.status !== "idle") return shapeInvalid();
+  const update: ClientAwarenessUpdate = {
+    status: exact.status,
+    selections: parseSelections(exact.selections)
+  };
+  validateAwarenessPositions(update.selections, maxPosition);
+  return update;
+}
+
+export function encodeClientAwarenessMetadata(update: ClientAwarenessUpdate): Record<string, unknown> {
+  if (update.status !== "active" && update.status !== "idle") return shapeInvalid();
+  const selections = parseSelections(update.selections);
+  return { status: update.status, selections };
+}
+
+function validateAwarenessPositions(
+  selections: AwarenessSelectionRange[],
+  maxPosition: number
+): void {
+  for (const selection of selections) {
+    if (selection.anchor > maxPosition || selection.head > maxPosition) {
+      throw new AwarenessMetadataError("awareness_position_out_of_range");
+    }
+  }
+}
+
+/**
+ * Validate a server-assigned display name: non-empty, trimmed, NFC, free of
+ * control characters and bidirectional overrides, within both budgets.
+ * Mirrors the Rust `validate_awareness_name` exactly.
+ */
+export function isValidAwarenessDisplayName(name: string): boolean {
+  if (name.length === 0 || name.trim() !== name) return false;
+  if (name.normalize("NFC") !== name) return false;
+  if ([...name].length > MAX_AWARENESS_NAME_SCALARS) return false;
+  if (new TextEncoder().encode(name).byteLength > MAX_AWARENESS_NAME_BYTES) return false;
+  for (const character of name) {
+    const code = character.codePointAt(0)!;
+    const isControl = code <= 0x1F || (code >= 0x7F && code <= 0x9F);
+    const isBidiOverride = (code >= 0x202A && code <= 0x202E)
+      || (code >= 0x2066 && code <= 0x2069);
+    if (isControl || isBidiOverride) return false;
+  }
+  return true;
+}
+
+/**
+ * Build snapshot metadata strictly. Duplicate names and colors are allowed;
+ * everything else is bounded and validated.
+ */
+export function encodeAwarenessSnapshotMetadata(
+  snapshot: ServerAwarenessSnapshot
+): Record<string, unknown> {
+  if (snapshot.participants.length > MAX_AWARENESS_PARTICIPANTS) {
+    throw new AwarenessMetadataError("awareness_too_many_participants");
+  }
+  const participants = snapshot.participants.map((participant) => {
+    if (!isValidAwarenessDisplayName(participant.name)) {
+      throw new AwarenessMetadataError("awareness_name_invalid");
+    }
+    if (!AWARENESS_COLORS.includes(participant.color)) return shapeInvalid();
+    if (participant.status !== "active" && participant.status !== "idle") {
+      return shapeInvalid();
+    }
+    return {
+      name: participant.name,
+      color: participant.color,
+      status: participant.status,
+      selections: parseSelections(participant.selections)
+    };
+  });
+  return { participants };
+}
+
+/** Parse and validate a complete replacement snapshot from frame metadata. */
+export function parseAwarenessSnapshotMetadata(
+  metadata: Record<string, unknown>,
+  maxPosition: number
+): ServerAwarenessSnapshot {
+  const exact = exactKeys(metadata, ["participants"]);
+  if (!Array.isArray(exact.participants)) return shapeInvalid();
+  if (exact.participants.length > MAX_AWARENESS_PARTICIPANTS) {
+    throw new AwarenessMetadataError("awareness_too_many_participants");
+  }
+  const participants = exact.participants.map((entry) => {
+    const record = exactKeys(entry, ["name", "color", "status", "selections"]);
+    if (typeof record.name !== "string"
+      || !isValidAwarenessDisplayName(record.name)) {
+      throw new AwarenessMetadataError("awareness_name_invalid");
+    }
+    if (typeof record.color !== "string"
+      || !AWARENESS_COLORS.includes(record.color as AwarenessColorName)) {
+      return shapeInvalid();
+    }
+    if (record.status !== "active" && record.status !== "idle") return shapeInvalid();
+    const participant: AwarenessParticipant = {
+      name: record.name,
+      color: record.color as AwarenessColorName,
+      status: record.status,
+      selections: parseSelections(record.selections)
+    };
+    return participant;
+  });
+  const snapshot: ServerAwarenessSnapshot = { participants };
+  for (const participant of snapshot.participants) {
+    validateAwarenessPositions(participant.selections, maxPosition);
+  }
+  return snapshot;
+}
+
+/** Exact Hello advertisement. `provider_instance` scope is load-bearing. */
+export function awarenessHelloAdvertisement(): AwarenessHelloAdvertisement {
+  return {
+    version: AWARENESS_PROTOCOL_VERSION,
+    scope: AWARENESS_SCOPE_PROVIDER_INSTANCE,
+    max_participants: MAX_AWARENESS_PARTICIPANTS,
+    max_selections: MAX_AWARENESS_SELECTIONS,
+    max_updates_per_second: MAX_AWARENESS_UPDATES_PER_SECOND,
+    ttl_seconds: AWARENESS_VISIBLE_TTL_SECONDS
+  };
+}

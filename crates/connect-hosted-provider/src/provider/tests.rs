@@ -1,7 +1,7 @@
 use super::operation_dispatch::ensure_collection_setup_declaration_binding;
 use super::operation_input::validate_hosted_operation_input;
 use super::*;
-use mdbase_connect_protocol::CollectionFileDescriptor;
+use mdbase_connect_protocol::{AwarenessColor, CollectionFileDescriptor, ReplicaAwarenessIdentity};
 use serde_json::Map;
 
 #[test]
@@ -781,6 +781,7 @@ fn application_capabilities_bind_operations_mode_and_origin() {
         operation_transport_protocol: Some(3),
         operation_transport_recovery_protocols: vec![2],
         file_capability: None,
+        awareness_identity: None,
         collaboration_capability: None,
         allowed_origin: Some("https://tasks.example".to_string()),
         proof_public_key: None,
@@ -987,6 +988,10 @@ fn collaboration_capabilities_are_exact_application_bindings() {
         operation_transport_protocol: Some(3),
         operation_transport_recovery_protocols: Vec::new(),
         file_capability: None,
+        awareness_identity: Some(ReplicaAwarenessIdentity {
+            name: "Ada Lovelace".to_string(),
+            color: AwarenessColor::Teal,
+        }),
         collaboration_capability: Some(ReplicaCollaborationCapability {
             contract_version: 1,
             profiles: vec!["markdown-body-yjs-v13".to_string()],
@@ -1048,6 +1053,7 @@ fn collection_setup_assess_and_apply_require_matching_declaration_binding() {
         operation_transport_protocol: Some(3),
         operation_transport_recovery_protocols: vec![2],
         file_capability: None,
+        awareness_identity: None,
         collaboration_capability: None,
         allowed_origin: Some("https://tasks.example".to_string()),
         proof_public_key: None,
@@ -1110,6 +1116,7 @@ fn assess_collection_setup_alone_requires_declaration_binding() {
         operation_transport_protocol: Some(3),
         operation_transport_recovery_protocols: vec![2],
         file_capability: None,
+        awareness_identity: None,
         collaboration_capability: None,
         allowed_origin: Some("https://tasks.example".to_string()),
         proof_public_key: None,
@@ -1216,6 +1223,7 @@ fn rejects_write_operations_on_read_only_application_capabilities() {
         operation_transport_protocol: Some(3),
         operation_transport_recovery_protocols: vec![2],
         file_capability: None,
+        awareness_identity: None,
         collaboration_capability: None,
         allowed_origin: Some("https://tasks.example".to_string()),
         proof_public_key: None,
@@ -1252,6 +1260,7 @@ fn file_capabilities_are_independent_scoped_and_mode_checked() {
                 folders: vec!["Assets".to_string()],
             },
         }),
+        awareness_identity: None,
         collaboration_capability: None,
         allowed_origin: Some("https://assets.example".to_string()),
         proof_public_key: None,

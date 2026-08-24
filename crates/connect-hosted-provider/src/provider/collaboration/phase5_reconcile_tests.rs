@@ -126,6 +126,10 @@ async fn run(base: &str, schema: &str) {
                 operation_transport_protocol: Some(3),
                 operation_transport_recovery_protocols: vec![2],
                 file_capability: None,
+
+                awareness_identity: Some(
+                    super::phase7_drain_revoke_support::generic_awareness_identity(),
+                ),
                 collaboration_capability: Some(ReplicaCollaborationCapability {
                     contract_version: 1,
                     profiles: vec![COLLABORATION_PROFILE.into()],

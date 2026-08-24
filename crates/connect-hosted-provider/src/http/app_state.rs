@@ -54,6 +54,7 @@ impl AppState {
                 "The provider internal credential must contain at least 32 characters.",
             ));
         }
+        let awareness_ttl = provider.collaboration_awareness_ttl();
         Ok(Self {
             provider,
             internal_token_hash: Sha256::digest(internal_token.as_bytes()).into(),
@@ -61,7 +62,9 @@ impl AppState {
             collaboration_slots: Arc::new(Semaphore::new(MAX_COLLABORATION_CONNECTIONS)),
             collaboration_wakes: Arc::new(CollaborationWakeHub::new()),
             collaboration_wake_runtime: Arc::new(tokio::sync::Mutex::new(None)),
-            collaboration_sessions: Arc::new(CollaborationSessionRuntime::new()),
+            collaboration_sessions: Arc::new(CollaborationSessionRuntime::with_awareness_ttl(
+                awareness_ttl,
+            )),
         })
     }
 

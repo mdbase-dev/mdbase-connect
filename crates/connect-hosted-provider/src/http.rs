@@ -43,6 +43,7 @@ mod app_state;
 mod authentication;
 mod authority_import_files;
 mod collaboration;
+pub(crate) mod collaboration_awareness;
 pub(crate) mod collaboration_sessions;
 mod diagnostics;
 mod files;

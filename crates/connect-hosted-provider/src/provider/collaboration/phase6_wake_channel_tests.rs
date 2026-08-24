@@ -15,8 +15,8 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use futures_util::FutureExt;
 use mdbase_connect_collaboration::MarkdownBodyDocument;
 use mdbase_connect_protocol::{
-    CollaborationAccess, ReplicaCollaborationCapability, SyncMutation, SyncMutationOperation,
-    SyncReplicaMode,
+    AwarenessColor, CollaborationAccess, ReplicaAwarenessIdentity, ReplicaCollaborationCapability,
+    SyncMutation, SyncMutationOperation, SyncReplicaMode,
 };
 use sqlx::postgres::PgListener;
 use sqlx::AssertSqlSafe;
@@ -100,6 +100,11 @@ async fn run(base: &str, schema: &str) {
                 operation_transport_protocol: Some(3),
                 operation_transport_recovery_protocols: vec![2],
                 file_capability: None,
+
+                awareness_identity: Some(ReplicaAwarenessIdentity {
+                    name: "Participant".into(),
+                    color: AwarenessColor::Slate,
+                }),
                 collaboration_capability: Some(ReplicaCollaborationCapability {
                     contract_version: 1,
                     profiles: vec![COLLABORATION_PROFILE.into()],

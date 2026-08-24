@@ -29,6 +29,7 @@ use std::sync::atomic::{AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+pub(super) use crate::http::collaboration_awareness::{AwarenessRoom, AWARENESS_TTL};
 use sqlx::{Postgres, Transaction};
 use tokio::sync::{watch, OwnedSemaphorePermit};
 use uuid::Uuid;
@@ -39,6 +40,7 @@ use crate::{
     provider::collaboration::{
         CollaborationBatchReceipt, CollaborationCatchUpItem, ConsumedCollaborationTicket,
     },
+    RoomIdentity,
 };
 
 /// WebSocket close code for a deliberate server drain (going away).
@@ -117,6 +119,12 @@ pub(crate) struct CollaborationSessionRuntime {
     /// polling. Values carry no meaning beyond change detection.
     progress: watch::Sender<u64>,
     sessions: Mutex<HashMap<u64, SessionEntry>>,
+    /// Process-local awareness state. Never persisted, never relayed between
+    /// instances, and never touched by SQL paths. Owned by the sibling
+    /// `collaboration_awareness` module, which implements the room registry
+    /// methods on this runtime.
+    pub(super) awareness_rooms: Mutex<HashMap<RoomIdentity, AwarenessRoom>>,
+    pub(super) awareness_ttl: Duration,
 }
 
 impl Default for CollaborationSessionRuntime {
@@ -135,6 +143,31 @@ impl CollaborationSessionRuntime {
             in_flight_updates: AtomicUsize::new(0),
             progress,
             sessions: Mutex::new(HashMap::new()),
+            awareness_rooms: Mutex::new(HashMap::new()),
+            awareness_ttl: AWARENESS_TTL,
+        }
+    }
+
+    /// Build a runtime whose awareness visibility lease comes from the
+    /// configured collaboration limits.
+    pub(crate) fn with_awareness_ttl(ttl: Duration) -> Self {
+        Self {
+            awareness_ttl: ttl,
+            ..Self::new()
+        }
+    }
+
+    #[cfg(test)]
+    fn new_with_progress(progress: watch::Sender<u64>) -> Self {
+        Self {
+            phase: AtomicU8::new(PHASE_ACCEPTING),
+            next_session_id: AtomicU64::new(1),
+            live_sockets: AtomicUsize::new(0),
+            in_flight_updates: AtomicUsize::new(0),
+            progress,
+            sessions: Mutex::new(HashMap::new()),
+            awareness_rooms: Mutex::new(HashMap::new()),
+            awareness_ttl: AWARENESS_TTL,
         }
     }
 
@@ -237,6 +270,10 @@ impl CollaborationSessionRuntime {
             });
         }
         drop(sessions);
+        // Presence ends deterministically with the lifecycle: every member
+        // observes one final empty-snapshot generation, and no new joins can
+        // happen because admission is closed.
+        self.clear_all_awareness();
         if started {
             tracing::info!(
                 sockets = self.tracked_sockets(),
@@ -316,6 +353,27 @@ impl CollaborationSessionRuntime {
                 closed += 1;
             }
         }
+        drop(sessions);
+        // Remove this replica's awareness presence immediately; the sockets
+        // close through the directives above.
+        let mut rooms = self
+            .awareness_rooms
+            .lock()
+            .expect("awareness registry poisoned");
+        for room_state in rooms.values_mut() {
+            let removed: Vec<u64> = room_state
+                .participants
+                .iter()
+                .filter(|(_, participant)| participant.replica_id == replica_id)
+                .map(|(session_id, _)| *session_id)
+                .collect();
+            if !removed.is_empty() {
+                for session_id in removed {
+                    room_state.participants.remove(&session_id);
+                }
+                room_state.bump_generation();
+            }
+        }
         if closed > 0 {
             tracing::debug!(closed, "target-closed collaboration sessions");
         }
@@ -357,6 +415,10 @@ pub(crate) struct CollaborationSocketGuard {
 }
 
 impl CollaborationSocketGuard {
+    pub(crate) fn session_id(&self) -> u64 {
+        self.session_id
+    }
+
     pub(crate) fn reauthorization_jitter(&self) -> Duration {
         Duration::from_millis(self.session_id.wrapping_mul(97) % 250)
     }

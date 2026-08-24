@@ -11,6 +11,7 @@
 
 use super::batches::{CollaborationBatchContribution, CollaborationBatchInput};
 use super::phase3_batch_tests::NoopBlobStore;
+use super::phase7_drain_revoke_support::{generic_awareness_identity, recv_frame};
 use super::*;
 use crate::{app, AppState, RoomIdentity, COLLABORATION_PROFILE};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -551,7 +552,10 @@ async fn run(base: &str, schema: &str) {
         "\nBase body\nline one\nline two\nline three\nline four\ncompacted line\n"
     );
     tokio::time::sleep(SWEEP * 3).await;
-    assert!(timeout_short(recv_frame_inner(&mut b)).await.is_none());
+    // Awareness removal snapshots may surface here; content frames must not.
+    if let Some(frame) = timeout_short(recv_frame_inner(&mut b)).await {
+        assert_eq!(frame.kind, CollaborationMessageKind::Awareness);
+    }
 
     // --- Scenario 7: malformed, content-bearing, unknown-profile, and
     // unknown-room notices cannot allocate or leak; the healthy room continues.
@@ -733,6 +737,7 @@ async fn register_collab_replica(
                 operation_transport_protocol: Some(3),
                 operation_transport_recovery_protocols: vec![2],
                 file_capability: None,
+                awareness_identity: Some(generic_awareness_identity()),
                 collaboration_capability: Some(ReplicaCollaborationCapability {
                     contract_version: 1,
                     profiles: vec![COLLABORATION_PROFILE.into()],
@@ -902,19 +907,6 @@ async fn authenticate(
         ))
         .await
         .unwrap();
-}
-
-async fn recv_frame(
-    socket: &mut tokio_tungstenite::WebSocketStream<
-        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-    >,
-) -> CollaborationFrame {
-    let message = tokio::time::timeout(Duration::from_secs(4), socket.next())
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-    CollaborationFrame::decode(message.into_data().as_ref()).unwrap()
 }
 
 async fn assert_closed_without_binary(

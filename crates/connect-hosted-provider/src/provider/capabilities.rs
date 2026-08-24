@@ -304,6 +304,20 @@ fn validate_collaboration_capability(input: &RegisterReplica) -> ApiResult<()> {
     let Some(capability) = input.collaboration_capability.as_ref() else {
         return Ok(());
     };
+    // Collaboration requires a server-derived presentation identity: without
+    // one there is no safe name/color to show other participants.
+    let Some(identity) = input.awareness_identity.as_ref() else {
+        return Err(ApiError::bad_request(
+            "invalid_collaboration_capability",
+            "Collaboration capabilities require an awareness identity.",
+        ));
+    };
+    if validate_awareness_name(&identity.name).is_err() {
+        return Err(ApiError::bad_request(
+            "invalid_collaboration_capability",
+            "The awareness display name is invalid.",
+        ));
+    }
     if input.purpose != ReplicaPurpose::Application
         || capability.contract_version != 1
         || capability.profiles.len() != 1
