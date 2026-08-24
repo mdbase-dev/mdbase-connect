@@ -34,6 +34,13 @@ export async function deployDevelopmentEditor(environment, run = runCommand) {
     throw new Error("Development editor deployments are restricted to lab and staging.");
   }
   const deployment = developmentDeployments[target];
+  const collaborationFlag = environment.MDBASE_EDITOR_EXPERIMENTAL_HOSTED_COLLABORATION?.trim();
+  if (collaborationFlag && collaborationFlag !== "0" && collaborationFlag !== "1") {
+    throw new Error("MDBASE_EDITOR_EXPERIMENTAL_HOSTED_COLLABORATION must be 0 or 1.");
+  }
+  if (target === "staging" && collaborationFlag === "1") {
+    throw new Error("Experimental hosted collaboration Editor builds are restricted to LAB.");
+  }
   const requestedOrigin = environment.MDBASE_CONNECT_URL?.trim();
   if (requestedOrigin && requestedOrigin !== deployment.connectOrigin) {
     throw new Error(`MDBASE_CONNECT_URL does not match the ${target} environment.`);

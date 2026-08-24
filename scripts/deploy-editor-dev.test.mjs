@@ -27,6 +27,26 @@ test("builds and deploys the editor against lab by default", async () => {
   assert.ok(deploy.args.includes("--branch=candidate-b"));
 });
 
+test("allows the experimental collaboration build only in LAB", async () => {
+  const calls = [];
+  await deployDevelopmentEditor({
+    MDBASE_ENV: "lab",
+    MDBASE_EDITOR_EXPERIMENTAL_HOSTED_COLLABORATION: "1"
+  }, async (command, args, environment) => {
+    calls.push({ command, args, environment });
+  });
+  assert.ok(calls.length > 0);
+  assert.ok(calls.every(({ environment }) =>
+    environment.MDBASE_EDITOR_EXPERIMENTAL_HOSTED_COLLABORATION === "1"));
+  await assert.rejects(
+    deployDevelopmentEditor({
+      MDBASE_ENV: "staging",
+      MDBASE_EDITOR_EXPERIMENTAL_HOSTED_COLLABORATION: "1"
+    }, async () => undefined),
+    /restricted to LAB/
+  );
+});
+
 test("staging requires an explicit environment and production is rejected", async () => {
   const calls = [];
   await deployDevelopmentEditor({ MDBASE_ENV: "staging" }, async (command, args, environment) => {

@@ -13,7 +13,9 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   }
   await verifyManifest(source, expectedHomepage, expectedConnectOrigin, {
     attempts: positiveInteger(process.env.MDBASE_MANIFEST_VERIFY_ATTEMPTS, 1),
-    delayMs: nonNegativeInteger(process.env.MDBASE_MANIFEST_VERIFY_DELAY_MS, 0)
+    delayMs: nonNegativeInteger(process.env.MDBASE_MANIFEST_VERIFY_DELAY_MS, 0),
+    experimentalCollaboration:
+      process.env.MDBASE_EDITOR_EXPERIMENTAL_HOSTED_COLLABORATION?.trim() === "1"
   });
 }
 
@@ -21,13 +23,18 @@ export async function verifyManifest(
   source,
   expectedHomepage,
   expectedConnectOrigin,
-  { attempts = 1, delayMs = 0 } = {}
+  { attempts = 1, delayMs = 0, experimentalCollaboration = false } = {}
 ) {
   let failure;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       const manifest = await loadManifest(source, attempt);
-      assertEditorManifest(manifest, expectedHomepage, expectedConnectOrigin);
+      assertEditorManifest(
+        manifest,
+        expectedHomepage,
+        expectedConnectOrigin,
+        experimentalCollaboration
+      );
       console.log(`Verified editor file access in ${source}`);
       return;
     } catch (error) {
@@ -38,7 +45,12 @@ export async function verifyManifest(
   throw failure;
 }
 
-export function assertEditorManifest(manifest, expectedHomepage, expectedConnectOrigin) {
+export function assertEditorManifest(
+  manifest,
+  expectedHomepage,
+  expectedConnectOrigin,
+  experimentalCollaboration = false
+) {
   const required = manifest?.requirements?.capabilities?.required;
   const actions = manifest?.requirements?.files?.actions;
   const scope = manifest?.requirements?.files?.scope;
@@ -56,6 +68,30 @@ export function assertEditorManifest(manifest, expectedHomepage, expectedConnect
     }
   }
   if (manifest?.requirements?.access !== "full_collection") problems.push("access must be full_collection");
+  const expectedManifestVersion = experimentalCollaboration ? 2 : 1;
+  const expectedContractVersion = experimentalCollaboration ? 2 : 1;
+  if (manifest?.manifest_version !== expectedManifestVersion) {
+    problems.push(`manifest version must be ${expectedManifestVersion}`);
+  }
+  if (manifest?.requirements?.capabilities?.contract_version !== expectedContractVersion) {
+    problems.push(`capability contract version must be ${expectedContractVersion}`);
+  }
+  const optional = manifest?.requirements?.capabilities?.optional;
+  if (experimentalCollaboration) {
+    if (!Array.isArray(optional) || !optional.includes("records.collaborate")) {
+      problems.push("records.collaborate must be optional");
+    }
+    if (manifest?.requirements?.collection_kind !== "hosted") {
+      problems.push("collection kind must be hosted");
+    }
+  } else {
+    if (Array.isArray(optional) && optional.includes("records.collaborate")) {
+      problems.push("records.collaborate must be absent");
+    }
+    if (manifest?.requirements?.collection_kind !== undefined) {
+      problems.push("collection kind must be absent");
+    }
+  }
   if (!Array.isArray(required) || !required.includes("files.list")) problems.push("files.list capability is required");
   if (!Array.isArray(required) || !required.includes("files.read")) problems.push("files.read capability is required");
   if (!Array.isArray(actions) || !actions.includes("list")) problems.push("file list action is required");

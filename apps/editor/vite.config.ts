@@ -6,9 +6,19 @@ const basePath = `/${(process.env.MDBASE_EDITOR_BASE_PATH ?? "/").replace(/^\/+|
 const buildId = (process.env.MDBASE_EDITOR_BUILD_ID ?? process.env.GITHUB_SHA ?? "local")
   .slice(0, 12)
   .replace(/[^a-zA-Z0-9_-]/gu, "-");
+const collaborationFlag = process.env.MDBASE_EDITOR_EXPERIMENTAL_HOSTED_COLLABORATION?.trim();
+if (collaborationFlag && collaborationFlag !== "0" && collaborationFlag !== "1") {
+  throw new Error("MDBASE_EDITOR_EXPERIMENTAL_HOSTED_COLLABORATION must be 0 or 1.");
+}
+const experimentalCollaboration = collaborationFlag === "1";
 
 export default defineConfig(({ mode }) => ({
   base: basePath,
+  define: {
+    __MDBASE_EDITOR_EXPERIMENTAL_HOSTED_COLLABORATION__: JSON.stringify(
+      experimentalCollaboration
+    )
+  },
   plugins: [
     react(),
     {
