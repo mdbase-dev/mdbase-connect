@@ -5,19 +5,23 @@ use axum::{
     http::{header::CACHE_CONTROL, HeaderMap, HeaderValue, Method, StatusCode},
     response::{IntoResponse, Response},
 };
-use futures_util::StreamExt;
 use mdbase_connect_protocol::{CollaborationFrame, CollaborationMessageKind};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use tokio::time::{timeout, Duration, Instant};
 use uuid::Uuid;
+
+use futures_util::StreamExt;
 
 use crate::{
     error::{ApiError, ApiResult},
     http::{bearer, request_origin, request_proof, AppState},
     provider::collaboration::{
-        CollaborationBatchContribution, CollaborationBatchInput, CollaborationTicketRequest,
-        ConsumedCollaborationTicket,
+        spawn_wake_runtime, CollaborationBatchContribution, CollaborationBatchInput,
+        CollaborationCatchUpItem, CollaborationTicketRequest, CollaborationWakeRuntime,
+        ConsumedCollaborationTicket, COLLABORATION_CATCHUP_PAGE_UPDATES,
+        DEFAULT_WAKE_SWEEP_INTERVAL,
     },
     CollaborationMode, COLLABORATION_PROFILE,
 };
@@ -29,7 +33,10 @@ const MIN_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const MAX_FRAMES_PER_SECOND: u32 = 64;
 const MAX_SYNCS_PER_SECOND: u32 = 4;
 const MAX_UPDATES_PER_SECOND: u32 = 32;
-const MAX_ACTIVE_ROOMS: usize = 1024;
+
+/// Safety cap on full-page drain rounds per wake. Backlogs beyond this wait
+/// for the next wake or sweep; correctness comes from the durable cursor.
+const MAX_DRAIN_ROUNDS_PER_WAKE: usize = 64;
 
 impl AppState {
     fn provider(&self) -> &crate::HostedProvider {
@@ -52,29 +59,78 @@ impl AppState {
                 )
             })
     }
+}
 
-    async fn room_channel(
+impl AppState {
+    /// Start the metadata-only PostgreSQL wake listener and its bounded sweep.
+    /// Fail-closed when collaboration is enabled: the initial LISTEN
+    /// subscription must succeed or this returns an error and provider startup
+    /// must abort. Disabled mode creates no listener, task, or database lane,
+    /// and routes stay unavailable. Safe to call repeatedly; a previously
+    /// stopped runtime is replaced.
+    pub async fn start_collaboration_wake_runtime(&self) -> ApiResult<()> {
+        self.start_collaboration_wake_runtime_with_sweep(DEFAULT_WAKE_SWEEP_INTERVAL)
+            .await
+    }
+
+    pub(crate) async fn start_collaboration_wake_runtime_with_sweep(
         &self,
-        room: crate::RoomIdentity,
-    ) -> ApiResult<(
-        tokio::sync::broadcast::Sender<(Uuid, Vec<u8>)>,
-        tokio::sync::broadcast::Receiver<(Uuid, Vec<u8>)>,
-    )> {
-        let mut rooms = self.collaboration_rooms.lock().await;
-        rooms.retain(|_, sender| sender.receiver_count() > 0);
-        if !rooms.contains_key(&room) && rooms.len() >= MAX_ACTIVE_ROOMS {
-            return Err(ApiError::new(
-                StatusCode::TOO_MANY_REQUESTS,
-                "collaboration_busy",
-                "The collaboration service is busy.",
-            ));
+        sweep_interval: std::time::Duration,
+    ) -> ApiResult<()> {
+        if !self.collaboration_enabled() {
+            return Ok(());
         }
-        let sender = rooms
-            .entry(room)
-            .or_insert_with(|| tokio::sync::broadcast::channel(64).0)
-            .clone();
-        let receiver = sender.subscribe();
-        Ok((sender, receiver))
+        let mut slot = self.collaboration_wake_runtime.lock().await;
+        if slot.as_ref().is_some_and(CollaborationWakeRuntime::running) {
+            return Ok(());
+        }
+        *slot = Some(
+            spawn_wake_runtime(
+                self.provider().database_url(),
+                self.collaboration_wakes().clone(),
+                sweep_interval,
+            )
+            .await?,
+        );
+        Ok(())
+    }
+
+    /// Stop and await the listener and sweep workers cleanly. Returns whether
+    /// both finished within the budget. The next start call spawns fresh.
+    pub async fn stop_collaboration_wake_runtime(&self, within: std::time::Duration) -> bool {
+        let runtime = self.collaboration_wake_runtime.lock().await.take();
+        match runtime {
+            Some(mut runtime) => runtime.stop(within).await,
+            None => true,
+        }
+    }
+}
+
+/// Per-session durable delivery state. The cursor advances only after frames
+/// are handed to this socket, and origin echo is suppressed exclusively by
+/// matching stored replica and mutation identities of this session's own
+/// acknowledged contributions — never client-supplied metadata alone.
+struct SessionDelivery {
+    delivered_through: u64,
+    own_acks: BTreeMap<u64, (Uuid, Uuid)>,
+}
+
+impl SessionDelivery {
+    fn new() -> Self {
+        Self {
+            delivered_through: 0,
+            own_acks: BTreeMap::new(),
+        }
+    }
+
+    fn suppresses(&self, item: &CollaborationCatchUpItem) -> bool {
+        match (item.replica_id, item.client_mutation_id) {
+            (Some(replica_id), Some(mutation_id)) => self
+                .own_acks
+                .get(&item.sequence)
+                .is_some_and(|stored| *stored == (replica_id, mutation_id)),
+            _ => false,
+        }
     }
 }
 
@@ -216,8 +272,11 @@ async fn session(
         Ok(value) => value,
         Err(_) => return,
     };
-    let session_id = Uuid::new_v4();
-    let Ok((sender, mut receiver)) = state.room_channel(consumed.metadata.room).await else {
+    let Ok(mut wakes) = state
+        .collaboration_wakes()
+        .subscribe(consumed.metadata.room)
+        .await
+    else {
         return;
     };
     if send_frame(
@@ -238,6 +297,7 @@ async fn session(
     let mut sync_count = 0_u32;
     let mut update_count = 0_u32;
     let mut last_heartbeat = Instant::now() - MIN_HEARTBEAT_INTERVAL;
+    let mut delivery = SessionDelivery::new();
     loop {
         tokio::select! {
             _ = &mut idle => return,
@@ -258,7 +318,11 @@ async fn session(
                     CollaborationMessageKind::SyncStep1 if exact_keys(&frame.metadata, &[]) => {
                         if sync_count >= MAX_SYNCS_PER_SECOND { return; }
                         sync_count += 1;
-                        let Ok(update) = state.provider().collaboration_sync_step2(consumed.metadata.room, consumed.metadata.replica_id, consumed.metadata.scope_epoch, &frame.payload).await else { return; };
+                        let Ok((update, current_sequence)) = state.provider().collaboration_sync_step2(consumed.metadata.room, consumed.metadata.replica_id, consumed.metadata.scope_epoch, &frame.payload).await else { return; };
+                        // Everything through the observed durable sequence was
+                        // just covered by this diff; wakes resume from here.
+                        delivery.delivered_through = current_sequence;
+                        delivery.own_acks.clear();
                         if update.len() > mdbase_connect_protocol::MAX_COLLABORATION_PAYLOAD_BYTES { return; }
                         let Ok(response) = (CollaborationFrame { kind: CollaborationMessageKind::SyncStep2, metadata: Default::default(), payload: update }).encode() else { return; };
                         if send_frame(&mut socket, response).await.is_err() { return; }
@@ -272,10 +336,17 @@ async fn session(
                         let input = CollaborationBatchInput { collection_id: consumed.metadata.room.collection_id, record_id: consumed.metadata.room.record_id, epoch: consumed.metadata.room.epoch, contributions: vec![CollaborationBatchContribution { replica_id: consumed.metadata.replica_id, expected_scope_epoch: consumed.metadata.scope_epoch, client_mutation_id: client_id, update: frame.payload.clone() }] };
                         let Ok((receipts, accepted)) = state.provider().commit_collaboration_batch(input).await else { return; };
                         let Some(receipt) = receipts.first() else { return; };
+                        // Origin echo suppression is recorded from the stored
+                        // receipt identities before any wake can be processed.
+                        delivery.own_acks.insert(receipt.sequence, (consumed.metadata.replica_id, client_id));
+                        delivery.prune_through(delivery.delivered_through);
                         let ack = CollaborationFrame { kind: CollaborationMessageKind::Acknowledged, metadata: json!({"client_mutation_id": client_id, "sequence": receipt.sequence, "record_sequence": receipt.record_sequence}).as_object().unwrap().clone(), payload: Vec::new() };
                         if send_frame(&mut socket, ack.encode().unwrap()).await.is_err() { return; }
-                        let update = CollaborationFrame { kind: CollaborationMessageKind::Update, metadata: json!({"profile": COLLABORATION_PROFILE, "epoch": consumed.metadata.room.epoch}).as_object().unwrap().clone(), payload: frame.payload }.encode().unwrap();
-                        if accepted { let _ = sender.send((session_id, update)); }
+                        if accepted {
+                            // Local coalesced wake only; remote instances are
+                            // woken by the transactional PostgreSQL notice.
+                            state.collaboration_wakes().wake(&consumed.metadata.room, receipt.sequence).await;
+                        }
                     }
                     CollaborationMessageKind::Heartbeat => {
                         if !exact_keys(&frame.metadata, &[]) || !frame.payload.is_empty() || last_heartbeat.elapsed() < MIN_HEARTBEAT_INTERVAL { return; }
@@ -287,17 +358,87 @@ async fn session(
                     _ => { return; }
                 }
             }
-            broadcast = receiver.recv() => {
-                match broadcast {
-                    Ok((origin_session, bytes)) => {
-                        if origin_session != session_id {
-                            if state.provider().reauthorize_collaboration_session(consumed.metadata.room, consumed.metadata.replica_id, consumed.metadata.scope_epoch).await.is_err() { return; }
-                            if send_frame(&mut socket, bytes).await.is_err() { return; }
-                        }
-                    }
-                    Err(_) => return,
+            woken = wakes.changed() => {
+                if woken.is_err() { return; }
+                let target = *wakes.borrow_and_update();
+                if drain_durable_updates(&mut socket, &state, &consumed, &mut delivery, target).await.is_err() { return; }
+            }
+        }
+    }
+}
+
+/// Deliver every durable update beyond the session cursor in contiguous order,
+/// reloading authoritative ciphertext from PostgreSQL each round. Per-socket
+/// authorization runs immediately before plaintext leaves the database lane.
+async fn drain_durable_updates(
+    socket: &mut WebSocket,
+    state: &AppState,
+    consumed: &ConsumedCollaborationTicket,
+    delivery: &mut SessionDelivery,
+    target: u64,
+) -> Result<(), ()> {
+    let room = consumed.metadata.room;
+    for _ in 0..MAX_DRAIN_ROUNDS_PER_WAKE {
+        if state
+            .provider()
+            .reauthorize_collaboration_session(
+                room,
+                consumed.metadata.replica_id,
+                consumed.metadata.scope_epoch,
+            )
+            .await
+            .is_err()
+        {
+            return Err(());
+        }
+        let items = match state
+            .provider()
+            .collaboration_catch_up(room, delivery.delivered_through, target)
+            .await
+        {
+            Ok(items) => items,
+            Err(_) => return Err(()),
+        };
+        if items.is_empty() {
+            return Ok(());
+        }
+        let full_page = items.len() as i64 >= COLLABORATION_CATCHUP_PAGE_UPDATES;
+        for item in items {
+            if !delivery.suppresses(&item) {
+                let frame = CollaborationFrame {
+                    kind: CollaborationMessageKind::Update,
+                    metadata: json!({"profile": COLLABORATION_PROFILE, "epoch": room.epoch})
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                    payload: item.plaintext,
+                };
+                let encoded = frame.encode().map_err(|_| ())?;
+                if send_frame(socket, encoded).await.is_err() {
+                    return Err(());
                 }
             }
+            delivery.delivered_through = item.sequence;
+        }
+        delivery.prune_through(delivery.delivered_through);
+        if !full_page {
+            return Ok(());
+        }
+    }
+    Ok(())
+}
+
+impl SessionDelivery {
+    /// Drop acknowledged identities below the durable cursor. Catch-up only
+    /// ever fetches rows strictly beyond it, so they can never be referenced
+    /// by a future delivery round.
+    fn prune_through(&mut self, through: u64) {
+        while self
+            .own_acks
+            .first_key_value()
+            .is_some_and(|(sequence, _)| *sequence <= through)
+        {
+            self.own_acks.pop_first();
         }
     }
 }

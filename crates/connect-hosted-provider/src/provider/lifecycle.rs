@@ -91,6 +91,7 @@ impl HostedProvider {
                                 .transpose()?;
                             let provider = Self {
                                 pool,
+                                database_url: database_url.to_owned(),
                                 query_pool,
                                 query_cancellation_pool,
                                 process_epoch: Uuid::new_v4(),

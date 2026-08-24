@@ -441,6 +441,20 @@ impl HostedProvider {
         let _ = self
             .compact_collaboration_room_in(transaction, &data_key, room)
             .await?;
+        // Final transactional action: queue a metadata-only wakeup for other
+        // provider instances. PostgreSQL delivers it only if this transaction
+        // commits, and any notify error aborts the batch. Replays returned
+        // earlier and rollbacks therefore never emit a notice. The payload
+        // carries room identity plus the new high-water sequence and nothing
+        // else; delivery always reloads the authoritative rows.
+        let notice = super::wakes::CollaborationCommitNotice {
+            collection_id: input.collection_id,
+            record_id: input.record_id,
+            collaboration_epoch: input.epoch,
+            profile: crate::COLLABORATION_PROFILE.to_owned(),
+            sequence,
+        };
+        super::wakes::queue_commit_notice(transaction, &notice).await?;
         Ok((receipts, true))
     }
 }

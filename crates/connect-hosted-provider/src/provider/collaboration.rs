@@ -657,8 +657,14 @@ impl HostedProvider {
 }
 
 mod batches;
+mod catchup;
+mod wakes;
 pub(crate) use batches::{CollaborationBatchContribution, CollaborationBatchInput};
+pub(crate) use catchup::{CollaborationCatchUpItem, COLLABORATION_CATCHUP_PAGE_UPDATES};
 pub(crate) use tickets::{CollaborationTicketRequest, ConsumedCollaborationTicket};
+pub(crate) use wakes::{
+    spawn_wake_runtime, CollaborationWakeHub, CollaborationWakeRuntime, DEFAULT_WAKE_SWEEP_INTERVAL,
+};
 
 impl HostedProvider {
     pub(crate) async fn reauthorize_collaboration_session(
@@ -721,7 +727,7 @@ impl HostedProvider {
         replica_id: Uuid,
         scope_epoch: u64,
         state_vector: &[u8],
-    ) -> ApiResult<Vec<u8>> {
+    ) -> ApiResult<(Vec<u8>, u64)> {
         let mut transaction = self.pool.begin().await?;
         let replica_epoch: Option<i64> = sqlx::query_scalar(
             "SELECT scope_epoch FROM hosted_provider_replicas WHERE id=$1 AND collection_id=$2 AND revoked_at IS NULL AND token_expires_at > now() FOR UPDATE",
@@ -743,8 +749,11 @@ impl HostedProvider {
             .document
             .diff_v1(state_vector)
             .map_err(profile_error)?;
+        // The durable sequence observed at sync time seeds the session's
+        // catch-up cursor so wake-driven delivery never replays this diff.
+        let current_sequence = loaded.current_sequence;
         transaction.commit().await?;
-        Ok(diff)
+        Ok((diff, current_sequence))
     }
 
     pub(crate) async fn commit_collaboration_batch(
@@ -766,6 +775,10 @@ mod phase3_batch_tests;
 mod phase4_transport_tests;
 #[cfg(test)]
 mod phase5_reconcile_tests;
+#[cfg(test)]
+mod phase6_multi_instance_tests;
+#[cfg(test)]
+mod phase6_wake_channel_tests;
 mod tickets;
 
 fn parse_lifecycle(value: String) -> ApiResult<CollaborationRoomLifecycle> {

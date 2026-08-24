@@ -25,7 +25,8 @@ closes one session rather than panicking the provider.
 
 This is not a production-ready multi-instance transport. Process-local fanout
 is only a latency optimization; reconnect correctness comes from durable room
-state and SyncStep1. Multi-instance catch-up, proactive revocation disconnects,
+state and SyncStep1. Multi-instance catch-up beyond the internal slice below,
+proactive revocation disconnects,
 awareness/presence sanitation, typed socket errors and metrics, receipt/ticket
 retention maintenance, graceful socket drain, and room repair remain explicit
 gates. Conventional writer epoch reconciliation is implemented internally: a
@@ -37,3 +38,38 @@ materialized revision; and stale epochs are rejected at the database and every
 admission boundary. Migration 0043 and its provider binary must be deployed as
 one admission-disabled cutover because older binaries do not create epoch
 fences. The Editor and SDK do not enable or expose live collaboration yet.
+
+## Internal multi-instance catch-up slice
+
+When the flag is enabled, an accepted collaboration batch queues one
+metadata-only notice on the private `mdbase_hosted_collaboration_commit_v1`
+PostgreSQL channel as the final action of its transaction, after persistence
+and compaction. The strict deny-unknown-fields payload carries exactly
+`collection_id`, `record_id`, `collaboration_epoch`, `profile`, and the new
+high-water `sequence` — never paths, revisions, digests, mutation or replica
+identifiers, or content — and is never logged. Rollbacks and all-replay batches
+emit nothing; a notify error aborts the transaction.
+
+Notifications are hints only. Local and remote delivery share one durable
+catch-up path that reloads and decrypts authoritative snapshot/update rows from
+PostgreSQL each round inside a short transaction, validating the epoch fence,
+active lifecycle, record and materialized revisions, ciphertext AAD bindings,
+digests, and contiguous sequence metadata before any plaintext reaches a
+socket. A cursor behind compaction receives the stored full-state snapshot as
+an idempotent Yjs update followed by the later rows. Page count and bytes are
+bounded per round; oversized or inauthentic frames fence the room for repair
+instead of being delivered. Origin echo is suppressed only by matching the
+stored replica id and client mutation id of a session's own acknowledged
+contributions; client metadata is never trusted beyond the authenticated
+mutation, and identifiers are never exposed on frames.
+
+The wake listener starts explicitly and fails closed when collaboration is
+enabled, using a dedicated one-connection pool outside the primary-pool budget.
+One listener task and one bounded periodic sweep task serve the whole process;
+wakes coalesce into at most one queued high-water mark per active room, unknown
+rooms allocate nothing, and no lock is held across SQL, key unwrapping, or
+socket I/O. Listener reconnection and the sweep reconcile every active room,
+recovering missed terminal notifications without duplicate delivery. Disabled
+mode creates no listener or task and routes stay unavailable. Awareness,
+readiness advertisement, proactive revocation disconnects, and graceful socket
+drain remain future gates.

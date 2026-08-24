@@ -4,6 +4,11 @@ impl HostedProvider {
         self.limits.hosted_collaboration_enabled
     }
 
+    /// Database URL for the dedicated wake-listener lane only. Never logged.
+    pub(crate) fn database_url(&self) -> &str {
+        &self.database_url
+    }
+
     pub(crate) fn collaboration_max_update_bytes(&self) -> u64 {
         self.limits.collaboration.max_update_bytes.min(
             mdbase_connect_protocol::MAX_COLLABORATION_PAYLOAD_BYTES

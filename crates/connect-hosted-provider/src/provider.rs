@@ -258,6 +258,9 @@ impl Default for ProviderLimits {
 #[derive(Clone)]
 pub struct HostedProvider {
     pool: PgPool,
+    /// Retained solely to build the dedicated collaboration wake listener
+    /// lane; never logged or serialized.
+    database_url: String,
     /// Dedicated bounded lane for collection-scale SQL. Point reads and
     /// mutations retain the primary pool even while every scan slot is busy.
     query_pool: PgPool,

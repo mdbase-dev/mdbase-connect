@@ -379,6 +379,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
     let state = AppState::new(provider.clone(), &secrets.internal_token)?;
+    // Fail-closed wake listener startup: when collaboration is enabled the
+    // PostgreSQL LISTEN subscription must come up or the provider refuses to
+    // serve. Disabled mode starts nothing.
+    state.start_collaboration_wake_runtime().await?;
     let maintenance = tokio::spawn(maintain_history(
         provider.clone(),
         arguments.retain_changes,
@@ -398,9 +402,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("HOSTED_PROVIDER_LISTENING=http://{address}");
     tracing::info!(%address, "hosted provider listening");
 
-    let result = axum::serve(listener, app(state))
+    let result = axum::serve(listener, app(state.clone()))
         .with_graceful_shutdown(shutdown_signal())
         .await;
+    if !state
+        .stop_collaboration_wake_runtime(Duration::from_secs(10))
+        .await
+    {
+        tracing::warn!("collaboration wake listener did not stop within its shutdown budget");
+    }
     maintenance.abort();
     let _ = maintenance.await;
     projection_recovery.abort();
