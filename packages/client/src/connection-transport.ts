@@ -77,6 +77,7 @@ import {
 } from "./transient-retry.js";
 import { probeLoopbackAccess, tokenSupportsDirectAccess } from "./direct-access.js";
 import { decodeHostedOperationResponse } from "./hosted-operation-response.js";
+import { issueExperimentalCollaborationTicket, type ExperimentalCollaborationTicketRequest, type ExperimentalCollaborationTicketResult } from "./experimental-collaboration-ticket.js";
 
 export type {
   ConnectionTransportInternals,
@@ -491,6 +492,10 @@ export class ConnectionTransport {
     }
     if (attempt.pendingMutation) this.clearPendingMutation(attempt.requestId);
     return body.result as Result;
+  }
+
+  issueExperimentalCollaborationTicket(request: ExperimentalCollaborationTicketRequest): Promise<ExperimentalCollaborationTicketResult> {
+    return issueExperimentalCollaborationTicket(request, { collectionId: this.collectionId, defaultTimeoutMs: this.timeouts.requestMs, keyStore: this.keyStore, currentToken: () => this.currentToken(), authorizedToken: (signal) => this.authorizedToken({ signal, timeoutMs: null }), refreshAuthorization: (signal) => this.refreshAuthorization({ signal, timeoutMs: null }), grantKeyLeases: () => this.grantKeyLeases() });
   }
 
   async performAuthoritySyncRequest<Result>(

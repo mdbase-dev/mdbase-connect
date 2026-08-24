@@ -1,0 +1,292 @@
+import type { CollectionOperation } from "@mdbase-dev/connect-protocol";
+import { authorityProofHeaders } from "./authority-proof.js";
+import type { GrantKeyStore } from "./crypto.js";
+import { MdbaseConnectError, connectError } from "./errors.js";
+import { GrantKeyLeaseSet, retainCurrentGrantToken } from "./grant-key-leases.js";
+import type {
+  ExperimentalCollaborationMode,
+  ExperimentalCollaborationTicketRequest,
+  ExperimentalCollaborationTicketResult
+} from "./hosted-collaboration-internal.js";
+import type { StoredToken } from "./internal-types.js";
+import { operationTransportError } from "./operation-helpers.js";
+import { withCooperativeRequestBudget } from "./request-budget.js";
+import { apiError, decodeJsonResponse } from "./runtime-utils.js";
+
+export type {
+  ExperimentalCollaborationTicketRequest,
+  ExperimentalCollaborationTicketResult
+} from "./hosted-collaboration-internal.js";
+
+interface CollaborationTicketIssuer {
+  collectionId: string;
+  defaultTimeoutMs: number | null;
+  keyStore: GrantKeyStore;
+  currentToken(): StoredToken | null;
+  authorizedToken(signal: AbortSignal): Promise<StoredToken | null>;
+  refreshAuthorization(signal: AbortSignal): Promise<StoredToken>;
+  grantKeyLeases(): GrantKeyLeaseSet;
+}
+
+export async function issueExperimentalCollaborationTicket(
+  request: ExperimentalCollaborationTicketRequest,
+  issuer: CollaborationTicketIssuer
+): Promise<ExperimentalCollaborationTicketResult> {
+  const path = request.path;
+  const requestedMode = request.mode;
+  validateCollaborationTicketPath(path);
+  if (requestedMode !== undefined
+      && requestedMode !== "read_only"
+      && requestedMode !== "read_write") {
+    throw connectError("invalid_request", "The collaboration mode is invalid.");
+  }
+  return withCooperativeRequestBudget(request, issuer.defaultTimeoutMs, async (budget) => {
+    const leases = issuer.grantKeyLeases();
+    try {
+      let token = await retainCurrentGrantToken(issuer.currentToken, leases, budget.signal);
+      requireCollaborationTicketAuthorization(token, issuer.collectionId, requestedMode);
+      await issuer.authorizedToken(budget.signal);
+      token = await retainCurrentGrantToken(issuer.currentToken, leases, budget.signal);
+      let response = await sendCollaborationTicketRequest(
+        issuer,
+        requireCollaborationTicketAuthorization(token, issuer.collectionId, requestedMode),
+        path,
+        budget.signal
+      );
+      if (response.response.status === 401 && token?.refreshToken) {
+        await issuer.refreshAuthorization(budget.signal);
+        token = await retainCurrentGrantToken(issuer.currentToken, leases, budget.signal);
+        response = await sendCollaborationTicketRequest(
+          issuer,
+          requireCollaborationTicketAuthorization(token, issuer.collectionId, requestedMode),
+          path,
+          budget.signal
+        );
+      }
+      return await decodeCollaborationTicketResponse(
+        response.response,
+        response.mode,
+        response.providerUrl
+      );
+    } catch (error) {
+      throw operationTransportError(
+        error,
+        budget.signal,
+        undefined,
+        "hosted_provider_unavailable"
+      );
+    } finally {
+      leases.release();
+    }
+  });
+}
+
+async function sendCollaborationTicketRequest(
+  issuer: CollaborationTicketIssuer,
+  authorization: CollaborationTicketAuthorization,
+  path: string,
+  signal: AbortSignal
+): Promise<{ response: Response; mode: ExperimentalCollaborationMode; providerUrl: URL }> {
+  const { token, ticketUrl, providerUrl, mode } = authorization;
+  const body = JSON.stringify({ path, profile: "markdown-body-yjs-v13", mode });
+  const proof = await authorityProofHeaders(
+    issuer.keyStore,
+    token,
+    "POST",
+    ticketUrl.href,
+    body,
+    token.authority.accessToken
+  );
+  if (!sameCollaborationTicketAuthorization(issuer.currentToken(), token)) {
+    throw connectError(
+      "authority_authorization_changed",
+      "Reconnect this collection authority before starting collaboration."
+    );
+  }
+  const response = await fetch(ticketUrl, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token.authority.accessToken}`,
+      "content-type": "application/json",
+      ...proof
+    },
+    body,
+    signal
+  });
+  return { response, mode, providerUrl };
+}
+
+export interface CollaborationTicketAuthorization {
+  token: StoredToken & { authority: NonNullable<StoredToken["authority"]> };
+  ticketUrl: URL;
+  providerUrl: URL;
+  mode: ExperimentalCollaborationMode;
+}
+
+export function requireCollaborationTicketAuthorization(
+  token: StoredToken | null,
+  collectionId: string,
+  requestedMode: ExperimentalCollaborationMode | undefined
+): CollaborationTicketAuthorization {
+  if (!token?.authority || token.collectionId !== collectionId) {
+    throw connectError(
+      "authority_authorization_changed",
+      "Hosted collection authorization is required for collaboration."
+    );
+  }
+  const capability = token.collaborationCapability;
+  if (capability?.contract_version !== 1
+      || capability.profiles.length !== 1
+      || capability.profiles[0] !== "markdown-body-yjs-v13") {
+    throw collaborationAccessError(token, "This authorization does not allow collaboration.");
+  }
+  if (requestedMode === "read_write" && capability.access !== "read_write") {
+    throw collaborationAccessError(token, "This authorization only allows read-only collaboration.");
+  }
+  let providerUrl: URL;
+  try {
+    providerUrl = new URL(token.authority.syncUrl);
+  } catch {
+    throw changedAuthority("The hosted collection authority is invalid.");
+  }
+  const expectedPath = `/v1/authorities/${collectionId}/sync`;
+  if ((providerUrl.protocol !== "https:"
+      && !(providerUrl.protocol === "http:" && isLoopbackHost(providerUrl.hostname)))
+      || providerUrl.pathname !== expectedPath
+      || providerUrl.username
+      || providerUrl.password
+      || providerUrl.search
+      || providerUrl.hash) {
+    throw changedAuthority("The hosted collection authority no longer matches this collection.");
+  }
+  const ticketUrl = new URL(providerUrl.href);
+  ticketUrl.pathname = `${expectedPath.slice(0, -"sync".length)}collaboration/tickets`;
+  return {
+    token: token as StoredToken & { authority: NonNullable<StoredToken["authority"]> },
+    ticketUrl,
+    providerUrl,
+    mode: requestedMode ?? capability.access
+  };
+}
+
+export function validateCollaborationTicketPath(path: unknown): asserts path is string {
+  if (typeof path !== "string"
+      || path.length === 0
+      || path.includes("\r")
+      || path.includes("\0")
+      || new TextEncoder().encode(path).byteLength > 1_024) {
+    throw connectError(
+      "invalid_request",
+      "The collaboration path must be nonempty, at most 1024 UTF-8 bytes, and contain no CR or NUL characters."
+    );
+  }
+}
+
+export function sameCollaborationTicketAuthorization(
+  current: StoredToken | null,
+  expected: StoredToken
+): current is StoredToken & { authority: NonNullable<StoredToken["authority"]> } {
+  return current !== null
+    && current.collectionId === expected.collectionId
+    && current.clientId === expected.clientId
+    && current.grantId === expected.grantId
+    && current.keyHandle === expected.keyHandle
+    && current.accessToken === expected.accessToken
+    && current.expiresAt === expected.expiresAt
+    && current.authority?.accessToken === expected.authority?.accessToken
+    && current.authority?.syncUrl === expected.authority?.syncUrl
+    && current.authority?.proofPublicKey === expected.authority?.proofPublicKey
+    && JSON.stringify(current.collaborationCapability)
+      === JSON.stringify(expected.collaborationCapability);
+}
+
+export async function decodeCollaborationTicketResponse(
+  response: Response,
+  requestedMode: ExperimentalCollaborationMode,
+  providerUrl: URL
+): Promise<ExperimentalCollaborationTicketResult> {
+  const body = await decodeJsonResponse(
+    response,
+    "invalid_operation_response",
+    "The collection authority returned an invalid collaboration ticket response."
+  );
+  if (response.status !== 201) {
+    throw apiError(body, "operation_failed", "Collaboration ticket issuance failed.", response.status);
+  }
+  if (!response.headers.get("cache-control")?.split(",")
+    .some((directive) => directive.trim().toLowerCase() === "no-store")) {
+    throw invalidResponse("The collaboration ticket response was not marked no-store.");
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw invalidResponse();
+  const value = body as Record<string, unknown>;
+  const fields = ["epoch", "expires_at", "mode", "profile", "ticket", "websocket_endpoint"];
+  if (Object.keys(value).sort().join("\n") !== fields.join("\n")
+      || typeof value.ticket !== "string"
+      || value.ticket.length === 0
+      || value.ticket.length > 8_192
+      || /[\r\n\0]/.test(value.ticket)
+      || typeof value.expires_at !== "string"
+      || value.expires_at.length > 64
+      || !Number.isFinite(Date.parse(value.expires_at))
+      || Date.parse(value.expires_at) <= Date.now()
+      || value.profile !== "markdown-body-yjs-v13"
+      || value.mode !== requestedMode
+      || !Number.isSafeInteger(value.epoch)
+      || (value.epoch as number) < 0
+      || typeof value.websocket_endpoint !== "string"
+      || value.websocket_endpoint.length === 0
+      || value.websocket_endpoint.length > 2_048
+      || /[\r\n\0]/.test(value.websocket_endpoint)) {
+    throw invalidResponse();
+  }
+  let endpoint: URL;
+  try {
+    endpoint = new URL(value.websocket_endpoint as string, providerUrl);
+  } catch {
+    throw invalidResponse();
+  }
+  if ((endpoint.protocol !== "http:" && endpoint.protocol !== "https:")
+      || endpoint.origin !== providerUrl.origin
+      || endpoint.username
+      || endpoint.password
+      || endpoint.search
+      || endpoint.hash) {
+    throw invalidResponse();
+  }
+  endpoint.protocol = endpoint.protocol === "https:" ? "wss:" : "ws:";
+  return {
+    ticket: value.ticket as string,
+    webSocketUrl: endpoint.href,
+    expiresAt: value.expires_at as string,
+    profile: "markdown-body-yjs-v13",
+    mode: requestedMode,
+    epoch: value.epoch as number
+  };
+}
+
+function collaborationAccessError(token: StoredToken, message: string): MdbaseConnectError {
+  const required: CollectionOperation[] = token.collaborationCapability?.access === "read_only"
+    ? ["read"]
+    : ["read", "update"];
+  return connectError("insufficient_access", message, {
+    details: {
+      required_operations: required,
+      granted_operations: [...token.operations],
+      missing_operations: required.filter((operation) => !token.operations.includes(operation))
+    }
+  });
+}
+
+function changedAuthority(message: string): MdbaseConnectError {
+  return connectError("authority_authorization_changed", message);
+}
+
+function invalidResponse(
+  message = "The collection authority returned an invalid collaboration ticket response."
+): MdbaseConnectError {
+  return connectError("invalid_operation_response", message);
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  return ["localhost", "127.0.0.1", "[::1]", "::1"].includes(hostname);
+}

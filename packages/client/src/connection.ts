@@ -30,6 +30,7 @@ import {
   operationProblem
 } from "./errors.js";
 import { MdbaseFileClient } from "./files.js";
+import { installExperimentalHostedCollaborationBridge } from "./hosted-collaboration-internal.js";
 import {
   DEFAULT_OPERATIONS,
   type Application
@@ -215,6 +216,10 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       internals,
       timeouts: internals.timeouts,
       onChange: () => this.emitConnection()
+    });
+    installExperimentalHostedCollaborationBridge(this, {
+      issueTicket: (request) =>
+        this.transport.issueExperimentalCollaborationTicket(request)
     });
     this.files = new MdbaseFileClient(
       () => this.fileCapability,
