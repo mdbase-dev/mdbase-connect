@@ -98,6 +98,7 @@ describe("experimental hosted collaboration tickets", () => {
     expect(String(url)).toBe(
       `https://provider.example/v1/authorities/${COLLECTION_ID}/collaboration/tickets`
     );
+    expect(init?.redirect).toBe("error");
     expect(init?.body).toBe(JSON.stringify({
       path: "Notes/one.md",
       profile: "markdown-body-yjs-v13",
@@ -184,7 +185,21 @@ describe("experimental hosted collaboration tickets", () => {
     )).rejects.toMatchObject({ code: "invalid_operation_response" });
   });
 
-  it.each(["revoked", "replaced"] as const)(
+  it("discards a ticket when authorization changes while fetch is pending", async () => {
+    const fixture = await transportFixture();
+    let resolveFetch!: (response: Response) => void;
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      new Promise<Response>((resolve) => { resolveFetch = resolve; })
+    );
+    const issuing = fixture.transport.issueExperimentalCollaborationTicket({ path: "note.md" });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    fixture.storage.removeItem(TOKEN_KEY);
+    resolveFetch(ticketResponse());
+
+    await expect(issuing).rejects.toMatchObject({ code: "authority_authorization_changed" });
+  });
+
+  it.each(["revoked", "replaced", "scope"] as const)(
     "does not fetch after the stored authorization is %s during signing",
     async (change) => {
       const keyStore = new MemoryGrantKeyStore();
@@ -193,6 +208,10 @@ describe("experimental hosted collaboration tickets", () => {
       vi.spyOn(keyStore, "get").mockImplementation(async (handle) => {
         const key = await originalGet(handle);
         if (change === "revoked") fixture.storage.removeItem(TOKEN_KEY);
+        else if (change === "scope") fixture.storage.setItem(TOKEN_KEY, JSON.stringify({
+          ...fixture.token,
+          scope: { access: "contract", contracts: [] }
+        }));
         else fixture.storage.setItem(TOKEN_KEY, JSON.stringify({
           ...fixture.token,
           accessToken: "replacement-relay-access",
@@ -207,6 +226,22 @@ describe("experimental hosted collaboration tickets", () => {
       expect(fetch).not.toHaveBeenCalled();
     }
   );
+
+  it("rejects hosted tokens without proof binding before network access", async () => {
+    const missingProof = await transportFixture({
+      authority: {
+        operationsUrl: `https://provider.example/v1/authorities/${COLLECTION_ID}/operations`,
+        syncUrl: `https://provider.example/v1/authorities/${COLLECTION_ID}/sync`,
+        filesUrl: `https://provider.example/v1/authorities/${COLLECTION_ID}/files`,
+        replicaId: "00000000-0000-4000-8000-000000000005",
+        accessToken: "authority-access"
+      }
+    });
+    const fetch = vi.spyOn(globalThis, "fetch");
+    await expect(missingProof.transport.issueExperimentalCollaborationTicket({ path: "note.md" }))
+      .rejects.toMatchObject({ code: "authority_authorization_changed" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
 
   it("validates path bytes and control characters before network access", async () => {
     const fixture = await transportFixture();

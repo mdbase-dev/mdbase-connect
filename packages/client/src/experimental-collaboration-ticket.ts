@@ -105,6 +105,7 @@ async function sendCollaborationTicketRequest(
   }
   const response = await fetch(ticketUrl, {
     method: "POST",
+    redirect: "error",
     headers: {
       authorization: `Bearer ${token.authority.accessToken}`,
       "content-type": "application/json",
@@ -113,6 +114,12 @@ async function sendCollaborationTicketRequest(
     body,
     signal
   });
+  if (!sameCollaborationTicketAuthorization(issuer.currentToken(), token)) {
+    throw connectError(
+      "authority_authorization_changed",
+      "Reconnect this collection authority before starting collaboration."
+    );
+  }
   return { response, mode, providerUrl };
 }
 
@@ -128,7 +135,10 @@ export function requireCollaborationTicketAuthorization(
   collectionId: string,
   requestedMode: ExperimentalCollaborationMode | undefined
 ): CollaborationTicketAuthorization {
-  if (!token?.authority || token.collectionId !== collectionId) {
+  if (!token?.authority
+      || token.collectionId !== collectionId
+      || !token.keyHandle
+      || !token.authority.proofPublicKey) {
     throw connectError(
       "authority_authorization_changed",
       "Hosted collection authorization is required for collaboration."
@@ -198,6 +208,9 @@ export function sameCollaborationTicketAuthorization(
     && current.keyHandle === expected.keyHandle
     && current.accessToken === expected.accessToken
     && current.expiresAt === expected.expiresAt
+    && JSON.stringify(current.operations) === JSON.stringify(expected.operations)
+    && JSON.stringify(current.scope) === JSON.stringify(expected.scope)
+    && current.authority?.replicaId === expected.authority?.replicaId
     && current.authority?.accessToken === expected.authority?.accessToken
     && current.authority?.syncUrl === expected.authority?.syncUrl
     && current.authority?.proofPublicKey === expected.authority?.proofPublicKey
