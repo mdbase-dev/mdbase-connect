@@ -78,6 +78,15 @@ export async function issueExperimentalCollaborationTicket(
       if (expectedEpoch !== undefined && ticket.epoch !== expectedEpoch) {
         throw invalidResponse("The collaboration ticket belongs to a different room epoch.");
       }
+      if (!sameCollaborationTicketAuthorization(
+        issuer.currentToken(),
+        response.authorizationToken
+      )) {
+        throw connectError(
+          "authority_authorization_changed",
+          "Reconnect this collection authority before starting collaboration."
+        );
+      }
       return ticket;
     } catch (error) {
       throw operationTransportError(
@@ -98,7 +107,12 @@ async function sendCollaborationTicketRequest(
   path: string,
   expectedEpoch: number | undefined,
   signal: AbortSignal
-): Promise<{ response: Response; mode: ExperimentalCollaborationMode; providerUrl: URL }> {
+): Promise<{
+  response: Response;
+  mode: ExperimentalCollaborationMode;
+  providerUrl: URL;
+  authorizationToken: CollaborationTicketAuthorization["token"];
+}> {
   const { token, ticketUrl, providerUrl, mode } = authorization;
   const body = JSON.stringify({
     path,
@@ -137,7 +151,7 @@ async function sendCollaborationTicketRequest(
       "Reconnect this collection authority before starting collaboration."
     );
   }
-  return { response, mode, providerUrl };
+  return { response, mode, providerUrl, authorizationToken: token };
 }
 
 export interface CollaborationTicketAuthorization {

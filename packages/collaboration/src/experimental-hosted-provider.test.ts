@@ -96,8 +96,9 @@ function fixture(overrides: {
   maxBodyBytes?: number;
   heartbeatMs?: number;
   reconnectMs?: number;
+  handshakeMs?: number;
   mode?: "read_only" | "read_write";
-  ticketError?: Error;
+  ticketError?: unknown;
 } = {}): Fixture {
   const sockets: FakeSocket[] = [];
   const mode = overrides.mode ?? "read_write";
@@ -129,10 +130,12 @@ function fixture(overrides: {
     },
     timing: {
       heartbeatMs: overrides.heartbeatMs ?? 15_000,
+      handshakeTimeoutMs: overrides.handshakeMs ?? 15_000,
       reconnectBaseMs: overrides.reconnectMs ?? 10,
       reconnectMaxMs: overrides.reconnectMs ?? 10
     },
-    randomUUID: () => IDS[id++]!
+    randomUUID: () => IDS[id++]!,
+    random: () => 0.5
   });
   return { room, sockets, issueTicket };
 }
@@ -236,6 +239,7 @@ describe("experimental hosted Markdown provider", () => {
     });
     expect(f.room.snapshot.pendingUpdates).toBe(1);
     const flushed = f.room.flush();
+    expect(f.room.flush()).toBe(flushed);
     socket.server({
       kind: "acknowledged",
       metadata: { client_mutation_id: IDS[0], sequence: 1, record_sequence: 1 },
@@ -273,12 +277,45 @@ describe("experimental hosted Markdown provider", () => {
 
   it("does not ticket-loop on terminal ticket authorization failure", async () => {
     vi.useFakeTimers();
-    const f = fixture({ ticketError: new Error("authority_authorization_changed") });
+    const f = fixture({
+      ticketError: { code: "authority_authorization_changed", retryable: false }
+    });
     await vi.runAllTicks();
     await vi.advanceTimersByTimeAsync(60_000);
     expect(f.room.snapshot.state).toBe("unavailable");
     expect(f.room.snapshot.problem?.code).toBe("authority_authorization_changed");
     expect(f.issueTicket).toHaveBeenCalledTimes(1);
+  });
+
+  it("bounds silent pre-Hello authentication retries", async () => {
+    vi.useFakeTimers();
+    const f = fixture({ reconnectMs: 10 });
+    for (let index = 0; index < 4; index += 1) {
+      const socket = await socketAt(f, index);
+      socket.open();
+      socket.serverClose(1006);
+      await vi.advanceTimersByTimeAsync(10);
+    }
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(f.room.snapshot.state).toBe("unavailable");
+    expect(f.room.snapshot.problem?.code).toBe("collaboration_handshake_failed");
+    expect(f.issueTicket).toHaveBeenCalledTimes(4);
+  });
+
+  it("reconnects when opening or synchronization stalls", async () => {
+    vi.useFakeTimers();
+    const f = fixture({ reconnectMs: 10, handshakeMs: 20 });
+    await vi.runAllTicks();
+    expect(f.sockets).toHaveLength(1);
+    const first = f.sockets[0]!;
+    first.open();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(first.closeCalls).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(10);
+    await vi.runAllTicks();
+    expect(f.sockets).toHaveLength(2);
+    expect(f.issueTicket).toHaveBeenCalledTimes(2);
+    f.room.destroy();
   });
 
   it("does not ticket-loop after 1008 but reconnects after abnormal closure", async () => {
@@ -290,7 +327,10 @@ describe("experimental hosted Markdown provider", () => {
     expect(terminal.issueTicket).toHaveBeenCalledTimes(1);
 
     const retry = fixture({ reconnectMs: 10 });
-    (await synchronize(retry)).serverClose(1006);
+    const retrySocket = await synchronize(retry);
+    retrySocket.server(awareness("Participant 1"));
+    retrySocket.serverClose(1006);
+    expect(retry.room.snapshot.participants).toEqual([]);
     await vi.advanceTimersByTimeAsync(10);
     await socketAt(retry, 1);
     expect(retry.issueTicket).toHaveBeenCalledTimes(2);
@@ -314,6 +354,40 @@ describe("experimental hosted Markdown provider", () => {
     expect(f.room.snapshot.state).toBe("unavailable");
     expect(f.room.snapshot.problem?.message).not.toContain("seed");
     expect(socket.closeCalls.at(-1)?.[0]).toBe(1008);
+  });
+
+  it("refreshes unchanged awareness before the advertised TTL", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const socket = await socketAt(f, 0);
+    socket.open();
+    socket.server(hello({
+      awareness: {
+        version: 1,
+        scope: "provider_instance",
+        max_participants: 16,
+        max_selections: 4,
+        max_updates_per_second: 8,
+        ttl_seconds: 1
+      }
+    }));
+    socket.server({ kind: "sync_step_2", metadata: {}, payload: updateFor("seed") });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(socket.frames().filter((frame) => frame.kind === "awareness")).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(socket.frames().filter((frame) => frame.kind === "awareness")).toHaveLength(2);
+    f.room.destroy();
+  });
+
+  it("fails closed without queueing local mutations in a read-only room", async () => {
+    const f = fixture({ mode: "read_only" });
+    const socket = await socketAt(f, 0);
+    socket.open();
+    socket.server(hello({ mode: "read_only" }));
+    socket.server({ kind: "sync_step_2", metadata: {}, payload: updateFor("seed") });
+    f.room.body.insert(0, "x");
+    expect(f.room.snapshot.state).toBe("unavailable");
+    expect(f.room.snapshot.pendingUpdates).toBe(0);
   });
 
   it("accepts committed awareness positions beyond a shorter unacknowledged local body", async () => {
@@ -371,6 +445,15 @@ describe("experimental hosted Markdown provider", () => {
     rootSocket.server(hello());
     rootSocket.server({ kind: "sync_step_2", metadata: {}, payload: updateFor("safe", true) });
     expect(rootBound.room.snapshot.state).toBe("unavailable");
+
+    const aggregateSync = fixture();
+    const aggregateSocket = await socketAt(aggregateSync, 0);
+    aggregateSocket.open();
+    aggregateSocket.server(hello({ limits: { max_update_bytes: 2 } }));
+    aggregateSocket.server({
+      kind: "sync_step_2", metadata: {}, payload: updateFor("aggregate state")
+    });
+    expect(aggregateSync.room.snapshot.state).toBe("connected");
 
     const updateBound = fixture();
     const updateSocket = await socketAt(updateBound, 0);

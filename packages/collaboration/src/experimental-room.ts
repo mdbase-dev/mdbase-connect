@@ -85,11 +85,13 @@ export interface ExperimentalHostedMarkdownRoomOptions {
   /** @internal Deterministic test overrides; production callers should omit. */
   timing?: Partial<{
     heartbeatMs: number;
+    handshakeTimeoutMs: number;
     reconnectBaseMs: number;
     reconnectMaxMs: number;
     awarenessThrottleMs: number;
     ticketTimeoutMs: number;
   }>;
-  /** @internal Deterministic test override; production callers should omit. */
+  /** @internal Deterministic test overrides; production callers should omit. */
   randomUUID?: () => string;
+  random?: () => number;
 }

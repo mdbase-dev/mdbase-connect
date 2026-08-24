@@ -37,6 +37,8 @@ import {
 
 const REMOTE_ORIGIN = Object.freeze({ hostedCollaborationRemote: true });
 const DEFAULT_HEARTBEAT_MS = 15_000;
+const DEFAULT_HANDSHAKE_TIMEOUT_MS = 15_000;
+const MAX_CONSECUTIVE_HANDSHAKE_FAILURES = 3;
 const DEFAULT_RECONNECT_BASE_MS = 250;
 const DEFAULT_RECONNECT_MAX_MS = 8_000;
 const SAFE_CLOSE_CODE = 1008;
@@ -83,19 +85,26 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
   private readonly acknowledged = new Set<string>();
   private readonly acknowledgedOrder: string[] = [];
   private pendingBytes = 0;
-  private readonly flushWaiters = new Set<{ resolve: () => void; reject: (error: Error) => void }>();
+  private flushWaiter?: {
+    promise: Promise<void>;
+    resolve: () => void;
+    reject: (error: Error) => void;
+  };
   private participants: ServerAwarenessSnapshot["participants"] = [];
-  private desiredAwareness?: ClientAwarenessUpdate;
+  private desiredAwareness: ClientAwarenessUpdate = { status: "active", selections: [] };
   private deferredAwareness?: CollaborationFrame;
   private attempt?: Attempt;
   private attemptNumber = 0;
   private reconnectCount = 0;
+  private consecutiveHandshakeFailures = 0;
   private reconnectTimer?: Timer;
   private heartbeatTimer?: Timer;
+  private handshakeTimer?: Timer;
   private awarenessTimer?: Timer;
   private heartbeatPending = false;
   private updateInFlight = false;
   private lastAwarenessSent = Number.NEGATIVE_INFINITY;
+  private awarenessRefreshMs = 15_000;
   private state: ExperimentalHostedRoomState = "connecting";
   private mode?: "read_only" | "read_write";
   private epoch?: number;
@@ -103,11 +112,13 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
   private maxUpdateBytes = MAX_COLLABORATION_PAYLOAD_BYTES;
   private terminal = false;
   private readonly heartbeatMs: number;
+  private readonly handshakeTimeoutMs: number;
   private readonly reconnectBaseMs: number;
   private readonly reconnectMaxMs: number;
   private readonly awarenessThrottleMs: number;
   private readonly ticketTimeoutMs?: number;
   private readonly randomUUID: () => string;
+  private readonly random: () => number;
   private readonly webSocketFactory: ExperimentalWebSocketFactory;
   private readonly abortListener: () => void;
 
@@ -120,6 +131,10 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
       throw new TypeError("Invalid experimental hosted collaboration options.");
     }
     this.heartbeatMs = positiveTiming(options.timing?.heartbeatMs, DEFAULT_HEARTBEAT_MS);
+    this.handshakeTimeoutMs = positiveTiming(
+      options.timing?.handshakeTimeoutMs,
+      DEFAULT_HANDSHAKE_TIMEOUT_MS
+    );
     this.reconnectBaseMs = positiveTiming(options.timing?.reconnectBaseMs, DEFAULT_RECONNECT_BASE_MS);
     this.reconnectMaxMs = Math.max(
       this.reconnectBaseMs,
@@ -131,6 +146,7 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
     );
     this.ticketTimeoutMs = options.timing?.ticketTimeoutMs;
     this.randomUUID = options.randomUUID ?? (() => crypto.randomUUID());
+    this.random = options.random ?? Math.random;
     this.webSocketFactory = options.webSocketFactory ?? nativeWebSocketFactory;
     this.abortListener = () => this.close();
     options.signal?.addEventListener("abort", this.abortListener, { once: true });
@@ -165,7 +181,15 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
     if (this.terminal) return Promise.reject(new Error(this.state === "closed"
       ? "collaboration_room_closed" : "collaboration_room_unavailable"));
     if (this.pending.length === 0) return Promise.resolve();
-    return new Promise<void>((resolve, reject) => this.flushWaiters.add({ resolve, reject }));
+    if (this.flushWaiter) return this.flushWaiter.promise;
+    let resolve!: () => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<void>((accepted, denied) => {
+      resolve = accepted;
+      reject = denied;
+    });
+    this.flushWaiter = { promise, resolve, reject };
+    return promise;
   }
 
   close(): void {
@@ -174,6 +198,13 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
 
   destroy(): void {
     this.close();
+    this.listeners.clear();
+    this.pending.length = 0;
+    this.pendingBytes = 0;
+    this.acknowledged.clear();
+    this.acknowledgedOrder.length = 0;
+    this.participants = [];
+    this.desiredAwareness = { status: "active", selections: [] };
     this.undoManager.destroy();
     this.doc.destroy();
   }
@@ -182,6 +213,7 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
     if (origin === REMOTE_ORIGIN || this.terminal) return;
     try {
       markdownBody(this.doc, this.options.maxBodyBytes);
+      if (this.mode === "read_only") throw new Error("collaboration_read_only");
       if (update.byteLength > this.maxUpdateBytes) throw new Error("collaboration_update_too_large");
       const id = this.randomUUID();
       if (!isUuid(id)) throw new Error("collaboration_mutation_id_invalid");
@@ -191,7 +223,6 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
       }
       this.pending.push({ id, bytes: new Uint8Array(update) });
       this.pendingBytes += update.byteLength;
-      if (this.mode === "read_only") throw new Error("collaboration_read_only");
       this.publish();
       this.sendNextUpdate();
     } catch (error) {
@@ -256,6 +287,7 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
       socket.addEventListener(type, attempt.listeners[type]);
     }
     this.attempt = attempt;
+    this.startHandshakeWatchdog(attempt);
   }
 
   private onOpen(attempt: Attempt): void {
@@ -275,6 +307,10 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
         this.mode = hello.mode;
         this.epoch = hello.epoch;
         this.maxUpdateBytes = hello.maxUpdateBytes;
+        this.awarenessRefreshMs = Math.max(
+          MIN_AWARENESS_UPDATE_SPACING_MS,
+          Math.floor(hello.awarenessTtlMs / 2)
+        );
         if (this.pending.some((item) => item.bytes.byteLength > this.maxUpdateBytes)) {
           throw new Error("collaboration_update_too_large");
         }
@@ -297,13 +333,13 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
         if (!exactEmptyMetadata(frame, "sync_step_2")) {
           throw new Error("collaboration_sync_invalid");
         }
-        if (frame.payload.byteLength > this.maxUpdateBytes) {
-          throw new Error("collaboration_update_too_large");
-        }
         Y.applyUpdate(this.doc, frame.payload, REMOTE_ORIGIN);
         markdownBody(this.doc, this.options.maxBodyBytes);
         attempt.phase = "connected";
         this.reconnectCount = 0;
+        this.consecutiveHandshakeFailures = 0;
+        clearTimeout(this.handshakeTimer);
+        this.handshakeTimer = undefined;
         this.updateInFlight = false;
         this.heartbeatPending = false;
         this.lastAwarenessSent = Number.NEGATIVE_INFINITY;
@@ -343,7 +379,7 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
       return;
     }
     if (frame.kind === "update") {
-      if (!exactUpdateMetadata(frame, this.epoch!) || frame.payload.byteLength > this.maxUpdateBytes) {
+      if (!exactUpdateMetadata(frame, this.epoch!)) {
         throw new Error("collaboration_update_invalid");
       }
       Y.applyUpdate(this.doc, frame.payload, REMOTE_ORIGIN);
@@ -400,24 +436,32 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
     });
   }
 
-  private scheduleAwareness(): void {
-    if (!this.desiredAwareness || this.terminal || this.awarenessTimer) return;
+  private scheduleAwareness(refresh = false): void {
+    if (this.terminal) return;
     const attempt = this.attempt;
     if (!attempt || attempt.phase !== "connected") return;
-    const wait = Math.max(0, this.lastAwarenessSent + this.awarenessThrottleMs - Date.now());
+    if (this.awarenessTimer) {
+      if (refresh) return;
+      clearTimeout(this.awarenessTimer);
+      this.awarenessTimer = undefined;
+    }
+    const spacingAt = this.lastAwarenessSent + this.awarenessThrottleMs;
+    const refreshAt = this.lastAwarenessSent + this.awarenessRefreshMs;
+    const dueAt = refresh ? Math.max(spacingAt, refreshAt) : Math.max(Date.now(), spacingAt);
     this.awarenessTimer = setTimeout(() => {
       this.awarenessTimer = undefined;
       const current = this.attempt;
-      if (!this.desiredAwareness || !current || current.phase !== "connected" || this.terminal) return;
+      if (!current || current.phase !== "connected" || this.terminal) return;
       try {
         const metadata = encodeClientAwarenessMetadata(this.desiredAwareness);
         parseClientAwarenessMetadata(metadata, new Uint8Array(), this.body.length);
         this.send(current, { kind: "awareness", metadata, payload: new Uint8Array() });
         this.lastAwarenessSent = Date.now();
+        this.scheduleAwareness(true);
       } catch (error) {
         this.fail(error);
       }
-    }, wait);
+    }, Math.max(0, dueAt - Date.now()));
   }
 
   private startHeartbeat(): void {
@@ -453,11 +497,12 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
   private onClose(attempt: Attempt, event: ExperimentalWebSocketEvent): void {
     if (!this.isCurrent(attempt)) return;
     const code = event.code ?? 1006;
+    const handshakeFailed = attempt.phase !== "connected";
     this.detachAttempt(attempt, false);
     if (code === 1008) {
       this.finish("unavailable", problem("collaboration_policy_ended", "Hosted collaboration is unavailable."));
-    } else if (code === 1001 || code === 1011 || code === 1006 || code === 0) {
-      this.scheduleReconnect();
+    } else if ([0, 1001, 1005, 1006, 1011, 1012, 1013].includes(code)) {
+      this.retryAfterDisconnect(handshakeFailed);
     } else {
       this.finish("unavailable", problem("collaboration_connection_closed", "Hosted collaboration is unavailable."));
     }
@@ -465,7 +510,20 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
 
   private onNetworkError(attempt: Attempt): void {
     if (!this.isCurrent(attempt)) return;
+    const handshakeFailed = attempt.phase !== "connected";
     this.detachAttempt(attempt, true);
+    this.retryAfterDisconnect(handshakeFailed);
+  }
+
+  private retryAfterDisconnect(handshakeFailed: boolean): void {
+    if (handshakeFailed
+        && ++this.consecutiveHandshakeFailures > MAX_CONSECUTIVE_HANDSHAKE_FAILURES) {
+      this.finish("unavailable", problem(
+        "collaboration_handshake_failed",
+        "Hosted collaboration could not establish a session."
+      ));
+      return;
+    }
     this.scheduleReconnect();
   }
 
@@ -473,7 +531,9 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
     if (this.terminal || this.reconnectTimer) return;
     this.setState("reconnecting");
     const exponent = Math.min(this.reconnectCount++, 8);
-    const delay = Math.min(this.reconnectMaxMs, this.reconnectBaseMs * (2 ** exponent));
+    const capped = Math.min(this.reconnectMaxMs, this.reconnectBaseMs * (2 ** exponent));
+    const jitter = 0.8 + Math.min(1, Math.max(0, this.random())) * 0.4;
+    const delay = Math.max(1, Math.round(capped * jitter));
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = undefined;
       void this.connect(true);
@@ -495,15 +555,20 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
     this.attemptNumber += 1;
     clearTimeout(this.reconnectTimer);
     clearTimeout(this.awarenessTimer);
+    clearTimeout(this.handshakeTimer);
     clearInterval(this.heartbeatTimer);
     this.reconnectTimer = undefined;
     this.awarenessTimer = undefined;
+    this.handshakeTimer = undefined;
     this.heartbeatTimer = undefined;
     if (this.attempt) this.detachAttempt(this.attempt, closeSocket);
     this.options.signal?.removeEventListener("abort", this.abortListener);
     this.doc.off("update", this.onDocumentUpdate);
     this.state = state;
     this.publish(failure);
+    this.listeners.clear();
+    this.acknowledged.clear();
+    this.acknowledgedOrder.length = 0;
     this.rejectFlushes(new Error(state === "closed"
       ? "collaboration_room_closed" : "collaboration_room_unavailable"));
   }
@@ -514,12 +579,15 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
       attempt.socket.removeEventListener(type, attempt.listeners[type]);
     }
     clearTimeout(this.awarenessTimer);
+    clearTimeout(this.handshakeTimer);
     clearInterval(this.heartbeatTimer);
     this.awarenessTimer = undefined;
+    this.handshakeTimer = undefined;
     this.heartbeatTimer = undefined;
     this.heartbeatPending = false;
     this.updateInFlight = false;
     this.deferredAwareness = undefined;
+    this.participants = [];
     if (closeSocket) {
       try { attempt.socket.close(SAFE_CLOSE_CODE, "protocol ended"); } catch { /* best effort */ }
     }
@@ -567,14 +635,23 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
     }
   }
 
+  private startHandshakeWatchdog(attempt: Attempt): void {
+    clearTimeout(this.handshakeTimer);
+    this.handshakeTimer = setTimeout(() => {
+      if (this.isCurrent(attempt) && attempt.phase !== "connected") {
+        this.onNetworkError(attempt);
+      }
+    }, this.handshakeTimeoutMs);
+  }
+
   private resolveFlushes(): void {
-    for (const waiter of this.flushWaiters) waiter.resolve();
-    this.flushWaiters.clear();
+    this.flushWaiter?.resolve();
+    this.flushWaiter = undefined;
   }
 
   private rejectFlushes(error: Error): void {
-    for (const waiter of this.flushWaiters) waiter.reject(error);
-    this.flushWaiters.clear();
+    this.flushWaiter?.reject(error);
+    this.flushWaiter = undefined;
   }
 }
 
@@ -599,7 +676,14 @@ function isUuid(value: string): boolean {
 }
 
 function safeCode(error: unknown): string {
-  if (error instanceof Error && /^[a-z0-9_]{1,80}$/.test(error.message)) return error.message;
+  if (error && typeof error === "object") {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === "string" && /^[a-z][a-z0-9_]{0,79}$/u.test(code)) return code;
+  }
+  if (error instanceof Error
+      && /^(?:collaboration|awareness)_[a-z0-9_]{1,66}$/u.test(error.message)) {
+    return error.message;
+  }
   return "collaboration_protocol_invalid";
 }
 

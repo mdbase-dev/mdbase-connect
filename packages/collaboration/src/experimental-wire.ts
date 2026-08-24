@@ -61,8 +61,10 @@ export function validateTicket(value: unknown): ExperimentalTicket {
     "ticket", "webSocketUrl", "expiresAt", "profile", "mode", "epoch"
   ]);
   if (typeof ticket.ticket !== "string" || ticket.ticket.length === 0
+      || ticket.ticket.length > 8_192 || /[\r\n\0]/u.test(ticket.ticket)
       || typeof ticket.webSocketUrl !== "string" || ticket.webSocketUrl.length === 0
-      || typeof ticket.expiresAt !== "string"
+      || ticket.webSocketUrl.length > 2_048 || /[\r\n\0]/u.test(ticket.webSocketUrl)
+      || typeof ticket.expiresAt !== "string" || ticket.expiresAt.length > 64
       || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/u.test(ticket.expiresAt)
       || !Number.isFinite(Date.parse(ticket.expiresAt))
       || Date.parse(ticket.expiresAt) <= Date.now()
@@ -71,7 +73,8 @@ export function validateTicket(value: unknown): ExperimentalTicket {
       || !positiveSafeInteger(ticket.epoch)) throw new Error("collaboration_ticket_invalid");
   try {
     const url = new URL(ticket.webSocketUrl);
-    if ((url.protocol !== "ws:" && url.protocol !== "wss:")
+    if ((url.protocol !== "wss:"
+          && !(url.protocol === "ws:" && isLoopbackHost(url.hostname)))
         || url.pathname !== "/v1/collaboration"
         || url.username
         || url.password
@@ -95,6 +98,7 @@ export interface ValidHello {
   mode: ExperimentalCollaborationMode;
   epoch: number;
   maxUpdateBytes: number;
+  awarenessTtlMs: number;
 }
 
 export function validateHello(frame: CollaborationFrame, ticket: ExperimentalTicket): ValidHello {
@@ -116,7 +120,8 @@ export function validateHello(frame: CollaborationFrame, ticket: ExperimentalTic
   return {
     mode: metadata.mode as ExperimentalCollaborationMode,
     epoch: metadata.epoch as number,
-    maxUpdateBytes: limits.max_update_bytes as number
+    maxUpdateBytes: limits.max_update_bytes as number,
+    awarenessTtlMs: Math.min((awareness.ttl_seconds as number) * 1_000, 2_147_000_000)
   };
 }
 
@@ -162,6 +167,10 @@ function isExactObject(value: unknown, keys: readonly string[]): value is Record
   const actual = Object.keys(value as object);
   return actual.length === keys.length && keys.every((key) =>
     Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  return ["localhost", "127.0.0.1", "[::1]", "::1"].includes(hostname);
 }
 
 function positiveSafeInteger(value: unknown): value is number {
