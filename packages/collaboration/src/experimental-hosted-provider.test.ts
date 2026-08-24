@@ -97,18 +97,22 @@ function fixture(overrides: {
   heartbeatMs?: number;
   reconnectMs?: number;
   mode?: "read_only" | "read_write";
+  ticketError?: Error;
 } = {}): Fixture {
   const sockets: FakeSocket[] = [];
   const mode = overrides.mode ?? "read_write";
   let ticketNumber = 0;
-  const issueTicket = vi.fn(async (): Promise<ExperimentalTicket> => ({
-    ticket: `ticket-${++ticketNumber}`,
-    webSocketUrl: `wss://provider.example/socket/${ticketNumber}`,
-    expiresAt: "2099-01-01T00:00:00.000Z",
-    profile: "markdown-body-yjs-v13",
-    mode,
-    epoch: 7
-  }));
+  const issueTicket = vi.fn(async (): Promise<ExperimentalTicket> => {
+    if (overrides.ticketError) throw overrides.ticketError;
+    return {
+      ticket: `ticket-${++ticketNumber}`,
+      webSocketUrl: "wss://provider.example/v1/collaboration",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      profile: "markdown-body-yjs-v13",
+      mode,
+      epoch: 7
+    };
+  });
   const connection = {};
   Object.defineProperty(connection, EXPERIMENTAL_HOSTED_COLLABORATION_SYMBOL, {
     value: Object.freeze({ issueTicket }), enumerable: false, configurable: false, writable: false
@@ -267,6 +271,16 @@ describe("experimental hosted Markdown provider", () => {
     f.room.destroy();
   });
 
+  it("does not ticket-loop on terminal ticket authorization failure", async () => {
+    vi.useFakeTimers();
+    const f = fixture({ ticketError: new Error("authority_authorization_changed") });
+    await vi.runAllTicks();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(f.room.snapshot.state).toBe("unavailable");
+    expect(f.room.snapshot.problem?.code).toBe("authority_authorization_changed");
+    expect(f.issueTicket).toHaveBeenCalledTimes(1);
+  });
+
   it("does not ticket-loop after 1008 but reconnects after abnormal closure", async () => {
     vi.useFakeTimers();
     const terminal = fixture({ reconnectMs: 10 });
@@ -300,6 +314,16 @@ describe("experimental hosted Markdown provider", () => {
     expect(f.room.snapshot.state).toBe("unavailable");
     expect(f.room.snapshot.problem?.message).not.toContain("seed");
     expect(socket.closeCalls.at(-1)?.[0]).toBe(1008);
+  });
+
+  it("accepts committed awareness positions beyond a shorter unacknowledged local body", async () => {
+    const f = fixture();
+    const socket = await synchronize(f, 0, "seed");
+    f.room.body.delete(0, 4);
+    socket.server(awareness("Participant 1", 4));
+    expect(f.room.snapshot.state).toBe("connected");
+    expect(f.room.snapshot.participants[0]?.selections[0]?.anchor).toBe(4);
+    f.room.destroy();
   });
 
   it("sends and strictly accepts heartbeat frames", async () => {

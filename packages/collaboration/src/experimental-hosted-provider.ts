@@ -40,6 +40,9 @@ const DEFAULT_HEARTBEAT_MS = 15_000;
 const DEFAULT_RECONNECT_BASE_MS = 250;
 const DEFAULT_RECONNECT_MAX_MS = 8_000;
 const SAFE_CLOSE_CODE = 1008;
+const MAX_PENDING_UPDATES = 1_024;
+const MAX_PENDING_UPDATE_BYTES = 16 * 1024 * 1024;
+const MAX_ACKNOWLEDGED_IDS = 256;
 
 type Phase = "ticket" | "opening" | "hello" | "sync" | "connected";
 type Timer = ReturnType<typeof setTimeout>;
@@ -78,6 +81,8 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
   private readonly listeners = new Set<ExperimentalHostedMarkdownRoomListener>();
   private readonly pending: PendingUpdate[] = [];
   private readonly acknowledged = new Set<string>();
+  private readonly acknowledgedOrder: string[] = [];
+  private pendingBytes = 0;
   private readonly flushWaiters = new Set<{ resolve: () => void; reject: (error: Error) => void }>();
   private participants: ServerAwarenessSnapshot["participants"] = [];
   private desiredAwareness?: ClientAwarenessUpdate;
@@ -180,7 +185,12 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
       if (update.byteLength > this.maxUpdateBytes) throw new Error("collaboration_update_too_large");
       const id = this.randomUUID();
       if (!isUuid(id)) throw new Error("collaboration_mutation_id_invalid");
+      if (this.pending.length >= MAX_PENDING_UPDATES
+          || this.pendingBytes + update.byteLength > MAX_PENDING_UPDATE_BYTES) {
+        throw new Error("collaboration_pending_updates_exceeded");
+      }
       this.pending.push({ id, bytes: new Uint8Array(update) });
+      this.pendingBytes += update.byteLength;
       if (this.mode === "read_only") throw new Error("collaboration_read_only");
       this.publish();
       this.sendNextUpdate();
@@ -212,7 +222,11 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
       this.ticketEpoch = ticket.epoch;
     } catch (error) {
       if (number !== this.attemptNumber || this.terminal) return;
-      this.scheduleReconnect(error);
+      if (isRetryableTicketError(error)) this.scheduleReconnect(error);
+      else this.finish("unavailable", problem(
+        safeCode(error),
+        "Hosted collaboration authorization is unavailable."
+      ));
       return;
     }
 
@@ -320,7 +334,8 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
         throw new Error("collaboration_ack_mismatch");
       }
       this.pending.shift();
-      this.acknowledged.add(ack.clientMutationId);
+      this.pendingBytes -= expected.bytes.byteLength;
+      this.rememberAcknowledged(ack.clientMutationId);
       this.updateInFlight = false;
       this.publish();
       if (this.pending.length === 0) this.resolveFlushes();
@@ -354,7 +369,10 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
     if (frame.kind !== "awareness" || frame.payload.byteLength !== 0) {
       throw new Error("collaboration_awareness_invalid");
     }
-    const parsed = parseAwarenessSnapshotMetadata(frame.metadata, this.body.length);
+    const parsed = parseAwarenessSnapshotMetadata(
+      frame.metadata,
+      Math.min(this.options.maxBodyBytes, 0xFFFFFFFF)
+    );
     this.participants = parsed.participants.map((participant) => ({
       ...participant,
       selections: participant.selections.map((selection) => ({ ...selection }))
@@ -541,6 +559,14 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
     });
   }
 
+  private rememberAcknowledged(id: string): void {
+    this.acknowledged.add(id);
+    this.acknowledgedOrder.push(id);
+    if (this.acknowledgedOrder.length > MAX_ACKNOWLEDGED_IDS) {
+      this.acknowledged.delete(this.acknowledgedOrder.shift()!);
+    }
+  }
+
   private resolveFlushes(): void {
     for (const waiter of this.flushWaiters) waiter.resolve();
     this.flushWaiters.clear();
@@ -575,6 +601,11 @@ function isUuid(value: string): boolean {
 function safeCode(error: unknown): string {
   if (error instanceof Error && /^[a-z0-9_]{1,80}$/.test(error.message)) return error.message;
   return "collaboration_protocol_invalid";
+}
+
+function isRetryableTicketError(error: unknown): boolean {
+  return Boolean(error && typeof error === "object"
+    && (error as { retryable?: unknown }).retryable === true);
 }
 
 function problem(code: string, message: string): ExperimentalHostedRoomProblem {

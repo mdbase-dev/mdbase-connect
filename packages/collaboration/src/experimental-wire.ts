@@ -62,13 +62,21 @@ export function validateTicket(value: unknown): ExperimentalTicket {
   ]);
   if (typeof ticket.ticket !== "string" || ticket.ticket.length === 0
       || typeof ticket.webSocketUrl !== "string" || ticket.webSocketUrl.length === 0
-      || typeof ticket.expiresAt !== "string" || !Number.isFinite(Date.parse(ticket.expiresAt))
+      || typeof ticket.expiresAt !== "string"
+      || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/u.test(ticket.expiresAt)
+      || !Number.isFinite(Date.parse(ticket.expiresAt))
+      || Date.parse(ticket.expiresAt) <= Date.now()
       || ticket.profile !== MARKDOWN_BODY_YJS_V13_PROFILE
       || (ticket.mode !== "read_only" && ticket.mode !== "read_write")
       || !positiveSafeInteger(ticket.epoch)) throw new Error("collaboration_ticket_invalid");
   try {
     const url = new URL(ticket.webSocketUrl);
-    if (url.protocol !== "ws:" && url.protocol !== "wss:") throw new Error();
+    if ((url.protocol !== "ws:" && url.protocol !== "wss:")
+        || url.pathname !== "/v1/collaboration"
+        || url.username
+        || url.password
+        || url.search
+        || url.hash) throw new Error();
   } catch {
     throw new Error("collaboration_ticket_invalid");
   }
