@@ -28,6 +28,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@mdbase-dev/connect-protocol": "workspace:*",
     "yjs": "13.6.32"
   },
   "devDependencies": {
