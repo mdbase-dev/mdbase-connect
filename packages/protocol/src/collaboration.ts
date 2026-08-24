@@ -232,7 +232,8 @@ export class AwarenessMetadataError extends Error {
     | "awareness_position_out_of_range"
     | "awareness_too_many_participants"
     | "awareness_name_invalid"
-    | "awareness_payload_not_empty") {
+    | "awareness_payload_not_empty"
+    | "awareness_ttl_invalid") {
     super(code);
     this.name = "AwarenessMetadataError";
   }
@@ -338,9 +339,13 @@ export function isValidAwarenessDisplayName(name: string): boolean {
   for (const character of name) {
     const code = character.codePointAt(0)!;
     const isControl = code <= 0x1F || (code >= 0x7F && code <= 0x9F);
-    const isBidiOverride = (code >= 0x202A && code <= 0x202E)
-      || (code >= 0x2066 && code <= 0x2069);
-    if (isControl || isBidiOverride) return false;
+    const isInvisibleFormatting = code === 0x061C
+      || (code >= 0x200B && code <= 0x200F)
+      || (code >= 0x2028 && code <= 0x202E)
+      || code === 0x2060
+      || (code >= 0x2066 && code <= 0x2069)
+      || code === 0xFEFF;
+    if (isControl || isInvisibleFormatting) return false;
   }
   return true;
 }
@@ -410,13 +415,18 @@ export function parseAwarenessSnapshotMetadata(
 }
 
 /** Exact Hello advertisement. `provider_instance` scope is load-bearing. */
-export function awarenessHelloAdvertisement(): AwarenessHelloAdvertisement {
+export function awarenessHelloAdvertisement(
+  ttlSeconds = AWARENESS_VISIBLE_TTL_SECONDS
+): AwarenessHelloAdvertisement {
+  if (!Number.isSafeInteger(ttlSeconds) || ttlSeconds <= 0) {
+    throw new AwarenessMetadataError("awareness_ttl_invalid");
+  }
   return {
     version: AWARENESS_PROTOCOL_VERSION,
     scope: AWARENESS_SCOPE_PROVIDER_INSTANCE,
     max_participants: MAX_AWARENESS_PARTICIPANTS,
     max_selections: MAX_AWARENESS_SELECTIONS,
     max_updates_per_second: MAX_AWARENESS_UPDATES_PER_SECOND,
-    ttl_seconds: AWARENESS_VISIBLE_TTL_SECONDS
+    ttl_seconds: ttlSeconds
   };
 }

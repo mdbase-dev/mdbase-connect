@@ -1,7 +1,8 @@
 -- Included inside an existing transaction after the caller sets
 -- mdbase.expected_migration_max to the beta69 baseline (34), the final
--- Candidate B schema (37), or the current collaboration fence schema (43).
--- Checksum attestation is pinned to every committed migration through 43.
+-- Candidate B schema (37), the collaboration fence schema (43), the
+-- awareness-identity schema (44), or the generic-awareness schema (45).
+-- Checksums are pinned through 45.
 DO $hosted_migration_ledger_attestation$
 DECLARE
   expected_max bigint := current_setting('mdbase.expected_migration_max')::bigint;
@@ -12,7 +13,7 @@ DECLARE
   missing_migrations bigint;
   checksum_mismatches bigint[];
 BEGIN
-  IF expected_max NOT IN (34, 37, 43) THEN
+  IF expected_max NOT IN (34, 37, 43, 44, 45) THEN
     RAISE EXCEPTION
       'hosted_migration_ledger_blocked: unsupported expected migration %', expected_max;
   END IF;
@@ -85,7 +86,9 @@ BEGIN
     (40, decode('cfa1d41f91905bf8b1f82ca9384fecc2482bcb65f2f22bfff7aaa29032725f1a5fa24114be455f249a615c23bbd3e33f', 'hex')),
     (41, decode('affdb327ac815bd3c53e26b76bebaed02e6dd6cd7a85054d6dff1b7bf588622a2ec79f63c6869c519a40095ebc355a69', 'hex')),
     (42, decode('c64a6a73759a1285af194f0f2b50c5b1deb08e5e936f3af74051742e4b8f76cea320196150cedb6e5c19f6f25272007a', 'hex')),
-    (43, decode('bed62541f35561a672d5621d55b2e8a3895d9342e6e731ba71ea2e430c04a973dcc98bdb0131a773c0e6b0e8a24e190a', 'hex'))
+    (43, decode('bed62541f35561a672d5621d55b2e8a3895d9342e6e731ba71ea2e430c04a973dcc98bdb0131a773c0e6b0e8a24e190a', 'hex')),
+    (44, decode('533e1b8f25517f5569d2f29227e47f43cc9a9f85aeff9e86eb9f4033c73e7b95e9ed5739c6aa7c5adbe1fa3ba6e98c50', 'hex')),
+    (45, decode('3905137ad393f365ec07e021fa25e5fabe5aef36231c451a85fd09f1f731bfce66da29e7e4cf18c7737fba9ea840bbe3', 'hex'))
   ) AS expected(version, checksum)
   LEFT JOIN public._sqlx_migrations applied ON applied.version = expected.version
   WHERE expected.version <= expected_max

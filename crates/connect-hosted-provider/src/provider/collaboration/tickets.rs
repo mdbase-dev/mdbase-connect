@@ -319,6 +319,9 @@ fn stored_awareness_identity(row: &PgRow) -> ApiResult<ReplicaAwarenessIdentity>
     let name: String = row
         .try_get("awareness_name")
         .map_err(|_| collaboration_denied())?;
+    if name != GENERIC_AWARENESS_NAME {
+        return Err(collaboration_denied());
+    }
     let color: String = row
         .try_get("awareness_color")
         .map_err(|_| collaboration_denied())?;

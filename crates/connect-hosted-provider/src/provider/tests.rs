@@ -56,6 +56,12 @@ fn collaboration_limits_fail_closed_for_zero_and_inconsistent_values() {
     .validate()
     .is_err());
     assert!(CollaborationLimits {
+        awareness_ttl_seconds: 1_u64 << 53,
+        ..defaults
+    }
+    .validate()
+    .is_err());
+    assert!(CollaborationLimits {
         compaction_threshold: defaults.max_retained_updates + 1,
         ..defaults
     }
@@ -150,7 +156,7 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
     assert!(finalize.contains("admission_lease_expires_at > clock_timestamp()"));
     assert!(finalize.contains("admission_fence_token = NULL"));
     assert!(finalize.contains("admission_owner_expires_at = NULL"));
-    assert!(preflight.contains("expected exact successful final ledger 1-43"));
+    assert!(preflight.contains("expected exact successful final ledger 1-45"));
     assert!(preflight.contains("attest-hosted-provider-migration-ledger.sql"));
     assert!(preflight.contains("admission_fence_token = requested_token"));
     assert!(preflight.contains("DELETE FROM hosted_provider_query_cursors"));
@@ -168,7 +174,7 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
         assert!(!preflight.contains(&format!("DELETE FROM {canonical}")));
     }
     assert!(final_preflight.contains("REPEATABLE READ READ ONLY"));
-    assert!(final_preflight.contains("expected exact successful final ledger 1-43"));
+    assert!(final_preflight.contains("expected exact successful final ledger 1-45"));
     assert!(final_preflight.contains("migration checksum mismatch at version(s)"));
     assert!(final_preflight.contains("required final relation/index objects are absent"));
     assert!(final_preflight.contains("differ from the exact contract"));
@@ -192,7 +198,7 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
     );
     assert!(!final_preflight.contains("DELETE FROM"));
     assert!(!final_preflight.contains("UPDATE hosted_provider_"));
-    assert!(cutover_preflight.contains("mdbase.expected_migration_max', '43'"));
+    assert!(cutover_preflight.contains("mdbase.expected_migration_max', '45'"));
     assert!(cutover_preflight.contains("\\set fence_kind cutover"));
     assert!(cutover_preflight.contains("\\ir preflight-hosted-provider-final-rollback.sql"));
     assert!(cutover_preflight.contains("generation.status IS DISTINCT FROM 'complete'"));
@@ -989,7 +995,7 @@ fn collaboration_capabilities_are_exact_application_bindings() {
         operation_transport_recovery_protocols: Vec::new(),
         file_capability: None,
         awareness_identity: Some(ReplicaAwarenessIdentity {
-            name: "Ada Lovelace".to_string(),
+            name: "Participant".to_string(),
             color: AwarenessColor::Teal,
         }),
         collaboration_capability: Some(ReplicaCollaborationCapability {
@@ -1014,6 +1020,18 @@ fn collaboration_capabilities_are_exact_application_bindings() {
     };
     validate_replica_capability(&capability).unwrap();
 
+    capability.awareness_identity.as_mut().unwrap().name = "Profile Name".to_owned();
+    assert_eq!(
+        validate_replica_capability(&capability).unwrap_err().code,
+        "invalid_collaboration_capability"
+    );
+    capability.awareness_identity.as_mut().unwrap().name = "Participant".to_owned();
+    let collaboration = capability.collaboration_capability.take().unwrap();
+    assert_eq!(
+        validate_replica_capability(&capability).unwrap_err().code,
+        "invalid_collaboration_capability"
+    );
+    capability.collaboration_capability = Some(collaboration);
     capability.collaboration_capability.as_mut().unwrap().access = CollaborationAccess::ReadWrite;
     assert_eq!(
         validate_replica_capability(&capability).unwrap_err().code,

@@ -14,7 +14,7 @@ use std::time::Duration;
 use mdbase_connect_protocol::{
     AwarenessColor, AwarenessParticipant, AwarenessSelectionRange, AwarenessStatus,
     ClientAwarenessUpdate, ReplicaAwarenessIdentity, ServerAwarenessSnapshot,
-    AWARENESS_VISIBLE_TTL_SECONDS,
+    AWARENESS_VISIBLE_TTL_SECONDS, GENERIC_AWARENESS_NAME,
 };
 use tokio::sync::watch;
 use uuid::Uuid;
@@ -57,12 +57,14 @@ pub(super) struct AwarenessParticipantState {
     color: AwarenessColor,
     status: AwarenessStatus,
     selections: Vec<AwarenessSelectionRange>,
+    visible: bool,
     last_refreshed: tokio::time::Instant,
 }
 
 /// Why a room join was refused. Never exposes identity or document data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AwarenessJoinError {
+    Draining,
     RoomFull,
     ReplicaSessionLimit,
     SnapshotWouldExceedMetadataLimit,
@@ -84,6 +86,9 @@ impl CollaborationSessionRuntime {
             .awareness_rooms
             .lock()
             .expect("awareness registry poisoned");
+        if !self.accepting() {
+            return watch::channel(0).1;
+        }
         // A room with live participants must survive even while it has no
         // receivers (a member subscribes after its own join).
         rooms.retain(|_, room_state| {
@@ -113,6 +118,9 @@ impl CollaborationSessionRuntime {
             .awareness_rooms
             .lock()
             .expect("awareness registry poisoned");
+        if !self.accepting() {
+            return Err(AwarenessJoinError::Draining);
+        }
         self.expire_stale_locked(&mut rooms, tokio::time::Instant::now());
         if let Some(existing) = rooms.get(room) {
             if existing.participants.contains_key(&session_id) {
@@ -147,20 +155,35 @@ impl CollaborationSessionRuntime {
         if room_state.participants.len() >= MAX_AWARENESS_ROOM_PARTICIPANTS {
             return Err(AwarenessJoinError::RoomFull);
         }
+        let display_name = if identity.name == GENERIC_AWARENESS_NAME {
+            (1..=MAX_AWARENESS_ROOM_PARTICIPANTS)
+                .map(|slot| format!("Participant {slot}"))
+                .find(|candidate| {
+                    !room_state
+                        .participants
+                        .values()
+                        .any(|participant| participant.name == *candidate)
+                })
+                .unwrap_or_else(|| GENERIC_AWARENESS_NAME.to_owned())
+        } else {
+            identity.name.clone()
+        };
         let participant = AwarenessParticipantState {
             replica_id,
-            name: identity.name.clone(),
+            name: display_name,
             color: identity.color,
             status: AwarenessStatus::Active,
             selections: Vec::new(),
+            visible: true,
             last_refreshed: tokio::time::Instant::now(),
         };
         room_state.participants.insert(session_id, participant);
         // Fail closed if the complete snapshot would not fit the frame
         // metadata limit even though the bounds make that impossible today.
-        if Self::snapshot_of(room_state).to_metadata().len()
-            > mdbase_connect_protocol::MAX_COLLABORATION_METADATA_BYTES
-        {
+        let snapshot_bytes = serde_json::to_vec(&Self::snapshot_of(room_state).to_metadata())
+            .map(|encoded| encoded.len())
+            .unwrap_or(usize::MAX);
+        if snapshot_bytes > mdbase_connect_protocol::MAX_COLLABORATION_METADATA_BYTES {
             room_state.participants.remove(&session_id);
             return Err(AwarenessJoinError::SnapshotWouldExceedMetadataLimit);
         }
@@ -184,6 +207,9 @@ impl CollaborationSessionRuntime {
             .awareness_rooms
             .lock()
             .expect("awareness registry poisoned");
+        if !self.accepting() {
+            return false;
+        }
         self.expire_stale_locked(&mut rooms, tokio::time::Instant::now());
         let Some(room_state) = rooms.get_mut(room) else {
             return false;
@@ -191,10 +217,12 @@ impl CollaborationSessionRuntime {
         let Some(participant) = room_state.participants.get_mut(&session_id) else {
             return false;
         };
-        let changed =
-            participant.status != update.status || participant.selections != update.selections;
+        let changed = !participant.visible
+            || participant.status != update.status
+            || participant.selections != update.selections;
         participant.status = update.status;
         participant.selections = update.selections.clone();
+        participant.visible = true;
         participant.last_refreshed = tokio::time::Instant::now();
         if changed {
             room_state.bump_generation();
@@ -202,18 +230,28 @@ impl CollaborationSessionRuntime {
         true
     }
 
-    /// Refresh the visibility lease after any session activity without
-    /// rebroadcasting.
+    /// Refresh the visibility lease after accepted authenticated activity.
     pub(crate) fn refresh_awareness(&self, room: &RoomIdentity, session_id: u64) {
         let mut rooms = self
             .awareness_rooms
             .lock()
             .expect("awareness registry poisoned");
-        if let Some(participant) = rooms
-            .get_mut(room)
-            .and_then(|room_state| room_state.participants.get_mut(&session_id))
-        {
-            participant.last_refreshed = tokio::time::Instant::now();
+        if !self.accepting() {
+            return;
+        }
+        if let Some(room_state) = rooms.get_mut(room) {
+            if let Some(participant) = room_state.participants.get_mut(&session_id) {
+                let became_visible = !participant.visible;
+                participant.visible = true;
+                if became_visible {
+                    participant.status = AwarenessStatus::Active;
+                    participant.selections.clear();
+                }
+                participant.last_refreshed = tokio::time::Instant::now();
+                if became_visible {
+                    room_state.bump_generation();
+                }
+            }
         }
     }
 
@@ -226,7 +264,9 @@ impl CollaborationSessionRuntime {
             .awareness_rooms
             .lock()
             .expect("awareness registry poisoned");
-        self.expire_stale_locked(&mut rooms, tokio::time::Instant::now());
+        if self.accepting() {
+            self.expire_stale_locked(&mut rooms, tokio::time::Instant::now());
+        }
     }
 
     fn expire_stale_locked(
@@ -235,18 +275,17 @@ impl CollaborationSessionRuntime {
         now: tokio::time::Instant,
     ) {
         for room_state in rooms.values_mut() {
-            let expired: Vec<u64> = room_state
-                .participants
-                .iter()
-                .filter(|(_, participant)| {
-                    now.duration_since(participant.last_refreshed) > self.awareness_ttl
-                })
-                .map(|(session_id, _)| *session_id)
-                .collect();
-            if !expired.is_empty() {
-                for session_id in expired {
-                    room_state.participants.remove(&session_id);
+            let mut changed = false;
+            for participant in room_state.participants.values_mut() {
+                if participant.visible
+                    && now.duration_since(participant.last_refreshed) > self.awareness_ttl
+                {
+                    participant.visible = false;
+                    participant.selections.clear();
+                    changed = true;
                 }
+            }
+            if changed {
                 room_state.bump_generation();
             }
         }
@@ -258,7 +297,9 @@ impl CollaborationSessionRuntime {
             .awareness_rooms
             .lock()
             .expect("awareness registry poisoned");
-        self.expire_stale_locked(&mut rooms, tokio::time::Instant::now());
+        if self.accepting() {
+            self.expire_stale_locked(&mut rooms, tokio::time::Instant::now());
+        }
         rooms
             .get(room)
             .map(Self::snapshot_of)
@@ -272,6 +313,7 @@ impl CollaborationSessionRuntime {
             participants: room_state
                 .participants
                 .values()
+                .filter(|participant| participant.visible)
                 .map(|participant| AwarenessParticipant {
                     name: participant.name.clone(),
                     color: participant.color,
@@ -288,7 +330,13 @@ impl CollaborationSessionRuntime {
             .lock()
             .expect("awareness registry poisoned")
             .values()
-            .map(|room_state| room_state.participants.len())
+            .map(|room_state| {
+                room_state
+                    .participants
+                    .values()
+                    .filter(|participant| participant.visible)
+                    .count()
+            })
             .sum()
     }
 
@@ -315,12 +363,6 @@ pub(crate) struct CollaborationAwarenessGuard {
     runtime: Arc<CollaborationSessionRuntime>,
     room: RoomIdentity,
     session_id: u64,
-}
-
-impl CollaborationAwarenessGuard {
-    pub(crate) fn session_id(&self) -> u64 {
-        self.session_id
-    }
 }
 
 impl Drop for CollaborationAwarenessGuard {
@@ -519,7 +561,15 @@ mod tests {
         runtime.sweep_expired_awareness();
         assert_eq!(runtime.awareness_participant_count(), 0);
         receiver.changed().await.unwrap();
+        receiver.borrow_and_update();
         assert!(runtime.awareness_snapshot(&room).participants.is_empty());
+
+        // A still-connected session can become visible again through ordinary
+        // activity without bypassing the room/per-replica membership caps.
+        runtime.refresh_awareness(&room, 7);
+        receiver.changed().await.unwrap();
+        assert_eq!(runtime.awareness_participant_count(), 1);
+        assert_eq!(runtime.awareness_snapshot(&room).participants.len(), 1);
     }
 
     #[tokio::test]
@@ -542,22 +592,31 @@ mod tests {
     async fn snapshot_ordering_is_stable_by_join_order() {
         let runtime = runtime();
         let room = new_room();
+        let mut guards = Vec::new();
         for session_id in [5_u64, 2, 9, 3] {
-            let _guard = runtime
-                .join_awareness(&room, session_id, Uuid::new_v4(), &identity("P"))
-                .unwrap();
+            guards.push(
+                runtime
+                    .join_awareness(
+                        &room,
+                        session_id,
+                        Uuid::new_v4(),
+                        &identity(&format!("P{session_id}")),
+                    )
+                    .unwrap(),
+            );
         }
-        let names: Vec<u64> = runtime
-            .awareness_snapshot(&room)
-            .participants
-            .iter()
-            .map(|_| 0)
-            .collect();
-        let _ = names;
-        // Order is derived from the BTreeMap keyed by session id; verify by
-        // joining out of order and checking a deterministic snapshot twice.
-        let first =
-            serde_json::to_string(&runtime.awareness_snapshot(&room).to_metadata()).unwrap();
+        let snapshot = runtime.awareness_snapshot(&room);
+        assert_eq!(
+            snapshot
+                .participants
+                .iter()
+                .map(|participant| participant.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["P2", "P3", "P5", "P9"]
+        );
+        // Order is derived from the BTreeMap keyed by session id; verify the
+        // serialized replacement snapshot stays deterministic too.
+        let first = serde_json::to_string(&snapshot.to_metadata()).unwrap();
         let second =
             serde_json::to_string(&runtime.awareness_snapshot(&room).to_metadata()).unwrap();
         assert_eq!(first, second);
@@ -632,6 +691,10 @@ mod tests {
 
         runtime.begin_drain();
         assert_eq!(runtime.awareness_participant_count(), 0);
+        assert!(matches!(
+            runtime.join_awareness(&room, 99, Uuid::new_v4(), &identity("Late")),
+            Err(AwarenessJoinError::Draining)
+        ));
         receiver.changed().await.unwrap();
         assert!(runtime.awareness_snapshot(&room).participants.is_empty());
         drop(awareness_guard);

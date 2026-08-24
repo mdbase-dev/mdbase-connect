@@ -98,6 +98,23 @@ impl HostedProvider {
         .await?
         {
             let existing_hash: Vec<u8> = existing.get("token_hash");
+            let awareness_matches = if collaboration_capability.is_none() {
+                // Migration 0044 backfilled generic defaults for rollback-safe
+                // old-binary inserts. They are irrelevant to ordinary replicas
+                // and must not break idempotent registration retries.
+                true
+            } else {
+                existing.get::<Option<String>, _>("awareness_name")
+                    == input
+                        .awareness_identity
+                        .as_ref()
+                        .map(|identity| identity.name.clone())
+                    && existing.get::<Option<String>, _>("awareness_color")
+                        == input
+                            .awareness_identity
+                            .as_ref()
+                            .map(|identity| identity.color.as_str().to_owned())
+            };
             let exact_match = existing.get::<Uuid, _>("collection_id") == collection_id
                 && existing.get::<String, _>("name") == name
                 && existing.get::<String, _>("purpose") == purpose
@@ -119,16 +136,7 @@ impl HostedProvider {
                 && existing.get::<Option<Value>, _>("file_capability") == file_capability
                 && existing.get::<Option<Value>, _>("collaboration_capability")
                     == collaboration_capability
-                && existing.get::<Option<String>, _>("awareness_name")
-                    == input
-                        .awareness_identity
-                        .as_ref()
-                        .map(|identity| identity.name.clone())
-                && existing.get::<Option<String>, _>("awareness_color")
-                    == input
-                        .awareness_identity
-                        .as_ref()
-                        .map(|identity| identity.color.as_str().to_owned())
+                && awareness_matches
                 && existing
                     .get::<Option<String>, _>("allowed_origin")
                     .as_deref()

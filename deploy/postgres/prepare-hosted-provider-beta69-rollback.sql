@@ -6,7 +6,7 @@
 -- are retired. External traffic must remain in maintenance throughout rollback.
 BEGIN;
 SET LOCAL search_path = public, pg_catalog;
-SELECT set_config('mdbase.expected_migration_max', '43', true);
+SELECT set_config('mdbase.expected_migration_max', '45', true);
 \ir attest-hosted-provider-migration-ledger.sql
 SELECT set_config('mdbase.admission_fence_token', :'fence_token', true);
 SELECT pg_advisory_xact_lock(
@@ -40,15 +40,15 @@ BEGIN
   FROM _sqlx_migrations;
   SELECT count(*)
     INTO missing_migrations
-  FROM generate_series(1, 43) AS required(version)
+  FROM generate_series(1, 45) AS required(version)
   WHERE NOT EXISTS (
     SELECT 1 FROM _sqlx_migrations applied
     WHERE applied.version = required.version AND applied.success
   );
-  IF migration_count <> 43 OR minimum_version <> 1 OR maximum_version <> 43
+  IF migration_count <> 45 OR minimum_version <> 1 OR maximum_version <> 45
      OR failed_migrations <> 0 OR missing_migrations <> 0 THEN
     RAISE EXCEPTION
-      'beta69_rollback_blocked: expected exact successful final ledger 1-43';
+      'beta69_rollback_blocked: expected exact successful final ledger 1-45';
   END IF;
 
   SELECT count(*) INTO invalid_states

@@ -11,7 +11,7 @@
 -- the bounded projection indexer immediately before this database invariant.
 BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;
 SET LOCAL search_path = public, pg_catalog;
-SELECT set_config('mdbase.expected_migration_max', '43', true);
+SELECT set_config('mdbase.expected_migration_max', '45', true);
 \ir attest-hosted-provider-migration-ledger.sql
 SELECT set_config('mdbase.admission_fence_token', :'fence_token', true);
 

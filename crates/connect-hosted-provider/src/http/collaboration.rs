@@ -8,7 +8,7 @@ use axum::{
 use mdbase_connect_protocol::{CollaborationFrame, CollaborationMessageKind};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use tokio::time::{Duration, Instant};
 use uuid::Uuid;
 
@@ -16,6 +16,7 @@ use futures_util::StreamExt;
 
 use crate::{
     error::{ApiError, ApiResult},
+    http::collaboration_awareness::AwarenessJoinError,
     http::collaboration_sessions::{
         SessionCloseDirective, COLLABORATION_CLOSE_GOING_AWAY, DRAIN_DIRECTIVE, INTERNAL_DIRECTIVE,
         POLICY_DIRECTIVE, SESSION_REAUTHORIZATION_INTERVAL,
@@ -329,23 +330,20 @@ async fn session(
     // identity comes exclusively from the consumed ticket's stored replica
     // columns; clients can never supply name or color.
     let mut awareness = state.subscribe_room_awareness(&consumed.metadata.room);
-    let awareness_guard = match state.join_room_awareness(
-        &consumed.metadata.room,
-        socket_guard.session_id(),
-        consumed.metadata.replica_id,
-        &consumed.metadata.identity,
-    ) {
-        Ok(guard) => guard,
-        Err(_) => {
-            send_server_close(&mut socket, POLICY_DIRECTIVE).await;
-            return;
-        }
-    };
+    // Membership starts only after durable SyncStep2 has been delivered. A
+    // socket that authenticates and then stalls must not appear present or
+    // consume awareness membership capacity.
+    let session_id = socket_guard.session_id();
+    let mut awareness_guard = None;
     if send_frame(
         &mut socket,
-        hello(&consumed, state.provider().collaboration_max_update_bytes())
-            .encode()
-            .unwrap(),
+        hello(
+            &consumed,
+            state.provider().collaboration_max_update_bytes(),
+            state.provider().collaboration_awareness_ttl().as_secs(),
+        )
+        .encode()
+        .unwrap(),
     )
     .await
     .is_err()
@@ -369,7 +367,7 @@ async fn session(
     let mut frame_count = 0_u32;
     let mut sync_count = 0_u32;
     let mut update_count = 0_u32;
-    let mut awareness_count = 0_u32;
+    let mut awareness_updates = VecDeque::<Instant>::new();
     let mut last_awareness: Option<Instant> = None;
     let mut last_heartbeat = Instant::now() - MIN_HEARTBEAT_INTERVAL;
     let mut reauthorization_failures = 0_u8;
@@ -411,12 +409,9 @@ async fn session(
                     frame_count = 0;
                     sync_count = 0;
                     update_count = 0;
-                    awareness_count = 0;
                 }
                 if frame_count >= MAX_FRAMES_PER_SECOND { return; }
                 frame_count += 1;
-                // Any session activity refreshes the visibility lease.
-                state.refresh_room_awareness(&consumed.metadata.room, awareness_guard.session_id());
                 match frame.kind {
                     CollaborationMessageKind::SyncStep1 if exact_keys(&frame.metadata, &[]) => {
                         if sync_count >= MAX_SYNCS_PER_SECOND { return; }
@@ -435,6 +430,26 @@ async fn session(
                         if update.len() > mdbase_connect_protocol::MAX_COLLABORATION_PAYLOAD_BYTES { return; }
                         let Ok(response) = (CollaborationFrame { kind: CollaborationMessageKind::SyncStep2, metadata: Default::default(), payload: update }).encode() else { return; };
                         if send_frame(&mut socket, response).await.is_err() { return; }
+                        if awareness_guard.is_none() {
+                            awareness_guard = match state.join_room_awareness(
+                                &consumed.metadata.room,
+                                session_id,
+                                consumed.metadata.replica_id,
+                                &consumed.metadata.identity,
+                            ) {
+                                Ok(guard) => Some(guard),
+                                Err(AwarenessJoinError::Draining) => {
+                                    send_server_close(&mut socket, DRAIN_DIRECTIVE).await;
+                                    return;
+                                }
+                                Err(_) => {
+                                    send_server_close(&mut socket, POLICY_DIRECTIVE).await;
+                                    return;
+                                }
+                            };
+                        } else {
+                            state.refresh_room_awareness(&consumed.metadata.room, session_id);
+                        }
                         synced = true;
                         // Close the query/register race: a commit can land
                         // after SyncStep2 observed its durable cursor but
@@ -473,6 +488,7 @@ async fn session(
                         delivery.prune_through(delivery.delivered_through);
                         let ack = CollaborationFrame { kind: CollaborationMessageKind::Acknowledged, metadata: json!({"client_mutation_id": client_id, "sequence": receipt.sequence, "record_sequence": receipt.record_sequence}).as_object().unwrap().clone(), payload: Vec::new() };
                         if send_frame(&mut socket, ack.encode().unwrap()).await.is_err() { return; }
+                        state.refresh_room_awareness(&consumed.metadata.room, session_id);
                         if accepted {
                             // Local coalesced wake only; remote instances are
                             // woken by the transactional PostgreSQL notice.
@@ -487,7 +503,11 @@ async fn session(
                         }
                     }
                     CollaborationMessageKind::Awareness => {
-                        if awareness_count >= MAX_AWARENESS_UPDATES_PER_SECOND { send_awareness_reject(&mut socket).await; return; }
+                        let now = Instant::now();
+                        while awareness_updates.front().is_some_and(|accepted| now.duration_since(*accepted) >= Duration::from_secs(1)) {
+                            awareness_updates.pop_front();
+                        }
+                        if !synced || awareness_updates.len() >= MAX_AWARENESS_UPDATES_PER_SECOND as usize { send_awareness_reject(&mut socket).await; return; }
                         if let Some(last) = last_awareness {
                             if last.elapsed() < Duration::from_millis(MIN_AWARENESS_UPDATE_SPACING_MS) {
                                 send_awareness_reject(&mut socket).await;
@@ -514,9 +534,9 @@ async fn session(
                                 return;
                             }
                         };
-                        awareness_count += 1;
-                        last_awareness = Some(Instant::now());
-                        state.apply_room_awareness(&consumed.metadata.room, awareness_guard.session_id(), &update);
+                        awareness_updates.push_back(now);
+                        last_awareness = Some(now);
+                        state.apply_room_awareness(&consumed.metadata.room, session_id, &update);
                         if let Some(directive) = pending_close(&mut close_rx) {
                             send_server_close(&mut socket, directive).await;
                             return;
@@ -530,6 +550,7 @@ async fn session(
                             return;
                         }
                         if send_frame(&mut socket, CollaborationFrame { kind: CollaborationMessageKind::Heartbeat, metadata: Default::default(), payload: Vec::new() }.encode().unwrap()).await.is_err() { return; }
+                        state.refresh_room_awareness(&consumed.metadata.room, session_id);
                     }
                     _ => { return; }
                 }
@@ -541,7 +562,7 @@ async fn session(
                     if drain_durable_updates(&mut socket, &state, &consumed, &mut delivery, target).await.is_err() { return; }
                 }
             }
-            changed = awareness.changed() => {
+            changed = awareness.changed(), if synced => {
                 // Coalesced complete-snapshot rebroadcast: at most one send
                 // per observed generation change, built from current locked
                 // room state so every member converges on identical order.
@@ -694,11 +715,15 @@ impl SessionDelivery {
     }
 }
 
-fn hello(ticket: &ConsumedCollaborationTicket, max_update_bytes: u64) -> CollaborationFrame {
+fn hello(
+    ticket: &ConsumedCollaborationTicket,
+    max_update_bytes: u64,
+    awareness_ttl_seconds: u64,
+) -> CollaborationFrame {
     let mut metadata = json!({"profile": COLLABORATION_PROFILE, "mode": match ticket.metadata.mode { CollaborationMode::ReadOnly => "read_only", CollaborationMode::ReadWrite => "read_write" }, "epoch": ticket.metadata.room.epoch, "limits": {"max_update_bytes": max_update_bytes}}).as_object().unwrap().clone();
     // Explicitly advertise awareness as provider-instance scoped so no client
     // can mistake local membership for cross-instance completeness.
-    for (key, value) in AwarenessHelloAdvertisement::new().to_metadata() {
+    for (key, value) in AwarenessHelloAdvertisement::with_ttl(awareness_ttl_seconds).to_metadata() {
         metadata.insert(key, value);
     }
     CollaborationFrame {

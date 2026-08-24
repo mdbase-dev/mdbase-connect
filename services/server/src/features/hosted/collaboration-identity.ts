@@ -10,12 +10,10 @@ import {
 /**
  * Server-authoritative presentation identity for collaboration awareness.
  *
- * The name comes from the authenticated control-plane user (never the email,
- * never client input) and the color is derived deterministically from a
- * domain-separated SHA-256 over the collection and user UUIDs, so a person
- * sees the same color in every room. If a stored user name cannot satisfy
- * the strict wire rules, this helper degrades to a generic bounded identity
- * instead of accepting anything client-shaped or failing the grant.
+ * The initial private experiment deliberately uses a generic name rather than
+ * copying durable profile PII into provider storage. Color is derived from a
+ * domain-separated SHA-256 over collection and authenticated user UUIDs. The
+ * provider adds a process-local room ordinal when presenting generic names.
  */
 
 export interface CollaborationPresentationIdentity {
@@ -77,48 +75,24 @@ export function sanitizeAwarenessDisplayName(name: string | null | undefined): s
  * capability.
  */
 export function collaborationPresentationIdentity(
-  user: { id: string; name: string | null | undefined },
+  userId: string,
   collectionId: string
 ): CollaborationPresentationIdentity {
-  const name = sanitizeAwarenessDisplayName(user.name);
-  if (name === null) {
-    // Documented fallback: never accept a client-controlled name, and never
-    // derive one from the email address.
-    return { ...GENERIC_AWARENESS_IDENTITY };
-  }
-  return { name, color: deriveAwarenessColor(collectionId, user.id) };
-}
-
-interface UserLookup {
-  query: <R extends { [column: string]: any }>(
-    sql: string,
-    params: unknown[]
-  ) => Promise<{ rows: R[] }>;
+  return {
+    name: GENERIC_AWARENESS_IDENTITY.name,
+    color: deriveAwarenessColor(collectionId, userId)
+  };
 }
 
 /**
- * Resolve the awareness identity for an approved grant straight from the
- * authenticated control-plane user. Returns undefined when the grant carries
- * no collaboration capability; throws when the user row cannot be resolved.
+ * Resolve the awareness identity for an approved grant from the authenticated
+ * control-plane user id. Returns undefined for ordinary grants.
  */
-export async function resolveGrantAwarenessIdentity(
-  connection: UserLookup,
+export function resolveGrantAwarenessIdentity(
   userId: string,
   collectionId: string,
   collaborationRequested: boolean
-): Promise<CollaborationPresentationIdentity | undefined> {
+): CollaborationPresentationIdentity | undefined {
   if (!collaborationRequested) return undefined;
-  const owner = await connection.query<{ name: string | null }>(
-    "SELECT name FROM users WHERE id = $1",
-    [userId]
-  );
-  if (!owner.rows[0]) {
-    throw new Error(
-      "The authorizing user could not be resolved for collaboration access."
-    );
-  }
-  return collaborationPresentationIdentity(
-    { id: userId, name: owner.rows[0].name },
-    collectionId
-  );
+  return collaborationPresentationIdentity(userId, collectionId);
 }

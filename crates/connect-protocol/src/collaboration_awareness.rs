@@ -34,6 +34,7 @@ pub const MAX_AWARENESS_UPDATES_PER_SECOND: u32 = 8;
 pub const MIN_AWARENESS_UPDATE_SPACING_MS: u64 = 125;
 /// How long a participant stays visible without refreshing activity.
 pub const AWARENESS_VISIBLE_TTL_SECONDS: u64 = 30;
+pub const GENERIC_AWARENESS_NAME: &str = "Participant";
 /// Display-name bounds enforced identically by the control plane, the
 /// provider, and both wire codecs.
 pub const MAX_AWARENESS_NAME_SCALARS: usize = 100;
@@ -260,13 +261,17 @@ pub struct AwarenessHelloAdvertisement {
 
 impl AwarenessHelloAdvertisement {
     pub fn new() -> Self {
+        Self::with_ttl(AWARENESS_VISIBLE_TTL_SECONDS)
+    }
+
+    pub fn with_ttl(ttl_seconds: u64) -> Self {
         Self {
             version: AWARENESS_PROTOCOL_VERSION,
             scope: AWARENESS_SCOPE_PROVIDER_INSTANCE,
             max_participants: MAX_AWARENESS_PARTICIPANTS,
             max_selections: MAX_AWARENESS_SELECTIONS,
             max_updates_per_second: MAX_AWARENESS_UPDATES_PER_SECOND,
-            ttl_seconds: AWARENESS_VISIBLE_TTL_SECONDS,
+            ttl_seconds,
         }
     }
 
@@ -301,17 +306,23 @@ pub fn validate_awareness_name(name: &str) -> Result<(), AwarenessValidationErro
     }
     if name.chars().any(|character| {
         character.is_control()
-            || matches!(character, '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+            || matches!(
+                character,
+                '\u{061C}'
+                    | '\u{200B}'..='\u{200F}'
+                    | '\u{2028}'..='\u{202E}'
+                    | '\u{2060}'
+                    | '\u{2066}'..='\u{2069}'
+                    | '\u{FEFF}'
+            )
     }) {
         return Err(AwarenessValidationError::InvalidName);
     }
     Ok(())
 }
 
-/// Server-side presentation identity captured from the authenticated
-/// control-plane user at replica registration. Never client-supplied.
-/// Server-side presentation identity captured from the authenticated
-/// control-plane user at replica registration. Never client-supplied.
+/// Server-side presentation identity captured at replica registration. Never
+/// client-supplied; the private experiment uses a generic non-PII name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReplicaAwarenessIdentity {
@@ -514,8 +525,14 @@ mod tests {
             " padded",
             "padded ",
             "a\u{7}",
+            "a\u{061C}b",
+            "a\u{200B}b",
+            "a\u{200E}b",
+            "a\u{2028}b",
             "a\u{202E}b",
+            "a\u{2060}b",
             "a\u{2066}b",
+            "a\u{FEFF}b",
         ];
         for name in invalid_names {
             assert_eq!(

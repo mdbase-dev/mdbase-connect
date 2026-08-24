@@ -302,6 +302,12 @@ fn valid_application_declaration_id(value: &str) -> bool {
 
 fn validate_collaboration_capability(input: &RegisterReplica) -> ApiResult<()> {
     let Some(capability) = input.collaboration_capability.as_ref() else {
+        if input.awareness_identity.is_some() {
+            return Err(ApiError::bad_request(
+                "invalid_collaboration_capability",
+                "Awareness identity is allowed only for collaboration replicas.",
+            ));
+        }
         return Ok(());
     };
     // Collaboration requires a server-derived presentation identity: without
@@ -312,10 +318,10 @@ fn validate_collaboration_capability(input: &RegisterReplica) -> ApiResult<()> {
             "Collaboration capabilities require an awareness identity.",
         ));
     };
-    if validate_awareness_name(&identity.name).is_err() {
+    if identity.name != GENERIC_AWARENESS_NAME || validate_awareness_name(&identity.name).is_err() {
         return Err(ApiError::bad_request(
             "invalid_collaboration_capability",
-            "The awareness display name is invalid.",
+            "The awareness display name must be the generic non-PII identity.",
         ));
     }
     if input.purpose != ReplicaPurpose::Application

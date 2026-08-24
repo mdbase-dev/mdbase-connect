@@ -251,6 +251,14 @@ impl CollaborationSessionRuntime {
         // update guards. A drain cannot slip between an update's phase check
         // and counter increment.
         let sessions = self.sessions.lock().expect("session registry poisoned");
+        // Awareness mutations use this mutex and check the phase while holding
+        // it. Taking the same barrier around the phase transition makes drain
+        // linear with join/refresh/update: every mutation is wholly before
+        // draining or observes Draining and becomes a no-op.
+        let awareness_barrier = self
+            .awareness_rooms
+            .lock()
+            .expect("awareness registry poisoned");
         let started = self
             .phase
             .compare_exchange(
@@ -260,6 +268,7 @@ impl CollaborationSessionRuntime {
                 Ordering::Acquire,
             )
             .is_ok();
+        drop(awareness_barrier);
         for entry in sessions.values() {
             let _ = entry.close.send_if_modified(|slot| {
                 if slot.is_some() {

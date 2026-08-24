@@ -65,19 +65,12 @@ describe("display name sanitization", () => {
 });
 
 describe("collaboration presentation identity", () => {
-  test("uses users.name and never the email or any identifier", () => {
-    const identity = collaborationPresentationIdentity(
-      { id: USER_A, name: "Ada" },
-      COLLECTION
-    );
-    expect(identity).toEqual({ name: "Ada", color: "teal" });
-  });
-
-  test("falls back to a generic identity for unsafe stored names", () => {
-    for (const name of [null, undefined, "", "a\u202Eb", "x".repeat(200)]) {
-      expect(collaborationPresentationIdentity({ id: USER_A, name }, COLLECTION)).toEqual({
-        ...GENERIC_AWARENESS_IDENTITY
-      });
-    }
+  test("uses a generic non-PII name and collection-scoped color", () => {
+    const identity = collaborationPresentationIdentity(USER_A, COLLECTION);
+    expect(identity).toEqual({
+      name: GENERIC_AWARENESS_IDENTITY.name,
+      color: "teal"
+    });
+    expect(JSON.stringify(identity)).not.toContain(USER_A);
   });
 });

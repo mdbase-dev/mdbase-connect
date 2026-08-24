@@ -29,8 +29,8 @@ use mdbase_connect_protocol::{
     SyncReplicaMode, SyncResourceDocument, SyncSession, SyncSnapshotPage, SyncSnapshotRecord,
     TypePackProvision, AUTHORITY_PROOF_DOMAIN, AUTHORITY_PROOF_VERSION,
     AWARENESS_VISIBLE_TTL_SECONDS, CONTROL_PROTOCOL_VERSION, FILE_PROTOCOL_VERSION,
-    MAX_COLLABORATION_PAYLOAD_BYTES, SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS,
-    SYNC_PROTOCOL_VERSION,
+    GENERIC_AWARENESS_NAME, MAX_COLLABORATION_PAYLOAD_BYTES,
+    SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS, SYNC_PROTOCOL_VERSION,
 };
 use mdbase_connect_runtime::contract_scope::{ContractScope, ContractSelector};
 use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
@@ -188,6 +188,7 @@ impl CollaborationLimits {
             return Err("hosted collaboration limits must be greater than zero");
         }
         if self.max_update_bytes > MAX_COLLABORATION_PAYLOAD_BYTES as u64
+            || self.awareness_ttl_seconds > (1_u64 << 53) - 1
             || self.max_snapshot_bytes < self.max_document_bytes
             || self.compaction_threshold > self.max_retained_updates
         {

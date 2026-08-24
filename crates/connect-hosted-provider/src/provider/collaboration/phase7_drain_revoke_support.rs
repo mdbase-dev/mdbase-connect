@@ -258,22 +258,28 @@ pub(super) async fn open_synced_session(
         .send(Message::Binary(sync_frame(client.state_vector_v1()).into()))
         .await
         .unwrap();
-    // Join/update awareness snapshots may legally interleave with the sync
-    // response; skip them here.
-    let synced = loop {
-        let frame = recv_frame(&mut socket).await;
+    // Membership begins only after SyncStep2 is delivered, but socket/network
+    // scheduling may expose either frame first. Absorb both so callers start
+    // from a clean stream.
+    let mut synced = None;
+    let mut joined = false;
+    while synced.is_none() || !joined {
+        let message = timeout(Duration::from_secs(4), recv_frame_inner(&mut socket))
+            .await
+            .expect("timed out waiting for sync/awareness frame");
+        let frame = CollaborationFrame::decode(message.into_data().as_ref()).unwrap();
         match frame.kind {
-            CollaborationMessageKind::Awareness => continue,
-            other => {
-                break {
-                    assert_eq!(other, CollaborationMessageKind::SyncStep2);
-                    frame
-                }
-            }
+            CollaborationMessageKind::Awareness => joined = true,
+            CollaborationMessageKind::SyncStep2 => synced = Some(frame),
+            other => panic!("unexpected frame kind {other:?} while syncing"),
         }
-    };
+    }
     client
-        .apply_update_v1(&synced.payload, 2 * 1024 * 1024, 2 * 1024 * 1024)
+        .apply_update_v1(
+            &synced.expect("sync response").payload,
+            2 * 1024 * 1024,
+            2 * 1024 * 1024,
+        )
         .unwrap();
     (socket, client)
 }

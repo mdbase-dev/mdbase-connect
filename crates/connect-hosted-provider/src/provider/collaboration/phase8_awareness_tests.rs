@@ -9,9 +9,9 @@ use super::phase7_drain_revoke_support::{
     assert_close_code_within, put_record, run_with_schema, CROSS_INSTANCE_CLOSE_DEADLINE,
 };
 use super::phase8_awareness_support::{
-    awareness_update_frame, open_awareness_session, provision_collection, raw_awareness_frame,
-    recv_snapshot, register_collab_replica, shutdown_without_drain, start_instance,
-    start_instance_with_limits, stop_instance,
+    awareness_update_frame, open_awareness_session, open_unsynced_session, provision_collection,
+    raw_awareness_frame, recv_snapshot, register_collab_replica, shutdown_without_drain,
+    start_instance, start_instance_with_limits, stop_instance,
 };
 use super::*;
 use crate::http::collaboration_sessions::COLLABORATION_CLOSE_POLICY;
@@ -114,7 +114,7 @@ async fn phase8_awareness_sanitized_exchange_postgres() {
             &instance.provider,
             collection,
             ada.id,
-            "Ada Lovelace",
+            "Participant",
             AwarenessColor::Teal,
             SyncReplicaMode::ReadWrite,
             &ada.token,
@@ -126,7 +126,7 @@ async fn phase8_awareness_sanitized_exchange_postgres() {
             &instance.provider,
             collection,
             grace.id,
-            "Grace Hopper",
+            "Participant",
             AwarenessColor::Rose,
             SyncReplicaMode::ReadOnly,
             &grace.token,
@@ -159,10 +159,29 @@ async fn phase8_awareness_sanitized_exchange_postgres() {
         let joined_a: ServerAwarenessSnapshot =
             joined_a.expect("join snapshot for the first member");
         assert_eq!(joined_a.participants.len(), 1);
-        assert_eq!(joined_a.participants[0].name, "Ada Lovelace");
+        assert_eq!(joined_a.participants[0].name, "Participant 1");
         assert_eq!(joined_a.participants[0].color, AwarenessColor::Teal);
         assert_eq!(joined_a.participants[0].status, AwarenessStatus::Active);
         assert!(joined_a.participants[0].selections.is_empty());
+
+        let stalled = open_unsynced_session(
+            &instance,
+            &http,
+            collection,
+            &grace.token,
+            &grace.signing,
+            ORIGIN_A,
+            "notes/phase8.md",
+            SyncReplicaMode::ReadOnly,
+        )
+        .await;
+        assert!(
+            timeout(Duration::from_millis(300), recv_snapshot(&mut socket_a))
+                .await
+                .is_err(),
+            "an authenticated but unsynced socket became visible"
+        );
+        drop(stalled);
 
         let (mut socket_b, joined_b) = open_awareness_session(
             &instance,
@@ -177,12 +196,12 @@ async fn phase8_awareness_sanitized_exchange_postgres() {
         .await;
         let joined_b = joined_b.expect("join snapshot includes existing members");
         assert_eq!(joined_b.participants.len(), 2);
-        assert_eq!(joined_b.participants[0].name, "Ada Lovelace");
-        assert_eq!(joined_b.participants[1].name, "Grace Hopper");
+        assert_eq!(joined_b.participants[0].name, "Participant 1");
+        assert_eq!(joined_b.participants[1].name, "Participant 2");
 
         let observed_by_a = recv_snapshot(&mut socket_a).await;
         assert_eq!(observed_by_a.participants.len(), 2);
-        assert_eq!(observed_by_a.participants[0].name, "Ada Lovelace");
+        assert_eq!(observed_by_a.participants[0].name, "Participant 1");
 
         let baseline = durable_snapshot(&instance.provider.pool, collection, record).await;
 
@@ -202,7 +221,7 @@ async fn phase8_awareness_sanitized_exchange_postgres() {
         let grace_view = seen_by_b
             .participants
             .iter()
-            .find(|participant| participant.name == "Grace Hopper")
+            .find(|participant| participant.color == AwarenessColor::Rose)
             .expect("self appears in the complete snapshot");
         assert_eq!(grace_view.status, AwarenessStatus::Active);
         assert_eq!(grace_view.selections.len(), 1);
@@ -211,8 +230,8 @@ async fn phase8_awareness_sanitized_exchange_postgres() {
         let grace_on_a = seen_by_a
             .participants
             .iter()
-            .find(|participant| participant.name == "Grace Hopper")
-            .expect("grace visible to ada");
+            .find(|participant| participant.color == AwarenessColor::Rose)
+            .expect("read-only collaborator visible to writer");
         assert_eq!(grace_on_a.status, AwarenessStatus::Active);
         assert_eq!(grace_on_a.selections.len(), 1);
 
@@ -252,7 +271,7 @@ async fn phase8_awareness_spoof_rejection_postgres() {
             &instance.provider,
             collection,
             ada.id,
-            "Ada Lovelace",
+            "Participant",
             AwarenessColor::Teal,
             SyncReplicaMode::ReadWrite,
             &ada.token,
@@ -264,7 +283,7 @@ async fn phase8_awareness_spoof_rejection_postgres() {
             &instance.provider,
             collection,
             grace.id,
-            "Grace Hopper",
+            "Participant",
             AwarenessColor::Rose,
             SyncReplicaMode::ReadOnly,
             &grace.token,
@@ -349,8 +368,7 @@ async fn phase8_awareness_spoof_rejection_postgres() {
         assert!(final_view
             .participants
             .iter()
-            .all(|participant| participant.name == "Ada Lovelace"
-                || participant.name == "Grace Hopper"));
+            .all(|participant| participant.name.starts_with("Participant ")));
 
         drop(survivor);
         stop_instance(instance).await;
@@ -394,7 +412,7 @@ async fn phase8_awareness_leave_revoke_expiry_postgres() {
             &instance.provider,
             collection,
             ada.id,
-            "Ada",
+            "Participant",
             AwarenessColor::Teal,
             SyncReplicaMode::ReadWrite,
             &ada.token,
@@ -406,7 +424,7 @@ async fn phase8_awareness_leave_revoke_expiry_postgres() {
             &instance.provider,
             collection,
             grace.id,
-            "Grace",
+            "Participant",
             AwarenessColor::Rose,
             SyncReplicaMode::ReadOnly,
             &grace.token,
@@ -418,7 +436,7 @@ async fn phase8_awareness_leave_revoke_expiry_postgres() {
             &instance.provider,
             collection,
             heidi.id,
-            "Heidi",
+            "Participant",
             AwarenessColor::Blue,
             SyncReplicaMode::ReadOnly,
             &heidi.token,
@@ -483,7 +501,7 @@ async fn phase8_awareness_leave_revoke_expiry_postgres() {
         drop(heidi_socket);
         let observed = recv_snapshot(&mut observer_stream).await;
         assert_eq!(observed.participants.len(), 1);
-        assert_eq!(observed.participants[0].name, "Ada");
+        assert_eq!(observed.participants[0].name, "Participant 1");
 
         // Grace is revoked: target-close removes her presence immediately.
         let (mut grace_socket, _) = open_awareness_session(
@@ -510,7 +528,7 @@ async fn phase8_awareness_leave_revoke_expiry_postgres() {
         // ...and her presence disappears from the room.
         let observed = recv_snapshot(&mut observer_stream).await;
         assert_eq!(observed.participants.len(), 1);
-        assert_eq!(observed.participants[0].name, "Ada");
+        assert_eq!(observed.participants[0].name, "Participant 1");
 
         // Silent goes quiet. Its lease refreshes only from activity, so its
         // visibility lapses within TTL + one sweep even though its socket
@@ -520,7 +538,7 @@ async fn phase8_awareness_leave_revoke_expiry_postgres() {
             &instance.provider,
             collection,
             silent.id,
-            "Silent",
+            "Participant",
             AwarenessColor::Slate,
             SyncReplicaMode::ReadOnly,
             &silent.token,
@@ -586,7 +604,7 @@ async fn phase8_awareness_multi_instance_isolation_postgres() {
             &instance_a.provider,
             collection,
             ada.id,
-            "Ada",
+            "Participant",
             AwarenessColor::Teal,
             SyncReplicaMode::ReadWrite,
             &ada.token,
@@ -598,7 +616,7 @@ async fn phase8_awareness_multi_instance_isolation_postgres() {
             &instance_a.provider,
             collection,
             grace.id,
-            "Grace",
+            "Participant",
             AwarenessColor::Rose,
             SyncReplicaMode::ReadOnly,
             &grace.token,
@@ -631,7 +649,7 @@ async fn phase8_awareness_multi_instance_isolation_postgres() {
         .await;
         let joined_a = joined_a.expect("join snapshot");
         assert_eq!(joined_a.participants.len(), 1);
-        assert_eq!(joined_a.participants[0].name, "Ada");
+        assert_eq!(joined_a.participants[0].name, "Participant 1");
 
         let (mut socket_b, joined_b) = open_awareness_session(
             &instance_b,
@@ -646,21 +664,18 @@ async fn phase8_awareness_multi_instance_isolation_postgres() {
         .await;
         let joined_b = joined_b.expect("join snapshot");
         assert_eq!(joined_b.participants.len(), 1);
-        assert_eq!(joined_b.participants[0].name, "Grace");
+        assert_eq!(joined_b.participants[0].name, "Participant 1");
 
         // No cross-instance rebroadcasts arrive: a quiet second passes with no
         // frames on either socket.
-        let mut leak: Option<String> = None;
-        let _quiet = timeout(Duration::from_millis(700), async {
-            if let Some(message) = socket_a.next().await {
-                leak = Some(format!("instance A received: {message:?}"));
-                return;
-            }
-            if let Some(message) = socket_b.next().await {
-                leak = Some(format!("instance B received: {message:?}"));
+        let leak = timeout(Duration::from_millis(700), async {
+            tokio::select! {
+                message = socket_a.next() => format!("instance A received: {message:?}"),
+                message = socket_b.next() => format!("instance B received: {message:?}"),
             }
         })
-        .await;
+        .await
+        .ok();
         if let Some(leak) = leak {
             panic!("cross-instance presence leaked: {leak}");
         }
@@ -689,7 +704,7 @@ async fn phase8_awareness_multi_instance_isolation_postgres() {
             .unwrap();
         let observed = recv_snapshot(&mut socket_b).await;
         assert_eq!(observed.participants.len(), 1);
-        assert_eq!(observed.participants[0].name, "Grace");
+        assert_eq!(observed.participants[0].name, "Participant 1");
 
         drop(socket_a);
         drop(socket_b);
@@ -708,13 +723,13 @@ async fn phase8_awareness_multi_instance_isolation_postgres() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires a disposable MDBASE_COLLABORATION_PHASE3_DATABASE_URL PostgreSQL database"]
-async fn phase8_awareness_migration0044_postgres() {
+async fn phase8_awareness_migrations0044_0045_postgres() {
     use futures_util::FutureExt;
 
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     let base = std::env::var("MDBASE_COLLABORATION_PHASE3_DATABASE_URL").expect("database URL");
     let admin = sqlx::PgPool::connect(&base).await.unwrap();
-    let schema = format!("phase8_migration0044_{}", Uuid::new_v4().simple());
+    let schema = format!("phase8_migrations0044_0045_{}", Uuid::new_v4().simple());
     sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
         .execute(&admin)
         .await
@@ -735,6 +750,7 @@ async fn phase8_awareness_migration0044_postgres() {
         // binary runs against in production.
         assert!(migrator.version_exists(43));
         assert!(migrator.version_exists(44));
+        assert!(migrator.version_exists(45));
         migrator.run_to(43, &pool).await.unwrap();
         let applied: Vec<i64> =
             sqlx::query("SELECT version FROM _sqlx_migrations ORDER BY version")
@@ -819,26 +835,40 @@ async fn phase8_awareness_migration0044_postgres() {
             .unwrap();
         }
 
-        // Apply 0044 transactionally with populated pre-upgrade rows.
+        // Apply immutable 0044 first, then simulate the immediately preceding
+        // awareness-enabled binary storing a bounded profile name.
+        migrator.run_to(44, &pool).await.unwrap();
+        sqlx::query(
+            "UPDATE hosted_provider_replicas SET awareness_name = 'Legacy Profile' WHERE id = $1",
+        )
+        .bind(collab_replica)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Follow-up 0045 sanitizes that stored PII before enforcing the exact
+        // generic-name invariant.
         migrator.run(&pool).await.unwrap();
 
-        // The ledger recorded 0044 with its checksum.
+        // The ledger recorded both immutable migrations with their checksums.
         let ledger: Vec<(i64, Vec<u8>)> = sqlx::query_as(
             "SELECT version, checksum FROM _sqlx_migrations ORDER BY version",
         )
         .fetch_all(&pool)
         .await
         .unwrap();
-        let applied_44 = ledger
-            .iter()
-            .find(|(version, _)| *version == 44)
-            .expect("migration 0044 missing from the ledger");
-        let expected_checksum: &[u8] = &migrator
-            .iter()
-            .find(|migration| migration.version == 44)
-            .unwrap()
-            .checksum;
-        assert_eq!(applied_44.1.as_slice(), expected_checksum);
+        for version in [44_i64, 45_i64] {
+            let applied = ledger
+                .iter()
+                .find(|(applied, _)| *applied == version)
+                .unwrap_or_else(|| panic!("migration {version} missing from the ledger"));
+            let expected_checksum: &[u8] = &migrator
+                .iter()
+                .find(|migration| migration.version == version)
+                .unwrap()
+                .checksum;
+            assert_eq!(applied.1.as_slice(), expected_checksum);
+        }
 
         // Existing rows carry the safe generic identity: no user, replica,
         // grant, session, account, or record identifier.
@@ -868,7 +898,15 @@ async fn phase8_awareness_migration0044_postgres() {
         .await
         .unwrap();
 
-        // The identity CHECKs reject malformed values at the database too.
+        // The identity CHECKs reject profile-like names and malformed values
+        // at the database too.
+        let profile_name = sqlx::query(
+            "UPDATE hosted_provider_replicas SET awareness_name = 'Profile Name' WHERE collection_id = $1",
+        )
+        .bind(collection)
+        .execute(&pool)
+        .await;
+        assert!(profile_name.is_err());
         let bad_color = sqlx::query(
             "UPDATE hosted_provider_replicas SET awareness_color = 'crimson' WHERE collection_id = $1",
         )
@@ -890,6 +928,51 @@ async fn phase8_awareness_migration0044_postgres() {
         .execute(&pool)
         .await;
         assert!(oversized.is_err(), "oversized name accepted");
+
+        // A pre-0044 ordinary replica remains idempotently registerable after
+        // the generic backfill. Simulate that stored shape against the real
+        // provider path rather than comparing raw SQL only.
+        let retry_instance = start_instance(&base, &schema).await;
+        let retry_replica = RegisterReplica {
+            replica_id: Uuid::new_v4(),
+            name: "ordinary retry".into(),
+            purpose: ReplicaPurpose::Mirror,
+            mode: SyncReplicaMode::ReadOnly,
+            allowed_types: Vec::new(),
+            contract_scope: Vec::new(),
+            full_collection: false,
+            allowed_operations: Vec::new(),
+            operation_transport_protocol: None,
+            operation_transport_recovery_protocols: Vec::new(),
+            file_capability: None,
+            collaboration_capability: None,
+            awareness_identity: None,
+            allowed_origin: None,
+            proof_public_key: None,
+            grant_id: None,
+            application_declaration_id: None,
+            application_declaration_digest: None,
+            token: format!("phase8-ordinary-retry-{}", Uuid::new_v4()),
+            token_ttl_seconds: Some(3600),
+        };
+        retry_instance
+            .provider
+            .register_replica(collection, retry_replica.clone())
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE hosted_provider_replicas SET awareness_name = 'Participant', awareness_color = 'slate' WHERE id = $1",
+        )
+        .bind(retry_replica.replica_id)
+        .execute(&retry_instance.provider.pool)
+        .await
+        .unwrap();
+        retry_instance
+            .provider
+            .register_replica(collection, retry_replica)
+            .await
+            .expect("ordinary replica retry conflicted with generic backfill");
+        stop_instance(retry_instance).await;
 
         // Re-running the full chain is a no-op.
         migrator.run(&pool).await.unwrap();

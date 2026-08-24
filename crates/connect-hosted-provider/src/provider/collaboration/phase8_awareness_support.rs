@@ -23,14 +23,14 @@ use tokio_tungstenite::{
     connect_async, tungstenite::client::IntoClientRequest, tungstenite::Message,
 };
 
-pub(super) fn awareness_hello_advertisement() -> Value {
+pub(super) fn awareness_hello_advertisement(ttl_seconds: u64) -> Value {
     json!({
         "version": 1,
         "scope": "provider_instance",
         "max_participants": 16,
         "max_selections": 4,
         "max_updates_per_second": 8,
-        "ttl_seconds": 30
+        "ttl_seconds": ttl_seconds
     })
 }
 
@@ -288,6 +288,43 @@ pub(super) async fn fresh_ticket(
         .to_owned()
 }
 
+/// Open and authenticate a socket but deliberately do not start durable sync.
+/// Used to prove authentication alone never creates visible presence.
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn open_unsynced_session(
+    instance: &Instance,
+    http: &reqwest::Client,
+    collection: Uuid,
+    token: &str,
+    signing: &p256::ecdsa::SigningKey,
+    origin: &str,
+    record_path: &str,
+    mode: SyncReplicaMode,
+) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>> {
+    let mut request = format!("ws://{}/v1/collaboration", instance.address)
+        .into_client_request()
+        .unwrap();
+    request
+        .headers_mut()
+        .insert(ORIGIN, HeaderValue::from_str(origin).unwrap());
+    let (mut socket, _) = connect_async(request).await.unwrap();
+    let ticket = fresh_ticket(
+        http,
+        instance.address,
+        collection,
+        record_path,
+        origin,
+        token,
+        signing,
+        mode,
+    )
+    .await;
+    phase7_authenticate(&mut socket, &ticket).await;
+    let hello = recv_any_frame(&mut socket).await;
+    assert_eq!(hello.kind, CollaborationMessageKind::Hello);
+    socket
+}
+
 /// Open a socket, authenticate with a fresh ticket, verify the Hello
 /// advertisement, sync, and absorb the join snapshot. Returns the socket plus
 /// the participants observed at join time.
@@ -330,7 +367,9 @@ pub(super) async fn open_awareness_session(
     // no client can mistake local membership for cross-instance completeness.
     assert_eq!(
         hello.metadata.get("awareness"),
-        Some(&awareness_hello_advertisement())
+        Some(&awareness_hello_advertisement(
+            instance.provider.collaboration_awareness_ttl().as_secs()
+        ))
     );
     // Sync the durable document; join and update snapshots may interleave.
     let mut client = MarkdownBodyDocument::new("", 2 * 1024 * 1024).unwrap();
@@ -348,7 +387,8 @@ pub(super) async fn open_awareness_session(
         .await
         .unwrap();
     let mut joined_snapshot = None;
-    loop {
+    let mut durable_synced = false;
+    while !durable_synced || joined_snapshot.is_none() {
         let message = recv_message(&mut socket).await;
         let Message::Binary(bytes) = message else {
             panic!("expected a binary frame while syncing, got {message:?}");
@@ -367,7 +407,7 @@ pub(super) async fn open_awareness_session(
                 client
                     .apply_update_v1(&frame.payload, 2 * 1024 * 1024, 2 * 1024 * 1024)
                     .unwrap();
-                break;
+                durable_synced = true;
             }
             other => panic!("unexpected frame kind {other:?} while syncing"),
         }

@@ -769,7 +769,7 @@ export async function approveHostedAuthorization(
     const applicationInstallationId =
       pending.application_authorization.binding.application_installation_id;
     const membershipBinding = membershipBindingForAccess(currentAccess);
-    const awarenessIdentity = await resolveGrantAwarenessIdentity(connection, input.userId,
+    const awarenessIdentity = resolveGrantAwarenessIdentity(input.userId,
       input.collectionId, plan.collaborationCapability !== undefined);
     const existing = await connection.query<{
       id: string;

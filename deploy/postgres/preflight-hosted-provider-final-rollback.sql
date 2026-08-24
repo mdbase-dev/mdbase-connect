@@ -50,15 +50,15 @@ BEGIN
   FROM _sqlx_migrations;
   SELECT count(*)
     INTO missing_migrations
-  FROM generate_series(1, 43) AS required(version)
+  FROM generate_series(1, 45) AS required(version)
   WHERE NOT EXISTS (
     SELECT 1 FROM _sqlx_migrations applied
     WHERE applied.version = required.version AND applied.success
   );
-  IF migration_count <> 43 OR minimum_version <> 1 OR maximum_version <> 43
+  IF migration_count <> 45 OR minimum_version <> 1 OR maximum_version <> 45
      OR failed_migrations <> 0 OR missing_migrations <> 0 THEN
     RAISE EXCEPTION
-      'final_rollback_blocked: expected exact successful final ledger 1-43';
+      'final_rollback_blocked: expected exact successful final ledger 1-45';
   END IF;
 
   SELECT array_agg(expected.version ORDER BY expected.version)
@@ -106,7 +106,9 @@ BEGIN
     (40, decode('cfa1d41f91905bf8b1f82ca9384fecc2482bcb65f2f22bfff7aaa29032725f1a5fa24114be455f249a615c23bbd3e33f', 'hex')),
     (41, decode('affdb327ac815bd3c53e26b76bebaed02e6dd6cd7a85054d6dff1b7bf588622a2ec79f63c6869c519a40095ebc355a69', 'hex')),
     (42, decode('c64a6a73759a1285af194f0f2b50c5b1deb08e5e936f3af74051742e4b8f76cea320196150cedb6e5c19f6f25272007a', 'hex')),
-    (43, decode('bed62541f35561a672d5621d55b2e8a3895d9342e6e731ba71ea2e430c04a973dcc98bdb0131a773c0e6b0e8a24e190a', 'hex'))
+    (43, decode('bed62541f35561a672d5621d55b2e8a3895d9342e6e731ba71ea2e430c04a973dcc98bdb0131a773c0e6b0e8a24e190a', 'hex')),
+    (44, decode('533e1b8f25517f5569d2f29227e47f43cc9a9f85aeff9e86eb9f4033c73e7b95e9ed5739c6aa7c5adbe1fa3ba6e98c50', 'hex')),
+    (45, decode('3905137ad393f365ec07e021fa25e5fabe5aef36231c451a85fd09f1f731bfce66da29e7e4cf18c7737fba9ea840bbe3', 'hex'))
   ) AS expected(version, checksum)
   LEFT JOIN _sqlx_migrations applied ON applied.version = expected.version
   WHERE applied.checksum IS DISTINCT FROM expected.checksum;

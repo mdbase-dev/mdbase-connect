@@ -188,7 +188,11 @@ test("snapshots allow duplicate names and colors but bound counts and names", ()
     () => encodeAwarenessSnapshotMetadata({ participants: excess }),
     (error) => error.code === "awareness_too_many_participants"
   );
-  for (const name of ["", " padded", "padded ", "a\u0007", "a\u202Eb", "a\u2066b", "e\u0301"]) {
+  for (const name of [
+    "", " padded", "padded ", "a\u0007", "a\u061Cb", "a\u200Bb",
+    "a\u200Eb", "a\u2028b", "a\u202Eb", "a\u2060b", "a\u2066b",
+    "a\uFEFFb", "e\u0301"
+  ]) {
     assert.equal(isValidAwarenessDisplayName(name), false, `${name} accepted`);
   }
   assert.equal(
@@ -267,6 +271,11 @@ test("the Hello advertisement is exact and provider-instance scoped", () => {
     max_updates_per_second: 8,
     ttl_seconds: 30
   });
+  assert.equal(awarenessHelloAdvertisement(2).ttl_seconds, 2);
+  assert.throws(
+    () => awarenessHelloAdvertisement(0),
+    (error) => error.code === "awareness_ttl_invalid"
+  );
   assert.equal(COLLABORATION_MESSAGE_KIND.awareness, 7);
   assert.equal(AWARENESS_COLORS.length, 8);
 });

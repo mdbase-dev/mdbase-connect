@@ -52,7 +52,9 @@ client-to-server awareness frame carries an empty payload plus exactly
 unique ranges, offsets bounded by the collaboration document limit, at most
 eight updates per second with at least 125 ms spacing. Unknown, deep,
 identity-bearing, textual, or path-bearing fields reject the frame and close
-the session.
+the session. Read-only collaborators may publish this bounded cursor/status
+state; it is therefore treated as an explicitly rate-limited ephemeral
+write-like channel, never as durable record authority.
 
 The server is the only authority for presentation identity. It broadcasts
 complete replacement snapshots of exactly `{participants: [{name, color,
@@ -64,18 +66,19 @@ Duplicate names and colors are allowed. Snapshots never carry user, replica,
 grant, session, account, or record identifiers, timestamps, emails, selected
 text, or arbitrary status strings.
 
-Identity is plumbed from the authenticated control-plane user at replica
-registration and policy update time (`awareness_identity` on the internal
-register/policy payloads): the display name comes from `users.name` -- never
-the email -- normalized to NFC and trimmed, degrading to the generic bounded
-identity `Participant`/`slate` when the stored name cannot satisfy the wire
-rules; the color is derived deterministically from SHA-256 over the domain
-separator `mdbase:collaboration-awareness-color:v1`, the collection UUID, and
-the user UUID, mapped onto the fixed palette. Migration 0044 stores these
-columns on hosted replicas, backfills existing rows (including ordinary
-non-collaboration replicas, harmlessly) with the generic identity, enforces
-the shape constraints in SQL, and stays compatible with binaries that predate
-it because the column defaults keep every previous INSERT path valid. A
+The private experiment deliberately does not copy profile names or other PII
+into provider storage. Control-plane registration supplies the generic name
+`Participant` plus a color derived from SHA-256 over the domain separator
+`mdbase:collaboration-awareness-color:v1`, collection UUID, and authenticated
+user UUID. The provider adds a process-local room ordinal such as
+`Participant 2`, preventing visually identical generic entries without
+serializing an identifier. Immutable migration 0044 adds the bounded identity
+columns and rollback-safe defaults; migration 0045 sanitizes any profile names
+stored by the preceding private build and enforces the exact generic name.
+Existing ordinary replicas are backfilled harmlessly, and binaries predating
+awareness remain INSERT-compatible through the defaults. Migration 0045 must
+be applied with collaboration admission fenced and after the control plane is
+emitting generic identities; the feature remains disabled and unadvertised. A
 collaboration capability without an identity is rejected at registration, and
 changing the identity advances the scope epoch, deleting outstanding tickets;
 live sessions close through the existing policy hook. Ticket consumption
@@ -84,16 +87,21 @@ clients can never supply their own name or color.
 
 Awareness state is process-local only: it lives inside the session runtime as
 room membership RAII, ordered complete-snapshot generation counters, and a
-watch-coalesced rebroadcast per room. It never reaches SQL, the notification
+watch-coalesced rebroadcast per room. Membership begins only after durable
+SyncStep2 has been delivered, so authenticated stalled sockets are never
+visible and consume no presence capacity. Awareness never reaches SQL, the notification
 outbox, receipts, or logs. Hello advertises the exact contract
 `{version: 1, scope: "provider_instance", max_participants: 16,
-max_selections: 4, max_updates_per_second: 8, ttl_seconds: 30}` so no client
-can mistake local membership for cross-instance completeness; two provider
-instances on the same database explicitly do not exchange presence. Read-only
-sessions participate like read-write ones -- awareness gates nothing durable.
-Every session activity refreshes the visibility lease; participants whose
-lease lapses (thirty seconds by default) are swept and removed, as are
-sessions lost to close, drain, revocation, rotation, or downgrade. Draining
+max_selections: 4, max_updates_per_second: 8, ttl_seconds: <configured>}` so
+no client can mistake local membership for cross-instance completeness or a
+fixed lease; two provider instances on the same database explicitly do not
+exchange presence. Read-only sessions participate like read-write ones --
+awareness gates nothing durable. Only accepted sync, durable update, heartbeat,
+or awareness activity refreshes the visibility lease. Participants whose
+lease lapses (thirty seconds by default) are hidden while their connected
+membership continues to consume caps; accepted activity can show them again.
+Sessions lost to close, drain, revocation, rotation, or downgrade are removed.
+Draining
 the runtime ends all awareness deterministically.
 
 ## Internal multi-instance catch-up slice
