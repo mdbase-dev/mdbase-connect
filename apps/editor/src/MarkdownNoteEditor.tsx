@@ -62,7 +62,7 @@ export function MarkdownNoteEditor({ editorKey, draft, preferences, documentId, 
         onDismissLinkPreview={onDismissLinkPreview} embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes}
         onOpenFile={onOpenFile} files={files} notes={notes} onOpenFileLink={onOpenFileLink}
         onVisibleFileEmbeds={onVisibleFileEmbeds} onVisibleNoteEmbeds={onVisibleNoteEmbeds} insertion={insertion}
-        readOnly={collaborationReadOnly} collaboration={collaboration} />
+        readOnly={collaborationReadOnly} collaborationExpected={collaborationExpected} collaboration={collaboration} />
     </Suspense>
   </article>;
 }

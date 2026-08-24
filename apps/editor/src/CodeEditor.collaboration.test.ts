@@ -1,6 +1,7 @@
 import { EditorState, Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { render, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { yCollab, yUndoManagerKeymap } from "y-codemirror.next";
@@ -59,6 +60,24 @@ describe("CodeMirror collaboration profile spike", () => {
     await waitFor(() => expect(visible()).toBe("# Shared\n\nExact body\nRemote update\n"));
     expect(onChange).not.toHaveBeenCalled();
     expect(body.toString()).toBe("# Shared\n\nExact body\nRemote update\n");
+  });
+
+  it("does not publish conventional draft callbacks while a room binding is pending", async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(createElement(CodeEditor, {
+      value: "Pending",
+      label: "Pending collaborative body",
+      collaborationExpected: true,
+      onChange
+    }));
+
+    const content = document.querySelector<HTMLElement>(".cm-content");
+    expect(content).not.toBeNull();
+    await user.click(content!);
+    await user.keyboard("{End} update");
+    await waitFor(() => expect(content).toHaveTextContent("Pending update"));
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("binds the complete exact body, including heading and Unicode, to Y.Text", () => {

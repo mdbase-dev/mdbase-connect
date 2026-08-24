@@ -78,6 +78,7 @@ interface CodeEditorProps {
   onVisibleNoteEmbeds?: (keys: string[]) => void;
   insertion?: { id: number; text: string; block?: boolean };
   onBlur?: () => void;
+  collaborationExpected?: boolean;
   collaboration?: {
     room: ExperimentalHostedMarkdownRoom;
     extension: Extension;
@@ -136,6 +137,7 @@ export function CodeEditor({
   onVisibleNoteEmbeds,
   insertion,
   onBlur,
+  collaborationExpected = false,
   collaboration
 }: CodeEditorProps) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -245,7 +247,7 @@ export function CodeEditor({
       placeholderMode.current.of(placeholder ? editorPlaceholder(placeholder) : []),
       collaboration?.extension ?? [],
       EditorView.updateListener.of((update) => {
-        if (update.docChanged && !syncing.current && !collaboration) {
+        if (update.docChanged && !syncing.current && !collaborationExpected && !collaboration) {
           onChangeRef.current?.(restoreLineSeparators(update.state.doc.toString(), lineSeparator.current));
         }
         if (collaboration && (update.docChanged || update.selectionSet)) {
