@@ -143,6 +143,7 @@ export function CodeEditor({
   const parentRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | undefined>(undefined);
   const onChangeRef = useRef(onChange);
+  const collaborationExpectedRef = useRef(collaborationExpected || Boolean(collaboration));
   const syncing = useRef(false);
   const vimMode = useRef(new Compartment());
   const wrapping = useRef(new Compartment());
@@ -190,6 +191,7 @@ export function CodeEditor({
   onOpenFileLinkRef.current = onOpenFileLink;
   onVisibleFileEmbedsRef.current = onVisibleFileEmbeds;
   onVisibleNoteEmbedsRef.current = onVisibleNoteEmbeds;
+  collaborationExpectedRef.current = collaborationExpected || Boolean(collaboration);
 
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
 
@@ -247,7 +249,7 @@ export function CodeEditor({
       placeholderMode.current.of(placeholder ? editorPlaceholder(placeholder) : []),
       collaboration?.extension ?? [],
       EditorView.updateListener.of((update) => {
-        if (update.docChanged && !syncing.current && !collaborationExpected && !collaboration) {
+        if (update.docChanged && !syncing.current && !collaborationExpectedRef.current) {
           onChangeRef.current?.(restoreLineSeparators(update.state.doc.toString(), lineSeparator.current));
         }
         if (collaboration && (update.docChanged || update.selectionSet)) {

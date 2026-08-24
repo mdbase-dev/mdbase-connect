@@ -65,7 +65,13 @@ describe("CodeMirror collaboration profile spike", () => {
   it("does not publish conventional draft callbacks while a room binding is pending", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
-    render(createElement(CodeEditor, {
+    const rendered = render(createElement(CodeEditor, {
+      value: "Pending",
+      label: "Pending collaborative body",
+      collaborationExpected: false,
+      onChange
+    }));
+    rendered.rerender(createElement(CodeEditor, {
       value: "Pending",
       label: "Pending collaborative body",
       collaborationExpected: true,
