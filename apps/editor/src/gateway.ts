@@ -220,6 +220,28 @@ export class ConnectCollectionGateway implements CollectionGateway {
     return requireOutcome(await this.requireConnection().read({ path, includeDocument: true }));
   }
 
+  async openExperimentalCollaboration(options: {
+    path: string;
+    maxBodyBytes: number;
+    signal?: AbortSignal;
+  }): Promise<import("@mdbase-dev/connect-collaboration").ExperimentalHostedMarkdownRoom | null> {
+    if (!__MDBASE_EDITOR_EXPERIMENTAL_HOSTED_COLLABORATION__) return null;
+    const connection = this.activeConnection();
+    const info = connection?.info();
+    if (!connection || info?.authority.kind !== "hosted" || !info.collaborationCapability) {
+      return null;
+    }
+    const { openExperimentalHostedMarkdownRoom } = await import(
+      "@mdbase-dev/connect-collaboration"
+    );
+    return openExperimentalHostedMarkdownRoom(connection, {
+      path: options.path,
+      maxBodyBytes: options.maxBodyBytes,
+      mode: info.collaborationCapability.access,
+      ...(options.signal ? { signal: options.signal } : {})
+    });
+  }
+
   async listFiles({ signal, onProgress }: FileListRequest = {}): Promise<CollectionFile[]> {
     const files: CollectionFile[] = [];
     let published = 0;
@@ -483,7 +505,10 @@ function summarizeConnection(connection: MdbaseConnectionInfo): ConnectionSummar
     operations: connection.operations,
     authorityKind: connection.authority.kind,
     directAccess: connection.directAccess,
-    fileActions: connection.fileCapability?.actions
+    fileActions: connection.fileCapability?.actions,
+    ...(connection.collaborationCapability
+      ? { collaborationAccess: connection.collaborationCapability.access }
+      : {})
   };
 }
 

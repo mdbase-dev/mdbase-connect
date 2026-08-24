@@ -183,6 +183,10 @@ export class DemoCollectionGateway implements CollectionGateway {
     return clone(this.required(path));
   }
 
+  async openExperimentalCollaboration(): Promise<null> {
+    return null;
+  }
+
   async listFiles({ signal, onProgress }: FileListRequest = {}): Promise<CollectionFile[]> {
     signal?.throwIfAborted();
     const files = clone(this.files);
