@@ -86,7 +86,7 @@ describe("experimental hosted collaboration tickets", () => {
     await expect(fixture.transport.issueExperimentalCollaborationTicket({ path: "Notes/one.md" }))
       .resolves.toEqual({
         ticket: "opaque-ticket",
-        webSocketUrl: `wss://provider.example/v1/authorities/${COLLECTION_ID}/collaboration/socket`,
+        webSocketUrl: "wss://provider.example/v1/collaboration",
         expiresAt: EXPIRES_AT,
         profile: "markdown-body-yjs-v13",
         mode: "read_write",
@@ -164,6 +164,21 @@ describe("experimental hosted collaboration tickets", () => {
         ...ticketBody("read_write"),
         websocket_endpoint: "https://evil.example/socket"
       }, 201, { "cache-control": "no-store" }),
+      "read_write",
+      provider
+    )).rejects.toMatchObject({ code: "invalid_operation_response" });
+    await expect(decodeCollaborationTicketResponse(
+      jsonResponse({
+        ...ticketBody("read_write"),
+        websocket_endpoint: "/v1/not-collaboration"
+      }, 201, { "cache-control": "no-store" }),
+      "read_write",
+      provider
+    )).rejects.toMatchObject({ code: "invalid_operation_response" });
+    await expect(decodeCollaborationTicketResponse(
+      jsonResponse({ ...ticketBody("read_write"), epoch: 0 }, 201, {
+        "cache-control": "no-store"
+      }),
       "read_write",
       provider
     )).rejects.toMatchObject({ code: "invalid_operation_response" });
@@ -290,7 +305,7 @@ function ticketBody(mode: "read_only" | "read_write") {
     profile: "markdown-body-yjs-v13",
     mode,
     epoch: 7,
-    websocket_endpoint: `/v1/authorities/${COLLECTION_ID}/collaboration/socket`
+    websocket_endpoint: "/v1/collaboration"
   };
 }
 

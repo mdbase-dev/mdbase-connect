@@ -137,10 +137,15 @@ export function requireCollaborationTicketAuthorization(
   const capability = token.collaborationCapability;
   if (capability?.contract_version !== 1
       || capability.profiles.length !== 1
-      || capability.profiles[0] !== "markdown-body-yjs-v13") {
+      || capability.profiles[0] !== "markdown-body-yjs-v13"
+      || token.scope.access !== "full_collection"
+      || token.scope.contracts.length !== 0
+      || !token.operations.includes("read")) {
     throw collaborationAccessError(token, "This authorization does not allow collaboration.");
   }
-  if (requestedMode === "read_write" && capability.access !== "read_write") {
+  const mode = requestedMode ?? capability.access;
+  if (mode === "read_write"
+      && (capability.access !== "read_write" || !token.operations.includes("update"))) {
     throw collaborationAccessError(token, "This authorization only allows read-only collaboration.");
   }
   let providerUrl: URL;
@@ -165,7 +170,7 @@ export function requireCollaborationTicketAuthorization(
     token: token as StoredToken & { authority: NonNullable<StoredToken["authority"]> },
     ticketUrl,
     providerUrl,
-    mode: requestedMode ?? capability.access
+    mode
   };
 }
 
@@ -232,7 +237,7 @@ export async function decodeCollaborationTicketResponse(
       || value.profile !== "markdown-body-yjs-v13"
       || value.mode !== requestedMode
       || !Number.isSafeInteger(value.epoch)
-      || (value.epoch as number) < 0
+      || (value.epoch as number) < 1
       || typeof value.websocket_endpoint !== "string"
       || value.websocket_endpoint.length === 0
       || value.websocket_endpoint.length > 2_048
@@ -247,6 +252,7 @@ export async function decodeCollaborationTicketResponse(
   }
   if ((endpoint.protocol !== "http:" && endpoint.protocol !== "https:")
       || endpoint.origin !== providerUrl.origin
+      || endpoint.pathname !== "/v1/collaboration"
       || endpoint.username
       || endpoint.password
       || endpoint.search
