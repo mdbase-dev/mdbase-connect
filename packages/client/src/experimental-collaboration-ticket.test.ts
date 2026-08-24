@@ -111,6 +111,33 @@ describe("experimental hosted collaboration tickets", () => {
     });
   });
 
+  it("binds reconnect tickets to the previously observed epoch", async () => {
+    const fixture = await transportFixture();
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(ticketResponse());
+
+    await expect(fixture.transport.issueExperimentalCollaborationTicket({
+      path: "note.md",
+      epoch: 7
+    })).resolves.toMatchObject({ epoch: 7 });
+    expect(fetch.mock.calls[0]![1]?.body).toBe(JSON.stringify({
+      path: "note.md",
+      profile: "markdown-body-yjs-v13",
+      mode: "read_write",
+      epoch: 7
+    }));
+
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({
+      ...ticketBody("read_write"), epoch: 8
+    }), {
+      status: 201,
+      headers: { "content-type": "application/json", "cache-control": "no-store" }
+    }));
+    await expect(fixture.transport.issueExperimentalCollaborationTicket({
+      path: "note.md",
+      epoch: 7
+    })).rejects.toMatchObject({ code: "invalid_operation_response" });
+  });
+
   it("refreshes and revalidates exactly once after a 401", async () => {
     const fixture = await transportFixture({ refreshToken: "refresh-1" });
     const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
@@ -178,6 +205,13 @@ describe("experimental hosted collaboration tickets", () => {
     )).rejects.toMatchObject({ code: "invalid_operation_response" });
     await expect(decodeCollaborationTicketResponse(
       jsonResponse({ ...ticketBody("read_write"), epoch: 0 }, 201, {
+        "cache-control": "no-store"
+      }),
+      "read_write",
+      provider
+    )).rejects.toMatchObject({ code: "invalid_operation_response" });
+    await expect(decodeCollaborationTicketResponse(
+      jsonResponse({ ...ticketBody("read_write"), expires_at: "2099-01-01" }, 201, {
         "cache-control": "no-store"
       }),
       "read_write",

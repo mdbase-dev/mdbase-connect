@@ -9,6 +9,8 @@ export type ExperimentalCollaborationMode = "read_only" | "read_write";
 export interface ExperimentalCollaborationTicketRequest extends ConnectRequestOptions {
   path: string;
   mode?: ExperimentalCollaborationMode;
+  /** Bind reconnect to the room epoch learned from the previous ticket. */
+  epoch?: number;
 }
 
 export interface ExperimentalCollaborationTicketResult {

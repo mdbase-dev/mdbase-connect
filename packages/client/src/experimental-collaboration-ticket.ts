@@ -34,11 +34,16 @@ export async function issueExperimentalCollaborationTicket(
 ): Promise<ExperimentalCollaborationTicketResult> {
   const path = request.path;
   const requestedMode = request.mode;
+  const expectedEpoch = request.epoch;
   validateCollaborationTicketPath(path);
   if (requestedMode !== undefined
       && requestedMode !== "read_only"
       && requestedMode !== "read_write") {
     throw connectError("invalid_request", "The collaboration mode is invalid.");
+  }
+  if (expectedEpoch !== undefined
+      && (!Number.isSafeInteger(expectedEpoch) || expectedEpoch < 1)) {
+    throw connectError("invalid_request", "The collaboration epoch is invalid.");
   }
   return withCooperativeRequestBudget(request, issuer.defaultTimeoutMs, async (budget) => {
     const leases = issuer.grantKeyLeases();
@@ -51,6 +56,7 @@ export async function issueExperimentalCollaborationTicket(
         issuer,
         requireCollaborationTicketAuthorization(token, issuer.collectionId, requestedMode),
         path,
+        expectedEpoch,
         budget.signal
       );
       if (response.response.status === 401 && token?.refreshToken) {
@@ -60,14 +66,19 @@ export async function issueExperimentalCollaborationTicket(
           issuer,
           requireCollaborationTicketAuthorization(token, issuer.collectionId, requestedMode),
           path,
+          expectedEpoch,
           budget.signal
         );
       }
-      return await decodeCollaborationTicketResponse(
+      const ticket = await decodeCollaborationTicketResponse(
         response.response,
         response.mode,
         response.providerUrl
       );
+      if (expectedEpoch !== undefined && ticket.epoch !== expectedEpoch) {
+        throw invalidResponse("The collaboration ticket belongs to a different room epoch.");
+      }
+      return ticket;
     } catch (error) {
       throw operationTransportError(
         error,
@@ -85,10 +96,16 @@ async function sendCollaborationTicketRequest(
   issuer: CollaborationTicketIssuer,
   authorization: CollaborationTicketAuthorization,
   path: string,
+  expectedEpoch: number | undefined,
   signal: AbortSignal
 ): Promise<{ response: Response; mode: ExperimentalCollaborationMode; providerUrl: URL }> {
   const { token, ticketUrl, providerUrl, mode } = authorization;
-  const body = JSON.stringify({ path, profile: "markdown-body-yjs-v13", mode });
+  const body = JSON.stringify({
+    path,
+    profile: "markdown-body-yjs-v13",
+    mode,
+    ...(expectedEpoch === undefined ? {} : { epoch: expectedEpoch })
+  });
   const proof = await authorityProofHeaders(
     issuer.keyStore,
     token,
@@ -245,6 +262,7 @@ export async function decodeCollaborationTicketResponse(
       || /[\r\n\0]/.test(value.ticket)
       || typeof value.expires_at !== "string"
       || value.expires_at.length > 64
+      || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/u.test(value.expires_at)
       || !Number.isFinite(Date.parse(value.expires_at))
       || Date.parse(value.expires_at) <= Date.now()
       || value.profile !== "markdown-body-yjs-v13"
