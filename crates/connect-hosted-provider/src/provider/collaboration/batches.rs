@@ -354,6 +354,7 @@ impl HostedProvider {
                     &collection,
                     Some(lock_ids[0]),
                     super::mutations::HostedWriteSet {
+                        origin: super::mutations::HostedWriteOrigin::Collaboration(room),
                         before_records: BTreeMap::from([(
                             input.record_id,
                             room_state.record.clone(),

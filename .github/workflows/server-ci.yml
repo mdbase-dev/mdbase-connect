@@ -382,6 +382,7 @@ jobs:
         run: |
           cargo test --locked -p mdbase-connect-hosted-provider phase3_batch_engine_postgres -- --ignored --nocapture
           cargo test --locked -p mdbase-connect-hosted-provider phase3_real_two_headless_clients_postgres -- --ignored --nocapture
+          cargo test --locked -p mdbase-connect-hosted-provider phase5_conventional_writer_reconcile_postgres -- --ignored --nocapture
           cargo test --locked -p mdbase-connect-hosted-provider --test collaboration_storage_postgres -- --ignored --nocapture
           cargo test --locked -p mdbase-connect-hosted-provider --test collaboration_phase0 -- --ignored --nocapture
         env:

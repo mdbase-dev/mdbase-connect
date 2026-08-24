@@ -150,7 +150,7 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
     assert!(finalize.contains("admission_lease_expires_at > clock_timestamp()"));
     assert!(finalize.contains("admission_fence_token = NULL"));
     assert!(finalize.contains("admission_owner_expires_at = NULL"));
-    assert!(preflight.contains("expected exact successful final ledger 1-42"));
+    assert!(preflight.contains("expected exact successful final ledger 1-43"));
     assert!(preflight.contains("attest-hosted-provider-migration-ledger.sql"));
     assert!(preflight.contains("admission_fence_token = requested_token"));
     assert!(preflight.contains("DELETE FROM hosted_provider_query_cursors"));
@@ -168,7 +168,7 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
         assert!(!preflight.contains(&format!("DELETE FROM {canonical}")));
     }
     assert!(final_preflight.contains("REPEATABLE READ READ ONLY"));
-    assert!(final_preflight.contains("expected exact successful final ledger 1-42"));
+    assert!(final_preflight.contains("expected exact successful final ledger 1-43"));
     assert!(final_preflight.contains("migration checksum mismatch at version(s)"));
     assert!(final_preflight.contains("required final relation/index objects are absent"));
     assert!(final_preflight.contains("differ from the exact contract"));

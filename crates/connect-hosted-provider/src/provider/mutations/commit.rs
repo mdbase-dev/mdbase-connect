@@ -1,8 +1,19 @@
 use super::*;
 use crate::provider::projections::ActiveProjectionChange;
 
+/// Which writer owns this write set. Ordinary hosted mutations are
+/// `Conventional` and therefore own the collaboration room lifecycle for the
+/// records they touch; the collaboration batch engine passes its exact room
+/// so a durable CRDT commit never retires or advances its own epoch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HostedWriteOrigin {
+    Conventional,
+    Collaboration(crate::RoomIdentity),
+}
+
 /// The already-staged exact records and documents for one hosted write set.
 pub(crate) struct HostedWriteSet {
+    pub(crate) origin: HostedWriteOrigin,
     pub(crate) before_records: BTreeMap<Uuid, SyncRecord>,
     pub(crate) changed: Vec<(Uuid, Option<SyncRecord>, Option<String>)>,
     pub(crate) primary_record_id: Uuid,
@@ -103,6 +114,28 @@ pub(crate) async fn commit_hosted_write_set_in(
             "collection_quota_exceeded",
             "The mutation would exceed the hosted collection quota.",
         ));
+    }
+
+    // A conventional update or delete of a record that carries collaboration
+    // state atomically advances its durable epoch fence and removes every old
+    // room, ticket, update, and receipt in this transaction. The new ordinary
+    // body is never required to satisfy the collaboration profile: CRLF, NUL,
+    // or otherwise unsupported Markdown still commits and merely leaves the
+    // advanced fence ready for a later admission attempt. Collaboration batches
+    // pass their own room origin and never self-bump; mutation replay never
+    // reaches this committer because the journal resolves it first.
+    if write_set.origin == HostedWriteOrigin::Conventional {
+        let retired_ids: Vec<Uuid> = write_set
+            .changed
+            .iter()
+            .filter(|(record_id, after, _)| {
+                after.is_none() || write_set.before_records.contains_key(record_id)
+            })
+            .map(|(record_id, _, _)| *record_id)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        retire_collaboration_rooms_in(transaction, collection_id, &retired_ids).await?;
     }
 
     let mut primary = None;
@@ -240,6 +273,60 @@ pub(crate) async fn commit_hosted_write_set_in(
     .execute(&mut **transaction)
     .await?;
     Ok(HostedWriteSetCommit { head, primary })
+}
+
+/// Advance the durable collaboration epoch fence for each record and remove
+/// its rooms. Callers hold the collection row lock; record ids must be sorted
+/// and deduplicated so fence locks follow the global lock order. Documents are
+/// deleted before the fence advances because the composite foreign key only
+/// admits documents at the current epoch; both statements stay inside the
+/// caller's transaction. A bigint overflow fails closed and aborts the write.
+async fn retire_collaboration_rooms_in(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    sorted_record_ids: &[Uuid],
+) -> ApiResult<()> {
+    for record_id in sorted_record_ids {
+        let fenced: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+                 SELECT 1 FROM hosted_provider_collaboration_epoch_fences
+                 WHERE collection_id = $1 AND record_id = $2
+             ) OR EXISTS(
+                 SELECT 1 FROM hosted_provider_collaboration_documents
+                 WHERE collection_id = $1 AND record_id = $2
+             )",
+        )
+        .bind(collection_id)
+        .bind(record_id)
+        .fetch_one(&mut **transaction)
+        .await?;
+        if !fenced {
+            continue;
+        }
+        sqlx::query(
+            "DELETE FROM hosted_provider_collaboration_documents
+             WHERE collection_id = $1 AND record_id = $2",
+        )
+        .bind(collection_id)
+        .bind(record_id)
+        .execute(&mut **transaction)
+        .await?;
+        sqlx::query_scalar::<_, i64>(
+            "INSERT INTO hosted_provider_collaboration_epoch_fences
+               (collection_id, record_id, current_epoch)
+             VALUES ($1, $2, 1)
+             ON CONFLICT (collection_id, record_id) DO UPDATE
+               SET current_epoch =
+                     hosted_provider_collaboration_epoch_fences.current_epoch + 1,
+                   updated_at = now()
+             RETURNING current_epoch",
+        )
+        .bind(collection_id)
+        .bind(record_id)
+        .fetch_one(&mut **transaction)
+        .await?;
+    }
+    Ok(())
 }
 
 fn quota_totals(

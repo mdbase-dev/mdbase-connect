@@ -54,6 +54,39 @@ impl HostedProvider {
                     "The hosted collection does not exist.",
                 )
             })?;
+        // The durable epoch fence is authoritative for room identity and is
+        // locked between the collection and record locks. A missing fence
+        // means no room has ever been admitted for this record; first creation
+        // initializes epoch 1 transactionally. Any other requested epoch is
+        // stale or future and never resurrects a retired document.
+        let fence_epoch: Option<i64> = sqlx::query_scalar(
+            "SELECT current_epoch FROM hosted_provider_collaboration_epoch_fences
+             WHERE collection_id = $1 AND record_id = $2 FOR UPDATE",
+        )
+        .bind(room.collection_id)
+        .bind(room.record_id)
+        .fetch_optional(&mut **transaction)
+        .await?;
+        let fence_epoch = match fence_epoch {
+            Some(epoch) => epoch,
+            None => {
+                if room.epoch != 1 {
+                    return Err(stale_epoch_error());
+                }
+                sqlx::query(
+                    "INSERT INTO hosted_provider_collaboration_epoch_fences
+                     (collection_id, record_id, current_epoch) VALUES ($1, $2, 1)",
+                )
+                .bind(room.collection_id)
+                .bind(room.record_id)
+                .execute(&mut **transaction)
+                .await?;
+                1
+            }
+        };
+        if fence_epoch != to_i64(room.epoch, "collaboration epoch")? {
+            return Err(stale_epoch_error());
+        }
         let record_row = sqlx::query(
             "SELECT revision, sequence, payload_ciphertext FROM hosted_provider_records
              WHERE collection_id = $1 AND record_id = $2 FOR UPDATE",
@@ -523,32 +556,46 @@ impl HostedProvider {
             record_row.get("payload_ciphertext"),
             &current_record_aad(collection_id, record_id, sequence),
         )?;
-        let old_epoch: Option<i64> = sqlx::query_scalar("SELECT max(collaboration_epoch) FROM hosted_provider_collaboration_documents WHERE collection_id=$1 AND record_id=$2 AND profile=$3")
-            .bind(collection_id).bind(record_id).bind(crate::COLLABORATION_PROFILE)
-            .fetch_one(&mut **transaction).await?;
         let document = MarkdownBodyDocument::new(
             &record.body,
             self.limits.collaboration.max_document_bytes as usize,
         )
         .map_err(profile_error)?;
+        // Retire superseded rooms first: removing the old documents drops
+        // their updates, receipts, and tickets with them in this transaction.
+        // The next epoch is then allocated from the durable fence -- never
+        // from the surviving document rows, which may be absent entirely.
+        sqlx::query("DELETE FROM hosted_provider_collaboration_documents WHERE collection_id=$1 AND record_id=$2 AND profile=$3")
+            .bind(collection_id).bind(record_id).bind(crate::COLLABORATION_PROFILE).execute(&mut **transaction).await?;
+        let epoch: i64 = sqlx::query_scalar(
+            "INSERT INTO hosted_provider_collaboration_epoch_fences
+               (collection_id, record_id, current_epoch)
+             VALUES ($1, $2, 1)
+             ON CONFLICT (collection_id, record_id) DO UPDATE
+               SET current_epoch =
+                     hosted_provider_collaboration_epoch_fences.current_epoch + 1,
+                   updated_at = now()
+             RETURNING current_epoch",
+        )
+        .bind(collection_id)
+        .bind(record_id)
+        .fetch_one(&mut **transaction)
+        .await?;
+        if epoch <= 0 {
+            return Err(ApiError::internal("collaboration repair epoch overflow"));
+        }
         let snapshot = document.snapshot_v1();
         ensure_snapshot_limit(&snapshot, &self.limits.collaboration)?;
         let vector = document.state_vector_v1();
-        let epoch = u64::try_from(old_epoch.unwrap_or(0))
-            .map_err(|_| ApiError::internal("invalid collaboration repair epoch"))?
-            .checked_add(1)
-            .ok_or_else(|| ApiError::internal("collaboration repair epoch overflow"))?;
+        let epoch_u64 = u64::try_from(epoch)
+            .map_err(|_| ApiError::internal("invalid collaboration repair epoch"))?;
         let room = RoomIdentity::new(
             collection_id,
             record_id,
-            epoch,
+            epoch_u64,
             crate::COLLABORATION_PROFILE,
         )
         .ok_or_else(|| ApiError::internal("invalid collaboration repair epoch"))?;
-        sqlx::query("UPDATE hosted_provider_collaboration_documents SET state='closed', updated_at=now() WHERE collection_id=$1 AND record_id=$2 AND profile=$3 AND state <> 'closed'")
-            .bind(collection_id).bind(record_id).bind(room.profile).execute(&mut **transaction).await?;
-        sqlx::query("DELETE FROM hosted_provider_collaboration_documents WHERE collection_id=$1 AND record_id=$2 AND profile=$3")
-            .bind(collection_id).bind(record_id).bind(room.profile).execute(&mut **transaction).await?;
         let snapshot_ciphertext = encrypt_room_bytes(
             &self.crypto,
             data_key,
@@ -568,7 +615,7 @@ impl HostedProvider {
             &vector,
         )?;
         sqlx::query("INSERT INTO hosted_provider_collaboration_documents (collection_id,record_id,collaboration_epoch,profile,snapshot_ciphertext,state_vector_ciphertext,materialized_revision,collaboration_bytes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)")
-            .bind(collection_id).bind(record_id).bind(to_i64(epoch, "collaboration epoch")?).bind(room.profile)
+            .bind(collection_id).bind(record_id).bind(to_i64(epoch_u64, "collaboration epoch")?).bind(room.profile)
             .bind(&snapshot_ciphertext).bind(&vector_ciphertext).bind(record.revision)
             .bind(to_i64((snapshot_ciphertext.len()+vector_ciphertext.len()) as u64,"collaboration bytes")?).execute(&mut **transaction).await?;
         Ok(room)
@@ -605,10 +652,42 @@ impl HostedProvider {
         .fetch_optional(&self.pool)
         .await?;
         if replica_epoch != Some(to_i64(scope_epoch, "scope epoch")?) {
-            return Err(ApiError::forbidden(
-                "collaboration_scope_denied",
-                "The collaboration session is no longer authorized.",
-            ));
+            return Err(collaboration_session_denied());
+        }
+        // A live session survives only while its room is still the fence's
+        // current epoch, the durable document is active, and the materialized
+        // revision still equals the authoritative record revision. All three
+        // are checked without locks in one round trip; retirement by a
+        // conventional writer ends the session on its next reauthorization.
+        let row = sqlx::query(
+            "SELECT f.current_epoch,
+                    d.state AS document_state,
+                    (d.materialized_revision IS NOT NULL
+                     AND r.revision IS NOT NULL
+                     AND d.materialized_revision = r.revision) AS materialized
+             FROM hosted_provider_collaboration_epoch_fences f
+             LEFT JOIN hosted_provider_records r
+               ON r.collection_id = f.collection_id AND r.record_id = f.record_id
+             LEFT JOIN hosted_provider_collaboration_documents d
+               ON d.collection_id = f.collection_id AND d.record_id = f.record_id
+              AND d.collaboration_epoch = f.current_epoch AND d.profile = $3
+             WHERE f.collection_id = $1 AND f.record_id = $2",
+        )
+        .bind(room.collection_id)
+        .bind(room.record_id)
+        .bind(room.profile)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(row) = row else {
+            return Err(collaboration_session_denied());
+        };
+        let current_epoch: i64 = row.get("current_epoch");
+        let document_state: Option<String> = row.get("document_state");
+        if current_epoch != to_i64(room.epoch, "collaboration epoch")?
+            || document_state.as_deref() != Some("active")
+            || !row.get::<bool, _>("materialized")
+        {
+            return Err(collaboration_session_denied());
         }
         Ok(())
     }
@@ -662,6 +741,8 @@ impl HostedProvider {
 mod phase3_batch_tests;
 #[cfg(test)]
 mod phase4_transport_tests;
+#[cfg(test)]
+mod phase5_reconcile_tests;
 mod tickets;
 
 fn parse_lifecycle(value: String) -> ApiResult<CollaborationRoomLifecycle> {
@@ -677,6 +758,18 @@ fn parse_lifecycle(value: String) -> ApiResult<CollaborationRoomLifecycle> {
 
 fn profile_error(error: CollaborationError) -> ApiError {
     ApiError::bad_request("invalid_collaboration_state", error.to_string())
+}
+fn stale_epoch_error() -> ApiError {
+    ApiError::conflict(
+        "collaboration_epoch_stale",
+        "The requested collaboration epoch is not current.",
+    )
+}
+fn collaboration_session_denied() -> ApiError {
+    ApiError::forbidden(
+        "collaboration_scope_denied",
+        "The collaboration session is no longer authorized.",
+    )
 }
 fn ensure_snapshot_limit(snapshot: &[u8], limits: &CollaborationLimits) -> ApiResult<()> {
     if snapshot.len() as u64 > limits.max_snapshot_bytes {

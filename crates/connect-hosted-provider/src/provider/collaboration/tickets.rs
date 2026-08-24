@@ -102,28 +102,21 @@ impl HostedProvider {
         .ok_or_else(|| {
             ApiError::not_found("record_not_found", "The hosted record does not exist.")
         })?;
-        let active_epochs: Vec<i64> = sqlx::query_scalar(
-            "SELECT collaboration_epoch FROM hosted_provider_collaboration_documents
-             WHERE collection_id=$1 AND record_id=$2 AND profile=$3 AND state='active'
-             ORDER BY collaboration_epoch",
+        // The durable fence owns the epoch; documents are derived state. A
+        // missing fence means no room has ever been admitted, so admission
+        // starts at epoch 1 and load_collaboration_room_in initializes the
+        // fence transactionally under its lock.
+        let fence_epoch: Option<u64> = sqlx::query_scalar(
+            "SELECT current_epoch FROM hosted_provider_collaboration_epoch_fences
+             WHERE collection_id = $1 AND record_id = $2",
         )
         .bind(collection_id)
         .bind(record_id)
-        .bind(COLLABORATION_PROFILE)
-        .fetch_all(&mut *transaction)
-        .await?;
-        if active_epochs.len() > 1 {
-            return Err(ApiError::conflict(
-                "collaboration_repair_required",
-                "The collaboration room has multiple active epochs.",
-            ));
-        }
-        let active_epoch = active_epochs
-            .first()
-            .copied()
-            .map(|value| number(value, "collaboration epoch"))
-            .transpose()?
-            .unwrap_or(1);
+        .fetch_optional(&mut *transaction)
+        .await?
+        .map(|epoch: i64| number(epoch, "collaboration epoch"))
+        .transpose()?;
+        let active_epoch = fence_epoch.unwrap_or(1);
         if request.epoch.is_some_and(|epoch| epoch != active_epoch) {
             return Err(ApiError::conflict(
                 "collaboration_epoch_stale",
@@ -250,17 +243,29 @@ impl HostedProvider {
         let record_id: Uuid = row.get("record_id");
         let room = RoomIdentity::new(collection_id, record_id, epoch, COLLABORATION_PROFILE)
             .ok_or_else(collaboration_denied)?;
-        let active = sqlx::query_scalar::<_, String>(
-            "SELECT state FROM hosted_provider_collaboration_documents
-             WHERE collection_id=$1 AND record_id=$2 AND collaboration_epoch=$3 AND profile=$4",
+        // Non-locking revalidation after the replica -> ticket lock order:
+        // the ticket is consumable only while its room is still the fence's
+        // current epoch and that room's document is active.
+        let active = sqlx::query(
+            "SELECT f.current_epoch, d.state FROM hosted_provider_collaboration_epoch_fences f
+             LEFT JOIN hosted_provider_collaboration_documents d
+               ON d.collection_id = f.collection_id AND d.record_id = f.record_id
+              AND d.collaboration_epoch = f.current_epoch AND d.profile = $3
+             WHERE f.collection_id = $1 AND f.record_id = $2",
         )
         .bind(room.collection_id)
         .bind(room.record_id)
-        .bind(to_i64(epoch, "collaboration epoch")?)
         .bind(room.profile)
         .fetch_optional(&mut *transaction)
         .await?;
-        if active.as_deref() != Some("active") {
+        let current_and_state: Option<(i64, Option<String>)> = active.map(|row| {
+            (
+                row.get("current_epoch"),
+                row.get::<Option<String>, _>("state"),
+            )
+        });
+        if current_and_state != Some((to_i64(epoch, "collaboration epoch")?, Some("active".into())))
+        {
             return Err(collaboration_denied());
         }
         let consumed = sqlx::query("UPDATE hosted_provider_collaboration_tickets SET consumed_at=now() WHERE ticket_hash=$1 AND consumed_at IS NULL AND expires_at > now()")

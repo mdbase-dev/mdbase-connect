@@ -173,7 +173,10 @@ async fn run_two_clients(base: &str, schema: &str) {
     });
     let http = reqwest::Client::new();
     let path = format!("/v1/authorities/{collection}/collaboration/tickets");
-    let body = br#"{"path":"notes/test.md","profile":"markdown-body-yjs-v13","mode":"read_write","epoch":1}"#;
+    // Ticket bodies intentionally omit the epoch: issuance always resolves the
+    // durable fence's current epoch, so requests stay valid across conventional
+    // retirements.
+    let body = br#"{"path":"notes/test.md","profile":"markdown-body-yjs-v13","mode":"read_write"}"#;
     let ticket_a = ticket_http(
         &http,
         address,
@@ -353,6 +356,157 @@ async fn run_two_clients(base: &str, schema: &str) {
         .apply_update_v1(&durable_sync.payload, 2 * 1024 * 1024, 2 * 1024 * 1024)
         .unwrap();
     assert_eq!(reloaded.body(), "\nInitial body\nAdded by A\n");
+
+    // Conventional-writer epoch reconciliation: an ordinary exact update of
+    // the collaborated record atomically advances the fence and retires every
+    // old room, ticket, update, and receipt. Admission then reopens the room
+    // at the advanced epoch, and a live session from before the retirement is
+    // denied on its next heartbeat.
+    let ordinary_document =
+        "---\ntitle: websocket\n---\n\nInitial body\nAdded by A\nOrdinary writer pass\n";
+    let revision: String = sqlx::query_scalar(
+        "SELECT r.revision FROM hosted_provider_records r
+         WHERE r.collection_id=$1 AND r.record_id=$2",
+    )
+    .bind(collection)
+    .bind(record)
+    .fetch_one(&provider.pool)
+    .await
+    .unwrap();
+    provider
+        .mutate(
+            collection,
+            &token_a,
+            SyncMutation {
+                mutation_id: Uuid::new_v4(),
+                replica_id: replica_a,
+                scope_epoch: 1,
+                operation: SyncMutationOperation::Put,
+                record_id: record,
+                base_revision: Some(revision),
+                path: Some("notes/test.md".into()),
+                document: Some(ordinary_document.into()),
+                created_at: chrono::Utc::now().to_rfc3339(),
+                causal_predecessor: None,
+            },
+            Some(origin),
+        )
+        .await
+        .unwrap();
+    let retired: (i64, i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT f.current_epoch,
+                (SELECT count(*) FROM hosted_provider_collaboration_documents WHERE collection_id=$1 AND record_id=$2),
+                (SELECT count(*) FROM hosted_provider_collaboration_updates WHERE collection_id=$1 AND record_id=$2),
+                (SELECT count(*) FROM hosted_provider_collaboration_receipts WHERE collection_id=$1 AND record_id=$2),
+                (SELECT count(*) FROM hosted_provider_collaboration_tickets WHERE collection_id=$1 AND record_id=$2)
+         FROM hosted_provider_collaboration_epoch_fences f
+         WHERE f.collection_id=$1 AND f.record_id=$2",
+    )
+    .bind(collection)
+    .bind(record)
+    .fetch_one(&provider.pool)
+    .await
+    .unwrap();
+    assert_eq!(retired, (2, 0, 0, 0, 0));
+    let readmission_body = ticket_json(
+        &http,
+        address,
+        &path,
+        body,
+        origin,
+        &token_b,
+        &signing_b,
+        Uuid::new_v4(),
+    )
+    .await;
+    assert_eq!(readmission_body["epoch"], 2);
+    let readmission_ticket = readmission_body["ticket"].as_str().unwrap().to_owned();
+    let mut readmitted = ws(&ws_url, origin).await;
+    authenticate(&mut readmitted, &readmission_ticket).await;
+    assert_eq!(
+        recv_frame(&mut readmitted).await.kind,
+        CollaborationMessageKind::Hello
+    );
+    let mut readmit_client = MarkdownBodyDocument::new("", 2 * 1024 * 1024).unwrap();
+    readmitted
+        .send(Message::Binary(
+            CollaborationFrame {
+                kind: CollaborationMessageKind::SyncStep1,
+                metadata: Default::default(),
+                payload: readmit_client.state_vector_v1(),
+            }
+            .encode()
+            .unwrap()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    let readmit_sync = recv_frame(&mut readmitted).await;
+    assert_eq!(readmit_sync.kind, CollaborationMessageKind::SyncStep2);
+    readmit_client
+        .apply_update_v1(&readmit_sync.payload, 2 * 1024 * 1024, 2 * 1024 * 1024)
+        .unwrap();
+    assert_eq!(
+        readmit_client.body(),
+        "\nInitial body\nAdded by A\nOrdinary writer pass\n"
+    );
+    let second_revision: String = sqlx::query_scalar(
+        "SELECT r.revision FROM hosted_provider_records r
+         WHERE r.collection_id=$1 AND r.record_id=$2",
+    )
+    .bind(collection)
+    .bind(record)
+    .fetch_one(&provider.pool)
+    .await
+    .unwrap();
+    provider
+        .mutate(
+            collection,
+            &token_a,
+            SyncMutation {
+                mutation_id: Uuid::new_v4(),
+                replica_id: replica_a,
+                scope_epoch: 1,
+                operation: SyncMutationOperation::Put,
+                record_id: record,
+                base_revision: Some(second_revision),
+                path: Some("notes/test.md".into()),
+                document: Some(
+                    "---\ntitle: websocket\n---\n\nInitial body\nAdded by A\nSecond ordinary pass\n"
+                        .into(),
+                ),
+                created_at: chrono::Utc::now().to_rfc3339(),
+                causal_predecessor: None,
+            },
+            Some(origin),
+        )
+        .await
+        .unwrap();
+    let fence_after_second: i64 = sqlx::query_scalar(
+        "SELECT current_epoch FROM hosted_provider_collaboration_epoch_fences
+         WHERE collection_id=$1 AND record_id=$2",
+    )
+    .bind(collection)
+    .bind(record)
+    .fetch_one(&provider.pool)
+    .await
+    .unwrap();
+    assert_eq!(fence_after_second, 3);
+    readmitted
+        .send(Message::Binary(
+            CollaborationFrame {
+                kind: CollaborationMessageKind::Heartbeat,
+                metadata: Default::default(),
+                payload: Vec::new(),
+            }
+            .encode()
+            .unwrap()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    assert_closed_without_binary(&mut readmitted).await;
+    let _ = readmitted.close(None).await;
 
     let large_record = Uuid::new_v4();
     provider
@@ -539,6 +693,23 @@ async fn ticket_http(
     signing: &p256::ecdsa::SigningKey,
     nonce: Uuid,
 ) -> String {
+    ticket_json(client, address, path, body, origin, token, signing, nonce).await["ticket"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn ticket_json(
+    client: &reqwest::Client,
+    address: std::net::SocketAddr,
+    path: &str,
+    body: &[u8],
+    origin: &str,
+    token: &str,
+    signing: &p256::ecdsa::SigningKey,
+    nonce: Uuid,
+) -> Value {
     let proof = signed_http_proof(signing, token, path, body, nonce);
     let response = client
         .post(format!("http://{address}{path}"))
@@ -570,10 +741,7 @@ async fn ticket_http(
         response.headers().get(reqwest::header::CACHE_CONTROL),
         Some(&HeaderValue::from_static("no-store"))
     );
-    response.json::<Value>().await.unwrap()["ticket"]
-        .as_str()
-        .unwrap()
-        .to_owned()
+    response.json::<Value>().await.unwrap()
 }
 
 fn signed_http_proof(

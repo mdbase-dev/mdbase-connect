@@ -3,7 +3,7 @@ use super::operation_reads::{compile_point_catalog, load_direct_record, DirectRe
 use super::*;
 
 mod commit;
-pub(crate) use commit::{commit_hosted_write_set_in, HostedWriteSet};
+pub(crate) use commit::{commit_hosted_write_set_in, HostedWriteOrigin, HostedWriteSet};
 
 struct MutationExecution<'a> {
     journal_lease: Option<&'a HostedMutationLease>,
@@ -581,6 +581,7 @@ impl HostedProvider {
             &collection,
             Some(replica.id),
             commit::HostedWriteSet {
+                origin: commit::HostedWriteOrigin::Conventional,
                 before_records,
                 changed: execution.changed,
                 primary_record_id: execution.primary_record_id,

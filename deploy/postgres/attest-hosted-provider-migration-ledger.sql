@@ -1,6 +1,8 @@
 -- Included inside an existing transaction after the caller sets
--- mdbase.expected_migration_max to either the beta69 baseline (34) or the
--- final Candidate B schema (37).
+-- mdbase.expected_migration_max to the beta69 baseline (34), the final
+-- Candidate B schema (37), or the current collaboration fence schema (43).
+-- Checksum attestation is pinned to the committed baseline values below and
+-- therefore always covers exactly the versions through 37.
 DO $hosted_migration_ledger_attestation$
 DECLARE
   expected_max bigint := current_setting('mdbase.expected_migration_max')::bigint;
@@ -11,7 +13,7 @@ DECLARE
   missing_migrations bigint;
   checksum_mismatches bigint[];
 BEGIN
-  IF expected_max NOT IN (34, 37) THEN
+  IF expected_max NOT IN (34, 37, 43) THEN
     RAISE EXCEPTION
       'hosted_migration_ledger_blocked: unsupported expected migration %', expected_max;
   END IF;

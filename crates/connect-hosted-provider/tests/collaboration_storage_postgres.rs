@@ -217,6 +217,10 @@ async fn insert_document(
     state: &[u8],
     revision: &str,
 ) {
+    // Since migration 0043 a document may exist only at its record's durable
+    // fence epoch, so seed the fence exactly as the backfill would have.
+    sqlx::query("INSERT INTO hosted_provider_collaboration_epoch_fences (collection_id, record_id, current_epoch) VALUES ($1, $2, $3)")
+        .bind(key.0).bind(key.1).bind(key.2).execute(pool).await.unwrap();
     sqlx::query("INSERT INTO hosted_provider_collaboration_documents (collection_id, record_id, collaboration_epoch, profile, snapshot_ciphertext, state_vector_ciphertext, materialized_revision) VALUES ($1, $2, $3, $4, $5, $6, $7)")
         .bind(key.0).bind(key.1).bind(key.2).bind(PROFILE).bind(snapshot).bind(state).bind(revision).execute(pool).await.unwrap();
 }

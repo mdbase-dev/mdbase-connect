@@ -27,6 +27,10 @@ This is not a production-ready multi-instance transport. Process-local fanout
 is only a latency optimization; reconnect correctness comes from durable room
 state and SyncStep1. Multi-instance catch-up, proactive revocation disconnects,
 awareness/presence sanitation, typed socket errors and metrics, receipt/ticket
-retention maintenance, graceful socket drain, room repair, and conventional
-writer epoch reconciliation remain explicit gates. The Editor and SDK do not
-enable or expose live collaboration yet.
+retention maintenance, graceful socket drain, and room repair remain explicit
+gates. Conventional writer epoch reconciliation is implemented internally: a
+durable per-record epoch fence (surviving record deletion) is the authority for
+room epochs, ordinary updates and deletes transactionally advance it while
+retiring old rooms, tickets, updates, and receipts, and stale epochs are
+rejected at the database and every admission boundary. The Editor and SDK do
+not enable or expose live collaboration yet.
