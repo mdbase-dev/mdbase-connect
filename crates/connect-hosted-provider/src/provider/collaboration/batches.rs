@@ -42,6 +42,17 @@ impl HostedProvider {
         transaction: &mut Transaction<'_, Postgres>,
         input: CollaborationBatchInput,
     ) -> ApiResult<Vec<CollaborationBatchReceipt>> {
+        Ok(self
+            .commit_collaboration_batch_result_in(transaction, input)
+            .await?
+            .0)
+    }
+
+    pub(crate) async fn commit_collaboration_batch_result_in(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        input: CollaborationBatchInput,
+    ) -> ApiResult<(Vec<CollaborationBatchReceipt>, bool)> {
         if input.contributions.is_empty() {
             return Err(ApiError::bad_request(
                 "empty_collaboration_batch",
@@ -268,7 +279,7 @@ impl HostedProvider {
             pending.push((contribution, digest));
         }
         if pending.is_empty() {
-            return Ok(receipts);
+            return Ok((receipts, false));
         }
         if room_state
             .current_sequence
@@ -307,6 +318,20 @@ impl HostedProvider {
             &room_state.record.path,
             &document,
         )?;
+        if classified.document.as_bytes() != document.as_bytes()
+            || classified.body.as_bytes() != body.as_bytes()
+        {
+            return Err(ApiError::bad_request(
+                "collaboration_frontmatter_boundary_changed",
+                "The collaboration update cannot change the record frontmatter boundary.",
+            ));
+        }
+        if scratch.snapshot_v1().len() as u64 > self.limits.collaboration.max_snapshot_bytes {
+            return Err(ApiError::quota(
+                "collaboration_snapshot_too_large",
+                "The collaboration state exceeds the configured snapshot limit.",
+            ));
+        }
         let pending_count = pending.len();
         let body_changed = document.as_bytes() != room_state.record.document.as_bytes();
         let notification_runtime_active = if body_changed && self.notifications.is_some() {
@@ -415,6 +440,6 @@ impl HostedProvider {
         let _ = self
             .compact_collaboration_room_in(transaction, &data_key, room)
             .await?;
-        Ok(receipts)
+        Ok((receipts, true))
     }
 }

@@ -347,6 +347,7 @@ impl HostedProvider {
                    FROM hosted_provider_retired_replay_credentials retired
                    JOIN hosted_provider_replicas replica ON replica.id = retired.replica_id
                    WHERE replica.collection_id = $1 AND replica.purpose = 'application'
+                     AND replica.revoked_at IS NULL
                      AND retired.token_hash = $2 AND retired.expires_at > now()
                    ORDER BY retired.retired_at DESC LIMIT 1
                    FOR SHARE OF replica"#,

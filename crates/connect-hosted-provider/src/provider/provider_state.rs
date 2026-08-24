@@ -4,6 +4,14 @@ impl HostedProvider {
         self.limits.hosted_collaboration_enabled
     }
 
+    pub(crate) fn collaboration_max_update_bytes(&self) -> u64 {
+        self.limits.collaboration.max_update_bytes.min(
+            mdbase_connect_protocol::MAX_COLLABORATION_PAYLOAD_BYTES
+                .try_into()
+                .unwrap_or(u64::MAX),
+        )
+    }
+
     pub(super) async fn collection_key(
         &self,
         collection_id: Uuid,

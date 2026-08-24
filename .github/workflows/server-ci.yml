@@ -317,6 +317,20 @@ jobs:
     needs: classify
     if: needs.classify.outputs.run_full == 'true'
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: mdbase_collaboration
+          POSTGRES_USER: mdbase
+          POSTGRES_PASSWORD: collaboration-tests
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mdbase -d mdbase_collaboration"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     defaults:
       run:
         working-directory: mdbase-connect
@@ -364,6 +378,15 @@ jobs:
         env:
           MDBASE_CONNECT_ENV: test
           MDBASE_CONNECT_SECRET_BACKEND: insecure-test-file
+      - name: Exercise collaboration transactions and WebSockets against PostgreSQL
+        run: |
+          cargo test --locked -p mdbase-connect-hosted-provider phase3_batch_engine_postgres -- --ignored --nocapture
+          cargo test --locked -p mdbase-connect-hosted-provider phase3_real_two_headless_clients_postgres -- --ignored --nocapture
+          cargo test --locked -p mdbase-connect-hosted-provider --test collaboration_storage_postgres -- --ignored --nocapture
+          cargo test --locked -p mdbase-connect-hosted-provider --test collaboration_phase0 -- --ignored --nocapture
+        env:
+          MDBASE_COLLABORATION_PHASE3_DATABASE_URL: postgres://mdbase:collaboration-tests@127.0.0.1:5432/mdbase_collaboration
+          MDBASE_COLLABORATION_PHASE0_DATABASE_URL: postgres://mdbase:collaboration-tests@127.0.0.1:5432/mdbase_collaboration
       - run: cargo build --locked --workspace
       # The local system suite launches Chromium even though the standalone
       # browser-storage and accessibility checks run in the parallel Node job.

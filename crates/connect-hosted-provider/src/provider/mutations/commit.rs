@@ -17,6 +17,7 @@ pub(crate) struct HostedWriteSetCommit {
 ///
 /// This function deliberately does not perform authorization, journal work, receipt
 /// work, transaction control, logging, or notification recovery.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn commit_hosted_write_set_in(
     transaction: &mut Transaction<'_, Postgres>,
     provider: &HostedProvider,

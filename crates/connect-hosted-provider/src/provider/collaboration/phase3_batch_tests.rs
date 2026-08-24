@@ -6,7 +6,7 @@ use super::*;
 use crate::{BlobByteStream, PresignedPart, RoomIdentity, UploadedPart, COLLABORATION_PROFILE};
 use async_trait::async_trait;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use futures_util::stream;
+use futures_util::{stream, FutureExt};
 use mdbase_connect_collaboration::MarkdownBodyDocument;
 use mdbase_connect_protocol::{
     CollaborationAccess, ReplicaCollaborationCapability, SyncMutation, SyncMutationOperation,
@@ -18,7 +18,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use uuid::Uuid;
 
 #[derive(Clone, Default)]
-struct NoopBlobStore;
+pub(super) struct NoopBlobStore;
 #[async_trait]
 impl BlobStore for NoopBlobStore {
     fn upload_part_size(&self) -> u64 {
@@ -385,6 +385,81 @@ async fn run(base: &str, schema: &str) {
     };
     assert_eq!(denied.code, "scope_epoch_stale");
 
+    let plain_record = Uuid::new_v4();
+    provider
+        .mutate(
+            collection,
+            &token,
+            SyncMutation {
+                mutation_id: Uuid::new_v4(),
+                replica_id: replica,
+                scope_epoch: 1,
+                operation: SyncMutationOperation::Put,
+                record_id: plain_record,
+                base_revision: None,
+                path: Some("notes/plain.md".into()),
+                document: Some("plain body\n".into()),
+                created_at: chrono::Utc::now().to_rfc3339(),
+                causal_predecessor: None,
+            },
+            Some("https://phase3.invalid"),
+        )
+        .await
+        .unwrap();
+    let head_before_boundary_attempt: i64 =
+        sqlx::query_scalar("SELECT head FROM hosted_provider_collections WHERE id=$1")
+            .bind(collection)
+            .fetch_one(&provider.pool)
+            .await
+            .unwrap();
+    let mut boundary_tx = provider.pool.begin().await.unwrap();
+    let plain_room = provider
+        .load_collaboration_room_in(
+            &mut boundary_tx,
+            &key,
+            RoomIdentity::new(collection, plain_record, 1, COLLABORATION_PROFILE).unwrap(),
+        )
+        .await
+        .unwrap();
+    let mut boundary_client = MarkdownBodyDocument::from_snapshot(
+        &plain_room.document.snapshot_v1(),
+        4 * 1024 * 1024,
+        2 * 1024 * 1024,
+    )
+    .unwrap();
+    let boundary_update = boundary_client
+        .apply_provider_body("---\ntitle: now metadata\n---\nbody\n", 2 * 1024 * 1024)
+        .unwrap();
+    let boundary_error = provider
+        .commit_collaboration_batch_in(
+            &mut boundary_tx,
+            CollaborationBatchInput {
+                collection_id: collection,
+                record_id: plain_record,
+                epoch: 1,
+                contributions: vec![CollaborationBatchContribution {
+                    replica_id: replica,
+                    expected_scope_epoch: 1,
+                    client_mutation_id: Uuid::new_v4(),
+                    update: boundary_update,
+                }],
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        boundary_error.code,
+        "collaboration_frontmatter_boundary_changed"
+    );
+    boundary_tx.rollback().await.unwrap();
+    let boundary_state: (i64, i64) = sqlx::query_as("SELECT head, (SELECT count(*) FROM hosted_provider_collaboration_receipts WHERE collection_id=$1 AND record_id=$2) FROM hosted_provider_collections WHERE id=$1")
+        .bind(collection)
+        .bind(plain_record)
+        .fetch_one(&provider.pool)
+        .await
+        .unwrap();
+    assert_eq!(boundary_state, (head_before_boundary_attempt, 0));
+
     let ticket_request = CollaborationTicketRequest {
         path: "notes/é.md".into(),
         profile: COLLABORATION_PROFILE.into(),
@@ -519,5 +594,3 @@ fn signed_proof(signing: &p256::ecdsa::SigningKey, token: &str) -> AuthorityRequ
     proof.signature = URL_SAFE_NO_PAD.encode(signature.to_bytes());
     proof
 }
-
-use futures_util::FutureExt;

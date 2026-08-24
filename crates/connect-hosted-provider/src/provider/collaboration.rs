@@ -591,6 +591,28 @@ pub(crate) use batches::{CollaborationBatchContribution, CollaborationBatchInput
 pub(crate) use tickets::{CollaborationTicketRequest, ConsumedCollaborationTicket};
 
 impl HostedProvider {
+    pub(crate) async fn reauthorize_collaboration_session(
+        &self,
+        room: RoomIdentity,
+        replica_id: Uuid,
+        scope_epoch: u64,
+    ) -> ApiResult<()> {
+        let replica_epoch: Option<i64> = sqlx::query_scalar(
+            "SELECT scope_epoch FROM hosted_provider_replicas WHERE id=$1 AND collection_id=$2 AND revoked_at IS NULL AND token_expires_at > now()",
+        )
+        .bind(replica_id)
+        .bind(room.collection_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        if replica_epoch != Some(to_i64(scope_epoch, "scope epoch")?) {
+            return Err(ApiError::forbidden(
+                "collaboration_scope_denied",
+                "The collaboration session is no longer authorized.",
+            ));
+        }
+        Ok(())
+    }
+
     pub(crate) async fn collaboration_sync_step2(
         &self,
         room: RoomIdentity,
@@ -628,24 +650,18 @@ impl HostedProvider {
         input: batches::CollaborationBatchInput,
     ) -> ApiResult<(Vec<batches::CollaborationBatchReceipt>, bool)> {
         let mut transaction = self.pool.begin().await?;
-        let first = input.contributions.first().ok_or_else(|| {
-            ApiError::bad_request(
-                "empty_collaboration_batch",
-                "A collaboration batch must contain an update.",
-            )
-        })?;
-        let already_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM hosted_provider_collaboration_receipts WHERE collection_id=$1 AND record_id=$2 AND collaboration_epoch=$3 AND profile=$4 AND replica_id=$5 AND client_mutation_id=$6)")
-            .bind(input.collection_id).bind(input.record_id).bind(to_i64(input.epoch, "collaboration epoch")?).bind(crate::COLLABORATION_PROFILE).bind(first.replica_id).bind(first.client_mutation_id).fetch_one(&mut *transaction).await?;
-        let receipts = self
-            .commit_collaboration_batch_in(&mut transaction, input)
+        let result = self
+            .commit_collaboration_batch_result_in(&mut transaction, input)
             .await?;
         transaction.commit().await?;
-        Ok((receipts, !already_exists))
+        Ok(result)
     }
 }
 
 #[cfg(test)]
 mod phase3_batch_tests;
+#[cfg(test)]
+mod phase4_transport_tests;
 mod tickets;
 
 fn parse_lifecycle(value: String) -> ApiResult<CollaborationRoomLifecycle> {
