@@ -294,6 +294,10 @@ impl HostedProvider {
                 "Active replica not found.",
             ));
         }
+        sqlx::query("DELETE FROM hosted_provider_collaboration_tickets WHERE replica_id = $1")
+            .bind(replica_id)
+            .execute(&mut *transaction)
+            .await?;
         transaction.commit().await?;
         Ok(())
     }
@@ -524,6 +528,10 @@ impl HostedProvider {
                 "Active application capability not found.",
             ));
         }
+        sqlx::query("DELETE FROM hosted_provider_collaboration_tickets WHERE replica_id = $1")
+            .bind(replica_id)
+            .execute(&mut *transaction)
+            .await?;
         transaction.commit().await?;
         Ok(())
     }
@@ -537,6 +545,10 @@ impl HostedProvider {
         .bind(replica_id)
         .execute(&mut *transaction)
         .await?;
+        sqlx::query("DELETE FROM hosted_provider_collaboration_tickets WHERE replica_id = $1")
+            .bind(replica_id)
+            .execute(&mut *transaction)
+            .await?;
         transaction.commit().await?;
         Ok(())
     }

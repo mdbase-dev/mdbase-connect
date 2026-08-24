@@ -123,10 +123,10 @@ impl HostedProvider {
                     && cap.access == CollaborationAccess::ReadWrite
             });
             let unscoped = row.get::<Vec<String>, _>("allowed_types").is_empty()
-                && row.get::<Vec<String>, _>("contract_scope").is_empty();
+                && row.get::<Value, _>("contract_scope") == Value::Array(Vec::new());
             let binding_complete = row.get::<Option<Uuid>, _>("grant_id").is_some()
                 && row.get::<Option<String>, _>("allowed_origin").is_some()
-                && row.get::<Option<Vec<u8>>, _>("proof_public_key").is_some()
+                && row.get::<Option<String>, _>("proof_public_key").is_some()
                 && row
                     .get::<Option<String>, _>("application_declaration_id")
                     .is_some()

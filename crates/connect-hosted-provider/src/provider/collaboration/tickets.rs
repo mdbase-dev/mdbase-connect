@@ -1,15 +1,16 @@
 use super::*;
 use crate::collaboration::{CollaborationMode, COLLABORATION_PROFILE};
 
-/// Internal request shape. Paths are deliberately resolved before they become
-/// part of a room identity; callers never provide a stable record id.
+/// Internal request shape. Paths are resolved once to the stable record room;
+/// subsequent record renames deliberately retain that room and ticket binding.
+/// Callers never provide a stable record id.
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub(crate) struct CollaborationTicketRequest {
     pub path: String,
     pub profile: String,
     pub mode: CollaborationMode,
-    pub epoch: u64,
+    pub epoch: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -53,7 +54,7 @@ impl HostedProvider {
     ) -> ApiResult<IssuedCollaborationTicket> {
         self.authorize_request(collection_id, bearer, origin, proof)
             .await?;
-        if request.profile != COLLABORATION_PROFILE || request.epoch == 0 {
+        if request.profile != COLLABORATION_PROFILE || request.epoch == Some(0) {
             return Err(collaboration_denied());
         }
         let mut transaction = self.pool.begin().await?;
@@ -100,21 +101,29 @@ impl HostedProvider {
         .ok_or_else(|| {
             ApiError::not_found("record_not_found", "The hosted record does not exist.")
         })?;
-        let active_epoch: Option<i64> = sqlx::query_scalar(
-            "SELECT max(collaboration_epoch) FROM hosted_provider_collaboration_documents
-             WHERE collection_id=$1 AND record_id=$2 AND profile=$3",
+        let active_epochs: Vec<i64> = sqlx::query_scalar(
+            "SELECT collaboration_epoch FROM hosted_provider_collaboration_documents
+             WHERE collection_id=$1 AND record_id=$2 AND profile=$3 AND state='active'
+             ORDER BY collaboration_epoch",
         )
         .bind(collection_id)
         .bind(record_id)
         .bind(COLLABORATION_PROFILE)
-        .fetch_one(&mut *transaction)
+        .fetch_all(&mut *transaction)
         .await?;
-        let highest = active_epoch
+        if active_epochs.len() > 1 {
+            return Err(ApiError::conflict(
+                "collaboration_repair_required",
+                "The collaboration room has multiple active epochs.",
+            ));
+        }
+        let active_epoch = active_epochs
+            .first()
+            .copied()
             .map(|value| number(value, "collaboration epoch"))
-            .transpose()?;
-        if highest.is_some_and(|epoch| epoch != request.epoch)
-            || highest.is_none() && request.epoch != 1
-        {
+            .transpose()?
+            .unwrap_or(1);
+        if request.epoch.is_some_and(|epoch| epoch != active_epoch) {
             return Err(ApiError::conflict(
                 "collaboration_epoch_stale",
                 "The collaboration epoch is not active.",
@@ -123,7 +132,7 @@ impl HostedProvider {
         let room = RoomIdentity::new(
             collection_id,
             record_id,
-            request.epoch,
+            active_epoch,
             COLLABORATION_PROFILE,
         )
         .ok_or_else(collaboration_denied)?;
@@ -141,11 +150,11 @@ impl HostedProvider {
               profile, mode, allowed_origin, proof_public_key_digest, scope_epoch, expires_at)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
         )
-        .bind(hash.as_slice())
+        .bind(hash.to_vec())
         .bind(binding.replica_id)
         .bind(collection_id)
         .bind(record_id)
-        .bind(to_i64(request.epoch, "collaboration epoch")?)
+        .bind(to_i64(active_epoch, "collaboration epoch")?)
         .bind(COLLABORATION_PROFILE)
         .bind(mode_text(request.mode))
         .bind(&binding.origin)
@@ -168,41 +177,48 @@ impl HostedProvider {
         })
     }
 
-    /// Atomically consume a ticket. The bearer and proof are session context,
-    /// not ticket contents; every mutable authorization property is checked
-    /// again while the ticket row is locked.
+    /// Atomically consume a ticket. The one-shot secret replaces the bearer
+    /// during WebSocket authentication; every mutable replica property is
+    /// checked again and the browser Origin must still match exactly.
     #[allow(dead_code)]
     pub(crate) async fn consume_collaboration_ticket(
         &self,
-        bearer: &str,
         plaintext: &str,
-        expected: &CollaborationTicketRequest,
         origin: Option<&str>,
-        proof: Option<&AuthorityRequestProof>,
     ) -> ApiResult<ConsumedCollaborationTicket> {
-        if expected.profile != COLLABORATION_PROFILE || expected.epoch == 0 {
-            return Err(collaboration_denied());
-        }
-        // This invokes the canonical origin, signature, timestamp and nonce
-        // verification rather than creating a second proof implementation.
-        let collection_hint = expected_collection_hint(&self.pool, plaintext).await?;
-        self.authorize_request(collection_hint, bearer, origin, proof)
-            .await?;
         let decoded = URL_SAFE_NO_PAD
             .decode(plaintext)
             .map_err(|_| collaboration_denied())?;
         if decoded.len() != 32 {
             return Err(collaboration_denied());
         }
-        let hash = Sha256::digest(decoded);
+        let hash_bytes = Sha256::digest(decoded).to_vec();
         let mut transaction = self.pool.begin().await?;
+        // Discover only immutable lock keys, then follow the global
+        // replica -> ticket -> collection/record lock order. The ticket row is
+        // re-read under lock before any binding is trusted.
+        let hint = sqlx::query(
+            "SELECT replica_id, collection_id FROM hosted_provider_collaboration_tickets WHERE ticket_hash=$1",
+        )
+        .bind(&hash_bytes)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or_else(collaboration_denied)?;
+        let hinted_replica: Uuid = hint.get("replica_id");
+        let hinted_collection: Uuid = hint.get("collection_id");
+        let replica_row = lock_and_load_collaboration_replica_by_id(
+            &mut transaction,
+            hinted_collection,
+            hinted_replica,
+        )
+        .await?;
         let row = sqlx::query(
             "SELECT ticket_hash, replica_id, collection_id, record_id, collaboration_epoch,
                     profile, mode, allowed_origin, proof_public_key_digest, scope_epoch,
                     expires_at, consumed_at
              FROM hosted_provider_collaboration_tickets WHERE ticket_hash=$1 FOR UPDATE",
         )
-        .bind(hash.as_slice())
+        .bind(&hash_bytes)
         .fetch_optional(&mut *transaction)
         .await?
         .ok_or_else(collaboration_denied)?;
@@ -212,32 +228,15 @@ impl HostedProvider {
             row.get::<i64, _>("collaboration_epoch"),
             "collaboration epoch",
         )?;
-        let ticket_request = CollaborationTicketRequest {
-            path: String::new(),
-            profile: row.get("profile"),
-            mode,
-            epoch,
-        };
+        let profile: String = row.get("profile");
         if row.get::<Option<DateTime<Utc>>, _>("consumed_at").is_some()
             || row.get::<DateTime<Utc>, _>("expires_at") <= Utc::now()
-            || expected.mode != mode
-            || expected.epoch != epoch
+            || row.get::<Uuid, _>("replica_id") != hinted_replica
+            || collection_id != hinted_collection
         {
             return Err(collaboration_denied());
         }
-        let replica_row = lock_and_load_collaboration_replica(
-            &mut transaction,
-            collection_id,
-            token_hash(bearer),
-        )
-        .await?;
-        let binding = collaboration_binding(
-            &replica_row,
-            collection_id,
-            mode,
-            origin,
-            &ticket_request.profile,
-        )?;
+        let binding = collaboration_binding(&replica_row, collection_id, mode, origin, &profile)?;
         if replica_row.get::<Uuid, _>("id") != row.get::<Uuid, _>("replica_id")
             || binding.scope_epoch != number(row.get::<i64, _>("scope_epoch"), "scope epoch")?
             || binding.proof_digest.as_slice()
@@ -246,31 +245,7 @@ impl HostedProvider {
         {
             return Err(collaboration_denied());
         }
-        // Resolve the expected path only after bearer/origin/proof and the
-        // current replica binding have passed. A ticket cannot be moved to a
-        // different path or room by its consumer.
-        let collection = sqlx::query(
-            "SELECT wrapped_data_key FROM hosted_provider_collections
-             WHERE id=$1 AND state='active' FOR SHARE",
-        )
-        .bind(collection_id)
-        .fetch_one(&mut *transaction)
-        .await?;
-        let data_key = self
-            .collection_key(collection_id, collection.get("wrapped_data_key"))
-            .await?;
-        let expected_record: Option<Uuid> = sqlx::query_scalar(
-            "SELECT record_id FROM hosted_provider_records
-             WHERE collection_id=$1 AND path_token=$2",
-        )
-        .bind(collection_id)
-        .bind(path_token(&data_key, &expected.path))
-        .fetch_optional(&mut *transaction)
-        .await?;
         let record_id: Uuid = row.get("record_id");
-        if expected_record != Some(record_id) {
-            return Err(collaboration_denied());
-        }
         let room = RoomIdentity::new(collection_id, record_id, epoch, COLLABORATION_PROFILE)
             .ok_or_else(collaboration_denied)?;
         let active = sqlx::query_scalar::<_, String>(
@@ -287,7 +262,7 @@ impl HostedProvider {
             return Err(collaboration_denied());
         }
         let consumed = sqlx::query("UPDATE hosted_provider_collaboration_tickets SET consumed_at=now() WHERE ticket_hash=$1 AND consumed_at IS NULL AND expires_at > now()")
-            .bind(hash.as_slice()).execute(&mut *transaction).await?;
+            .bind(&hash_bytes).execute(&mut *transaction).await?;
         if consumed.rows_affected() != 1 {
             return Err(collaboration_denied());
         }
@@ -311,6 +286,16 @@ struct Binding {
     origin: String,
     proof_digest: [u8; 32],
     scope_epoch: u64,
+}
+
+async fn lock_and_load_collaboration_replica_by_id(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    replica_id: Uuid,
+) -> ApiResult<PgRow> {
+    sqlx::query("SELECT id, collection_id, purpose, mode, full_collection, allowed_types, contract_scope, allowed_operations, collaboration_capability, allowed_origin, proof_public_key, grant_id, application_declaration_id, application_declaration_digest, scope_epoch FROM hosted_provider_replicas WHERE collection_id=$1 AND id=$2 AND revoked_at IS NULL AND token_expires_at > now() FOR UPDATE")
+        .bind(collection_id).bind(replica_id).fetch_optional(&mut **transaction).await?
+        .ok_or_else(collaboration_denied)
 }
 
 async fn lock_and_load_collaboration_replica(
@@ -349,7 +334,7 @@ fn collaboration_binding(
     let operations: Vec<String> = row.get("allowed_operations");
     if row.get::<Uuid, _>("collection_id") != collection_id
         || row.get::<String, _>("purpose") != "application"
-        || row.get::<bool, _>("full_collection")
+        || !row.get::<bool, _>("full_collection")
         || !row.get::<Vec<String>, _>("allowed_types").is_empty()
         || row.get::<Value, _>("contract_scope") != Value::Array(Vec::new())
         || !operations.iter().any(|op| op == "read")
@@ -403,43 +388,4 @@ fn collaboration_denied() -> ApiError {
         "collaboration_scope_denied",
         "The collaboration session is not authorized.",
     )
-}
-
-// Ticket lookup must not turn an unknown ticket into a room oracle. The
-// collection hint is obtained only from a hash lookup and is never returned.
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ticket_plaintext_is_exactly_256_bits_and_hashes_without_reuse() {
-        let mut bytes = [0_u8; 32];
-        OsRng.fill_bytes(&mut bytes);
-        let encoded = URL_SAFE_NO_PAD.encode(bytes);
-        assert_eq!(URL_SAFE_NO_PAD.decode(encoded).unwrap().len(), 32);
-        assert_ne!(Sha256::digest(bytes), Sha256::digest([0_u8; 32]));
-    }
-
-    #[test]
-    fn modes_are_closed_and_wire_stable() {
-        assert_eq!(mode_text(CollaborationMode::ReadOnly), "read_only");
-        assert_eq!(mode_text(CollaborationMode::ReadWrite), "read_write");
-        assert!(parse_mode("other".to_owned()).is_err());
-    }
-}
-
-async fn expected_collection_hint(pool: &PgPool, plaintext: &str) -> ApiResult<Uuid> {
-    let decoded = URL_SAFE_NO_PAD
-        .decode(plaintext)
-        .map_err(|_| collaboration_denied())?;
-    if decoded.len() != 32 {
-        return Err(collaboration_denied());
-    }
-    sqlx::query_scalar(
-        "SELECT collection_id FROM hosted_provider_collaboration_tickets WHERE ticket_hash=$1",
-    )
-    .bind(Sha256::digest(decoded).as_slice())
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(collaboration_denied)
 }

@@ -1,6 +1,7 @@
 #![allow(clippy::too_many_lines)]
 
 use super::batches::{CollaborationBatchContribution, CollaborationBatchInput};
+use super::tickets::CollaborationTicketRequest;
 use super::*;
 use crate::{BlobByteStream, PresignedPart, RoomIdentity, UploadedPart, COLLABORATION_PROFILE};
 use async_trait::async_trait;
@@ -9,8 +10,9 @@ use futures_util::stream;
 use mdbase_connect_collaboration::MarkdownBodyDocument;
 use mdbase_connect_protocol::{
     CollaborationAccess, ReplicaCollaborationCapability, SyncMutation, SyncMutationOperation,
-    SyncReplicaMode,
+    SyncReplicaMode, AUTHORITY_PROOF_VERSION,
 };
+use p256::ecdsa::{signature::Signer, Signature};
 use sqlx::AssertSqlSafe;
 use std::{collections::BTreeMap, sync::Arc};
 use uuid::Uuid;
@@ -98,15 +100,11 @@ async fn run(base: &str, schema: &str) {
     let separator = if base.contains('?') { '&' } else { '?' };
     let url = format!("{base}{separator}options=-c%20search_path%3D{schema}%2Cpublic");
     let crypto = ProviderCrypto::from_base64(&URL_SAFE_NO_PAD.encode([7_u8; 32])).unwrap();
-    let provider = HostedProvider::connect(
-        &url,
-        crypto,
-        ProviderLimits::default(),
-        Arc::new(NoopBlobStore),
-        None,
-    )
-    .await
-    .unwrap();
+    let mut limits = ProviderLimits::default();
+    limits.collaboration.ticket_ttl_seconds = 1;
+    let provider = HostedProvider::connect(&url, crypto, limits, Arc::new(NoopBlobStore), None)
+        .await
+        .unwrap();
     let account = Uuid::new_v4();
     let collection = Uuid::new_v4();
     let record = Uuid::new_v4();
@@ -145,9 +143,9 @@ async fn run(base: &str, schema: &str) {
                 allowed_types: Vec::new(),
                 contract_scope: Vec::new(),
                 full_collection: true,
-                allowed_operations: vec!["read".into(), "update".into()],
-                operation_transport_protocol: None,
-                operation_transport_recovery_protocols: Vec::new(),
+                allowed_operations: vec!["create".into(), "read".into(), "update".into()],
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: vec![2],
                 file_capability: None,
                 collaboration_capability: Some(ReplicaCollaborationCapability {
                     contract_version: 1,
@@ -271,7 +269,7 @@ async fn run(base: &str, schema: &str) {
         .unwrap();
     assert_eq!(
         reloaded.record.document,
-        "---\ntitle: \\\"Δ Unicode\\\"\ntags: [é]\n---\n\nBody — 初めまして\n追加された本文 🌍\n"
+        "---\ntitle: \"Δ Unicode\"\ntags: [é]\n---\nBody — 初めまして\n追加された本文 🌍\n"
     );
     assert_eq!(
         reloaded.document.body(),
@@ -280,13 +278,18 @@ async fn run(base: &str, schema: &str) {
     next.rollback().await.unwrap();
     let (head, changes, updates, receipts): (i64, i64, i64, i64) = sqlx::query_as("SELECT c.head, (SELECT count(*) FROM hosted_provider_changes WHERE collection_id=$1), (SELECT count(*) FROM hosted_provider_collaboration_updates WHERE collection_id=$1), (SELECT count(*) FROM hosted_provider_collaboration_receipts WHERE collection_id=$1) FROM hosted_provider_collections c WHERE c.id=$1").bind(collection).fetch_one(&provider.pool).await.unwrap();
     assert_eq!((head, changes, updates, receipts), (2, 2, 1, 1));
-    let (revision, versions, update_bytes, receipt_bytes): (String, i64, i64, i64) = sqlx::query_as("SELECT r.revision, (SELECT count(*) FROM hosted_provider_record_versions WHERE collection_id=$1 AND record_id=$2), (SELECT octet_length(update_ciphertext) FROM hosted_provider_collaboration_updates WHERE collection_id=$1 AND record_id=$2), (SELECT octet_length(receipt_ciphertext) FROM hosted_provider_collaboration_receipts WHERE collection_id=$1 AND record_id=$2) FROM hosted_provider_records r WHERE r.collection_id=$1 AND r.record_id=$2").bind(collection).bind(record).fetch_one(&provider.pool).await.unwrap();
-    assert!(
-        revision.starts_with("hosted:1:2:")
-            && versions >= 2
-            && update_bytes > 0
-            && receipt_bytes > 0
-    );
+    let (revision, versions, update_bytes, receipt_bytes): (String, i64, i32, i32) = sqlx::query_as("SELECT r.revision, (SELECT count(*) FROM hosted_provider_record_versions WHERE collection_id=$1 AND record_id=$2), (SELECT octet_length(update_ciphertext) FROM hosted_provider_collaboration_updates WHERE collection_id=$1 AND record_id=$2), (SELECT octet_length(receipt_ciphertext) FROM hosted_provider_collaboration_receipts WHERE collection_id=$1 AND record_id=$2) FROM hosted_provider_records r WHERE r.collection_id=$1 AND r.record_id=$2").bind(collection).bind(record).fetch_one(&provider.pool).await.unwrap();
+    assert!(!revision.is_empty());
+    assert_eq!(versions, 2);
+    assert!(update_bytes > 0 && receipt_bytes > 0);
+    let update_constraints: Vec<String> = sqlx::query_scalar(
+        "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='hosted_provider_collaboration_updates'::regclass AND contype='u' ORDER BY conname",
+    )
+    .fetch_all(&provider.pool)
+    .await
+    .unwrap();
+    assert!(update_constraints.iter().any(|definition| definition == "UNIQUE (collection_id, record_id, collaboration_epoch, profile, replica_id, client_mutation_id)"), "constraints: {update_constraints:?}");
+    assert!(!update_constraints.iter().any(|definition| definition.contains("update_digest") || definition == "UNIQUE (collection_id, record_id, collaboration_epoch, profile, client_mutation_id)"), "constraints: {update_constraints:?}");
     let same_update = {
         let mut tx = provider.pool.begin().await.unwrap();
         let r = provider
@@ -381,6 +384,140 @@ async fn run(base: &str, schema: &str) {
         e
     };
     assert_eq!(denied.code, "scope_epoch_stale");
+
+    let ticket_request = CollaborationTicketRequest {
+        path: "notes/é.md".into(),
+        profile: COLLABORATION_PROFILE.into(),
+        mode: crate::CollaborationMode::ReadWrite,
+        epoch: Some(1),
+    };
+    let issued = provider
+        .issue_collaboration_ticket(
+            collection,
+            &token,
+            ticket_request.clone(),
+            Some("https://phase3.invalid"),
+            Some(&signed_proof(&signing, &token)),
+        )
+        .await
+        .unwrap();
+    assert_eq!(issued.metadata.room.record_id, record);
+    assert!(provider
+        .consume_collaboration_ticket(&issued.plaintext, Some("https://wrong.invalid"))
+        .await
+        .is_err());
+    let consumed = provider
+        .consume_collaboration_ticket(&issued.plaintext, Some("https://phase3.invalid"))
+        .await
+        .unwrap();
+    assert_eq!(consumed.metadata.room, issued.metadata.room);
+    assert!(provider
+        .consume_collaboration_ticket(&issued.plaintext, Some("https://phase3.invalid"))
+        .await
+        .is_err());
+
+    let raced = provider
+        .issue_collaboration_ticket(
+            collection,
+            &token,
+            ticket_request.clone(),
+            Some("https://phase3.invalid"),
+            Some(&signed_proof(&signing, &token)),
+        )
+        .await
+        .unwrap();
+    let (first, second) = tokio::join!(
+        provider.consume_collaboration_ticket(&raced.plaintext, Some("https://phase3.invalid")),
+        provider.consume_collaboration_ticket(&raced.plaintext, Some("https://phase3.invalid"))
+    );
+    assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
+
+    let expired = provider
+        .issue_collaboration_ticket(
+            collection,
+            &token,
+            ticket_request.clone(),
+            Some("https://phase3.invalid"),
+            Some(&signed_proof(&signing, &token)),
+        )
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(1_100)).await;
+    assert!(provider
+        .consume_collaboration_ticket(&expired.plaintext, Some("https://phase3.invalid"))
+        .await
+        .is_err());
+
+    let stale_scope = provider
+        .issue_collaboration_ticket(
+            collection,
+            &token,
+            ticket_request.clone(),
+            Some("https://phase3.invalid"),
+            Some(&signed_proof(&signing, &token)),
+        )
+        .await
+        .unwrap();
+    sqlx::query("UPDATE hosted_provider_replicas SET scope_epoch=scope_epoch+1 WHERE id=$1")
+        .bind(replica)
+        .execute(&provider.pool)
+        .await
+        .unwrap();
+    assert!(provider
+        .consume_collaboration_ticket(&stale_scope.plaintext, Some("https://phase3.invalid"))
+        .await
+        .is_err());
+
+    let rotated = provider
+        .issue_collaboration_ticket(
+            collection,
+            &token,
+            ticket_request.clone(),
+            Some("https://phase3.invalid"),
+            Some(&signed_proof(&signing, &token)),
+        )
+        .await
+        .unwrap();
+    let rotated_token = format!("phase3-rotated-{}", Uuid::new_v4());
+    provider
+        .rotate_replica_token(replica, &rotated_token, Some(3600))
+        .await
+        .unwrap();
+    assert!(provider
+        .consume_collaboration_ticket(&rotated.plaintext, Some("https://phase3.invalid"))
+        .await
+        .is_err());
+
+    let revoked = provider
+        .issue_collaboration_ticket(
+            collection,
+            &rotated_token,
+            ticket_request,
+            Some("https://phase3.invalid"),
+            Some(&signed_proof(&signing, &rotated_token)),
+        )
+        .await
+        .unwrap();
+    provider.revoke_replica(replica).await.unwrap();
+    assert!(provider
+        .consume_collaboration_ticket(&revoked.plaintext, Some("https://phase3.invalid"))
+        .await
+        .is_err());
+}
+
+fn signed_proof(signing: &p256::ecdsa::SigningKey, token: &str) -> AuthorityRequestProof {
+    let mut proof = AuthorityRequestProof {
+        version: AUTHORITY_PROOF_VERSION,
+        timestamp: chrono::Utc::now().timestamp(),
+        nonce: Uuid::new_v4(),
+        signature: String::new(),
+        method: "POST".into(),
+        target: "/v1/authorities/example/collaboration/tickets".into(),
+        body: br#"{"profile":"markdown-body-yjs-v13"}"#.to_vec(),
+    };
+    let signature: Signature = signing.sign(authority_proof_message(token, &proof).as_bytes());
+    proof.signature = URL_SAFE_NO_PAD.encode(signature.to_bytes());
+    proof
 }
 
 use futures_util::FutureExt;
