@@ -7,6 +7,7 @@ import type { Draft } from "./note-session";
 import type { NotePreviewAnchor, NotePreviewSource } from "./NotePreview";
 import type { EditorPreferences } from "./preferences";
 import type { ResolvedFileReference } from "./use-file-assets";
+import type { ExperimentalEditorCollaboration } from "./use-experimental-collaboration";
 
 const CodeEditor = lazy(() => import("./CodeEditor").then((module) => ({ default: module.CodeEditor })));
 
@@ -34,24 +35,34 @@ interface MarkdownNoteEditorProps {
   onOpenFileLink: (file: CollectionFile) => void;
   onVisibleFileEmbeds: (keys: string[]) => void;
   onVisibleNoteEmbeds: (keys: string[]) => void;
+  collaborationExpected?: boolean;
+  collaboration?: ExperimentalEditorCollaboration;
+  readOnly?: boolean;
 }
 
 export function MarkdownNoteEditor({ editorKey, draft, preferences, documentId, currentPath, recentPaths,
   linkSuggestions, linkTypes, embeddedFiles, embeddedNotes, files, notes, insertion, onTitleChange, onBodyChange,
   onOpenLink, onCreateLink, onPreviewLink, onDismissLinkPreview, onOpenFile, onOpenFileLink,
-  onVisibleFileEmbeds, onVisibleNoteEmbeds }: MarkdownNoteEditorProps) {
+  onVisibleFileEmbeds, onVisibleNoteEmbeds, collaborationExpected = false, collaboration, readOnly = false }: MarkdownNoteEditorProps) {
+  const collaborationReadOnly = readOnly || collaborationExpected && (
+    !collaboration
+    || collaboration.snapshot.state !== "connected"
+    || collaboration.snapshot.mode !== "read_write"
+  );
+  const body = collaboration?.room.body.toString() ?? draft.body;
   return <article className="writing-surface" style={{ "--editor-font-size": `${preferences.fontSize}px` } as CSSProperties}>
     <label className="sr-only" htmlFor="note-title">Note title</label>
-    <input id="note-title" className="title-input" value={draft.title} onChange={(event) => onTitleChange(event.target.value)} placeholder="Untitled" spellCheck="true" />
+    <input id="note-title" className="title-input" value={draft.title} onChange={(event) => onTitleChange(event.target.value)} placeholder="Untitled" spellCheck="true" readOnly={readOnly || collaborationExpected} />
     <Suspense fallback={<div className="body-editor code-editor-loading" role="status" aria-label="Loading note editor" aria-busy="true"><span /></div>}>
-      <CodeEditor key={editorKey} value={draft.body} onChange={onBodyChange} label="Note body" language="markdown"
+      <CodeEditor key={editorKey} value={body} onChange={onBodyChange} label="Note body" language="markdown"
         variant="writer" placeholder="Start writing" vimEnabled={preferences.vim} lineWrapping={preferences.lineWrapping}
         quietMarkdown={preferences.quietMarkdown} autoFocus className="body-editor" documentId={documentId}
         currentPath={currentPath} recentPaths={recentPaths} linkSuggestions={linkSuggestions} linkTypes={linkTypes}
         onOpenLink={onOpenLink} onCreateLink={onCreateLink} onPreviewLink={onPreviewLink}
         onDismissLinkPreview={onDismissLinkPreview} embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes}
         onOpenFile={onOpenFile} files={files} notes={notes} onOpenFileLink={onOpenFileLink}
-        onVisibleFileEmbeds={onVisibleFileEmbeds} onVisibleNoteEmbeds={onVisibleNoteEmbeds} insertion={insertion} />
+        onVisibleFileEmbeds={onVisibleFileEmbeds} onVisibleNoteEmbeds={onVisibleNoteEmbeds} insertion={insertion}
+        readOnly={collaborationReadOnly} collaboration={collaboration} />
     </Suspense>
   </article>;
 }

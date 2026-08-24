@@ -3667,6 +3667,10 @@ kbd {
   overflow-y: auto;
 }
 
+.property-fields-lock {
+  display: contents;
+}
+
 .property-row {
   position: relative;
   padding: 10px 28px 11px 0;

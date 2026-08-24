@@ -18,6 +18,8 @@ interface PropertiesPanelProps {
   onClose: () => void;
   onSave: (path: string, value: JsonObject) => Promise<void>;
   onSaveDocument?: (document: string, previousDocument: string) => Promise<NoteDocument | false> | NoteDocument | false;
+  bodyManagedExternally?: boolean;
+  writable?: boolean;
 }
 
 export function PropertiesPanel({
@@ -27,7 +29,9 @@ export function PropertiesPanel({
   error,
   onClose,
   onSave,
-  onSaveDocument
+  onSaveDocument,
+  bodyManagedExternally = false,
+  writable = true
 }: PropertiesPanelProps) {
   const initial = useMemo(() => structuredClone(note.frontmatter), [note]);
   const initialDocument = note.document ?? composeRecordSource(note.frontmatter, note.body ?? "");
@@ -89,6 +93,10 @@ export function PropertiesPanel({
     });
   }, [initialDocument]);
   useEffect(() => {
+    if (!writable) {
+      if (changed) setAutoSaveState("waiting");
+      return;
+    }
     if (!changed || fieldsInvalid) {
       if (!changed) {
         lastSubmitted.current = draftFingerprint;
@@ -108,21 +116,26 @@ export function PropertiesPanel({
       });
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [changed, draft, draftFingerprint, fieldsInvalid, note.path, validationFingerprint]);
+  }, [changed, draft, draftFingerprint, fieldsInvalid, note.path, validationFingerprint, writable]);
   useEffect(() => () => {
+    if (!writable) return;
     const latest = latestDraft.current;
     const fingerprint = JSON.stringify(latest);
     if (!latestFieldsInvalid.current && fingerprint !== lastSubmitted.current) {
       void Promise.resolve(saveCallback.current(note.path, latest)).catch(() => undefined);
     }
-  }, [note.path]);
+  }, [note.path, writable]);
   useEffect(() => () => {
+    if (bodyManagedExternally) return;
     const latest = latestSource.current;
     const baseline = sourceBaseline.current;
     if (latest === baseline || latest === lastSourceSubmitted.current || sourceSavePromise.current) return;
     lastSourceSubmitted.current = latest;
     void Promise.resolve(sourceSaveCallback.current?.(latest, baseline)).catch(() => undefined);
-  }, [note.path]);
+  }, [bodyManagedExternally, note.path]);
+  useEffect(() => {
+    if (bodyManagedExternally && mode === "source") setMode("fields");
+  }, [bodyManagedExternally, mode]);
 
   function change(next: JsonObject) {
     setDraft(next);
@@ -216,7 +229,9 @@ export function PropertiesPanel({
     <div className="panel-tabs" role="tablist" aria-label="Record view" onKeyDown={(event) => {
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
       event.preventDefault();
-      const modes = ["fields", "json", "source"] as const;
+      const modes: readonly ("fields" | "json" | "source")[] = bodyManagedExternally
+        ? ["fields", "json"]
+        : ["fields", "json", "source"];
       const offset = event.key === "ArrowRight" ? 1 : -1;
       const next = modes[(modes.indexOf(mode) + offset + modes.length) % modes.length];
       setMode(next);
@@ -224,10 +239,11 @@ export function PropertiesPanel({
     }}>
       <button id="properties-fields-tab" role="tab" aria-controls="properties-fields-panel" aria-selected={mode === "fields"} tabIndex={mode === "fields" ? 0 : -1} onClick={() => setMode("fields")}>Fields</button>
       <button id="properties-json-tab" role="tab" aria-controls="properties-json-panel" aria-selected={mode === "json"} tabIndex={mode === "json" ? 0 : -1} onClick={() => setMode("json")}><Braces aria-hidden="true" /> JSON</button>
-      <button id="properties-source-tab" role="tab" aria-controls="properties-source-panel" aria-selected={mode === "source"} tabIndex={mode === "source" ? 0 : -1} onClick={() => setMode("source")}><FileCode2 aria-hidden="true" /> Source</button>
+      {!bodyManagedExternally && <button id="properties-source-tab" role="tab" aria-controls="properties-source-panel" aria-selected={mode === "source"} tabIndex={mode === "source" ? 0 : -1} onClick={() => setMode("source")}><FileCode2 aria-hidden="true" /> Source</button>}
     </div>
 
     {mode === "fields" ? <div id="properties-fields-panel" className="property-fields" role="tabpanel" aria-labelledby="properties-fields-tab">
+      <fieldset className="property-fields-lock" disabled={!writable}>
       <StructuredPropertiesEditor
         value={draft}
         contract={contract}
@@ -236,9 +252,10 @@ export function PropertiesPanel({
         onChange={change}
         onValidityChange={setStructuredFieldsValid}
       />
+      </fieldset>
     </div> : mode === "json" ? <div id="properties-json-panel" className="raw-properties" role="tabpanel" aria-labelledby="properties-json-tab">
       <p className="raw-properties-note">Persisted frontmatter only. For the complete Markdown record, use Source.</p>
-      <CodeEditor value={raw} onChange={updateRaw} label="Raw frontmatter JSON" language="json" lineWrapping={false} />
+      <CodeEditor value={raw} onChange={updateRaw} label="Raw frontmatter JSON" language="json" lineWrapping={false} readOnly={!writable} />
       {rawError && <p className="property-error" role="alert">{rawError}</p>}
     </div> : <div id="properties-source-panel" className="record-source" role="tabpanel" aria-labelledby="properties-source-tab">
       <p>Exact Markdown source, including YAML frontmatter and body.</p>

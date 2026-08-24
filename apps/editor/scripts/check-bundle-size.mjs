@@ -46,6 +46,8 @@ async function assertExperimentalCollaborationExcluded() {
   if (contents.some((content) =>
     content.includes("collaboration_room_closed")
     || content.includes("hostedCollaborationRemote")
+    || content.includes("collaboration_pending_updates_exceeded")
+    || content.includes("[y-codemirror]")
   )) {
     throw new Error("The experimental collaboration room leaked into the flag-off bundle.");
   }

@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { composeRecordSource, parseRecordSource, replaceDocumentFrontmatter } from "./record-source";
+import { composeRecordSource, frontmatterReplacementPatch, parseRecordSource, replaceDocumentFrontmatter } from "./record-source";
 
 describe("record source", () => {
+  it("creates top-level tombstones when replacing frontmatter through patch-only writes", () => {
+    expect(frontmatterReplacementPatch(
+      { title: "Before", remove: true, preservedNull: null, nested: { keep: 1 } },
+      { title: "After", preservedNull: null, nested: { replacement: 2 } }
+    )).toEqual({ title: "After", remove: null, nested: { replacement: 2 } });
+    expect(() => frontmatterReplacementPatch({}, { unsupportedNull: null }))
+      .toThrow("complete source editing");
+  });
+
   it("preserves document framing, comments, CRLF, body whitespace, and explicit nulls", () => {
     const source = "\u{feff}---\r\ntitle: \"Before\" # title comment\r\ncustom: null\r\nremove: me\r\n---\r\nBody  \r\n";
     const next = replaceDocumentFrontmatter(source, { title: "After", custom: null, added: true });

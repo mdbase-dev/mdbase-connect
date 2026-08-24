@@ -183,7 +183,11 @@ export class DemoCollectionGateway implements CollectionGateway {
     return clone(this.required(path));
   }
 
-  async openExperimentalCollaboration(): Promise<null> {
+  async openExperimentalCollaboration(_options: {
+    path: string;
+    maxBodyBytes: number;
+    signal?: AbortSignal;
+  }): Promise<import("@mdbase-dev/connect-collaboration").ExperimentalHostedMarkdownRoom | null> {
     return null;
   }
 

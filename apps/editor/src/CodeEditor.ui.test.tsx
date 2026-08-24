@@ -8,6 +8,23 @@ vi.mock("./inline-pdf-viewer", () => ({
   mountInlinePdfViewer: vi.fn(() => ({ unmount: vi.fn() }))
 }));
 
+describe("read-only writer controls", () => {
+  it("does not toggle rendered task checkboxes", async () => {
+    const change = vi.fn();
+    render(<CodeEditor
+      value={"Intro\n\n- [ ] Keep this unchanged"}
+      onChange={change}
+      label="Read-only body"
+      language="markdown"
+      variant="writer"
+      readOnly
+    />);
+
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Mark task complete" }));
+    expect(change).not.toHaveBeenCalled();
+  });
+});
+
 describe("rendered Markdown links", () => {
   it("opens a rendered link without moving the caret into its source", async () => {
     const open = vi.spyOn(window, "open").mockImplementation(() => null);

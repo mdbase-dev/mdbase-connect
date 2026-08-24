@@ -39,6 +39,7 @@ import type { LinkSuggestion } from "./links";
 import { markdownReferences } from "./markdown-references";
 import type { ResolvedNoteEmbed } from "./note-embeds";
 import type { NotePreviewAnchor, NotePreviewSource } from "./NotePreview";
+import type { ExperimentalHostedMarkdownRoom } from "@mdbase-dev/connect-collaboration";
 import type { CollectionFile, NoteSummary } from "./model";
 
 type EditorLanguage = "markdown" | "json" | "yaml" | "yaml-frontmatter" | "plain";
@@ -77,6 +78,10 @@ interface CodeEditorProps {
   onVisibleNoteEmbeds?: (keys: string[]) => void;
   insertion?: { id: number; text: string; block?: boolean };
   onBlur?: () => void;
+  collaboration?: {
+    room: ExperimentalHostedMarkdownRoom;
+    extension: Extension;
+  };
 }
 
 interface RememberedEditor {
@@ -130,7 +135,8 @@ export function CodeEditor({
   onVisibleFileEmbeds,
   onVisibleNoteEmbeds,
   insertion,
-  onBlur
+  onBlur,
+  collaboration
 }: CodeEditorProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | undefined>(undefined);
@@ -164,7 +170,7 @@ export function CodeEditor({
   const onVisibleFileEmbedsRef = useRef(onVisibleFileEmbeds);
   const onVisibleNoteEmbedsRef = useRef(onVisibleNoteEmbeds);
   const appliedInsertion = useRef<number | undefined>(undefined);
-  const lineSeparator = useRef(lineSeparatorFor(value));
+  const lineSeparator = useRef(lineSeparatorFor(collaboration?.room.body.toString() ?? value));
 
   linkSuggestionsRef.current = linkSuggestions;
   linkTypesRef.current = linkTypes;
@@ -189,7 +195,7 @@ export function CodeEditor({
     if (!parentRef.current) return;
     const extensions: Extension[] = [
       vimMode.current.of([]),
-      editorSetup(variant),
+      editorSetup(variant, Boolean(collaboration)),
       syntaxHighlighting(mdbaseHighlightStyle),
       variant === "writer" ? syntaxHighlighting(writerHighlightStyle) : [],
       languageMode.current.of(language === "markdown" ? markdown() : []),
@@ -237,26 +243,33 @@ export function CodeEditor({
         spellcheck: variant === "writer" && language === "markdown" ? "true" : "false"
       })),
       placeholderMode.current.of(placeholder ? editorPlaceholder(placeholder) : []),
+      collaboration?.extension ?? [],
       EditorView.updateListener.of((update) => {
         if (update.docChanged && !syncing.current) {
           onChangeRef.current?.(restoreLineSeparators(update.state.doc.toString(), lineSeparator.current));
         }
+        if (collaboration && (update.docChanged || update.selectionSet)) {
+          publishCollaborationAwareness(collaboration.room, update.view, "active");
+        }
       })
     ];
-    const remembered = documentId ? rememberedEditors.get(documentId) : undefined;
+    const remembered = !collaboration && documentId ? rememberedEditors.get(documentId) : undefined;
     const config = { extensions };
-    const state = remembered && rememberedValue(remembered) === value
+    const initialValue = collaboration?.room.body.toString() ?? value;
+    const state = remembered && rememberedValue(remembered) === initialValue
       ? EditorState.fromJSON(remembered.state, config, { history: historyField })
-      : EditorState.create({ doc: value, extensions });
+      : EditorState.create({ doc: initialValue, extensions });
     const view = new EditorView({ parent: parentRef.current, state });
     viewRef.current = view;
     requestAnimationFrame(() => {
       if (viewRef.current !== view) return;
       if (remembered) view.scrollDOM.scrollTop = remembered.scrollTop;
       if (autoFocus) view.focus();
+      if (collaboration) publishCollaborationAwareness(collaboration.room, view, "active");
     });
     return () => {
-      if (documentId) rememberEditor(documentId, view, lineSeparator.current);
+      if (!collaboration && documentId) rememberEditor(documentId, view, lineSeparator.current);
+      if (collaboration) publishCollaborationAwareness(collaboration.room, view, "idle");
       onDismissLinkPreviewRef.current?.();
       view.destroy();
       viewRef.current = undefined;
@@ -422,14 +435,14 @@ export function CodeEditor({
 
   useEffect(() => {
     const view = viewRef.current;
-    if (!view || restoreLineSeparators(view.state.doc.toString(), lineSeparator.current) === value) return;
+    if (!view || collaboration || restoreLineSeparators(view.state.doc.toString(), lineSeparator.current) === value) return;
     syncing.current = true;
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: value },
       selection: EditorSelection.cursor(Math.min(view.state.selection.main.head, value.length))
     });
     syncing.current = false;
-  }, [value]);
+  }, [collaboration, value]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -452,9 +465,15 @@ export function CodeEditor({
   return <div
     ref={parentRef}
     className={`code-editor code-editor-${variant} ${className}`.trim()}
+    onFocus={() => {
+      const view = viewRef.current;
+      if (collaboration && view) publishCollaborationAwareness(collaboration.room, view, "active");
+    }}
     onBlur={(event) => {
       const next = event.relatedTarget;
       if (next instanceof Node && event.currentTarget.contains(next)) return;
+      const view = viewRef.current;
+      if (collaboration && view) publishCollaborationAwareness(collaboration.room, view, "idle");
       onBlur?.();
     }}
   />;
@@ -503,9 +522,27 @@ export function markdownEdit(doc: string, from: number, to: number, format: Mark
   };
 }
 
-const editorSetup = (variant: EditorVariant): Extension => [
+function publishCollaborationAwareness(
+  room: ExperimentalHostedMarkdownRoom,
+  view: EditorView,
+  status: "active" | "idle"
+): void {
+  try {
+    room.setAwareness({
+      status,
+      selections: view.state.selection.ranges.slice(0, 8).map((range) => ({
+        anchor: range.anchor,
+        head: range.head
+      }))
+    });
+  } catch {
+    // The room can become terminal between a view update and this notification.
+  }
+}
+
+const editorSetup = (variant: EditorVariant, collaborative = false): Extension => [
   highlightSpecialChars(),
-  history(),
+  collaborative ? [] : history(),
   search({ top: true }),
   highlightSelectionMatches({ minSelectionLength: 2 }),
   bracketMatching(),
@@ -521,7 +558,7 @@ const editorSetup = (variant: EditorVariant): Extension => [
     ...(variant === "source" ? closeBracketsKeymap : []),
     ...searchKeymap,
     ...defaultKeymap,
-    ...historyKeymap,
+    ...(collaborative ? [] : historyKeymap),
     ...lintKeymap
   ])
 ];

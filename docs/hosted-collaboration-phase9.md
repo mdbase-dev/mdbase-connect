@@ -46,8 +46,30 @@ The private room client:
    roots/bodies, or resource limits.
 
 There is no browser-persistent collaboration queue in this phase. `flush()` and
-`pendingUpdates` let the future Editor block unsafe navigation; terminal or
-closed rooms reject pending flushes.
+`pendingUpdates` let the LAB Editor block unsafe note, file, creation, surface,
+and collection transitions; terminal or closed rooms reject pending flushes.
+
+## LAB Editor adapter
+
+The experimental Editor build opens one room for the active hosted note and
+lazy-loads the Yjs CodeMirror binding only after durable synchronization. The
+exact authority-visible Markdown body, including a heading-backed title, comes
+from `Y.Text("body")`; React value reconciliation and conventional CodeMirror
+history are disabled while that binding owns the editor. The room-owned undo
+manager handles local undo and awareness carries only bounded selections.
+
+The note surface starts read-only and becomes writable only for a connected
+`read_write` room. It returns to read-only while reconnecting, after policy
+loss, and during conventional record operations. Read-only task controls,
+attachments, properties, rename, and delete are also gated. Exact Source
+editing is unavailable while a room owns the body.
+
+Room snapshots update the Editor projection without making the conventional
+note autosave dirty. Before a body-preserving frontmatter patch, rename, or
+delete, the Editor flushes durable room updates and rereads the record to obtain
+the post-collaboration revision used by the conventional CAS mutation.
+Frontmatter replacement patches include top-level deletion tombstones; new
+unrepresentable top-level null values fail rather than being deleted silently.
 
 ## Kill switches and rollout
 
@@ -68,12 +90,6 @@ identities.
 
 ## Remaining acceptance gates
 
-- integrate the private room into the Editor behind the LAB-only build flag;
-- make the complete authoritative Markdown body, including heading title,
-  CodeMirror's collaborative source;
-- disable conventional body autosave and body-affecting controls while a room
-  owns the body;
-- lazy-load Yjs/CodeMirror collaboration chunks only after admission;
 - run two-page Chromium and LAB tests for convergence, reconnect, provider
   restart, revocation, awareness, navigation flush, and default-off behavior;
 - collect operational metrics, retention, and rollout evidence; and

@@ -108,6 +108,7 @@ function taskTarget(event: Event): HTMLElement | null {
 }
 
 function toggleTask(view: EditorView, target: HTMLElement, event: Event): boolean {
+  if (view.state.readOnly) return false;
   const from = Number(target.dataset.taskFrom);
   if (!Number.isFinite(from)) return false;
   const source = view.state.sliceDoc(from, from + 3);

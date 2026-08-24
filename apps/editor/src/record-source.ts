@@ -6,6 +6,23 @@ export interface ParsedRecordSource {
   body: string;
 }
 
+export function frontmatterReplacementPatch(current: JsonObject, next: JsonObject): JsonObject {
+  const patch: JsonObject = {};
+  for (const [key, value] of Object.entries(next)) {
+    if (value === null) {
+      if (current[key] !== null) {
+        throw new Error("New top-level null values require complete source editing, which is unavailable during live collaboration.");
+      }
+      continue;
+    }
+    patch[key] = structuredClone(value);
+  }
+  for (const key of Object.keys(current)) {
+    if (!(key in next)) patch[key] = null;
+  }
+  return patch;
+}
+
 export function replaceDocumentFrontmatter(source: string, next: JsonObject): string {
   const parts = sourceParts(source);
   if (!parts) {
