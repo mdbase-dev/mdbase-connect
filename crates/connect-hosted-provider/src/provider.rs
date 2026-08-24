@@ -66,7 +66,7 @@ mod authority_imports;
 mod authority_snapshots;
 mod authority_transfers;
 mod capabilities;
-mod collaboration;
+pub(crate) mod collaboration;
 mod collections;
 mod compaction;
 mod crypto_state;
@@ -193,6 +193,7 @@ impl CollaborationLimits {
 
 #[derive(Debug, Clone)]
 pub struct ProviderLimits {
+    pub hosted_collaboration_enabled: bool,
     pub max_records_per_collection: u64,
     pub max_bytes_per_collection: u64,
     pub max_bytes_per_document: u64,
@@ -237,6 +238,7 @@ pub struct ProviderAccountUsage {
 impl Default for ProviderLimits {
     fn default() -> Self {
         Self {
+            hosted_collaboration_enabled: false,
             max_records_per_collection: 100_000,
             max_bytes_per_collection: 1024 * 1024 * 1024,
             max_bytes_per_document: 2 * 1024 * 1024,

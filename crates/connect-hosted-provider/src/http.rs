@@ -24,9 +24,10 @@ use mdbase_connect_protocol::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::sync::Arc;
 use subtle::ConstantTimeEq;
-use tokio::sync::Semaphore;
+use tokio::sync::{broadcast, OwnedSemaphorePermit, Semaphore};
 use tower_http::{
     cors::{Any, CorsLayer},
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
@@ -45,6 +46,7 @@ use crate::{
 mod accounts;
 mod authentication;
 mod authority_import_files;
+mod collaboration;
 mod diagnostics;
 mod files;
 mod projections;
@@ -67,11 +69,15 @@ const MAX_IMPORT_BODY_BYTES: usize = 16 * 1024 * 1024;
 // advisory permit. Eight permits leave ten primary connections for handler and
 // maintenance work, preventing a pool-ordering deadlock under saturation.
 const MAX_ADMITTED_REQUESTS: usize = 8;
+const MAX_COLLABORATION_CONNECTIONS: usize = 256;
 #[derive(Clone)]
 pub struct AppState {
     provider: HostedProvider,
     internal_token_hash: [u8; 32],
     request_slots: Arc<Semaphore>,
+    collaboration_slots: Arc<Semaphore>,
+    collaboration_rooms:
+        Arc<tokio::sync::Mutex<HashMap<crate::RoomIdentity, broadcast::Sender<(Uuid, Vec<u8>)>>>>,
 }
 
 impl AppState {
@@ -86,7 +92,38 @@ impl AppState {
             provider,
             internal_token_hash: Sha256::digest(internal_token.as_bytes()).into(),
             request_slots: Arc::new(Semaphore::new(MAX_ADMITTED_REQUESTS)),
+            collaboration_slots: Arc::new(Semaphore::new(MAX_COLLABORATION_CONNECTIONS)),
+            collaboration_rooms: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         })
+    }
+
+    pub(crate) fn provider(&self) -> &HostedProvider {
+        &self.provider
+    }
+    pub(crate) fn collaboration_enabled(&self) -> bool {
+        self.provider.collaboration_enabled()
+    }
+    pub(crate) fn socket_permit(&self) -> ApiResult<OwnedSemaphorePermit> {
+        self.collaboration_slots
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| {
+                ApiError::new(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "collaboration_busy",
+                    "The collaboration service is busy.",
+                )
+            })
+    }
+    pub(crate) async fn room_sender(
+        &self,
+        room: crate::RoomIdentity,
+    ) -> broadcast::Sender<(Uuid, Vec<u8>)> {
+        let mut rooms = self.collaboration_rooms.lock().await;
+        rooms
+            .entry(room)
+            .or_insert_with(|| broadcast::channel(64).0)
+            .clone()
     }
 
     fn authorize_internal(&self, headers: &HeaderMap) -> ApiResult<()> {
@@ -319,6 +356,13 @@ pub fn app(state: AppState) -> Router {
         )
         .layer(DefaultBodyLimit::max(MAX_IMPORT_BODY_BYTES))
         .route_layer(middleware::from_fn(require_bearer_request));
+    let collaboration = Router::new()
+        .route(
+            "/v1/authorities/{collection_id}/collaboration/tickets",
+            post(collaboration::ticket),
+        )
+        .route("/v1/collaboration", get(collaboration::upgrade))
+        .layer(DefaultBodyLimit::max(collaboration::MAX_TICKET_BODY));
     let admitted = Router::new()
         .merge(internal)
         .merge(sync)
@@ -331,6 +375,7 @@ pub fn app(state: AppState) -> Router {
         ));
     Router::new()
         .merge(diagnostic_routes(state.clone()))
+        .merge(collaboration)
         .merge(admitted)
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(cors)

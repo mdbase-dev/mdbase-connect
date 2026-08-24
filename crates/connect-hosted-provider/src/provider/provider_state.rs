@@ -1,5 +1,9 @@
 use super::*;
 impl HostedProvider {
+    pub(crate) fn collaboration_enabled(&self) -> bool {
+        self.limits.hosted_collaboration_enabled
+    }
+
     pub(super) async fn collection_key(
         &self,
         collection_id: Uuid,

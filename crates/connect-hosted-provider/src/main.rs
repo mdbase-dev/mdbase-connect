@@ -66,6 +66,12 @@ struct Arguments {
     port: u16,
     #[arg(
         long,
+        env = "MDBASE_CONNECT_HOSTED_COLLABORATION_ENABLED",
+        default_value_t = false
+    )]
+    hosted_collaboration_enabled: bool,
+    #[arg(
+        long,
         env = "MDBASE_CONNECT_HOSTED_MAX_RECORDS_PER_COLLECTION",
         default_value_t = 100_000
     )]
@@ -309,6 +315,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let crypto = provider_crypto(&arguments, secrets.master_key.take()).await?;
     let limits = ProviderLimits {
+        hosted_collaboration_enabled: arguments.hosted_collaboration_enabled,
         max_records_per_collection: arguments.max_records_per_collection,
         max_bytes_per_collection: arguments.max_bytes_per_collection,
         max_bytes_per_document: arguments.max_bytes_per_document,

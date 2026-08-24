@@ -16,6 +16,7 @@ pub(crate) struct CollaborationTicketRequest {
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub(crate) struct CollaborationTicketMetadata {
+    pub(crate) replica_id: Uuid,
     pub room: RoomIdentity,
     pub mode: CollaborationMode,
     pub origin: String,
@@ -167,6 +168,7 @@ impl HostedProvider {
         Ok(IssuedCollaborationTicket {
             plaintext: URL_SAFE_NO_PAD.encode(random),
             metadata: CollaborationTicketMetadata {
+                replica_id: binding.replica_id,
                 room,
                 mode: request.mode,
                 origin: binding.origin,
@@ -269,6 +271,7 @@ impl HostedProvider {
         transaction.commit().await?;
         Ok(ConsumedCollaborationTicket {
             metadata: CollaborationTicketMetadata {
+                replica_id: row.get("replica_id"),
                 room,
                 mode,
                 origin: binding.origin,

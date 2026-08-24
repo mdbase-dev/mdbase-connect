@@ -424,7 +424,7 @@ impl HostedProvider {
     /// Replace the durable snapshot at a bounded checkpoint. The full Yrs
     /// state is retained, so clients with an old state vector can still ask
     /// for a diff after incremental rows are removed.
-    pub(super) async fn compact_collaboration_room_in(
+    pub(crate) async fn compact_collaboration_room_in(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
         data_key: &[u8; 32],
@@ -498,7 +498,7 @@ impl HostedProvider {
         Ok(true)
     }
 
-    pub(super) async fn repair_collaboration_room_in(
+    pub(crate) async fn repair_collaboration_room_in(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
         data_key: &[u8; 32],
@@ -587,6 +587,63 @@ impl HostedProvider {
 }
 
 mod batches;
+pub(crate) use batches::{CollaborationBatchContribution, CollaborationBatchInput};
+pub(crate) use tickets::{CollaborationTicketRequest, ConsumedCollaborationTicket};
+
+impl HostedProvider {
+    pub(crate) async fn collaboration_sync_step2(
+        &self,
+        room: RoomIdentity,
+        replica_id: Uuid,
+        scope_epoch: u64,
+        state_vector: &[u8],
+    ) -> ApiResult<Vec<u8>> {
+        let mut transaction = self.pool.begin().await?;
+        let replica_epoch: Option<i64> = sqlx::query_scalar(
+            "SELECT scope_epoch FROM hosted_provider_replicas WHERE id=$1 AND collection_id=$2 AND revoked_at IS NULL AND token_expires_at > now() FOR UPDATE",
+        )
+        .bind(replica_id).bind(room.collection_id).fetch_optional(&mut *transaction).await?;
+        if replica_epoch != Some(to_i64(scope_epoch, "scope epoch")?) {
+            return Err(ApiError::forbidden(
+                "collaboration_scope_denied",
+                "The collaboration session is no longer authorized.",
+            ));
+        }
+        let wrapped: Vec<u8> = sqlx::query_scalar("SELECT wrapped_data_key FROM hosted_provider_collections WHERE id=$1 AND state='active'")
+            .bind(room.collection_id).fetch_one(&mut *transaction).await?;
+        let data_key = self.collection_key(room.collection_id, &wrapped).await?;
+        let loaded = self
+            .load_collaboration_room_in(&mut transaction, &data_key, room)
+            .await?;
+        let diff = loaded
+            .document
+            .diff_v1(state_vector)
+            .map_err(profile_error)?;
+        transaction.commit().await?;
+        Ok(diff)
+    }
+
+    pub(crate) async fn commit_collaboration_batch(
+        &self,
+        input: batches::CollaborationBatchInput,
+    ) -> ApiResult<(Vec<batches::CollaborationBatchReceipt>, bool)> {
+        let mut transaction = self.pool.begin().await?;
+        let first = input.contributions.first().ok_or_else(|| {
+            ApiError::bad_request(
+                "empty_collaboration_batch",
+                "A collaboration batch must contain an update.",
+            )
+        })?;
+        let already_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM hosted_provider_collaboration_receipts WHERE collection_id=$1 AND record_id=$2 AND collaboration_epoch=$3 AND profile=$4 AND replica_id=$5 AND client_mutation_id=$6)")
+            .bind(input.collection_id).bind(input.record_id).bind(to_i64(input.epoch, "collaboration epoch")?).bind(crate::COLLABORATION_PROFILE).bind(first.replica_id).bind(first.client_mutation_id).fetch_one(&mut *transaction).await?;
+        let receipts = self
+            .commit_collaboration_batch_in(&mut transaction, input)
+            .await?;
+        transaction.commit().await?;
+        Ok((receipts, !already_exists))
+    }
+}
+
 #[cfg(test)]
 mod phase3_batch_tests;
 mod tickets;

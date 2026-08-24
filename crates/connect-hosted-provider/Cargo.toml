@@ -50,3 +50,4 @@ zstd.workspace = true
 
 [dev-dependencies]
 serde_yaml.workspace = true
+tokio-tungstenite.workspace = true

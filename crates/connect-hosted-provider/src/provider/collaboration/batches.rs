@@ -6,7 +6,7 @@ const MAX_COLLABORATION_BATCH_BYTES: u64 = 1024 * 1024;
 /// A provider-owned batch contribution. This is deliberately crate-private: a
 /// future transport must authenticate each contributor before constructing it.
 #[derive(Debug, Clone)]
-pub(super) struct CollaborationBatchContribution {
+pub(crate) struct CollaborationBatchContribution {
     pub replica_id: Uuid,
     pub expected_scope_epoch: u64,
     pub client_mutation_id: Uuid,
@@ -14,7 +14,7 @@ pub(super) struct CollaborationBatchContribution {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct CollaborationBatchReceipt {
+pub(crate) struct CollaborationBatchReceipt {
     pub replica_id: Uuid,
     pub client_mutation_id: Uuid,
     pub sequence: u64,
@@ -23,7 +23,7 @@ pub(super) struct CollaborationBatchReceipt {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct CollaborationBatchInput {
+pub(crate) struct CollaborationBatchInput {
     pub collection_id: Uuid,
     pub record_id: Uuid,
     pub epoch: u64,
@@ -37,7 +37,7 @@ impl HostedProvider {
     /// accepts a data key and resolves it only after locking and revalidating
     /// every replica. The caller commits the transaction and may expose the
     /// returned receipts only after that commit.
-    pub(super) async fn commit_collaboration_batch_in(
+    pub(crate) async fn commit_collaboration_batch_in(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
         input: CollaborationBatchInput,
