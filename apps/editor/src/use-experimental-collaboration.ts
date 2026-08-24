@@ -168,39 +168,41 @@ export function useExperimentalCollaboration({
     setState({ path, expected: true, opening: true });
 
     const publish = (snapshot: ExperimentalHostedMarkdownRoomSnapshot) => {
-      if (disposed) return;
-      if (snapshot.state === "connected") synchronized = true;
-      if (synchronized && (snapshot.state === "connected" || snapshot.state === "reconnecting")) {
-        onBodyRef.current(snapshot.body);
-      }
-      const terminal = snapshot.state === "unavailable" || snapshot.state === "closed";
-      setState((current) => ({
-        path,
-        expected: true,
-        opening: false,
-        snapshot,
-        ...(current.binding && !terminal ? { binding: { ...current.binding, snapshot } } : {}),
-        ...(snapshot.problem ? { problem: snapshot.problem.message } : {})
-      }));
-      if (snapshot.state !== "connected" || bindingStarted || !room) return;
-      bindingStarted = true;
-      void import("y-codemirror.next").then(({ yCollab, yUndoManagerKeymap }) => {
-        const activeRoom = room;
-        if (disposed || !activeRoom
-            || (activeRoom.snapshot.state !== "connected" && activeRoom.snapshot.state !== "reconnecting")) return;
-        const extension: Extension = [
-          yCollab(activeRoom.body, null, { undoManager: activeRoom.undoManager }),
-          Prec.highest(keymap.of(yUndoManagerKeymap))
-        ];
+      queueMicrotask(() => {
+        if (disposed) return;
+        if (snapshot.state === "connected") synchronized = true;
+        if (synchronized && (snapshot.state === "connected" || snapshot.state === "reconnecting")) {
+          onBodyRef.current(snapshot.body);
+        }
+        const terminal = snapshot.state === "unavailable" || snapshot.state === "closed";
         setState((current) => ({
-          ...current,
-          binding: { room: activeRoom, extension, snapshot: current.snapshot ?? snapshot }
+          path,
+          expected: true,
+          opening: false,
+          snapshot,
+          ...(current.binding && !terminal ? { binding: { ...current.binding, snapshot } } : {}),
+          ...(snapshot.problem ? { problem: snapshot.problem.message } : {})
         }));
-      }).catch(() => {
-        if (!disposed) setState((current) => ({
-          ...current,
-          problem: "The collaborative editor could not be loaded."
-        }));
+        if (snapshot.state !== "connected" || bindingStarted || !room) return;
+        bindingStarted = true;
+        void import("y-codemirror.next").then(({ yCollab, yUndoManagerKeymap }) => {
+          const activeRoom = room;
+          if (disposed || !activeRoom
+              || (activeRoom.snapshot.state !== "connected" && activeRoom.snapshot.state !== "reconnecting")) return;
+          const extension: Extension = [
+            yCollab(activeRoom.body, null, { undoManager: activeRoom.undoManager }),
+            Prec.highest(keymap.of(yUndoManagerKeymap))
+          ];
+          setState((current) => ({
+            ...current,
+            binding: { room: activeRoom, extension, snapshot: current.snapshot ?? snapshot }
+          }));
+        }).catch(() => {
+          if (!disposed) setState((current) => ({
+            ...current,
+            problem: "The collaborative editor could not be loaded."
+          }));
+        });
       });
     };
 

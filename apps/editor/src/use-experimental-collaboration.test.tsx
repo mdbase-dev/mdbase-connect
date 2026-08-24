@@ -50,7 +50,31 @@ collaborationTests("experimental Editor collaboration lifecycle", () => {
       problem: { code: "collaboration_document_too_large", message: "Rejected" }
     }));
     expect(onBody).not.toHaveBeenCalledWith("# Rejected local mutation");
-    expect(latest?.binding).toBeUndefined();
+    await waitFor(() => expect(latest?.binding).toBeUndefined());
+  });
+
+  it("defers React projection updates outside the room listener stack", async () => {
+    const room = new FakeRoom();
+    let emitting = false;
+    const onBody = vi.fn(() => expect(emitting).toBe(false));
+    render(<Probe gateway={gatewayReturning(room)} path="Notes/live.md" onBody={onBody} onState={() => undefined} />);
+    await waitFor(() => expect(room.subscribe).toHaveBeenCalled());
+
+    await act(async () => {
+      emitting = true;
+      room.emit({
+        state: "connected",
+        body: "# Deferred\n",
+        mode: "read_write",
+        epoch: 1,
+        pendingUpdates: 0,
+        participants: []
+      });
+      emitting = false;
+      await Promise.resolve();
+    });
+
+    expect(onBody).toHaveBeenCalledWith("# Deferred\n");
   });
 
   it("aborts and destroys a stale room that resolves after navigation", async () => {

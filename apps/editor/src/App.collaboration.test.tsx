@@ -116,7 +116,7 @@ collaborationTests("LAB Editor hosted collaboration", () => {
 
     act(() => room.emit({ ...room.snapshot, state: "reconnecting" }));
     expect(screen.getByRole("complementary", { name: "Note properties" })).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "Raw frontmatter JSON" })).toHaveAttribute("readonly");
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Raw frontmatter JSON" })).toHaveAttribute("readonly"));
     await new Promise((resolve) => setTimeout(resolve, 650));
     expect(gateway.propertyUpdates).toBe(0);
   });
