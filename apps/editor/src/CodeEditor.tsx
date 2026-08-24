@@ -245,7 +245,7 @@ export function CodeEditor({
       placeholderMode.current.of(placeholder ? editorPlaceholder(placeholder) : []),
       collaboration?.extension ?? [],
       EditorView.updateListener.of((update) => {
-        if (update.docChanged && !syncing.current) {
+        if (update.docChanged && !syncing.current && !collaboration) {
           onChangeRef.current?.(restoreLineSeparators(update.state.doc.toString(), lineSeparator.current));
         }
         if (collaboration && (update.docChanged || update.selectionSet)) {

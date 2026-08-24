@@ -2,7 +2,7 @@ import { EditorState, Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { render, waitFor } from "@testing-library/react";
 import { createElement } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { yCollab, yUndoManagerKeymap } from "y-codemirror.next";
 import * as Y from "yjs";
 import { CodeEditor } from "./CodeEditor";
@@ -26,6 +26,7 @@ describe("CodeMirror collaboration profile spike", () => {
       undoManager,
       setAwareness: () => undefined
     } as unknown as ExperimentalHostedMarkdownRoom;
+    const onChange = vi.fn();
     const collaboration = {
       room,
       extension: [
@@ -38,7 +39,8 @@ describe("CodeMirror collaboration profile spike", () => {
       label: "Collaborative body",
       language: "markdown",
       variant: "writer",
-      collaboration
+      collaboration,
+      onChange
     }));
 
     const visible = () => [...document.querySelectorAll<HTMLElement>(".cm-line")]
@@ -50,10 +52,13 @@ describe("CodeMirror collaboration profile spike", () => {
       label: "Collaborative body",
       language: "markdown",
       variant: "writer",
-      collaboration
+      collaboration,
+      onChange
     }));
-    expect(body.toString()).toBe("# Shared\n\nExact body\n");
-    expect(visible()).toBe("# Shared\n\nExact body\n");
+    body.insert(body.length, "Remote update\n");
+    await waitFor(() => expect(visible()).toBe("# Shared\n\nExact body\nRemote update\n"));
+    expect(onChange).not.toHaveBeenCalled();
+    expect(body.toString()).toBe("# Shared\n\nExact body\nRemote update\n");
   });
 
   it("binds the complete exact body, including heading and Unicode, to Y.Text", () => {
