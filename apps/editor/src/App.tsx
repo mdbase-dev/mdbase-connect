@@ -237,6 +237,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const documentGeneration = useRef(0);
   const navigationGeneration = useRef(0);
   const collaborationFlushRef = useRef<() => Promise<void>>(async () => undefined);
+  const collaborationExpectedRef = useRef(false);
   const typeGeneration = useRef(0);
   const typeDescriptorsRef = useRef<CollectionTypeDescriptor[]>(emptyTypeDescriptors);
   const noteSessions = useRef(new NoteSessionStore());
@@ -656,6 +657,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     restrictControls: restrictCollaborationControls
   });
   collaborationFlushRef.current = collaboration.flush;
+  collaborationExpectedRef.current = collaboration.expected;
   const flushSessionWork = useCallback(async (session: NoteSession, requireWritable = false) => {
     await flushSession(session);
     await collaboration.flushAndRefresh(session, requireWritable);
@@ -678,6 +680,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     return () => window.clearTimeout(timer);
   }, [collaboration.expected, document, draft, requestSave]);
 
+  function changeActiveBody(body: string) { if (!collaborationExpectedRef.current) changeActiveDraft((current) => ({ ...current, body })); }
   function changeActiveDraft(change: (current: Draft) => Draft) {
     const session = noteSessions.current.active;
     if (!session || session.deleted) return;
@@ -2067,9 +2070,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
             currentPath={document.path} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames}
             embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes} files={fileInventory.files} notes={allNotes}
             insertion={attachments.insertion} onTitleChange={(title) => changeActiveDraft((current) => ({ ...current, title }))}
-            onBodyChange={collaboration.expected
-              ? () => undefined
-              : (body) => changeActiveDraft((current) => ({ ...current, body }))} onOpenLink={navigateToNote}
+            onBodyChange={changeActiveBody} onOpenLink={navigateToNote}
             onCreateLink={createLinkedNote} onPreviewLink={notePreviewController.request}
             onDismissLinkPreview={notePreviewController.dismiss} onOpenFile={setOpenFileAsset} onOpenFileLink={navigateToFile}
             onVisibleFileEmbeds={updateVisibleFileEmbeds} onVisibleNoteEmbeds={updateVisibleNoteEmbeds}
