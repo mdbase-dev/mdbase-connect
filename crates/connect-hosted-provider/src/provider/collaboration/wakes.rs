@@ -34,7 +34,7 @@ pub(crate) const COLLABORATION_COMMIT_CHANNEL: &str = "mdbase_hosted_collaborati
 /// still stores beyond each session's cursor. Used by reconnect recovery and
 /// the periodic sweep because a missed terminal notification cannot be
 /// reconstructed from the channel itself.
-pub(super) const WAKE_RECONCILE: u64 = u64::MAX;
+pub(crate) const WAKE_RECONCILE: u64 = u64::MAX;
 
 /// Upper bound on a serialized notice. Real notices are far smaller; larger
 /// payloads can only come from something other than the batch engine.
@@ -75,7 +75,7 @@ fn parse_commit_notice(payload: &str) -> Result<CollaborationCommitNotice, ()> {
         return Err(());
     }
     let notice: CollaborationCommitNotice = serde_json::from_str(payload).map_err(|_| ())?;
-    if notice.room().is_none() || notice.sequence == 0 {
+    if notice.room().is_none() || notice.sequence == 0 || notice.sequence > i64::MAX as u64 {
         return Err(());
     }
     Ok(notice)
@@ -99,7 +99,13 @@ pub(super) async fn queue_commit_notice(
     Ok(())
 }
 
-type WakeSender = watch::Sender<u64>;
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct CollaborationWake {
+    pub(crate) high_water: u64,
+    pub(crate) reconcile_generation: u64,
+}
+
+type WakeSender = watch::Sender<CollaborationWake>;
 
 /// Bounded coalescing hub of per-room high-water marks. Each active room owns
 /// one `watch` channel whose single value is the newest target sequence, so at
@@ -126,7 +132,10 @@ impl CollaborationWakeHub {
 
     /// Subscribe one session to its room's wakes. Dead rooms are pruned here;
     /// allocation happens only for real sessions and is capped.
-    pub(crate) async fn subscribe(&self, room: RoomIdentity) -> ApiResult<watch::Receiver<u64>> {
+    pub(crate) async fn subscribe(
+        &self,
+        room: RoomIdentity,
+    ) -> ApiResult<watch::Receiver<CollaborationWake>> {
         let mut rooms = self.rooms.lock().await;
         rooms.retain(|_, sender| sender.receiver_count() > 0);
         let sender = match rooms.get(&room) {
@@ -139,13 +148,17 @@ impl CollaborationWakeHub {
                         "The collaboration service is busy.",
                     ));
                 }
-                let (sender, _) = watch::channel(0);
+                let (sender, _) = watch::channel(CollaborationWake::default());
                 rooms.insert(room, sender.clone());
                 sender
             }
         };
+        // Subscribe before releasing the map lock. Otherwise a concurrent
+        // subscriber can prune this zero-receiver sender and partition two
+        // sockets for the same room onto different channels.
+        let receiver = sender.subscribe();
         drop(rooms);
-        Ok(sender.subscribe())
+        Ok(receiver)
     }
 
     /// Coalesce a monotonic high-water wake. Rooms without local subscribers
@@ -163,7 +176,12 @@ impl CollaborationWakeHub {
     pub(crate) async fn wake_reconcile_all(&self) {
         let rooms = self.rooms.lock().await;
         for sender in rooms.values() {
-            wake_sender(sender, WAKE_RECONCILE);
+            sender.send_modify(|wake| {
+                wake.reconcile_generation = wake.reconcile_generation.wrapping_add(1);
+                if wake.reconcile_generation == 0 {
+                    wake.reconcile_generation = 1;
+                }
+            });
         }
     }
 
@@ -176,14 +194,12 @@ impl CollaborationWakeHub {
 /// Monotonic coalescing write. The reconcile sentinel always re-fires unless
 /// it is already pending, because receivers consume values they have seen.
 fn wake_sender(sender: &WakeSender, sequence: u64) -> bool {
-    sender.send_if_modified(|high_water| {
-        if *high_water == sequence {
+    debug_assert_ne!(sequence, WAKE_RECONCILE);
+    sender.send_if_modified(|wake| {
+        if wake.high_water >= sequence {
             return false;
         }
-        if sequence != WAKE_RECONCILE && *high_water != WAKE_RECONCILE && *high_water > sequence {
-            return false;
-        }
-        *high_water = sequence;
+        wake.high_water = sequence;
         true
     })
 }
@@ -193,6 +209,7 @@ fn wake_sender(sender: &WakeSender, sequence: u64) -> bool {
 pub(crate) struct CollaborationWakeRuntime {
     shutdown: watch::Sender<bool>,
     completed: mpsc::UnboundedReceiver<()>,
+    completed_workers: usize,
 }
 
 impl CollaborationWakeRuntime {
@@ -205,9 +222,10 @@ impl CollaborationWakeRuntime {
     /// did not finish within the budget.
     pub(crate) async fn stop(&mut self, within: Duration) -> bool {
         let _ = self.shutdown.send(true);
-        for _ in 0..2 {
-            match tokio::time::timeout(within, self.completed.recv()).await {
-                Ok(Some(())) => {}
+        let deadline = tokio::time::Instant::now() + within;
+        while self.completed_workers < 2 {
+            match tokio::time::timeout_at(deadline, self.completed.recv()).await {
+                Ok(Some(())) => self.completed_workers += 1,
                 _ => return false,
             }
         }
@@ -260,6 +278,7 @@ pub(crate) async fn spawn_wake_runtime(
     Ok(CollaborationWakeRuntime {
         shutdown,
         completed: completed_rx,
+        completed_workers: 0,
     })
 }
 
@@ -293,8 +312,8 @@ async fn run_listener(
     loop {
         tokio::select! {
             _ = shutdown.changed() => break,
-            notification = listener.recv() => match notification {
-                Ok(notification) => {
+            notification = listener.try_recv() => match notification {
+                Ok(Some(notification)) => {
                     backoff = LISTENER_BACKOFF_INITIAL;
                     // Never log the payload; malformed input is counted, not
                     // echoed.
@@ -310,10 +329,16 @@ async fn run_listener(
                         }
                     }
                 }
+                Ok(None) => {
+                    // `try_recv` reports a successfully re-established
+                    // connection as None. Notifications may have been lost
+                    // during that gap, so reconcile every active room now.
+                    backoff = LISTENER_BACKOFF_INITIAL;
+                    hub.wake_reconcile_all().await;
+                }
                 Err(error) => {
-                    // PgListener reconnects and re-subscribes on its own;
-                    // notifications emitted during the gap are lost, which
-                    // reconcile-on-recovery and the sweep exist to cover.
+                    // Reconnection failed. Keep the sweep alive, reconcile
+                    // local rooms, and retry with bounded backoff.
                     tracing::warn!(
                         %error,
                         backoff_ms = backoff.as_millis() as u64,
@@ -445,18 +470,23 @@ mod tests {
         )
         .unwrap();
         let mut receiver = hub.subscribe(room).await.unwrap();
-        assert_eq!(*receiver.borrow_and_update(), 0);
+        assert_eq!(receiver.borrow_and_update().high_water, 0);
         assert!(hub.wake(&room, 5).await);
         receiver.changed().await.unwrap();
-        assert_eq!(*receiver.borrow_and_update(), 5);
+        assert_eq!(receiver.borrow_and_update().high_water, 5);
         // Duplicates and stale/reversed marks never fire again.
         assert!(!hub.wake(&room, 5).await);
         assert!(!hub.wake(&room, 2).await);
-        // The reconcile sentinel always fires.
-        assert!(hub.wake(&room, WAKE_RECONCILE).await);
+        // Every reconcile increments an independent generation, even when no
+        // normal high-water notice occurs between sweeps.
+        hub.wake_reconcile_all().await;
         receiver.changed().await.unwrap();
-        assert_eq!(*receiver.borrow_and_update(), WAKE_RECONCILE);
-        assert!(!hub.wake(&room, WAKE_RECONCILE).await);
+        assert_eq!(receiver.borrow_and_update().reconcile_generation, 1);
+        hub.wake_reconcile_all().await;
+        receiver.changed().await.unwrap();
+        let wake = *receiver.borrow_and_update();
+        assert_eq!(wake.reconcile_generation, 2);
+        assert_eq!(wake.high_water, 5);
     }
 
     #[tokio::test]
@@ -483,7 +513,7 @@ mod tests {
         // fresh subscription starts from a clean high-water mark.
         drop(receiver);
         let replacement = hub.subscribe(known).await.unwrap();
-        assert_eq!(*replacement.borrow(), 0);
+        assert_eq!(replacement.borrow().high_water, 0);
         assert_eq!(hub.active_rooms().await, 1);
     }
 }

@@ -17,7 +17,7 @@ use crate::collaboration::{decrypt_room_bytes, AadKind};
 /// Delivery page bound. Backlogs larger than one page are drained by repeated
 /// rounds within the same wake, so this bounds per-round memory rather than
 /// total convergence time.
-pub(crate) const COLLABORATION_CATCHUP_PAGE_UPDATES: i64 = 128;
+pub(crate) const COLLABORATION_CATCHUP_PAGE_UPDATES: i64 = 8;
 const COLLABORATION_CATCHUP_PAGE_BYTES: u64 = 4 * 1024 * 1024;
 
 #[derive(Debug)]
@@ -45,11 +45,14 @@ impl HostedProvider {
         through: u64,
     ) -> ApiResult<Vec<CollaborationCatchUpItem>> {
         let mut transaction = self.pool.begin().await?;
-        // Lock prefix of the global order (collection -> fence -> record ->
-        // document): fence first, then record, then document.
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            .execute(&mut *transaction)
+            .await?;
+        // One immutable MVCC snapshot validates the fence, record, document,
+        // and update rows without convoying writers or other local sessions.
         let fence_epoch: Option<i64> = sqlx::query_scalar(
             "SELECT current_epoch FROM hosted_provider_collaboration_epoch_fences
-             WHERE collection_id = $1 AND record_id = $2 FOR UPDATE",
+             WHERE collection_id = $1 AND record_id = $2",
         )
         .bind(room.collection_id)
         .bind(room.record_id)
@@ -60,7 +63,7 @@ impl HostedProvider {
         }
         let revision: String = sqlx::query_scalar(
             "SELECT revision FROM hosted_provider_records
-             WHERE collection_id = $1 AND record_id = $2 FOR UPDATE",
+             WHERE collection_id = $1 AND record_id = $2",
         )
         .bind(room.collection_id)
         .bind(room.record_id)
@@ -73,8 +76,7 @@ impl HostedProvider {
             "SELECT state, current_sequence, snapshot_sequence, materialized_revision,
                     snapshot_ciphertext
              FROM hosted_provider_collaboration_documents
-             WHERE collection_id = $1 AND record_id = $2 AND collaboration_epoch = $3 AND profile = $4
-             FOR UPDATE",
+             WHERE collection_id = $1 AND record_id = $2 AND collaboration_epoch = $3 AND profile = $4",
         )
         .bind(room.collection_id)
         .bind(room.record_id)
@@ -295,7 +297,8 @@ impl HostedProvider {
         room: &RoomIdentity,
         reason: &'static str,
     ) -> ApiResult<Vec<CollaborationCatchUpItem>> {
-        let mut transaction = transaction;
+        transaction.rollback().await?;
+        let mut transaction = self.pool.begin().await?;
         sqlx::query(
             "UPDATE hosted_provider_collaboration_documents SET state='rebuilding', updated_at=now()
              WHERE collection_id=$1 AND record_id=$2 AND collaboration_epoch=$3 AND profile=$4",

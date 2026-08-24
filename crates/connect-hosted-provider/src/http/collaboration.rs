@@ -19,9 +19,8 @@ use crate::{
     http::{bearer, request_origin, request_proof, AppState},
     provider::collaboration::{
         spawn_wake_runtime, CollaborationBatchContribution, CollaborationBatchInput,
-        CollaborationCatchUpItem, CollaborationTicketRequest, CollaborationWakeRuntime,
-        ConsumedCollaborationTicket, COLLABORATION_CATCHUP_PAGE_UPDATES,
-        DEFAULT_WAKE_SWEEP_INTERVAL,
+        CollaborationCatchUpItem, CollaborationTicketRequest, CollaborationWake,
+        ConsumedCollaborationTicket, DEFAULT_WAKE_SWEEP_INTERVAL, WAKE_RECONCILE,
     },
     CollaborationMode, COLLABORATION_PROFILE,
 };
@@ -81,8 +80,15 @@ impl AppState {
             return Ok(());
         }
         let mut slot = self.collaboration_wake_runtime.lock().await;
-        if slot.as_ref().is_some_and(CollaborationWakeRuntime::running) {
-            return Ok(());
+        if let Some(runtime) = slot.as_ref() {
+            if runtime.running() {
+                return Ok(());
+            }
+            return Err(ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "collaboration_draining",
+                "The collaboration wake runtime is still stopping.",
+            ));
         }
         *slot = Some(
             spawn_wake_runtime(
@@ -98,10 +104,15 @@ impl AppState {
     /// Stop and await the listener and sweep workers cleanly. Returns whether
     /// both finished within the budget. The next start call spawns fresh.
     pub async fn stop_collaboration_wake_runtime(&self, within: std::time::Duration) -> bool {
-        let runtime = self.collaboration_wake_runtime.lock().await.take();
-        match runtime {
-            Some(mut runtime) => runtime.stop(within).await,
-            None => true,
+        let mut slot = self.collaboration_wake_runtime.lock().await;
+        let Some(runtime) = slot.as_mut() else {
+            return true;
+        };
+        if runtime.stop(within).await {
+            slot.take();
+            true
+        } else {
+            false
         }
     }
 }
@@ -112,6 +123,7 @@ impl AppState {
 /// acknowledged contributions — never client-supplied metadata alone.
 struct SessionDelivery {
     delivered_through: u64,
+    reconcile_generation: u64,
     own_acks: BTreeMap<u64, (Uuid, Uuid)>,
 }
 
@@ -119,8 +131,17 @@ impl SessionDelivery {
     fn new() -> Self {
         Self {
             delivered_through: 0,
+            reconcile_generation: 0,
             own_acks: BTreeMap::new(),
         }
+    }
+
+    fn target_for(&mut self, wake: CollaborationWake) -> Option<u64> {
+        if wake.reconcile_generation != self.reconcile_generation {
+            self.reconcile_generation = wake.reconcile_generation;
+            return Some(WAKE_RECONCILE);
+        }
+        (wake.high_water > self.delivered_through).then_some(wake.high_water)
     }
 
     fn suppresses(&self, item: &CollaborationCatchUpItem) -> bool {
@@ -298,6 +319,7 @@ async fn session(
     let mut update_count = 0_u32;
     let mut last_heartbeat = Instant::now() - MIN_HEARTBEAT_INTERVAL;
     let mut delivery = SessionDelivery::new();
+    let mut synced = false;
     loop {
         tokio::select! {
             _ = &mut idle => return,
@@ -326,9 +348,17 @@ async fn session(
                         if update.len() > mdbase_connect_protocol::MAX_COLLABORATION_PAYLOAD_BYTES { return; }
                         let Ok(response) = (CollaborationFrame { kind: CollaborationMessageKind::SyncStep2, metadata: Default::default(), payload: update }).encode() else { return; };
                         if send_frame(&mut socket, response).await.is_err() { return; }
+                        synced = true;
+                        // Close the query/register race: a commit can land
+                        // after SyncStep2 observed its durable cursor but
+                        // before this socket starts selecting on wake changes.
+                        let initial_wake = *wakes.borrow_and_update();
+                        if let Some(target) = delivery.target_for(initial_wake) {
+                            if drain_durable_updates(&mut socket, &state, &consumed, &mut delivery, target).await.is_err() { return; }
+                        }
                     }
                     CollaborationMessageKind::Update => {
-                        if update_count >= MAX_UPDATES_PER_SECOND { return; }
+                        if !synced || update_count >= MAX_UPDATES_PER_SECOND { return; }
                         update_count += 1;
                         if consumed.metadata.mode != CollaborationMode::ReadWrite || !exact_keys(&frame.metadata, &["client_mutation_id", "profile", "epoch"]) { return; }
                         let Some(client_id) = frame.metadata.get("client_mutation_id").and_then(Value::as_str).and_then(|v| Uuid::parse_str(v).ok()) else { return; };
@@ -349,7 +379,7 @@ async fn session(
                         }
                     }
                     CollaborationMessageKind::Heartbeat => {
-                        if !exact_keys(&frame.metadata, &[]) || !frame.payload.is_empty() || last_heartbeat.elapsed() < MIN_HEARTBEAT_INTERVAL { return; }
+                        if !synced || !exact_keys(&frame.metadata, &[]) || !frame.payload.is_empty() || last_heartbeat.elapsed() < MIN_HEARTBEAT_INTERVAL { return; }
                         last_heartbeat = Instant::now();
                         if state.provider().reauthorize_collaboration_session(consumed.metadata.room, consumed.metadata.replica_id, consumed.metadata.scope_epoch).await.is_err() { return; }
                         if send_frame(&mut socket, CollaborationFrame { kind: CollaborationMessageKind::Heartbeat, metadata: Default::default(), payload: Vec::new() }.encode().unwrap()).await.is_err() { return; }
@@ -358,10 +388,12 @@ async fn session(
                     _ => { return; }
                 }
             }
-            woken = wakes.changed() => {
+            woken = wakes.changed(), if synced => {
                 if woken.is_err() { return; }
-                let target = *wakes.borrow_and_update();
-                if drain_durable_updates(&mut socket, &state, &consumed, &mut delivery, target).await.is_err() { return; }
+                let wake = *wakes.borrow_and_update();
+                if let Some(target) = delivery.target_for(wake) {
+                    if drain_durable_updates(&mut socket, &state, &consumed, &mut delivery, target).await.is_err() { return; }
+                }
             }
         }
     }
@@ -379,30 +411,37 @@ async fn drain_durable_updates(
 ) -> Result<(), ()> {
     let room = consumed.metadata.room;
     for _ in 0..MAX_DRAIN_ROUNDS_PER_WAKE {
-        if state
-            .provider()
-            .reauthorize_collaboration_session(
-                room,
-                consumed.metadata.replica_id,
-                consumed.metadata.scope_epoch,
-            )
-            .await
-            .is_err()
-        {
-            return Err(());
-        }
-        let items = match state
-            .provider()
-            .collaboration_catch_up(room, delivery.delivered_through, target)
-            .await
-        {
-            Ok(items) => items,
-            Err(_) => return Err(()),
+        let mut attempt = 0_u32;
+        let items = loop {
+            let authorization = state
+                .provider()
+                .reauthorize_collaboration_session(
+                    room,
+                    consumed.metadata.replica_id,
+                    consumed.metadata.scope_epoch,
+                )
+                .await;
+            let result = match authorization {
+                Ok(()) => {
+                    state
+                        .provider()
+                        .collaboration_catch_up(room, delivery.delivered_through, target)
+                        .await
+                }
+                Err(error) => Err(error),
+            };
+            match result {
+                Ok(items) => break items,
+                Err(error) if retryable_delivery_error(&error) && attempt < 2 => {
+                    attempt += 1;
+                    tokio::time::sleep(Duration::from_millis(25 * u64::from(attempt))).await;
+                }
+                Err(_) => return Err(()),
+            }
         };
         if items.is_empty() {
             return Ok(());
         }
-        let full_page = items.len() as i64 >= COLLABORATION_CATCHUP_PAGE_UPDATES;
         for item in items {
             if !delivery.suppresses(&item) {
                 let frame = CollaborationFrame {
@@ -421,11 +460,16 @@ async fn drain_durable_updates(
             delivery.delivered_through = item.sequence;
         }
         delivery.prune_through(delivery.delivered_through);
-        if !full_page {
-            return Ok(());
-        }
+        // Always probe once more after a non-empty bounded page. The page may
+        // have stopped on its byte ceiling before its row-count ceiling, so
+        // item count alone cannot prove that the durable target was drained.
     }
     Ok(())
+}
+
+fn retryable_delivery_error(error: &ApiError) -> bool {
+    error.status == StatusCode::SERVICE_UNAVAILABLE
+        || error.status == StatusCode::INTERNAL_SERVER_ERROR
 }
 
 impl SessionDelivery {

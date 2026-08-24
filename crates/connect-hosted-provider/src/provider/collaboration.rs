@@ -660,10 +660,11 @@ mod batches;
 mod catchup;
 mod wakes;
 pub(crate) use batches::{CollaborationBatchContribution, CollaborationBatchInput};
-pub(crate) use catchup::{CollaborationCatchUpItem, COLLABORATION_CATCHUP_PAGE_UPDATES};
+pub(crate) use catchup::CollaborationCatchUpItem;
 pub(crate) use tickets::{CollaborationTicketRequest, ConsumedCollaborationTicket};
 pub(crate) use wakes::{
-    spawn_wake_runtime, CollaborationWakeHub, CollaborationWakeRuntime, DEFAULT_WAKE_SWEEP_INTERVAL,
+    spawn_wake_runtime, CollaborationWake, CollaborationWakeHub, CollaborationWakeRuntime,
+    DEFAULT_WAKE_SWEEP_INTERVAL, WAKE_RECONCILE,
 };
 
 impl HostedProvider {

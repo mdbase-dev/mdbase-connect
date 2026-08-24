@@ -261,6 +261,13 @@ async fn run(base: &str, schema: &str) {
     }
     .encode()
     .unwrap();
+    a.send(Message::Binary(sync_frame.clone().into()))
+        .await
+        .unwrap();
+    assert_eq!(
+        recv_frame(&mut a).await.kind,
+        CollaborationMessageKind::SyncStep2
+    );
     b.send(Message::Binary(sync_frame.into())).await.unwrap();
     let baseline = recv_frame(&mut b).await;
     assert_eq!(baseline.kind, CollaborationMessageKind::SyncStep2);
@@ -460,8 +467,50 @@ async fn run(base: &str, schema: &str) {
         recv_frame(&mut late).await.kind,
         CollaborationMessageKind::Hello
     );
-    // Deliberately no SyncStep1: the next wake must rebuild from zero through
-    // the idempotent snapshot plus later rows.
+    // Prove the durable delivery primitive rebuilds a zero cursor from the
+    // compacted full-state snapshot. The socket still follows the protocol and
+    // completes SyncStep1 before it may receive later wake deliveries.
+    let fallback = instance_b
+        .provider
+        .collaboration_catch_up(room, 0, WAKE_RECONCILE)
+        .await
+        .unwrap();
+    assert!(!fallback.is_empty());
+    assert_eq!(
+        fallback[0].sequence,
+        u64::try_from(snapshot_sequence).unwrap()
+    );
+    let fallback_frames = fallback.len();
+    let mut fallback_client = MarkdownBodyDocument::new("", 2 * 1024 * 1024).unwrap();
+    for item in fallback {
+        fallback_client
+            .apply_update_v1(&item.plaintext, 2 * 1024 * 1024, 2 * 1024 * 1024)
+            .unwrap();
+    }
+    assert_eq!(
+        fallback_client.body(),
+        "\nBase body\nline one\nline two\nline three\nline four\n"
+    );
+
+    let mut late_client = MarkdownBodyDocument::new("", 2 * 1024 * 1024).unwrap();
+    late.send(Message::Binary(
+        CollaborationFrame {
+            kind: CollaborationMessageKind::SyncStep1,
+            metadata: Default::default(),
+            payload: late_client.state_vector_v1(),
+        }
+        .encode()
+        .unwrap()
+        .into(),
+    ))
+    .await
+    .unwrap();
+    let late_sync = recv_frame(&mut late).await;
+    assert_eq!(late_sync.kind, CollaborationMessageKind::SyncStep2);
+    late_client
+        .apply_update_v1(&late_sync.payload, 2 * 1024 * 1024, 2 * 1024 * 1024)
+        .unwrap();
+
     let update_five = build_next_update(
         &instance_a.provider,
         &data_key,
@@ -479,23 +528,16 @@ async fn run(base: &str, schema: &str) {
         update_five,
     )
     .await;
-    let mut late_client = MarkdownBodyDocument::new("", 2 * 1024 * 1024).unwrap();
-    let mut frames = 0;
-    loop {
-        let frame = recv_frame(&mut late).await;
-        assert_eq!(frame.kind, CollaborationMessageKind::Update);
-        late_client
-            .apply_update_v1(&frame.payload, 2 * 1024 * 1024, 2 * 1024 * 1024)
-            .unwrap();
-        frames += 1;
-        if late_client.body()
-            == "\nBase body\nline one\nline two\nline three\nline four\ncompacted line\n"
-        {
-            break;
-        }
-        assert!(frames <= 8, "snapshot fallback did not converge");
-    }
-    assert!(frames >= 2, "expected the snapshot item plus trailing rows");
+    let frame = recv_frame(&mut late).await;
+    assert_eq!(frame.kind, CollaborationMessageKind::Update);
+    late_client
+        .apply_update_v1(&frame.payload, 2 * 1024 * 1024, 2 * 1024 * 1024)
+        .unwrap();
+    assert_eq!(
+        late_client.body(),
+        "\nBase body\nline one\nline two\nline three\nline four\ncompacted line\n"
+    );
+    assert!(fallback_frames >= 1, "expected a compacted snapshot item");
     let _ = late.close(None).await;
     // The long-lived socket also converges through its own durable path;
     // consume that delivery before the negative assertions below.
