@@ -46,12 +46,17 @@ pub(crate) const COLLABORATION_CLOSE_GOING_AWAY: u16 = 1001;
 /// WebSocket close code for sessions lost to revocation, rotation, downgrade,
 /// reauthorization failure, or suspended admission (policy violation).
 pub(crate) const COLLABORATION_CLOSE_POLICY: u16 = 1008;
+/// WebSocket close code for a retryable provider/database failure.
+pub(crate) const COLLABORATION_CLOSE_INTERNAL: u16 = 1011;
 
 pub(crate) const DRAIN_DIRECTIVE: SessionCloseDirective = SessionCloseDirective {
     code: COLLABORATION_CLOSE_GOING_AWAY,
 };
 pub(crate) const POLICY_DIRECTIVE: SessionCloseDirective = SessionCloseDirective {
     code: COLLABORATION_CLOSE_POLICY,
+};
+pub(crate) const INTERNAL_DIRECTIVE: SessionCloseDirective = SessionCloseDirective {
+    code: COLLABORATION_CLOSE_INTERNAL,
 };
 
 /// How long a socket operation waits for a shared request slot before giving
@@ -62,7 +67,7 @@ const SESSION_LANE_ACQUIRE_POLL: Duration = Duration::from_millis(20);
 /// Server-driven session reauthorization cadence. Revocation, rotation,
 /// downgrade, and admission suspension committed anywhere converge to socket
 /// closure within one tick plus query latency, well under four seconds.
-pub(crate) const SESSION_REAUTHORIZATION_INTERVAL: Duration = Duration::from_secs(2);
+pub(crate) const SESSION_REAUTHORIZATION_INTERVAL: Duration = Duration::from_millis(1_500);
 
 const PHASE_ACCEPTING: u8 = 0;
 const PHASE_DRAINING: u8 = 1;
@@ -209,6 +214,10 @@ impl CollaborationSessionRuntime {
     /// started work, then close with 1001. Idempotent; later registrations are
     /// refused by the admission gates.
     pub(crate) fn begin_drain(&self) {
+        // The registry mutex is also the admission linearization lock for
+        // update guards. A drain cannot slip between an update's phase check
+        // and counter increment.
+        let sessions = self.sessions.lock().expect("session registry poisoned");
         let started = self
             .phase
             .compare_exchange(
@@ -218,18 +227,16 @@ impl CollaborationSessionRuntime {
                 Ordering::Acquire,
             )
             .is_ok();
-        {
-            let sessions = self.sessions.lock().expect("session registry poisoned");
-            for entry in sessions.values() {
-                let _ = entry.close.send_if_modified(|slot| {
-                    if slot.is_some() {
-                        return false;
-                    }
-                    *slot = Some(DRAIN_DIRECTIVE);
-                    true
-                });
-            }
+        for entry in sessions.values() {
+            let _ = entry.close.send_if_modified(|slot| {
+                if slot.is_some() {
+                    return false;
+                }
+                *slot = Some(DRAIN_DIRECTIVE);
+                true
+            });
         }
+        drop(sessions);
         if started {
             tracing::info!(
                 sockets = self.tracked_sockets(),
@@ -310,7 +317,7 @@ impl CollaborationSessionRuntime {
             }
         }
         if closed > 0 {
-            tracing::debug!(%replica_id, closed, "target-closed collaboration sessions");
+            tracing::debug!(closed, "target-closed collaboration sessions");
         }
         closed
     }
@@ -318,12 +325,17 @@ impl CollaborationSessionRuntime {
     /// Mark one update batch as started. The returned RAII guard keeps drain
     /// waiting until the batch has fully finished, whether it committed or
     /// failed.
-    pub(crate) fn begin_update(self: &Arc<Self>) -> CollaborationUpdateGuard {
-        self.in_flight_updates.fetch_add(1, Ordering::SeqCst);
-        self.signal_progress();
-        CollaborationUpdateGuard {
-            runtime: Arc::clone(self),
+    pub(crate) fn try_begin_update(self: &Arc<Self>) -> Option<CollaborationUpdateGuard> {
+        let sessions = self.sessions.lock().expect("session registry poisoned");
+        if !self.accepting() {
+            return None;
         }
+        self.in_flight_updates.fetch_add(1, Ordering::SeqCst);
+        drop(sessions);
+        self.signal_progress();
+        Some(CollaborationUpdateGuard {
+            runtime: Arc::clone(self),
+        })
     }
 
     fn unregister_socket(&self, session_id: u64) {
@@ -345,6 +357,10 @@ pub(crate) struct CollaborationSocketGuard {
 }
 
 impl CollaborationSocketGuard {
+    pub(crate) fn reauthorization_jitter(&self) -> Duration {
+        Duration::from_millis(self.session_id.wrapping_mul(97) % 250)
+    }
+
     /// Bind this socket to the replica named by its consumed ticket so local
     /// rotate/policy/revoke commits can target-close exactly these sessions.
     pub(crate) fn bind_replica(&self, replica_id: Uuid) {
@@ -396,7 +412,7 @@ impl SocketDbLane {
 }
 
 impl AppState {
-    pub(crate) fn collaboration_sessions_accepting(&self) -> bool {
+    pub fn collaboration_sessions_accepting(&self) -> bool {
         self.collaboration_sessions.accepting()
     }
 
@@ -424,8 +440,8 @@ impl AppState {
         self.collaboration_sessions.register_socket(permit)
     }
 
-    pub(crate) fn begin_collaboration_update(&self) -> CollaborationUpdateGuard {
-        self.collaboration_sessions.begin_update()
+    pub(crate) fn try_begin_collaboration_update(&self) -> Option<CollaborationUpdateGuard> {
+        self.collaboration_sessions.try_begin_update()
     }
 
     /// Local post-commit hook for internal replica mutations.
@@ -503,6 +519,7 @@ impl AppState {
                 consumed.metadata.room,
                 consumed.metadata.replica_id,
                 consumed.metadata.scope_epoch,
+                &consumed.metadata.replica_token_hash,
                 state_vector,
             )
             .await;
@@ -581,9 +598,22 @@ impl AppState {
             .await;
         let items = async {
             authorized?;
-            self.provider
+            let items = self
+                .provider
                 .collaboration_catch_up(consumed.metadata.room, after_exclusive, through)
-                .await
+                .await?;
+            // Recheck after decrypting but before plaintext leaves the lane.
+            // This closes the common revoke/rotate interleaving between the
+            // first authorization query and the durable room read.
+            self.provider
+                .reauthorize_collaboration_session(
+                    consumed.metadata.room,
+                    consumed.metadata.replica_id,
+                    consumed.metadata.scope_epoch,
+                    &consumed.metadata.replica_token_hash,
+                )
+                .await?;
+            Ok(items)
         }
         .await;
         lane.release().await;
@@ -636,7 +666,7 @@ mod tests {
     async fn finish_drain_awaits_in_flight_updates_then_sockets() {
         let runtime = runtime();
         let (_guard, close_rx, _) = runtime.register_socket(permit());
-        let update_guard = runtime.begin_update();
+        let update_guard = runtime.try_begin_update().unwrap();
 
         runtime.begin_drain();
         let drainer_runtime = Arc::clone(&runtime);
@@ -681,6 +711,25 @@ mod tests {
         // Repeated targeting does not re-fire.
         assert_eq!(runtime.target_close_replica(replica), 0);
         assert!(!survivor_rx.has_changed().unwrap());
+    }
+
+    #[tokio::test]
+    async fn drain_timeout_remains_observable_and_can_finish_later() {
+        let runtime = runtime();
+        let (guard, _, _) = runtime.register_socket(permit());
+        assert!(!runtime.finish_drain(Duration::from_millis(25)).await);
+        assert_ne!(runtime.phase(), CollaborationSessionPhase::Drained);
+        drop(guard);
+        assert!(runtime.finish_drain(Duration::from_secs(1)).await);
+        assert_eq!(runtime.phase(), CollaborationSessionPhase::Drained);
+    }
+
+    #[test]
+    fn drain_atomically_refuses_new_update_guards() {
+        let runtime = runtime();
+        runtime.begin_drain();
+        assert!(runtime.try_begin_update().is_none());
+        assert_eq!(runtime.in_flight_updates(), 0);
     }
 
     #[tokio::test]

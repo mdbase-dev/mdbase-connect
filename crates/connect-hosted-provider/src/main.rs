@@ -405,6 +405,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let result = axum::serve(listener, app(state.clone()))
         .with_graceful_shutdown(collaboration_drain_shutdown(state.clone()))
         .await;
+    // Also cover listener/server failures that return without the signal
+    // future completing. Do not grant a second budget after a signal-driven
+    // drain already exhausted its end-to-end deadline.
+    let server_failed_before_drain = state.collaboration_sessions_accepting();
+    state.begin_collaboration_session_drain();
+    let final_drain_budget = if server_failed_before_drain {
+        Duration::from_secs(10)
+    } else {
+        Duration::ZERO
+    };
+    if !state
+        .finish_collaboration_session_drain(final_drain_budget)
+        .await
+    {
+        tracing::warn!("collaboration sessions did not drain after server exit");
+    }
     if !state
         .stop_collaboration_wake_runtime(Duration::from_secs(10))
         .await
@@ -611,7 +627,6 @@ async fn shutdown_signal() {
     #[cfg(not(unix))]
     let _ = signal::ctrl_c().await;
     tracing::info!("shutdown requested");
-    tokio::time::sleep(Duration::from_millis(10)).await;
 }
 
 /// The single shutdown signal drives collaboration drain before the Axum wait

@@ -735,13 +735,18 @@ impl HostedProvider {
         room: RoomIdentity,
         replica_id: Uuid,
         scope_epoch: u64,
+        replica_token_hash: &[u8; 32],
         state_vector: &[u8],
     ) -> ApiResult<(Vec<u8>, u64)> {
         let mut transaction = self.pool.begin().await?;
         let replica_epoch: Option<i64> = sqlx::query_scalar(
-            "SELECT scope_epoch FROM hosted_provider_replicas WHERE id=$1 AND collection_id=$2 AND revoked_at IS NULL AND token_expires_at > now() FOR UPDATE",
+            "SELECT scope_epoch FROM hosted_provider_replicas WHERE id=$1 AND collection_id=$2 AND token_hash=$3 AND revoked_at IS NULL AND token_expires_at > now() FOR UPDATE",
         )
-        .bind(replica_id).bind(room.collection_id).fetch_optional(&mut *transaction).await?;
+        .bind(replica_id)
+        .bind(room.collection_id)
+        .bind(replica_token_hash.as_slice())
+        .fetch_optional(&mut *transaction)
+        .await?;
         if replica_epoch != Some(to_i64(scope_epoch, "scope epoch")?) {
             return Err(ApiError::forbidden(
                 "collaboration_scope_denied",

@@ -17,8 +17,8 @@ use futures_util::StreamExt;
 use crate::{
     error::{ApiError, ApiResult},
     http::collaboration_sessions::{
-        SessionCloseDirective, COLLABORATION_CLOSE_GOING_AWAY, DRAIN_DIRECTIVE, POLICY_DIRECTIVE,
-        SESSION_REAUTHORIZATION_INTERVAL,
+        SessionCloseDirective, COLLABORATION_CLOSE_GOING_AWAY, DRAIN_DIRECTIVE, INTERNAL_DIRECTIVE,
+        POLICY_DIRECTIVE, SESSION_REAUTHORIZATION_INTERVAL,
     },
     http::{bearer, request_origin, request_proof, AppState},
     provider::collaboration::{
@@ -309,6 +309,10 @@ async fn session(
         return;
     };
     socket_guard.bind_replica(consumed.metadata.replica_id);
+    if state.session_reauthorize(&consumed).await.is_err() {
+        send_server_close(&mut socket, POLICY_DIRECTIVE).await;
+        return;
+    }
     let Ok(mut wakes) = state
         .collaboration_wakes()
         .subscribe(consumed.metadata.room)
@@ -332,14 +336,18 @@ async fn session(
     // Server-driven reauthorization: unlike client heartbeats this cannot be
     // withheld by a hostile peer, so revocation, rotation, downgrade, and
     // admission suspension converge to closure within one interval.
-    let mut server_reauthorization = tokio::time::interval(SESSION_REAUTHORIZATION_INTERVAL);
+    let first_reauthorization = tokio::time::Instant::now()
+        + SESSION_REAUTHORIZATION_INTERVAL
+        + socket_guard.reauthorization_jitter();
+    let mut server_reauthorization =
+        tokio::time::interval_at(first_reauthorization, SESSION_REAUTHORIZATION_INTERVAL);
     server_reauthorization.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    server_reauthorization.tick().await;
     let mut rate_window = Instant::now();
     let mut frame_count = 0_u32;
     let mut sync_count = 0_u32;
     let mut update_count = 0_u32;
     let mut last_heartbeat = Instant::now() - MIN_HEARTBEAT_INTERVAL;
+    let mut reauthorization_failures = 0_u8;
     let mut delivery = SessionDelivery::new();
     let mut synced = false;
     loop {
@@ -350,9 +358,15 @@ async fn session(
                 return;
             }
             _ = server_reauthorization.tick() => {
-                if state.session_reauthorize(&consumed).await.is_err() {
-                    send_server_close(&mut socket, POLICY_DIRECTIVE).await;
-                    return;
+                match state.session_reauthorize(&consumed).await {
+                    Ok(()) => reauthorization_failures = 0,
+                    Err(error) if retryable_delivery_error(&error) && reauthorization_failures < 1 => {
+                        reauthorization_failures += 1;
+                    }
+                    Err(error) => {
+                        send_server_close(&mut socket, directive_for_error(&error)).await;
+                        return;
+                    }
                 }
             }
             incoming = socket.next() => {
@@ -372,7 +386,13 @@ async fn session(
                     CollaborationMessageKind::SyncStep1 if exact_keys(&frame.metadata, &[]) => {
                         if sync_count >= MAX_SYNCS_PER_SECOND { return; }
                         sync_count += 1;
-                        let Ok((update, current_sequence)) = state.session_sync_step2(&consumed, &frame.payload).await else { return; };
+                        let (update, current_sequence) = match state.session_sync_step2(&consumed, &frame.payload).await {
+                            Ok(value) => value,
+                            Err(error) => {
+                                send_server_close(&mut socket, directive_for_error(&error)).await;
+                                return;
+                            }
+                        };
                         // Everything through the observed durable sequence was
                         // just covered by this diff; wakes resume from here.
                         delivery.delivered_through = current_sequence;
@@ -398,14 +418,19 @@ async fn session(
                         // Updates started before drain finishes and receive their
                         // acknowledgement; updates arriving after drain began are
                         // rejected with the going-away close.
-                        if !state.collaboration_sessions_accepting() {
+                        let Some(in_flight) = state.try_begin_collaboration_update() else {
                             send_server_close(&mut socket, DRAIN_DIRECTIVE).await;
                             return;
-                        }
-                        let in_flight = state.begin_collaboration_update();
+                        };
                         let committed = state.session_commit_update(&consumed, client_id, frame.payload.clone()).await;
                         drop(in_flight);
-                        let Ok((receipts, accepted)) = committed else { return; };
+                        let (receipts, accepted) = match committed {
+                            Ok(value) => value,
+                            Err(error) => {
+                                send_server_close(&mut socket, directive_for_error(&error)).await;
+                                return;
+                            }
+                        };
                         let Some(receipt) = receipts.first() else { return; };
                         // Origin echo suppression is recorded from the stored
                         // receipt identities before any wake can be processed.
@@ -429,7 +454,10 @@ async fn session(
                     CollaborationMessageKind::Heartbeat => {
                         if !synced || !exact_keys(&frame.metadata, &[]) || !frame.payload.is_empty() || last_heartbeat.elapsed() < MIN_HEARTBEAT_INTERVAL { return; }
                         last_heartbeat = Instant::now();
-                        if state.session_reauthorize(&consumed).await.is_err() { send_server_close(&mut socket, POLICY_DIRECTIVE).await; return; }
+                        if let Err(error) = state.session_reauthorize(&consumed).await {
+                            send_server_close(&mut socket, directive_for_error(&error)).await;
+                            return;
+                        }
                         if send_frame(&mut socket, CollaborationFrame { kind: CollaborationMessageKind::Heartbeat, metadata: Default::default(), payload: Vec::new() }.encode().unwrap()).await.is_err() { return; }
                     }
                     CollaborationMessageKind::Awareness => { return; }
@@ -492,10 +520,10 @@ async fn select_first_frame(
 
 /// Best-effort server-initiated WebSocket close carrying the directive's code.
 async fn send_server_close(socket: &mut WebSocket, directive: SessionCloseDirective) {
-    let reason = if directive.code == COLLABORATION_CLOSE_GOING_AWAY {
-        "draining"
-    } else {
-        "unauthorized"
+    let reason = match directive.code {
+        COLLABORATION_CLOSE_GOING_AWAY => "draining",
+        1011 => "temporarily unavailable",
+        _ => "authorization ended",
     };
     let _ = socket
         .send(Message::Close(Some(axum::extract::ws::CloseFrame {
@@ -558,6 +586,14 @@ async fn drain_durable_updates(
         // item count alone cannot prove that the durable target was drained.
     }
     Ok(())
+}
+
+fn directive_for_error(error: &ApiError) -> SessionCloseDirective {
+    if retryable_delivery_error(error) {
+        INTERNAL_DIRECTIVE
+    } else {
+        POLICY_DIRECTIVE
+    }
 }
 
 fn retryable_delivery_error(error: &ApiError) -> bool {

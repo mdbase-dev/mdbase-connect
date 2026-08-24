@@ -385,6 +385,9 @@ jobs:
           cargo test --locked -p mdbase-connect-hosted-provider phase5_conventional_writer_reconcile_postgres -- --ignored --nocapture
           cargo test --locked -p mdbase-connect-hosted-provider phase6_commit_notice_transactional_semantics_postgres -- --ignored --nocapture
           cargo test --locked -p mdbase-connect-hosted-provider phase6_multi_instance_catchup_postgres -- --ignored --nocapture
+          cargo test --locked -p mdbase-connect-hosted-provider phase7_graceful_drain_race_postgres -- --ignored --nocapture
+          cargo test --locked -p mdbase-connect-hosted-provider phase7_revocation_rotation_downgrade_postgres -- --ignored --nocapture
+          cargo test --locked -p mdbase-connect-hosted-provider phase7_admission_suspension_cleanup_postgres -- --ignored --nocapture
           cargo test --locked -p mdbase-connect-hosted-provider --test collaboration_storage_postgres -- --ignored --nocapture
           cargo test --locked -p mdbase-connect-hosted-provider --test collaboration_phase0 -- --ignored --nocapture
         env:

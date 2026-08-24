@@ -97,9 +97,16 @@ async fn phase7_graceful_drain_race_postgres() {
             .send(Message::Binary(update_frame(mutation, update).into()))
             .await
             .unwrap();
-        // Give the session task time to enter the blocked commit; the frame is
-        // read and its admission checks complete long before this elapses.
-        tokio::time::sleep(Duration::from_millis(600)).await;
+        // Wait on the runtime's guard rather than a timing guess: once this is
+        // one, the frame passed the atomic drain gate and the blocked batch is
+        // owned by the session.
+        timeout(Duration::from_secs(5), async {
+            while instance.state.collaboration_in_flight_updates() != 1 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("update guard was not acquired");
 
         // Drain begins while the batch is in flight.
         instance.state.begin_collaboration_session_drain();
@@ -111,12 +118,9 @@ async fn phase7_graceful_drain_race_postgres() {
         });
         // Nothing may reach the socket while the started batch is unfinished:
         // no acknowledgement, no close.
-        assert!(
-            timeout_short(recv_frame_inner(&mut session))
-                .await
-                .is_none(),
-            "draining interrupted an in-flight update"
-        );
+        if let Some(message) = timeout_short(recv_frame_inner(&mut session)).await {
+            panic!("draining interrupted an in-flight update: {message:?}");
+        }
         // Pre-authentication sockets receive the going-away close immediately.
         assert_close_code(
             &mut preauth,
@@ -592,11 +596,11 @@ async fn phase7_admission_suspension_cleanup_postgres() {
             response.json::<Value>().await.unwrap()["error"]["code"],
             "hosted_query_admission_suspended"
         );
-        // ...and the live session closes at its next server-driven
-        // reauthorization, well inside the four-second bound.
+        // ...and the live session closes as temporarily unavailable after a
+        // bounded retry, rather than misreporting suspension as revocation.
         assert_close_code_within(
             &mut session,
-            crate::http::collaboration_sessions::COLLABORATION_CLOSE_POLICY,
+            crate::http::collaboration_sessions::COLLABORATION_CLOSE_INTERNAL,
             CROSS_INSTANCE_CLOSE_DEADLINE,
         )
         .await;

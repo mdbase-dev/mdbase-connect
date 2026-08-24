@@ -93,8 +93,9 @@ Sessions are bound at ticket consumption to the replica credential fingerprint
 observed under lock. Token rotation is detected without a scope bump: the local
 internal rotate/policy/revoke handlers target-close that replica's sessions
 immediately after their commit, and every session additionally reauthorizes
-against PostgreSQL every two seconds, so mutations committed on any instance
-converge to closure well under four seconds everywhere. The durable batch
+against PostgreSQL on a roughly two-second jittered cadence. Cross-instance
+closure is normally observed within a few seconds and remains bounded by
+provider lane availability. The durable batch
 boundary also compares the fingerprint, so a rotated-away session cannot land an
 update inside the detection window. Awareness and readiness advertisement remain
 future gates.
