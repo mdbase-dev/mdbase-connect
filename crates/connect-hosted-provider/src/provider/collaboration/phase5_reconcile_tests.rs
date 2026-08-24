@@ -121,6 +121,7 @@ async fn run(base: &str, schema: &str) {
                     "read".into(),
                     "update".into(),
                     "delete".into(),
+                    "rename".into(),
                 ],
                 operation_transport_protocol: Some(3),
                 operation_transport_recovery_protocols: vec![2],
@@ -214,6 +215,40 @@ async fn run(base: &str, schema: &str) {
     assert_eq!(h_fence(harness.pool(), second).await, Some(1));
     assert_aggregates(harness.pool()).await;
 
+    // Frontmatter-only writes and moves retain the stable record room because
+    // its Y.Text body is unchanged. The ordinary revision is refreshed
+    // atomically so the next room load does not self-fence.
+    let collaborative_revision = h_revision(harness.pool(), second).await;
+    let frontmatter_only = h_put(
+        &harness,
+        second,
+        "notes/second.md",
+        "---\ntitle: renamed metadata\n---\n\nSecond body\ncollaborative line\n",
+        Some(collaborative_revision),
+    )
+    .await;
+    assert_eq!(h_fence(harness.pool(), second).await, Some(1));
+    assert!(h_document_active(harness.pool(), second, 1).await);
+    assert_eq!(
+        h_materialized_revision(harness.pool(), second).await,
+        frontmatter_only.revision
+    );
+    let moved = h_move(
+        &harness,
+        second,
+        "notes/second-renamed.md",
+        &frontmatter_only.revision,
+    )
+    .await;
+    assert_eq!(moved.path, "notes/second-renamed.md");
+    assert_eq!(h_fence(harness.pool(), second).await, Some(1));
+    assert!(h_document_active(harness.pool(), second, 1).await);
+    assert_eq!(
+        h_materialized_revision(harness.pool(), second).await,
+        moved.revision
+    );
+    h_open_room(&harness, second, 1).await;
+
     // Replay of the same durable contribution is idempotent and never bumps
     // the fence or the collection head.
     let head_after_commit = h_head(harness.pool()).await;
@@ -233,8 +268,8 @@ async fn run(base: &str, schema: &str) {
     h_put(
         &harness,
         second,
-        "notes/second.md",
-        "---\ntitle: second\n---\n\nSecond body\nordinary pass\n",
+        "notes/second-renamed.md",
+        "---\ntitle: renamed metadata\n---\n\nSecond body\nordinary pass\n",
         Some(second_revision),
     )
     .await;
@@ -475,6 +510,40 @@ async fn run(base: &str, schema: &str) {
         "expected FK rejection, got {fk_error}"
     );
 
+    // The currently internal repair primitive follows the same fence lock
+    // order and allocates from the durable fence even after retiring all room
+    // history and tickets.
+    let repaired_record = Uuid::new_v4();
+    h_put(
+        &harness,
+        repaired_record,
+        "notes/repair.md",
+        "---\ntitle: repair\n---\n\nRepair body\n",
+        None,
+    )
+    .await;
+    let repair_ticket = h_ticket(&harness, repaired_record, "notes/repair.md", Some(1)).await;
+    let mut repair_tx = harness.provider.pool.begin().await.unwrap();
+    let repaired_room = harness
+        .provider
+        .repair_collaboration_room_in(
+            &mut repair_tx,
+            &harness.data_key,
+            harness.collection,
+            repaired_record,
+        )
+        .await
+        .unwrap();
+    repair_tx.commit().await.unwrap();
+    assert_eq!(repaired_room.epoch, 2);
+    assert_eq!(h_fence(harness.pool(), repaired_record).await, Some(2));
+    assert!(h_document_active(harness.pool(), repaired_record, 2).await);
+    assert!(harness
+        .provider
+        .consume_collaboration_ticket(&repair_ticket.plaintext, Some(harness.origin))
+        .await
+        .is_err());
+
     // Mutation replay through the ordinary path neither bumps the fence nor
     // the head.
     let replay_record = Uuid::new_v4();
@@ -603,6 +672,17 @@ async fn h_revision(pool: &PgPool, record: Uuid) -> String {
         .unwrap()
 }
 
+async fn h_materialized_revision(pool: &PgPool, record: Uuid) -> String {
+    sqlx::query_scalar(
+        "SELECT materialized_revision FROM hosted_provider_collaboration_documents
+         WHERE record_id = $1 AND state = 'active'",
+    )
+    .bind(record)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
 fn h_mutation(
     harness: &Harness,
     record: Uuid,
@@ -645,6 +725,35 @@ async fn h_put(
     {
         SyncMutationReceipt::Applied { record, .. } => record.unwrap(),
         other => panic!("expected applied put, got {other:?}"),
+    }
+}
+
+async fn h_move(harness: &Harness, record: Uuid, path: &str, base_revision: &str) -> SyncRecord {
+    let mutation = SyncMutation {
+        mutation_id: Uuid::new_v4(),
+        replica_id: harness.replica,
+        scope_epoch: 1,
+        operation: SyncMutationOperation::Move,
+        record_id: record,
+        base_revision: Some(base_revision.into()),
+        path: Some(path.into()),
+        document: None,
+        created_at: chrono::Utc::now().to_rfc3339(),
+        causal_predecessor: None,
+    };
+    match harness
+        .provider
+        .mutate(
+            harness.collection,
+            &harness.token,
+            mutation,
+            Some(harness.origin),
+        )
+        .await
+        .unwrap()
+    {
+        SyncMutationReceipt::Applied { record, .. } => record.unwrap(),
+        other => panic!("expected applied move, got {other:?}"),
     }
 }
 

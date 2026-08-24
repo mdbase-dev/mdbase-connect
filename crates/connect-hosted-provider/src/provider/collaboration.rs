@@ -548,6 +548,24 @@ impl HostedProvider {
                     "The hosted collection does not exist.",
                 )
             })?;
+        let current_epoch: Option<i64> = sqlx::query_scalar(
+            "SELECT current_epoch FROM hosted_provider_collaboration_epoch_fences
+             WHERE collection_id=$1 AND record_id=$2 FOR UPDATE",
+        )
+        .bind(collection_id)
+        .bind(record_id)
+        .fetch_optional(&mut **transaction)
+        .await?;
+        let next_epoch = match current_epoch {
+            Some(i64::MAX) => {
+                return Err(ApiError::conflict(
+                    "collaboration_epoch_exhausted",
+                    "The collaboration epoch for this record is exhausted.",
+                ));
+            }
+            Some(epoch) => epoch + 1,
+            None => 1,
+        };
         let record_row = sqlx::query("SELECT revision, payload_ciphertext, sequence FROM hosted_provider_records WHERE collection_id=$1 AND record_id=$2 FOR UPDATE")
             .bind(collection_id).bind(record_id).fetch_one(&mut **transaction).await?;
         let sequence = number(record_row.get::<i64, _>("sequence"), "record sequence")?;
@@ -561,33 +579,38 @@ impl HostedProvider {
             self.limits.collaboration.max_document_bytes as usize,
         )
         .map_err(profile_error)?;
-        // Retire superseded rooms first: removing the old documents drops
-        // their updates, receipts, and tickets with them in this transaction.
-        // The next epoch is then allocated from the durable fence -- never
-        // from the surviving document rows, which may be absent entirely.
-        sqlx::query("DELETE FROM hosted_provider_collaboration_documents WHERE collection_id=$1 AND record_id=$2 AND profile=$3")
-            .bind(collection_id).bind(record_id).bind(crate::COLLABORATION_PROFILE).execute(&mut **transaction).await?;
-        let epoch: i64 = sqlx::query_scalar(
-            "INSERT INTO hosted_provider_collaboration_epoch_fences
-               (collection_id, record_id, current_epoch)
-             VALUES ($1, $2, 1)
-             ON CONFLICT (collection_id, record_id) DO UPDATE
-               SET current_epoch =
-                     hosted_provider_collaboration_epoch_fences.current_epoch + 1,
-                   updated_at = now()
-             RETURNING current_epoch",
-        )
-        .bind(collection_id)
-        .bind(record_id)
-        .fetch_one(&mut **transaction)
-        .await?;
-        if epoch <= 0 {
-            return Err(ApiError::internal("collaboration repair epoch overflow"));
-        }
         let snapshot = document.snapshot_v1();
         ensure_snapshot_limit(&snapshot, &self.limits.collaboration)?;
         let vector = document.state_vector_v1();
-        let epoch_u64 = u64::try_from(epoch)
+        // Retire superseded rooms only after the replacement state validates.
+        // The collection, fence, and record locks follow the common order.
+        sqlx::query("DELETE FROM hosted_provider_collaboration_documents WHERE collection_id=$1 AND record_id=$2 AND profile=$3")
+            .bind(collection_id).bind(record_id).bind(crate::COLLABORATION_PROFILE).execute(&mut **transaction).await?;
+        match current_epoch {
+            Some(_) => {
+                sqlx::query(
+                    "UPDATE hosted_provider_collaboration_epoch_fences
+                     SET current_epoch=$3, updated_at=now()
+                     WHERE collection_id=$1 AND record_id=$2",
+                )
+                .bind(collection_id)
+                .bind(record_id)
+                .bind(next_epoch)
+                .execute(&mut **transaction)
+                .await?;
+            }
+            None => {
+                sqlx::query(
+                    "INSERT INTO hosted_provider_collaboration_epoch_fences
+                     (collection_id,record_id,current_epoch) VALUES ($1,$2,1)",
+                )
+                .bind(collection_id)
+                .bind(record_id)
+                .execute(&mut **transaction)
+                .await?;
+            }
+        }
+        let epoch_u64 = u64::try_from(next_epoch)
             .map_err(|_| ApiError::internal("invalid collaboration repair epoch"))?;
         let room = RoomIdentity::new(
             collection_id,

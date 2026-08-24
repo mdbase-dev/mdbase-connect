@@ -30,7 +30,10 @@ awareness/presence sanitation, typed socket errors and metrics, receipt/ticket
 retention maintenance, graceful socket drain, and room repair remain explicit
 gates. Conventional writer epoch reconciliation is implemented internally: a
 durable per-record epoch fence (surviving record deletion) is the authority for
-room epochs, ordinary updates and deletes transactionally advance it while
-retiring old rooms, tickets, updates, and receipts, and stale epochs are
-rejected at the database and every admission boundary. The Editor and SDK do
-not enable or expose live collaboration yet.
+room epochs; ordinary body changes and deletes transactionally advance it while
+retiring old rooms, tickets, updates, and receipts; path moves and
+frontmatter-only writes retain the stable record room while refreshing its
+materialized revision; and stale epochs are rejected at the database and every
+admission boundary. Migration 0043 and its provider binary must be deployed as
+one admission-disabled cutover because older binaries do not create epoch
+fences. The Editor and SDK do not enable or expose live collaboration yet.

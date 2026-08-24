@@ -1,8 +1,7 @@
 -- Included inside an existing transaction after the caller sets
 -- mdbase.expected_migration_max to the beta69 baseline (34), the final
 -- Candidate B schema (37), or the current collaboration fence schema (43).
--- Checksum attestation is pinned to the committed baseline values below and
--- therefore always covers exactly the versions through 37.
+-- Checksum attestation is pinned to every committed migration through 43.
 DO $hosted_migration_ledger_attestation$
 DECLARE
   expected_max bigint := current_setting('mdbase.expected_migration_max')::bigint;
@@ -80,7 +79,13 @@ BEGIN
     (34, decode('ab662bb7a71e9f742cb197e6842a26b4526b74394b41ba2cc153644d5496a360960b7b6c9e01924ab56e45e7052dab37', 'hex')),
     (35, decode('042632e2b1ee010fabe5c23ae0ddc6aa91720aceafe21a263ca08a6b117a0638d0166c93deaf9dd565ba8eba32de3950', 'hex')),
     (36, decode('b3bf3e4d582211cf1df4a15806c5ae2715538aadd0fa6139aac580f4192ffa17668f4a07b34e0d9f34ca2a6a204f4bbb', 'hex')),
-    (37, decode('1884d3305158938709fa5263506e00cc5e5a3db287f4527fd6150db343a939229c64b9bd45723d868b8cfce1cf496b8b', 'hex'))
+    (37, decode('1884d3305158938709fa5263506e00cc5e5a3db287f4527fd6150db343a939229c64b9bd45723d868b8cfce1cf496b8b', 'hex')),
+    (38, decode('c567c2a136980bef235205bec92cb3df07b5433bd638f75026ef5e0977b359c766882014f11e98dbe900c89575a2d7c6', 'hex')),
+    (39, decode('c8740979c8542c2f4c4aa50b4770f87db082535d4d4bb5f00af8796f140e9a00e2b2ec8526be1578e1cf243a67d982f0', 'hex')),
+    (40, decode('cfa1d41f91905bf8b1f82ca9384fecc2482bcb65f2f22bfff7aaa29032725f1a5fa24114be455f249a615c23bbd3e33f', 'hex')),
+    (41, decode('affdb327ac815bd3c53e26b76bebaed02e6dd6cd7a85054d6dff1b7bf588622a2ec79f63c6869c519a40095ebc355a69', 'hex')),
+    (42, decode('c64a6a73759a1285af194f0f2b50c5b1deb08e5e936f3af74051742e4b8f76cea320196150cedb6e5c19f6f25272007a', 'hex')),
+    (43, decode('bed62541f35561a672d5621d55b2e8a3895d9342e6e731ba71ea2e430c04a973dcc98bdb0131a773c0e6b0e8a24e190a', 'hex'))
   ) AS expected(version, checksum)
   LEFT JOIN public._sqlx_migrations applied ON applied.version = expected.version
   WHERE expected.version <= expected_max

@@ -1,7 +1,9 @@
 -- Phase 5: conventional writers reconcile collaboration epochs through a
--- durable per-record fence. The fence survives record deletion because it
--- references only the collection, so delete-and-recreate of a record id can
--- never resurrect a retired room epoch, and the database itself rejects
+-- durable per-record fence. Epochs are deliberately shared by every future
+-- profile for the stable record so one conventional write fences them all.
+-- The fence survives record deletion because it references only the
+-- collection, so delete-and-recreate of a record id can never resurrect a
+-- retired room epoch, and the database itself rejects
 -- stale-epoch documents.
 CREATE TABLE hosted_provider_collaboration_epoch_fences (
   collection_id uuid NOT NULL

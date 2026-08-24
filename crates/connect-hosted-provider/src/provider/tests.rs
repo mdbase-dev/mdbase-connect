@@ -192,6 +192,7 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
     );
     assert!(!final_preflight.contains("DELETE FROM"));
     assert!(!final_preflight.contains("UPDATE hosted_provider_"));
+    assert!(cutover_preflight.contains("mdbase.expected_migration_max', '43'"));
     assert!(cutover_preflight.contains("\\set fence_kind cutover"));
     assert!(cutover_preflight.contains("\\ir preflight-hosted-provider-final-rollback.sql"));
     assert!(cutover_preflight.contains("generation.status IS DISTINCT FROM 'complete'"));

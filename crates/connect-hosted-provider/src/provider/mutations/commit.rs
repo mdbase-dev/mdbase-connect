@@ -116,26 +116,33 @@ pub(crate) async fn commit_hosted_write_set_in(
         ));
     }
 
-    // A conventional update or delete of a record that carries collaboration
-    // state atomically advances its durable epoch fence and removes every old
-    // room, ticket, update, and receipt in this transaction. The new ordinary
-    // body is never required to satisfy the collaboration profile: CRLF, NUL,
-    // or otherwise unsupported Markdown still commits and merely leaves the
-    // advanced fence ready for a later admission attempt. Collaboration batches
-    // pass their own room origin and never self-bump; mutation replay never
-    // reaches this committer because the journal resolves it first.
+    // Conventional body changes and deletes atomically advance the durable
+    // epoch fence and remove old room state. Path and frontmatter-only changes
+    // retain the stable record room and refresh its materialized revision in
+    // this same transaction. Unsupported collaboration bodies still commit
+    // conventionally: admission validates the profile only when a new room is
+    // requested. Collaboration batches never reconcile their own room, and
+    // mutation replay resolves before reaching this committer.
     if write_set.origin == HostedWriteOrigin::Conventional {
-        let retired_ids: Vec<Uuid> = write_set
-            .changed
-            .iter()
-            .filter(|(record_id, after, _)| {
-                after.is_none() || write_set.before_records.contains_key(record_id)
-            })
-            .map(|(record_id, _, _)| *record_id)
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect();
-        retire_collaboration_rooms_in(transaction, collection_id, &retired_ids).await?;
+        reconcile_collaboration_rooms_in(
+            transaction,
+            collection_id,
+            &write_set.before_records,
+            &write_set.changed,
+        )
+        .await?;
+    } else if let HostedWriteOrigin::Collaboration(room) = write_set.origin {
+        if room.collection_id != collection_id
+            || write_set.changed.len() != 1
+            || write_set.primary_record_id != room.record_id
+            || !write_set.before_records.contains_key(&room.record_id)
+            || write_set.changed[0].0 != room.record_id
+            || write_set.changed[0].1.is_none()
+        {
+            return Err(ApiError::internal(
+                "The collaboration write set does not match its room identity.",
+            ));
+        }
     }
 
     let mut primary = None;
@@ -275,33 +282,88 @@ pub(crate) async fn commit_hosted_write_set_in(
     Ok(HostedWriteSetCommit { head, primary })
 }
 
-/// Advance the durable collaboration epoch fence for each record and remove
-/// its rooms. Callers hold the collection row lock; record ids must be sorted
-/// and deduplicated so fence locks follow the global lock order. Documents are
-/// deleted before the fence advances because the composite foreign key only
-/// admits documents at the current epoch; both statements stay inside the
-/// caller's transaction. A bigint overflow fails closed and aborts the write.
-async fn retire_collaboration_rooms_in(
+/// Reconcile conventional changes with stable record rooms. Callers hold the
+/// collection row lock. BTreeMap ordering makes fence locks deterministic.
+async fn reconcile_collaboration_rooms_in(
     transaction: &mut Transaction<'_, Postgres>,
     collection_id: Uuid,
-    sorted_record_ids: &[Uuid],
+    before_records: &BTreeMap<Uuid, SyncRecord>,
+    changed: &[(Uuid, Option<SyncRecord>, Option<String>)],
 ) -> ApiResult<()> {
-    for record_id in sorted_record_ids {
-        let fenced: bool = sqlx::query_scalar(
-            "SELECT EXISTS(
-                 SELECT 1 FROM hosted_provider_collaboration_epoch_fences
-                 WHERE collection_id = $1 AND record_id = $2
-             ) OR EXISTS(
-                 SELECT 1 FROM hosted_provider_collaboration_documents
-                 WHERE collection_id = $1 AND record_id = $2
-             )",
+    let collection_has_fences: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+             SELECT 1 FROM hosted_provider_collaboration_epoch_fences
+             WHERE collection_id = $1
+         )",
+    )
+    .bind(collection_id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    if !collection_has_fences {
+        return Ok(());
+    }
+
+    let mut actions = BTreeMap::new();
+    for (record_id, after, _) in changed {
+        let Some(before) = before_records.get(record_id) else {
+            continue;
+        };
+        let retained_revision = after.as_ref().and_then(|record| {
+            (record.body.as_bytes() == before.body.as_bytes()).then(|| record.revision.clone())
+        });
+        actions.insert(*record_id, retained_revision);
+    }
+
+    for (record_id, retained_revision) in actions {
+        let epoch: Option<i64> = sqlx::query_scalar(
+            "SELECT current_epoch FROM hosted_provider_collaboration_epoch_fences
+             WHERE collection_id = $1 AND record_id = $2 FOR UPDATE",
         )
         .bind(collection_id)
         .bind(record_id)
-        .fetch_one(&mut **transaction)
+        .fetch_optional(&mut **transaction)
         .await?;
-        if !fenced {
+        let Some(epoch) = epoch else {
             continue;
+        };
+        if let Some(revision) = retained_revision {
+            sqlx::query(
+                "UPDATE hosted_provider_collaboration_updates u
+                 SET materialized_revision = $3
+                 FROM hosted_provider_collaboration_documents d
+                 WHERE d.collection_id = $1 AND d.record_id = $2
+                   AND d.collaboration_epoch = $4
+                   AND u.collection_id = d.collection_id
+                   AND u.record_id = d.record_id
+                   AND u.collaboration_epoch = d.collaboration_epoch
+                   AND u.profile = d.profile
+                   AND u.sequence = d.current_sequence",
+            )
+            .bind(collection_id)
+            .bind(record_id)
+            .bind(&revision)
+            .bind(epoch)
+            .execute(&mut **transaction)
+            .await?;
+            sqlx::query(
+                "UPDATE hosted_provider_collaboration_documents
+                 SET materialized_revision = $3, updated_at = now()
+                 WHERE collection_id = $1 AND record_id = $2
+                   AND collaboration_epoch = $4",
+            )
+            .bind(collection_id)
+            .bind(record_id)
+            .bind(revision)
+            .bind(epoch)
+            .execute(&mut **transaction)
+            .await?;
+            continue;
+        }
+        if epoch == i64::MAX {
+            return Err(ApiError::conflict(
+                "collaboration_epoch_exhausted",
+                "The collaboration epoch for this record is exhausted.",
+            ));
         }
         sqlx::query(
             "DELETE FROM hosted_provider_collaboration_documents
@@ -311,19 +373,14 @@ async fn retire_collaboration_rooms_in(
         .bind(record_id)
         .execute(&mut **transaction)
         .await?;
-        sqlx::query_scalar::<_, i64>(
-            "INSERT INTO hosted_provider_collaboration_epoch_fences
-               (collection_id, record_id, current_epoch)
-             VALUES ($1, $2, 1)
-             ON CONFLICT (collection_id, record_id) DO UPDATE
-               SET current_epoch =
-                     hosted_provider_collaboration_epoch_fences.current_epoch + 1,
-                   updated_at = now()
-             RETURNING current_epoch",
+        sqlx::query(
+            "UPDATE hosted_provider_collaboration_epoch_fences
+             SET current_epoch = current_epoch + 1, updated_at = now()
+             WHERE collection_id = $1 AND record_id = $2",
         )
         .bind(collection_id)
         .bind(record_id)
-        .fetch_one(&mut **transaction)
+        .execute(&mut **transaction)
         .await?;
     }
     Ok(())
