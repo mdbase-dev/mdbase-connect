@@ -1,6 +1,6 @@
 # ADR 0012: Hosted real-time collaboration materializes one exact Markdown body
 
-- Status: accepted for development-only prototypes; internal Phase 3 persistence and batch engine implemented, transport disabled
+- Status: accepted for development-only prototypes; secure provider transport and private experimental client implemented, rollout disabled
 - Date: 2026-08-24
 
 ## Context
@@ -116,6 +116,26 @@ record, positive epoch, and the exact v1 profile. Provider-owned resource
 limits and separate collaboration-byte accounting are fail-closed at startup.
 This does not add a room engine, transport, authorization path, readiness
 support, or public capability; collaboration remains unadvertised.
+
+## Private experimental client boundary
+
+The first browser consumer is the private `@mdbase-dev/connect-collaboration`
+workspace package. It owns the Y.Doc, binary room state machine, durable
+acknowledgement queue, reconnect, heartbeat, and sanitized awareness. The
+Editor must consume this semantic room abstraction and must not issue tickets,
+encode frames, interpret epochs, or implement reconnect itself.
+
+The stable `@mdbase-dev/connect` exports remain unchanged. A non-enumerable,
+versioned symbol bridge on an authorized connection can issue one fresh hosted
+ticket without exposing bearer credentials, proof keys, key handles, or the
+underlying transport. The symbol is an API-surface boundary, not an
+authorization boundary; the provider still validates every signed request,
+ticket, origin, epoch, and session.
+
+Pending browser updates are memory-only in this phase. Reconnect tickets bind
+to the previously observed epoch, and authorization/policy failures are
+terminal rather than retried indefinitely. Public SDK stabilization and
+durable offline update storage remain later decisions after real Editor use.
 
 ## Development gates
 
