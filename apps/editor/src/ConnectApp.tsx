@@ -25,6 +25,8 @@ import {
   InlineRename
 } from "./ConnectPrimitives";
 import { EditorRail } from "./EditorRail";
+import { FeedbackPage } from "./FeedbackPage";
+import { feedbackEndpoint as configuredFeedbackEndpoint, recordFeedbackFailure, turnstileSiteKey, type FeedbackSourceView } from "./feedback";
 import {
   BracketsCurlyIcon as Braces,
   GearSixIcon as Settings,
@@ -36,7 +38,7 @@ import {
 } from "./icons";
 import "./connect.css";
 
-type ConnectView = "overview" | "storage" | "access" | "collections" | "applications" | "computers" | "account";
+type ConnectView = FeedbackSourceView;
 type Grant = ManagementOverview["grants"][number];
 type BusyOperations = ReadonlySet<string>;
 type PerformOperation = (
@@ -57,6 +59,7 @@ const allOperations = [
 export function ConnectApp() {
   const [accountDeleted, setAccountDeleted] = useState(location.pathname === "/connect/account-deleted");
   const [view, setView] = useState<ConnectView>(viewFromPath);
+  const [feedbackSourceView, setFeedbackSourceView] = useState<FeedbackSourceView>("overview");
   const [data, setData] = useState<ManagementOverview>();
   const [sessions, setSessions] = useState<Awaited<ReturnType<typeof management.sessions>>["sessions"]>();
   const [refreshError, setRefreshError] = useState("");
@@ -89,6 +92,7 @@ export function ConnectApp() {
         }
       } catch (reason) {
         if (signal?.aborted) return;
+        recordFeedbackFailure("management_refresh_failed", reason);
         if (reason instanceof ManagementApiError && reason.status === 401) {
           location.href = new URL("/login", management.baseUrl).href;
           return;
@@ -141,7 +145,10 @@ export function ConnectApp() {
       await action({ signal: controller.signal });
       succeeded = true;
     } catch (reason) {
-      if (!lifecycle.aborted) setMutationError(errorMessage(reason));
+      if (!lifecycle.aborted) {
+        recordFeedbackFailure("management_request_failed", reason);
+        setMutationError(errorMessage(reason));
+      }
     } finally {
       lifecycle.removeEventListener("abort", abort);
       if (!lifecycle.aborted) await refresh(lifecycle);
@@ -152,6 +159,7 @@ export function ConnectApp() {
   }
 
   function navigate(next: ConnectView, collectionId?: string) {
+    if (next === "feedback" && view !== "feedback") setFeedbackSourceView(view);
     const path = next === "overview" ? "/connect" : `/connect/${next}`;
     const url = new URL(location.href);
     url.pathname = path;
@@ -199,6 +207,10 @@ export function ConnectApp() {
   const activeView = selectedCollection || !isCollectionView(view) ? view : "collections";
   const activeGrants = data.grants.filter((grant) => grant.revocation_status !== "revoked");
   const applications = groupApplicationAccess(activeGrants);
+  const feedbackEndpoint = configuredFeedbackEndpoint();
+  const feedbackApplicationOrigins = [...new Set((selectedCollection
+    ? activeGrants.filter((grant) => grant.collection_id === selectedCollection.id)
+    : activeGrants).map((grant) => normalizedOrigin(grant.application_origin)).filter(Boolean))].sort();
   const selectedGrants = selectedCollection
     ? activeGrants.filter((grant) => grant.collection_id === selectedCollection.id)
     : [];
@@ -221,6 +233,7 @@ export function ConnectApp() {
       onSwitch={() => navigate("collections", selectedCollection?.id)}
       footer={<>
         {selectedCollection && <p role="status"><span className={`status-dot ${selectedCollection.available ? "connected" : "reconnecting"}`} aria-hidden="true" /><span>{selectedCollection.status}</span></p>}
+        {feedbackEndpoint && <RouteLink className="connect-rail-feedback" view="feedback" collectionId={selectedCollection?.id} navigate={navigate}>Send feedback</RouteLink>}
         <RouteLink className="connect-rail-account" view="account" collectionId={selectedCollection?.id} navigate={navigate} ariaLabel="Open account and sessions"><span className="connect-avatar" aria-hidden="true">{initials(data.user.name)}</span><span><strong>{data.user.name}</strong><small>{identityLabel(data.user)}</small></span></RouteLink>
       </>}
     />
@@ -239,6 +252,7 @@ export function ConnectApp() {
           <NavLink label="Applications" icon={<Package />} selected={activeView === "applications"} view="applications" collectionId={selectedCollection?.id} navigate={navigate} />
           <NavLink label="Computers" icon={<Braces />} selected={activeView === "computers"} view="computers" collectionId={selectedCollection?.id} navigate={navigate} />
           <NavLink label="Account & sessions" icon={<Settings />} selected={activeView === "account"} view="account" collectionId={selectedCollection?.id} navigate={navigate} />
+          {feedbackEndpoint && <RouteLink className="connect-feedback-mobile-link" view="feedback" collectionId={selectedCollection?.id} navigate={navigate}>Send feedback</RouteLink>}
         </section>
       </nav>
     </aside>
@@ -254,6 +268,15 @@ export function ConnectApp() {
       {activeView === "applications" && <Applications groups={applications} busy={busy} perform={perform} />}
       {activeView === "computers" && <Computers data={data} busy={busy} perform={perform} />}
       {activeView === "account" && <AccountManagement client={management} overview={data} sessions={sessions} onOverviewRefresh={refresh} onDeleted={() => setAccountDeleted(true)} />}
+      {activeView === "feedback" && feedbackEndpoint && <FeedbackPage
+        endpoint={feedbackEndpoint}
+        turnstileSiteKey={turnstileSiteKey()}
+        sourceView={feedbackSourceView}
+        collectionName={selectedCollection?.name}
+        applicationOrigins={feedbackApplicationOrigins}
+        onDone={() => navigate(feedbackSourceView === "feedback" ? "overview" : feedbackSourceView, selectedCollection?.id)}
+      />}
+      {activeView === "feedback" && !feedbackEndpoint && <Page title="Feedback unavailable" intro="This deployment has not configured a feedback destination."><section><Empty title="Feedback is unavailable" body="Contact the person who operates this mdbase connect deployment." /></section></Page>}
     </main>
   </div>;
 }
@@ -591,7 +614,7 @@ function DesktopRecoveryHelp({ action }: { action: string }) {
 
 function viewFromPath(): ConnectView {
   const segment = location.pathname.split("/")[2];
-  return segment === "storage" || segment === "access" || segment === "collections" || segment === "applications" || segment === "computers" || segment === "account" ? segment : "overview";
+  return segment === "storage" || segment === "access" || segment === "collections" || segment === "applications" || segment === "computers" || segment === "account" || segment === "feedback" ? segment : "overview";
 }
 
 function isCollectionView(view: ConnectView): boolean {
@@ -605,6 +628,7 @@ function viewLabel(view: ConnectView): string {
   if (view === "collections") return "All collections";
   if (view === "applications") return "Applications";
   if (view === "computers") return "Computers";
+  if (view === "feedback") return "Send feedback";
   return "Account & sessions";
 }
 
@@ -696,6 +720,10 @@ function identityLabel(user: ManagementOverview["user"]): string {
 
 function host(value: string): string {
   try { return new URL(value).host; } catch { return value; }
+}
+
+function normalizedOrigin(value: string): string {
+  try { return new URL(value).origin; } catch { return ""; }
 }
 
 function relativeTime(value: string): string {

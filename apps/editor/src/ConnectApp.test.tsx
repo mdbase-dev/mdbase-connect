@@ -52,6 +52,21 @@ describe("ConnectApp", () => {
     expect(screen.getByRole("heading", { name: "Applications" })).toBeInTheDocument();
   });
 
+  it("opens feedback from the quiet Connect footer with current context available", async () => {
+    overview.grants = applicationGrants();
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+
+    await screen.findByRole("heading", { name: "Garden notes" });
+    await user.click(screen.getAllByRole("link", { name: "Send feedback" })[0]);
+
+    await waitFor(() => expect(location.pathname).toBe("/connect/feedback"));
+    expect(screen.getByRole("heading", { name: "Send feedback" })).toHaveFocus();
+    expect(screen.getByRole("checkbox", { name: /Include collection name: Garden notes/ })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /Include application origin/ })).not.toBeChecked();
+    expect(screen.getByText(/Nothing here is included unless you choose it/)).toBeInTheDocument();
+  });
+
   it("keeps Connect inside the editor collection shell", async () => {
     const user = userEvent.setup();
     render(<ConnectApp />);
