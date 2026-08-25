@@ -1,7 +1,7 @@
 use crate::cloud::CloudControlClient;
 use crate::watcher::CollectionRuntimeEvent;
 use async_trait::async_trait;
-use mdbase_connect_core::CollectionRegistry;
+use mdbase_connect_core::{CollectionRegistry, ConnectError};
 use mdbase_connect_protocol::GrantSummary;
 use mdbase_connect_runtime::{
     compose_notification_catalog, drain_notification_runtime, notification_event_envelope,
@@ -9,12 +9,13 @@ use mdbase_connect_runtime::{
     TimerOperationError, NOTIFICATION_EXECUTOR_ID, TIMER_EVENT_ID,
 };
 use mdbase_runtime::{
-    ActionDispatch, ActionInvocation, ActionOutcome, ActionProvider, AuthorizationDecision,
-    DispatchAuthorizer, DispatchFailure, DispatchOutcome, ImplementationIdentity, ProviderRegistry,
-    Runtime, RuntimeConfig, RuntimeStore, SqliteRuntimeStore,
+    inspect_sqlite_recovery, ActionDispatch, ActionInvocation, ActionOutcome, ActionProvider,
+    AuthorizationDecision, DispatchAuthorizer, DispatchFailure, DispatchOutcome,
+    ImplementationIdentity, ProviderRegistry, Runtime, RuntimeConfig, RuntimeStore,
+    SqliteRuntimeStore,
 };
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -163,54 +164,69 @@ impl RuntimeNotificationService {
     }
 
     async fn recover(&mut self) {
-        let collections = match self.local_registry.list() {
-            Ok(collections) => collections,
+        let grants = match notification_grants_by_collection(&self.local_registry) {
+            Ok(grants) => grants,
             Err(error) => {
-                tracing::warn!(%error, "notification runtime could not list collections for recovery");
+                tracing::warn!(%error, "notification grant recovery lookup failed");
                 return;
             }
         };
-        for collection in collections
-            .into_iter()
-            .filter(|collection| collection.enabled)
-        {
-            let grants = match notification_grants(&self.local_registry, collection.id) {
-                Ok(grants) => grants,
-                Err(error) => {
-                    tracing::warn!(collection_id = %collection.id, %error, "notification grant lookup failed");
-                    continue;
-                }
-            };
-            let catalog = match compose_catalog(&grants, collection.id) {
+        let candidates = recoverable_runtime_ids(&self.runtime_dir);
+        let mut keep_resident = HashSet::new();
+        for collection_id in candidates {
+            let catalog = match compose_catalog(
+                grants.get(&collection_id).map(Vec::as_slice).unwrap_or(&[]),
+                collection_id,
+            ) {
                 Ok(catalog) => catalog,
                 Err(error) => {
-                    tracing::warn!(collection_id = %collection.id, code = error.code(), %error, "notification runtime registry is invalid");
+                    tracing::warn!(%collection_id, code = error.code(), %error, "notification runtime registry is invalid");
+                    keep_resident.insert(collection_id);
                     continue;
                 }
             };
-            let runtime = match self.runtime(collection.id) {
+            let runtime = match self.runtime(collection_id) {
                 Ok(runtime) => runtime,
                 Err(error) => {
-                    tracing::warn!(collection_id = %collection.id, code = error.code(), %error, "notification runtime store is unavailable");
+                    tracing::warn!(%collection_id, code = error.code(), %error, "notification runtime store is unavailable");
                     continue;
                 }
             };
             if let Err(error) = fire_due_timers(runtime, &catalog).await {
-                tracing::warn!(collection_id = %collection.id, code = error.code(), %error, "notification timer recovery deferred");
+                tracing::warn!(%collection_id, code = error.code(), %error, "notification timer recovery deferred");
+                keep_resident.insert(collection_id);
                 continue;
             }
             if let Err(error) = drain_runtime(runtime).await {
-                tracing::warn!(collection_id = %collection.id, code = error.code(), %error, "notification runtime recovery deferred");
+                tracing::warn!(%collection_id, code = error.code(), %error, "notification runtime recovery deferred");
+                keep_resident.insert(collection_id);
+                continue;
+            }
+            match inspect_sqlite_recovery(
+                runtime_path(&self.runtime_dir, collection_id),
+                chrono::Utc::now(),
+            ) {
+                Ok(state) if state.has_work() => {
+                    keep_resident.insert(collection_id);
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    tracing::warn!(%collection_id, %error, "notification runtime recovery state is unavailable");
+                    keep_resident.insert(collection_id);
+                }
             }
         }
+        self.runtimes
+            .retain(|collection_id, _| keep_resident.contains(collection_id));
     }
 
     fn runtime(&mut self, collection_id: Uuid) -> mdbase_runtime::RuntimeResult<&Runtime> {
         if !self.runtimes.contains_key(&collection_id) {
             let timezone = collection_timezone(&self.local_registry, collection_id)?;
-            let store: Arc<dyn RuntimeStore> = Arc::new(SqliteRuntimeStore::open(
-                self.runtime_dir.join(format!("{collection_id}.sqlite")),
-            )?);
+            let store: Arc<dyn RuntimeStore> = Arc::new(SqliteRuntimeStore::open(runtime_path(
+                &self.runtime_dir,
+                collection_id,
+            ))?);
             let providers = ProviderRegistry::default();
             let catalog = compose_catalog(&[], collection_id)?;
             providers.register(
@@ -250,16 +266,11 @@ fn collection_timezone(
     registry: &CollectionRegistry,
     collection_id: Uuid,
 ) -> mdbase_runtime::RuntimeResult<Option<String>> {
-    let collection = registry
-        .list()
-        .map_err(|error| mdbase_runtime::RuntimeError::Store(error.to_string()))?
-        .into_iter()
-        .find(|collection| collection.id == collection_id)
-        .ok_or_else(|| {
-            mdbase_runtime::RuntimeError::Store(format!(
-                "collection {collection_id} is not registered"
-            ))
-        })?;
+    let collection = match registry.get(collection_id) {
+        Ok(collection) => collection,
+        Err(ConnectError::CollectionNotFound(_)) => return Ok(None),
+        Err(error) => return Err(mdbase_runtime::RuntimeError::Store(error.to_string())),
+    };
     let document = std::fs::read_to_string(Path::new(&collection.path).join("mdbase.yaml"))
         .map_err(|error| mdbase_runtime::RuntimeError::Store(error.to_string()))?;
     let configuration: serde_yaml::Value = serde_yaml::from_str(&document)
@@ -355,6 +366,25 @@ impl DispatchAuthorizer for LocalNotificationAuthorizer {
                 )
             }
         };
+        let collection = match self.registry.get(grant.collection_id) {
+            Ok(collection) if collection.enabled => collection,
+            _ => {
+                return denied(
+                    "notification_collection_unavailable",
+                    "The notification collection is no longer available.",
+                )
+            }
+        };
+        if self
+            .registry
+            .ensure_authority_available(collection.id)
+            .is_err()
+        {
+            return denied(
+                "notification_authority_unavailable",
+                "This computer no longer owns the collection authority.",
+            );
+        }
         let source = request.event.get("source").and_then(Value::as_str);
         let expected_source = source_uri(grant.collection_id);
         if source != Some(expected_source.as_str()) {
@@ -400,6 +430,59 @@ impl DispatchAuthorizer for LocalNotificationAuthorizer {
         }
         AuthorizationDecision::Allow
     }
+}
+
+fn runtime_path(runtime_dir: &Path, collection_id: Uuid) -> PathBuf {
+    runtime_dir.join(format!("{collection_id}.sqlite"))
+}
+
+fn recoverable_runtime_ids(runtime_dir: &Path) -> HashSet<Uuid> {
+    let mut recoverable = HashSet::new();
+    let Ok(entries) = std::fs::read_dir(runtime_dir) else {
+        return recoverable;
+    };
+    let now = chrono::Utc::now();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("sqlite") {
+            continue;
+        }
+        let Some(collection_id) = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .and_then(|value| Uuid::parse_str(value).ok())
+        else {
+            continue;
+        };
+        match inspect_sqlite_recovery(&path, now) {
+            Ok(state) if state.has_work() => {
+                recoverable.insert(collection_id);
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(%collection_id, %error, "notification runtime store could not be inspected");
+            }
+        }
+    }
+    recoverable
+}
+
+fn notification_grants_by_collection(
+    registry: &CollectionRegistry,
+) -> Result<HashMap<Uuid, Vec<GrantSummary>>, mdbase_runtime::RuntimeError> {
+    registry
+        .list_grants()
+        .map(|grants| {
+            let mut grouped = HashMap::<Uuid, Vec<GrantSummary>>::new();
+            for grant in grants
+                .into_iter()
+                .filter(|grant| !grant.notification_criteria.is_empty())
+            {
+                grouped.entry(grant.collection_id).or_default().push(grant);
+            }
+            grouped
+        })
+        .map_err(|error| mdbase_runtime::RuntimeError::Store(error.to_string()))
 }
 
 fn notification_grants(
@@ -497,437 +580,4 @@ fn denied(code: &str, message: &str) -> AuthorizationDecision {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use axum::{extract::State, routing::post, Json, Router};
-    use mdbase_connect_protocol::{
-        ApplicationAccess, ContractRequirement, GrantPolicy, GrantScope, NotificationCriterion,
-        NotificationPresentation, RuntimeExpression,
-    };
-    use mdbase_connect_runtime::{
-        RECORD_MODIFIED_EVENT_DIGEST, RECORD_MODIFIED_EVENT_ID, TIMER_EVENT_DIGEST,
-    };
-    use rusqlite::Connection;
-    use serde_json::json;
-    use tempfile::tempdir;
-
-    #[test]
-    fn local_notification_runtime_upgrades_unversioned_state() {
-        let state_dir = tempdir().unwrap();
-        let runtime_dir = state_dir.path().join("runtime");
-        std::fs::create_dir_all(&runtime_dir).unwrap();
-        let registry = CollectionRegistry::open(state_dir.path()).unwrap();
-        let collection_id = registry
-            .create(
-                state_dir.path().join("collection"),
-                Some("Temporal"),
-                "Australia/Melbourne",
-            )
-            .unwrap()
-            .id;
-        let path = runtime_dir.join(format!("{collection_id}.sqlite"));
-        let connection = Connection::open(&path).unwrap();
-        connection
-            .execute_batch(
-                "
-                CREATE TABLE runtime_events (
-                    cursor INTEGER PRIMARY KEY AUTOINCREMENT,
-                    source_runtime TEXT NOT NULL,
-                    event_id TEXT NOT NULL,
-                    envelope_json TEXT NOT NULL,
-                    received_at TEXT NOT NULL,
-                    UNIQUE(source_runtime, event_id)
-                );
-                ",
-            )
-            .unwrap();
-        drop(connection);
-
-        let mut service = RuntimeNotificationService {
-            runtime_dir,
-            local_registry: registry,
-            cloud: None,
-            runtimes: HashMap::new(),
-        };
-        service.runtime(collection_id).unwrap();
-        drop(service);
-
-        let connection = Connection::open(path).unwrap();
-        let version = connection
-            .query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))
-            .unwrap();
-        assert_eq!(version, mdbase_runtime::SQLITE_SCHEMA_VERSION);
-    }
-
-    #[test]
-    fn compiled_workflows_keep_record_data_out_of_action_input() {
-        let grant = GrantSummary {
-            contracts: mdbase_connect_protocol::ConnectContractRequirements::current(true),
-            id: Uuid::new_v4(),
-            application_id: Uuid::new_v4(),
-            application_declaration_id: "dev.mdbase.test".to_string(),
-            application_manifest_digest: "00".repeat(32),
-            application_name: "Tasks".to_string(),
-            application_distribution: "web".to_string(),
-            application_homepage: "https://tasks.example".to_string(),
-            application_project_url: None,
-            application_origin: "https://tasks.example".to_string(),
-            application_icon: None,
-            collection_id: Uuid::new_v4(),
-            collection_name: "Private".to_string(),
-            operations: vec!["changes".to_string()],
-            scope: GrantScope {
-                contracts: Vec::new(),
-                access: ApplicationAccess::Contract,
-            },
-            notification_criteria: vec![NotificationCriterion {
-                id: "task.ready".to_string(),
-                event: ContractRequirement {
-                    id: RECORD_MODIFIED_EVENT_ID.to_string(),
-                    version: "1.0.0".to_string(),
-                    digest: RECORD_MODIFIED_EVENT_DIGEST.to_string(),
-                },
-                r#if: Some(RuntimeExpression {
-                    expression: "event.data.changed_fields.size() > 0".to_string(),
-                }),
-                debounce: Some("1s".to_string()),
-                minimum_interval: None,
-                presentation: NotificationPresentation {
-                    title: "A task changed".to_string(),
-                    body: None,
-                    tag: None,
-                },
-            }],
-            created_at: "2026-07-24T00:00:00Z".to_string(),
-            encryption: None,
-            file_capability: None,
-        };
-        let catalog = compose_catalog(std::slice::from_ref(&grant), grant.collection_id).unwrap();
-        let workflow = &catalog.admission().workflows()[0];
-        let input = workflow.pointer("/steps/0/input").unwrap();
-        let encoded = serde_json::to_string(input).unwrap();
-        assert!(!encoded.contains("path"));
-        assert!(!encoded.contains("frontmatter"));
-        assert_eq!(workflow.pointer("/triggers/0/debounce"), Some(&json!("1s")));
-    }
-
-    #[tokio::test]
-    async fn private_watcher_event_becomes_only_an_opaque_cloud_signal() {
-        let state_dir = tempdir().unwrap();
-        let registry = CollectionRegistry::open(state_dir.path()).unwrap();
-        let collection = registry
-            .create(
-                state_dir.path().join("collection"),
-                Some("Private notes"),
-                "UTC",
-            )
-            .unwrap();
-        let grant_id = Uuid::new_v4();
-        let application_id = Uuid::new_v4();
-        let connector_id = Uuid::new_v4();
-        let connector = mdbase_connect_protocol::crypto::RelayIdentity::generate();
-        let application = mdbase_connect_protocol::crypto::RelayIdentity::generate();
-        let operations = vec!["changes".to_string()];
-        let encryption = mdbase_connect_protocol::GrantEncryption {
-            protocol_version: mdbase_connect_protocol::GRANT_ENCRYPTION_PROTOCOL_VERSION,
-            suite: mdbase_connect_protocol::RELAY_ENCRYPTION_SUITE.to_string(),
-            key_id: "notification-test".to_string(),
-            scope_epoch: 1,
-            connector_id,
-            collection_id: collection.id,
-            application_agreement_public_key: application.public_key(),
-            connector_agreement_public_key: connector.public_key(),
-        };
-        let security = crate::test_support::application_security(
-            crate::test_support::TestApplicationSecurityParams {
-                application_id,
-                authorization_id: Uuid::new_v4(),
-                collection_id: collection.id,
-                operations: &operations,
-                distribution: "web",
-                grant_agreement_public_key: application.public_key(),
-                file_capability: None,
-            },
-        );
-        registry
-            .replace_grants(&[GrantPolicy {
-                id: grant_id,
-                application_id,
-                collection_id: collection.id,
-                operations,
-                scope: GrantScope::full_collection(),
-                application_name: "Tasks".to_string(),
-                application_distribution: "web".to_string(),
-                application_homepage: "https://tasks.example".to_string(),
-                application_project_url: None,
-                application_origin: "https://tasks.example".to_string(),
-                application_icon: None,
-                collection_name: "Private notes".to_string(),
-                notification_criteria: vec![
-                    NotificationCriterion {
-                        id: "task.ready".to_string(),
-                        event: ContractRequirement {
-                            id: RECORD_MODIFIED_EVENT_ID.to_string(),
-                            version: "1.0.0".to_string(),
-                            digest: RECORD_MODIFIED_EVENT_DIGEST.to_string(),
-                        },
-                        r#if: None,
-                        debounce: None,
-                        minimum_interval: None,
-                        presentation: NotificationPresentation {
-                            title: "A task changed".to_string(),
-                            body: None,
-                            tag: None,
-                        },
-                    },
-                    NotificationCriterion {
-                        id: "reminder.due".to_string(),
-                        event: ContractRequirement {
-                            id: TIMER_EVENT_ID.to_string(),
-                            version: "1.0.0".to_string(),
-                            digest: TIMER_EVENT_DIGEST.to_string(),
-                        },
-                        r#if: None,
-                        debounce: None,
-                        minimum_interval: None,
-                        presentation: NotificationPresentation {
-                            title: "A reminder is due".to_string(),
-                            body: None,
-                            tag: None,
-                        },
-                    },
-                ],
-                created_at: "2026-07-24T00:00:00Z".to_string(),
-                encryption: Some(encryption),
-                file_capability: None,
-                application_authorization: security.proof,
-            }])
-            .unwrap();
-
-        let (signals, mut signal_rx) = tokio::sync::mpsc::unbounded_channel::<Value>();
-        async fn receive(
-            State(signals): State<tokio::sync::mpsc::UnboundedSender<Value>>,
-            Json(body): Json<Value>,
-        ) -> Json<Value> {
-            signals.send(body).unwrap();
-            Json(json!({"accepted": true, "duplicate": false}))
-        }
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            axum::serve(
-                listener,
-                Router::new()
-                    .route("/v1/connectors/notification-signals", post(receive))
-                    .with_state(signals),
-            )
-            .await
-            .unwrap();
-        });
-        let mut service = RuntimeNotificationService {
-            runtime_dir: state_dir.path().join("runtime"),
-            local_registry: registry,
-            cloud: Some(CloudControlClient::new(
-                format!("http://{address}"),
-                "connector-token".to_string(),
-            )),
-            runtimes: HashMap::new(),
-        };
-        std::fs::create_dir_all(&service.runtime_dir).unwrap();
-        service
-            .handle_event(CollectionRuntimeEvent {
-                collection_id: collection.id,
-                cursor: 9,
-                event: mdbase::watch::WatchEvent {
-                    event_type: RECORD_MODIFIED_EVENT_ID.to_string(),
-                    sequence: 4,
-                    occurred_at: "2026-07-24T00:00:00Z".to_string(),
-                    payload: json!({
-                        "path": "private/medical-note.md",
-                        "before": {"status": "open", "secret": "never-upload"},
-                        "changed_fields": ["status"],
-                        "after": {"status": "ready", "secret": "never-upload"},
-                        "previous_revision": "rev-1",
-                        "revision": "rev-2",
-                        "previous_types": ["task"],
-                        "types": ["task"]
-                    }),
-                },
-            })
-            .await
-            .unwrap();
-        let signal = tokio::time::timeout(Duration::from_secs(1), signal_rx.recv())
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(signal["grant_id"], json!(grant_id));
-        assert_eq!(signal["criterion_id"], json!("task.ready"));
-        assert_eq!(signal["cursor"], json!("9"));
-        assert!(signal["signal_id"]
-            .as_str()
-            .is_some_and(|value| value.starts_with("inv_")));
-        let encoded = serde_json::to_string(&signal).unwrap();
-        assert!(!encoded.contains("medical-note"));
-        assert!(!encoded.contains("never-upload"));
-
-        let timer_grant = service
-            .local_registry
-            .grant_context(grant_id)
-            .unwrap()
-            .unwrap();
-        {
-            let catalog =
-                compose_catalog(std::slice::from_ref(&timer_grant), collection.id).unwrap();
-            let runtime = service.runtime(collection.id).unwrap();
-            perform_timer_operation(
-                runtime,
-                &catalog,
-                &timer_grant,
-                "put_timer",
-                json!({
-                    "namespace": "reminders",
-                    "criterion_id": "reminder.due",
-                    "timer": {
-                        "id": "private-reminder",
-                        "fire_at": (chrono::Utc::now() - chrono::TimeDelta::seconds(1)).to_rfc3339(),
-                        "data": {"private": "timer-state-stays-local"}
-                    }
-                }),
-            )
-            .await
-            .unwrap();
-        }
-        let grants = notification_grants(&service.local_registry, collection.id).unwrap();
-        let timer_catalog = compose_catalog(&grants, collection.id).unwrap();
-        {
-            let runtime = service.runtime(collection.id).unwrap();
-            let fired = runtime
-                .fire_due_timer(timer_catalog.admission())
-                .await
-                .unwrap();
-            let mdbase_runtime::TimerFireOutcome::Fired { delivery, .. } = fired else {
-                panic!("due timer did not fire");
-            };
-            assert_eq!(delivery.admitted_run_ids.len(), 1);
-            let completed = runtime.work_once().await.unwrap();
-            assert!(
-                matches!(
-                    &completed,
-                    mdbase_runtime::WorkerOutcome::Completed {
-                        status: mdbase_runtime::RunStatus::Succeeded,
-                        ..
-                    }
-                ),
-                "{completed:?}"
-            );
-        }
-        let timer_signal = tokio::time::timeout(Duration::from_secs(1), signal_rx.recv())
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(timer_signal["grant_id"], json!(grant_id));
-        assert_eq!(timer_signal["criterion_id"], json!("reminder.due"));
-        let encoded = serde_json::to_string(&timer_signal).unwrap();
-        assert!(!encoded.contains("private-reminder"));
-        assert!(!encoded.contains("timer-state-stays-local"));
-        server.abort();
-        let _ = server.await;
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn timer_handle_reconciles_through_the_running_local_authority() {
-        let state_dir = tempdir().unwrap();
-        let registry = CollectionRegistry::open(state_dir.path()).unwrap();
-        let collection = registry
-            .create(state_dir.path().join("collection"), Some("Tasks"), "UTC")
-            .unwrap();
-        let grant_id = Uuid::new_v4();
-        let application_id = Uuid::new_v4();
-        let connector_id = Uuid::new_v4();
-        let connector = mdbase_connect_protocol::crypto::RelayIdentity::generate();
-        let application = mdbase_connect_protocol::crypto::RelayIdentity::generate();
-        let operations = vec!["reconcile_timers".to_string()];
-        let encryption = mdbase_connect_protocol::GrantEncryption {
-            protocol_version: mdbase_connect_protocol::GRANT_ENCRYPTION_PROTOCOL_VERSION,
-            suite: mdbase_connect_protocol::RELAY_ENCRYPTION_SUITE.to_string(),
-            key_id: "timer-test".to_string(),
-            scope_epoch: 1,
-            connector_id,
-            collection_id: collection.id,
-            application_agreement_public_key: application.public_key(),
-            connector_agreement_public_key: connector.public_key(),
-        };
-        let security = crate::test_support::application_security(
-            crate::test_support::TestApplicationSecurityParams {
-                application_id,
-                authorization_id: Uuid::new_v4(),
-                collection_id: collection.id,
-                operations: &operations,
-                distribution: "web",
-                grant_agreement_public_key: application.public_key(),
-                file_capability: None,
-            },
-        );
-        registry
-            .replace_grants(&[GrantPolicy {
-                id: grant_id,
-                application_id,
-                collection_id: collection.id,
-                operations,
-                scope: GrantScope::full_collection(),
-                application_name: "Tasks".to_string(),
-                application_distribution: "web".to_string(),
-                application_homepage: "https://tasks.example".to_string(),
-                application_project_url: None,
-                application_origin: "https://tasks.example".to_string(),
-                application_icon: None,
-                collection_name: "Tasks".to_string(),
-                notification_criteria: vec![NotificationCriterion {
-                    id: "task.reminder".to_string(),
-                    event: ContractRequirement {
-                        id: TIMER_EVENT_ID.to_string(),
-                        version: "1.0.0".to_string(),
-                        digest: format!("sha256:{}", "0".repeat(64)),
-                    },
-                    r#if: None,
-                    debounce: None,
-                    minimum_interval: None,
-                    presentation: NotificationPresentation {
-                        title: "Task reminder".to_string(),
-                        body: None,
-                        tag: None,
-                    },
-                }],
-                created_at: "2026-07-25T00:00:00Z".to_string(),
-                encryption: Some(encryption),
-                file_capability: None,
-                application_authorization: security.proof,
-            }])
-            .unwrap();
-        let grant = registry.grant_context(grant_id).unwrap().unwrap();
-        let (events, event_rx) = tokio::sync::mpsc::unbounded_channel();
-        let (timers, task) = start(state_dir.path(), registry, None, event_rx);
-        let result = tokio::task::spawn_blocking(move || {
-            timers.operation(
-                collection.id,
-                grant,
-                "reconcile_timers",
-                json!({
-                    "namespace": "task-reminders",
-                    "criterion_id": "task.reminder",
-                    "timers": [{
-                        "id": "task-a:reminder-a",
-                        "fire_at": "2026-07-26T00:00:00Z"
-                    }]
-                }),
-            )
-        })
-        .await
-        .unwrap()
-        .unwrap();
-        assert_eq!(result["timers"][0]["id"], "task-a:reminder-a");
-        drop(events);
-        task.abort();
-        let _ = task.await;
-    }
-}
+mod tests;

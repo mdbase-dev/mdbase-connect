@@ -52,9 +52,13 @@ impl CollectionRegistry {
         }
         let sync_store = crate::LocalSyncStore::for_registry(self);
         sync_store.assert_authority_available(id)?;
+        if operation == "describe" {
+            return serde_json::to_value(self.describe_registered(&registered)?)
+                .map_err(ConnectError::from);
+        }
         let executor = self.executor_for(&registered)?;
         let context = operation_context(cancellation);
-        let result = if registered.spec_version.starts_with("0.3") && operation != "describe" {
+        let result = if registered.spec_version.starts_with("0.3") {
             let request = runtime_operation_request(operation, input)?;
             if request.operation.is_mutation() {
                 sync_store.assert_mutation_allowed(id)?;
@@ -76,10 +80,6 @@ impl CollectionRegistry {
         } else {
             let provider = executor.provider();
             let execute = |collection: &Collection| {
-                if operation == "describe" {
-                    return serde_json::to_value(self.describe_loaded(&registered, collection)?)
-                        .map_err(ConnectError::from);
-                }
                 execute_loaded_cancellable(
                     collection,
                     &registered.spec_version,

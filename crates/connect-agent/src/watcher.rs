@@ -160,7 +160,7 @@ fn run_finalizer(
         while let Ok(command) = commands.try_recv() {
             handle_command(&registry, &mut active, command, runtime_events.as_ref());
         }
-        for collection_id in active.iter().copied().collect::<Vec<_>>() {
+        for collection_id in active_resident_ids(&registry, &active) {
             let cancellation = mdbase::OperationCancellation::new();
             match registry.ingest_runtime_external(collection_id, Duration::ZERO, &cancellation) {
                 Ok(true) => log_finalize(&registry, collection_id, runtime_events.as_ref()),
@@ -188,7 +188,7 @@ fn handle_command(
                 .into_iter()
                 .map(|collection| collection.id)
                 .collect();
-            for collection_id in active.iter().copied() {
+            for collection_id in active_resident_ids(registry, active) {
                 log_finalize_resident(registry, collection_id, runtime_events);
             }
             let _ = ready.send(());
@@ -213,6 +213,19 @@ fn handle_command(
         #[cfg(test)]
         Command::IsActive(collection_id, ready) => {
             let _ = ready.send(active.contains(&collection_id));
+        }
+    }
+}
+
+fn active_resident_ids(registry: &CollectionRegistry, active: &BTreeSet<Uuid>) -> Vec<Uuid> {
+    match registry.resident_collection_ids() {
+        Ok(resident) => resident
+            .into_iter()
+            .filter(|collection_id| active.contains(collection_id))
+            .collect(),
+        Err(error) => {
+            tracing::warn!(code = error.code(), %error, "runtime residency snapshot failed");
+            Vec::new()
         }
     }
 }

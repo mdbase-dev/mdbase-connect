@@ -75,6 +75,15 @@ impl CollectionRegistry {
         Ok(())
     }
 
+    /// Snapshot the bounded set of collection runtimes already held in memory.
+    pub fn resident_collection_ids(&self) -> Result<Vec<Uuid>, ConnectError> {
+        let executors = self
+            .executors
+            .lock()
+            .map_err(|_| ConnectError::CollectionOpen("executor registry lock poisoned".into()))?;
+        Ok(executors.keys().copied().collect())
+    }
+
     pub fn runtime_residency_diagnostics(
         &self,
     ) -> Result<RuntimeResidencyDiagnostics, ConnectError> {

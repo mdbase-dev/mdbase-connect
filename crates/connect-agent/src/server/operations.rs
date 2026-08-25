@@ -95,12 +95,12 @@ impl AgentState {
                     Vec::new()
                 } else {
                     self.registry
-                        .list()
+                        .catalog()
                         .unwrap_or_default()
                         .into_iter()
-                        .filter(|collection| collection.enabled)
-                        .filter_map(|collection| {
-                            let mut description = self.registry.describe(collection.id).ok()?;
+                        .filter(|entry| entry.summary.enabled)
+                        .filter_map(|entry| {
+                            let mut description = entry.description?;
                             let types = if requirements_can_be_provisioned(
                                 &requirements,
                                 &provisions,
@@ -115,7 +115,7 @@ impl AgentState {
                                 Vec::new()
                             };
                             Some(AuthorizationCollectionOffer {
-                                collection_id: collection.id,
+                                collection_id: entry.summary.id,
                                 display_name: description.display_name,
                                 spec_version: description.spec_version,
                                 contracts: description.contracts,
@@ -165,11 +165,6 @@ impl AgentState {
                     });
                 }
                 let result = (|| {
-                    if self.registry.paused()? {
-                        return Err(ConnectError::AccessDenied(
-                            "Remote access is paused on this computer.".to_string(),
-                        ));
-                    }
                     if grant.collection_id != collection_id {
                         return Err(ConnectError::AccessDenied(
                             "The proposed grant names a different collection.".to_string(),
@@ -183,25 +178,34 @@ impl AgentState {
                                 .to_string(),
                         ));
                     }
-                    let registered = self.registry.get(collection_id)?;
-                    if !registered.enabled {
-                        return Err(ConnectError::AccessDenied(
-                            "This collection is disabled on its computer.".to_string(),
-                        ));
-                    }
-                    let before = self.registry.describe(collection_id)?;
-                    if let Some(operation) = grant
-                        .operations
-                        .iter()
-                        .find(|operation| !before.operations.contains(operation))
-                    {
-                        return Err(ConnectError::AccessDenied(format!(
-                            "{} does not support the requested {operation} operation.",
-                            before.display_name
-                        )));
-                    }
-                    // Authorization is not itself a collection mutation. Only enter the
-                    // setup transaction when a declared requirement is not yet satisfied.
+                    let validate_target = || {
+                        if self.registry.paused()? {
+                            return Err(ConnectError::AccessDenied(
+                                "Remote access is paused on this computer.".to_string(),
+                            ));
+                        }
+                        let registered = self.registry.get(collection_id)?;
+                        if !registered.enabled {
+                            return Err(ConnectError::AccessDenied(
+                                "This collection is disabled on its computer.".to_string(),
+                            ));
+                        }
+                        self.registry.ensure_authority_available(collection_id)?;
+                        let description = self.registry.describe(collection_id)?;
+                        if let Some(operation) = grant
+                            .operations
+                            .iter()
+                            .find(|operation| !description.operations.contains(operation))
+                        {
+                            return Err(ConnectError::AccessDenied(format!(
+                                "{} does not support the requested {operation} operation.",
+                                description.display_name
+                            )));
+                        }
+                        Ok(description)
+                    };
+                    let before = validate_target()?;
+                    // Enter setup only when a declared requirement is not yet satisfied.
                     let needs_setup = !requirements.configuration.is_empty()
                         || requirements.contracts.iter().any(|required| {
                             !before.contracts.iter().any(|available| {
@@ -216,7 +220,7 @@ impl AgentState {
                                 .to_string(),
                         ));
                     }
-                    let (contracts, setup_assessment, provision_receipt) = if needs_setup {
+                    let (setup_assessment, provision_receipt) = if needs_setup {
                         let setup = self.registry.provision_application_setup(
                             collection_id,
                             &application_declaration_id,
@@ -227,10 +231,25 @@ impl AgentState {
                             &provisions,
                             &contract_setups,
                         )?;
-                        (setup.contracts, Some(setup.assessment), Some(setup.receipt))
+                        (Some(setup.assessment), Some(setup.receipt))
                     } else {
-                        (before.contracts.clone(), None, None)
+                        (None, None)
                     };
+                    self.watcher.rescan(collection_id);
+                    let final_description = validate_target()?;
+                    if let Some(required) = requirements.contracts.iter().find(|required| {
+                        !final_description.contracts.iter().any(|available| {
+                            available.id == required.id
+                                && available.version == required.version
+                                && available.digest == required.digest
+                        })
+                    }) {
+                        return Err(ConnectError::AccessDenied(format!(
+                            "The collection no longer provides required contract {} {}.",
+                            required.id, required.version
+                        )));
+                    }
+                    let contracts = final_description.contracts;
                     grant.scope.contracts =
                         if grant.scope.access == ApplicationAccess::FullCollection {
                             Vec::new()
@@ -247,7 +266,6 @@ impl AgentState {
                                 .cloned()
                                 .collect()
                         };
-                    self.watcher.rescan(collection_id);
                     self.registry.upsert_grant(&grant)?;
                     Ok((contracts, setup_assessment, provision_receipt))
                 })();

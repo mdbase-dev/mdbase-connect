@@ -126,7 +126,10 @@ async fn connect_once(
     let control_slots = Arc::new(tokio::sync::Semaphore::new(2));
     state.set_connection_state(AgentConnectionState::Connected);
     tracing::info!(server = server_url, "connected to cloud relay");
-    let mut sync_interval = tokio::time::interval(Duration::from_secs(15));
+    let sync_period = Duration::from_secs(15);
+    let mut sync_interval =
+        tokio::time::interval_at(tokio::time::Instant::now() + sync_period, sync_period);
+    let mut inventory_sync = tokio::task::JoinSet::new();
 
     loop {
         tokio::select! {
@@ -328,6 +331,11 @@ async fn connect_once(
                 };
                 writer.send(Message::Binary(response.encode()?.into())).await?;
             }
+            result = inventory_sync.join_next(), if !inventory_sync.is_empty() => {
+                if let Some(Err(error)) = result {
+                    tracing::warn!(%error, "collection sync task failed");
+                }
+            }
             _ = sync_interval.tick() => {
                 if usage_reporting {
                     let entries = state.take_direct_protocol_usage();
@@ -340,20 +348,22 @@ async fn connect_once(
                         )?.into())).await?;
                     }
                 }
-                let client = client.clone();
-                let server_url = server_url.to_string();
-                let connector_token = connector_token.to_string();
-                let state = state.clone();
-                tokio::spawn(async move {
-                    if let Err(error) = sync_collections(
-                        &client,
-                        &server_url,
-                        &connector_token,
-                        &state,
-                    ).await {
-                        tracing::warn!(%error, "collection sync failed");
-                    }
-                });
+                if inventory_sync.is_empty() {
+                    let client = client.clone();
+                    let server_url = server_url.to_string();
+                    let connector_token = connector_token.to_string();
+                    let state = state.clone();
+                    inventory_sync.spawn(async move {
+                        if let Err(error) = sync_collections(
+                            &client,
+                            &server_url,
+                            &connector_token,
+                            &state,
+                        ).await {
+                            tracing::warn!(%error, "collection sync failed");
+                        }
+                    });
+                }
             }
         }
     }
@@ -530,7 +540,7 @@ async fn sync_collections(
     connector_token: &str,
     state: &AgentState,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let collections = state.collections()?;
+    let collections = state.collection_inventory()?;
     let inventory_revision = state.next_inventory_revision()?;
     let payload = serde_json::json!({
         "relay_public_key": state.relay_public_key(),
