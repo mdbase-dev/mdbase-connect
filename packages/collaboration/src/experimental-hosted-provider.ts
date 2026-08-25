@@ -42,6 +42,11 @@ const MAX_CONSECUTIVE_RECOVERY_FAILURES = 3;
 const POLICY_RECOVERY_STABLE_MS = 30_000;
 const DEFAULT_RECONNECT_BASE_MS = 250;
 const DEFAULT_RECONNECT_MAX_MS = 8_000;
+// Keep durable updates comfortably below the provider's 32/second transport
+// ceiling. Unsynchronized keystrokes are merged into the next envelope while
+// one update is in flight, so this bounds traffic without delaying local Yjs.
+const MIN_UPDATE_SEND_SPACING_MS = 40;
+const AWARENESS_SPACING_SAFETY_MS = 125;
 const SAFE_CLOSE_CODE = 1008;
 const MAX_PENDING_UPDATES = 1_024;
 const MAX_PENDING_UPDATE_BYTES = 16 * 1024 * 1024;
@@ -100,11 +105,13 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
   private consecutiveRecoveryFailures = 0;
   private reconnectTimer?: Timer;
   private policyRecoveryTimer?: Timer;
+  private updateTimer?: Timer;
   private heartbeatTimer?: Timer;
   private handshakeTimer?: Timer;
   private awarenessTimer?: Timer;
   private heartbeatPending = false;
   private updateInFlight = false;
+  private lastUpdateSent = Number.NEGATIVE_INFINITY;
   private lastAwarenessSent = Number.NEGATIVE_INFINITY;
   private awarenessRefreshMs = 15_000;
   private state: ExperimentalHostedRoomState = "connecting";
@@ -143,8 +150,11 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
       positiveTiming(options.timing?.reconnectMaxMs, DEFAULT_RECONNECT_MAX_MS)
     );
     this.awarenessThrottleMs = Math.max(
-      MIN_AWARENESS_UPDATE_SPACING_MS,
-      positiveTiming(options.timing?.awarenessThrottleMs, MIN_AWARENESS_UPDATE_SPACING_MS)
+      MIN_AWARENESS_UPDATE_SPACING_MS + AWARENESS_SPACING_SAFETY_MS,
+      positiveTiming(
+        options.timing?.awarenessThrottleMs,
+        MIN_AWARENESS_UPDATE_SPACING_MS + AWARENESS_SPACING_SAFETY_MS
+      )
     );
     this.ticketTimeoutMs = options.timing?.ticketTimeoutMs;
     this.randomUUID = options.randomUUID ?? (() => crypto.randomUUID());
@@ -217,14 +227,26 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
       markdownBody(this.doc, this.options.maxBodyBytes);
       if (this.mode === "read_only") throw new Error("collaboration_read_only");
       if (update.byteLength > this.maxUpdateBytes) throw new Error("collaboration_update_too_large");
-      const id = this.randomUUID();
-      if (!isUuid(id)) throw new Error("collaboration_mutation_id_invalid");
-      if (this.pending.length >= MAX_PENDING_UPDATES
-          || this.pendingBytes + update.byteLength > MAX_PENDING_UPDATE_BYTES) {
-        throw new Error("collaboration_pending_updates_exceeded");
+      const mergeIndex = this.updateInFlight ? 1 : 0;
+      const queued = this.pending[mergeIndex];
+      if (queued) {
+        const bytes = Y.mergeUpdates([queued.bytes, update]);
+        const nextBytes = this.pendingBytes - queued.bytes.byteLength + bytes.byteLength;
+        if (bytes.byteLength > this.maxUpdateBytes || nextBytes > MAX_PENDING_UPDATE_BYTES) {
+          throw new Error("collaboration_pending_updates_exceeded");
+        }
+        this.pending[mergeIndex] = { id: queued.id, bytes };
+        this.pendingBytes = nextBytes;
+      } else {
+        const id = this.randomUUID();
+        if (!isUuid(id)) throw new Error("collaboration_mutation_id_invalid");
+        if (this.pending.length >= MAX_PENDING_UPDATES
+            || this.pendingBytes + update.byteLength > MAX_PENDING_UPDATE_BYTES) {
+          throw new Error("collaboration_pending_updates_exceeded");
+        }
+        this.pending.push({ id, bytes: new Uint8Array(update) });
+        this.pendingBytes += update.byteLength;
       }
-      this.pending.push({ id, bytes: new Uint8Array(update) });
-      this.pendingBytes += update.byteLength;
       this.publish();
       this.sendNextUpdate();
     } catch (error) {
@@ -348,6 +370,7 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
         clearTimeout(this.handshakeTimer);
         this.handshakeTimer = undefined;
         this.updateInFlight = false;
+        this.lastUpdateSent = Number.NEGATIVE_INFINITY;
         this.heartbeatPending = false;
         this.lastAwarenessSent = Number.NEGATIVE_INFINITY;
         this.setState("connected");
@@ -431,7 +454,18 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
       this.fail(new Error("collaboration_update_invalid"));
       return;
     }
+    const delay = Math.max(0, this.lastUpdateSent + MIN_UPDATE_SEND_SPACING_MS - Date.now());
+    if (delay > 0) {
+      if (!this.updateTimer) {
+        this.updateTimer = setTimeout(() => {
+          this.updateTimer = undefined;
+          this.sendNextUpdate();
+        }, delay);
+      }
+      return;
+    }
     this.updateInFlight = true;
+    this.lastUpdateSent = Date.now();
     this.send(attempt, {
       kind: "update",
       metadata: {
@@ -577,11 +611,13 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
     this.attemptNumber += 1;
     clearTimeout(this.reconnectTimer);
     clearTimeout(this.policyRecoveryTimer);
+    clearTimeout(this.updateTimer);
     clearTimeout(this.awarenessTimer);
     clearTimeout(this.handshakeTimer);
     clearInterval(this.heartbeatTimer);
     this.reconnectTimer = undefined;
     this.policyRecoveryTimer = undefined;
+    this.updateTimer = undefined;
     this.awarenessTimer = undefined;
     this.handshakeTimer = undefined;
     this.heartbeatTimer = undefined;
@@ -602,9 +638,11 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
     for (const type of ["open", "message", "close", "error"] as const) {
       attempt.socket.removeEventListener(type, attempt.listeners[type]);
     }
+    clearTimeout(this.updateTimer);
     clearTimeout(this.awarenessTimer);
     clearTimeout(this.handshakeTimer);
     clearInterval(this.heartbeatTimer);
+    this.updateTimer = undefined;
     this.awarenessTimer = undefined;
     this.handshakeTimer = undefined;
     this.heartbeatTimer = undefined;

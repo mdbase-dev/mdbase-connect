@@ -251,6 +251,33 @@ describe("experimental hosted Markdown provider", () => {
     f.room.destroy();
   });
 
+  it("coalesces rapid keystrokes and spaces durable update envelopes below provider limits", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const socket = await synchronize(f);
+
+    for (let index = 0; index < 100; index += 1) {
+      f.room.body.insert(f.room.body.length, "x");
+    }
+
+    expect(f.room.snapshot.body).toBe(`seed${"x".repeat(100)}`);
+    expect(f.room.snapshot.pendingUpdates).toBe(2);
+    expect(socket.frames().filter((frame) => frame.kind === "update")).toHaveLength(1);
+
+    socket.server({
+      kind: "acknowledged",
+      metadata: { client_mutation_id: IDS[0], sequence: 1, record_sequence: 1 },
+      payload: new Uint8Array()
+    });
+    expect(socket.frames().filter((frame) => frame.kind === "update")).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(40);
+    const updates = socket.frames().filter((frame) => frame.kind === "update");
+    expect(updates).toHaveLength(2);
+    expect(updates[1]?.metadata.client_mutation_id).toBe(IDS[1]);
+    expect(f.room.snapshot.pendingUpdates).toBe(1);
+    f.room.destroy();
+  });
+
   it("gets a fresh ticket and replays the same mutation id only after reconnect sync", async () => {
     vi.useFakeTimers();
     const f = fixture({ reconnectMs: 10 });
@@ -459,6 +486,21 @@ describe("experimental hosted Markdown provider", () => {
     expect(f.room.snapshot.state).toBe("unavailable");
     expect(f.room.snapshot.problem?.message).not.toContain("seed");
     expect(socket.closeCalls.at(-1)?.[0]).toBe(1008);
+  });
+
+  it("keeps awareness cadence below the provider's hard rolling rate boundary", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const socket = await synchronize(f);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(socket.frames().filter((frame) => frame.kind === "awareness")).toHaveLength(1);
+
+    f.room.setAwareness({ status: "active", selections: [{ anchor: 1, head: 1 }] });
+    await vi.advanceTimersByTimeAsync(125);
+    expect(socket.frames().filter((frame) => frame.kind === "awareness")).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(125);
+    expect(socket.frames().filter((frame) => frame.kind === "awareness")).toHaveLength(2);
+    f.room.destroy();
   });
 
   it("refreshes unchanged awareness before the advertised TTL", async () => {

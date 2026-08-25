@@ -94,6 +94,35 @@ collaborationTests("LAB Editor hosted collaboration", () => {
     expect(room.body.toString()).toBe("# Shared heading\n\nExact collaborative body 👋\n");
   });
 
+  it("fails closed without remounting or blurring the editor after a terminal room error", async () => {
+    const gateway = new CollaborationGateway();
+    render(<App gateway={gateway} />);
+    const room = await gateway.firstRoom;
+    act(() => room.emit({
+      state: "connected",
+      body: "# Shared\n\nFocused body\n",
+      mode: "read_write",
+      epoch: 5,
+      pendingUpdates: 0,
+      participants: []
+    }));
+    await screen.findByText("Live");
+    const body = screen.getByRole("textbox", { name: "Note body" });
+    body.focus();
+    expect(document.activeElement).toBe(body);
+
+    act(() => room.emit({
+      ...room.snapshot,
+      state: "unavailable",
+      problem: { code: "collaboration_policy_ended", message: "Unavailable." }
+    }));
+
+    await screen.findByText("Live editing unavailable");
+    expect(screen.getByRole("textbox", { name: "Note body" })).toBe(body);
+    expect(body).toHaveAttribute("readonly");
+    expect(document.activeElement).toBe(body);
+  });
+
   it("retains but does not autosave property drafts while the room reconnects", async () => {
     const gateway = new CollaborationGateway();
     const user = userEvent.setup();

@@ -26,6 +26,7 @@ import {
 import { ActionMenu } from "./ActionMenu";
 import { AttachmentTransfer, attachmentMenuItem, useAttachmentUpload } from "./AttachmentUpload";
 import { useCollectionBrowserEntries } from "./collection-browser";
+import { collaborationEditorKey } from "./collaboration-editor-key";
 import { CollectionRail } from "./CollectionRail";
 import { CollectionSwitcher, ConnectScreen } from "./ConnectionScreens";
 import { ConflictResolver } from "./ConflictResolver";
@@ -238,6 +239,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const navigationGeneration = useRef(0);
   const collaborationFlushRef = useRef<() => Promise<void>>(async () => undefined);
   const collaborationExpectedRef = useRef(false);
+  const collaborationEditorKeys = useRef(new Map<string, string>());
   const typeGeneration = useRef(0);
   const typeDescriptorsRef = useRef<CollectionTypeDescriptor[]>(emptyTypeDescriptors);
   const noteSessions = useRef(new NoteSessionStore());
@@ -1880,9 +1882,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     : undefined);
   const collaborationIndicator = collaboration.indicator;
   const activeActivity = noteSessions.current.active?.activity;
-  const collaborativeEditorKey = collaboration.binding
-    ? `${noteSessions.current.active?.editorSessionKey ?? document?.path ?? "note"}:live:${collaboration.binding.snapshot.epoch ?? "sync"}`
-    : noteSessions.current.active?.editorSessionKey ?? document?.path;
+  const collaborativeEditorKey = collaborationEditorKey(collaborationEditorKeys.current, noteSessions.current.active?.editorSessionKey ?? document?.path ?? "note", collaboration.expected, collaboration.binding ? collaboration.binding.snapshot.epoch ?? "sync" : undefined);
   const canAttachFiles = Boolean(connectionSummary?.fileActions?.includes("add"))
     && collaborationWritable;
   const typeAccessMissing = missingTypeCapabilities(connectionSummary);
