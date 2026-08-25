@@ -159,7 +159,9 @@ describe("CodeMirror collaboration profile spike", () => {
     }));
 
     await waitFor(() => expect(document.querySelector(".cm-remote-presence-label"))
-      .toHaveTextContent("Participant 2"));
+      .toHaveAttribute("data-presence-label", "Participant 2"));
+    expect([...document.querySelectorAll<HTMLElement>(".cm-line")]
+      .map((line) => line.textContent ?? "").join("\n")).toBe("Shared presence");
     expect(document.querySelector(".cm-remote-presence-selection"))
       .toHaveClass("cm-remote-presence-violet");
     expect(document.querySelector(".cm-remote-presence-caret"))

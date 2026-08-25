@@ -590,13 +590,10 @@ class RemotePresenceCaret extends WidgetType {
 
   override toDOM(): HTMLElement {
     const caret = document.createElement("span");
-    caret.className = `cm-remote-presence-caret cm-remote-presence-${this.color}`;
+    caret.className = `cm-remote-presence-caret cm-remote-presence-label cm-remote-presence-${this.color}`;
     caret.setAttribute("aria-hidden", "true");
-    const label = document.createElement("span");
-    label.className = "cm-remote-presence-label";
-    label.style.setProperty("--presence-row", String(this.row));
-    label.textContent = this.name;
-    caret.append(label);
+    caret.dataset.presenceLabel = this.name;
+    caret.style.setProperty("--presence-row", String(this.row));
     return caret;
   }
 
