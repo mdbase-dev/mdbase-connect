@@ -58,6 +58,7 @@ type Timer = ReturnType<typeof setTimeout>;
 interface PendingUpdate {
   readonly id: string;
   readonly bytes: Uint8Array;
+  readonly sent: boolean;
 }
 
 interface Attempt {
@@ -227,15 +228,15 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
       markdownBody(this.doc, this.options.maxBodyBytes);
       if (this.mode === "read_only") throw new Error("collaboration_read_only");
       if (update.byteLength > this.maxUpdateBytes) throw new Error("collaboration_update_too_large");
-      const mergeIndex = this.updateInFlight ? 1 : 0;
-      const queued = this.pending[mergeIndex];
+      const mergeIndex = this.pending.findIndex((item) => !item.sent);
+      const queued = mergeIndex >= 0 ? this.pending[mergeIndex] : undefined;
       if (queued) {
         const bytes = Y.mergeUpdates([queued.bytes, update]);
         const nextBytes = this.pendingBytes - queued.bytes.byteLength + bytes.byteLength;
         if (bytes.byteLength > this.maxUpdateBytes || nextBytes > MAX_PENDING_UPDATE_BYTES) {
           throw new Error("collaboration_pending_updates_exceeded");
         }
-        this.pending[mergeIndex] = { id: queued.id, bytes };
+        this.pending[mergeIndex] = { id: queued.id, bytes, sent: false };
         this.pendingBytes = nextBytes;
       } else {
         const id = this.randomUUID();
@@ -244,7 +245,7 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
             || this.pendingBytes + update.byteLength > MAX_PENDING_UPDATE_BYTES) {
           throw new Error("collaboration_pending_updates_exceeded");
         }
-        this.pending.push({ id, bytes: new Uint8Array(update) });
+        this.pending.push({ id, bytes: new Uint8Array(update), sent: false });
         this.pendingBytes += update.byteLength;
       }
       this.publish();
@@ -466,6 +467,7 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
     }
     this.updateInFlight = true;
     this.lastUpdateSent = Date.now();
+    this.pending[0] = { ...update, sent: true };
     this.send(attempt, {
       kind: "update",
       metadata: {

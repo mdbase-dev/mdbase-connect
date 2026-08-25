@@ -286,6 +286,8 @@ describe("experimental hosted Markdown provider", () => {
     const firstUpdate = first.frames().at(-1)!;
     first.serverClose(1001);
     expect(f.room.snapshot.state).toBe("reconnecting");
+    f.room.body.insert(5, "?");
+    expect(f.room.snapshot.pendingUpdates).toBe(2);
 
     await vi.advanceTimersByTimeAsync(10);
     const second = await socketAt(f, 1);
@@ -299,6 +301,7 @@ describe("experimental hosted Markdown provider", () => {
     const replay = second.frames().at(-1)!;
     expect(replay.kind).toBe("update");
     expect(replay.metadata.client_mutation_id).toBe(firstUpdate.metadata.client_mutation_id);
+    expect(replay.payload).toEqual(firstUpdate.payload);
     f.room.destroy();
   });
 
