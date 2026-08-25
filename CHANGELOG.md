@@ -11,6 +11,26 @@
   to the consumed credential fingerprint, and local target-close of replica
   sessions after internal rotate/policy/revoke commits.
 
+## 0.1.0-beta.86
+
+Beta.86 opens verified public password signup and makes non-production Connect
+environments explicit and isolated.
+
+- Public signup verifies email ownership before accepting a password, preserves
+  same-origin authorization return targets, rate-limits requests and token
+  redemption, and avoids revealing whether an account already exists.
+- New public accounts receive the permanent open-beta entitlement, including
+  1 GiB hosted storage and three hosted collections, plus a starter collection,
+  legal agreement records, and a signed-in browser session atomically.
+- Account creation claims canonical verified emails across password, invitation,
+  and external-provider flows so concurrent signups cannot create duplicate
+  owners without authenticated account linking.
+- Invitation signup retains its original ten-collection beta allowance while
+  registration is open, and the retired beta-access request endpoint no longer
+  stores submissions.
+- Server health identifies the deployment environment, while editor and desktop
+  tooling reject mismatched lab, staging, and production endpoint combinations.
+
 ## 0.1.0-beta.85
 
 Beta.85 makes SDK startup explicit and turns application declaration drift into

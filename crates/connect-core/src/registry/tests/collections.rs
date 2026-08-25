@@ -27,6 +27,135 @@ fn create_register_list_and_remove_collection() {
 }
 
 #[test]
+fn cold_catalog_and_describe_do_not_start_record_runtimes() {
+    let state = tempdir().unwrap();
+    let collection_parent = tempdir().unwrap();
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let mut ids = Vec::new();
+
+    for index in 0..11 {
+        let collection = registry
+            .create(
+                collection_parent.path().join(format!("collection-{index}")),
+                Some(&format!("Collection {index}")),
+                "UTC",
+            )
+            .unwrap();
+        for record in 0..100 {
+            fs::write(
+                Path::new(&collection.path).join(format!("record-{record}.md")),
+                "ordinary record body\n",
+            )
+            .unwrap();
+        }
+        ids.push(collection.id);
+    }
+    drop(registry);
+
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    assert_eq!(
+        registry.runtime_residency_diagnostics().unwrap().resident,
+        0
+    );
+
+    let catalog = registry.catalog().unwrap();
+    assert_eq!(catalog.len(), 11);
+    assert!(catalog.iter().all(|entry| entry.description.is_some()));
+    assert_eq!(
+        registry.runtime_residency_diagnostics().unwrap().resident,
+        0
+    );
+
+    let description = registry.describe(ids[0]).unwrap();
+    assert_eq!(description.collection_id, ids[0]);
+    assert_eq!(
+        registry.runtime_residency_diagnostics().unwrap().resident,
+        0
+    );
+
+    let described = registry
+        .operation(ids[0], "describe", &serde_json::json!({}))
+        .unwrap();
+    assert_eq!(described["collection_id"], ids[0].to_string());
+    assert_eq!(
+        registry.runtime_residency_diagnostics().unwrap().resident,
+        0
+    );
+}
+
+#[test]
+fn catalog_isolates_an_invalid_collection_resource_registry() {
+    let state = tempdir().unwrap();
+    let collection_parent = tempdir().unwrap();
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let valid = registry
+        .create(collection_parent.path().join("valid"), Some("Valid"), "UTC")
+        .unwrap();
+    let invalid = registry
+        .create(
+            collection_parent.path().join("invalid"),
+            Some("Invalid"),
+            "UTC",
+        )
+        .unwrap();
+    fs::write(
+        Path::new(&invalid.path).join("_types/broken.md"),
+        "---\nkind: mdbase.type\nname: broken\nversion: nope\n---\n",
+    )
+    .unwrap();
+
+    let catalog = registry.catalog().unwrap();
+    assert_eq!(catalog.len(), 2);
+    assert!(catalog
+        .iter()
+        .find(|entry| entry.summary.id == valid.id)
+        .unwrap()
+        .description
+        .is_some());
+    assert!(catalog
+        .iter()
+        .find(|entry| entry.summary.id == invalid.id)
+        .unwrap()
+        .description
+        .is_none());
+}
+
+#[test]
+fn catalog_isolates_a_malformed_mirror_marker() {
+    let state = tempdir().unwrap();
+    let collection_parent = tempdir().unwrap();
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let valid = registry
+        .create(collection_parent.path().join("valid"), Some("Valid"), "UTC")
+        .unwrap();
+    let malformed = registry
+        .create(
+            collection_parent.path().join("malformed"),
+            Some("Malformed"),
+            "UTC",
+        )
+        .unwrap();
+    let marker = Path::new(&malformed.path).join(".mdbase/connect-role.json");
+    fs::create_dir_all(marker.parent().unwrap()).unwrap();
+    fs::write(marker, "not json").unwrap();
+
+    let catalog = registry.catalog().unwrap();
+    assert_eq!(catalog.len(), 2);
+    let valid = catalog
+        .iter()
+        .find(|entry| entry.summary.id == valid.id)
+        .unwrap();
+    assert!(valid.summary.enabled);
+    assert!(valid.description.is_some());
+    let malformed = catalog
+        .iter()
+        .find(|entry| entry.summary.id == malformed.id)
+        .unwrap();
+    assert!(!malformed.summary.enabled);
+    assert!(malformed.description.is_none());
+}
+
+#[test]
 fn runtime_residency_is_bounded_and_evicted_collections_reopen_from_markdown() {
     let state = tempdir().unwrap();
     let collection_parent = tempdir().unwrap();

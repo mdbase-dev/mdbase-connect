@@ -2,18 +2,20 @@ import { spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  managedEnvironments,
+  normalizedEndpointOrigin
+} from "./lib/managed-environments.mjs";
 
 export const developmentDeployments = Object.freeze({
   lab: Object.freeze({
-    editorOrigin: "https://candidate-b.mdbase-editor.pages.dev",
-    connectOrigin: "https://mdbase-connect-lab.onrender.com",
+    ...managedEnvironments.lab,
     project: "mdbase-editor",
     branch: "candidate-b",
     wranglerVersion: "4.114.0"
   }),
   staging: Object.freeze({
-    editorOrigin: "https://editor-staging.mdbase.dev",
-    connectOrigin: "https://connect-staging.mdbase.dev",
+    ...managedEnvironments.staging,
     project: "mdbase-editor",
     branch: "staging",
     wranglerVersion: "4.114.0"
@@ -41,7 +43,12 @@ export async function deployDevelopmentEditor(environment, run = runCommand) {
   if (target === "staging" && collaborationFlag === "1") {
     throw new Error("Experimental hosted collaboration Editor builds are restricted to LAB.");
   }
-  const requestedOrigin = environment.MDBASE_CONNECT_URL?.trim();
+  const requestedOrigin = environment.MDBASE_CONNECT_URL?.trim()
+    ? normalizedEndpointOrigin(
+        environment.MDBASE_CONNECT_URL,
+        "MDBASE_CONNECT_URL"
+      )
+    : undefined;
   if (requestedOrigin && requestedOrigin !== deployment.connectOrigin) {
     throw new Error(`MDBASE_CONNECT_URL does not match the ${target} environment.`);
   }

@@ -7,6 +7,7 @@ import type {
 } from "./hosted-provider.js";
 
 export const BETA_ENTITLEMENT_PROFILE = "beta_v1";
+export const OPEN_BETA_ENTITLEMENT_PROFILE = "open_beta_v1";
 
 export interface EffectiveEntitlement {
   profileCodes: string[];
@@ -119,7 +120,7 @@ export async function materializePublicSignupEntitlement(
        (id, user_id, profile_code, source, source_reference)
      VALUES ($1, $2, $3, 'subscription', 'public_signup_v1')
      ON CONFLICT DO NOTHING`,
-    [randomUUID(), userId, BETA_ENTITLEMENT_PROFILE]
+    [randomUUID(), userId, OPEN_BETA_ENTITLEMENT_PROFILE]
   );
   const account = await db.query<{
     provider_account_id: string;

@@ -16,6 +16,10 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type MouseEve
 import { AccountManagement, DeletedAccount } from "./AccountManagement";
 import { MdbaseMark } from "./Brand";
 import {
+  applyConnectServerOverride,
+  connectServerUrl
+} from "./connect-endpoint";
+import {
   ConfirmAction,
   ConnectEmpty as Empty,
   ConnectPage as Page,
@@ -42,9 +46,7 @@ type PerformOperation = (
   action: (options: ManagementRequestOptions) => Promise<void>
 ) => Promise<boolean>;
 
-const serverUrl = new URLSearchParams(location.search).get("server")
-  ?? import.meta.env.VITE_MDBASE_CONNECT_URL
-  ?? "https://connect.mdbase.dev";
+const serverUrl = connectServerUrl();
 const management = new ConnectManagementClient(serverUrl);
 const desktopReleaseUrl = "https://mdbase.dev/downloads/";
 const allOperations = [
@@ -822,16 +824,20 @@ function joinWords(words: string[]): string {
 }
 
 function connectViewUrl(view: ConnectView, collectionId?: string): string {
-  const url = new URL(view === "overview" ? "/connect" : `/connect/${view}`, location.origin);
-  url.searchParams.set("server", new URL(management.baseUrl).origin);
+  const url = applyConnectServerOverride(
+    new URL(view === "overview" ? "/connect" : `/connect/${view}`, location.origin),
+    management.baseUrl
+  );
   if (collectionId) url.searchParams.set("collection", collectionId);
   return `${url.pathname}${url.search}`;
 }
 
 function editorSurfaceUrls(collectionId?: string): { notes: string; types: string; settings: string } {
   const surface = (name?: "types" | "settings") => {
-    const url = new URL("/", location.origin);
-    url.searchParams.set("server", new URL(management.baseUrl).origin);
+    const url = applyConnectServerOverride(
+      new URL("/", location.origin),
+      management.baseUrl
+    );
     if (collectionId) url.searchParams.set("collection", collectionId);
     if (name) url.searchParams.set("surface", name);
     return url.href;
@@ -842,7 +848,7 @@ function editorSurfaceUrls(collectionId?: string): { notes: string; types: strin
 function editorCollectionUrl(collectionId: string): string {
   const url = new URL("/", location.origin);
   url.searchParams.set("collection", collectionId);
-  url.searchParams.set("server", new URL(management.baseUrl).origin);
+  applyConnectServerOverride(url, management.baseUrl);
   return url.href;
 }
 

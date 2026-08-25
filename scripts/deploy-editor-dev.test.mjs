@@ -4,7 +4,9 @@ import { deployDevelopmentEditor, developmentDeployments } from "./deploy-editor
 
 test("builds and deploys the editor against lab by default", async () => {
   const calls = [];
-  await deployDevelopmentEditor({}, async (command, args, environment) => {
+  await deployDevelopmentEditor({
+    MDBASE_CONNECT_URL: `${developmentDeployments.lab.connectOrigin}/`
+  }, async (command, args, environment) => {
     calls.push({ command, args, environment });
   });
 
