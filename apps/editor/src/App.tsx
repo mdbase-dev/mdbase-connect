@@ -613,6 +613,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     gateway,
     phase,
     start,
+    beforeCollectionChange: clearCollectionWorkspace,
     setSessionSnapshot
   });
 
@@ -943,8 +944,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setCreationMode(undefined);
     setCreationContext({});
     setCreationDirty(false);
-    setPropertiesOpen(false);
-    setBacklinksOpen(false);
+    setRecoveryAction(undefined); setPendingRenameRecovery(undefined); setRenamePlan(undefined); renameRequest.current = undefined;
+    setPropertiesOpen(false); setBacklinksOpen(false);
     setSelectedTypeName(undefined);
     setTypeDocument(undefined);
     setTypeSource("");
