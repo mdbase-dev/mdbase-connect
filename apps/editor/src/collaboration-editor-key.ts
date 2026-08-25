@@ -5,6 +5,7 @@ export function collaborationEditorKey(
   retained: Map<string, string>,
   sessionKey: string,
   expected: boolean,
+  terminal: boolean,
   bindingEpoch?: number | "sync"
 ): string {
   if (bindingEpoch !== undefined) {
@@ -14,5 +15,7 @@ export function collaborationEditorKey(
     retained.set(sessionKey, `${sessionKey}:live:${bindingEpoch}`);
   }
   if (!expected) return sessionKey;
-  return retained.get(sessionKey) ?? `${sessionKey}:live:opening`;
+  const openingKey = `${sessionKey}:live:opening`;
+  if (bindingEpoch === undefined && !terminal) return openingKey;
+  return retained.get(sessionKey) ?? openingKey;
 }

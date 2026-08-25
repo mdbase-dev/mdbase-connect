@@ -1882,7 +1882,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     : undefined);
   const collaborationIndicator = collaboration.indicator;
   const activeActivity = noteSessions.current.active?.activity;
-  const collaborativeEditorKey = collaborationEditorKey(collaborationEditorKeys.current, noteSessions.current.active?.editorSessionKey ?? document?.path ?? "note", collaboration.expected, collaboration.binding ? collaboration.binding.snapshot.epoch ?? "sync" : undefined);
+  const collaborativeEditorKey = collaborationEditorKey(collaborationEditorKeys.current, noteSessions.current.active?.editorSessionKey ?? document?.path ?? "note", collaboration.expected, collaboration.snapshot?.state === "unavailable" || collaboration.snapshot?.state === "closed", collaboration.binding ? collaboration.binding.snapshot.epoch ?? "sync" : undefined);
   const canAttachFiles = Boolean(connectionSummary?.fileActions?.includes("add"))
     && collaborationWritable;
   const typeAccessMissing = missingTypeCapabilities(connectionSummary);
