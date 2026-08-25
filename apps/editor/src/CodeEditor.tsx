@@ -153,6 +153,11 @@ export function CodeEditor({
   const syncing = useRef(false);
   const collaborationMode = useRef(new Compartment());
   const presenceMode = useRef(new Compartment());
+  const appliedPresence = useRef<{
+    participants: ExperimentalHostedMarkdownRoomSnapshot["participants"];
+    room: ExperimentalHostedMarkdownRoom | undefined;
+    state: ExperimentalHostedMarkdownRoomSnapshot["state"] | undefined;
+  } | undefined>(undefined);
   const collaborationRef = useRef(collaboration);
   const vimMode = useRef(new Compartment());
   const wrapping = useRef(new Compartment());
@@ -326,11 +331,27 @@ export function CodeEditor({
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
-    const participants = collaboration?.snapshot?.state === "connected"
-      ? collaboration.snapshot.participants
+    const snapshot = collaboration?.snapshot;
+    const room = collaboration?.room;
+    const roomChanged = appliedPresence.current !== undefined
+      && appliedPresence.current.room !== room;
+    if (snapshot?.pendingUpdates && !roomChanged) return;
+    const participants = !snapshot?.pendingUpdates && snapshot?.state === "connected"
+      ? snapshot.participants
       : [];
+    if (
+      appliedPresence.current?.participants === participants
+      && appliedPresence.current.room === room
+      && appliedPresence.current.state === snapshot?.state
+    ) return;
     view.dispatch({ effects: presenceMode.current.reconfigure(remotePresenceExtension(participants)) });
-  }, [collaboration?.snapshot?.participants, collaboration?.snapshot?.state]);
+    appliedPresence.current = { participants, room, state: snapshot?.state };
+  }, [
+    collaboration?.room,
+    collaboration?.snapshot?.participants,
+    collaboration?.snapshot?.pendingUpdates,
+    collaboration?.snapshot?.state
+  ]);
 
   useEffect(() => {
     const view = viewRef.current;

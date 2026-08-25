@@ -209,6 +209,69 @@ describe("CodeMirror collaboration profile spike", () => {
     expect(caretPosition()).toBe(6);
   });
 
+  it("does not replace mapped presence with changed server offsets while local updates are pending", async () => {
+    const doc = new Y.Doc();
+    const body = doc.getText("body");
+    body.insert(0, "0123456789");
+    const undoManager = new Y.UndoManager(body);
+    const room = { doc, body, undoManager, setAwareness: vi.fn() } as unknown as ExperimentalHostedMarkdownRoom;
+    const extension = [yCollab(body, null, { undoManager })];
+    const participant = (head: number) => ({
+      name: "Participant 2",
+      color: "teal" as const,
+      status: "active" as const,
+      selections: [{ anchor: head, head }]
+    });
+    const snapshot = {
+      state: "connected" as const,
+      body: body.toString(),
+      mode: "read_write" as const,
+      epoch: 1,
+      pendingUpdates: 0,
+      participants: [participant(5)]
+    };
+    const rendered = render(createElement(CodeEditor, {
+      value: body.toString(), label: "Pending presence", collaborationExpected: true,
+      collaboration: { room, extension, snapshot }
+    }));
+    const caretOffset = () => {
+      const content = document.querySelector<HTMLElement>(".cm-content")!;
+      const caret = document.querySelector<HTMLElement>(".cm-remote-presence-caret")!;
+      const range = document.createRange();
+      range.selectNodeContents(content);
+      range.setEndBefore(caret);
+      return range.toString().length;
+    };
+    await waitFor(() => expect(caretOffset()).toBe(5));
+
+    const content = document.querySelector<HTMLElement>(".cm-content")!;
+    await userEvent.click(content);
+    await userEvent.keyboard("{Home}XX");
+    await waitFor(() => expect(caretOffset()).toBe(7));
+
+    const changedWhilePending = {
+      ...snapshot,
+      body: body.toString(),
+      pendingUpdates: 1,
+      participants: [participant(4)]
+    };
+    rendered.rerender(createElement(CodeEditor, {
+      value: body.toString(), label: "Pending presence", collaborationExpected: true,
+      collaboration: { room, extension, snapshot: changedWhilePending }
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(caretOffset()).toBe(7);
+
+    rendered.rerender(createElement(CodeEditor, {
+      value: body.toString(), label: "Pending presence", collaborationExpected: true,
+      collaboration: {
+        room, extension,
+        snapshot: { ...changedWhilePending, pendingUpdates: 0 }
+      }
+    }));
+    await waitFor(() => expect(caretOffset()).toBe(4));
+  });
+
   it("bounds local multi-selection awareness to the protocol limit", () => {
     const ranges = Array.from({ length: 9 }, (_, index) => ({ anchor: index, head: index + 1 }));
     expect(boundedAwarenessSelections(ranges)).toEqual(ranges.slice(0, 4));

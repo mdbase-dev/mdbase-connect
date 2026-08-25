@@ -589,7 +589,8 @@ async fn session(
                 // per observed generation change, built from current locked
                 // room state in stable order with this socket omitted.
                 if changed.is_err() { return; }
-                awareness.borrow_and_update();
+                let generation = awareness.borrow_and_update();
+                drop(generation);
                 if send_awareness_snapshot(
                     &mut socket,
                     &state,

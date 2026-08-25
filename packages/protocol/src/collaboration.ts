@@ -211,6 +211,7 @@ export interface AwarenessParticipant {
   selections: AwarenessSelectionRange[];
 }
 
+/** Recipient-relative snapshot; the provider omits the receiving socket itself. */
 export interface ServerAwarenessSnapshot {
   participants: AwarenessParticipant[];
 }

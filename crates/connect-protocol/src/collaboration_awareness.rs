@@ -193,7 +193,8 @@ pub struct AwarenessParticipant {
     pub selections: Vec<AwarenessSelectionRange>,
 }
 
-/// Complete replacement snapshot broadcast to every room member.
+/// Recipient-relative replacement snapshot. The provider omits the receiving
+/// socket's own process-local session before serialization.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ServerAwarenessSnapshot {
