@@ -2456,6 +2456,9 @@ describe("mdbase connect server", () => {
       }
     });
     expect(approved.statusCode).toBe(200);
+    expect(hostedProvider.ready).toHaveBeenCalled();
+    expect(vi.mocked(hostedProvider.ready).mock.invocationCallOrder[0])
+      .toBeLessThan(vi.mocked(hostedProvider.registerReplica).mock.invocationCallOrder[0]);
     expect(hostedProvider.registerReplica).toHaveBeenCalledWith(
       collectionId,
       expect.objectContaining({

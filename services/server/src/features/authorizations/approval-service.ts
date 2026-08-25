@@ -740,6 +740,7 @@ export async function approveHostedAuthorization(
         "This hosted collection does not provide the contracts required by the application."
       );
     }
+    await provider.ready();
     const plan = planCollectionGrant({
       requestedOperations: input.operations,
       applicationOperationCeiling:
