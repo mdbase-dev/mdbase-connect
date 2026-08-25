@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.0-beta.87
+
+Beta.87 makes local multi-collection discovery fast and resilient and corrects
+editor authorization redirects.
+
+- Local collection listing is metadata-only, while authorization descriptions
+  use read-only resource snapshots without opening record runtimes.
+- Catalog discovery isolates malformed collection resources, reuses one catalog
+  per authorization offer, and preserves fresh authorization checks at the
+  connector boundary.
+- Notification recovery keeps idle and future work cold, opens runtimes only for
+  actionable persisted work, and rechecks collection authority before dispatch.
+- Relay inventory synchronization is single-flight, and high-frequency runtime
+  finalization is bounded to resident enabled collections.
+- Editor authorization now preserves valid same-origin return targets and uses
+  the correct production editor fallback.
+
 ## Unreleased
 
 ## 0.1.0-beta.86
