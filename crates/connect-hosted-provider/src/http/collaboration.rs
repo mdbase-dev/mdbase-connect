@@ -442,9 +442,22 @@ async fn session(
                                     send_server_close(&mut socket, DRAIN_DIRECTIVE).await;
                                     return;
                                 }
-                                Err(_) => {
-                                    send_server_close(&mut socket, POLICY_DIRECTIVE).await;
-                                    return;
+                                Err(AwarenessJoinError::ReplicaSessionLimit
+                                    | AwarenessJoinError::RoomFull
+                                    | AwarenessJoinError::SnapshotWouldExceedMetadataLimit) => {
+                                    // Presence is optional and ephemeral. A
+                                    // transient awareness cap (for example
+                                    // while a previous note's socket is still
+                                    // draining) must never terminate an
+                                    // otherwise authorized durable room.
+                                    if send_awareness_snapshot(
+                                        &mut socket,
+                                        &state,
+                                        &consumed.metadata.room,
+                                    ).await.is_err() {
+                                        return;
+                                    }
+                                    None
                                 }
                             };
                         } else {
