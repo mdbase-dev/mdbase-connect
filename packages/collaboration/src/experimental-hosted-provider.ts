@@ -6,8 +6,7 @@ import {
   parseAwarenessSnapshotMetadata,
   parseClientAwarenessMetadata,
   type ClientAwarenessUpdate,
-  type CollaborationFrame,
-  type ServerAwarenessSnapshot
+  type CollaborationFrame
 } from "@mdbase-dev/connect-protocol";
 import * as Y from "yjs";
 import { BODY_ROOT, markdownBody } from "./profile.js";
@@ -17,6 +16,7 @@ import type {
   ExperimentalHostedMarkdownRoomListener,
   ExperimentalHostedMarkdownRoomOptions,
   ExperimentalHostedMarkdownRoomSnapshot,
+  ExperimentalHostedRoomParticipant,
   ExperimentalHostedRoomProblem,
   ExperimentalHostedRoomState,
   ExperimentalWebSocketEvent,
@@ -52,6 +52,7 @@ const SAFE_CLOSE_CODE = 1008;
 const MAX_PENDING_UPDATES = 1_024;
 const MAX_PENDING_UPDATE_BYTES = 16 * 1024 * 1024;
 const MAX_ACKNOWLEDGED_IDS = 256;
+const EMPTY_PARTICIPANTS: ExperimentalHostedMarkdownRoomSnapshot["participants"] = Object.freeze([]);
 
 type Phase = "ticket" | "opening" | "hello" | "sync" | "connected";
 type Timer = ReturnType<typeof setTimeout>;
@@ -98,7 +99,7 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
     resolve: () => void;
     reject: (error: Error) => void;
   };
-  private participants: ServerAwarenessSnapshot["participants"] = [];
+  private participants: ExperimentalHostedMarkdownRoomSnapshot["participants"] = EMPTY_PARTICIPANTS;
   private desiredAwareness: ClientAwarenessUpdate = { status: "active", selections: [] };
   private deferredAwareness?: CollaborationFrame;
   private attempt?: Attempt;
@@ -214,7 +215,7 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
     this.pendingBytes = 0;
     this.acknowledged.clear();
     this.acknowledgedOrder.length = 0;
-    this.participants = [];
+    this.participants = EMPTY_PARTICIPANTS;
     this.desiredAwareness = { status: "active", selections: [] };
     this.undoManager.destroy();
     this.doc.destroy();
@@ -443,10 +444,18 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
       frame.metadata,
       Math.min(this.options.maxBodyBytes, 0xFFFFFFFF)
     );
-    this.participants = parsed.participants.map((participant) => ({
+    const participants = Object.freeze(parsed.participants.map((participant) => Object.freeze({
       ...participant,
-      selections: participant.selections.map((selection) => ({ ...selection }))
-    }));
+      selections: Object.freeze(participant.selections.map((selection) => Object.freeze({
+        ...selection
+      })))
+    })));
+    // Keep semantic no-op snapshots referentially stable. CodeMirror maps the
+    // existing decorations through local document changes; replacing them
+    // with unchanged stale absolute offsets would undo that optimistic map.
+    if (!sameParticipants(this.participants, participants)) {
+      this.participants = participants;
+    }
     this.publish();
   }
 
@@ -656,7 +665,7 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
     this.heartbeatPending = false;
     this.updateInFlight = false;
     this.deferredAwareness = undefined;
-    this.participants = [];
+    this.participants = EMPTY_PARTICIPANTS;
     if (closeSocket) {
       try { attempt.socket.close(SAFE_CLOSE_CODE, "protocol ended"); } catch { /* best effort */ }
     }
@@ -681,17 +690,13 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
   private makeSnapshot(failure?: ExperimentalHostedRoomProblem): ExperimentalHostedMarkdownRoomSnapshot {
     let body = "";
     try { body = markdownBody(this.doc, this.options.maxBodyBytes); } catch { body = this.body.toString(); }
-    const participants = this.participants.map((participant) => Object.freeze({
-      ...participant,
-      selections: Object.freeze(participant.selections.map((selection) => Object.freeze({ ...selection })))
-    }));
     return Object.freeze({
       state: this.state,
       body,
       ...(this.mode ? { mode: this.mode } : {}),
       ...(this.epoch !== undefined ? { epoch: this.epoch } : {}),
       pendingUpdates: this.pending.length,
-      participants: Object.freeze(participants),
+      participants: this.participants,
       ...(failure ? { problem: Object.freeze({ ...failure }) } : {})
     });
   }
@@ -722,6 +727,23 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
     this.flushWaiter?.reject(error);
     this.flushWaiter = undefined;
   }
+}
+
+function sameParticipants(
+  left: readonly ExperimentalHostedRoomParticipant[],
+  right: readonly ExperimentalHostedRoomParticipant[]
+): boolean {
+  return left.length === right.length && left.every((participant, index) => {
+    const other = right[index];
+    return other !== undefined
+      && participant.name === other.name
+      && participant.color === other.color
+      && participant.status === other.status
+      && participant.selections.length === other.selections.length
+      && participant.selections.every((selection, selectionIndex) =>
+        selection.anchor === other.selections[selectionIndex]?.anchor
+        && selection.head === other.selections[selectionIndex]?.head);
+  });
 }
 
 function exactEmptyMetadata(frame: CollaborationFrame, kind: CollaborationFrame["kind"]): boolean {

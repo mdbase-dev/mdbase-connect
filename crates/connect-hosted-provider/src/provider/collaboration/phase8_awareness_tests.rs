@@ -158,11 +158,10 @@ async fn phase8_awareness_sanitized_exchange_postgres() {
         .await;
         let joined_a: ServerAwarenessSnapshot =
             joined_a.expect("join snapshot for the first member");
-        assert_eq!(joined_a.participants.len(), 1);
-        assert_eq!(joined_a.participants[0].name, "Participant 1");
-        assert_eq!(joined_a.participants[0].color, AwarenessColor::Teal);
-        assert_eq!(joined_a.participants[0].status, AwarenessStatus::Active);
-        assert!(joined_a.participants[0].selections.is_empty());
+        assert!(
+            joined_a.participants.is_empty(),
+            "a socket must not receive itself"
+        );
 
         let stalled = open_unsynced_session(
             &instance,
@@ -195,18 +194,17 @@ async fn phase8_awareness_sanitized_exchange_postgres() {
         )
         .await;
         let joined_b = joined_b.expect("join snapshot includes existing members");
-        assert_eq!(joined_b.participants.len(), 2);
+        assert_eq!(joined_b.participants.len(), 1);
         assert_eq!(joined_b.participants[0].name, "Participant 1");
-        assert_eq!(joined_b.participants[1].name, "Participant 2");
 
         let observed_by_a = recv_snapshot(&mut socket_a).await;
-        assert_eq!(observed_by_a.participants.len(), 2);
-        assert_eq!(observed_by_a.participants[0].name, "Participant 1");
+        assert_eq!(observed_by_a.participants.len(), 1);
+        assert_eq!(observed_by_a.participants[0].name, "Participant 2");
 
         let baseline = durable_snapshot(&instance.provider.pool, collection, record).await;
 
         // A valid awareness update from the READ-ONLY session rebroadcasts a
-        // complete replacement to every member including itself.
+        // recipient-specific replacement without echoing either socket to itself.
         socket_b
             .send(Message::Binary(
                 awareness_update_frame("active", json!([{"anchor": 3, "head": 9}]))
@@ -217,16 +215,10 @@ async fn phase8_awareness_sanitized_exchange_postgres() {
             .await
             .unwrap();
         let seen_by_b = recv_snapshot(&mut socket_b).await;
-        assert_eq!(seen_by_b.participants.len(), 2);
-        let grace_view = seen_by_b
-            .participants
-            .iter()
-            .find(|participant| participant.color == AwarenessColor::Rose)
-            .expect("self appears in the complete snapshot");
-        assert_eq!(grace_view.status, AwarenessStatus::Active);
-        assert_eq!(grace_view.selections.len(), 1);
+        assert_eq!(seen_by_b.participants.len(), 1);
+        assert_eq!(seen_by_b.participants[0].color, AwarenessColor::Teal);
         let seen_by_a = recv_snapshot(&mut socket_a).await;
-        assert_eq!(seen_by_a.participants.len(), 2);
+        assert_eq!(seen_by_a.participants.len(), 1);
         let grace_on_a = seen_by_a
             .participants
             .iter()
@@ -506,11 +498,10 @@ async fn phase8_awareness_leave_revoke_expiry_postgres() {
         )
         .await;
         let observed = recv_snapshot(&mut observer_stream).await;
-        assert_eq!(observed.participants.len(), 2);
+        assert_eq!(observed.participants.len(), 1);
         drop(heidi_socket);
         let observed = recv_snapshot(&mut observer_stream).await;
-        assert_eq!(observed.participants.len(), 1);
-        assert_eq!(observed.participants[0].name, "Participant 1");
+        assert!(observed.participants.is_empty());
 
         // Grace is revoked: target-close removes her presence immediately.
         let (mut grace_socket, _) = open_awareness_session(
@@ -525,7 +516,7 @@ async fn phase8_awareness_leave_revoke_expiry_postgres() {
         )
         .await;
         let observed = recv_snapshot(&mut observer_stream).await;
-        assert_eq!(observed.participants.len(), 2);
+        assert_eq!(observed.participants.len(), 1);
         instance.provider.revoke_replica(grace.id).await.unwrap();
         // Her session closes on its next server-driven reauthorization...
         assert_close_code_within(
@@ -536,8 +527,7 @@ async fn phase8_awareness_leave_revoke_expiry_postgres() {
         .await;
         // ...and her presence disappears from the room.
         let observed = recv_snapshot(&mut observer_stream).await;
-        assert_eq!(observed.participants.len(), 1);
-        assert_eq!(observed.participants[0].name, "Participant 1");
+        assert!(observed.participants.is_empty());
 
         // Silent goes quiet. Its lease refreshes only from activity, so its
         // visibility lapses within TTL + one sweep even though its socket
@@ -567,14 +557,14 @@ async fn phase8_awareness_leave_revoke_expiry_postgres() {
         )
         .await;
         let observed = recv_snapshot(&mut observer_stream).await;
-        assert_eq!(observed.participants.len(), 2);
+        assert_eq!(observed.participants.len(), 1);
 
         // Silent goes quiet. Within TTL + one sweep its visibility lapses even
         // though its socket remains open.
         timeout(Duration::from_secs(10), async {
             loop {
                 let observed = recv_snapshot(&mut observer_stream).await;
-                if observed.participants.len() == 1 {
+                if observed.participants.is_empty() {
                     return;
                 }
             }
@@ -644,7 +634,8 @@ async fn phase8_awareness_multi_instance_isolation_postgres() {
         )
         .await;
 
-        // Each instance sees only its own member for the same room.
+        // Each instance stores only its own member for the same room, while
+        // recipient snapshots correctly exclude that socket itself.
         let (mut socket_a, joined_a) = open_awareness_session(
             &instance_a,
             &http,
@@ -657,8 +648,7 @@ async fn phase8_awareness_multi_instance_isolation_postgres() {
         )
         .await;
         let joined_a = joined_a.expect("join snapshot");
-        assert_eq!(joined_a.participants.len(), 1);
-        assert_eq!(joined_a.participants[0].name, "Participant 1");
+        assert!(joined_a.participants.is_empty());
 
         let (mut socket_b, joined_b) = open_awareness_session(
             &instance_b,
@@ -672,8 +662,7 @@ async fn phase8_awareness_multi_instance_isolation_postgres() {
         )
         .await;
         let joined_b = joined_b.expect("join snapshot");
-        assert_eq!(joined_b.participants.len(), 1);
-        assert_eq!(joined_b.participants[0].name, "Participant 1");
+        assert!(joined_b.participants.is_empty());
 
         // No cross-instance rebroadcasts arrive: a quiet second passes with no
         // frames on either socket.
@@ -701,7 +690,8 @@ async fn phase8_awareness_multi_instance_isolation_postgres() {
         assert_eq!(instance_a.state.awareness_participant_count(), 0);
         assert_eq!(instance_b.state.awareness_participant_count(), 1);
 
-        // B can still update its own presence and receive snapshots.
+        // B can still update its own presence; its recipient snapshot remains
+        // empty because no peer exists on that provider instance.
         socket_b
             .send(Message::Binary(
                 awareness_update_frame("active", json!([{"anchor": 0, "head": 1}]))
@@ -712,8 +702,7 @@ async fn phase8_awareness_multi_instance_isolation_postgres() {
             .await
             .unwrap();
         let observed = recv_snapshot(&mut socket_b).await;
-        assert_eq!(observed.participants.len(), 1);
-        assert_eq!(observed.participants[0].name, "Participant 1");
+        assert!(observed.participants.is_empty());
 
         drop(socket_a);
         drop(socket_b);

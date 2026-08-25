@@ -228,8 +228,12 @@ describe("experimental hosted Markdown provider", () => {
     socket.server(awareness("Ada"));
     socket.server(awareness("Grace"));
     expect(f.room.snapshot.participants.map((entry) => entry.name)).toEqual(["Grace"]);
+    const participants = f.room.snapshot.participants;
+    socket.server(awareness("Grace"));
+    expect(f.room.snapshot.participants).toBe(participants);
 
     f.room.body.insert(f.room.body.length, "!");
+    expect(f.room.snapshot.participants).toBe(participants);
     const sent = socket.frames().at(-1)!;
     expect(sent).toMatchObject({
       kind: "update",
@@ -247,7 +251,9 @@ describe("experimental hosted Markdown provider", () => {
     });
     await expect(flushed).resolves.toBeUndefined();
     expect(f.room.snapshot.pendingUpdates).toBe(0);
+    expect(f.room.snapshot.participants).toBe(participants);
     expect(Object.isFrozen(f.room.snapshot.participants)).toBe(true);
+    expect(Object.isFrozen(f.room.snapshot.participants[0]?.selections)).toBe(true);
     f.room.destroy();
   });
 

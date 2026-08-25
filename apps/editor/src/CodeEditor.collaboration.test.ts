@@ -6,7 +6,11 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { yCollab, yUndoManagerKeymap } from "y-codemirror.next";
 import * as Y from "yjs";
-import { boundedAwarenessSelections, CodeEditor } from "./CodeEditor";
+import {
+  boundedAwarenessSelections,
+  CodeEditor,
+  remotePresenceExtension
+} from "./CodeEditor";
 import type { ExperimentalHostedMarkdownRoom } from "@mdbase-dev/connect-collaboration";
 
 let view: EditorView | undefined;
@@ -174,6 +178,35 @@ describe("CodeMirror collaboration profile spike", () => {
       collaboration: { room, extension, snapshot: { ...snapshot, participants: [] } }
     }));
     await waitFor(() => expect(document.querySelector(".cm-remote-presence-label")).toBeNull());
+  });
+
+  it("maps remote presence through optimistic local insertions and deletions", () => {
+    view = new EditorView({
+      parent: document.body,
+      state: EditorState.create({
+        doc: "0123456789",
+        selection: { anchor: 5 },
+        extensions: [remotePresenceExtension([{
+          name: "Participant 2",
+          color: "teal",
+          status: "active",
+          selections: [{ anchor: 5, head: 5 }]
+        }])]
+      })
+    });
+
+    const caretPosition = () => view!.posAtDOM(
+      document.querySelector<HTMLElement>(".cm-remote-presence-caret")!
+    );
+    // Equal coordinates can belong to another participant and must not be
+    // guessed away as the local socket.
+    expect(caretPosition()).toBe(5);
+
+    view.dispatch({ changes: { from: 0, insert: "XX" } });
+    expect(caretPosition()).toBe(7);
+
+    view.dispatch({ changes: { from: 0, to: 1 } });
+    expect(caretPosition()).toBe(6);
   });
 
   it("bounds local multi-selection awareness to the protocol limit", () => {

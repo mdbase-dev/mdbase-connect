@@ -454,6 +454,7 @@ async fn session(
                                         &mut socket,
                                         &state,
                                         &consumed.metadata.room,
+                                        session_id,
                                     ).await.is_err() {
                                         return;
                                     }
@@ -584,12 +585,17 @@ async fn session(
                 }
             }
             changed = awareness.changed(), if synced => {
-                // Coalesced complete-snapshot rebroadcast: at most one send
+                // Coalesced recipient-snapshot rebroadcast: at most one send
                 // per observed generation change, built from current locked
-                // room state so every member converges on identical order.
+                // room state in stable order with this socket omitted.
                 if changed.is_err() { return; }
                 awareness.borrow_and_update();
-                if send_awareness_snapshot(&mut socket, &state, &consumed.metadata.room).await.is_err() { return; }
+                if send_awareness_snapshot(
+                    &mut socket,
+                    &state,
+                    &consumed.metadata.room,
+                    session_id,
+                ).await.is_err() { return; }
             }
         }
     }
@@ -759,8 +765,9 @@ async fn send_awareness_snapshot(
     socket: &mut WebSocket,
     state: &AppState,
     room: &crate::RoomIdentity,
+    recipient_session_id: u64,
 ) -> Result<(), ()> {
-    let snapshot = state.room_awareness_snapshot(room);
+    let snapshot = state.room_awareness_snapshot_for_session(room, recipient_session_id);
     let frame = CollaborationFrame {
         kind: CollaborationMessageKind::Awareness,
         metadata: snapshot.to_metadata(),

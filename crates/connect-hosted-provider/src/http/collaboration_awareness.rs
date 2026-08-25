@@ -2,8 +2,9 @@
 //!
 //! This module owns the room registry that tracks which authenticated
 //! sessions are present in which record room, their server-derived
-//! presentation identity, and the coalesced complete-snapshot rebroadcasts.
-//! Everything here is synchronous and bounded: no lock is held across an
+//! presentation identity, and coalesced recipient-specific snapshot rebroadcasts.
+//! A socket's own session is omitted before serialization. Everything here is
+//! synchronous and bounded: no lock is held across an
 //! await, and nothing in this module ever reaches durable storage, outbox
 //! rows, receipts, logs, or other provider instances.
 
@@ -180,7 +181,7 @@ impl CollaborationSessionRuntime {
         room_state.participants.insert(session_id, participant);
         // Fail closed if the complete snapshot would not fit the frame
         // metadata limit even though the bounds make that impossible today.
-        let snapshot_bytes = serde_json::to_vec(&Self::snapshot_of(room_state).to_metadata())
+        let snapshot_bytes = serde_json::to_vec(&Self::snapshot_of(room_state, None).to_metadata())
             .map(|encoded| encoded.len())
             .unwrap_or(usize::MAX);
         if snapshot_bytes > mdbase_connect_protocol::MAX_COLLABORATION_METADATA_BYTES {
@@ -292,7 +293,27 @@ impl CollaborationSessionRuntime {
     }
 
     /// Build the complete replacement snapshot ordered by stable session id.
+    #[cfg(test)]
     pub(crate) fn awareness_snapshot(&self, room: &RoomIdentity) -> ServerAwarenessSnapshot {
+        self.awareness_snapshot_excluding(room, None)
+    }
+
+    /// Build a recipient-specific replacement snapshot without echoing that
+    /// socket's own presentation state. The session id never leaves this
+    /// process; peers receive the unchanged sanitized v1 participant shape.
+    pub(crate) fn awareness_snapshot_for_session(
+        &self,
+        room: &RoomIdentity,
+        recipient_session_id: u64,
+    ) -> ServerAwarenessSnapshot {
+        self.awareness_snapshot_excluding(room, Some(recipient_session_id))
+    }
+
+    fn awareness_snapshot_excluding(
+        &self,
+        room: &RoomIdentity,
+        excluded_session_id: Option<u64>,
+    ) -> ServerAwarenessSnapshot {
         let mut rooms = self
             .awareness_rooms
             .lock()
@@ -302,19 +323,24 @@ impl CollaborationSessionRuntime {
         }
         rooms
             .get(room)
-            .map(Self::snapshot_of)
+            .map(|room_state| Self::snapshot_of(room_state, excluded_session_id))
             .unwrap_or_else(|| ServerAwarenessSnapshot {
                 participants: Vec::new(),
             })
     }
 
-    fn snapshot_of(room_state: &AwarenessRoom) -> ServerAwarenessSnapshot {
+    fn snapshot_of(
+        room_state: &AwarenessRoom,
+        excluded_session_id: Option<u64>,
+    ) -> ServerAwarenessSnapshot {
         ServerAwarenessSnapshot {
             participants: room_state
                 .participants
-                .values()
-                .filter(|participant| participant.visible)
-                .map(|participant| AwarenessParticipant {
+                .iter()
+                .filter(|(session_id, participant)| {
+                    Some(**session_id) != excluded_session_id && participant.visible
+                })
+                .map(|(_, participant)| AwarenessParticipant {
                     name: participant.name.clone(),
                     color: participant.color,
                     status: participant.status,
@@ -418,11 +444,13 @@ impl AppState {
         self.collaboration_sessions.sweep_expired_awareness();
     }
 
-    pub(crate) fn room_awareness_snapshot(
+    pub(crate) fn room_awareness_snapshot_for_session(
         &self,
         room: &RoomIdentity,
+        recipient_session_id: u64,
     ) -> mdbase_connect_protocol::ServerAwarenessSnapshot {
-        self.collaboration_sessions.awareness_snapshot(room)
+        self.collaboration_sessions
+            .awareness_snapshot_for_session(room, recipient_session_id)
     }
 
     #[cfg(test)]
@@ -586,6 +614,26 @@ mod tests {
         tokio::time::timeout(Duration::from_millis(20), receiver_b.changed())
             .await
             .expect_err("another room's join must not wake this member");
+    }
+
+    #[tokio::test]
+    async fn recipient_snapshots_exclude_only_the_current_socket() {
+        let runtime = runtime();
+        let room = new_room();
+        let _a = runtime
+            .join_awareness(&room, 11, Uuid::new_v4(), &identity("A"))
+            .unwrap();
+        let _b = runtime
+            .join_awareness(&room, 22, Uuid::new_v4(), &identity("B"))
+            .unwrap();
+
+        let for_a = runtime.awareness_snapshot_for_session(&room, 11);
+        assert_eq!(for_a.participants.len(), 1);
+        assert_eq!(for_a.participants[0].name, "B");
+        let for_b = runtime.awareness_snapshot_for_session(&room, 22);
+        assert_eq!(for_b.participants.len(), 1);
+        assert_eq!(for_b.participants[0].name, "A");
+        assert_eq!(runtime.awareness_snapshot(&room).participants.len(), 2);
     }
 
     #[tokio::test]

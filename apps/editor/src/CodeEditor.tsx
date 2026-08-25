@@ -330,7 +330,7 @@ export function CodeEditor({
       ? collaboration.snapshot.participants
       : [];
     view.dispatch({ effects: presenceMode.current.reconfigure(remotePresenceExtension(participants)) });
-  }, [collaboration?.snapshot]);
+  }, [collaboration?.snapshot?.participants, collaboration?.snapshot?.state]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -602,7 +602,7 @@ class RemotePresenceCaret extends WidgetType {
   }
 }
 
-function remotePresenceExtension(
+export function remotePresenceExtension(
   participants: readonly ExperimentalHostedRoomParticipant[]
 ): Extension {
   if (participants.length === 0) return [];
@@ -614,8 +614,12 @@ function remotePresenceExtension(
     }
 
     update(update: ViewUpdate): void {
-      if (update.docChanged || update.selectionSet) {
-        this.decorations = remotePresenceDecorations(update.view, participants);
+      if (update.docChanged) {
+        // Keep the last server snapshot anchored to its surrounding text while
+        // local Yjs updates are still in flight. Rebuilding from unchanged
+        // absolute offsets would make remote carets drift in the opposite
+        // direction as text is inserted or removed before them.
+        this.decorations = this.decorations.map(update.changes);
       }
     }
   }, {
@@ -628,13 +632,7 @@ function remotePresenceDecorations(
   participants: readonly ExperimentalHostedRoomParticipant[]
 ): DecorationSet {
   const ranges: Range<Decoration>[] = [];
-  const local = view.state.selection.ranges;
-  let removedLocal = false;
   participants.forEach((participant, participantIndex) => {
-    if (!removedLocal && sameAwarenessSelections(participant.selections, local)) {
-      removedLocal = true;
-      return;
-    }
     participant.selections.forEach((selection) => {
       const anchor = Math.max(0, Math.min(view.state.doc.length, selection.anchor));
       const head = Math.max(0, Math.min(view.state.doc.length, selection.head));
@@ -652,14 +650,6 @@ function remotePresenceDecorations(
     });
   });
   return Decoration.set(ranges, true);
-}
-
-function sameAwarenessSelections(
-  remote: ExperimentalHostedRoomParticipant["selections"],
-  local: readonly { anchor: number; head: number }[]
-): boolean {
-  return remote.length === local.length && remote.every((selection, index) =>
-    selection.anchor === local[index]?.anchor && selection.head === local[index]?.head);
 }
 
 export function boundedAwarenessSelections(
