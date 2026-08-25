@@ -40,7 +40,7 @@ record_schema:
         root.join("_types/task.md"),
         r#"---
 kind: mdbase.type
-name: task
+name: Task
 version: 2
 description: A portable task.
 schema:
@@ -60,8 +60,15 @@ implements:
     .unwrap();
     synchronize_external_fixture(&registry, collection.id);
 
+    let listed = registry.list().unwrap();
+    assert!(listed[0].contracts.is_empty());
+    let inventory = registry.inventory().unwrap();
+    assert_eq!(inventory[0].contracts.len(), 1);
+    assert_eq!(inventory[0].contracts[0].id, "example.work-item");
+
     let description = registry.describe(collection.id).unwrap();
     assert_eq!(description.protocol_version, 1);
+    assert_eq!(description.types[0].name, "Task");
     assert_eq!(
         description.types[0].schema["properties"]["title"]["type"],
         "string"

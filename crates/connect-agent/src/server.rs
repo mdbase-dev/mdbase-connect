@@ -243,10 +243,10 @@ impl AgentState {
             .expect("connection state lock poisoned") = state;
     }
 
-    pub fn collections(
+    pub fn collection_inventory(
         &self,
     ) -> Result<Vec<mdbase_connect_protocol::CollectionSummary>, ConnectError> {
-        self.registry.list()
+        self.registry.inventory()
     }
 
     pub fn next_inventory_revision(&self) -> Result<u64, ConnectError> {
