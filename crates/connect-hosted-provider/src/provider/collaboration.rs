@@ -690,7 +690,7 @@ impl HostedProvider {
         .fetch_optional(&self.pool)
         .await?;
         if replica_epoch != Some(to_i64(scope_epoch, "scope epoch")?) {
-            return Err(collaboration_session_denied());
+            return Err(collaboration_session_denied("replica"));
         }
         // A live session survives only while its room is still the fence's
         // current epoch, the durable document is active, and the materialized
@@ -717,15 +717,18 @@ impl HostedProvider {
         .fetch_optional(&self.pool)
         .await?;
         let Some(row) = row else {
-            return Err(collaboration_session_denied());
+            return Err(collaboration_session_denied("room_missing"));
         };
         let current_epoch: i64 = row.get("current_epoch");
         let document_state: Option<String> = row.get("document_state");
-        if current_epoch != to_i64(room.epoch, "collaboration epoch")?
-            || document_state.as_deref() != Some("active")
-            || !row.get::<bool, _>("materialized")
-        {
-            return Err(collaboration_session_denied());
+        if current_epoch != to_i64(room.epoch, "collaboration epoch")? {
+            return Err(collaboration_session_denied("epoch"));
+        }
+        if document_state.as_deref() != Some("active") {
+            return Err(collaboration_session_denied("document_state"));
+        }
+        if !row.get::<bool, _>("materialized") {
+            return Err(collaboration_session_denied("materialized_revision"));
         }
         Ok(())
     }
@@ -823,7 +826,13 @@ fn stale_epoch_error() -> ApiError {
         "The requested collaboration epoch is not current.",
     )
 }
-fn collaboration_session_denied() -> ApiError {
+fn collaboration_session_denied(reason: &'static str) -> ApiError {
+    tracing::warn!(
+        target: "mdbase_connect::metrics",
+        metric = "collaboration_session_reauthorization_denied",
+        reason,
+        "privacy-safe hosted provider metric"
+    );
     ApiError::forbidden(
         "collaboration_scope_denied",
         "The collaboration session is no longer authorized.",
