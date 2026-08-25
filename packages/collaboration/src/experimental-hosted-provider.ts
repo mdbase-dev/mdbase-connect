@@ -230,15 +230,20 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
       if (update.byteLength > this.maxUpdateBytes) throw new Error("collaboration_update_too_large");
       const mergeIndex = this.pending.findIndex((item) => !item.sent);
       const queued = mergeIndex >= 0 ? this.pending[mergeIndex] : undefined;
+      let coalesced = false;
       if (queued) {
         const bytes = Y.mergeUpdates([queued.bytes, update]);
-        const nextBytes = this.pendingBytes - queued.bytes.byteLength + bytes.byteLength;
-        if (bytes.byteLength > this.maxUpdateBytes || nextBytes > MAX_PENDING_UPDATE_BYTES) {
-          throw new Error("collaboration_pending_updates_exceeded");
+        if (bytes.byteLength <= this.maxUpdateBytes) {
+          const nextBytes = this.pendingBytes - queued.bytes.byteLength + bytes.byteLength;
+          if (nextBytes > MAX_PENDING_UPDATE_BYTES) {
+            throw new Error("collaboration_pending_updates_exceeded");
+          }
+          this.pending[mergeIndex] = { id: queued.id, bytes, sent: false };
+          this.pendingBytes = nextBytes;
+          coalesced = true;
         }
-        this.pending[mergeIndex] = { id: queued.id, bytes, sent: false };
-        this.pendingBytes = nextBytes;
-      } else {
+      }
+      if (!coalesced) {
         const id = this.randomUUID();
         if (!isUuid(id)) throw new Error("collaboration_mutation_id_invalid");
         if (this.pending.length >= MAX_PENDING_UPDATES
