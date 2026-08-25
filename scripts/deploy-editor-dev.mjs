@@ -10,7 +10,7 @@ import {
 export const developmentDeployments = Object.freeze({
   lab: Object.freeze({
     ...managedEnvironments.lab,
-    project: "mdbase-editor",
+    project: "mdbase-editor-lab",
     branch: "candidate-b",
     wranglerVersion: "4.114.0"
   }),

@@ -25,7 +25,7 @@ test("builds and deploys the editor against lab by default", async () => {
 
   const deploy = calls.find(({ args }) => args.includes("wrangler@4.114.0"));
   assert.ok(deploy);
-  assert.ok(deploy.args.includes("--project-name=mdbase-editor"));
+  assert.ok(deploy.args.includes("--project-name=mdbase-editor-lab"));
   assert.ok(deploy.args.includes("--branch=candidate-b"));
 });
 
