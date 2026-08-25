@@ -46,7 +46,8 @@ const DEFAULT_RECONNECT_MAX_MS = 8_000;
 // ceiling. Unsynchronized keystrokes are merged into the next envelope while
 // one update is in flight, so this bounds traffic without delaying local Yjs.
 const MIN_UPDATE_SEND_SPACING_MS = 40;
-const AWARENESS_SPACING_SAFETY_MS = 125;
+const MIN_AWARENESS_SEND_SPACING_MS = 1_000;
+const AWARENESS_CHANGE_DEBOUNCE_MS = 500;
 const SAFE_CLOSE_CODE = 1008;
 const MAX_PENDING_UPDATES = 1_024;
 const MAX_PENDING_UPDATE_BYTES = 16 * 1024 * 1024;
@@ -151,11 +152,8 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
       positiveTiming(options.timing?.reconnectMaxMs, DEFAULT_RECONNECT_MAX_MS)
     );
     this.awarenessThrottleMs = Math.max(
-      MIN_AWARENESS_UPDATE_SPACING_MS + AWARENESS_SPACING_SAFETY_MS,
-      positiveTiming(
-        options.timing?.awarenessThrottleMs,
-        MIN_AWARENESS_UPDATE_SPACING_MS + AWARENESS_SPACING_SAFETY_MS
-      )
+      MIN_AWARENESS_SEND_SPACING_MS,
+      positiveTiming(options.timing?.awarenessThrottleMs, MIN_AWARENESS_SEND_SPACING_MS)
     );
     this.ticketTimeoutMs = options.timing?.ticketTimeoutMs;
     this.randomUUID = options.randomUUID ?? (() => crypto.randomUUID());
@@ -495,7 +493,9 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
     }
     const spacingAt = this.lastAwarenessSent + this.awarenessThrottleMs;
     const refreshAt = this.lastAwarenessSent + this.awarenessRefreshMs;
-    const dueAt = refresh ? Math.max(spacingAt, refreshAt) : Math.max(Date.now(), spacingAt);
+    const dueAt = refresh
+      ? Math.max(spacingAt, refreshAt)
+      : Math.max(Date.now() + AWARENESS_CHANGE_DEBOUNCE_MS, spacingAt);
     this.awarenessTimer = setTimeout(() => {
       this.awarenessTimer = undefined;
       const current = this.attempt;

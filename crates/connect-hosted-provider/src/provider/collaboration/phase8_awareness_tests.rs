@@ -249,8 +249,8 @@ async fn phase8_awareness_sanitized_exchange_postgres() {
 }
 
 // ---------------------------------------------------------------------------
-// Scenario 2: spoofed identity/text/path fields, invalid shapes, and rate
-// violations are rejected and close the session; honest members are unaware.
+// Scenario 2: spoofed identity/text/path fields and invalid shapes close the
+// session; valid over-rate frames are ignored and honest members are unaware.
 // ---------------------------------------------------------------------------
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -349,8 +349,9 @@ async fn phase8_awareness_spoof_rejection_postgres() {
             .unwrap();
         assert_close_ignoring_frames(&mut payload_violator, COLLABORATION_CLOSE_POLICY).await;
 
-        // The spacing rule rejects a burst: one accepted update followed by a
-        // second inside 125 ms closes the session.
+        // The spacing rule ignores a valid burst without refreshing presence
+        // or sacrificing the durable session. A later spaced update is still
+        // accepted, proving the connection remained usable.
         let (mut buster, _) =
             open_awareness_session(&instance, &http, collection, &ada.token, &ada.signing, ORIGIN_A, "notes/spoof.md", SyncReplicaMode::ReadWrite).await;
         buster.send(Message::Binary(
@@ -359,7 +360,15 @@ async fn phase8_awareness_spoof_rejection_postgres() {
         buster.send(Message::Binary(
             awareness_update_frame("active", json!([])).encode().unwrap().into(),
         )).await.unwrap();
-        assert_close_ignoring_frames(&mut buster, COLLABORATION_CLOSE_POLICY).await;
+        tokio::time::sleep(Duration::from_millis(130)).await;
+        buster.send(Message::Binary(
+            awareness_update_frame("active", json!([])).encode().unwrap().into(),
+        )).await.unwrap();
+        let _idle_view = recv_snapshot(&mut buster).await;
+        let active_view = recv_snapshot(&mut buster).await;
+        assert!(active_view.participants.iter().any(|participant| {
+            participant.status == AwarenessStatus::Active
+        }));
 
         // The honest member keeps working throughout; its view still shows a
         // single participant identity from registration, never spoofed names.

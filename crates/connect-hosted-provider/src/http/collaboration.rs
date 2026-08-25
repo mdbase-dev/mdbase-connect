@@ -507,17 +507,16 @@ async fn session(
                         while awareness_updates.front().is_some_and(|accepted| now.duration_since(*accepted) >= Duration::from_secs(1)) {
                             awareness_updates.pop_front();
                         }
-                        if !synced || awareness_updates.len() >= MAX_AWARENESS_UPDATES_PER_SECOND as usize { send_awareness_reject(&mut socket).await; return; }
-                        if let Some(last) = last_awareness {
-                            if last.elapsed() < Duration::from_millis(MIN_AWARENESS_UPDATE_SPACING_MS) {
-                                send_awareness_reject(&mut socket).await;
-                                return;
-                            }
+                        if !synced {
+                            send_awareness_reject(&mut socket).await;
+                            return;
                         }
-                        // Reject and close: empty payload plus exactly
-                        // {status, selections} with bounded unique ranges.
-                        // Identity, text, path, unknown, or deep fields are
-                        // refused here without ever being applied.
+                        // Parse before rate handling so a peer cannot hide an
+                        // invalid or identity-bearing frame inside a burst.
+                        // Valid excess frames are ignored without refreshing
+                        // visibility: network jitter can compress an honest
+                        // client's spaced sends, and ephemeral presence must
+                        // never terminate its durable editing session.
                         let parsed = if frame.payload.is_empty() {
                             ClientAwarenessUpdate::from_metadata(&frame.metadata)
                                 .and_then(|update| match update.validate(max_position) {
@@ -534,6 +533,15 @@ async fn session(
                                 return;
                             }
                         };
+                        let over_rate = awareness_updates.len()
+                            >= MAX_AWARENESS_UPDATES_PER_SECOND as usize
+                            || last_awareness.is_some_and(|last| {
+                                last.elapsed()
+                                    < Duration::from_millis(MIN_AWARENESS_UPDATE_SPACING_MS)
+                            });
+                        if over_rate {
+                            continue;
+                        }
                         awareness_updates.push_back(now);
                         last_awareness = Some(now);
                         state.apply_room_awareness(&consumed.metadata.room, session_id, &update);
@@ -749,7 +757,7 @@ async fn send_awareness_snapshot(
     send_frame(socket, encoded).await.map_err(|_| ())
 }
 
-/// Reject an invalid or over-rate awareness frame and close the session.
+/// Reject an invalid awareness frame and close the session.
 async fn send_awareness_reject(socket: &mut WebSocket) {
     send_server_close(socket, POLICY_DIRECTIVE).await;
 }

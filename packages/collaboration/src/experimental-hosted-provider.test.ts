@@ -495,13 +495,15 @@ describe("experimental hosted Markdown provider", () => {
     vi.useFakeTimers();
     const f = fixture();
     const socket = await synchronize(f);
-    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(499);
+    expect(socket.frames().filter((frame) => frame.kind === "awareness")).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
     expect(socket.frames().filter((frame) => frame.kind === "awareness")).toHaveLength(1);
 
     f.room.setAwareness({ status: "active", selections: [{ anchor: 1, head: 1 }] });
-    await vi.advanceTimersByTimeAsync(125);
+    await vi.advanceTimersByTimeAsync(999);
     expect(socket.frames().filter((frame) => frame.kind === "awareness")).toHaveLength(1);
-    await vi.advanceTimersByTimeAsync(125);
+    await vi.advanceTimersByTimeAsync(1);
     expect(socket.frames().filter((frame) => frame.kind === "awareness")).toHaveLength(2);
     f.room.destroy();
   });
@@ -522,9 +524,9 @@ describe("experimental hosted Markdown provider", () => {
       }
     }));
     socket.server({ kind: "sync_step_2", metadata: {}, payload: updateFor("seed") });
-    await vi.advanceTimersByTimeAsync(0);
-    expect(socket.frames().filter((frame) => frame.kind === "awareness")).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(500);
+    expect(socket.frames().filter((frame) => frame.kind === "awareness")).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1_000);
     expect(socket.frames().filter((frame) => frame.kind === "awareness")).toHaveLength(2);
     f.room.destroy();
   });
@@ -569,7 +571,7 @@ describe("experimental hosted Markdown provider", () => {
     const socket = await synchronize(f);
     f.room.setAwareness({ status: "active", selections: [{ anchor: 1, head: 2 }] });
     f.room.setAwareness({ status: "idle", selections: [] });
-    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(500);
     const frames = socket.frames().filter((frame) => frame.kind === "awareness");
     expect(frames).toHaveLength(1);
     expect(frames[0]?.metadata).toEqual({ status: "idle", selections: [] });
