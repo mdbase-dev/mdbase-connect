@@ -351,6 +351,7 @@ function CollectionSharingPanel({ collection, busy, perform }: {
   const [role, setRole] = useState<"viewer" | "editor">("viewer");
   const [shareLink, setShareLink] = useState("");
   const [copied, setCopied] = useState(false);
+  const experimentalCollaboration = __MDBASE_EDITOR_EXPERIMENTAL_HOSTED_COLLABORATION__;
 
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -384,8 +385,16 @@ function CollectionSharingPanel({ collection, busy, perform }: {
         const created = await management.createCollectionInvitation(
           collection.id,
           targetMode === "email"
-            ? { email: invitationTarget, role }
-            : { invitee_code: invitationTarget, role },
+            ? {
+                email: invitationTarget,
+                role,
+                ...(experimentalCollaboration ? { collaboration: true } : {})
+              }
+            : {
+                invitee_code: invitationTarget,
+                role,
+                ...(experimentalCollaboration ? { collaboration: true } : {})
+              },
           options
         );
         token = created.invitation.token;
@@ -431,7 +440,13 @@ function CollectionSharingPanel({ collection, busy, perform }: {
     {members?.map((member) => <div className="connect-row connect-member-row" key={member.id ?? "owner"}>
       <div><strong>{member.name}</strong><small>{member.kind === "owner" ? "Collection owner" : member.state === "changing" ? "Changing permissions after provider cleanup" : member.state === "revoking" ? "Removing access from every replica" : member.role === "editor" ? "Can edit and manage members" : "Can view and connect read-only apps"}</small></div>
       {member.kind === "owner" ? <span>Owner</span> : <>
-        <label className="connect-role-select"><span className="sr-only">Role for {member.name}</span><select value={member.role} disabled={member.state !== "active" || busy.has(`member-role-${member.id}`)} onChange={(event) => void mutate(`member-role-${member.id}`, (options) => management.changeCollectionMemberRole(collection.id, member.id!, event.target.value as "viewer" | "editor", options))}><option value="viewer">Viewer</option><option value="editor">Editor</option></select></label>
+        <label className="connect-role-select"><span className="sr-only">Role for {member.name}</span><select value={member.role} disabled={member.state !== "active" || busy.has(`member-role-${member.id}`)} onChange={(event) => void mutate(`member-role-${member.id}`, (options) => management.changeCollectionMemberRole(
+          collection.id,
+          member.id!,
+          event.target.value as "viewer" | "editor",
+          options,
+          experimentalCollaboration ? true : undefined
+        ))}><option value="viewer">Viewer</option><option value="editor">Editor</option></select></label>
         <ConfirmAction className="danger" label={member.state === "revoking" ? "Removing…" : "Remove"} question={`Remove ${member.name} from ${collection.display_name}? Their application and folder access will also be revoked.`} confirmLabel="Remove access" busy={member.state !== "active" || busy.has(`member-revoke-${member.id}`)} onConfirm={() => void mutate(`member-revoke-${member.id}`, (options) => management.revokeCollectionMember(collection.id, member.id!, options))} />
       </>}
     </div>)}

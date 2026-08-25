@@ -277,14 +277,25 @@ describe("ConnectApp", () => {
     expect(vi.mocked(fetch).mock.calls.some(([input, init]) =>
       new URL(String(input)).pathname.endsWith("/invitations")
       && init?.method === "POST"
-      && init.body === JSON.stringify({ email: "new@example.com", role: "editor" })
+      && init.body === JSON.stringify({
+        email: "new@example.com",
+        role: "editor",
+        ...(__MDBASE_EDITOR_EXPERIMENTAL_HOSTED_COLLABORATION__
+          ? { collaboration: true }
+          : {})
+      })
     )).toBe(true);
 
     await user.selectOptions(screen.getByLabelText("Role for Shared Person"), "editor");
     expect(vi.mocked(fetch).mock.calls.some(([input, init]) =>
       new URL(String(input)).pathname.endsWith("/members/member")
       && init?.method === "PATCH"
-      && init.body === JSON.stringify({ role: "editor" })
+      && init.body === JSON.stringify({
+        role: "editor",
+        ...(__MDBASE_EDITOR_EXPERIMENTAL_HOSTED_COLLABORATION__
+          ? { collaboration: true }
+          : {})
+      })
     )).toBe(true);
   });
 
