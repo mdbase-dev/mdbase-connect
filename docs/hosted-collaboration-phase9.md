@@ -75,7 +75,10 @@ unrepresentable top-level null values fail rather than being deleted silently.
 
 The provider remains independently disabled by default with
 `MDBASE_CONNECT_HOSTED_COLLABORATION_ENABLED=false` and does not advertise
-collaboration readiness.
+collaboration readiness while disabled. An explicitly enabled LAB provider
+advertises collaboration contract v1 on its internal readiness contract so the
+control plane can issue experimental collaboration grants; the default and
+staging deployments remain unadvertised.
 
 Editor integration must use a separate, explicit build-time LAB flag. The
 ordinary Editor manifest and bundle must remain collaboration-free. Because the

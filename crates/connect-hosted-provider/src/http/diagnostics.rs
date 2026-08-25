@@ -2,6 +2,7 @@ use axum::{extract::State, middleware, routing::get, Json, Router};
 use serde_json::{json, Value};
 
 use crate::error::ApiResult;
+use mdbase_connect_protocol::{ConnectContractSupport, COLLABORATION_CONTRACT_VERSION};
 
 use super::{authorize_internal_request, AppState};
 
@@ -28,16 +29,25 @@ async fn health() -> Json<Value> {
 
 async fn ready(State(state): State<AppState>) -> ApiResult<Json<Value>> {
     let readiness = state.provider.ready().await?;
+    let contract_support = advertised_contract_support(state.provider.collaboration_enabled());
     Ok(Json(json!({
         "status": "ready",
         "provider": {
             "version": env!("CARGO_PKG_VERSION"),
             "capabilities": mdbase_connect_protocol::HOSTED_PROVIDER_CAPABILITIES,
-            "contract_support": mdbase_connect_protocol::ConnectContractSupport::default(),
+            "contract_support": contract_support,
         },
         "notifications": readiness.notifications,
         "projections": readiness.projections
     })))
+}
+
+fn advertised_contract_support(collaboration_enabled: bool) -> ConnectContractSupport {
+    let mut support = ConnectContractSupport::default();
+    if collaboration_enabled {
+        support.collaboration.push(COLLABORATION_CONTRACT_VERSION);
+    }
+    support
 }
 
 async fn query_activity(State(state): State<AppState>) -> Json<Value> {
@@ -56,4 +66,18 @@ async fn diagnostics(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
         "diagnostics": state.provider.hosted_diagnostics().await
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn readiness_advertises_collaboration_only_when_enabled() {
+        assert!(advertised_contract_support(false).collaboration.is_empty());
+        assert_eq!(
+            advertised_contract_support(true).collaboration,
+            vec![COLLABORATION_CONTRACT_VERSION]
+        );
+    }
 }
