@@ -7,7 +7,7 @@ export function useSessionLifecycle({ gateway, start, setSessionSnapshot, setNot
   gateway: CollectionGateway;
   start: () => Promise<void>;
   setSessionSnapshot: Dispatch<SetStateAction<CollectionSessionSnapshot>>;
-  setNotice: Dispatch<SetStateAction<string | undefined>>;
+  setNotice: (message?: string, tone?: "info" | "success" | "error") => void
   setPhase: Dispatch<SetStateAction<AppPhase>>;
 }) {
   const retrySessionStart = useCallback(async () => {

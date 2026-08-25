@@ -698,7 +698,7 @@ test("quick-opens notes with fuzzy keyboard search", async ({ page }) => {
   await page.keyboard.press("Control+p");
   const quickOpen = page.getByRole("dialog", { name: "Quick open" });
   await expect(quickOpen).toBeVisible();
-  const finder = quickOpen.getByRole("combobox", { name: "Find a note" });
+  const finder = quickOpen.getByRole("combobox", { name: "Find a note or action" });
   await expect(finder).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await finder.fill("qstn kpng");
   await expect(quickOpen.getByRole("option", { name: /Questions worth keeping 7/ })).toBeVisible();
@@ -723,7 +723,7 @@ test("shows the matching note text in sidebar and quick-open search results", as
 
   await page.keyboard.press("Control+p");
   const quickOpen = page.getByRole("dialog", { name: "Quick open" });
-  await quickOpen.getByRole("combobox", { name: "Find a note" }).fill(query);
+  await quickOpen.getByRole("combobox", { name: "Find a note or action" }).fill(query);
   const quickResult = quickOpen.getByRole("option", { name: /Reading list 4/ });
   await expect(quickResult.locator(".search-result-context")).toContainText(query, {
     timeout: 15_000,

@@ -1,4 +1,4 @@
-import { useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useRef, useState } from "react";
 import type { MdbaseFileProgress } from "@mdbase-dev/connect";
 import type { ActionMenuItem } from "./ActionMenu";
 import { gatewayError } from "./gateway";
@@ -24,7 +24,7 @@ export function useAttachmentUpload(input: {
   inventory: FileInventoryController;
   inventoryFiles: readonly CollectionFile[];
   activeSession: () => NoteSession | undefined;
-  setNotice: Dispatch<SetStateAction<string | undefined>>;
+  setNotice: (message?: string, tone?: "info" | "success" | "error") => void
 }): AttachmentUploadController {
   const fileInput = useRef<HTMLInputElement>(null);
   const sequence = useRef(0);
@@ -57,11 +57,11 @@ export function useAttachmentUpload(input: {
 
     setUpload(undefined);
     if (input.activeSession() !== session || session.deleted) {
-      input.setNotice(`${files.length === 1 ? "The file was" : "The files were"} uploaded, but the note changed before its link could be inserted.`);
+      input.setNotice(`${files.length === 1 ? "The file was" : "The files were"} uploaded, but the note changed before its link could be inserted.`, "success");
       return;
     }
     setInsertion({ id: ++sequence.current, text: references.join("\n"), block: true });
-    input.setNotice(`${files.length === 1 ? `Uploaded “${files[0]?.name ?? "attachment"}”` : `Uploaded ${files.length.toLocaleString()} files`}. The collection file is committed; the note link is saving separately.`);
+    input.setNotice(`${files.length === 1 ? `Uploaded “${files[0]?.name ?? "attachment"}”` : `Uploaded ${files.length.toLocaleString()} files`}. The collection file is committed; the note link is saving separately.`, "success");
   }
 
   return { input: fileInput, upload, insertion, attach };

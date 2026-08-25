@@ -1,17 +1,18 @@
-import { useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import {
   ArrowLeftIcon as ArrowLeft,
   BracketsCurlyIcon as Braces,
   CheckIcon as Check,
   LinkIcon as Link2,
+  ListBulletsIcon as ListBullets,
   SidebarSimpleIcon as PanelLeftClose,
   SidebarSimpleIcon as PanelLeftOpen,
   WarningCircleIcon as CircleAlert,
   XIcon as X
 } from "./icons";
 import type { NoteSummary } from "./model";
-import { noteTitle } from "./note";
+import { noteTitle, type NoteHeading } from "./note";
 import type { NoteActivity, SaveState } from "./note-session";
 
 export function SaveIndicator({ state, activity, detail, onCancel }: { state: SaveState; activity?: NoteActivity; detail?: string; onCancel?: () => void }) {
@@ -55,8 +56,82 @@ export function NoteSkeleton({ leadingActions }: { leadingActions?: ReactNode })
   return <div className="note-skeleton" aria-label="Loading note" aria-busy="true"><div className="skeleton-bar">{leadingActions}<span /></div><div className="skeleton-document"><span className="skeleton-title" /><span /><span /><span className="short" /></div></div>;
 }
 
-export function PaneSkeleton({ label, leadingActions }: { label: string; leadingActions?: ReactNode }) {
+export function PaneSkeleton({ label, leadingActions, variant = "document" }: { label: string; leadingActions?: ReactNode; variant?: "document" | "canvas" }) {
+  if (variant === "canvas") {
+    return <main className="editor-pane file-workspace" aria-label={label} aria-busy="true"><div className="skeleton-bar">{leadingActions}<span /></div><div className="file-workspace-content"><span className="skeleton-canvas-pill" aria-hidden="true" /></div></main>;
+  }
   return <main className="editor-pane" aria-label={label}><NoteSkeleton leadingActions={leadingActions} /></main>;
+}
+
+export function OutlineMenu({ headings, onReveal }: { headings: NoteHeading[]; onReveal: (line: number) => void }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+
+  function close() {
+    setOpen(false);
+    trigger.current?.focus();
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    const menu = root.current?.querySelector<HTMLButtonElement>(".outline-menu button");
+    menu?.focus();
+    const closeForOutsidePress = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        close();
+        return;
+      }
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      const items = [...(root.current?.querySelectorAll<HTMLButtonElement>(".outline-menu button") ?? [])];
+      if (!items.length) return;
+      const current = items.indexOf(document.activeElement as HTMLButtonElement);
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      event.preventDefault();
+      items[(current + direction + items.length) % items.length]?.focus();
+    };
+    document.addEventListener("pointerdown", closeForOutsidePress);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", closeForOutsidePress);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  return <div className="note-actions outline-root" ref={root}>
+    <button
+      ref={trigger}
+      className="icon-button"
+      aria-label="Document outline"
+      aria-haspopup="menu"
+      aria-expanded={open}
+      title="Document outline"
+      disabled={!headings.length}
+      onClick={() => setOpen((value) => !value)}
+      onKeyDown={(event) => {
+        if (event.key !== "ArrowDown") return;
+        event.preventDefault();
+        setOpen(true);
+      }}
+    ><ListBullets aria-hidden="true" /></button>
+    {open && <div className="action-menu outline-menu" role="menu" aria-label="Document outline">
+      {headings.length ? headings.map((heading, index) => <button
+        key={`${heading.line}:${index}`}
+        role="menuitem"
+        className={`outline-level-${heading.level}`}
+        title={heading.text}
+        onClick={() => {
+          close();
+          onReveal(heading.line);
+        }}
+      ><span className="outline-hash">{"#".repeat(heading.level)}</span><span className="outline-text">{heading.text}</span></button>) : <p className="outline-empty">No headings yet.</p>}
+    </div>}
+  </div>;
 }
 
 export function InspectorPanelLoading({ label }: { label: "Note properties" | "Backlinks" }) {

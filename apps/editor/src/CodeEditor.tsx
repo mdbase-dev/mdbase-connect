@@ -11,6 +11,7 @@ import {
 } from "@codemirror/language";
 import { lintGutter, linter, lintKeymap, type Diagnostic } from "@codemirror/lint";
 import { closeSearchPanel, highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
+import { registerActiveEditor, unregisterActiveEditor } from "./code-editor-reveal";
 import { Compartment, EditorSelection, EditorState, Prec, type Extension, type Range } from "@codemirror/state";
 import {
   Decoration,
@@ -250,6 +251,7 @@ export function CodeEditor({
       : EditorState.create({ doc: value, extensions });
     const view = new EditorView({ parent: parentRef.current, state });
     viewRef.current = view;
+    if (documentId) registerActiveEditor(documentId, view);
     requestAnimationFrame(() => {
       if (viewRef.current !== view) return;
       if (remembered) view.scrollDOM.scrollTop = remembered.scrollTop;
@@ -257,6 +259,7 @@ export function CodeEditor({
     });
     return () => {
       if (documentId) rememberEditor(documentId, view, lineSeparator.current);
+      if (documentId) unregisterActiveEditor(documentId, view);
       onDismissLinkPreviewRef.current?.();
       view.destroy();
       viewRef.current = undefined;

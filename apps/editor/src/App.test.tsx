@@ -612,8 +612,8 @@ describe("mdbase editor", () => {
 
     fireEvent.keyDown(window, { key: "p", ctrlKey: true });
     const quickOpen = await screen.findByRole("dialog", { name: "Quick open" });
-    expect(within(quickOpen).getByText("Recent notes")).toBeInTheDocument();
-    const finder = within(quickOpen).getByRole("combobox", { name: "Find a note" });
+    expect(within(quickOpen).getByText("Recent notes and actions")).toBeInTheDocument();
+    const finder = within(quickOpen).getByRole("combobox", { name: "Find a note or action" });
     await user.type(finder, "qstn kpng");
     expect(within(quickOpen).getByRole("option", { name: /Questions worth keeping 7/ })).toBeInTheDocument();
     await user.keyboard("{Enter}");
@@ -811,7 +811,7 @@ describe("mdbase editor", () => {
     await gateway.renameStarted;
 
     await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(await screen.findByText(/authoritative result/)).toBeInTheDocument();
+    expect((await screen.findAllByText(/authoritative result/)).length).toBeGreaterThan(0);
     expect(screen.getByRole("textbox", { name: "Markdown path" })).toHaveValue("Notes/resumable-rename.md");
 
     await user.click(screen.getByRole("button", { name: "Resume rename" }));

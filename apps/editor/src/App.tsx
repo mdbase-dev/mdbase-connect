@@ -1,14 +1,11 @@
 import {
-  ArrowCounterClockwiseIcon as Undo2,
   ArrowLeftIcon as ArrowLeft,
   ArrowRightIcon as ArrowRight,
   CheckIcon as Check,
   InfoIcon as Info,
   LinkIcon as Link2,
   PencilSimpleIcon as Pencil,
-  TrashIcon as Trash2,
-  WarningCircleIcon as CircleAlert,
-  XIcon as X
+  TrashIcon as Trash2
 } from "./icons";
 import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor, type MutationProgress } from "@mdbase-dev/connect";
 import {
@@ -61,8 +58,10 @@ import type {
 } from "./model";
 import {
   editableNote,
+  noteHeadings,
   noteTags,
   noteTitle,
+  noteWordCount,
   safeRenamePath
 } from "./note";
 import { NoteOperationCoordinator } from "./note-operation-coordinator";
@@ -85,9 +84,12 @@ import {
   searchNoteResults
 } from "./note-search";
 import { initialEditorSurface, loadPreferences, savePreferences, type EditorPreferences } from "./preferences";
+import { revealMarkdownLine } from "./code-editor-reveal";
 import { composeRecordSource, replaceDocumentFrontmatter } from "./record-source";
+import { buildQuickOpenCommands } from "./editor-commands";
 import { QuickOpen, ShortcutHelp } from "./QuickOpen";
 import { SettingsView } from "./SettingsView";
+import { buildToastItems, ToastStack, type ToastTone } from "./Toasts";
 import { NEW_TYPE_SOURCE } from "./type-constants";
 import { useCollectionIndex } from "./use-collection-index";
 import { useCollectionWatch } from "./use-collection-watch";
@@ -102,13 +104,13 @@ import {
   EmptyEditor,
   InspectorPanelLoading,
   NoteSkeleton,
+  OutlineMenu,
   PaneControl,
   PaneResizeHandle,
   PaneSkeleton,
   SaveIndicator,
   TypeAccessPrompt
 } from "./WorkspaceChrome";
-
 const TypeList = lazy(() => import("./TypeBrowser").then((module) => ({ default: module.TypeList })));
 const TypeInspector = lazy(() => import("./TypeBrowser").then((module) => ({ default: module.TypeInspector })));
 const TypePackBrowser = lazy(() => import("./TypeBrowser").then((module) => ({ default: module.TypePackBrowser })));
@@ -117,7 +119,6 @@ const NewNoteComposer = lazy(() => import("./NewNoteComposer").then((module) => 
 const FileViewer = lazy(() => import("./FileViewer").then((module) => ({ default: module.FileViewer })));
 const FileWorkspace = lazy(() => import("./FileViewer").then((module) => ({ default: module.FileWorkspace })));
 const emptyTypeDescriptors: CollectionTypeDescriptor[] = [];
-
 interface Confirmation {
   title: string;
   body: ReactNode;
@@ -205,7 +206,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [contractCatalog, setContractCatalog] = useState<ContractCatalogLoadState>({ status: "idle" });
   const [contractCatalogReload, setContractCatalogReload] = useState(0);
   const [saveState, setSaveState] = useState<SaveState>("saved");
-  const [notice, setNotice] = useState<string>();
+  const [notice, setNoticeState] = useState<{ message: string; tone: ToastTone } | undefined>();
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [backlinksOpen, setBacklinksOpen] = useState(false);
   const [propertiesError, setPropertiesError] = useState<string>();
@@ -217,6 +218,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [recoveryAction, setRecoveryAction] = useState<RecoveryAction>();
   const [recoveryBusy, setRecoveryBusy] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
+  const [editorAutoFocus, setEditorAutoFocus] = useState(true);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [collectionSwitcherOpen, setCollectionSwitcherOpen] = useState(false);
   const [confirmation, setConfirmation] = useState<Confirmation>();
@@ -245,6 +247,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const ignoreNextMobileHistoryPush = useRef(false);
   const mobileLayout = viewportWidth <= 760;
   const typeDescriptors = description?.types ?? emptyTypeDescriptors;
+  const setNotice = useCallback((message?: string, tone: ToastTone = "error") => {
+    setNoticeState(message ? { message, tone } : undefined);
+  }, []);
   const notePreviewController = useNotePreview(gateway, allNotes, typeDescriptors);
   const fileWorkspace = useFileWorkspace(
     fileAssetStore,
@@ -674,7 +679,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     const session = noteSessions.current.active;
     if (!session?.remoteDocument) return;
     applyRemoteDocument(session, session.remoteDocument);
-    setNotice("Loaded the latest version.");
+    setNotice("Loaded the latest version.", "success");
   }
 
   function keepLocalVersion() {
@@ -855,7 +860,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     try {
       const connection = await gateway.requestDirectAccess();
       if (connection?.directAccess === "available") {
-        setNotice("mdbase editor can now use mdbase on this computer.");
+        setNotice("mdbase editor can now use mdbase on this computer.", "success");
       } else if (connection?.directAccess === "denied") {
         setNotice("Local network access is blocked in this browser. Allow it in the site settings, then try again.");
       } else if (connection?.directAccess === "unavailable") {
@@ -1027,7 +1032,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   function copyFacet(value: string, label: string) {
     void navigator.clipboard.writeText(value)
-      .then(() => setNotice(`Copied ${label}.`))
+      .then(() => setNotice(`Copied ${label}.`, "success"))
       .catch(() => setNotice(`Couldn’t copy ${label}.`));
   }
 
@@ -1727,6 +1732,11 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [creationMode, phase, quickOpen, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
 
+  const wordCount = useMemo(() => noteWordCount(draft?.body ?? ""), [draft?.body]);
+  const dismissToast = useCallback((id: string) => {
+    if (id === "notice") setNoticeState(undefined);
+    else if (id === "recovery") setRecoveryAction(undefined);
+  }, []);
   if (phase === "starting") return <OpeningScreen />;
   if (phase === "disconnected") return <>
     <ConnectScreen
@@ -1734,7 +1744,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         ? sessionSnapshot.problem.message
         : sessionSnapshot.status === "destroyed"
           ? "This editor session has been closed. Reload the editor to start a new session."
-          : notice}
+          : notice?.message}
       missingCapabilities={missingCoreCapabilities(connectionSummary)}
       connections={sessionSnapshot.connections}
       onConnect={() => void (sessionSnapshot.status === "start_failed"
@@ -1786,14 +1796,27 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const historyForwardPath = noteHistoryState.paths[noteHistoryState.index + 1];
   const activeRemoteDocument = noteSessions.current.active?.remoteDocument;
   const activeRemoteDraft = activeRemoteDocument ? editableNote(activeRemoteDocument, typeDescriptors) : undefined;
-  const editorNotice = activeRemoteDocument ? undefined : notice;
+  const editorNotice = activeRemoteDocument ? undefined : notice?.message;
   const activePendingRename = pendingRenameRecovery?.plan.session === noteSessions.current.active
     ? pendingRenameRecovery
     : undefined;
-  const mutationNotice = editorNotice ?? (activePendingRename
-    ? "This rename was interrupted after it started. Resume it to recover the collection’s authoritative result."
-    : undefined);
   const canAttachFiles = Boolean(connectionSummary?.fileActions?.includes("add"));
+  const quickOpenCommands = buildQuickOpenCommands({
+    onNewNote: beginCreate,
+    listCollapsed: layout.listCollapsed,
+    onToggleList: () => setLayout((current) => ({ ...current, listCollapsed: !current.listCollapsed })),
+    onShortcuts: () => setShortcutsOpen(true),
+    vim: preferences.vim,
+    onToggleVim: () => setPreferences((current) => ({ ...current, vim: !current.vim })),
+    hasDocument: Boolean(document && draft),
+    propertiesOpen,
+    onToggleProperties: () => { setBacklinksOpen(false); setPropertiesOpen((value) => !value); },
+    backlinksOpen,
+    onToggleBacklinks: () => { setPropertiesOpen(false); setBacklinksOpen((value) => !value); },
+    onCheckNote: () => void validateNote(),
+    onCopyPath: () => { if (document) copyFacet(document.path, "note path"); }
+  });
+  const activeToasts = buildToastItems({ notice, recoveryMessage: recoveryAction ? recoveryAction.kind === "delete" ? `Deleted “${noteTitle(recoveryAction.document, typeDescriptors)}”.` : `Renamed to “${recoveryAction.to}”.` : undefined, recoveryBusy, onUndo: () => void undoRecovery(), hasPendingRename: Boolean(activePendingRename), onResumeRename: () => { if (activePendingRename) void performRename(activePendingRename.plan, activePendingRename.updateRefs); } });
   const typeAccessMissing = missingTypeCapabilities(connectionSummary);
   const editorLeadingActions = layout.listCollapsed ? <>
     {layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
@@ -1875,7 +1898,10 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         onQuickOpen={() => setQuickOpen(true)}
         onRetryContent={() => void loadContentIndex()}
         onRetryFiles={() => void fileController.reload().catch(() => undefined)}
-        onSelect={navigateToNote}
+        onSelect={(path, options) => {
+          setEditorAutoFocus(!options?.keyboard);
+          navigateToNote(path);
+        }}
         onSelectFile={navigateToFile}
         previewPath={notePreviewController.preview?.path}
         onPreview={notePreviewController.request}
@@ -1885,7 +1911,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         leadingActions={layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
         trailingActions={<PaneControl label="Hide notes sidebar" action="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
       />}
-      {selectedCollectionFile && selectedFileAsset ? <Suspense fallback={<PaneSkeleton label="Loading file viewer" leadingActions={editorLeadingActions} />}><FileWorkspace
+      {selectedCollectionFile && selectedFileAsset ? <Suspense fallback={<PaneSkeleton label="Loading file viewer" leadingActions={editorLeadingActions} variant="canvas" />}><FileWorkspace
         file={selectedCollectionFile}
         asset={selectedFileAsset}
         leadingActions={editorLeadingActions}
@@ -1930,6 +1956,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
                 <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} autoFocus />
               </form> : <button className="path-button" onClick={() => setEditingPath(true)} title="Rename Markdown path"><span>{document.path}</span><Pencil aria-hidden="true" /></button>}
             </div>
+            {!mobileLayout && <OutlineMenu headings={noteHeadings(draft.body)} onReveal={(line) => revealMarkdownLine(noteSessions.current.active?.editorSessionKey ?? document.path, line)} />}
+            {!mobileLayout && <span className="word-count" aria-label={`${wordCount.toLocaleString()} words`}>{wordCount.toLocaleString()} {wordCount === 1 ? "word" : "words"}</span>}
             {preferences.vim && <span className="vim-label">vim</span>}
             <SaveIndicator
               state={saveState}
@@ -1961,12 +1989,6 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
           </header>
           <AttachmentTransfer controller={attachments} />
           {activeRemoteDraft && <ConflictResolver local={draft} remote={activeRemoteDraft} onUseRemote={useRemoteVersion} onKeepLocal={keepLocalVersion} />}
-          {mutationNotice && <div className="notice" role="status">
-            <CircleAlert aria-hidden="true" />
-            <span>{mutationNotice}</span>
-            {activePendingRename && <div className="notice-actions"><button className="primary-notice-action" onClick={() => void performRename(activePendingRename.plan, activePendingRename.updateRefs)}>Resume rename</button></div>}
-            {!activePendingRename && <button aria-label="Dismiss message" onClick={() => setNotice(undefined)}><X aria-hidden="true" /></button>}
-          </div>}
           {renamePlan && renamePlan.session === noteSessions.current.active && <div className="rename-confirm" role="alert">
             <div><strong>Rename this note?</strong><span>{renamePlan.affectedPaths.length.toLocaleString()} {renamePlan.affectedPaths.length === 1 ? "note contains" : "notes contain"} links that will change.{renamePlan.warnings.length > 0 ? ` ${renamePlan.warnings.length.toLocaleString()} ${renamePlan.warnings.length === 1 ? "link needs" : "links need"} attention and won’t be changed automatically.` : ""}</span></div>
             <button onClick={cancelRename}>Cancel</button>
@@ -1976,6 +1998,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
           {deletePlan && deletePlan.session === noteSessions.current.active && <div className="delete-confirm" role="alert"><div><strong>Delete this note?</strong><span>{deletePlan.brokenLinkPaths.length > 0 ? `${deletePlan.brokenLinkPaths.length.toLocaleString()} ${deletePlan.brokenLinkPaths.length === 1 ? "note will keep a broken link" : "notes will keep broken links"}. ` : ""}You can undo the note deletion.</span></div><button onClick={() => setDeletePlan(undefined)}>Keep note</button><button className="danger-action" onClick={() => void deleteNote(deletePlan)}>Delete</button></div>}
           <MarkdownNoteEditor editorKey={noteSessions.current.active?.editorSessionKey ?? document.path}
             draft={draft} preferences={preferences} documentId={noteSessions.current.active?.editorSessionKey}
+            autoFocus={editorAutoFocus}
             currentPath={document.path} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames}
             embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes} files={fileInventory.files} notes={allNotes}
             insertion={attachments.insertion} onTitleChange={(title) => changeActiveDraft((current) => ({ ...current, title }))}
@@ -2112,15 +2135,11 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         onDragChange={(dragging) => setResizingPane(dragging ? "inspector" : undefined)}
       />}
     </aside>}
-    {recoveryAction && <div className="recovery-bar" role="status">
-      <span>{recoveryAction.kind === "delete" ? `Deleted “${noteTitle(recoveryAction.document, typeDescriptors)}”.` : `Renamed to “${recoveryAction.to}”.`}</span>
-      <button disabled={recoveryBusy} onClick={() => void undoRecovery()}><Undo2 aria-hidden="true" />{recoveryBusy ? "Undoing" : "Undo"}</button>
-      <button className="icon-button" aria-label="Dismiss undo" disabled={recoveryBusy} onClick={() => setRecoveryAction(undefined)}><X aria-hidden="true" /></button>
-    </div>}
     {quickOpen && <QuickOpen
       index={searchIndex}
       recentPaths={recentPaths}
       types={typeDescriptors}
+      commands={quickOpenCommands}
       onSelect={(path) => {
         setSearch("");
         setNoteFilter(undefined);
@@ -2150,6 +2169,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     />}
     {openFileAsset && <Suspense fallback={null}><FileViewer asset={openFileAsset} onClose={() => setOpenFileAsset(undefined)} /></Suspense>}
     <NotePreviewCard preview={notePreviewController.preview} />
+    <ToastStack toasts={activeToasts} onDismiss={dismissToast} />
   </div>;
 }
 
