@@ -193,6 +193,15 @@ store a short browser/platform label for recognition; they do not store the
 source IP or raw user-agent string. `last_seen_at` is touched at most once per
 five minutes.
 
+## Account deletion hold
+
+Account deletion is temporarily unavailable while the hosted deletion workflow
+is corrected. `GET /v1/account` reports deletion as unavailable and authenticated
+`DELETE /v1/account` returns `503 account_deletion_unavailable` after same-origin
+and session checks. The hold does not consume reauthentication tokens, call the
+hosted provider, write `account.deleted`, clear session cookies, or mutate account
+state.
+
 ## Deployment
 
 Authentication schema changes are additive. Render applies them through the

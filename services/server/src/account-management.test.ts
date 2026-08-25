@@ -309,7 +309,7 @@ describe("account management", () => {
     expect(currentMethod.json().error.code).toBe("current_identity");
   });
 
-  it("requires fresh external reauthentication, deletes hosted data first, and preserves local files semantically", async () => {
+  it("fails account deletion closed without consuming fresh external reauthentication", async () => {
     const deleteCollection = vi.fn(async () => undefined);
     const { app, db } = await fixture({
       githubAuth: githubConfig({ id: "12558714", login: "callumalpass" }),
@@ -330,15 +330,28 @@ describe("account management", () => {
        VALUES ($1, $2, 'Only hosted copy', 'mdbase', '[]'::jsonb)`,
       [hostedId, account.userId]
     );
-
-    const unconfirmed = await app.inject({
+    const details = await app.inject({
+      method: "GET",
+      url: "/v1/account",
+      headers: { cookie: account.cookie }
+    });
+    expect(details.json().deletion).toMatchObject({
+      available: false,
+      unavailable_reason: "temporarily_disabled",
+      development_confirmation: false
+    });
+    expect((await app.inject({
       method: "DELETE",
       url: "/v1/account",
-      headers: { cookie: account.cookie, origin },
+      headers: { origin },
       payload: { confirmation: "DELETE" }
-    });
-    expect(unconfirmed.statusCode).toBe(403);
-    expect(deleteCollection).not.toHaveBeenCalled();
+    })).statusCode).toBe(401);
+    expect((await app.inject({
+      method: "DELETE",
+      url: "/v1/account",
+      headers: { cookie: account.cookie, origin: "https://evil.example" },
+      payload: { confirmation: "DELETE" }
+    })).statusCode).toBe(403);
 
     const started = await app.inject({
       method: "GET",
@@ -350,31 +363,32 @@ describe("account management", () => {
     const token = new URLSearchParams(redirect.hash.slice(1)).get("delete_token")!;
     expect(token).toMatch(/^act_/);
 
-    const deleted = await app.inject({
+    const blocked = await app.inject({
       method: "DELETE",
       url: "/v1/account",
       headers: { cookie: account.cookie, origin },
       payload: { confirmation: "DELETE", reauth_token: token }
     });
-    expect(deleted.statusCode).toBe(200);
-    expect(deleteCollection).toHaveBeenCalledWith(hostedId);
-    expect((await db.query("SELECT id FROM users WHERE id = $1", [account.userId])).rows).toEqual([]);
-    const event = await db.query<{ user_id: string | null; metadata: Record<string, number> }>(
-      "SELECT user_id, metadata FROM audit_events WHERE event_type = 'account.deleted'"
-    );
-    expect(event.rows[0]).toEqual({
-      user_id: null,
-      metadata: { hosted_collections_deleted: 1, local_collections_preserved: 0 }
-    });
-    expect(responseCookies(deleted).join("\n")).toContain("Max-Age=0");
+    expect(blocked.statusCode).toBe(503);
+    expect(blocked.json().error.code).toBe("account_deletion_unavailable");
+    expect(responseCookies(blocked).join("\n")).not.toContain("Max-Age=0");
+    expect(deleteCollection).not.toHaveBeenCalled();
+    expect((await db.query("SELECT id FROM users WHERE id = $1", [account.userId])).rows)
+      .toHaveLength(1);
+    expect((await db.query(
+      "SELECT consumed_at FROM account_action_tokens WHERE user_id = $1",
+      [account.userId]
+    )).rows[0].consumed_at).toBeNull();
+    expect((await db.query(
+      "SELECT id FROM audit_events WHERE event_type = 'account.deleted'"
+    )).rows).toEqual([]);
   });
 
-  it("keeps the account intact when hosted-provider deletion fails", async () => {
+  it("fails password-confirmed deletion closed without calling the provider", async () => {
+    const deleteCollection = vi.fn(async () => { throw new Error("provider offline"); });
     const { app, db } = await fixture({
       hostedCollections: true,
-      hostedProvider: fakeProvider({
-        deleteCollection: vi.fn(async () => { throw new Error("provider offline"); })
-      })
+      hostedProvider: fakeProvider({ deleteCollection })
     });
     const account = await seedSession(db);
     await seedPassword(db, account.userId, account.email, oldPassword);
@@ -384,15 +398,21 @@ describe("account management", () => {
        VALUES ($1, $2, 'Important', 'mdbase', '[]'::jsonb)`,
       [randomUUID(), account.userId]
     );
-    const response = await app.inject({
-      method: "DELETE",
-      url: "/v1/account",
-      headers: { cookie: account.cookie, origin },
-      payload: { confirmation: "DELETE", current_password: oldPassword }
-    });
-    expect(response.statusCode).toBe(500);
+    for (const currentPassword of ["not the password", oldPassword]) {
+      const response = await app.inject({
+        method: "DELETE",
+        url: "/v1/account",
+        headers: { cookie: account.cookie, origin },
+        payload: { confirmation: "DELETE", current_password: currentPassword }
+      });
+      expect(response.statusCode).toBe(503);
+    }
+    expect(deleteCollection).not.toHaveBeenCalled();
     expect((await db.query("SELECT id FROM users WHERE id = $1", [account.userId])).rows)
       .toHaveLength(1);
+    expect((await db.query(
+      "SELECT id FROM audit_events WHERE event_type = 'account.deleted'"
+    )).rows).toEqual([]);
   });
 });
 

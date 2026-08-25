@@ -217,7 +217,9 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
 
     <section className="connect-danger-section">
       <SectionTitle title="Delete account" note="Permanent for hosted data. Local files are never removed from your computers." />
-      {!account.deletion.available ? <p>This account is managed by your tailnet and cannot be deleted here.</p> : !deletionOpen ? <button className="connect-account-danger" onClick={() => setDeletionOpen(true)}>Delete account…</button> : <form className="connect-account-form" onSubmit={(event) => void deleteAccount(event)}>
+      {!account.deletion.available ? <p>{account.deletion.unavailable_reason === "temporarily_disabled"
+        ? "Account deletion is temporarily unavailable while we complete a service correction."
+        : "This account is managed by your tailnet and cannot be deleted here."}</p> : !deletionOpen ? <button className="connect-account-danger" onClick={() => setDeletionOpen(true)}>Delete account…</button> : <form className="connect-account-form" onSubmit={(event) => void deleteAccount(event)}>
         <div className="connect-deletion-effects">
           <p><strong>This permanently deletes:</strong></p>
           <ul><li>{pluralLabel(account.deletion.hosted_collections, "hosted collection", "hosted collections")} and their stored data</li><li>Application access and {pluralLabel(account.deletion.computers, "connected computer", "connected computers")}</li><li>Every browser session and sign-in method</li></ul>
