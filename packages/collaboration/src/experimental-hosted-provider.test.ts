@@ -318,13 +318,22 @@ describe("experimental hosted Markdown provider", () => {
     f.room.destroy();
   });
 
-  it("does not ticket-loop after 1008 but reconnects after abnormal closure", async () => {
+  it("bounds policy reauthorization and reconnects after abnormal closure", async () => {
     vi.useFakeTimers();
-    const terminal = fixture({ reconnectMs: 10 });
-    (await synchronize(terminal)).serverClose(1008);
+    const policy = fixture({ reconnectMs: 10 });
+    let policySocket = await synchronize(policy);
+    for (let index = 1; index <= 3; index += 1) {
+      policySocket.serverClose(1008);
+      expect(policy.room.snapshot.state).toBe("reconnecting");
+      await vi.advanceTimersByTimeAsync(10);
+      policySocket = await synchronize(policy, index);
+    }
+    expect(policy.issueTicket).toHaveBeenCalledTimes(4);
+    policySocket.serverClose(1008);
     await vi.advanceTimersByTimeAsync(100);
-    expect(terminal.room.snapshot.state).toBe("unavailable");
-    expect(terminal.issueTicket).toHaveBeenCalledTimes(1);
+    expect(policy.room.snapshot.state).toBe("unavailable");
+    expect(policy.room.snapshot.problem?.code).toBe("collaboration_policy_ended");
+    expect(policy.issueTicket).toHaveBeenCalledTimes(4);
 
     const retry = fixture({ reconnectMs: 10 });
     const retrySocket = await synchronize(retry);
@@ -334,8 +343,104 @@ describe("experimental hosted Markdown provider", () => {
     await vi.advanceTimersByTimeAsync(10);
     await socketAt(retry, 1);
     expect(retry.issueTicket).toHaveBeenCalledTimes(2);
-    terminal.room.destroy();
+    policy.room.destroy();
     retry.room.destroy();
+  });
+
+  it("fails closed when policy recovery cannot obtain fresh authorization", async () => {
+    vi.useFakeTimers();
+    const f = fixture({ reconnectMs: 10 });
+    const socket = await synchronize(f);
+    f.issueTicket.mockRejectedValueOnce({
+      code: "authority_authorization_changed",
+      retryable: false
+    });
+
+    socket.serverClose(1008);
+    await vi.advanceTimersByTimeAsync(10);
+    await vi.runAllTicks();
+    expect(f.room.snapshot.state).toBe("unavailable");
+    expect(f.room.snapshot.problem?.code).toBe("authority_authorization_changed");
+    expect(f.issueTicket).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps recovery exhausted when connectivity breaks the stable interval", async () => {
+    vi.useFakeTimers();
+    const f = fixture({ reconnectMs: 10 });
+    let socket = await synchronize(f);
+    for (let index = 1; index <= 3; index += 1) {
+      socket.serverClose(1008);
+      await vi.advanceTimersByTimeAsync(10);
+      socket = await synchronize(f, index);
+    }
+    await vi.advanceTimersByTimeAsync(29_000);
+    socket.serverClose(1006);
+    await vi.advanceTimersByTimeAsync(10);
+    socket = await synchronize(f, 4);
+    await vi.advanceTimersByTimeAsync(1_100);
+
+    socket.serverClose(1008);
+    expect(f.room.snapshot.state).toBe("unavailable");
+    expect(f.issueTicket).toHaveBeenCalledTimes(5);
+  });
+
+  it("shares one bounded budget across policy and handshake recovery", async () => {
+    vi.useFakeTimers();
+    const f = fixture({ reconnectMs: 10 });
+    let socket = await synchronize(f);
+    socket.serverClose(1008);
+    await vi.advanceTimersByTimeAsync(10);
+    socket = await socketAt(f, 1);
+    socket.open();
+    socket.serverClose(1006);
+    await vi.advanceTimersByTimeAsync(10);
+    socket = await synchronize(f, 2);
+    socket.serverClose(1008);
+    await vi.advanceTimersByTimeAsync(10);
+    socket = await socketAt(f, 3);
+    socket.open();
+    socket.serverClose(1006);
+
+    expect(f.room.snapshot.state).toBe("unavailable");
+    expect(f.room.snapshot.problem?.code).toBe("collaboration_handshake_failed");
+    expect(f.issueTicket).toHaveBeenCalledTimes(4);
+  });
+
+  it("keeps policy recovery pinned to the durable room epoch", async () => {
+    vi.useFakeTimers();
+    const f = fixture({ reconnectMs: 10 });
+    const socket = await synchronize(f);
+    f.issueTicket.mockResolvedValueOnce({
+      ticket: "replacement-epoch",
+      webSocketUrl: "wss://provider.example/v1/collaboration",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      profile: "markdown-body-yjs-v13",
+      mode: "read_write",
+      epoch: 8
+    });
+
+    socket.serverClose(1008);
+    await vi.advanceTimersByTimeAsync(10);
+    await vi.runAllTicks();
+    expect(f.room.snapshot.state).toBe("unavailable");
+    expect(f.room.snapshot.problem?.code).toBe("collaboration_ticket_epoch_mismatch");
+    expect(f.issueTicket).toHaveBeenCalledTimes(2);
+  });
+
+  it("rearms policy recovery only after a stable connected interval", async () => {
+    vi.useFakeTimers();
+    const f = fixture({ reconnectMs: 10 });
+    (await synchronize(f)).serverClose(1008);
+    await vi.advanceTimersByTimeAsync(10);
+    const stable = await synchronize(f, 1);
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    stable.serverClose(1008);
+    expect(f.room.snapshot.state).toBe("reconnecting");
+    await vi.advanceTimersByTimeAsync(10);
+    await socketAt(f, 2);
+    expect(f.issueTicket).toHaveBeenCalledTimes(3);
+    f.room.destroy();
   });
 
   it.each([
@@ -466,12 +571,30 @@ describe("experimental hosted Markdown provider", () => {
     await expect(updateBound.room.flush()).rejects.toThrow();
   });
 
-  it("rejects a pending flush when a terminal policy close arrives", async () => {
-    const f = fixture();
+  it("retains pending work across bounded policy recovery and rejects it after the limit", async () => {
+    vi.useFakeTimers();
+    const f = fixture({ reconnectMs: 10 });
     const socket = await synchronize(f);
     f.room.body.insert(0, "x");
     const flush = f.room.flush();
+    const mutationId = socket.frames().at(-1)?.metadata.client_mutation_id;
     socket.serverClose(1008);
+    expect(f.room.snapshot.state).toBe("reconnecting");
+    expect(f.room.snapshot.pendingUpdates).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(10);
+    let retry = await synchronize(f, 1, "xseed");
+    expect(retry.frames().at(-1)).toMatchObject({
+      kind: "update",
+      metadata: { client_mutation_id: mutationId }
+    });
+    for (let index = 2; index <= 3; index += 1) {
+      retry.serverClose(1008);
+      await vi.advanceTimersByTimeAsync(10);
+      retry = await synchronize(f, index, "xseed");
+    }
+    retry.serverClose(1008);
     await expect(flush).rejects.toThrow("unavailable");
+    expect(f.issueTicket).toHaveBeenCalledTimes(4);
   });
 });

@@ -38,7 +38,8 @@ import {
 const REMOTE_ORIGIN = Object.freeze({ hostedCollaborationRemote: true });
 const DEFAULT_HEARTBEAT_MS = 15_000;
 const DEFAULT_HANDSHAKE_TIMEOUT_MS = 15_000;
-const MAX_CONSECUTIVE_HANDSHAKE_FAILURES = 3;
+const MAX_CONSECUTIVE_RECOVERY_FAILURES = 3;
+const POLICY_RECOVERY_STABLE_MS = 30_000;
 const DEFAULT_RECONNECT_BASE_MS = 250;
 const DEFAULT_RECONNECT_MAX_MS = 8_000;
 const SAFE_CLOSE_CODE = 1008;
@@ -96,8 +97,9 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
   private attempt?: Attempt;
   private attemptNumber = 0;
   private reconnectCount = 0;
-  private consecutiveHandshakeFailures = 0;
+  private consecutiveRecoveryFailures = 0;
   private reconnectTimer?: Timer;
+  private policyRecoveryTimer?: Timer;
   private heartbeatTimer?: Timer;
   private handshakeTimer?: Timer;
   private awarenessTimer?: Timer;
@@ -337,7 +339,12 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
         markdownBody(this.doc, this.options.maxBodyBytes);
         attempt.phase = "connected";
         this.reconnectCount = 0;
-        this.consecutiveHandshakeFailures = 0;
+        if (this.consecutiveRecoveryFailures > 0 && !this.policyRecoveryTimer) {
+          this.policyRecoveryTimer = setTimeout(() => {
+            this.policyRecoveryTimer = undefined;
+            this.consecutiveRecoveryFailures = 0;
+          }, POLICY_RECOVERY_STABLE_MS);
+        }
         clearTimeout(this.handshakeTimer);
         this.handshakeTimer = undefined;
         this.updateInFlight = false;
@@ -499,8 +506,21 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
     const code = event.code ?? 1006;
     const handshakeFailed = attempt.phase !== "connected";
     this.detachAttempt(attempt, false);
+    clearTimeout(this.policyRecoveryTimer);
+    this.policyRecoveryTimer = undefined;
     if (code === 1008) {
-      this.finish("unavailable", problem("collaboration_policy_ended", "Hosted collaboration is unavailable."));
+      // A fresh ticket safely distinguishes credential rotation from revoked or
+      // retired authorization. The room epoch remains pinned: policy recovery
+      // may resume the same durable room, but never carries pending work into a
+      // replacement epoch after a conventional writer retires it.
+      if (++this.consecutiveRecoveryFailures > MAX_CONSECUTIVE_RECOVERY_FAILURES) {
+        this.finish("unavailable", problem(
+          "collaboration_policy_ended",
+          "Hosted collaboration is unavailable."
+        ));
+      } else {
+        this.scheduleReconnect();
+      }
     } else if ([0, 1001, 1005, 1006, 1011, 1012, 1013].includes(code)) {
       this.retryAfterDisconnect(handshakeFailed);
     } else {
@@ -512,12 +532,14 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
     if (!this.isCurrent(attempt)) return;
     const handshakeFailed = attempt.phase !== "connected";
     this.detachAttempt(attempt, true);
+    clearTimeout(this.policyRecoveryTimer);
+    this.policyRecoveryTimer = undefined;
     this.retryAfterDisconnect(handshakeFailed);
   }
 
   private retryAfterDisconnect(handshakeFailed: boolean): void {
     if (handshakeFailed
-        && ++this.consecutiveHandshakeFailures > MAX_CONSECUTIVE_HANDSHAKE_FAILURES) {
+        && ++this.consecutiveRecoveryFailures > MAX_CONSECUTIVE_RECOVERY_FAILURES) {
       this.finish("unavailable", problem(
         "collaboration_handshake_failed",
         "Hosted collaboration could not establish a session."
@@ -554,10 +576,12 @@ class HostedMarkdownRoom implements ExperimentalHostedMarkdownRoom {
     this.terminal = true;
     this.attemptNumber += 1;
     clearTimeout(this.reconnectTimer);
+    clearTimeout(this.policyRecoveryTimer);
     clearTimeout(this.awarenessTimer);
     clearTimeout(this.handshakeTimer);
     clearInterval(this.heartbeatTimer);
     this.reconnectTimer = undefined;
+    this.policyRecoveryTimer = undefined;
     this.awarenessTimer = undefined;
     this.handshakeTimer = undefined;
     this.heartbeatTimer = undefined;
