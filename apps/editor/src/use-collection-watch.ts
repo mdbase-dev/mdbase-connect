@@ -22,7 +22,7 @@ export function useCollectionWatch(input: {
   refreshAfterConnectionGap(): Promise<void>;
   setConnectionState: Dispatch<SetStateAction<ConnectionState>>;
   setConnectionIssue: Dispatch<SetStateAction<string | undefined>>;
-  setNotice: Dispatch<SetStateAction<string | undefined>>;
+  setNotice: (message?: string, tone?: "info" | "success" | "error") => void
 }) {
   useEffect(() => {
     if (input.phase !== "ready") return;
