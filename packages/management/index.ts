@@ -64,6 +64,7 @@ export interface AccountData {
   };
   deletion: {
     available: boolean;
+    unavailable_reason: "managed_identity" | "temporarily_disabled" | null;
     hosted_collections: number;
     local_collections: number;
     computers: number;

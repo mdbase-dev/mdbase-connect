@@ -1,9 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import {
-  AccountDeletionAuthorizationError,
   accountSignInMethodCounts,
-  consumeAccountActionToken,
   removeExternalIdentity
 } from "../../account-management.js";
 import type { AuthenticationPolicyStore } from "../../authentication-policy.js";
@@ -18,14 +16,12 @@ import {
   PasswordAuthenticationUnavailableError
 } from "../../password-auth.js";
 import { PASSWORD_MAX_UTF8_BYTES } from "../../password.js";
-import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import {
   requireSessionContext,
   requireUser
 } from "../../platform/request-authentication.js";
 import { requireSameOrigin } from "../../platform/request-security.js";
-import { clearSessionCookies } from "../../platform/session-cookies.js";
 
 interface AccountManagementRoutesOptions {
   db: DatabasePool;
@@ -153,11 +149,12 @@ export function registerAccountManagementRoutes(
       },
       storage,
       deletion: {
-        available: authenticationProvider !== "tailscale",
+        available: false,
+        unavailable_reason: "temporarily_disabled",
         hosted_collections: hostedCollections.rows.length,
         local_collections: Number(counts.rows[0]?.local_collections ?? 0),
         computers: Number(counts.rows[0]?.connectors ?? 0),
-        development_confirmation: options.developmentAuth === true
+        development_confirmation: false
       }
     };
   });
@@ -216,51 +213,10 @@ export function registerAccountManagementRoutes(
     requireSameOrigin(request, options.publicUrl, options.managementOrigins);
     const authenticated = await requireSessionContext(request, reply, options.db);
     if (!authenticated) return;
-    const input = z.object({
-      confirmation: z.literal("DELETE"),
-      current_password: z.string().min(1).max(PASSWORD_MAX_UTF8_BYTES).optional(),
-      reauth_token: z.string().min(1).max(200).optional()
-    }).strict().parse(request.body);
-    let authorized = options.developmentAuth === true;
-    if (!authorized && input.current_password) {
-      authorized = await passwordAccounts.verifyAccountPassword(
-        authenticated.user.id,
-        input.current_password
-      );
-    }
-    if (!authorized && input.reauth_token) {
-      authorized = await consumeAccountActionToken(
-        options.db,
-        authenticated.user.id,
-        authenticated.sessionId,
-        "delete_account",
-        input.reauth_token
-      );
-    }
-    if (!authorized) throw new AccountDeletionAuthorizationError();
-
-    const hosted = await options.db.query<HostedCollectionRow>(
-      "SELECT id, display_name FROM hosted_collections WHERE user_id = $1",
-      [authenticated.user.id]
-    );
-    await deleteHostedAuthorities(hosted.rows, options);
-    const localCount = await options.db.query<{ count: string | number }>(
-      "SELECT count(*) AS count FROM collections WHERE user_id = $1 AND present = true",
-      [authenticated.user.id]
-    );
-    await audit(
-      options.db,
-      authenticated.user.id,
-      "account.deleted",
-      authenticated.user.id,
-      {
-        hosted_collections_deleted: hosted.rows.length,
-        local_collections_preserved: Number(localCount.rows[0]?.count ?? 0)
-      }
-    );
-    await options.db.query("DELETE FROM users WHERE id = $1", [authenticated.user.id]);
-    clearSessionCookies(reply);
-    return { ok: true };
+    return reply.code(503).send(apiError(
+      "account_deletion_unavailable",
+      "Account deletion is temporarily unavailable."
+    ));
   });
 }
 
@@ -337,17 +293,4 @@ async function storageSnapshot(
       usage: usage[index]
     }))
   };
-}
-
-async function deleteHostedAuthorities(
-  collections: HostedCollectionRow[],
-  options: AccountManagementRoutesOptions
-): Promise<void> {
-  await Promise.all(collections.map(async (collection) => {
-    if (options.hostedProvider) {
-      await options.hostedProvider.deleteCollection(collection.id);
-    } else if (options.hostedReference) {
-      await options.hostedReference.delete(collection.id);
-    }
-  }));
 }

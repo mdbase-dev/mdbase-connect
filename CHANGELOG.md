@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.0-beta.89
+
+Beta.89 temporarily pauses account deletion while the hosted deletion workflow
+is corrected.
+
+- Account deletion fails closed after same-origin and session authentication,
+  without consuming reauthentication tokens or changing account state.
+- The account surface explains that deletion is temporarily unavailable.
+- Hosted provider data and credentials are never mutated by a blocked request.
+
 ## 0.1.0-beta.88
 
 Beta.88 improves the editor's loading continuity, navigation, and feedback.

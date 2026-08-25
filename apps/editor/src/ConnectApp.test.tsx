@@ -490,13 +490,11 @@ describe("ConnectApp", () => {
     expect(screen.getByRole("heading", { name: "Sign-in methods" })).toBeInTheDocument();
     expect(screen.getByText("Local collection files stay on your computers and are not measured here.")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Delete account…" }));
-    await user.type(screen.getByLabelText("Type DELETE to confirm"), "DELETE");
-    await user.click(screen.getByRole("button", { name: "Delete account permanently" }));
-
-    expect(await screen.findByRole("heading", { name: "Your account has been deleted." })).toBeInTheDocument();
-    expect(location.pathname).toBe("/connect/account-deleted");
-    expect(screen.getByText(/local collection and mirror files remain/i)).toBeInTheDocument();
+    expect(screen.getByText(
+      "Account deletion is temporarily unavailable while we complete a service correction."
+    )).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete account…" }))
+      .not.toBeInTheDocument();
   });
 });
 
@@ -628,7 +626,8 @@ function accountFixture(): AccountData {
       }]
     },
     deletion: {
-      available: true,
+      available: false,
+      unavailable_reason: "temporarily_disabled",
       hosted_collections: 1,
       local_collections: 1,
       computers: 1,

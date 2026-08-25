@@ -154,17 +154,22 @@ export async function portalLifecycleE2E({
     assert.equal(account.storage.status, "available");
     assert.equal(accountCollection.usage.collection_id, deletionCollectionId);
     assert.equal(accountCollection.usage.max_content_bytes, 1024 * 1024 * 1024);
-    await page.getByRole("button", { name: "Delete account…" }).click();
-    await expect(page.getByText(/Local files are never removed/)).toBeVisible();
     await expect(page.getByText(
-      "Local collection and mirror files remain on your computers.",
+      "Account deletion is temporarily unavailable while we complete a service correction.",
       { exact: true }
     )).toBeVisible();
-    await page.getByLabel("Type DELETE to confirm").fill("DELETE");
-    await page.getByRole("button", { name: "Delete account permanently" }).click();
-    await expect(page).toHaveURL(/\/connect\/account-deleted(?:\?.*)?$/);
-    await expect(page.getByRole("heading", { name: "Your account has been deleted." }))
-      .toBeVisible();
+    await expect(page.getByRole("button", { name: "Delete account…" })).toHaveCount(0);
+    const blockedDeletion = await page.evaluate(async (server) => {
+      const response = await fetch(`${server}/v1/account`, {
+        method: "DELETE",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ confirmation: "DELETE" })
+      });
+      return { status: response.status, body: await response.json() };
+    }, controlUrl);
+    assert.equal(blockedDeletion.status, 503);
+    assert.equal(blockedDeletion.body.error.code, "account_deletion_unavailable");
     assert.equal(
       (
         await rawRequest(
@@ -173,7 +178,7 @@ export async function portalLifecycleE2E({
           { token: internalToken }
         )
       ).status,
-      404
+      200
     );
     assert.match(
       await readFile(join(browserMirrorDirectory, "mdbase.yaml"), "utf8"),
