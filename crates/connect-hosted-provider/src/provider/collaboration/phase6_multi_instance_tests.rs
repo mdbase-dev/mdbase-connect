@@ -307,13 +307,13 @@ async fn run(base: &str, schema: &str) {
         .unwrap();
     assert_eq!(client_b.body(), "\nBase body\nline one\n");
 
-    // Replays stay silent end to end: no second push reaches B.
+    // Replays stay silent end to end: no second content push reaches B.
     a.send(Message::Binary(update_frame.into())).await.unwrap();
     assert_eq!(
         recv_frame(&mut a).await.kind,
         CollaborationMessageKind::Acknowledged
     );
-    assert!(timeout_short(recv_frame_inner(&mut b)).await.is_none());
+    assert_no_content_frame(&mut b, "replay redelivered content").await;
 
     // --- Scenario 3: duplicate, reversed, and high-water notices deliver each
     // sequence exactly once, in order.
@@ -375,10 +375,7 @@ async fn run(base: &str, schema: &str) {
         client_b.body(),
         "\nBase body\nline one\nline two\nline three\n"
     );
-    assert!(
-        timeout_short(recv_frame_inner(&mut b)).await.is_none(),
-        "duplicate notice redelivered"
-    );
+    assert_no_content_frame(&mut b, "duplicate notice redelivered").await;
 
     // --- Scenario 4: a missed terminal notification is recovered by listener
     // reconciliation, and the periodic sweep never duplicates delivery.
@@ -401,10 +398,7 @@ async fn run(base: &str, schema: &str) {
     .await;
     wait_for_current_sequence(&instance_b.provider.pool, collection, record, 4).await;
     tokio::time::sleep(SWEEP * 3).await;
-    assert!(
-        timeout_short(recv_frame_inner(&mut b)).await.is_none(),
-        "delivery progressed without a listener"
-    );
+    assert_no_content_frame(&mut b, "delivery progressed without a listener").await;
     // Restarting the listener reconciles every active room, including the one
     // whose terminal notice was lost.
     instance_b
@@ -421,9 +415,9 @@ async fn run(base: &str, schema: &str) {
         client_b.body(),
         "\nBase body\nline one\nline two\nline three\nline four\n"
     );
-    // Several sweeps with no new commits produce no duplicate frames.
+    // Several sweeps with no new commits produce no duplicate content frames.
     tokio::time::sleep(SWEEP * 5).await;
-    assert!(timeout_short(recv_frame_inner(&mut b)).await.is_none());
+    assert_no_content_frame(&mut b, "idle sweep redelivered content").await;
 
     // --- Scenario 5: a cursor behind compaction falls back to the snapshot.
     let (snapshot_sequence, current_sequence): (i64, i64) = sqlx::query_as(
@@ -552,10 +546,8 @@ async fn run(base: &str, schema: &str) {
         "\nBase body\nline one\nline two\nline three\nline four\ncompacted line\n"
     );
     tokio::time::sleep(SWEEP * 3).await;
-    // Awareness removal snapshots may surface here; content frames must not.
-    if let Some(frame) = timeout_short(recv_frame_inner(&mut b)).await {
-        assert_eq!(frame.kind, CollaborationMessageKind::Awareness);
-    }
+    // Awareness refresh and removal snapshots may surface here; content frames must not.
+    assert_no_content_frame(&mut b, "idle sweep redelivered compacted content").await;
 
     // --- Scenario 7: malformed, content-bearing, unknown-profile, and
     // unknown-room notices cannot allocate or leak; the healthy room continues.
@@ -588,10 +580,7 @@ async fn run(base: &str, schema: &str) {
             .unwrap();
     }
     tokio::time::sleep(SWEEP * 4).await;
-    assert!(
-        timeout_short(recv_frame_inner(&mut b)).await.is_none(),
-        "garbage notice reached a socket"
-    );
+    assert_no_content_frame(&mut b, "garbage notice reached a socket").await;
     assert_eq!(
         instance_b.state.collaboration_wakes().active_rooms().await,
         rooms_before,
@@ -871,6 +860,24 @@ async fn timeout_short<T>(future: impl std::future::Future<Output = T>) -> Optio
     tokio::time::timeout(Duration::from_millis(400), future)
         .await
         .ok()
+}
+
+async fn assert_no_content_frame(
+    socket: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    message: &str,
+) {
+    let content = timeout_short(async {
+        loop {
+            let frame = recv_frame_inner(socket).await;
+            if frame.kind != CollaborationMessageKind::Awareness {
+                return frame;
+            }
+        }
+    })
+    .await;
+    assert!(content.is_none(), "{message}");
 }
 
 async fn ws(
