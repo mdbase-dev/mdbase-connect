@@ -19,6 +19,9 @@ export default defineConfig(({ mode }) => ({
       experimentalCollaboration
     )
   },
+  resolve: {
+    dedupe: ["yjs"]
+  },
   plugins: [
     react(),
     {
