@@ -1,6 +1,15 @@
 # Changelog
 
-## 0.1.0-beta.87
+## 0.1.0-beta.88
+
+Beta.88 improves the editor's loading continuity, navigation, and feedback.
+
+- Loading skeletons align with the editor surface on desktop and mobile.
+- Note lists gain grouped headers and accessible arrow-key navigation.
+- The editor adds word counts, document outlines, action-palette commands,
+  unified toasts, and smoother preview transitions.
+
+## 0.1.0-beta.88
 
 Beta.87 makes local multi-collection discovery fast and resilient and corrects
 editor authorization redirects.
