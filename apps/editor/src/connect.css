@@ -163,6 +163,16 @@
 .connect-rail-account strong { font-size: 0.8rem; }
 .connect-rail-account small { color: var(--faint); font-size: 0.75rem; }
 
+.connect-rail-feedback {
+  padding: 3px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-decoration: none;
+}
+
+.connect-rail-feedback:hover { color: var(--accent-strong); }
+.connect-feedback-mobile-link { display: none !important; }
+
 .connect-pending-banner {
   width: min(734px, calc(100% - 116px));
   display: grid;
@@ -702,6 +712,154 @@ button.danger:disabled {
 
 .connect-account-action:hover { background: var(--hover); }
 .connect-account-danger { margin-top: 18px; color: var(--danger); }
+
+.connect-feedback-form {
+  display: grid;
+  gap: 48px;
+}
+
+.connect-feedback-form > section {
+  display: grid;
+  gap: 16px;
+}
+
+.connect-feedback-topic {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.connect-feedback-topic legend {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.connect-feedback-topic label {
+  min-height: 72px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.connect-feedback-topic label:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--selected);
+}
+
+.connect-feedback-topic input,
+.connect-feedback-options input,
+.connect-feedback-diagnostics-toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+
+.connect-feedback-topic label > span {
+  display: grid;
+  gap: 3px;
+}
+
+.connect-feedback-topic strong { font-size: 0.82rem; }
+.connect-feedback-topic small { color: var(--muted); font-size: 0.75rem; line-height: 1.4; }
+
+.connect-feedback-field {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.connect-feedback-field > span small { margin-left: 5px; color: var(--faint); font-weight: 400; }
+
+.connect-feedback-field input,
+.connect-feedback-field textarea,
+.connect-feedback-origin select {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  color: var(--ink);
+  background: var(--white);
+  font: inherit;
+  font-weight: 400;
+}
+
+.connect-feedback-field textarea { min-height: 150px; resize: vertical; line-height: 1.5; }
+.connect-feedback-count { justify-self: end; margin-top: -10px; color: var(--faint); font-family: var(--mono); font-size: 0.68rem; }
+
+.connect-feedback-upload {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  padding: 7px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  color: var(--accent-strong);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.connect-feedback-upload input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); }
+.connect-feedback-upload:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.connect-feedback-preview {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+}
+
+.connect-feedback-preview img {
+  max-width: min(100%, 620px);
+  max-height: 360px;
+  border: 1px solid var(--line);
+  object-fit: contain;
+}
+
+.connect-feedback-preview button,
+.connect-feedback-actions > button:first-child { color: var(--accent-strong); font-size: 0.78rem; }
+
+.connect-feedback-options { display: grid; gap: 12px; }
+.connect-feedback-options > label,
+.connect-feedback-diagnostics-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.connect-feedback-options strong { color: var(--ink); }
+.connect-feedback-origin { width: min(100%, 520px); display: grid !important; gap: 6px !important; margin-left: 25px; font-weight: 700; }
+
+.connect-feedback-diagnostics {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+
+.connect-feedback-diagnostics summary { padding: 10px 12px; color: var(--accent-strong); font-size: 0.78rem; cursor: pointer; }
+.connect-feedback-diagnostics pre { max-height: 280px; overflow: auto; margin: 0; padding: 12px; border-top: 1px solid var(--line); background: var(--soft); color: var(--muted); font: 0.68rem/1.55 var(--mono); white-space: pre-wrap; }
+.connect-feedback-help { max-width: 72ch; margin: 0; color: var(--muted); font-size: 0.75rem; line-height: 1.5; }
+.connect-feedback-error { margin: 0; color: var(--danger); font-size: 0.78rem; line-height: 1.5; }
+.connect-feedback-actions { display: flex; align-items: center; justify-content: flex-end; gap: 16px; }
+.connect-feedback-actions .connect-primary-action:disabled { opacity: 0.5; }
+.connect-feedback-turnstile { min-height: 65px; }
+.connect-feedback-turnstile > p { margin: 8px 0 0; color: var(--danger); font-size: 0.75rem; }
+.connect-feedback-complete p { max-width: 68ch; color: var(--muted); font-size: 0.84rem; line-height: 1.5; }
+.connect-feedback-complete .connect-primary-action { justify-self: start; }
+
 .connect-account-danger:disabled,
 .connect-account-action:disabled { opacity: 0.45; }
 
@@ -1028,6 +1186,7 @@ button.danger:disabled {
   }
 
   .connect-shell > .collection-rail .connection-footer > p,
+  .connect-rail-feedback,
   .connect-rail-account > span:last-child {
     display: none;
   }
@@ -1096,6 +1255,15 @@ button.danger:disabled {
     min-height: 44px;
   }
 
+  .connect-nav > nav > .connect-nav-group > .connect-feedback-mobile-link {
+    display: flex !important;
+    align-items: center;
+    padding: 8px 12px;
+    color: var(--muted);
+    font-size: 0.78rem;
+    text-decoration: none;
+  }
+
   .connect-main {
     overflow: visible;
   }
@@ -1134,6 +1302,11 @@ button.danger:disabled {
   .connect-inline-form label {
     width: 100%;
   }
+
+  .connect-feedback-topic { grid-template-columns: 1fr; }
+  .connect-feedback-actions { justify-content: flex-start; }
+  .connect-feedback-upload { min-height: 44px; }
+
 
   .connect-account-details > div {
     grid-template-columns: 1fr;

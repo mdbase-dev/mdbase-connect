@@ -10,6 +10,7 @@ on:
       - "packages/management/**"
       - "packages/protocol/**"
       - "packages/ui/**"
+      - "services/feedback/**"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - ".github/workflows/editor-pages.yml"
@@ -47,6 +48,8 @@ jobs:
       - run: pnpm build:packages
       - run: pnpm --filter mdbase-editor typecheck
       - run: pnpm --filter mdbase-editor test
+      - run: pnpm --filter @mdbase/feedback-worker typecheck
+      - run: pnpm --filter @mdbase/feedback-worker test
       - run: pnpm --filter mdbase-editor test:deployment
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm --filter mdbase-editor test:e2e
@@ -84,6 +87,10 @@ jobs:
         env:
           MDBASE_EDITOR_ORIGIN: https://editor.mdbase.dev
           MDBASE_EDITOR_BASE_PATH: /
+          VITE_MDBASE_BUILD_REVISION: ${{ github.sha }}
+          VITE_MDBASE_ENV: production
+          VITE_MDBASE_FEEDBACK_URL: ${{ vars.MDBASE_FEEDBACK_URL }}
+          VITE_MDBASE_TURNSTILE_SITE_KEY: ${{ vars.MDBASE_FEEDBACK_TURNSTILE_SITE_KEY }}
       - name: Verify editor manifest
         run: node apps/editor/scripts/verify-deployment-manifest.mjs apps/editor/dist/.well-known/mdbase-app.json https://editor.mdbase.dev/
       - name: Deploy editor
@@ -131,6 +138,10 @@ jobs:
           MDBASE_EDITOR_BASE_PATH: /
           MDBASE_CONNECT_URL: https://connect-staging.mdbase.dev
           VITE_MDBASE_CONNECT_URL: https://connect-staging.mdbase.dev
+          VITE_MDBASE_BUILD_REVISION: ${{ github.sha }}
+          VITE_MDBASE_ENV: staging
+          VITE_MDBASE_FEEDBACK_URL: ${{ vars.MDBASE_FEEDBACK_URL }}
+          VITE_MDBASE_TURNSTILE_SITE_KEY: ${{ vars.MDBASE_FEEDBACK_TURNSTILE_SITE_KEY }}
       - name: Verify staging editor manifest
         run: node apps/editor/scripts/verify-deployment-manifest.mjs apps/editor/dist/.well-known/mdbase-app.json https://editor-staging.mdbase.dev/ https://connect-staging.mdbase.dev
       - name: Deploy staging editor
