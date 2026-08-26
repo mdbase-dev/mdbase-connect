@@ -75,6 +75,6 @@
     "version:check": "node scripts/check-release-version.mjs"
   },
   "devDependencies": {
-    "@playwright/test": "^1.61.1"
+    "@playwright/test": "^1.62.1"
   }
 }
