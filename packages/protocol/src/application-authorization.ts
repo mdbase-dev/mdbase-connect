@@ -10,12 +10,18 @@ import type {
 import {
   AUTHORIZATION_BINDING_PROTOCOL_VERSION,
   LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION,
+  PREVIOUS_AUTHORIZATION_BINDING_PROTOCOL_VERSION,
   OPERATION_TRANSPORT_PROTOCOL_VERSION,
   isSupportedAuthorizationBinding,
   isSupportedOperationTransport
 } from "./compatibility.js";
 
 export type ApplicationAuthorizationFlow = "authorization_code" | "device_code";
+
+export interface ApplicationCollaborationRequirement {
+  contract_version: 1;
+  profiles: ["markdown-body-yjs-v13"];
+}
 
 export interface ApplicationAuthorizationBinding {
   protocol_version: AuthorizationBindingProtocolVersion;
@@ -37,6 +43,7 @@ export interface ApplicationAuthorizationBinding {
   contracts: ConnectContractRequirements;
   requested_operations: CollectionOperation[];
   requested_files?: ApplicationFileRequirement;
+  requested_collaboration?: ApplicationCollaborationRequirement;
   collection_id?: string;
 }
 
@@ -53,6 +60,9 @@ const AUTHORIZATION_PROOF_V4_DOMAIN = new TextEncoder().encode(
 );
 const AUTHORIZATION_PROOF_V5_DOMAIN = new TextEncoder().encode(
   "mdbase-connect application authorization proof v5\0"
+);
+const AUTHORIZATION_PROOF_V6_DOMAIN = new TextEncoder().encode(
+  "mdbase-connect application authorization proof v6\0"
 );
 
 export async function applicationInstallationIdFromPublicKey(
@@ -107,11 +117,12 @@ export function authorizationSigningMessage(
       contracts.operation_transport,
       contracts.authorization_binding,
       contracts.semantic_capabilities,
-      contracts.durable_mutation ?? 1
+      contracts.durable_mutation ?? 1,
+      contracts.collaboration ?? 1
     ].every((version) => Number.isInteger(version) && version > 0)
     || contracts.authorization_binding !== binding.protocol_version
     || !isSupportedOperationTransport(contracts.operation_transport)
-    || (binding.protocol_version === AUTHORIZATION_BINDING_PROTOCOL_VERSION
+    || (binding.protocol_version !== LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION
       && contracts.operation_transport !== OPERATION_TRANSPORT_PROTOCOL_VERSION)
     || recovery.some((version) =>
       !isSupportedOperationTransport(version)
@@ -123,6 +134,7 @@ export function authorizationSigningMessage(
     || (requiresDurableMutation
       ? contracts.durable_mutation !== 1
       : contracts.durable_mutation !== undefined)
+    || !validRequestedCollaboration(binding)
     || (binding.requested_operations.length === 0 && binding.requested_files === undefined)
     || new Set(binding.requested_operations).size !== binding.requested_operations.length
     || binding.requested_operations.some((operation) => !operation || operation.includes("\0"))
@@ -139,8 +151,10 @@ export function authorizationSigningMessage(
     field(new TextEncoder().encode(operation)));
   return concat([
     binding.protocol_version === AUTHORIZATION_BINDING_PROTOCOL_VERSION
-      ? AUTHORIZATION_PROOF_V5_DOMAIN
-      : AUTHORIZATION_PROOF_V4_DOMAIN,
+      ? AUTHORIZATION_PROOF_V6_DOMAIN
+      : binding.protocol_version === PREVIOUS_AUTHORIZATION_BINDING_PROTOCOL_VERSION
+        ? AUTHORIZATION_PROOF_V5_DOMAIN
+        : AUTHORIZATION_PROOF_V4_DOMAIN,
     u32(binding.protocol_version),
     field(uuidBytes(binding.application_id)),
     field(uuidBytes(binding.authorization_id)),
@@ -156,7 +170,7 @@ export function authorizationSigningMessage(
     optionalString(binding.state),
     field(new TextEncoder().encode(binding.code_challenge)),
     u32(contracts.operation_transport),
-    ...(binding.protocol_version === AUTHORIZATION_BINDING_PROTOCOL_VERSION
+    ...(binding.protocol_version !== LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION
       ? [u32(recovery.length), ...recovery.map(u32)]
       : []),
     u32(contracts.authorization_binding),
@@ -165,7 +179,36 @@ export function authorizationSigningMessage(
     u32(operationFields.length),
     ...operationFields,
     requestedFiles(binding.requested_files),
+    ...(binding.protocol_version === AUTHORIZATION_BINDING_PROTOCOL_VERSION
+      ? [requestedCollaboration(binding.requested_collaboration)]
+      : []),
     optionalUuid(binding.collection_id)
+  ]);
+}
+
+function validRequestedCollaboration(binding: ApplicationAuthorizationBinding): boolean {
+  const request = binding.requested_collaboration;
+  if (binding.protocol_version !== AUTHORIZATION_BINDING_PROTOCOL_VERSION) {
+    return request === undefined && binding.contracts.collaboration === undefined;
+  }
+  if (request === undefined) return binding.contracts.collaboration === undefined;
+  return binding.contracts.collaboration === request.contract_version
+    && request.contract_version === 1
+    && request.profiles.length === 1
+    && request.profiles[0] === "markdown-body-yjs-v13"
+    && binding.requested_operations.includes("read");
+}
+
+function requestedCollaboration(
+  collaboration: ApplicationCollaborationRequirement | undefined
+): Uint8Array {
+  if (collaboration === undefined) return new Uint8Array(1);
+  return concat([
+    new Uint8Array([1]),
+    u32(collaboration.contract_version),
+    u32(collaboration.profiles.length),
+    ...collaboration.profiles.map((profile) =>
+      field(new TextEncoder().encode(profile)))
   ]);
 }
 

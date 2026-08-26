@@ -20,6 +20,7 @@ export * from "./capabilities.js";
 export * from "./application-authorization.js";
 export * from "./type-packs.js";
 export * from "./collection-setup.js";
+export * from "./collaboration.js";
 
 export const CONTROL_PROTOCOL_VERSION = 1 as const;
 export { AUTHORIZATION_BINDING_PROTOCOL_VERSION as APPLICATION_AUTHORIZATION_PROTOCOL_VERSION } from "./compatibility.js";
@@ -149,7 +150,7 @@ export interface ApplicationNotifications {
  * exact declaration is independently identified and authorized by Connect.
  */
 interface MdbaseAppManifestBase {
-  manifest_version: 1;
+  manifest_version: 1 | 2;
   id: string;
   name: string;
   requirements?: ApplicationRequirements;

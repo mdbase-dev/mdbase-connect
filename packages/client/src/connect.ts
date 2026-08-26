@@ -7,9 +7,11 @@ import type {
 import {
   APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
   authorizationContractRequirements,
+  COLLABORATION_CONTRACT_VERSION,
   DEFAULT_LOOPBACK_PORT,
   GRANT_ENCRYPTION_PROTOCOL_VERSION,
-  RELAY_ENCRYPTION_SUITE
+  RELAY_ENCRYPTION_SUITE,
+  requestsRecordCollaboration
 } from "@mdbase-dev/connect-protocol";
 import { abortableDelay } from "./async.js";
 import { authorizationCallbackState } from "./authorization-url.js";
@@ -311,6 +313,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       throw error;
     }
     const operations = uniqueOperations(options.operations ?? DEFAULT_OPERATIONS);
+    const collaboration = requestedCollaboration(application.requirements?.capabilities);
     const issuedAt = new Date();
     const proof = await signApplicationAuthorization({
       protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
@@ -337,12 +340,14 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
           this.storagePrefix(),
           operations,
           targetCollectionId
-        )
+        ),
+        collaboration ? COLLABORATION_CONTRACT_VERSION : undefined
       ),
       requested_operations: operations,
       ...(application.requirements?.files
         ? { requested_files: application.requirements.files }
         : {}),
+      ...(collaboration ? { requested_collaboration: collaboration } : {}),
       ...(targetCollectionId ? { collection_id: targetCollectionId } : {})
     }, installation);
     const pending: StoredAuthorization = {
@@ -459,6 +464,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       throw error;
     }
     const operations = uniqueOperations(options.operations ?? DEFAULT_OPERATIONS);
+    const collaboration = requestedCollaboration(application.requirements?.capabilities);
     const authorizationId = crypto.randomUUID();
     const issuedAt = new Date();
     const proof = await signApplicationAuthorization({
@@ -484,12 +490,14 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
           this.storagePrefix(),
           operations,
           options.target?.kind === "collection" ? options.target.collectionId : undefined
-        )
+        ),
+        collaboration ? COLLABORATION_CONTRACT_VERSION : undefined
       ),
       requested_operations: operations,
       ...(application.requirements?.files
         ? { requested_files: application.requirements.files }
         : {}),
+      ...(collaboration ? { requested_collaboration: collaboration } : {}),
       ...(options.target?.kind === "collection"
         ? { collection_id: options.target.collectionId }
         : {})
@@ -985,4 +993,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     const connections = this.connections();
     for (const listener of this.listeners) listener(connections);
   }
+}
+function requestedCollaboration(input: Parameters<typeof requestsRecordCollaboration>[0]) {
+  return requestsRecordCollaboration(input) ? { contract_version: COLLABORATION_CONTRACT_VERSION, profiles: ["markdown-body-yjs-v13"] as ["markdown-body-yjs-v13"] } : undefined;
 }

@@ -78,7 +78,14 @@ generates a manifest for the staging editor origin, and targets the same-site
 custom domain idempotently; Cloudflare DNS must proxy
 `editor-staging.mdbase.dev` to `staging.mdbase-editor.pages.dev`.
 
-To publish the current working tree to that development surface without waiting
+LAB uses the dedicated Direct Upload Pages project `mdbase-editor-lab`, whose
+production branch is `candidate-b`, at `https://editor-lab.mdbase.dev/`. It
+targets the same-site `https://connect-lab.mdbase.dev` control-plane origin.
+Keep the LAB domain on this dedicated project: attaching it to `mdbase-editor`
+would route a custom domain to that project's production deployment rather
+than safely identifying the LAB candidate branch.
+
+To publish the current working tree to a development surface without waiting
 for CI, sign in with Wrangler once, then run:
 
 ```sh

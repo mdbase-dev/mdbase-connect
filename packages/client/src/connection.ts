@@ -4,7 +4,8 @@ import type {
   FileCapability,
   GrantScope,
   JsonObject,
-  MdbaseOperationEnvelope
+  MdbaseOperationEnvelope,
+  ReplicaCollaborationCapability
 } from "@mdbase-dev/connect-protocol";
 import { MdbaseCollectionClient } from "./collection-client.js";
 import {
@@ -29,6 +30,7 @@ import {
   operationProblem
 } from "./errors.js";
 import { MdbaseFileClient } from "./files.js";
+import { installExperimentalHostedCollaborationBridge } from "./hosted-collaboration-internal.js";
 import {
   DEFAULT_OPERATIONS,
   type Application
@@ -215,6 +217,10 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       timeouts: internals.timeouts,
       onChange: () => this.emitConnection()
     });
+    installExperimentalHostedCollaborationBridge(this, {
+      issueTicket: (request) =>
+        this.transport.issueExperimentalCollaborationTicket(request)
+    });
     this.files = new MdbaseFileClient(
       () => this.fileCapability,
       (method, path, input, signal) =>
@@ -268,6 +274,10 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     return this.transport.currentToken()?.fileCapability ?? null;
   }
 
+  get collaborationCapability(): ReplicaCollaborationCapability | null {
+    return this.transport.currentToken()?.collaborationCapability ?? null;
+  }
+
   get directAccess(): DirectAccessStatus {
     return this.transport.directAccess;
   }
@@ -291,6 +301,9 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       operations: [...token.operations],
       scope: token.scope,
       ...(token.fileCapability ? { fileCapability: token.fileCapability } : {}),
+      ...(token.collaborationCapability
+        ? { collaborationCapability: token.collaborationCapability }
+        : {}),
       authority: token.authority
         ? { kind: "hosted", durability: "provider" }
         : { kind: "connector", durability: "computer" },

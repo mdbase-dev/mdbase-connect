@@ -35,6 +35,7 @@
     "@fontsource/azeret-mono": "^5.3.0",
     "@lezer/highlight": "^1.2.3",
     "@mdbase-dev/connect": "workspace:*",
+    "@mdbase-dev/connect-collaboration": "workspace:*",
     "@mdbase/connect-management": "workspace:*",
     "@mdbase-dev/connect-protocol": "workspace:*",
     "@mdbase/connect-ui": "workspace:*",
@@ -45,7 +46,9 @@
     "ajv": "^8.20.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "yaml": "^2.9.0"
+    "y-codemirror.next": "0.3.5",
+    "yaml": "^2.9.0",
+    "yjs": "13.6.32"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",

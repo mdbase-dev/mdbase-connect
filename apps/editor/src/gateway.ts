@@ -17,6 +17,10 @@ import {
   type TypePackAssessment,
   type TypePackProvision
 } from "@mdbase-dev/connect";
+import {
+  applyConnectServerOverride,
+  connectServerUrl
+} from "./connect-endpoint";
 import { persistedBody, titlePatch } from "./note";
 import type {
   CollectionGateway,
@@ -82,14 +86,9 @@ export class ConnectCollectionGateway implements CollectionGateway {
   private readonly renamePreflights = new Map<string, import("@mdbase-dev/connect").RenamePreflightResult>();
   private readonly deletePreflights = new Map<string, import("@mdbase-dev/connect").DeletePreflightResult>();
 
-  constructor(serverUrl = new URLSearchParams(location.search).get("server")
-      ?? import.meta.env.VITE_MDBASE_CONNECT_URL
-      ?? "https://connect.mdbase.dev") {
+  constructor(serverUrl = connectServerUrl()) {
     const appRoot = new URL(import.meta.env.BASE_URL, location.href);
-    const redirectUri = new URL(appRoot);
-    if (new URLSearchParams(location.search).has("server")) {
-      redirectUri.searchParams.set("server", new URL(serverUrl).origin);
-    }
+    const redirectUri = applyConnectServerOverride(new URL(appRoot), serverUrl);
     const connect = new MdbaseConnect<NoteFrontmatter>({
       serverUrl,
       manifest: new URL(".well-known/mdbase-app.json", appRoot).href,
@@ -218,6 +217,28 @@ export class ConnectCollectionGateway implements CollectionGateway {
 
   async read(path: string): Promise<NoteDocument> {
     return requireOutcome(await this.requireConnection().read({ path, includeDocument: true }));
+  }
+
+  async openExperimentalCollaboration(options: {
+    path: string;
+    maxBodyBytes: number;
+    signal?: AbortSignal;
+  }): Promise<import("@mdbase-dev/connect-collaboration").ExperimentalHostedMarkdownRoom | null> {
+    if (!__MDBASE_EDITOR_EXPERIMENTAL_HOSTED_COLLABORATION__) return null;
+    const connection = this.activeConnection();
+    const info = connection?.info();
+    if (!connection || info?.authority.kind !== "hosted" || !info.collaborationCapability) {
+      return null;
+    }
+    const { openExperimentalHostedMarkdownRoom } = await import(
+      "@mdbase-dev/connect-collaboration"
+    );
+    return openExperimentalHostedMarkdownRoom(connection, {
+      path: options.path,
+      maxBodyBytes: options.maxBodyBytes,
+      mode: info.collaborationCapability.access,
+      ...(options.signal ? { signal: options.signal } : {})
+    });
   }
 
   async listFiles({ signal, onProgress }: FileListRequest = {}): Promise<CollectionFile[]> {
@@ -483,7 +504,10 @@ function summarizeConnection(connection: MdbaseConnectionInfo): ConnectionSummar
     operations: connection.operations,
     authorityKind: connection.authority.kind,
     directAccess: connection.directAccess,
-    fileActions: connection.fileCapability?.actions
+    fileActions: connection.fileCapability?.actions,
+    ...(connection.collaborationCapability
+      ? { collaborationAccess: connection.collaborationCapability.access }
+      : {})
   };
 }
 

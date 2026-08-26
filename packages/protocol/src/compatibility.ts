@@ -13,16 +13,19 @@ export const SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS = [
 export type OperationTransportProtocolVersion =
   typeof SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS[number];
 
-export const AUTHORIZATION_BINDING_PROTOCOL_VERSION = 5 as const;
+export const AUTHORIZATION_BINDING_PROTOCOL_VERSION = 6 as const;
+export const PREVIOUS_AUTHORIZATION_BINDING_PROTOCOL_VERSION = 5 as const;
 export const LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION = 4 as const;
 export const SUPPORTED_AUTHORIZATION_BINDING_PROTOCOL_VERSIONS = [
   AUTHORIZATION_BINDING_PROTOCOL_VERSION,
+  PREVIOUS_AUTHORIZATION_BINDING_PROTOCOL_VERSION,
   LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION
 ] as const;
 export type AuthorizationBindingProtocolVersion =
   typeof SUPPORTED_AUTHORIZATION_BINDING_PROTOCOL_VERSIONS[number];
 export const SEMANTIC_CAPABILITY_CONTRACT_VERSION = 1 as const;
 export const DURABLE_MUTATION_CONTRACT_VERSION = 1 as const;
+export const COLLABORATION_CONTRACT_VERSION = 1 as const;
 
 export interface ConnectContractRequirements {
   operation_transport: number;
@@ -32,6 +35,8 @@ export interface ConnectContractRequirements {
   semantic_capabilities: number;
   /** Required only by operations that can durably mutate authority state. */
   durable_mutation?: number;
+  /** Optional room protocol negotiated independently from ordinary operations. */
+  collaboration?: number;
 }
 
 export interface ConnectContractSupport {
@@ -39,13 +44,16 @@ export interface ConnectContractSupport {
   authorization_binding: number[];
   semantic_capabilities: number[];
   durable_mutation: number[];
+  collaboration?: number[];
 }
 
 export const CONNECT_CONTRACT_SUPPORT: ConnectContractSupport = {
   operation_transport: [...SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS],
   authorization_binding: [...SUPPORTED_AUTHORIZATION_BINDING_PROTOCOL_VERSIONS],
   semantic_capabilities: [SEMANTIC_CAPABILITY_CONTRACT_VERSION],
-  durable_mutation: [DURABLE_MUTATION_CONTRACT_VERSION]
+  durable_mutation: [DURABLE_MUTATION_CONTRACT_VERSION],
+  // Authorities opt in only after the room transport is implemented.
+  collaboration: []
 };
 
 /**
@@ -55,7 +63,8 @@ export const CONNECT_CONTRACT_SUPPORT: ConnectContractSupport = {
 export function authorizationContractRequirements(
   operations: readonly CollectionOperation[],
   files?: ApplicationFileRequirement,
-  operationTransportRecovery: readonly OperationTransportProtocolVersion[] = []
+  operationTransportRecovery: readonly OperationTransportProtocolVersion[] = [],
+  collaboration?: typeof COLLABORATION_CONTRACT_VERSION
 ): ConnectContractRequirements {
   const requirements: ConnectContractRequirements = {
     operation_transport: OPERATION_TRANSPORT_PROTOCOL_VERSION,
@@ -70,6 +79,7 @@ export function authorizationContractRequirements(
     || files?.actions.some((action) => action !== "list" && action !== "read") === true) {
     requirements.durable_mutation = 1 satisfies typeof DURABLE_MUTATION_CONTRACT_VERSION;
   }
+  if (collaboration !== undefined) requirements.collaboration = collaboration;
   return requirements;
 }
 
@@ -83,6 +93,8 @@ export function supportsContractRequirements(
       supported.operation_transport.includes(version))
     && supported.authorization_binding.includes(required.authorization_binding)
     && supported.semantic_capabilities.includes(required.semantic_capabilities)
+    && (required.collaboration === undefined
+      || supported.collaboration?.includes(required.collaboration) === true)
     && (!durableMutation
       || (required.durable_mutation !== undefined
         && supported.durable_mutation.includes(required.durable_mutation)));

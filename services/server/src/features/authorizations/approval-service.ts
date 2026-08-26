@@ -24,10 +24,7 @@ import {
   type CollectionAccessContext
 } from "../../collection-access.js";
 import type { DatabasePool } from "../../db.js";
-import {
-  matchesMembershipBinding,
-  membershipBindingForAccess
-} from "../../collection-membership-binding.js";
+import { matchesMembershipBinding, membershipBindingForAccess } from "../../collection-membership-binding.js";
 import { contractRequirements } from "../../hosted.js";
 import { HostedProviderClient } from "../../hosted-provider.js";
 import { hostedReplicaCollectionOperations } from "../../hosted-replica-policy.js";
@@ -47,11 +44,12 @@ import {
 } from "../grants/policy.js";
 import { syncHostedNotificationGrant } from "../grants/service.js";
 import {
-  applicationOriginForRedirect,
-  normalizedApplicationOrigin
-} from "./redirects.js";
+  buildApplicationReplicaPolicy
+} from "./replica-policy.js";
+import { resolveGrantAwarenessIdentity } from "../hosted/collaboration-identity.js";
+import { applicationOriginForRedirect, normalizedApplicationOrigin } from "./redirects.js";
 import { declarationIdFromFamilyIdentity } from "../applications/identity.js";
-
+const jsonOrNull = (value: unknown) => value ? JSON.stringify(value) : null;
 export async function approvePortalAuthorization(
   db: DatabasePool,
   relay: RelayHub,
@@ -742,13 +740,15 @@ export async function approveHostedAuthorization(
         "This hosted collection does not provide the contracts required by the application."
       );
     }
+    await provider.ready();
     const plan = planCollectionGrant({
       requestedOperations: input.operations,
       applicationOperationCeiling:
         pending.requested_operations as CollectionOperation[],
       requirements: pending.requirements,
       availableContracts: availableDescriptors,
-      access: currentAccess
+      access: currentAccess,
+      providerCollaboration: provider.collaborationSupport?.() ?? undefined
     });
     const scope = plan.scope;
     const allowedTypes = allowedTypesForRequirements(
@@ -770,6 +770,8 @@ export async function approveHostedAuthorization(
     const applicationInstallationId =
       pending.application_authorization.binding.application_installation_id;
     const membershipBinding = membershipBindingForAccess(currentAccess);
+    const awarenessIdentity = resolveGrantAwarenessIdentity(input.userId,
+      input.collectionId, plan.collaborationCapability !== undefined);
     const existing = await connection.query<{
       id: string;
       hosted_replica_id: string;
@@ -813,33 +815,29 @@ export async function approveHostedAuthorization(
       );
     }
 
-    const replicaPolicy = {
-      grantId,
-      mode: plan.replicaMode,
-      allowedTypes,
-      contractScope: scope.access === "contract" ? scope.contracts : [],
+    const binding = pending.application_authorization.binding.contracts;
+    const replicaPolicy = buildApplicationReplicaPolicy({
+      grantId, replicaMode: plan.replicaMode, allowedTypes,
+      scope: scope.access === "contract" ? scope.contracts : [],
       fullCollection: scope.access === "full_collection",
-      allowedOperations: hostedReplicaCollectionOperations(operations),
-      operationTransportProtocol:
-        pending.application_authorization.binding.contracts.operation_transport,
-      operationTransportRecoveryProtocols:
-        pending.application_authorization.binding.contracts
-          .operation_transport_recovery ?? [],
+      operations: hostedReplicaCollectionOperations(operations),
+      operationTransportProtocol: binding.operation_transport,
+      operationTransportRecoveryProtocols: binding.operation_transport_recovery ?? [],
       fileCapability: plan.fileCapability,
-      allowedOrigin,
+      collaborationCapability: plan.collaborationCapability,
+      awarenessIdentity, allowedOrigin,
       proofPublicKey: pending.application_signing_public_key,
-      applicationDeclarationId: declarationIdFromFamilyIdentity(
-        pending.application_family_identity
-      ),
+      applicationDeclarationId: declarationIdFromFamilyIdentity(pending.application_family_identity),
       applicationDeclarationDigest: `sha256:${pending.application_manifest_digest}`
-    };
+    });
     if (retained) {
       await provider.updateApplicationReplica(replicaId, replicaPolicy);
       await connection.query(
         `UPDATE hosted_replicas
          SET mode = $2, allowed_types = $3::jsonb, revoked_at = NULL,
              membership_id = $4, membership_policy_id = $5,
-             membership_policy_revision = $6
+             membership_policy_revision = $6,
+             collaboration_capability = $7::jsonb
          WHERE id = $1`,
         [
           replicaId,
@@ -847,18 +845,20 @@ export async function approveHostedAuthorization(
           JSON.stringify(allowedTypes),
           membershipBinding?.membershipId ?? null,
           membershipBinding?.policyId ?? null,
-          membershipBinding?.policyRevision ?? null
+          membershipBinding?.policyRevision ?? null,
+          jsonOrNull(plan.collaborationCapability)
         ]
       );
       await connection.query(
         `UPDATE grants SET
            operations = $2::jsonb, scope = $3::jsonb,
            proof_public_key = $4, application_origin = $5,
-           file_capability = $6::jsonb, notification_criteria = $7::jsonb,
-           application_authorization = $8::jsonb,
-           application_installation_id = $9,
-           logical_collection_id = $10, membership_id = $11,
-           membership_policy_id = $12, membership_policy_revision = $13,
+           file_capability = $6::jsonb, collaboration_capability = $7::jsonb,
+           notification_criteria = $8::jsonb,
+           application_authorization = $9::jsonb,
+           application_installation_id = $10,
+           logical_collection_id = $11, membership_id = $12,
+           membership_policy_id = $13, membership_policy_revision = $14,
            activated_at = now(), revoked_at = NULL
          WHERE id = $1`,
         [
@@ -868,6 +868,7 @@ export async function approveHostedAuthorization(
           pending.application_signing_public_key,
           applicationOrigin,
           plan.fileCapability ? JSON.stringify(plan.fileCapability) : null,
+          jsonOrNull(plan.collaborationCapability),
           JSON.stringify(pending.notifications.criteria),
           JSON.stringify(pending.application_authorization),
           applicationInstallationId,
@@ -897,9 +898,9 @@ export async function approveHostedAuthorization(
         `INSERT INTO hosted_replicas
            (id, collection_id, authorized_user_id, name, purpose, mode,
             allowed_types, token_hash, membership_id, membership_policy_id,
-            membership_policy_revision)
+            membership_policy_revision, collaboration_capability)
          VALUES ($1, $2, $3, $4, 'application', $5, $6::jsonb, NULL,
-                 $7, $8, $9)`,
+                 $7, $8, $9, $10::jsonb)`,
         [
           replicaId,
           input.collectionId,
@@ -909,18 +910,21 @@ export async function approveHostedAuthorization(
           JSON.stringify(allowedTypes),
           membershipBinding?.membershipId ?? null,
           membershipBinding?.policyId ?? null,
-          membershipBinding?.policyRevision ?? null
+          membershipBinding?.policyRevision ?? null,
+          jsonOrNull(plan.collaborationCapability)
         ]
       );
       await connection.query(
         `INSERT INTO grants
             (id, user_id, application_id, hosted_collection_id, hosted_replica_id,
              operations, scope, encryption, proof_public_key, application_origin,
-             file_capability, notification_criteria, application_authorization,
-             application_installation_id, logical_collection_id, membership_id,
-             membership_policy_id, membership_policy_revision)
+             file_capability, collaboration_capability, notification_criteria,
+             application_authorization, application_installation_id,
+             logical_collection_id, membership_id, membership_policy_id,
+             membership_policy_revision)
          VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, NULL, $8, $9,
-                 $10::jsonb, $11::jsonb, $12::jsonb, $13, $14, $15, $16, $17)`,
+                 $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb, $14, $15,
+                 $16, $17, $18)`,
         [
           grantId,
           input.userId,
@@ -932,6 +936,7 @@ export async function approveHostedAuthorization(
           pending.application_signing_public_key,
           applicationOrigin,
           plan.fileCapability ? JSON.stringify(plan.fileCapability) : null,
+          jsonOrNull(plan.collaborationCapability),
           JSON.stringify(pending.notifications.criteria),
           JSON.stringify(pending.application_authorization),
           applicationInstallationId,

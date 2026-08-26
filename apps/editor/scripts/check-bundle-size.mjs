@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { gzipSync } from "node:zlib";
 
@@ -20,8 +20,38 @@ const initialCss = await compressedBytes(styles);
 
 assertWithin("initial JavaScript", initialJavaScript, limits.initialJavaScript);
 assertWithin("initial CSS", initialCss, limits.initialCss);
+await assertTestHarnessExcluded();
+await assertExperimentalCollaborationExcluded();
 
 console.log(`Bundle budgets passed: ${format(initialJavaScript)} initial JavaScript, ${format(initialCss)} initial CSS.`);
+
+async function assertTestHarnessExcluded() {
+  const files = await readdir(resolve(root, "dist"), { recursive: true });
+  const scripts = files.filter((file) => file.endsWith(".js"));
+  const contents = await Promise.all(
+    scripts.map((file) => readFile(resolve(root, "dist", file), "utf8"))
+  );
+  if (contents.some((content) => content.includes("Browser adapter smoke-test harness"))) {
+    throw new Error("The e2e-only collaboration harness leaked into the production bundle.");
+  }
+}
+
+async function assertExperimentalCollaborationExcluded() {
+  if (process.env.MDBASE_EDITOR_EXPERIMENTAL_HOSTED_COLLABORATION?.trim() === "1") return;
+  const files = await readdir(resolve(root, "dist"), { recursive: true });
+  const scripts = files.filter((file) => file.endsWith(".js"));
+  const contents = await Promise.all(
+    scripts.map((file) => readFile(resolve(root, "dist", file), "utf8"))
+  );
+  if (contents.some((content) =>
+    content.includes("collaboration_room_closed")
+    || content.includes("hostedCollaborationRemote")
+    || content.includes("collaboration_pending_updates_exceeded")
+    || content.includes("[y-codemirror]")
+  )) {
+    throw new Error("The experimental collaboration room leaked into the flag-off bundle.");
+  }
+}
 
 async function compressedBytes(files) {
   const contents = await Promise.all(files.map((file) => readFile(resolve(root, "dist", file))));

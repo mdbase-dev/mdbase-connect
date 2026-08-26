@@ -15,22 +15,26 @@ use mdbase::{
 };
 use mdbase_connect_protocol::{
     authority_file_hash, authority_manifest_digest as snapshot_manifest_digest,
-    ApplicationCollectionSetupProvisions, ApplicationCollectionSetupRequirements,
-    ApplicationProvisions, ApplicationRequirements, ApplyCollectionSetupInput, ApplyTypePackInput,
-    AssessCollectionSetupInput, AssessTypePackInput, AuthorityImportManifest,
-    AuthorityImportRecord, AuthorityImportRecordPage, AuthoritySnapshotRecord, CollectionChange,
-    CollectionChangesPage, CollectionContractDescriptor,
-    CollectionContractImplementationDescriptor, CollectionDescription, CollectionTypeDescriptor,
-    ContractRequirement, ContractSetupChoice, ContractSetupMode, FileAction, FileCapability,
-    FileScope, GrantSummary, SyncChange, SyncChangesPage, SyncCollectionResources, SyncConflict,
-    SyncFileSnapshotPage, SyncFileSnapshotPageKind, SyncMutation, SyncMutationError,
-    SyncMutationOperation, SyncMutationReceipt, SyncRecord, SyncReplicaMode, SyncResourceDocument,
-    SyncSession, SyncSnapshotPage, SyncSnapshotRecord, TypePackProvision, AUTHORITY_PROOF_DOMAIN,
-    AUTHORITY_PROOF_VERSION, CONTROL_PROTOCOL_VERSION, FILE_PROTOCOL_VERSION,
+    validate_awareness_name, ApplicationCollectionSetupProvisions,
+    ApplicationCollectionSetupRequirements, ApplicationProvisions, ApplicationRequirements,
+    ApplyCollectionSetupInput, ApplyTypePackInput, AssessCollectionSetupInput, AssessTypePackInput,
+    AuthorityImportManifest, AuthorityImportRecord, AuthorityImportRecordPage,
+    AuthoritySnapshotRecord, CollaborationAccess, CollectionChange, CollectionChangesPage,
+    CollectionContractDescriptor, CollectionContractImplementationDescriptor,
+    CollectionDescription, CollectionTypeDescriptor, ContractRequirement, ContractSetupChoice,
+    ContractSetupMode, FileAction, FileCapability, FileScope, GrantSummary,
+    ReplicaAwarenessIdentity, ReplicaCollaborationCapability, SyncChange, SyncChangesPage,
+    SyncCollectionResources, SyncConflict, SyncFileSnapshotPage, SyncFileSnapshotPageKind,
+    SyncMutation, SyncMutationError, SyncMutationOperation, SyncMutationReceipt, SyncRecord,
+    SyncReplicaMode, SyncResourceDocument, SyncSession, SyncSnapshotPage, SyncSnapshotRecord,
+    TypePackProvision, AUTHORITY_PROOF_DOMAIN, AUTHORITY_PROOF_VERSION,
+    AWARENESS_VISIBLE_TTL_SECONDS, CONTROL_PROTOCOL_VERSION, FILE_PROTOCOL_VERSION,
+    GENERIC_AWARENESS_NAME, MAX_COLLABORATION_PAYLOAD_BYTES,
     SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS, SYNC_PROTOCOL_VERSION,
 };
 use mdbase_connect_runtime::contract_scope::{ContractScope, ContractSelector};
 use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
+use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -64,6 +68,7 @@ mod authority_imports;
 mod authority_snapshots;
 mod authority_transfers;
 mod capabilities;
+pub(crate) mod collaboration;
 mod collections;
 mod compaction;
 mod crypto_state;
@@ -141,8 +146,61 @@ impl KeyReadinessState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CollaborationLimits {
+    pub max_update_bytes: u64,
+    pub max_snapshot_bytes: u64,
+    pub max_document_bytes: u64,
+    pub max_retained_updates: u64,
+    pub max_retained_update_bytes: u64,
+    pub ticket_ttl_seconds: u64,
+    /// How long an awareness participant stays visible without activity.
+    pub awareness_ttl_seconds: u64,
+    pub compaction_threshold: u64,
+}
+
+impl Default for CollaborationLimits {
+    fn default() -> Self {
+        Self {
+            max_update_bytes: MAX_COLLABORATION_PAYLOAD_BYTES as u64,
+            max_snapshot_bytes: 4_194_304,
+            max_document_bytes: 2_097_152,
+            max_retained_updates: 10_000,
+            max_retained_update_bytes: 67_108_864,
+            ticket_ttl_seconds: 30,
+            awareness_ttl_seconds: AWARENESS_VISIBLE_TTL_SECONDS,
+            compaction_threshold: 100,
+        }
+    }
+}
+
+impl CollaborationLimits {
+    pub fn validate(self) -> Result<Self, &'static str> {
+        if self.max_update_bytes == 0
+            || self.max_snapshot_bytes == 0
+            || self.max_document_bytes == 0
+            || self.max_retained_updates == 0
+            || self.max_retained_update_bytes == 0
+            || self.ticket_ttl_seconds == 0
+            || self.awareness_ttl_seconds == 0
+            || self.compaction_threshold == 0
+        {
+            return Err("hosted collaboration limits must be greater than zero");
+        }
+        if self.max_update_bytes > MAX_COLLABORATION_PAYLOAD_BYTES as u64
+            || self.awareness_ttl_seconds > (1_u64 << 53) - 1
+            || self.max_snapshot_bytes < self.max_document_bytes
+            || self.compaction_threshold > self.max_retained_updates
+        {
+            return Err("hosted collaboration limits are inconsistent");
+        }
+        Ok(self)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ProviderLimits {
+    pub hosted_collaboration_enabled: bool,
     pub max_records_per_collection: u64,
     pub max_bytes_per_collection: u64,
     pub max_bytes_per_document: u64,
@@ -152,6 +210,10 @@ pub struct ProviderLimits {
     pub max_file_bytes_per_collection: u64,
     pub max_stored_file_bytes_per_collection: u64,
     pub max_bytes_per_file: u64,
+    /// Provider-owned collaboration ceilings; these are not control-plane entitlements.
+    pub max_collaboration_bytes_per_collection: u64,
+    pub max_collaboration_bytes_per_account: u64,
+    pub collaboration: CollaborationLimits,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -174,6 +236,8 @@ pub struct ProviderAccountUsage {
     pub live_content_bytes: u64,
     pub live_file_bytes: u64,
     pub retained_file_bytes: u64,
+    pub live_collaboration_bytes: u64,
+    pub max_collaboration_bytes: u64,
     #[serde(flatten)]
     pub limits: ProviderAccountLimits,
 }
@@ -181,6 +245,7 @@ pub struct ProviderAccountUsage {
 impl Default for ProviderLimits {
     fn default() -> Self {
         Self {
+            hosted_collaboration_enabled: false,
             max_records_per_collection: 100_000,
             max_bytes_per_collection: 1024 * 1024 * 1024,
             max_bytes_per_document: 2 * 1024 * 1024,
@@ -190,6 +255,9 @@ impl Default for ProviderLimits {
             max_file_bytes_per_collection: 5 * 1024 * 1024 * 1024,
             max_stored_file_bytes_per_collection: 10 * 1024 * 1024 * 1024,
             max_bytes_per_file: 1024 * 1024 * 1024,
+            max_collaboration_bytes_per_collection: 256 * 1024 * 1024,
+            max_collaboration_bytes_per_account: 2 * 1024 * 1024 * 1024,
+            collaboration: CollaborationLimits::default(),
         }
     }
 }
@@ -197,6 +265,9 @@ impl Default for ProviderLimits {
 #[derive(Clone)]
 pub struct HostedProvider {
     pool: PgPool,
+    /// Retained solely to build the dedicated collaboration wake listener
+    /// lane; never logged or serialized.
+    database_url: String,
     /// Dedicated bounded lane for collection-scale SQL. Point reads and
     /// mutations retain the primary pool even while every scan slot is busy.
     query_pool: PgPool,
@@ -593,6 +664,13 @@ pub struct RegisterReplica {
     #[serde(default)]
     pub file_capability: Option<FileCapability>,
     #[serde(default)]
+    pub collaboration_capability: Option<ReplicaCollaborationCapability>,
+    /// Server-derived presentation identity for collaboration awareness.
+    /// Required when a collaboration capability is present; never accepted
+    /// from clients at room time.
+    #[serde(default)]
+    pub awareness_identity: Option<ReplicaAwarenessIdentity>,
+    #[serde(default)]
     pub allowed_origin: Option<String>,
     #[serde(default)]
     pub proof_public_key: Option<String>,
@@ -623,6 +701,13 @@ pub struct UpdateApplicationReplica {
     pub operation_transport_recovery_protocols: Vec<u32>,
     #[serde(default)]
     pub file_capability: Option<FileCapability>,
+    #[serde(default)]
+    pub collaboration_capability: Option<ReplicaCollaborationCapability>,
+    /// Server-derived presentation identity. Changing it advances the scope
+    /// epoch, which ends live awareness participation through the existing
+    /// ticket-deletion and target-close policy hooks.
+    #[serde(default)]
+    pub awareness_identity: Option<ReplicaAwarenessIdentity>,
     #[serde(default)]
     pub allowed_origin: Option<String>,
     #[serde(default)]
@@ -731,6 +816,9 @@ struct Replica {
     operation_transport_protocol: Option<u32>,
     operation_transport_recovery_protocols: Vec<u32>,
     file_capability: Option<FileCapability>,
+    // Read by the Phase 3 room authorizer; persisted and validated in Phase 2.
+    #[allow(dead_code)]
+    collaboration_capability: Option<ReplicaCollaborationCapability>,
     allowed_origin: Option<String>,
     proof_public_key: Option<String>,
     grant_id: Option<Uuid>,

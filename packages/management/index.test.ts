@@ -148,9 +148,16 @@ describe("ConnectManagementClient", () => {
     await client.collectionInvitations("collection");
     await client.createCollectionInvitation("collection", {
       email: "member@example.com",
-      role: "editor"
+      role: "editor",
+      collaboration: true
     });
-    await client.changeCollectionMemberRole("collection", "membership", "viewer");
+    await client.changeCollectionMemberRole(
+      "collection",
+      "membership",
+      "viewer",
+      undefined,
+      true
+    );
     await client.revokeCollectionMember("collection", "membership");
     await client.cancelCollectionInvitation("collection", "invitation");
     await client.acceptCollectionInvitation("cinv_token");
@@ -159,12 +166,19 @@ describe("ConnectManagementClient", () => {
       new URL("https://connect.example/v1/hosted/collections/collection/invitations"),
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ email: "member@example.com", role: "editor" })
+        body: JSON.stringify({
+          email: "member@example.com",
+          role: "editor",
+          collaboration: true
+        })
       })
     );
     expect(fetch).toHaveBeenNthCalledWith(4,
       new URL("https://connect.example/v1/hosted/collections/collection/members/membership"),
-      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ role: "viewer" }) })
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ role: "viewer", collaboration: true })
+      })
     );
     expect(fetch).toHaveBeenNthCalledWith(7,
       new URL("https://connect.example/v1/hosted/collection-invitations/accept"),

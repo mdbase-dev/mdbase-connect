@@ -7,7 +7,8 @@ import type {
   FileCapability,
   GrantScope,
   MdbaseOperationRequest,
-  MutationOperationIdentifier
+  MutationOperationIdentifier,
+  ReplicaCollaborationCapability
 } from "@mdbase-dev/connect-protocol";
 import { encryptRelayRequest } from "./crypto.js";
 
@@ -57,6 +58,7 @@ export interface StoredToken {
   grantId?: string;
   encryption?: GrantEncryption;
   fileCapability?: FileCapability;
+  collaborationCapability?: ReplicaCollaborationCapability;
   applicationOrigin?: string;
   keyHandle?: string;
   /** Previous grant keys retained for durable pending-mutation recovery. */

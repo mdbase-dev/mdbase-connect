@@ -364,70 +364,73 @@ impl AgentState {
             }
             Err(error) => return Err(error.into_connect_error()),
         };
-        let collections = self.registry.list()?;
+        if snapshot.pending_authorizations.is_empty() {
+            return serde_json::to_value(snapshot).map_err(ConnectError::from);
+        }
+        let catalog = self.registry.catalog()?;
         for pending in &mut snapshot.pending_authorizations {
-            pending.compatible_collection_ids = collections
+            pending.compatible_collection_ids = catalog
                 .iter()
-                .filter(|collection| collection.enabled)
-                .filter_map(|collection| {
-                    let supports_operations =
-                        self.registry
-                            .describe(collection.id)
-                            .is_ok_and(|description| {
-                                pending
-                                    .requested_operations
-                                    .iter()
-                                    .all(|operation| description.operations.contains(operation))
-                            });
-                    supports_operations
-                        .then(|| {
-                            self.registry
-                                .is_compatible(collection.id, &pending.requirements)
-                        })
-                        .transpose()
-                        .ok()
-                        .flatten()
-                        .filter(|compatible| *compatible)
-                        .map(|_| collection.id)
+                .filter(|entry| entry.summary.enabled)
+                .filter_map(|entry| {
+                    let description = entry.description.as_ref()?;
+                    let supports_operations = pending
+                        .requested_operations
+                        .iter()
+                        .all(|operation| description.operations.contains(operation));
+                    let supports_contracts =
+                        pending.requirements.contracts.iter().all(|required| {
+                            description.contracts.iter().any(|available| {
+                                available.id == required.id
+                                    && available.version == required.version
+                                    && available.digest == required.digest
+                            })
+                        });
+                    (supports_operations && supports_contracts).then_some(entry.summary.id)
                 })
                 .collect();
-            pending.provisionable_collection_ids = collections
+            pending.provisionable_collection_ids = catalog
                 .iter()
-                .filter(|collection| collection.enabled)
-                .filter(|collection| !pending.compatible_collection_ids.contains(&collection.id))
-                .filter(|collection| {
-                    self.registry
-                        .describe(collection.id)
-                        .is_ok_and(|description| {
-                            description
-                                .operations
+                .filter(|entry| entry.summary.enabled)
+                .filter(|entry| {
+                    !pending
+                        .compatible_collection_ids
+                        .contains(&entry.summary.id)
+                })
+                .filter(|entry| {
+                    entry.description.as_ref().is_some_and(|description| {
+                        description
+                            .operations
+                            .iter()
+                            .any(|operation| operation == "create_type")
+                            && pending
+                                .requested_operations
                                 .iter()
-                                .any(|operation| operation == "create_type")
-                                && pending
-                                    .requested_operations
-                                    .iter()
-                                    .all(|operation| description.operations.contains(operation))
-                        })
+                                .all(|operation| description.operations.contains(operation))
+                            && requirements_can_be_provisioned(
+                                &pending.requirements,
+                                &pending.provisions,
+                                &description.contracts,
+                            )
+                    })
                 })
-                .filter(|collection| {
-                    requirements_can_be_provisioned(
-                        &pending.requirements,
-                        &pending.provisions,
-                        &collection.contracts,
-                    )
-                })
-                .map(|collection| collection.id)
+                .map(|entry| entry.summary.id)
                 .collect();
             pending.collection_types = pending
                 .provisionable_collection_ids
                 .iter()
                 .filter_map(|collection_id| {
-                    let description = self.registry.describe(*collection_id).ok()?;
+                    let description = catalog
+                        .iter()
+                        .find(|entry| entry.summary.id == *collection_id)?
+                        .description
+                        .as_ref()?;
                     Some(AuthorizationCollectionTypes {
                         collection_id: *collection_id,
                         types: description
                             .types
-                            .into_iter()
+                            .iter()
+                            .cloned()
                             .filter_map(approval_type_candidate)
                             .collect(),
                     })

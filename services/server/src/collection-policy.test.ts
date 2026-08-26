@@ -15,7 +15,8 @@ afterEach(async () => database?.end());
 
 describe("collection membership policy", () => {
   it("freezes exact viewer and editor ceilings without owner authority", () => {
-    const viewer = membershipPolicyPreset("viewer");
+    expect(membershipPolicyPreset("viewer").collaborationCeiling).toBeNull();
+    const viewer = membershipPolicyPreset("viewer", { collaboration: true });
     expect(viewer.actions).toEqual([
       "collection.discover",
       "record.read",
@@ -27,8 +28,14 @@ describe("collection membership policy", () => {
     expect(viewer.operations).toContain("read_type");
     expect(viewer.operations).toContain("assess_collection_setup");
     expect(viewer.fileCeiling.actions).toEqual(["list", "read"]);
+    expect(viewer.presetVersion).toBe(2);
+    expect(viewer.collaborationCeiling).toEqual({
+      contract_version: 1,
+      profiles: ["markdown-body-yjs-v13"],
+      access: "read_only"
+    });
 
-    const editor = membershipPolicyPreset("editor");
+    const editor = membershipPolicyPreset("editor", { collaboration: true });
     expect(editor.operations).toEqual(COLLECTION_OPERATIONS);
     expect(editor.actions).toEqual([
       "collection.discover",
@@ -45,6 +52,7 @@ describe("collection membership policy", () => {
     expect(editor.fileCeiling.actions).toEqual([
       "list", "read", "add", "replace", "move", "delete"
     ]);
+    expect(editor.collaborationCeiling?.access).toBe("read_write");
   });
 
   it("creates and resolves one immutable hosted membership policy", async () => {
@@ -80,6 +88,15 @@ describe("collection membership policy", () => {
       current_policy_id: created.id,
       current_policy_revision: 1
     });
+    await database.query(
+      "UPDATE collection_membership_policies SET collaboration_ceiling = NULL WHERE id = $1",
+      [created.id]
+    );
+    await expect(resolveActiveMembershipPolicy(database, {
+      collectionId,
+      ownerUserId: ownerId,
+      userId: memberId
+    })).resolves.toMatchObject({ collaborationCeiling: null });
   });
 
   it("rejects owner memberships, duplicate active memberships, and inactive authorities", async () => {

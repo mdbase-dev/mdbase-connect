@@ -1153,6 +1153,28 @@ test("resizes, collapses, and restores the desktop sidebars", async ({ page }) =
   expect(restored).toBeCloseTo(after, 0);
 });
 
+test("keeps long collection headers from covering note actions", async ({ page }) => {
+  await page.setViewportSize({ width: 1680, height: 950 });
+  await page.goto("?demo=12");
+  await page.locator(".note-list-pane .list-header h1").evaluate((heading) => {
+    heading.textContent = "[test] an exceptionally long collection name that must stay inside the notes sidebar";
+  });
+
+  const pane = page.locator(".note-list-pane");
+  const create = page.getByRole("button", { name: "New note" });
+  const [paneBox, createBox] = await Promise.all([pane.boundingBox(), create.boundingBox()]);
+  if (!paneBox || !createBox) throw new Error("The notes sidebar controls are not visible.");
+  expect(createBox.x + createBox.width).toBeLessThanOrEqual(paneBox.x + paneBox.width);
+  expect(await create.evaluate((button) => {
+    const box = button.getBoundingClientRect();
+    const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    return hit === button || Boolean(hit && button.contains(hit));
+  })).toBe(true);
+
+  await create.click();
+  await expect(page.locator(".new-note-composer")).toBeVisible();
+});
+
 test("keeps the current note inspector open and resizable between note switches", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 760 });
   await page.goto("?demo=12");

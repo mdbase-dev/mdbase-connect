@@ -1,11 +1,13 @@
 import type {
   ApplicationProvisions,
   ApplicationRequirements,
+  AwarenessColorName,
   CollectionContractDescriptor,
   CollectionTypeDescriptor,
   ContractSetupChoice,
   FileCapability,
   GrantSummary,
+  ReplicaCollaborationCapability,
   TypePackProvision
 } from "@mdbase-dev/connect-protocol";
 import {
@@ -16,6 +18,12 @@ import {
 } from "@mdbase-dev/connect-protocol";
 import { hostedReplicaCollectionOperations } from "./hosted-replica-policy.js";
 import { safeEqual } from "./security.js";
+
+/** Server-derived awareness identity plumbed to provider replica storage. */
+export interface AwarenessPresentationIdentity {
+  name: string;
+  color: AwarenessColorName;
+}
 
 export interface HostedProviderConfig {
   url: string;
@@ -54,6 +62,9 @@ export interface HostedReplicaEnrollment {
   operationTransportProtocol?: number;
   operationTransportRecoveryProtocols?: number[];
   fileCapability?: FileCapability;
+  collaborationCapability?: ReplicaCollaborationCapability;
+  /** Server-derived presentation identity; required for collaboration. */
+  awarenessIdentity?: AwarenessPresentationIdentity;
   allowedOrigin?: string;
   proofPublicKey?: string;
   grantId?: string;
@@ -155,6 +166,10 @@ export class HostedProviderClient {
   readonly url: string;
   private readonly endpointUrl: string;
   private readonly internalToken: string;
+  private collaborationContract: {
+    contract_version: 1;
+    profiles: ["markdown-body-yjs-v13"];
+  } | null = null;
 
   constructor(config: HostedProviderConfig) {
     this.endpointUrl = new URL(config.url).origin;
@@ -181,6 +196,19 @@ export class HostedProviderClient {
         new Error("Hosted provider capability report is incompatible.")
       );
     }
+    const support = result.provider.contract_support as ConnectContractSupport;
+    this.collaborationContract = support.collaboration?.includes(1) === true
+      ? { contract_version: 1, profiles: ["markdown-body-yjs-v13"] }
+      : null;
+  }
+
+  collaborationSupport(): {
+    contract_version: 1;
+    profiles: ["markdown-body-yjs-v13"];
+  } | null {
+    return this.collaborationContract
+      ? structuredClone(this.collaborationContract)
+      : null;
   }
 
   authorizesInternalToken(candidate: string | null): boolean {
@@ -438,6 +466,12 @@ export class HostedProviderClient {
             }
           : {}),
         ...(replica.fileCapability ? { file_capability: replica.fileCapability } : {}),
+        ...(replica.collaborationCapability
+          ? { collaboration_capability: replica.collaborationCapability }
+          : {}),
+        ...(replica.awarenessIdentity
+          ? { awareness_identity: replica.awarenessIdentity }
+          : {}),
         ...(replica.allowedOrigin ? { allowed_origin: replica.allowedOrigin } : {}),
         ...(replica.proofPublicKey ? { proof_public_key: replica.proofPublicKey } : {}),
         ...(replica.grantId ? { grant_id: replica.grantId } : {}),
@@ -496,6 +530,8 @@ export class HostedProviderClient {
       operationTransportProtocol: number;
       operationTransportRecoveryProtocols: number[];
       fileCapability?: FileCapability;
+      collaborationCapability?: ReplicaCollaborationCapability;
+      awarenessIdentity?: AwarenessPresentationIdentity;
       allowedOrigin: string | undefined;
       proofPublicKey: string;
       applicationDeclarationId: string;
@@ -518,6 +554,12 @@ export class HostedProviderClient {
         operation_transport_recovery_protocols:
           policy.operationTransportRecoveryProtocols,
         ...(policy.fileCapability ? { file_capability: policy.fileCapability } : {}),
+        ...(policy.collaborationCapability
+          ? { collaboration_capability: policy.collaborationCapability }
+          : {}),
+        ...(policy.awarenessIdentity
+          ? { awareness_identity: policy.awarenessIdentity }
+          : {}),
         allowed_origin: policy.allowedOrigin,
         proof_public_key: policy.proofPublicKey,
         application_declaration_id: policy.applicationDeclarationId,

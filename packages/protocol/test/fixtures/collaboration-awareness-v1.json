@@ -1,0 +1,46 @@
+{
+  "protocol_version": 1,
+  "kind": "awareness",
+  "client_update": {
+    "metadata": {
+      "status": "active",
+      "selections": [
+        {
+          "anchor": 3,
+          "head": 9
+        }
+      ]
+    },
+    "payload": [],
+    "encoded_bytes": 72,
+    "frame_hex": "4d4442430001070000000038000000007b2273656c656374696f6e73223a5b7b22616e63686f72223a332c2268656164223a397d5d2c22737461747573223a22616374697665227d",
+    "frame_sha256": "a604859ddf603497dc6b84b3a98fc68a41268254186fc22add80a2d5135f94da"
+  },
+  "server_snapshot": {
+    "metadata": {
+      "participants": [
+        {
+          "name": "Ada",
+          "color": "teal",
+          "status": "active",
+          "selections": [
+            {
+              "anchor": 0,
+              "head": 12
+            }
+          ]
+        },
+        {
+          "name": "Grace",
+          "color": "rose",
+          "status": "idle",
+          "selections": []
+        }
+      ]
+    },
+    "payload": [],
+    "encoded_bytes": 184,
+    "frame_hex": "4d44424300010700000000a8000000007b227061727469636970616e7473223a5b7b22636f6c6f72223a227465616c222c226e616d65223a22416461222c2273656c656374696f6e73223a5b7b22616e63686f72223a302c2268656164223a31327d5d2c22737461747573223a22616374697665227d2c7b22636f6c6f72223a22726f7365222c226e616d65223a224772616365222c2273656c656374696f6e73223a5b5d2c22737461747573223a2269646c65227d5d7d",
+    "frame_sha256": "833946f52927bde3e435fa87ef986a8e0db2db3482d4555f4b5ca8b448ae1354"
+  }
+}

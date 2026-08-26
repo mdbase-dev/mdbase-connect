@@ -7,6 +7,11 @@ const origin = (process.env.MDBASE_EDITOR_ORIGIN ?? defaultOrigin).replace(/\/$/
 const basePath = normalizeBasePath(process.env.MDBASE_EDITOR_BASE_PATH ?? defaultBasePath);
 const appUrl = new URL(basePath, `${origin}/`).href;
 const connectUrl = process.env.MDBASE_CONNECT_URL?.trim();
+const collaborationFlag = process.env.MDBASE_EDITOR_EXPERIMENTAL_HOSTED_COLLABORATION?.trim();
+if (collaborationFlag && collaborationFlag !== "0" && collaborationFlag !== "1") {
+  throw new Error("MDBASE_EDITOR_EXPERIMENTAL_HOSTED_COLLABORATION must be 0 or 1.");
+}
+const experimentalCollaboration = collaborationFlag === "1";
 const localCallback = connectUrl ? new URL(appUrl) : null;
 if (localCallback) {
   localCallback.searchParams.set("server", new URL(connectUrl).origin);
@@ -15,7 +20,7 @@ const target = resolve(import.meta.dirname, "..", "public", ".well-known", "mdba
 
 await mkdir(resolve(target, ".."), { recursive: true });
 await writeFile(target, `${JSON.stringify({
-  manifest_version: 1,
+  manifest_version: experimentalCollaboration ? 2 : 1,
   id: "dev.mdbase.editor",
   name: "mdbase editor",
   homepage: appUrl,
@@ -23,7 +28,7 @@ await writeFile(target, `${JSON.stringify({
   requirements: {
     contracts: [],
     capabilities: {
-      contract_version: 1,
+      contract_version: experimentalCollaboration ? 2 : 1,
       required: [
         "collection.inspect",
         "records.watch",
@@ -41,13 +46,17 @@ await writeFile(target, `${JSON.stringify({
         "definitions.update",
         "definitions.type-pack.apply",
       ],
-      optional: ["files.add"],
+      optional: [
+        "files.add",
+        ...(experimentalCollaboration ? ["records.collaborate"] : [])
+      ],
     },
     files: {
       actions: ["list", "read", "add"],
       scope: { kind: "collection" }
     },
-    access: "full_collection"
+    access: "full_collection",
+    ...(experimentalCollaboration ? { collection_kind: "hosted" } : {})
   }
 }, null, 2)}\n`);
 

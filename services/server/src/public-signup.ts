@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type {
-  DatabasePool,
-  DatabaseQueryable
-} from "./database-types.js";
+import {
+  accountCreationEmailClaimed,
+  reserveAccountCreationEmail
+} from "./account-creation-email-claims.js";
+import type { DatabasePool, DatabaseQueryable } from "./database-types.js";
 import {
   EMAIL_NORMALIZATION_VERSION,
   normalizeEmailAddress
@@ -12,7 +13,7 @@ import {
   type AuthenticationSettings
 } from "./authentication-policy.js";
 import { scheduleStarterCollection } from "./account-onboarding.js";
-import { scheduleBetaWelcomeEmail } from "./beta-welcome-email.js";
+import { scheduleOpenBetaWelcomeEmail } from "./beta-welcome-email.js";
 import { materializePublicSignupEntitlement } from "./entitlements.js";
 import { hashPassword } from "./password.js";
 import { randomToken, tokenHash } from "./security.js";
@@ -95,7 +96,7 @@ export class PublicSignupService {
       requirePublicSignupEnabled(
         await this.policy.currentForAccountChange(connection)
       );
-      const existingIdentity = await identityExists(connection, email);
+      const existingIdentity = await accountCreationEmailClaimed(connection, email);
       await connection.query(
         `UPDATE authentication_challenges SET invalidated_at = now()
          WHERE purpose = 'public_signup'
@@ -189,13 +190,26 @@ export class PublicSignupService {
         [challengeHash]
       );
       const challenge = consumed.rows[0];
-      if (!challenge || await identityExists(connection, challenge.normalized_email)) {
+      if (
+        !challenge
+        || await accountCreationEmailClaimed(
+          connection,
+          challenge.normalized_email
+        )
+      ) {
         throw new InvalidPublicSignupVerificationError();
       }
       await connection.query(
         "INSERT INTO users (id, email, name) VALUES ($1, NULL, $2)",
         [userId, name]
       );
+      if (!await reserveAccountCreationEmail(connection, {
+        normalizedEmail: challenge.normalized_email,
+        userId,
+        source: "email_identity"
+      })) {
+        throw new InvalidPublicSignupVerificationError();
+      }
       await connection.query(
         `INSERT INTO email_identities
            (id, user_id, email, normalized_email, normalization_version,
@@ -222,7 +236,7 @@ export class PublicSignupService {
         [userId, input.termsVersion, input.privacyVersion]
       );
       await materializePublicSignupEntitlement(connection, userId);
-      await scheduleBetaWelcomeEmail(connection, { userId, emailIdentityId });
+      await scheduleOpenBetaWelcomeEmail(connection, { userId, emailIdentityId });
       await scheduleStarterCollection(connection, userId, input.timezone ?? "UTC");
       await connection.query(
         `INSERT INTO sessions
@@ -298,25 +312,6 @@ function agreementsMatch(
   ) {
     throw new InvalidPublicSignupVerificationError();
   }
-}
-
-async function identityExists(
-  db: DatabaseQueryable,
-  normalizedEmail: string
-): Promise<boolean> {
-  const result = await db.query(
-    `SELECT user_id FROM email_identities
-     WHERE normalized_email = $1 AND retired_at IS NULL
-     UNION ALL
-     SELECT user_id FROM external_identities
-     WHERE normalized_email = $1 AND email_verified = true
-     UNION ALL
-     SELECT id AS user_id FROM users
-     WHERE email IS NOT NULL AND lower(email) = lower($1)
-     LIMIT 1`,
-    [normalizedEmail]
-  );
-  return Boolean(result.rows[0]);
 }
 
 function requiredText(value: string, maxLength: number, name: string): string {

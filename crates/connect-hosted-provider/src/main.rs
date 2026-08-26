@@ -3,8 +3,9 @@ use std::{net::IpAddr, sync::Arc, time::Duration};
 use axum::{http::StatusCode, response::IntoResponse, routing::get, Json, Router};
 use clap::{Parser, ValueEnum};
 use mdbase_connect_hosted_provider::{
-    app, ApiResult, AppState, HostedNotificationConfig, HostedProvider, KeyWrappingBackend,
-    KeyWrappingConfig, ProviderCrypto, ProviderLimits, R2BlobStore, R2Config, R2InsecureHttpConfig,
+    app, ApiResult, AppState, CollaborationLimits, HostedNotificationConfig, HostedProvider,
+    KeyWrappingBackend, KeyWrappingConfig, ProviderCrypto, ProviderLimits, R2BlobStore, R2Config,
+    R2InsecureHttpConfig,
 };
 use tokio::{net::TcpListener, signal};
 use tracing_subscriber::EnvFilter;
@@ -65,6 +66,12 @@ struct Arguments {
     port: u16,
     #[arg(
         long,
+        env = "MDBASE_CONNECT_HOSTED_COLLABORATION_ENABLED",
+        default_value_t = false
+    )]
+    hosted_collaboration_enabled: bool,
+    #[arg(
+        long,
         env = "MDBASE_CONNECT_HOSTED_MAX_RECORDS_PER_COLLECTION",
         default_value_t = 100_000
     )]
@@ -81,6 +88,54 @@ struct Arguments {
         default_value_t = 2_097_152
     )]
     max_bytes_per_document: u64,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_COLLAB_MAX_UPDATE_BYTES",
+        default_value_t = 262_144
+    )]
+    collaboration_max_update_bytes: u64,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_COLLAB_MAX_SNAPSHOT_BYTES",
+        default_value_t = 4_194_304
+    )]
+    collaboration_max_snapshot_bytes: u64,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_COLLAB_MAX_DOCUMENT_BYTES",
+        default_value_t = 2_097_152
+    )]
+    collaboration_max_document_bytes: u64,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_COLLAB_MAX_RETAINED_UPDATES",
+        default_value_t = 10_000
+    )]
+    collaboration_max_retained_updates: u64,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_COLLAB_MAX_RETAINED_UPDATE_BYTES",
+        default_value_t = 67_108_864
+    )]
+    collaboration_max_retained_update_bytes: u64,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_COLLAB_TICKET_TTL_SECONDS",
+        default_value_t = 30
+    )]
+    collaboration_ticket_ttl_seconds: u64,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_COLLAB_AWARENESS_TTL_SECONDS",
+        default_value_t = 30
+    )]
+    collaboration_awareness_ttl_seconds: u64,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_COLLAB_COMPACTION_THRESHOLD",
+        default_value_t = 100
+    )]
+    collaboration_compaction_threshold: u64,
     #[arg(
         long,
         env = "MDBASE_CONNECT_HOSTED_MAX_MIRROR_REPLICAS_PER_COLLECTION",
@@ -214,6 +269,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .install_default()
         .expect("the TLS crypto provider must be installed before starting the hosted provider");
     let arguments = Arguments::parse();
+    let collaboration_limits = CollaborationLimits {
+        max_update_bytes: arguments.collaboration_max_update_bytes,
+        max_snapshot_bytes: arguments.collaboration_max_snapshot_bytes,
+        max_document_bytes: arguments.collaboration_max_document_bytes,
+        max_retained_updates: arguments.collaboration_max_retained_updates,
+        max_retained_update_bytes: arguments.collaboration_max_retained_update_bytes,
+        ticket_ttl_seconds: arguments.collaboration_ticket_ttl_seconds,
+        awareness_ttl_seconds: arguments.collaboration_awareness_ttl_seconds,
+        compaction_threshold: arguments.collaboration_compaction_threshold,
+    }
+    .validate()
+    .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
     if arguments.maintenance_interval_seconds == 0 {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -255,6 +322,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let crypto = provider_crypto(&arguments, secrets.master_key.take()).await?;
     let limits = ProviderLimits {
+        hosted_collaboration_enabled: arguments.hosted_collaboration_enabled,
         max_records_per_collection: arguments.max_records_per_collection,
         max_bytes_per_collection: arguments.max_bytes_per_collection,
         max_bytes_per_document: arguments.max_bytes_per_document,
@@ -264,6 +332,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_file_bytes_per_collection: arguments.max_file_bytes_per_collection,
         max_stored_file_bytes_per_collection: arguments.max_stored_file_bytes_per_collection,
         max_bytes_per_file: arguments.max_bytes_per_file,
+        max_collaboration_bytes_per_collection: ProviderLimits::default()
+            .max_collaboration_bytes_per_collection,
+        max_collaboration_bytes_per_account: ProviderLimits::default()
+            .max_collaboration_bytes_per_account,
+        collaboration: collaboration_limits,
     };
     let notification_config =
         arguments
@@ -313,6 +386,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
     let state = AppState::new(provider.clone(), &secrets.internal_token)?;
+    // Fail-closed wake listener startup: when collaboration is enabled the
+    // PostgreSQL LISTEN subscription must come up or the provider refuses to
+    // serve. Disabled mode starts nothing.
+    state.start_collaboration_wake_runtime().await?;
     let maintenance = tokio::spawn(maintain_history(
         provider.clone(),
         arguments.retain_changes,
@@ -332,9 +409,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("HOSTED_PROVIDER_LISTENING=http://{address}");
     tracing::info!(%address, "hosted provider listening");
 
-    let result = axum::serve(listener, app(state))
-        .with_graceful_shutdown(shutdown_signal())
+    let result = axum::serve(listener, app(state.clone()))
+        .with_graceful_shutdown(collaboration_drain_shutdown(state.clone()))
         .await;
+    // Also cover listener/server failures that return without the signal
+    // future completing. Do not grant a second budget after a signal-driven
+    // drain already exhausted its end-to-end deadline.
+    let server_failed_before_drain = state.collaboration_sessions_accepting();
+    state.begin_collaboration_session_drain();
+    let final_drain_budget = if server_failed_before_drain {
+        Duration::from_secs(10)
+    } else {
+        Duration::ZERO
+    };
+    if !state
+        .finish_collaboration_session_drain(final_drain_budget)
+        .await
+    {
+        tracing::warn!("collaboration sessions did not drain after server exit");
+    }
+    if !state
+        .stop_collaboration_wake_runtime(Duration::from_secs(10))
+        .await
+    {
+        tracing::warn!("collaboration wake listener did not stop within its shutdown budget");
+    }
     maintenance.abort();
     let _ = maintenance.await;
     projection_recovery.abort();
@@ -535,7 +634,22 @@ async fn shutdown_signal() {
     #[cfg(not(unix))]
     let _ = signal::ctrl_c().await;
     tracing::info!("shutdown requested");
-    tokio::time::sleep(Duration::from_millis(10)).await;
+}
+
+/// The single shutdown signal drives collaboration drain before the Axum wait
+/// finishes: new tickets/upgrades/updates are rejected, already-started update
+/// batches finish, sockets receive close 1001, and every socket exits (bounded)
+/// while `axum::serve` waits on this future. Wake runtime and maintenance tasks
+/// are stopped afterwards in `main`.
+async fn collaboration_drain_shutdown(state: AppState) {
+    shutdown_signal().await;
+    state.begin_collaboration_session_drain();
+    if !state
+        .finish_collaboration_session_drain(Duration::from_secs(10))
+        .await
+    {
+        tracing::warn!("collaboration sessions did not drain within the shutdown budget");
+    }
 }
 
 #[cfg(test)]

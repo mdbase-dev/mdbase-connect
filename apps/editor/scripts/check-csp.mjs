@@ -33,6 +33,9 @@ for (const name of ["img-src", "media-src", "frame-src", "worker-src", "connect-
     throw new Error(`The Content-Security-Policy must allow blob: assets in ${name}.`);
   }
 }
+if (!directives.get("connect-src")?.includes("wss:")) {
+  throw new Error("The Content-Security-Policy must allow authenticated hosted WebSockets.");
+}
 for (const required of [
   "https://accounts.google.com/gsi/client",
   "frame-src https://accounts.google.com/gsi/",

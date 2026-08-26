@@ -67,13 +67,22 @@ export function registerHostedSharingRoutes(
       requireHostedSharing(options);
       const { collectionId } = collectionParams.parse(request.params);
       const body = z.union([
-        z.object({ email: z.string().trim().min(3).max(320), role: roleSchema }).strict(),
-        z.object({ invitee_code: z.string().trim().min(8).max(32), role: roleSchema }).strict()
+        z.object({
+          email: z.string().trim().min(3).max(320),
+          role: roleSchema,
+          collaboration: z.boolean().optional()
+        }).strict(),
+        z.object({
+          invitee_code: z.string().trim().min(8).max(32),
+          role: roleSchema,
+          collaboration: z.boolean().optional()
+        }).strict()
       ]).parse(request.body);
       const invitation = await createHostedCollectionInvitation(options.db, {
         collectionId,
         actorUserId: user.id,
         role: body.role,
+        collaboration: body.collaboration,
         target: "email" in body
           ? { email: body.email }
           : { inviteeCode: body.invitee_code }
@@ -199,13 +208,17 @@ export function registerHostedSharingRoutes(
       if (!user) return;
       requireHostedSharing(options);
       const { collectionId, membershipId } = membershipParams.parse(request.params);
-      const { role } = z.object({ role: roleSchema }).strict().parse(request.body);
+      const { role, collaboration } = z.object({
+        role: roleSchema,
+        collaboration: z.boolean().optional()
+      }).strict().parse(request.body);
       const changed = await hideMembershipAuthorization(() =>
         changeHostedCollectionMembershipRole(options.db, {
           collectionId,
           actorUserId: user.id,
           membershipId,
-          role
+          role,
+          collaboration
         })
       );
       return reply.code(changed.state === "changing" ? 202 : 200).send({

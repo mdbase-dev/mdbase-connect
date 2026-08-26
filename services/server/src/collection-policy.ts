@@ -4,7 +4,8 @@ import {
   type CollectionOperation,
   type FileAction,
   type FileCapability,
-  type GrantScope
+  type GrantScope,
+  type ReplicaCollaborationCapability
 } from "@mdbase-dev/connect-protocol";
 import { z } from "zod";
 import { requiresWriteReplica } from "./collection-operation-policy.js";
@@ -33,7 +34,7 @@ export const COLLECTION_MEMBERSHIP_ROLES = ["viewer", "editor"] as const;
 export type CollectionMembershipRole = typeof COLLECTION_MEMBERSHIP_ROLES[number];
 export type CollectionRole = "owner" | CollectionMembershipRole;
 
-export const COLLECTION_MEMBERSHIP_PRESET_VERSION = 1;
+export const COLLECTION_MEMBERSHIP_PRESET_VERSION = 2;
 
 const FILE_ACTIONS = ["list", "read", "add", "replace", "move", "delete"] as const;
 
@@ -87,6 +88,12 @@ const fileScopeSchema = z.discriminatedUnion("kind", [
     folders: uniqueArray(z.string().trim().min(1).max(1024))
   }).strict()
 ]);
+const collaborationCapabilitySchema = z.object({
+  contract_version: z.literal(1),
+  profiles: z.tuple([z.literal("markdown-body-yjs-v13")]),
+  access: z.enum(["read_only", "read_write"])
+}).strict();
+
 const fileCapabilitySchema = z.object({
   kind: z.literal("files"),
   protocol_version: z.literal(1),
@@ -106,7 +113,8 @@ const storedPolicySchema = z.object({
   actions: actionArraySchema,
   operations: operationArraySchema,
   scope_ceiling: grantScopeSchema,
-  file_ceiling: fileCapabilitySchema
+  file_ceiling: fileCapabilitySchema,
+  collaboration_ceiling: collaborationCapabilitySchema.nullable()
 }).strict();
 
 export interface CollectionMembershipPolicy {
@@ -122,6 +130,7 @@ export interface CollectionMembershipPolicy {
   operations: readonly CollectionOperation[];
   scopeCeiling: GrantScope;
   fileCeiling: FileCapability;
+  collaborationCeiling: ReplicaCollaborationCapability | null;
 }
 
 export interface MembershipPolicySnapshot {
@@ -131,10 +140,12 @@ export interface MembershipPolicySnapshot {
   operations: readonly CollectionOperation[];
   scopeCeiling: GrantScope;
   fileCeiling: FileCapability;
+  collaborationCeiling: ReplicaCollaborationCapability | null;
 }
 
 export function membershipPolicyPreset(
-  role: CollectionMembershipRole
+  role: CollectionMembershipRole,
+  options: { collaboration?: boolean } = {}
 ): MembershipPolicySnapshot {
   const editor = role === "editor";
   return {
@@ -148,7 +159,14 @@ export function membershipPolicyPreset(
       protocol_version: 1,
       actions: [...(editor ? EDITOR_FILE_ACTIONS : VIEWER_FILE_ACTIONS)],
       scope: { kind: "collection" }
-    }
+    },
+    collaborationCeiling: options.collaboration
+      ? {
+          contract_version: 1,
+          profiles: ["markdown-body-yjs-v13"],
+          access: editor ? "read_write" : "read_only"
+        }
+      : null
   };
 }
 
@@ -165,6 +183,7 @@ export async function createHostedCollectionMembership(
     userId: string;
     role: CollectionMembershipRole;
     invitedByUserId?: string;
+    collaboration?: boolean;
   }
 ): Promise<CollectionMembershipPolicy> {
   const connection = await db.connect();
@@ -191,7 +210,9 @@ export async function createHostedCollectionMembership(
       ownerUserId: input.ownerUserId,
       userId: input.userId,
       invitedByUserId: input.invitedByUserId ?? input.ownerUserId,
-      snapshot: membershipPolicyPreset(input.role)
+      snapshot: membershipPolicyPreset(input.role, {
+        collaboration: input.collaboration === true
+      })
     });
     await connection.query("COMMIT");
     return policy;
@@ -253,14 +274,16 @@ export async function insertHostedCollectionMembershipPolicy(
     actions: true,
     operations: true,
     scope_ceiling: true,
-    file_ceiling: true
+    file_ceiling: true,
+    collaboration_ceiling: true
   }).safeParse({
     role: input.snapshot.role,
     preset_version: input.snapshot.presetVersion,
     actions: input.snapshot.actions,
     operations: input.snapshot.operations,
     scope_ceiling: input.snapshot.scopeCeiling,
-    file_ceiling: input.snapshot.fileCeiling
+    file_ceiling: input.snapshot.fileCeiling,
+    collaboration_ceiling: input.snapshot.collaborationCeiling
   });
   if (!parsedSnapshot.success) {
     throw new CollectionMembershipPolicyError(
@@ -281,8 +304,9 @@ export async function insertHostedCollectionMembershipPolicy(
   await db.query(
     `INSERT INTO collection_membership_policies
        (id, membership_id, revision, role, preset_version, actions,
-        operations, scope_ceiling, file_ceiling)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb)`,
+        operations, scope_ceiling, file_ceiling, collaboration_ceiling)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb,
+             $10::jsonb)`,
     [
       policyId,
       membershipId,
@@ -292,7 +316,10 @@ export async function insertHostedCollectionMembershipPolicy(
       JSON.stringify(snapshot.actions),
       JSON.stringify(snapshot.operations),
       JSON.stringify(snapshot.scope_ceiling),
-      JSON.stringify(snapshot.file_ceiling)
+      JSON.stringify(snapshot.file_ceiling),
+      snapshot.collaboration_ceiling === null
+        ? null
+        : JSON.stringify(snapshot.collaboration_ceiling)
     ]
   );
   await db.query(
@@ -313,7 +340,8 @@ export async function insertHostedCollectionMembershipPolicy(
     actions: snapshot.actions,
     operations: snapshot.operations,
     scopeCeiling: snapshot.scope_ceiling,
-    fileCeiling: snapshot.file_ceiling
+    fileCeiling: snapshot.file_ceiling,
+    collaborationCeiling: snapshot.collaboration_ceiling
   };
 }
 
@@ -325,7 +353,8 @@ export async function resolveActiveMembershipPolicy(
     `SELECT policy.id, policy.membership_id, membership.collection_id,
             membership.user_id, identity.owner_user_id, policy.revision,
             policy.role, policy.preset_version, policy.actions,
-            policy.operations, policy.scope_ceiling, policy.file_ceiling
+            policy.operations, policy.scope_ceiling, policy.file_ceiling,
+            policy.collaboration_ceiling
      FROM collection_memberships membership
      JOIN collection_identities identity
        ON identity.id = membership.collection_id
@@ -353,7 +382,8 @@ export async function resolveActiveMembershipPolicy(
     actions: decoded.data.actions,
     operations: decoded.data.operations,
     scopeCeiling: decoded.data.scope_ceiling,
-    fileCeiling: decoded.data.file_ceiling
+    fileCeiling: decoded.data.file_ceiling,
+    collaborationCeiling: decoded.data.collaboration_ceiling
   };
 }
 

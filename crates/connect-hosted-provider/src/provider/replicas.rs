@@ -25,6 +25,16 @@ impl HostedProvider {
             .map_err(|error| {
                 ApiError::internal(format!("File capability could not be serialized: {error}"))
             })?;
+        let collaboration_capability = input
+            .collaboration_capability
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|error| {
+                ApiError::internal(format!(
+                    "Collaboration capability could not be serialized: {error}"
+                ))
+            })?;
         let contract_scope = serde_json::to_value(&input.contract_scope).map_err(|error| {
             ApiError::internal(format!("Contract scope could not be serialized: {error}"))
         })?;
@@ -76,7 +86,9 @@ impl HostedProvider {
                       full_collection,
                       allowed_operations, operation_transport_protocol,
                       operation_transport_recovery_protocols,
-                      file_capability, allowed_origin, proof_public_key, grant_id,
+                      file_capability, collaboration_capability, awareness_name,
+                      awareness_color, allowed_origin,
+                      proof_public_key, grant_id,
                       application_declaration_id, application_declaration_digest,
                       token_hash, revoked_at
                FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE"#,
@@ -86,6 +98,23 @@ impl HostedProvider {
         .await?
         {
             let existing_hash: Vec<u8> = existing.get("token_hash");
+            let awareness_matches = if collaboration_capability.is_none() {
+                // Migration 0044 backfilled generic defaults for rollback-safe
+                // old-binary inserts. They are irrelevant to ordinary replicas
+                // and must not break idempotent registration retries.
+                true
+            } else {
+                existing.get::<Option<String>, _>("awareness_name")
+                    == input
+                        .awareness_identity
+                        .as_ref()
+                        .map(|identity| identity.name.clone())
+                    && existing.get::<Option<String>, _>("awareness_color")
+                        == input
+                            .awareness_identity
+                            .as_ref()
+                            .map(|identity| identity.color.as_str().to_owned())
+            };
             let exact_match = existing.get::<Uuid, _>("collection_id") == collection_id
                 && existing.get::<String, _>("name") == name
                 && existing.get::<String, _>("purpose") == purpose
@@ -105,6 +134,9 @@ impl HostedProvider {
                         .map(|version| *version as i32)
                         .collect::<Vec<_>>()
                 && existing.get::<Option<Value>, _>("file_capability") == file_capability
+                && existing.get::<Option<Value>, _>("collaboration_capability")
+                    == collaboration_capability
+                && awareness_matches
                 && existing
                     .get::<Option<String>, _>("allowed_origin")
                     .as_deref()
@@ -153,12 +185,13 @@ impl HostedProvider {
                   full_collection,
                   allowed_operations, operation_transport_protocol,
                   operation_transport_recovery_protocols,
-                  file_capability, allowed_origin, proof_public_key, grant_id,
-                  application_declaration_id, application_declaration_digest, token_hash,
-                  token_expires_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                       $13, $14, $15, $16, $17, $18,
-                       now() + ($19 * interval '1 second'))"#,
+                  file_capability, collaboration_capability, awareness_name,
+                  awareness_color, allowed_origin,
+                  proof_public_key, grant_id, application_declaration_id,
+                  application_declaration_digest, token_hash, token_expires_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+                       $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
+                       now() + ($22 * interval '1 second'))"#,
         )
         .bind(input.replica_id)
         .bind(collection_id)
@@ -182,6 +215,19 @@ impl HostedProvider {
                 .collect::<Vec<_>>(),
         )
         .bind(file_capability)
+        .bind(collaboration_capability)
+        .bind(
+            input
+                .awareness_identity
+                .as_ref()
+                .map(|identity| identity.name.clone()),
+        )
+        .bind(
+            input
+                .awareness_identity
+                .as_ref()
+                .map(|identity| identity.color.as_str().to_owned()),
+        )
         .bind(input.allowed_origin)
         .bind(input.proof_public_key)
         .bind(input.grant_id)
@@ -280,6 +326,10 @@ impl HostedProvider {
                 "Active replica not found.",
             ));
         }
+        sqlx::query("DELETE FROM hosted_provider_collaboration_tickets WHERE replica_id = $1")
+            .bind(replica_id)
+            .execute(&mut *transaction)
+            .await?;
         transaction.commit().await?;
         Ok(())
     }
@@ -305,7 +355,7 @@ impl HostedProvider {
         let row = sqlx::query(
             r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations,
                       operation_transport_protocol, operation_transport_recovery_protocols, file_capability,
-                      allowed_origin, proof_public_key, grant_id, scope_epoch
+                      collaboration_capability, allowed_origin, proof_public_key, grant_id, scope_epoch
                FROM hosted_provider_replicas
                WHERE collection_id = $1 AND token_hash = $2
                  AND revoked_at IS NULL AND token_expires_at > now()
@@ -324,11 +374,12 @@ impl HostedProvider {
                           replica.full_collection, replica.allowed_operations,
                           replica.operation_transport_protocol,
                           replica.operation_transport_recovery_protocols,
-                          replica.file_capability, retired.allowed_origin,
+                          replica.file_capability, replica.collaboration_capability, retired.allowed_origin,
                           retired.proof_public_key, replica.grant_id, replica.scope_epoch
                    FROM hosted_provider_retired_replay_credentials retired
                    JOIN hosted_provider_replicas replica ON replica.id = retired.replica_id
                    WHERE replica.collection_id = $1 AND replica.purpose = 'application'
+                     AND replica.revoked_at IS NULL
                      AND retired.token_hash = $2 AND retired.expires_at > now()
                    ORDER BY retired.retired_at DESC LIMIT 1
                    FOR SHARE OF replica"#,
@@ -415,6 +466,8 @@ impl HostedProvider {
                 .operation_transport_recovery_protocols
                 .clone(),
             file_capability: input.file_capability.clone(),
+            collaboration_capability: input.collaboration_capability.clone(),
+            awareness_identity: input.awareness_identity.clone(),
             allowed_origin: input.allowed_origin.clone(),
             proof_public_key: input.proof_public_key.clone(),
             grant_id: Some(input.grant_id),
@@ -434,6 +487,16 @@ impl HostedProvider {
             .map_err(|error| {
                 ApiError::internal(format!("File capability could not be serialized: {error}"))
             })?;
+        let collaboration_capability = input
+            .collaboration_capability
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|error| {
+                ApiError::internal(format!(
+                    "Collaboration capability could not be serialized: {error}"
+                ))
+            })?;
         let mut transaction = self.pool.begin().await?;
         archive_application_replay_credential(&mut transaction, replica_id).await?;
         let result = sqlx::query(
@@ -447,11 +510,14 @@ impl HostedProvider {
                        OR operation_transport_protocol IS DISTINCT FROM $7
                        OR operation_transport_recovery_protocols IS DISTINCT FROM $8
                        OR file_capability IS DISTINCT FROM $9
-                       OR grant_id IS DISTINCT FROM $10
-                       OR allowed_origin IS DISTINCT FROM $11
-                       OR proof_public_key IS DISTINCT FROM $12
-                       OR application_declaration_id IS DISTINCT FROM $13
-                       OR application_declaration_digest IS DISTINCT FROM $14
+                       OR collaboration_capability IS DISTINCT FROM $10
+                       OR grant_id IS DISTINCT FROM $11
+                       OR awareness_name IS DISTINCT FROM $12
+                       OR awareness_color IS DISTINCT FROM $13
+                       OR allowed_origin IS DISTINCT FROM $14
+                       OR proof_public_key IS DISTINCT FROM $15
+                       OR application_declaration_id IS DISTINCT FROM $16
+                       OR application_declaration_digest IS DISTINCT FROM $17
                      THEN 1 ELSE 0 END,
                    mode = $2,
                    allowed_types = $3,
@@ -461,11 +527,14 @@ impl HostedProvider {
                    operation_transport_protocol = $7,
                    operation_transport_recovery_protocols = $8,
                    file_capability = $9,
-                   grant_id = $10,
-                   allowed_origin = $11,
-                   proof_public_key = $12,
-                   application_declaration_id = $13,
-                   application_declaration_digest = $14
+                   collaboration_capability = $10,
+                   grant_id = $11,
+                   awareness_name = $12,
+                   awareness_color = $13,
+                   allowed_origin = $14,
+                   proof_public_key = $15,
+                   application_declaration_id = $16,
+                   application_declaration_digest = $17
                WHERE id = $1 AND purpose = 'application' AND revoked_at IS NULL"#,
         )
         .bind(replica_id)
@@ -483,7 +552,20 @@ impl HostedProvider {
                 .collect::<Vec<_>>(),
         )
         .bind(file_capability)
+        .bind(collaboration_capability)
         .bind(input.grant_id)
+        .bind(
+            input
+                .awareness_identity
+                .as_ref()
+                .map(|identity| identity.name.clone()),
+        )
+        .bind(
+            input
+                .awareness_identity
+                .as_ref()
+                .map(|identity| identity.color.as_str().to_owned()),
+        )
         .bind(input.allowed_origin)
         .bind(input.proof_public_key)
         .bind(input.application_declaration_id)
@@ -496,6 +578,10 @@ impl HostedProvider {
                 "Active application capability not found.",
             ));
         }
+        sqlx::query("DELETE FROM hosted_provider_collaboration_tickets WHERE replica_id = $1")
+            .bind(replica_id)
+            .execute(&mut *transaction)
+            .await?;
         transaction.commit().await?;
         Ok(())
     }
@@ -509,6 +595,10 @@ impl HostedProvider {
         .bind(replica_id)
         .execute(&mut *transaction)
         .await?;
+        sqlx::query("DELETE FROM hosted_provider_collaboration_tickets WHERE replica_id = $1")
+            .bind(replica_id)
+            .execute(&mut *transaction)
+            .await?;
         transaction.commit().await?;
         Ok(())
     }
@@ -520,7 +610,7 @@ impl HostedProvider {
         purpose: ReplicaPurpose,
     ) -> ApiResult<Replica> {
         let row = sqlx::query(
-            r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations, file_capability,
+            r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations, file_capability, collaboration_capability,
                       allowed_origin, proof_public_key, grant_id, scope_epoch
                FROM hosted_provider_replicas
                WHERE collection_id = $1 AND token_hash = $2 AND purpose = $3
@@ -542,7 +632,7 @@ impl HostedProvider {
         request_origin: Option<&str>,
     ) -> ApiResult<Replica> {
         let row = sqlx::query(
-            r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations, file_capability,
+            r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations, file_capability, collaboration_capability,
                       allowed_origin, proof_public_key, grant_id, scope_epoch
                FROM hosted_provider_replicas
                WHERE collection_id = $1 AND token_hash = $2

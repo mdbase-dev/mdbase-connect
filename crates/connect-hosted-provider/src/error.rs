@@ -141,6 +141,14 @@ impl From<sqlx::Error> for ApiError {
                     "account_retained_storage_quota_exceeded",
                     "The change would exceed the account's retained file storage limit.",
                 )),
+                "account_collaboration_quota_exceeded" => Some((
+                    "account_collaboration_quota_exceeded",
+                    "The change would exceed the account's collaboration storage limit.",
+                )),
+                "collection_collaboration_quota_exceeded" => Some((
+                    "collection_collaboration_quota_exceeded",
+                    "The change would exceed the collection's collaboration storage limit.",
+                )),
                 _ => None,
             };
             if let Some((code, message)) = quota {

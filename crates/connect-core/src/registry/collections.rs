@@ -1,7 +1,87 @@
 use super::*;
 
 impl CollectionRegistry {
+    /// List registered collection metadata without loading type or contract resources.
     pub fn list(&self) -> Result<Vec<CollectionSummary>, ConnectError> {
+        let mut collections = self.registered_summaries()?;
+        for summary in &mut collections {
+            if !matches!(mirror_collection_id(Path::new(&summary.path)), Ok(None)) {
+                summary.enabled = false;
+                continue;
+            }
+            let _ = self.refresh_summary_metadata(summary);
+        }
+        collections.sort_by(|left, right| {
+            left.display_name
+                .to_lowercase()
+                .cmp(&right.display_name.to_lowercase())
+                .then_with(|| left.path.cmp(&right.path))
+        });
+        Ok(collections)
+    }
+
+    /// Build only the metadata and contracts required by relay inventory.
+    pub fn inventory(&self) -> Result<Vec<CollectionSummary>, ConnectError> {
+        let mut collections = self.registered_summaries()?;
+        for summary in &mut collections {
+            if !matches!(mirror_collection_id(Path::new(&summary.path)), Ok(None)) {
+                summary.enabled = false;
+                continue;
+            }
+            let _ = self.refresh_summary_metadata(summary);
+            summary.contracts = self
+                .describe_contracts_registered(summary)
+                .unwrap_or_default();
+        }
+        collections.sort_by(|left, right| {
+            left.display_name
+                .to_lowercase()
+                .cmp(&right.display_name.to_lowercase())
+                .then_with(|| left.path.cmp(&right.path))
+        });
+        Ok(collections)
+    }
+
+    /// Load current collection metadata without opening record runtimes.
+    ///
+    /// Resource failures are isolated to their collection so one malformed or
+    /// temporarily changing type registry cannot hide unrelated candidates.
+    pub fn catalog(&self) -> Result<Vec<CollectionCatalogEntry>, ConnectError> {
+        let mut collections = self.registered_summaries()?;
+        let mut catalog = Vec::with_capacity(collections.len());
+        for mut summary in collections.drain(..) {
+            match mirror_collection_id(Path::new(&summary.path)) {
+                Ok(None) => {}
+                Ok(Some(_)) | Err(_) => {
+                    summary.enabled = false;
+                    catalog.push(CollectionCatalogEntry {
+                        summary,
+                        description: None,
+                    });
+                    continue;
+                }
+            }
+            let _ = self.refresh_summary_metadata(&mut summary);
+            let description = self.describe_registered(&summary).ok();
+            if let Some(description) = &description {
+                summary.contracts.clone_from(&description.contracts);
+            }
+            catalog.push(CollectionCatalogEntry {
+                summary,
+                description,
+            });
+        }
+        catalog.sort_by(|left, right| {
+            left.summary
+                .display_name
+                .to_lowercase()
+                .cmp(&right.summary.display_name.to_lowercase())
+                .then_with(|| left.summary.path.cmp(&right.summary.path))
+        });
+        Ok(catalog)
+    }
+
+    fn registered_summaries(&self) -> Result<Vec<CollectionSummary>, ConnectError> {
         let connection = self.connection()?;
         let mut statement = connection.prepare(
             "SELECT id, display_name, description, path, spec_version, enabled
@@ -18,45 +98,22 @@ impl CollectionRegistry {
                 row.get::<_, bool>(5)?,
             ))
         })?;
-
-        let mut collections = rows
-            .map(|row| {
-                let (id, display_name, description, path, spec_version, enabled) = row?;
-                let id = Uuid::parse_str(&id).map_err(|error| {
-                    ConnectError::CollectionOpen(format!(
-                        "invalid collection id in registry: {error}"
-                    ))
-                })?;
-                Ok(CollectionSummary {
-                    id,
-                    display_name,
-                    description,
-                    path,
-                    spec_version,
-                    enabled,
-                    contracts: Vec::new(),
-                })
+        rows.map(|row| {
+            let (id, display_name, description, path, spec_version, enabled) = row?;
+            let id = Uuid::parse_str(&id).map_err(|error| {
+                ConnectError::CollectionOpen(format!("invalid collection id in registry: {error}"))
+            })?;
+            Ok(CollectionSummary {
+                id,
+                display_name,
+                description,
+                path,
+                spec_version,
+                enabled,
+                contracts: Vec::new(),
             })
-            .collect::<Result<Vec<_>, ConnectError>>()?;
-        drop(statement);
-        drop(connection);
-        for collection in &mut collections {
-            if mirror_collection_id(Path::new(&collection.path))?.is_some() {
-                collection.enabled = false;
-                continue;
-            }
-            let _ = self.refresh_summary_metadata(collection);
-            if let Ok(description) = self.describe(collection.id) {
-                collection.contracts = description.contracts;
-            }
-        }
-        collections.sort_by(|left, right| {
-            left.display_name
-                .to_lowercase()
-                .cmp(&right.display_name.to_lowercase())
-                .then_with(|| left.path.cmp(&right.path))
-        });
-        Ok(collections)
+        })
+        .collect()
     }
 
     pub fn count(&self) -> Result<usize, ConnectError> {

@@ -2,7 +2,8 @@ import type {
   FileCapability,
   GrantEncryption,
   GrantScope,
-  MdbaseAppManifest
+  MdbaseAppManifest,
+  ReplicaCollaborationCapability
 } from "@mdbase-dev/connect-protocol";
 import { validateGrantEncryption } from "./crypto.js";
 import {
@@ -169,6 +170,19 @@ export function validStoredAuthority(
     access_token: authority?.accessToken,
     proof_public_key: authority?.proofPublicKey
   }, collectionId);
+}
+
+export function validCollaborationCapability(
+  value: unknown
+): value is ReplicaCollaborationCapability {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const capability = value as Partial<ReplicaCollaborationCapability>;
+  return Object.keys(capability).length === 3
+    && capability.contract_version === 1
+    && Array.isArray(capability.profiles)
+    && capability.profiles.length === 1
+    && capability.profiles[0] === "markdown-body-yjs-v13"
+    && ["read_only", "read_write"].includes(String(capability.access));
 }
 
 export function validFileCapability(value: unknown): value is FileCapability {

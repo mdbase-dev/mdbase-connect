@@ -7,6 +7,14 @@ import {
   recordDisplayField
 } from "./field-reference";
 
+export function summaryFromDocument(document: NoteDocument): NoteSummary {
+  const { revision: _revision, ...summary } = document;
+  return {
+    ...summary,
+    file: { ...document.file, path: document.path }
+  };
+}
+
 export function editableNote(
   note: NoteDocument,
   types: CollectionTypeDescriptor[] = []

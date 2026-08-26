@@ -2,18 +2,20 @@ import { spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  managedEnvironments,
+  normalizedEndpointOrigin
+} from "./lib/managed-environments.mjs";
 
 export const developmentDeployments = Object.freeze({
   lab: Object.freeze({
-    editorOrigin: "https://candidate-b.mdbase-editor.pages.dev",
-    connectOrigin: "https://mdbase-connect-lab.onrender.com",
-    project: "mdbase-editor",
+    ...managedEnvironments.lab,
+    project: "mdbase-editor-lab",
     branch: "candidate-b",
     wranglerVersion: "4.114.0"
   }),
   staging: Object.freeze({
-    editorOrigin: "https://editor-staging.mdbase.dev",
-    connectOrigin: "https://connect-staging.mdbase.dev",
+    ...managedEnvironments.staging,
     project: "mdbase-editor",
     branch: "staging",
     wranglerVersion: "4.114.0"
@@ -34,7 +36,19 @@ export async function deployDevelopmentEditor(environment, run = runCommand) {
     throw new Error("Development editor deployments are restricted to lab and staging.");
   }
   const deployment = developmentDeployments[target];
-  const requestedOrigin = environment.MDBASE_CONNECT_URL?.trim();
+  const collaborationFlag = environment.MDBASE_EDITOR_EXPERIMENTAL_HOSTED_COLLABORATION?.trim();
+  if (collaborationFlag && collaborationFlag !== "0" && collaborationFlag !== "1") {
+    throw new Error("MDBASE_EDITOR_EXPERIMENTAL_HOSTED_COLLABORATION must be 0 or 1.");
+  }
+  if (target === "staging" && collaborationFlag === "1") {
+    throw new Error("Experimental hosted collaboration Editor builds are restricted to LAB.");
+  }
+  const requestedOrigin = environment.MDBASE_CONNECT_URL?.trim()
+    ? normalizedEndpointOrigin(
+        environment.MDBASE_CONNECT_URL,
+        "MDBASE_CONNECT_URL"
+      )
+    : undefined;
   if (requestedOrigin && requestedOrigin !== deployment.connectOrigin) {
     throw new Error(`MDBASE_CONNECT_URL does not match the ${target} environment.`);
   }

@@ -1,0 +1,36 @@
+{
+  "contract_version": 1,
+  "profile": "markdown-body-yjs-v13",
+  "yjs_version": "13.6.32",
+  "yrs_version": "0.26.0",
+  "root": "body",
+  "offset_encoding": "utf16",
+  "body_encoding": "utf8",
+  "line_endings": "lf-only",
+  "files": {
+    "yjs-initial-update-v1.bin": {
+      "bytes": 49,
+      "sha256": "ae65e43a1b139c5790f49cbbdf67f288d063d9dbf95b93fa91f368dca8ef8d25"
+    },
+    "yjs-offline-update-v1.bin": {
+      "bytes": 65,
+      "sha256": "1ba7f764703bec50bb0480ba221101b39be08a898ba28b20837d16de58690e5e"
+    },
+    "yjs-old-state-vector-v1.bin": {
+      "bytes": 4,
+      "sha256": "85c4fe139d61349f10761b6b307606b67dbf2041eaf22a0677c8f511341fd251"
+    },
+    "yrs-compacted-snapshot-v1.bin": {
+      "bytes": 176,
+      "sha256": "2b5594f19c66185c112c842b8cd01a6bb8d7e1193d44d37a34187c20a81777dc"
+    },
+    "yrs-diff-from-old-vector-v1.bin": {
+      "bytes": 127,
+      "sha256": "dd53391baa8052e82213ec23e47dae54426cf0fee1231f92c2134dba88d24f11"
+    },
+    "yrs-provider-update-v1.bin": {
+      "bytes": 67,
+      "sha256": "adcb30a4cf15a5c7a7ba228bf94d825bc04b77fbbfdea30104fab6f4429e0324"
+    }
+  }
+}

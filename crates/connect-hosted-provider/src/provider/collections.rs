@@ -93,9 +93,10 @@ impl HostedProvider {
                   resources_ciphertext, max_records, max_content_bytes,
                   max_document_bytes, max_mirror_replicas,
                   max_application_replicas, max_files, max_file_bytes,
-                  max_stored_file_bytes, max_single_file_bytes)
+                  max_stored_file_bytes, max_single_file_bytes,
+                  max_collaboration_bytes)
                VALUES ($1, $2, $3, $4, $5, 'indexing', $6, $7, $8, $9, $10, $11,
-                       $12, $13, $14, $15, $16, $17, $18)
+                       $12, $13, $14, $15, $16, $17, $18, $19)
                ON CONFLICT (id) DO NOTHING"#,
         )
         .bind(collection_id)
@@ -142,6 +143,10 @@ impl HostedProvider {
         .bind(to_i64(
             account.limits.max_single_file_bytes,
             "single file byte quota",
+        )?)
+        .bind(to_i64(
+            self.limits.max_collaboration_bytes_per_collection,
+            "collection collaboration safety limit",
         )?)
         .execute(&mut *transaction)
         .await?;

@@ -32,6 +32,17 @@ pub struct ApplicationSetupResult {
     pub receipt: Value,
 }
 
+/// A registered collection and its current resource-only description.
+///
+/// Invalid or temporarily unreadable collection resources leave `description`
+/// empty without hiding other registered collections. Local paths in the
+/// summary must never cross the connector boundary.
+#[derive(Debug, Clone)]
+pub struct CollectionCatalogEntry {
+    pub summary: CollectionSummary,
+    pub description: Option<CollectionDescription>,
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct RuntimeResidencyDiagnostics {
     pub capacity: usize,

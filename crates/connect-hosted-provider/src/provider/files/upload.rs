@@ -635,7 +635,7 @@ impl HostedProvider {
         let mut transaction = self.pool.begin().await?;
         let replica_row = sqlx::query(
             r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection,
-                      allowed_operations, file_capability, allowed_origin, proof_public_key,
+                      allowed_operations, file_capability, collaboration_capability, allowed_origin, proof_public_key,
                       grant_id, scope_epoch
                FROM hosted_provider_replicas
                WHERE collection_id = $1 AND token_hash = $2

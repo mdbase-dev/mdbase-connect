@@ -22,6 +22,7 @@ chrono-tz.workspace = true
 futures-util.workspace = true
 hmac.workspace = true
 mdbase.workspace = true
+mdbase-connect-collaboration = { path = "../connect-collaboration" }
 mdbase-connect-protocol = { path = "../connect-protocol" }
 mdbase-connect-runtime = { path = "../connect-runtime" }
 mdbase-runtime = { workspace = true, features = ["postgres"] }
@@ -49,3 +50,5 @@ zstd.workspace = true
 
 [dev-dependencies]
 serde_yaml.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+tokio-tungstenite.workspace = true

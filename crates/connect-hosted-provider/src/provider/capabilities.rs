@@ -118,6 +118,7 @@ pub(super) fn validate_proof_public_key(value: &str) -> ApiResult<()> {
 pub(super) fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<()> {
     validate_operations(&input.allowed_operations, input.mode)?;
     validate_file_capability(input.file_capability.as_ref(), input.mode)?;
+    validate_collaboration_capability(input)?;
     match input.purpose {
         ReplicaPurpose::Mirror => {
             if !input.allowed_operations.is_empty()
@@ -131,6 +132,7 @@ pub(super) fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<
                 || input.full_collection
                 || !input.contract_scope.is_empty()
                 || input.file_capability.is_some()
+                || input.collaboration_capability.is_some()
             {
                 return Err(ApiError::bad_request(
                     "invalid_mirror_capability",
@@ -296,6 +298,60 @@ fn valid_application_declaration_id(value: &str) -> bool {
         }
     }
     saw_separator
+}
+
+fn validate_collaboration_capability(input: &RegisterReplica) -> ApiResult<()> {
+    let Some(capability) = input.collaboration_capability.as_ref() else {
+        if input.awareness_identity.is_some() {
+            return Err(ApiError::bad_request(
+                "invalid_collaboration_capability",
+                "Awareness identity is allowed only for collaboration replicas.",
+            ));
+        }
+        return Ok(());
+    };
+    // Collaboration requires a server-derived presentation identity: without
+    // one there is no safe name/color to show other participants.
+    let Some(identity) = input.awareness_identity.as_ref() else {
+        return Err(ApiError::bad_request(
+            "invalid_collaboration_capability",
+            "Collaboration capabilities require an awareness identity.",
+        ));
+    };
+    if identity.name != GENERIC_AWARENESS_NAME || validate_awareness_name(&identity.name).is_err() {
+        return Err(ApiError::bad_request(
+            "invalid_collaboration_capability",
+            "The awareness display name must be the generic non-PII identity.",
+        ));
+    }
+    if input.purpose != ReplicaPurpose::Application
+        || capability.contract_version != 1
+        || capability.profiles.len() != 1
+        || capability.profiles[0] != "markdown-body-yjs-v13"
+        || !input.full_collection
+        || !input.contract_scope.is_empty()
+        || !input
+            .allowed_operations
+            .iter()
+            .any(|operation| operation == "read")
+        || input.grant_id.is_none()
+        || input.allowed_origin.is_none()
+        || input.proof_public_key.is_none()
+        || input.application_declaration_id.is_none()
+        || input.application_declaration_digest.is_none()
+        || (capability.access == CollaborationAccess::ReadWrite
+            && (input.mode != SyncReplicaMode::ReadWrite
+                || !input
+                    .allowed_operations
+                    .iter()
+                    .any(|operation| operation == "update")))
+    {
+        return Err(ApiError::bad_request(
+            "invalid_collaboration_capability",
+            "The collaboration capability is not exactly bound to this application replica.",
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn validate_file_capability(

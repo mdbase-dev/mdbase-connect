@@ -1,12 +1,13 @@
 import type { CollectionOperation } from "./operations.js";
 
-export const APPLICATION_CAPABILITY_CONTRACT_VERSION = 1 as const;
+export const LEGACY_APPLICATION_CAPABILITY_CONTRACT_VERSION = 1 as const;
+export const APPLICATION_CAPABILITY_CONTRACT_VERSION = 2 as const;
 
 /**
- * Stable application-facing abilities. Applications declare intent in these
- * terms; Connect alone translates them into wire-level collection operations.
+ * Stable v1 application-facing abilities. This map is immutable: v1 validators
+ * and clients must never begin accepting collaboration implicitly.
  */
-export const APPLICATION_CAPABILITY_DEFINITIONS = {
+export const APPLICATION_CAPABILITY_DEFINITIONS_V1 = {
   "collection.inspect": ["describe"],
   "records.watch": ["changes"],
   "records.read": ["read"],
@@ -43,13 +44,36 @@ export const APPLICATION_CAPABILITY_DEFINITIONS = {
   "files.delete": []
 } as const satisfies Record<string, readonly CollectionOperation[]>;
 
-export type ApplicationCapabilityId = keyof typeof APPLICATION_CAPABILITY_DEFINITIONS;
+/**
+ * V2 adds room intent without translating it to `update`. Exact read/write
+ * room access is negotiated and bound independently from operation authority.
+ */
+export const APPLICATION_CAPABILITY_DEFINITIONS_V2 = {
+  ...APPLICATION_CAPABILITY_DEFINITIONS_V1,
+  "records.collaborate": []
+} as const satisfies Record<string, readonly CollectionOperation[]>;
 
-export interface ApplicationCapabilityRequirements {
+/** Current definitions; retained export name for existing callers. */
+export const APPLICATION_CAPABILITY_DEFINITIONS = APPLICATION_CAPABILITY_DEFINITIONS_V2;
+
+export type ApplicationCapabilityIdV1 = keyof typeof APPLICATION_CAPABILITY_DEFINITIONS_V1;
+export type ApplicationCapabilityId = keyof typeof APPLICATION_CAPABILITY_DEFINITIONS_V2;
+
+export interface ApplicationCapabilityRequirementsV1 {
+  contract_version: typeof LEGACY_APPLICATION_CAPABILITY_CONTRACT_VERSION;
+  required: ApplicationCapabilityIdV1[];
+  optional?: ApplicationCapabilityIdV1[];
+}
+
+export interface ApplicationCapabilityRequirementsV2 {
   contract_version: typeof APPLICATION_CAPABILITY_CONTRACT_VERSION;
   required: ApplicationCapabilityId[];
   optional?: ApplicationCapabilityId[];
 }
+
+export type ApplicationCapabilityRequirements =
+  | ApplicationCapabilityRequirementsV1
+  | ApplicationCapabilityRequirementsV2;
 
 export function operationsForApplicationCapabilities(
   requirements: ApplicationCapabilityRequirements,
@@ -58,13 +82,32 @@ export function operationsForApplicationCapabilities(
   const capabilities = options.includeOptional === false
     ? requirements.required
     : [...requirements.required, ...(requirements.optional ?? [])];
-  return [...new Set(capabilities.flatMap(
-    (capability) => APPLICATION_CAPABILITY_DEFINITIONS[capability]
+  const definitions = requirements.contract_version === 1
+    ? APPLICATION_CAPABILITY_DEFINITIONS_V1
+    : APPLICATION_CAPABILITY_DEFINITIONS_V2;
+  return [...new Set(capabilities.flatMap((capability) =>
+    definitions[capability as keyof typeof definitions]
   ))];
 }
 
 export function capabilityOperations(
-  capability: ApplicationCapabilityId
+  capability: ApplicationCapabilityId,
+  contractVersion: 1 | 2 = APPLICATION_CAPABILITY_CONTRACT_VERSION
 ): CollectionOperation[] {
-  return [...APPLICATION_CAPABILITY_DEFINITIONS[capability]];
+  if (
+    contractVersion === LEGACY_APPLICATION_CAPABILITY_CONTRACT_VERSION
+    && !(capability in APPLICATION_CAPABILITY_DEFINITIONS_V1)
+  ) throw new Error("Capability is unavailable in application capability contract v1.");
+  return [...APPLICATION_CAPABILITY_DEFINITIONS_V2[capability]];
+}
+
+export function requestsRecordCollaboration(
+  requirements: ApplicationCapabilityRequirements | undefined,
+  options: { includeOptional?: boolean } = {}
+): boolean {
+  if (!requirements || requirements.contract_version !== 2) return false;
+  const capabilities = options.includeOptional === false
+    ? requirements.required
+    : [...requirements.required, ...(requirements.optional ?? [])];
+  return capabilities.includes("records.collaborate");
 }

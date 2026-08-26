@@ -28,6 +28,7 @@ import {
 import { tags } from "@lezer/highlight";
 import { useEffect, useRef } from "react";
 import { parseDocument as parseYamlDocument } from "yaml";
+import { MAX_AWARENESS_SELECTIONS } from "@mdbase-dev/connect-protocol";
 import type { FileAssetSnapshot } from "./file-asset-store";
 import type { ResolvedFileReference } from "./use-file-assets";
 import { writerAutocomplete } from "./code-editor-completions";
@@ -39,6 +40,11 @@ import type { LinkSuggestion } from "./links";
 import { markdownReferences } from "./markdown-references";
 import type { ResolvedNoteEmbed } from "./note-embeds";
 import type { NotePreviewAnchor, NotePreviewSource } from "./NotePreview";
+import type {
+  ExperimentalHostedMarkdownRoom,
+  ExperimentalHostedMarkdownRoomSnapshot,
+  ExperimentalHostedRoomParticipant
+} from "@mdbase-dev/connect-collaboration";
 import type { CollectionFile, NoteSummary } from "./model";
 
 type EditorLanguage = "markdown" | "json" | "yaml" | "yaml-frontmatter" | "plain";
@@ -77,6 +83,12 @@ interface CodeEditorProps {
   onVisibleNoteEmbeds?: (keys: string[]) => void;
   insertion?: { id: number; text: string; block?: boolean };
   onBlur?: () => void;
+  collaborationExpected?: boolean;
+  collaboration?: {
+    room: ExperimentalHostedMarkdownRoom;
+    extension: Extension;
+    snapshot?: ExperimentalHostedMarkdownRoomSnapshot;
+  };
 }
 
 interface RememberedEditor {
@@ -130,12 +142,23 @@ export function CodeEditor({
   onVisibleFileEmbeds,
   onVisibleNoteEmbeds,
   insertion,
-  onBlur
+  onBlur,
+  collaborationExpected = false,
+  collaboration
 }: CodeEditorProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | undefined>(undefined);
   const onChangeRef = useRef(onChange);
+  const collaborationExpectedRef = useRef(collaborationExpected || Boolean(collaboration));
   const syncing = useRef(false);
+  const collaborationMode = useRef(new Compartment());
+  const presenceMode = useRef(new Compartment());
+  const appliedPresence = useRef<{
+    participants: ExperimentalHostedMarkdownRoomSnapshot["participants"];
+    room: ExperimentalHostedMarkdownRoom | undefined;
+    state: ExperimentalHostedMarkdownRoomSnapshot["state"] | undefined;
+  } | undefined>(undefined);
+  const collaborationRef = useRef(collaboration);
   const vimMode = useRef(new Compartment());
   const wrapping = useRef(new Compartment());
   const completions = useRef(new Compartment());
@@ -164,7 +187,7 @@ export function CodeEditor({
   const onVisibleFileEmbedsRef = useRef(onVisibleFileEmbeds);
   const onVisibleNoteEmbedsRef = useRef(onVisibleNoteEmbeds);
   const appliedInsertion = useRef<number | undefined>(undefined);
-  const lineSeparator = useRef(lineSeparatorFor(value));
+  const lineSeparator = useRef(lineSeparatorFor(collaboration?.room.body.toString() ?? value));
 
   linkSuggestionsRef.current = linkSuggestions;
   linkTypesRef.current = linkTypes;
@@ -182,6 +205,8 @@ export function CodeEditor({
   onOpenFileLinkRef.current = onOpenFileLink;
   onVisibleFileEmbedsRef.current = onVisibleFileEmbeds;
   onVisibleNoteEmbedsRef.current = onVisibleNoteEmbeds;
+  collaborationExpectedRef.current = collaborationExpected || Boolean(collaboration);
+  collaborationRef.current = collaboration;
 
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
 
@@ -189,7 +214,13 @@ export function CodeEditor({
     if (!parentRef.current) return;
     const extensions: Extension[] = [
       vimMode.current.of([]),
-      editorSetup(variant),
+      collaborationMode.current.of([
+        editorSetup(variant, Boolean(collaboration)),
+        collaboration?.extension ?? []
+      ]),
+      presenceMode.current.of(remotePresenceExtension(
+        collaboration?.snapshot?.state === "connected" ? collaboration.snapshot.participants : []
+      )),
       syntaxHighlighting(mdbaseHighlightStyle),
       variant === "writer" ? syntaxHighlighting(writerHighlightStyle) : [],
       languageMode.current.of(language === "markdown" ? markdown() : []),
@@ -238,25 +269,33 @@ export function CodeEditor({
       })),
       placeholderMode.current.of(placeholder ? editorPlaceholder(placeholder) : []),
       EditorView.updateListener.of((update) => {
-        if (update.docChanged && !syncing.current) {
+        if (update.docChanged && !syncing.current && !collaborationExpectedRef.current) {
           onChangeRef.current?.(restoreLineSeparators(update.state.doc.toString(), lineSeparator.current));
+        }
+        const activeCollaboration = collaborationRef.current;
+        if (activeCollaboration && (update.docChanged || update.selectionSet)) {
+          publishCollaborationAwareness(activeCollaboration.room, update.view, "active");
         }
       })
     ];
-    const remembered = documentId ? rememberedEditors.get(documentId) : undefined;
+    const remembered = !collaborationExpectedRef.current && documentId ? rememberedEditors.get(documentId) : undefined;
     const config = { extensions };
-    const state = remembered && rememberedValue(remembered) === value
+    const initialValue = collaboration?.room.body.toString() ?? value;
+    const state = remembered && rememberedValue(remembered) === initialValue
       ? EditorState.fromJSON(remembered.state, config, { history: historyField })
-      : EditorState.create({ doc: value, extensions });
+      : EditorState.create({ doc: initialValue, extensions });
     const view = new EditorView({ parent: parentRef.current, state });
     viewRef.current = view;
     requestAnimationFrame(() => {
       if (viewRef.current !== view) return;
       if (remembered) view.scrollDOM.scrollTop = remembered.scrollTop;
       if (autoFocus) view.focus();
+      if (collaboration) publishCollaborationAwareness(collaboration.room, view, "active");
     });
     return () => {
-      if (documentId) rememberEditor(documentId, view, lineSeparator.current);
+      if (!collaborationExpectedRef.current && documentId) rememberEditor(documentId, view, lineSeparator.current);
+      const activeCollaboration = collaborationRef.current;
+      if (activeCollaboration) publishCollaborationAwareness(activeCollaboration.room, view, "idle");
       onDismissLinkPreviewRef.current?.();
       view.destroy();
       viewRef.current = undefined;
@@ -265,6 +304,54 @@ export function CodeEditor({
     // Runtime preferences are reconfigured by the effects below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    const active = collaboration;
+    const body = active?.room.body.toString();
+    const effects = collaborationMode.current.reconfigure([
+      editorSetup(variant, Boolean(active)),
+      active?.extension ?? []
+    ]);
+    if (body !== undefined && view.state.doc.toString() !== body) {
+      syncing.current = true;
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: body },
+        selection: EditorSelection.cursor(Math.min(view.state.selection.main.head, body.length)),
+        effects
+      });
+      syncing.current = false;
+    } else {
+      view.dispatch({ effects });
+    }
+    if (active) publishCollaborationAwareness(active.room, view, "active");
+  }, [collaboration?.extension, collaboration?.room, variant]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    const snapshot = collaboration?.snapshot;
+    const room = collaboration?.room;
+    const roomChanged = appliedPresence.current !== undefined
+      && appliedPresence.current.room !== room;
+    if (snapshot?.pendingUpdates && !roomChanged) return;
+    const participants = !snapshot?.pendingUpdates && snapshot?.state === "connected"
+      ? snapshot.participants
+      : [];
+    if (
+      appliedPresence.current?.participants === participants
+      && appliedPresence.current.room === room
+      && appliedPresence.current.state === snapshot?.state
+    ) return;
+    view.dispatch({ effects: presenceMode.current.reconfigure(remotePresenceExtension(participants)) });
+    appliedPresence.current = { participants, room, state: snapshot?.state };
+  }, [
+    collaboration?.room,
+    collaboration?.snapshot?.participants,
+    collaboration?.snapshot?.pendingUpdates,
+    collaboration?.snapshot?.state
+  ]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -422,14 +509,14 @@ export function CodeEditor({
 
   useEffect(() => {
     const view = viewRef.current;
-    if (!view || restoreLineSeparators(view.state.doc.toString(), lineSeparator.current) === value) return;
+    if (!view || collaborationExpected || collaboration || restoreLineSeparators(view.state.doc.toString(), lineSeparator.current) === value) return;
     syncing.current = true;
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: value },
       selection: EditorSelection.cursor(Math.min(view.state.selection.main.head, value.length))
     });
     syncing.current = false;
-  }, [value]);
+  }, [collaboration, value]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -452,9 +539,15 @@ export function CodeEditor({
   return <div
     ref={parentRef}
     className={`code-editor code-editor-${variant} ${className}`.trim()}
+    onFocus={() => {
+      const view = viewRef.current;
+      if (collaboration && view) publishCollaborationAwareness(collaboration.room, view, "active");
+    }}
     onBlur={(event) => {
       const next = event.relatedTarget;
       if (next instanceof Node && event.currentTarget.contains(next)) return;
+      const view = viewRef.current;
+      if (collaboration && view) publishCollaborationAwareness(collaboration.room, view, "idle");
       onBlur?.();
     }}
   />;
@@ -503,9 +596,110 @@ export function markdownEdit(doc: string, from: number, to: number, format: Mark
   };
 }
 
-const editorSetup = (variant: EditorVariant): Extension => [
+class RemotePresenceCaret extends WidgetType {
+  constructor(
+    private readonly name: string,
+    private readonly color: ExperimentalHostedRoomParticipant["color"],
+    private readonly row: number
+  ) {
+    super();
+  }
+
+  override eq(other: RemotePresenceCaret): boolean {
+    return this.name === other.name && this.color === other.color && this.row === other.row;
+  }
+
+  override toDOM(): HTMLElement {
+    const caret = document.createElement("span");
+    caret.className = `cm-remote-presence-caret cm-remote-presence-label cm-remote-presence-${this.color}`;
+    caret.setAttribute("aria-hidden", "true");
+    caret.dataset.presenceLabel = this.name;
+    caret.style.setProperty("--presence-row", String(this.row));
+    return caret;
+  }
+
+  override ignoreEvent(): boolean {
+    return true;
+  }
+}
+
+export function remotePresenceExtension(
+  participants: readonly ExperimentalHostedRoomParticipant[]
+): Extension {
+  if (participants.length === 0) return [];
+  return ViewPlugin.fromClass(class {
+    decorations: DecorationSet;
+
+    constructor(view: EditorView) {
+      this.decorations = remotePresenceDecorations(view, participants);
+    }
+
+    update(update: ViewUpdate): void {
+      if (update.docChanged) {
+        // Keep the last server snapshot anchored to its surrounding text while
+        // local Yjs updates are still in flight. Rebuilding from unchanged
+        // absolute offsets would make remote carets drift in the opposite
+        // direction as text is inserted or removed before them.
+        this.decorations = this.decorations.map(update.changes);
+      }
+    }
+  }, {
+    decorations: (plugin) => plugin.decorations
+  });
+}
+
+function remotePresenceDecorations(
+  view: EditorView,
+  participants: readonly ExperimentalHostedRoomParticipant[]
+): DecorationSet {
+  const ranges: Range<Decoration>[] = [];
+  participants.forEach((participant, participantIndex) => {
+    participant.selections.forEach((selection) => {
+      const anchor = Math.max(0, Math.min(view.state.doc.length, selection.anchor));
+      const head = Math.max(0, Math.min(view.state.doc.length, selection.head));
+      const from = Math.min(anchor, head);
+      const to = Math.max(anchor, head);
+      if (from < to) {
+        ranges.push(Decoration.mark({
+          class: `cm-remote-presence-selection cm-remote-presence-${participant.color}`
+        }).range(from, to));
+      }
+      ranges.push(Decoration.widget({
+        widget: new RemotePresenceCaret(participant.name, participant.color, participantIndex),
+        side: 1
+      }).range(head));
+    });
+  });
+  return Decoration.set(ranges, true);
+}
+
+export function boundedAwarenessSelections(
+  ranges: readonly { anchor: number; head: number }[]
+): Array<{ anchor: number; head: number }> {
+  return ranges.slice(0, MAX_AWARENESS_SELECTIONS).map((range) => ({
+    anchor: range.anchor,
+    head: range.head
+  }));
+}
+
+function publishCollaborationAwareness(
+  room: ExperimentalHostedMarkdownRoom,
+  view: EditorView,
+  status: "active" | "idle"
+): void {
+  try {
+    room.setAwareness({
+      status,
+      selections: boundedAwarenessSelections(view.state.selection.ranges)
+    });
+  } catch {
+    // The room can become terminal between a view update and this notification.
+  }
+}
+
+const editorSetup = (variant: EditorVariant, collaborative = false): Extension => [
   highlightSpecialChars(),
-  history(),
+  collaborative ? [] : history(),
   search({ top: true }),
   highlightSelectionMatches({ minSelectionLength: 2 }),
   bracketMatching(),
@@ -521,7 +715,7 @@ const editorSetup = (variant: EditorVariant): Extension => [
     ...(variant === "source" ? closeBracketsKeymap : []),
     ...searchKeymap,
     ...defaultKeymap,
-    ...historyKeymap,
+    ...(collaborative ? [] : historyKeymap),
     ...lintKeymap
   ])
 ];

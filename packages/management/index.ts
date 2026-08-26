@@ -378,8 +378,8 @@ export class ConnectManagementClient {
   createCollectionInvitation(
     collectionId: string,
     input:
-      | { email: string; role: "viewer" | "editor" }
-      | { invitee_code: string; role: "viewer" | "editor" },
+      | { email: string; role: "viewer" | "editor"; collaboration?: boolean }
+      | { invitee_code: string; role: "viewer" | "editor"; collaboration?: boolean },
     options?: ManagementRequestOptions
   ): Promise<{
     invitation: HostedCollectionInvitation & { collection_id: string; token: string };
@@ -407,11 +407,15 @@ export class ConnectManagementClient {
     collectionId: string,
     membershipId: string,
     role: "viewer" | "editor",
-    options?: ManagementRequestOptions
+    options?: ManagementRequestOptions,
+    collaboration?: boolean
   ): Promise<void> {
     return this.request(
       `/v1/hosted/collections/${encodeURIComponent(collectionId)}/members/${encodeURIComponent(membershipId)}`,
-      { method: "PATCH", body: JSON.stringify({ role }) },
+      {
+        method: "PATCH",
+        body: JSON.stringify({ role, ...(collaboration === undefined ? {} : { collaboration }) })
+      },
       options
     );
   }

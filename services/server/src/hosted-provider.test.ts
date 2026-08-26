@@ -340,9 +340,10 @@ describe("hosted provider control client", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(
       readinessDocument({
         operation_transport: [2, 3],
-        authorization_binding: [3, 4, 5],
+        authorization_binding: [3, 4, 5, 6],
         semantic_capabilities: [1, 2],
-        durable_mutation: [1, 2]
+        durable_mutation: [1, 2],
+        collaboration: [1, 2]
       })
     ), { status: 200 }));
     const provider = new HostedProviderClient({
@@ -350,6 +351,10 @@ describe("hosted provider control client", () => {
       internalToken: "internal-secret"
     });
     await expect(provider.ready()).resolves.toBeUndefined();
+    expect(provider.collaborationSupport()).toEqual({
+      contract_version: 1,
+      profiles: ["markdown-body-yjs-v13"]
+    });
   });
 
   it("accepts core readiness while durable notification delivery is degraded", async () => {

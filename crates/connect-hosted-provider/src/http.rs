@@ -23,10 +23,6 @@ use mdbase_connect_protocol::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
-use std::sync::Arc;
-use subtle::ConstantTimeEq;
-use tokio::sync::Semaphore;
 use tower_http::{
     cors::{Any, CorsLayer},
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
@@ -37,19 +33,24 @@ use uuid::Uuid;
 use crate::{
     error::{ApiError, ApiResult},
     provider::{
-        validate_limit, HostedProvider, PrepareAuthorityImport, PrepareAuthorityTransfer,
-        RegisterReplica, UpdateApplicationReplica,
+        validate_limit, PrepareAuthorityImport, PrepareAuthorityTransfer, RegisterReplica,
+        UpdateApplicationReplica,
     },
 };
 
 mod accounts;
+mod app_state;
 mod authentication;
 mod authority_import_files;
+mod collaboration;
+pub(crate) mod collaboration_awareness;
+pub(crate) mod collaboration_sessions;
 mod diagnostics;
 mod files;
 mod projections;
 
 use accounts::account_routes;
+pub use app_state::AppState;
 use authentication::{bearer, request_origin, request_proof};
 use authority_import_files::{
     commit_authority_import_file_upload, open_authority_import_file_upload,
@@ -63,45 +64,6 @@ const MAX_BODY_BYTES: usize = 3 * 1024 * 1024;
 // Record imports are paged, but a page can contain several large canonical
 // documents. Provider quotas and the concurrency gate bound parsed work.
 const MAX_IMPORT_BODY_BYTES: usize = 16 * 1024 * 1024;
-// An admitted request holds one primary-pool connection for its cross-process
-// advisory permit. Eight permits leave ten primary connections for handler and
-// maintenance work, preventing a pool-ordering deadlock under saturation.
-const MAX_ADMITTED_REQUESTS: usize = 8;
-#[derive(Clone)]
-pub struct AppState {
-    provider: HostedProvider,
-    internal_token_hash: [u8; 32],
-    request_slots: Arc<Semaphore>,
-}
-
-impl AppState {
-    pub fn new(provider: HostedProvider, internal_token: &str) -> ApiResult<Self> {
-        if internal_token.len() < 32 {
-            return Err(ApiError::bad_request(
-                "invalid_internal_token",
-                "The provider internal credential must contain at least 32 characters.",
-            ));
-        }
-        Ok(Self {
-            provider,
-            internal_token_hash: Sha256::digest(internal_token.as_bytes()).into(),
-            request_slots: Arc::new(Semaphore::new(MAX_ADMITTED_REQUESTS)),
-        })
-    }
-
-    fn authorize_internal(&self, headers: &HeaderMap) -> ApiResult<()> {
-        let token = bearer(headers)?;
-        let candidate: [u8; 32] = Sha256::digest(token.as_bytes()).into();
-        if bool::from(candidate.ct_eq(&self.internal_token_hash)) {
-            Ok(())
-        } else {
-            Err(ApiError::unauthorized(
-                "invalid_internal_token",
-                "The provider internal credential is invalid.",
-            ))
-        }
-    }
-}
 
 #[derive(Debug, Deserialize)]
 struct RenameCollectionRequest {
@@ -319,12 +281,20 @@ pub fn app(state: AppState) -> Router {
         )
         .layer(DefaultBodyLimit::max(MAX_IMPORT_BODY_BYTES))
         .route_layer(middleware::from_fn(require_bearer_request));
+    let collaboration = Router::new()
+        .route(
+            "/v1/authorities/{collection_id}/collaboration/tickets",
+            post(collaboration::ticket),
+        )
+        .route("/v1/collaboration", get(collaboration::upgrade))
+        .layer(DefaultBodyLimit::max(collaboration::MAX_TICKET_BODY));
     let admitted = Router::new()
         .merge(internal)
         .merge(sync)
         .merge(operations)
         .merge(files)
         .merge(imports)
+        .merge(collaboration)
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             enforce_runtime_admission,
@@ -492,6 +462,9 @@ async fn rotate_replica_token(
         .provider
         .rotate_replica_token(replica_id, &input.token, input.token_ttl_seconds)
         .await?;
+    // Live collaboration sessions are bound to the previous credential
+    // fingerprint; close them locally now that the rotation has committed.
+    state.target_close_replica_sessions(replica_id);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -502,6 +475,9 @@ async fn revoke_replica(
 ) -> ApiResult<StatusCode> {
     state.authorize_internal(&headers)?;
     state.provider.revoke_replica(replica_id).await?;
+    // Close this replica's local collaboration sessions immediately after the
+    // revocation commits; other instances converge via periodic reauthorization.
+    state.target_close_replica_sessions(replica_id);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -516,6 +492,9 @@ async fn update_replica_policy(
         .provider
         .update_application_replica(replica_id, input)
         .await?;
+    // A policy change or downgrade invalidates every live session bound to the
+    // previous capability; target-close them after the commit.
+    state.target_close_replica_sessions(replica_id);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -967,7 +946,9 @@ async fn operation(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+
+    use sha2::{Digest, Sha256};
+    use subtle::ConstantTimeEq;
 
     #[test]
     fn internal_credentials_are_checked_by_digest() {

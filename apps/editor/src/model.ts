@@ -1,3 +1,4 @@
+import type { ExperimentalHostedMarkdownRoom } from "@mdbase-dev/connect-collaboration";
 import type {
   CollectionDescription,
   CollectionChange,
@@ -44,6 +45,7 @@ export interface ConnectionSummary {
   authorityKind?: "hosted" | "connector";
   directAccess?: DirectAccessStatus;
   fileActions?: string[];
+  collaborationAccess?: "read_only" | "read_write";
 }
 
 export type CollectionSessionSnapshot =
@@ -170,6 +172,11 @@ export interface CollectionGateway {
   list(options?: NoteIndexRequest): Promise<NoteIndexResult>;
   hydrateContent(options?: NoteContentRequest): Promise<NoteIndexResult>;
   read(path: string): Promise<NoteDocument>;
+  openExperimentalCollaboration(options: {
+    path: string;
+    maxBodyBytes: number;
+    signal?: AbortSignal;
+  }): Promise<ExperimentalHostedMarkdownRoom | null>;
   listFiles(options?: FileListRequest): Promise<CollectionFile[]>;
   readFile(file: CollectionFile, options?: FileReadRequest): Promise<Blob>;
   uploadFile(path: string, source: MdbaseFileSource, options?: FileUploadRequest): Promise<CollectionFile>;

@@ -54,7 +54,7 @@ pub(super) async fn authenticate_mutation_in(
     purpose: ReplicaPurpose,
 ) -> ApiResult<Replica> {
     let row = sqlx::query(
-        r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations, file_capability,
+        r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations, file_capability, collaboration_capability,
                   allowed_origin, proof_public_key, grant_id, scope_epoch
            FROM hosted_provider_replicas
            WHERE collection_id = $1 AND token_hash = $2 AND purpose = $3
@@ -119,7 +119,7 @@ pub(super) async fn reauthorize_sync_mutation_in(
     let row = sqlx::query(
         r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection,
                   allowed_operations, operation_transport_protocol,
-                  operation_transport_recovery_protocols, file_capability,
+                  operation_transport_recovery_protocols, file_capability, collaboration_capability,
                   allowed_origin, proof_public_key, grant_id, scope_epoch
            FROM hosted_provider_replicas
            WHERE collection_id = $1 AND id = $2
@@ -183,6 +183,15 @@ pub(super) fn replica_from_row(row: Option<sqlx::postgres::PgRow>) -> ApiResult<
             .transpose()
             .map_err(|error| {
                 ApiError::internal(format!("Stored file capability is invalid: {error}"))
+            })?,
+        collaboration_capability: row
+            .get::<Option<Value>, _>("collaboration_capability")
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(|error| {
+                ApiError::internal(format!(
+                    "Stored collaboration capability is invalid: {error}"
+                ))
             })?,
         allowed_origin: row.get("allowed_origin"),
         proof_public_key: row.get("proof_public_key"),

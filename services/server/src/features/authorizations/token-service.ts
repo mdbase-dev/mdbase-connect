@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import type {
   FileCapability,
   GrantEncryption,
-  GrantScope
+  GrantScope,
+  ReplicaCollaborationCapability
 } from "@mdbase-dev/connect-protocol";
 import {
   requireCollectionAction,
@@ -38,6 +39,7 @@ export async function issueApplicationTokens(
   grant_id: string;
   encryption: GrantEncryption | null;
   file_capability: FileCapability | null;
+  collaboration_capability: ReplicaCollaborationCapability | null;
   application_origin: string;
   authority?: {
     operations_url: string;
@@ -60,6 +62,7 @@ export async function issueApplicationTokens(
     scope: GrantScope;
     encryption: GrantEncryption | null;
     file_capability: FileCapability | null;
+    collaboration_capability: ReplicaCollaborationCapability | null;
     proof_public_key: string | null;
     application_origin: string;
     membership_id: string | null;
@@ -75,6 +78,7 @@ export async function issueApplicationTokens(
             COALESCE(col.display_name, hosted.display_name) AS collection_name,
             g.hosted_collection_id, g.hosted_replica_id, hosted.provider_url,
             g.operations, g.scope, g.encryption, g.file_capability,
+            g.collaboration_capability,
             g.proof_public_key, g.membership_id, g.membership_policy_id,
             g.membership_policy_revision,
             replica.membership_id AS replica_membership_id,
@@ -91,7 +95,16 @@ export async function issueApplicationTokens(
      WHERE g.id = $1 AND g.revoked_at IS NULL
        AND g.activated_at IS NOT NULL
        AND u.suspended_at IS NULL
-       AND (g.hosted_replica_id IS NULL OR replica.revoked_at IS NULL)`,
+       AND (g.hosted_replica_id IS NULL OR (
+         replica.revoked_at IS NULL
+         AND (
+           g.collaboration_capability = replica.collaboration_capability
+           OR (
+             g.collaboration_capability IS NULL
+             AND replica.collaboration_capability IS NULL
+           )
+         )
+       ))`,
     [grantId]
   );
   if (!grant.rows[0]) throw new RequestValidationError("The application grant is no longer active.");
@@ -177,6 +190,7 @@ export async function issueApplicationTokens(
     grant_id: grantId,
     encryption: grant.rows[0].encryption,
     file_capability: grant.rows[0].file_capability,
+    collaboration_capability: grant.rows[0].collaboration_capability,
     application_origin: normalizedApplicationOrigin(grant.rows[0].application_origin),
     ...(authority ? { authority } : {})
   };

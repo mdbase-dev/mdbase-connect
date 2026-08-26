@@ -2,6 +2,7 @@ import type { StoredToken } from "./internal-types.js";
 import {
   parseGrantScope,
   parseStored,
+  validCollaborationCapability,
   validFileCapability,
   validStoredAuthority,
   validStoredEncryption
@@ -57,6 +58,14 @@ export function readStoredToken({
   if (token.fileCapability && !validFileCapability(token.fileCapability)) {
     return reject(token.keyHandle);
   }
+  if (token.collaborationCapability && (
+    !validCollaborationCapability(token.collaborationCapability)
+    || !token.authority
+    || token.scope.access !== "full_collection"
+    || !token.operations.includes("read")
+    || (token.collaborationCapability.access === "read_write"
+      && !token.operations.includes("update"))
+  )) return reject(token.keyHandle);
   if (token.authority && !validStoredAuthority(token.authority, token.collectionId)) {
     return reject(token.keyHandle);
   }

@@ -186,6 +186,75 @@ describe("planCollectionGrant", () => {
     });
   });
 
+  it("intersects optional collaboration with provider, operation, and member ceilings", () => {
+    const capabilities = {
+      contract_version: 2 as const,
+      required: ["records.read" as const],
+      optional: ["records.update" as const, "records.collaborate" as const]
+    };
+    const requirements = {
+      contracts: [],
+      access: "full_collection" as const,
+      collection_kind: "hosted" as const,
+      capabilities
+    };
+    const editor = planCollectionGrant({
+      requestedOperations: ["read", "update"],
+      applicationOperationCeiling: ["read", "update"],
+      requirements,
+      availableContracts: [],
+      access: owner,
+      providerCollaboration: {
+        contract_version: 1,
+        profiles: ["markdown-body-yjs-v13"]
+      }
+    });
+    expect(editor.collaborationCapability).toEqual({
+      contract_version: 1,
+      profiles: ["markdown-body-yjs-v13"],
+      access: "read_write"
+    });
+
+    const viewer = planCollectionGrant({
+      requestedOperations: ["read", "update"],
+      applicationOperationCeiling: ["read", "update"],
+      requirements,
+      availableContracts: [],
+      access: {
+        ...owner,
+        relationship: "member",
+        collaborationCeiling: {
+          contract_version: 1,
+          profiles: ["markdown-body-yjs-v13"],
+          access: "read_only"
+        }
+      },
+      providerCollaboration: {
+        contract_version: 1,
+        profiles: ["markdown-body-yjs-v13"]
+      }
+    });
+    expect(viewer.collaborationCapability?.access).toBe("read_only");
+    expect(planCollectionGrant({
+      requestedOperations: ["read"],
+      applicationOperationCeiling: ["read"],
+      requirements,
+      availableContracts: [],
+      access: owner
+    }).collaborationCapability).toBeUndefined();
+    expect(planCollectionGrant({
+      requestedOperations: ["read"],
+      applicationOperationCeiling: ["read"],
+      requirements,
+      availableContracts: [],
+      access: { ...owner, collaborationCeiling: null },
+      providerCollaboration: {
+        contract_version: 1,
+        profiles: ["markdown-body-yjs-v13"]
+      }
+    }).collaborationCapability).toBeUndefined();
+  });
+
   it("rejects an operation the application did not request", () => {
     expect(() => planCollectionGrant({
       requestedOperations: ["delete"],

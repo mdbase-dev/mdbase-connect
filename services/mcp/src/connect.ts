@@ -10,8 +10,10 @@ import {
 } from "@mdbase-dev/connect/crypto";
 import {
   APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
+  COLLABORATION_CONTRACT_VERSION,
   OPERATION_TRANSPORT_PROTOCOL_VERSION,
   authorizationContractRequirements,
+  requestsRecordCollaboration,
   type CollectionOperation,
   type EncryptedRelayOperationResponse,
   type GrantEncryption,
@@ -140,6 +142,9 @@ export class ConnectGateway {
   }): Promise<string> {
     const application = await this.registerApplication();
     const installation = await this.applicationIdentity(application.id);
+    const collaboration = requestsRecordCollaboration(
+      this.manifest.requirements?.capabilities
+    );
     const issuedAt = new Date();
     const proof = await signApplicationAuthorization({
       protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
@@ -160,12 +165,20 @@ export class ConnectGateway {
       code_challenge: input.codeChallenge,
       contracts: authorizationContractRequirements(
         input.operations,
-        this.manifest.requirements?.files
+        this.manifest.requirements?.files,
+        [],
+        collaboration ? COLLABORATION_CONTRACT_VERSION : undefined
       ),
       requested_operations: input.operations,
       ...(this.manifest.requirements?.files
         ? { requested_files: this.manifest.requirements.files }
         : {}),
+      ...(collaboration ? {
+        requested_collaboration: {
+          contract_version: COLLABORATION_CONTRACT_VERSION,
+          profiles: ["markdown-body-yjs-v13"] as ["markdown-body-yjs-v13"]
+        }
+      } : {}),
       ...(input.collectionId ? { collection_id: input.collectionId } : {})
     }, installation);
     const response = await fetch(`${this.connectUrl}/oauth/authorization_request`, {

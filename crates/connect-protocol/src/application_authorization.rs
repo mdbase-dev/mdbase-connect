@@ -3,7 +3,7 @@ use crate::{
     ConnectContractRequirements, FileAction, FileCapabilityKind, FileScope, GrantPolicy,
     APPLICATION_AUTHORIZATION_PROTOCOL_VERSION, AUTHORIZATION_BINDING_PROTOCOL_VERSION,
     FILE_PROTOCOL_VERSION, GRANT_ENCRYPTION_PROTOCOL_VERSION,
-    LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION,
+    LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION, PREVIOUS_AUTHORIZATION_BINDING_PROTOCOL_VERSION,
 };
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -17,6 +17,7 @@ use uuid::Uuid;
 const INSTALLATION_ID_DOMAIN: &[u8] = b"mdbase-connect application installation id v2\0";
 const AUTHORIZATION_PROOF_V4_DOMAIN: &[u8] = b"mdbase-connect application authorization proof v4\0";
 const AUTHORIZATION_PROOF_V5_DOMAIN: &[u8] = b"mdbase-connect application authorization proof v5\0";
+const AUTHORIZATION_PROOF_V6_DOMAIN: &[u8] = b"mdbase-connect application authorization proof v6\0";
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ApplicationAuthorizationError {
@@ -35,6 +36,12 @@ pub enum ApplicationAuthorizationError {
 pub enum ApplicationAuthorizationFlow {
     AuthorizationCode,
     DeviceCode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApplicationCollaborationRequirement {
+    pub contract_version: u32,
+    pub profiles: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -62,6 +69,8 @@ pub struct ApplicationAuthorizationBinding {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requested_files: Option<ApplicationFileRequirement>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_collaboration: Option<ApplicationCollaborationRequirement>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collection_id: Option<Uuid>,
 }
 
@@ -88,6 +97,7 @@ impl ApplicationAuthorizationBinding {
             || self.contracts.authorization_binding == 0
             || self.contracts.semantic_capabilities == 0
             || self.contracts.durable_mutation == Some(0)
+            || self.contracts.collaboration == Some(0)
             || self.contracts.authorization_binding != self.protocol_version
             || !self
                 .contracts
@@ -106,6 +116,7 @@ impl ApplicationAuthorizationBinding {
                 .collect::<std::collections::BTreeSet<_>>()
                 .len()
                 != self.requested_operations.len()
+            || !self.valid_requested_collaboration()
         {
             return Err(ApplicationAuthorizationError::InvalidProof);
         }
@@ -130,6 +141,8 @@ impl ApplicationAuthorizationBinding {
         let mut transcript = Vec::with_capacity(620);
         transcript.extend_from_slice(
             if self.protocol_version == AUTHORIZATION_BINDING_PROTOCOL_VERSION {
+                AUTHORIZATION_PROOF_V6_DOMAIN
+            } else if self.protocol_version == PREVIOUS_AUTHORIZATION_BINDING_PROTOCOL_VERSION {
                 AUTHORIZATION_PROOF_V5_DOMAIN
             } else {
                 AUTHORIZATION_PROOF_V4_DOMAIN
@@ -161,7 +174,7 @@ impl ApplicationAuthorizationBinding {
         append_optional_string(&mut transcript, self.state.as_deref());
         append_field(&mut transcript, self.code_challenge.as_bytes());
         transcript.extend_from_slice(&self.contracts.operation_transport.to_be_bytes());
-        if self.protocol_version == AUTHORIZATION_BINDING_PROTOCOL_VERSION {
+        if self.protocol_version != LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION {
             transcript.extend_from_slice(
                 &(self.contracts.operation_transport_recovery.len() as u32).to_be_bytes(),
             );
@@ -177,13 +190,35 @@ impl ApplicationAuthorizationBinding {
             append_field(&mut transcript, operation.as_bytes());
         }
         append_requested_files(&mut transcript, self.requested_files.as_ref());
+        if self.protocol_version == AUTHORIZATION_BINDING_PROTOCOL_VERSION {
+            append_requested_collaboration(&mut transcript, self.requested_collaboration.as_ref());
+        }
         append_optional_uuid(&mut transcript, self.collection_id);
         Ok(transcript)
+    }
+
+    fn valid_requested_collaboration(&self) -> bool {
+        let request = self.requested_collaboration.as_ref();
+        if self.protocol_version != AUTHORIZATION_BINDING_PROTOCOL_VERSION {
+            return request.is_none() && self.contracts.collaboration.is_none();
+        }
+        let Some(request) = request else {
+            return self.contracts.collaboration.is_none();
+        };
+        self.contracts.collaboration == Some(request.contract_version)
+            && request.contract_version == 1
+            && request.profiles.len() == 1
+            && request.profiles[0] == "markdown-body-yjs-v13"
+            && self
+                .requested_operations
+                .iter()
+                .any(|operation| operation == "read")
     }
 
     fn validated_keys(&self) -> Result<AuthorizationKeys, ApplicationAuthorizationError> {
         if ![
             APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
+            PREVIOUS_AUTHORIZATION_BINDING_PROTOCOL_VERSION,
             LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION,
         ]
         .contains(&self.protocol_version)
@@ -208,6 +243,22 @@ impl ApplicationAuthorizationBinding {
             return Err(ApplicationAuthorizationError::InvalidPublicKey);
         }
         Ok(keys)
+    }
+}
+
+fn append_requested_collaboration(
+    transcript: &mut Vec<u8>,
+    collaboration: Option<&ApplicationCollaborationRequirement>,
+) {
+    let Some(collaboration) = collaboration else {
+        transcript.push(0);
+        return;
+    };
+    transcript.push(1);
+    transcript.extend_from_slice(&collaboration.contract_version.to_be_bytes());
+    transcript.extend_from_slice(&(collaboration.profiles.len() as u32).to_be_bytes());
+    for profile in &collaboration.profiles {
+        append_field(transcript, profile.as_bytes());
     }
 }
 
@@ -580,6 +631,38 @@ mod tests {
         }
         .verify()
         .unwrap();
+    }
+
+    #[test]
+    fn v6_fixture_binds_the_collaboration_request() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../packages/protocol/test/fixtures/application-authorization-v6.json"
+        ))
+        .unwrap();
+        let binding: ApplicationAuthorizationBinding =
+            serde_json::from_value(fixture["binding"].clone()).unwrap();
+        assert_eq!(
+            binding.protocol_version,
+            AUTHORIZATION_BINDING_PROTOCOL_VERSION
+        );
+        assert_eq!(binding.contracts.collaboration, Some(1));
+        assert_eq!(
+            hex(&Sha256::digest(binding.signing_message().unwrap())),
+            fixture["signing_message_sha256"].as_str().unwrap()
+        );
+        ApplicationAuthorizationProof {
+            binding: binding.clone(),
+            signature: fixture["signature"].as_str().unwrap().to_string(),
+        }
+        .verify()
+        .unwrap();
+
+        let mut unbound = binding;
+        unbound.requested_collaboration = None;
+        assert_eq!(
+            unbound.signing_message(),
+            Err(ApplicationAuthorizationError::InvalidProof)
+        );
     }
 
     #[test]

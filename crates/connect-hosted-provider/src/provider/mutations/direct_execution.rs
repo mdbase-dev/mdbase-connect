@@ -401,7 +401,7 @@ fn ensure_destination_available(owner: Option<Uuid>, record_id: Uuid) -> ApiResu
     Ok(())
 }
 
-fn classify_exact_sync_record(
+pub(super) fn classify_exact_sync_record(
     catalog: Option<&mdbase::runtime::CompiledCatalog>,
     record_id: Uuid,
     path: &str,

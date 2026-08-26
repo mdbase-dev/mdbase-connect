@@ -10,7 +10,7 @@ import {
   WarningCircleIcon as CircleAlert,
   XIcon as X
 } from "./icons";
-import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor, type MutationProgress } from "@mdbase-dev/connect";
+import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor, type JsonObject } from "@mdbase-dev/connect";
 import {
   useCallback,
   useDeferredValue,
@@ -56,16 +56,17 @@ import type {
   ConnectionSummary,
   CreateNoteInput,
   NoteDocument,
-  NoteSummary,
   TypeDocument
 } from "./model";
 import {
   editableNote,
   noteTags,
   noteTitle,
-  safeRenamePath
+  safeRenamePath,
+  summaryFromDocument
 } from "./note";
 import { NoteOperationCoordinator } from "./note-operation-coordinator";
+import { noteRowStatus, updateMutationActivity } from "./note-operation-presentation";
 import {
   NoteSessionStore,
   sessionDirty,
@@ -85,8 +86,9 @@ import {
   searchNoteResults
 } from "./note-search";
 import { initialEditorSurface, loadPreferences, savePreferences, type EditorPreferences } from "./preferences";
-import { composeRecordSource, replaceDocumentFrontmatter } from "./record-source";
+import { composeRecordSource, frontmatterReplacementPatch, replaceDocumentFrontmatter } from "./record-source";
 import { QuickOpen, ShortcutHelp } from "./QuickOpen";
+import { forgetRecentPath, loadRecentPaths, rememberRecentPath } from "./recent-notes";
 import { SettingsView } from "./SettingsView";
 import { NEW_TYPE_SOURCE } from "./type-constants";
 import { useCollectionIndex } from "./use-collection-index";
@@ -97,6 +99,7 @@ import { useFileWorkspace } from "./use-file-workspace";
 import { useEmbeddedNoteReferences } from "./note-embeds";
 import { useVisibleEmbedKeys } from "./use-visible-embed-keys";
 import { useSessionLifecycle } from "./use-session-lifecycle";
+import { useEditorCollaboration } from "./use-experimental-collaboration";
 import {
   BacklinksPanel,
   EmptyEditor,
@@ -233,6 +236,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [, setSessionTick] = useState(0);
   const documentGeneration = useRef(0);
   const navigationGeneration = useRef(0);
+  const collaborationFlushRef = useRef<() => Promise<void>>(async () => undefined);
+  const collaborationExpectedRef = useRef(false);
   const typeGeneration = useRef(0);
   const typeDescriptorsRef = useRef<CollectionTypeDescriptor[]>(emptyTypeDescriptors);
   const noteSessions = useRef(new NoteSessionStore());
@@ -294,11 +299,16 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     }
     const onPopState = (event: PopStateEvent) => {
       if (!isMobileHistoryState(event.state)) return;
-      ignoreNextMobileHistoryPush.current = true;
-      setSurface(event.state.surface);
-      setMobilePane(event.state.pane);
-      setPropertiesOpen(false);
-      setBacklinksOpen(false);
+      const next = event.state;
+      const generation = ++navigationGeneration.current;
+      void collaborationFlushRef.current().then(() => {
+        if (generation !== navigationGeneration.current) return;
+        ignoreNextMobileHistoryPush.current = true;
+        setSurface(next.surface);
+        setMobilePane(next.pane);
+        setPropertiesOpen(false);
+        setBacklinksOpen(false);
+      }, (error: unknown) => setNotice(`Couldn’t finish collaborative changes before navigating. ${gatewayError(error)}`));
     };
     window.addEventListener("popstate", onPopState);
     if (!mobileHistoryInitialized.current) {
@@ -603,6 +613,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     gateway,
     phase,
     start,
+    beforeCollectionChange: clearCollectionWorkspace,
     setSessionSnapshot
   });
 
@@ -639,6 +650,20 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     [noteOperations]
   );
 
+  const restrictCollaborationControls = useCallback(() => setEditingPath(false), []);
+  const collaboration = useEditorCollaboration({
+    gateway, path: document?.path, access: connectionSummary?.collaborationAccess,
+    session: noteSessions.current.active, types: typeDescriptors,
+    setDocument, setDraft, setSaveState, touchSession,
+    restrictControls: restrictCollaborationControls
+  });
+  collaborationFlushRef.current = collaboration.flush;
+  collaborationExpectedRef.current = collaboration.expected;
+  const flushSessionWork = useCallback(async (session: NoteSession, requireWritable = false) => {
+    await flushSession(session);
+    await collaboration.flushAndRefresh(session, requireWritable);
+  }, [collaboration.flushAndRefresh, flushSession]);
+  const collaborationWritable = collaboration.writable;
   const saveCurrentInBackground = useCallback(() => {
     const session = noteSessions.current.active;
     if (!session || (!sessionDirty(session) && !session.savePromise)) return;
@@ -647,15 +672,16 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   useEffect(() => {
     const session = noteSessions.current.active;
-    if (!document || !draft || !session || session.remoteDocument || session.document.path !== document.path || !sessionDirty(session)) return;
+    if (collaboration.expected || !document || !draft || !session || session.remoteDocument || session.document.path !== document.path || !sessionDirty(session)) return;
     if (session.saveState !== "saving") {
       session.saveState = "waiting";
       setSaveState("waiting");
     }
     const timer = window.setTimeout(() => void requestSave(session).catch(() => undefined), 650);
     return () => window.clearTimeout(timer);
-  }, [document, draft, requestSave]);
+  }, [collaboration.expected, document, draft, requestSave]);
 
+  function changeActiveBody(body: string) { if (!collaborationExpectedRef.current) changeActiveDraft((current) => ({ ...current, body })); }
   function changeActiveDraft(change: (current: Draft) => Draft) {
     const session = noteSessions.current.active;
     if (!session || session.deleted) return;
@@ -709,7 +735,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       });
       return;
     }
-    finishNavigateToNote(path, options);
+    void finishNavigateToNote(path, options);
   }
 
   function navigateToFile(file: CollectionFile) {
@@ -723,11 +749,18 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       });
       return;
     }
-    finishNavigateToFile(file);
+    void finishNavigateToFile(file);
   }
 
-  function finishNavigateToFile(file: CollectionFile) {
-    navigationGeneration.current += 1;
+  async function finishNavigateToFile(file: CollectionFile) {
+    const generation = ++navigationGeneration.current;
+    try {
+      await collaboration.flush();
+    } catch (error) {
+      setNotice(`Couldn’t finish collaborative changes before opening the file. ${gatewayError(error)}`);
+      return;
+    }
+    if (generation !== navigationGeneration.current) return;
     saveCurrentInBackground();
     setCreationMode(undefined);
     setCreationContext({});
@@ -741,10 +774,21 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setNotice(undefined);
   }
 
-  function finishNavigateToNote(path: string, options: NoteNavigationOptions = {}) {
+  async function finishNavigateToNote(path: string, options: NoteNavigationOptions = {}) {
     setCreationDirty(false);
+    const currentNote = path === noteSessions.current.active?.document.path && !noteLoading;
     const generation = ++navigationGeneration.current;
-    if (path === noteSessions.current.active?.document.path && !noteLoading) {
+    try {
+      await collaboration.flush();
+    } catch (error) {
+      if (generation === navigationGeneration.current) {
+        setNotice(`Couldn’t finish collaborative changes before opening the note. ${gatewayError(error)}`);
+      }
+      return;
+    }
+    if (generation !== navigationGeneration.current) return;
+    setSurface("notes");
+    if (currentNote) {
       setPendingNotePath(undefined);
       setMobilePane("editor");
       if (options.historyIndex !== undefined) selectNoteHistoryIndex(options.historyIndex, path);
@@ -769,6 +813,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     const beforeUnload = (event: BeforeUnloadEvent) => {
       if (noteOperations.pendingCount > 0
           || [...noteSessions.current.values()].some((session) => !session.deleted && sessionDirty(session))
+          || collaboration.pendingUpdates > 0
           || typeCreating
           || Boolean(typeDocument && typeSource !== typeDocument.document)) {
         event.preventDefault();
@@ -776,7 +821,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     };
     window.addEventListener("beforeunload", beforeUnload);
     return () => window.removeEventListener("beforeunload", beforeUnload);
-  }, [typeCreating, typeDocument, typeSource]);
+  }, [collaboration.pendingUpdates, typeCreating, typeDocument, typeSource]);
 
   const searchIndex = useMemo(() => searchIndexCache.current.build(allNotes, typeDescriptors), [allNotes, typeDescriptors]);
   const searchedResults = useMemo(() => {
@@ -872,6 +917,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     await Promise.all([...noteSessions.current.values()]
       .filter((session) => !session.deleted)
       .map((session) => flushSession(session)));
+    await collaboration.flush();
     await noteOperations.waitForIdle();
   }
 
@@ -898,8 +944,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setCreationMode(undefined);
     setCreationContext({});
     setCreationDirty(false);
-    setPropertiesOpen(false);
-    setBacklinksOpen(false);
+    setRecoveryAction(undefined); setPendingRenameRecovery(undefined); setRenamePlan(undefined); renameRequest.current = undefined;
+    setPropertiesOpen(false); setBacklinksOpen(false);
     setSelectedTypeName(undefined);
     setTypeDocument(undefined);
     setTypeSource("");
@@ -974,8 +1020,17 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     });
   }
 
-  function beginCreation(mode: "note" | "folder", context: CreationContext = {}) {
-    navigationGeneration.current += 1;
+  async function beginCreation(mode: "note" | "folder", context: CreationContext = {}) {
+    const generation = ++navigationGeneration.current;
+    try {
+      await collaboration.flush();
+    } catch (error) {
+      if (generation === navigationGeneration.current) {
+        setNotice(`Couldn’t finish collaborative changes before creating a ${mode}. ${gatewayError(error)}`);
+      }
+      return;
+    }
+    if (generation !== navigationGeneration.current) return;
     setPendingNotePath(undefined);
     setNotice(undefined);
     saveCurrentInBackground();
@@ -1121,7 +1176,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     renameRequest.current = requestKey;
     try {
       const from = session.document.path;
-      await flushSession(session);
+      await flushSessionWork(session, true);
       if (session.document.path !== from) {
         throw new Error("This note moved before the rename check could begin.");
       }
@@ -1166,7 +1221,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     session.mutationCancellable = false;
     touchSession(session);
     try {
-      await flushSession(session);
+      await flushSessionWork(session, true);
       if (session.document.path !== from) throw new Error("This note moved before the rename could begin.");
       const renamed = await runNoteOperation(session, updateRefs ? "renaming" : "moving", () => gateway.rename(
         from,
@@ -1230,18 +1285,29 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     if (session) setPathDraft(session.document.path);
   }
 
-  async function saveProperties(path: string, next: Record<string, unknown>) {
+  async function saveProperties(path: string, next: JsonObject) {
     const session = noteSessions.current.get(path);
     if (!session) return;
     setPropertiesError(undefined);
     try {
-      await flushSession(session);
-      const source = session.document.document ?? composeRecordSource(session.document.frontmatter, session.document.body ?? "");
-      const updated = await runNoteOperation(session, "properties", () => gateway.updateDocument(
-        session.document.path,
-        replaceDocumentFrontmatter(source, next),
-        session.document.revision
-      ));
+      await flushSessionWork(session, true);
+      const updated = await runNoteOperation(session, "properties", () => {
+        if (collaboration.expected && session === noteSessions.current.active) {
+          collaboration.assertWritable();
+          return gateway.updateProperties(
+            session.document.path,
+            frontmatterReplacementPatch(session.document.frontmatter, next),
+            session.document.revision
+          );
+        }
+        const source = session.document.document
+          ?? composeRecordSource(session.document.frontmatter, session.document.body ?? "");
+        return gateway.updateDocument(
+          session.document.path,
+          replaceDocumentFrontmatter(source, next),
+          session.document.revision
+        );
+      });
       const persistedDraft = editableNote(updated, typeDescriptors);
       session.document = updated;
       session.persistedDraft = persistedDraft;
@@ -1270,9 +1336,13 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   async function saveRecordSource(path: string, source: string, previousSource: string): Promise<NoteDocument | false> {
     const session = noteSessions.current.get(path);
     if (!session || session.deleted) return false;
+    if (collaboration.expected && session === noteSessions.current.active) {
+      setPropertiesError("Complete source editing is unavailable while live collaboration owns the note body.");
+      return false;
+    }
     if (noteSessions.current.active === session) setPropertiesError(undefined);
     try {
-      await flushSession(session);
+      await flushSessionWork(session);
       const currentSource = session.document.document ?? composeRecordSource(session.document.frontmatter, session.document.body ?? "");
       if (currentSource !== previousSource) {
         const message = "This note finished saving after Source was opened. Your source draft is preserved; close and reopen the panel to start from the latest record.";
@@ -1316,7 +1386,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     if (!session) return;
     setNotice(undefined);
     try {
-      await flushSession(session);
+      await flushSessionWork(session);
       const diagnostics = await runNoteOperation(
         session,
         "validating",
@@ -1341,7 +1411,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     deleteRequest.current = requestKey;
     setNotice(undefined);
     try {
-      await flushSession(session);
+      await flushSessionWork(session, true);
       const preflight = await runNoteOperation(session, "validating", () => gateway.preflightDelete(
         session.document.path,
         session.document.revision
@@ -1361,8 +1431,15 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     }
   }
 
-  function deleteNote(plan: DeletePlan) {
+  async function deleteNote(plan: DeletePlan) {
     const { session } = plan;
+    try {
+      await flushSessionWork(session, true);
+    } catch (error) {
+      setNotice(`Couldn’t finish collaborative changes before deleting the note. ${gatewayError(error)}`);
+      return;
+    }
+    if (noteSessions.current.active !== session || session.deleted) return;
     const path = session.document.path;
     const next = allNotes.find((note) => note.path !== path);
     session.deleted = true;
@@ -1413,7 +1490,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       } else {
         const session = noteSessions.current.get(action.to);
         if (!session || session.deleted) throw new Error("The renamed note is no longer available to restore.");
-        await flushSession(session);
+        await flushSessionWork(session, true);
         const restored = await runNoteOperation(session, "renaming", () => gateway.rename(
           action.to,
           action.from,
@@ -1581,11 +1658,20 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       });
       return;
     }
-    finishSelectSurface(next);
+    void finishSelectSurface(next);
   }
 
-  function finishSelectSurface(next: Surface) {
-    navigationGeneration.current += 1;
+  async function finishSelectSurface(next: Surface) {
+    const generation = ++navigationGeneration.current;
+    try {
+      await collaboration.flush();
+    } catch (error) {
+      if (generation === navigationGeneration.current) {
+        setNotice(`Couldn’t finish collaborative changes before opening ${next}. ${gatewayError(error)}`);
+      }
+      return;
+    }
+    if (generation !== navigationGeneration.current) return;
     setPendingNotePath(undefined);
     saveCurrentInBackground();
     setSurface(next);
@@ -1793,7 +1879,12 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const mutationNotice = editorNotice ?? (activePendingRename
     ? "This rename was interrupted after it started. Resume it to recover the collection’s authoritative result."
     : undefined);
-  const canAttachFiles = Boolean(connectionSummary?.fileActions?.includes("add"));
+  const collaborationIndicator = collaboration.indicator;
+  const activeActivity = noteSessions.current.active?.activity;
+  const activeNoteSession = document ? noteSessions.current.get(document.path) : undefined;
+  const collaborativeEditorKey = activeNoteSession?.editorSessionKey ?? document?.path ?? "note";
+  const canAttachFiles = Boolean(connectionSummary?.fileActions?.includes("add"))
+    && collaborationWritable;
   const typeAccessMissing = missingTypeCapabilities(connectionSummary);
   const editorLeadingActions = layout.listCollapsed ? <>
     {layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
@@ -1928,13 +2019,13 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
               {editingPath ? <form onSubmit={(event) => { event.preventDefault(); void requestRename(); }}>
                 <label className="sr-only" htmlFor="note-path">Markdown path</label>
                 <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} autoFocus />
-              </form> : <button className="path-button" onClick={() => setEditingPath(true)} title="Rename Markdown path"><span>{document.path}</span><Pencil aria-hidden="true" /></button>}
+              </form> : <button className="path-button" onClick={() => setEditingPath(true)} title="Rename Markdown path" disabled={!collaborationWritable}><span>{document.path}</span><Pencil aria-hidden="true" /></button>}
             </div>
             {preferences.vim && <span className="vim-label">vim</span>}
             <SaveIndicator
-              state={saveState}
-              activity={noteSessions.current.active?.activity}
-              detail={noteSessions.current.active?.activityDetail}
+              state={activeActivity ? saveState : collaborationIndicator?.state ?? saveState}
+              activity={activeActivity}
+              detail={noteSessions.current.active?.activityDetail ?? (activeActivity ? undefined : collaborationIndicator?.detail)}
               onCancel={noteSessions.current.active?.mutationCancellable ? cancelActiveMutation : undefined}
             />
             {!mobileLayout && <button className={`icon-button backlink-button${backlinksOpen ? " active" : ""}`} aria-label="Backlinks" aria-pressed={backlinksOpen} onClick={() => {
@@ -1943,7 +2034,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
                 return !value;
               });
             }}><Link2 aria-hidden="true" />{backlinkNotes.length > 0 && <span>{backlinkNotes.length}</span>}</button>}
-            {!mobileLayout && <button className={`icon-button${propertiesOpen ? " active" : ""}`} aria-label="Note properties" aria-pressed={propertiesOpen} onClick={() => {
+            {!mobileLayout && <button className={`icon-button${propertiesOpen ? " active" : ""}`} aria-label="Note properties" aria-pressed={propertiesOpen} disabled={!collaborationWritable} onClick={() => {
               setPropertiesOpen((value) => {
                 if (!value) setBacklinksOpen(false);
                 return !value;
@@ -1952,11 +2043,11 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
             <ActionMenu label="More note actions" items={[
               ...(mobileLayout ? [
                 { label: "Backlinks", icon: <Link2 aria-hidden="true" />, onSelect: () => { setPropertiesOpen(false); setBacklinksOpen(true); } },
-                { label: "Note properties", icon: <Info aria-hidden="true" />, onSelect: () => { setBacklinksOpen(false); setPropertiesOpen(true); } }
+                { label: "Note properties", icon: <Info aria-hidden="true" />, disabled: !collaborationWritable, onSelect: () => { setBacklinksOpen(false); setPropertiesOpen(true); } }
               ] : []),
               attachmentMenuItem(attachments, canAttachFiles, () => void authorizeCollection("selected").catch((error) => setNotice(gatewayError(error)))),
               { label: "Check note", icon: <Check aria-hidden="true" />, onSelect: () => void validateNote() },
-              { label: "Delete note", icon: <Trash2 aria-hidden="true" />, tone: "danger", onSelect: () => void requestDelete() }
+              { label: "Delete note", icon: <Trash2 aria-hidden="true" />, tone: "danger", disabled: !collaborationWritable, onSelect: () => void requestDelete() }
             ]} />
           </header>
           <AttachmentTransfer controller={attachments} />
@@ -1974,15 +2065,17 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
             <button className="primary-confirm-action" onClick={() => void performRename(renamePlan, true)}>Rename and update links</button>
           </div>}
           {deletePlan && deletePlan.session === noteSessions.current.active && <div className="delete-confirm" role="alert"><div><strong>Delete this note?</strong><span>{deletePlan.brokenLinkPaths.length > 0 ? `${deletePlan.brokenLinkPaths.length.toLocaleString()} ${deletePlan.brokenLinkPaths.length === 1 ? "note will keep a broken link" : "notes will keep broken links"}. ` : ""}You can undo the note deletion.</span></div><button onClick={() => setDeletePlan(undefined)}>Keep note</button><button className="danger-action" onClick={() => void deleteNote(deletePlan)}>Delete</button></div>}
-          <MarkdownNoteEditor editorKey={noteSessions.current.active?.editorSessionKey ?? document.path}
+          <MarkdownNoteEditor editorKey={collaborativeEditorKey ?? document.path}
             draft={draft} preferences={preferences} documentId={noteSessions.current.active?.editorSessionKey}
             currentPath={document.path} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames}
             embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes} files={fileInventory.files} notes={allNotes}
             insertion={attachments.insertion} onTitleChange={(title) => changeActiveDraft((current) => ({ ...current, title }))}
-            onBodyChange={(body) => changeActiveDraft((current) => ({ ...current, body }))} onOpenLink={navigateToNote}
+            onBodyChange={changeActiveBody} onOpenLink={navigateToNote}
             onCreateLink={createLinkedNote} onPreviewLink={notePreviewController.request}
             onDismissLinkPreview={notePreviewController.dismiss} onOpenFile={setOpenFileAsset} onOpenFileLink={navigateToFile}
-            onVisibleFileEmbeds={updateVisibleFileEmbeds} onVisibleNoteEmbeds={updateVisibleNoteEmbeds} />
+            onVisibleFileEmbeds={updateVisibleFileEmbeds} onVisibleNoteEmbeds={updateVisibleNoteEmbeds}
+            collaborationExpected={collaboration.expected} collaboration={collaboration.binding}
+            readOnly={collaboration.expected && !collaborationWritable} />
         </> : <EmptyEditor
           leadingActions={editorLeadingActions}
           notice={editorNotice}
@@ -2000,6 +2093,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
           onClose={() => setPropertiesOpen(false)}
           onSave={saveProperties}
           onSaveDocument={(source, previousSource) => saveRecordSource(document.path, source, previousSource)}
+          bodyManagedExternally={collaboration.expected}
+          writable={collaboration.authorizedWritable}
         />
       </Suspense> : noteLoading ? <InspectorPanelLoading label="Note properties" /> : null)}
       {backlinksOpen && (document
@@ -2124,7 +2219,6 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       onSelect={(path) => {
         setSearch("");
         setNoteFilter(undefined);
-        setSurface("notes");
         navigateToNote(path);
       }}
       onClose={() => setQuickOpen(false)}
@@ -2151,80 +2245,6 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     {openFileAsset && <Suspense fallback={null}><FileViewer asset={openFileAsset} onClose={() => setOpenFileAsset(undefined)} /></Suspense>}
     <NotePreviewCard preview={notePreviewController.preview} />
   </div>;
-}
-
-function updateMutationActivity(
-  session: NoteSession,
-  progress: MutationProgress,
-  touch: (target: NoteSession) => void
-): void {
-  if (progress.state === "preflighting") {
-    session.activityDetail = "Checking impact";
-  } else if (progress.state === "applying") {
-    if (progress.resumed) {
-      session.activityDetail = progress.operation === "rename" ? "Recovering rename" : "Recovering deletion";
-    } else if (progress.operation === "rename" && (progress.estimate?.affectedRecords ?? 0) > 0) {
-      const count = progress.estimate!.affectedRecords;
-      session.activityDetail = `Updating ${count.toLocaleString()} linked ${count === 1 ? "note" : "notes"}`;
-    } else {
-      session.activityDetail = progress.operation === "rename" ? "Moving note" : "Deleting note";
-    }
-  } else if (progress.state === "cancelled") {
-    session.activityDetail = "Stopping safely";
-  }
-  session.mutationCancellable = progress.cancellable;
-  touch(session);
-}
-
-function noteRowStatus(session: NoteSession): NoteRowStatus | undefined {
-  if (session.deleted) return { label: "Deleting", tone: "busy", busy: true, disabled: true };
-  if (session.remoteDocument) return { label: "Changed elsewhere", tone: "error", busy: false };
-  if (session.activity) {
-    const labels: Record<NoteActivity, string> = {
-      saving: "Saving",
-      properties: "Updating properties",
-      renaming: "Renaming",
-      moving: "Moving",
-      deleting: "Deleting",
-      validating: "Checking"
-    };
-    return { label: session.activityDetail ?? labels[session.activity], tone: "busy", busy: true };
-  }
-  if (session.saveState === "conflict") return { label: "Save failed", tone: "error", busy: false };
-  if (session.error) return { label: "Needs attention", tone: "error", busy: false };
-  if (session.saveState === "waiting") return { label: "Unsaved", tone: "quiet", busy: false };
-  return undefined;
-}
-
-function summaryFromDocument(document: NoteDocument): NoteSummary {
-  const { revision: _revision, ...summary } = document;
-  return {
-    ...summary,
-    file: { ...document.file, path: document.path }
-  };
-}
-
-const RECENT_NOTES_KEY = "mdbase-editor:recent-notes";
-
-function loadRecentPaths(): string[] {
-  try {
-    const value = JSON.parse(localStorage.getItem(RECENT_NOTES_KEY) ?? "[]");
-    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").slice(0, 20) : [];
-  } catch {
-    return [];
-  }
-}
-
-function rememberRecentPath(current: string[], path: string): string[] {
-  const next = [path, ...current.filter((candidate) => candidate !== path)].slice(0, 20);
-  localStorage.setItem(RECENT_NOTES_KEY, JSON.stringify(next));
-  return next;
-}
-
-function forgetRecentPath(current: string[], path: string): string[] {
-  const next = current.filter((candidate) => candidate !== path);
-  localStorage.setItem(RECENT_NOTES_KEY, JSON.stringify(next));
-  return next;
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {

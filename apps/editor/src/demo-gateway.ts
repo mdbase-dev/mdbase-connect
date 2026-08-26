@@ -183,6 +183,14 @@ export class DemoCollectionGateway implements CollectionGateway {
     return clone(this.required(path));
   }
 
+  async openExperimentalCollaboration(_options: {
+    path: string;
+    maxBodyBytes: number;
+    signal?: AbortSignal;
+  }): Promise<import("@mdbase-dev/connect-collaboration").ExperimentalHostedMarkdownRoom | null> {
+    return null;
+  }
+
   async listFiles({ signal, onProgress }: FileListRequest = {}): Promise<CollectionFile[]> {
     signal?.throwIfAborted();
     const files = clone(this.files);

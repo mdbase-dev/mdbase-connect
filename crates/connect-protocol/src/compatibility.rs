@@ -9,14 +9,17 @@ pub const SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS: &[u32] = &[
     OPERATION_TRANSPORT_PROTOCOL_VERSION,
     LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION,
 ];
-pub const AUTHORIZATION_BINDING_PROTOCOL_VERSION: u32 = 5;
+pub const AUTHORIZATION_BINDING_PROTOCOL_VERSION: u32 = 6;
+pub const PREVIOUS_AUTHORIZATION_BINDING_PROTOCOL_VERSION: u32 = 5;
 pub const LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION: u32 = 4;
 pub const SUPPORTED_AUTHORIZATION_BINDING_PROTOCOL_VERSIONS: &[u32] = &[
     AUTHORIZATION_BINDING_PROTOCOL_VERSION,
+    PREVIOUS_AUTHORIZATION_BINDING_PROTOCOL_VERSION,
     LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION,
 ];
 pub const SEMANTIC_CAPABILITY_CONTRACT_VERSION: u32 = 1;
 pub const DURABLE_MUTATION_CONTRACT_VERSION: u32 = 1;
+pub const COLLABORATION_CONTRACT_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConnectContractRequirements {
@@ -27,6 +30,8 @@ pub struct ConnectContractRequirements {
     pub semantic_capabilities: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub durable_mutation: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collaboration: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,6 +40,8 @@ pub struct ConnectContractSupport {
     pub authorization_binding: Vec<u32>,
     pub semantic_capabilities: Vec<u32>,
     pub durable_mutation: Vec<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub collaboration: Vec<u32>,
 }
 
 impl Default for ConnectContractSupport {
@@ -44,6 +51,8 @@ impl Default for ConnectContractSupport {
             authorization_binding: SUPPORTED_AUTHORIZATION_BINDING_PROTOCOL_VERSIONS.to_vec(),
             semantic_capabilities: vec![SEMANTIC_CAPABILITY_CONTRACT_VERSION],
             durable_mutation: vec![DURABLE_MUTATION_CONTRACT_VERSION],
+            // Authorities opt in only after the room transport is implemented.
+            collaboration: Vec::new(),
         }
     }
 }
@@ -73,6 +82,7 @@ impl ConnectContractRequirements {
             semantic_capabilities: SEMANTIC_CAPABILITY_CONTRACT_VERSION,
             durable_mutation: requires_durable_mutation
                 .then_some(DURABLE_MUTATION_CONTRACT_VERSION),
+            collaboration: None,
         }
     }
 
@@ -96,7 +106,10 @@ impl ConnectContractRequirements {
             } else {
                 self.durable_mutation.is_none()
             })
-            && (self.authorization_binding != AUTHORIZATION_BINDING_PROTOCOL_VERSION
+            && self
+                .collaboration
+                .is_none_or(|version| version == COLLABORATION_CONTRACT_VERSION)
+            && (self.authorization_binding == LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION
                 || self.operation_transport == OPERATION_TRANSPORT_PROTOCOL_VERSION)
             && self.operation_transport_recovery.iter().all(|version| {
                 *version != self.operation_transport
@@ -149,6 +162,18 @@ impl ConnectContractRequirements {
             if !versions.contains(&required) {
                 return Some(contract_problem(
                     code, contract, required, versions, peer, operation,
+                ));
+            }
+        }
+        if let Some(required) = self.collaboration {
+            if !supported.collaboration.contains(&required) {
+                return Some(contract_problem(
+                    "capability_contract_incompatible",
+                    "collaboration",
+                    required,
+                    &supported.collaboration,
+                    peer,
+                    operation,
                 ));
             }
         }
@@ -255,6 +280,26 @@ mod tests {
             &["apply_collection_setup".to_string()],
             None
         ));
+    }
+
+    #[test]
+    fn collaboration_is_an_independent_optional_contract_axis() {
+        let requirements = ConnectContractRequirements {
+            collaboration: Some(COLLABORATION_CONTRACT_VERSION),
+            ..ConnectContractRequirements::current(false)
+        };
+        let problem = requirements
+            .mismatch_problem("read", &serde_json::json!({}), "provider")
+            .expect("ordinary authorities do not advertise rooms");
+        assert_eq!(problem.code, "capability_contract_incompatible");
+        assert_eq!(
+            problem
+                .details
+                .as_ref()
+                .and_then(|details| details.get("contract"))
+                .and_then(Value::as_str),
+            Some("collaboration")
+        );
     }
 
     #[test]

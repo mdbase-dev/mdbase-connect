@@ -91,6 +91,8 @@ impl FileLifecycleFixture {
                     operation_transport_protocol: None,
                     operation_transport_recovery_protocols: Vec::new(),
                     file_capability: None,
+                    collaboration_capability: None,
+                    awareness_identity: None,
                     allowed_origin: None,
                     proof_public_key: None,
                     grant_id: None,

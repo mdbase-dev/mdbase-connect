@@ -34,6 +34,8 @@ async fn assess_collection_setup_dispatch_rejects_mismatched_declaration() {
                 operation_transport_protocol: Some(3),
                 operation_transport_recovery_protocols: vec![2],
                 file_capability: None,
+                collaboration_capability: None,
+                awareness_identity: None,
                 allowed_origin: Some("https://tasks.example".to_string()),
                 proof_public_key: None,
                 grant_id: Some(Uuid::new_v4()),

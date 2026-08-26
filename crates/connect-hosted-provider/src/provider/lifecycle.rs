@@ -52,6 +52,19 @@ impl HostedProvider {
         run_migrations: bool,
         cutover_connection: Option<(Duration, Uuid)>,
     ) -> ApiResult<Self> {
+        limits
+            .collaboration
+            .validate()
+            .map_err(ApiError::internal)?;
+        if limits.max_collaboration_bytes_per_collection == 0
+            || limits.max_collaboration_bytes_per_account == 0
+            || limits.max_collaboration_bytes_per_collection
+                > limits.max_collaboration_bytes_per_account
+        {
+            return Err(ApiError::internal(
+                "provider collaboration safety limits are invalid",
+            ));
+        }
         let started = Instant::now();
         let mut retry_delay = Duration::from_millis(100);
         loop {
@@ -78,6 +91,7 @@ impl HostedProvider {
                                 .transpose()?;
                             let provider = Self {
                                 pool,
+                                database_url: database_url.to_owned(),
                                 query_pool,
                                 query_cancellation_pool,
                                 process_epoch: Uuid::new_v4(),

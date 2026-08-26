@@ -5,7 +5,10 @@ import { test } from "node:test";
 
 import {
   APPLICATION_CAPABILITY_CONTRACT_VERSION,
-  APPLICATION_CAPABILITY_DEFINITIONS
+  APPLICATION_CAPABILITY_DEFINITIONS,
+  APPLICATION_CAPABILITY_DEFINITIONS_V1,
+  LEGACY_APPLICATION_CAPABILITY_CONTRACT_VERSION,
+  capabilityOperations
 } from "../dist/index.js";
 import {
   AppManifestValidationError,
@@ -138,17 +141,62 @@ test("semantic diagnostics expose exact paths", () => {
   );
 });
 
-test("the published schema capability catalogue matches the executable contract", async () => {
-  const schema = JSON.parse(await readFile(
+test("v2 collaboration intent is hosted, full-collection, and read-bound", () => {
+  const declaration = manifest();
+  declaration.manifest_version = 2;
+  declaration.requirements.collection_kind = "hosted";
+  declaration.provisions.type_packs = [];
+  declaration.requirements.capabilities = {
+    contract_version: 2,
+    required: ["collection.inspect", "records.read"],
+    optional: ["records.collaborate", "records.update"]
+  };
+  assert.deepEqual(validateAppManifest(declaration), { valid: true, issues: [] });
+
+  for (const mutate of [
+    (candidate) => candidate.requirements.capabilities.required.splice(1, 1),
+    (candidate) => { candidate.requirements.access = "contract"; },
+    (candidate) => { delete candidate.requirements.collection_kind; }
+  ]) {
+    const invalid = structuredClone(declaration);
+    mutate(invalid);
+    const result = validateAppManifest(invalid);
+    assert.equal(result.valid, false);
+    assert.ok(result.issues.some((issue) => issue.keyword.startsWith("collaboration")));
+  }
+
+  const legacy = manifest();
+  legacy.requirements.capabilities.optional.push("records.collaborate");
+  assert.equal(validateAppManifest(legacy).valid, false);
+  assert.throws(
+    () => capabilityOperations("records.collaborate", 1),
+    /unavailable/
+  );
+});
+
+test("published v1 and v2 capability catalogues match their executable contracts", async () => {
+  const v1 = JSON.parse(await readFile(
     new URL("../schemas/mdbase-app.schema.json", import.meta.url),
     "utf8"
   ));
   assert.equal(
-    schema.$defs.capabilityRequirements.properties.contract_version.const,
+    v1.$defs.capabilityRequirements.properties.contract_version.const,
+    LEGACY_APPLICATION_CAPABILITY_CONTRACT_VERSION
+  );
+  assert.deepEqual(
+    v1.$defs.applicationCapability.enum,
+    Object.keys(APPLICATION_CAPABILITY_DEFINITIONS_V1)
+  );
+  const v2 = JSON.parse(await readFile(
+    new URL("../schemas/mdbase-app.v2.schema.json", import.meta.url),
+    "utf8"
+  ));
+  assert.equal(
+    v2.$defs.capabilityRequirements.properties.contract_version.const,
     APPLICATION_CAPABILITY_CONTRACT_VERSION
   );
   assert.deepEqual(
-    schema.$defs.applicationCapability.enum,
+    v2.$defs.applicationCapability.enum,
     Object.keys(APPLICATION_CAPABILITY_DEFINITIONS)
   );
 });

@@ -148,7 +148,7 @@ describe("mdbase connect server", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       status: "ready",
       provider: {
-        version: "0.1.0-beta.85",
+        version: "0.1.0-beta.86",
         capabilities: [
           ...HOSTED_PROVIDER_REQUIRED_CAPABILITIES,
           HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY
@@ -2456,6 +2456,9 @@ describe("mdbase connect server", () => {
       }
     });
     expect(approved.statusCode).toBe(200);
+    expect(hostedProvider.ready).toHaveBeenCalled();
+    expect(vi.mocked(hostedProvider.ready).mock.invocationCallOrder[0])
+      .toBeLessThan(vi.mocked(hostedProvider.registerReplica).mock.invocationCallOrder[0]);
     expect(hostedProvider.registerReplica).toHaveBeenCalledWith(
       collectionId,
       expect.objectContaining({

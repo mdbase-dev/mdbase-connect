@@ -8,6 +8,16 @@ test("accepts collection-wide binary file access", () => {
   assert.doesNotThrow(() => assertEditorManifest(manifest(), homepage));
 });
 
+test("accepts the LAB-only experimental collaboration manifest", () => {
+  const value = manifest();
+  value.manifest_version = 2;
+  value.requirements.collection_kind = "hosted";
+  value.requirements.capabilities.contract_version = 2;
+  value.requirements.capabilities.optional.push("records.collaborate");
+  assert.doesNotThrow(() => assertEditorManifest(value, homepage, undefined, true));
+  assert.throws(() => assertEditorManifest(value, homepage), /manifest version must be 1/);
+});
+
 test("accepts the exact configured Connect callback", () => {
   const value = manifest();
   value.redirect_uris.push("https://editor.mdbase.dev/?server=https%3A%2F%2Fconnect-staging.mdbase.dev");
@@ -35,11 +45,16 @@ for (const [name, mutate, expected] of [
 
 function manifest() {
   return {
+    manifest_version: 1,
     homepage,
     redirect_uris: [homepage],
     requirements: {
       access: "full_collection",
-      capabilities: { required: ["files.list", "files.read"] },
+      capabilities: {
+        contract_version: 1,
+        required: ["files.list", "files.read"],
+        optional: ["files.add"]
+      },
       files: { actions: ["list", "read"], scope: { kind: "collection" } }
     }
   };
