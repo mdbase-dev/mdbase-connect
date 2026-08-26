@@ -1291,6 +1291,34 @@ schema:
       timezone: "UTC"
     }
   });
+  const missingAccountReconciliation = await rawRequest(
+    quotaProvider.url,
+    `/internal/v1/accounts/${quotaAccountId}/collections/${crypto.randomUUID()}`,
+    { method: "PUT", token: internalToken, body: {} }
+  );
+  assert.equal(missingAccountReconciliation.status, 404);
+  assert.equal(
+    missingAccountReconciliation.body.error.code,
+    "hosted_collection_not_found"
+  );
+  const otherAccountId = await provisionProviderAccount(quotaProvider.url, {
+    hosted_storage_bytes: 500,
+    retained_file_bytes: 1000,
+    max_document_bytes: 512,
+    max_mirror_replicas_per_collection: 1,
+    max_application_replicas_per_collection: 1,
+    max_hosted_collections: 2
+  });
+  const conflictingAccountReconciliation = await rawRequest(
+    quotaProvider.url,
+    `/internal/v1/accounts/${otherAccountId}/collections/${quotaCollectionId}`,
+    { method: "PUT", token: internalToken, body: {} }
+  );
+  assert.equal(conflictingAccountReconciliation.status, 409);
+  assert.equal(
+    conflictingAccountReconciliation.body.error.code,
+    "hosted_collection_account_conflict"
+  );
   await provisionTypes(quotaProvider.url, quotaCollectionId, [WORK_ITEM_PROVISION]);
   await internalRequest(
     quotaProvider.url,
