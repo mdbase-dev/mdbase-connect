@@ -57,8 +57,10 @@ your platform.
 
 ## Hosted read canary
 
-`scripts/hosted-read-canary.mjs` checks one immutable Markdown marker through
-the native hosted CLI path. Enrollment is deliberately interactive and separate
+`scripts/hosted-read-canary.mjs` registers the exact portable CLI manifest,
+then checks one immutable Markdown marker through the native hosted CLI path.
+This exercises application registration and authenticated hosted access in one
+bounded probe. Enrollment is deliberately interactive and separate
 from scheduled execution:
 
 ```bash

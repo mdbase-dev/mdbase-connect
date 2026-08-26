@@ -95,6 +95,7 @@ export function registerMirrorPairingRoutes(
     }>(
       `SELECT id, display_name FROM hosted_collections
        WHERE user_id = $1 AND authority_state = 'active'
+         AND quarantined_at IS NULL
        ORDER BY display_name`,
       [user.id]
     );
@@ -130,6 +131,7 @@ export function registerMirrorPairingRoutes(
            AND EXISTS (
              SELECT 1 FROM hosted_collections
              WHERE id = $3 AND user_id = $2 AND authority_state = 'active'
+               AND quarantined_at IS NULL
            )
          RETURNING id, mirror_name, mode`,
         [pairingId, user.id, input.collection_id]

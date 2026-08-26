@@ -3,6 +3,7 @@ import type {
   DatabasePool,
   DatabaseQueryable
 } from "./database-types.js";
+import { queueAccountProviderCleanup } from "./hosted-capability-lifecycle.js";
 import type {
   ExternalProvider,
   VerifiedExternalIdentity
@@ -40,6 +41,78 @@ export class AccountDeletionAuthorizationError extends Error {
 export interface AccountSignInMethodCounts {
   external: number;
   password: boolean;
+}
+
+export interface AccountDeletionResult {
+  hostedCollectionsScheduledForDeletion: number;
+  crossAccountReplicasRevoked: number;
+  localCollectionsPreserved: number;
+}
+
+export async function deleteAccountLocally(
+  db: DatabasePool,
+  input: {
+    userId: string;
+    sessionId: string;
+    authorized: boolean;
+    reauthToken?: string;
+    queueProviderCleanup: boolean;
+  }
+): Promise<AccountDeletionResult> {
+  const connection = await db.connect();
+  try {
+    await connection.query("BEGIN");
+    const locked = await connection.query(
+      "SELECT id FROM users WHERE id = $1 FOR UPDATE",
+      [input.userId]
+    );
+    if (!locked.rows[0]) throw new AccountDeletionAuthorizationError();
+
+    let authorized = input.authorized;
+    if (!authorized && input.reauthToken) {
+      authorized = await consumeAccountActionToken(
+        connection,
+        input.userId,
+        input.sessionId,
+        "delete_account",
+        input.reauthToken
+      );
+    }
+    if (!authorized) throw new AccountDeletionAuthorizationError();
+
+    const cleanup = input.queueProviderCleanup
+      ? await queueAccountProviderCleanup(connection, input.userId)
+      : {
+          hostedCollections: Number((await connection.query<{ count: string }>(
+            "SELECT count(*)::text AS count FROM hosted_collections WHERE user_id = $1",
+            [input.userId]
+          )).rows[0]?.count ?? 0),
+          crossAccountReplicas: 0
+        };
+    const localCount = await connection.query<{ count: string | number }>(
+      "SELECT count(*) AS count FROM collections WHERE user_id = $1 AND present = true",
+      [input.userId]
+    );
+    const result: AccountDeletionResult = {
+      hostedCollectionsScheduledForDeletion: cleanup.hostedCollections,
+      crossAccountReplicasRevoked: cleanup.crossAccountReplicas,
+      localCollectionsPreserved: Number(localCount.rows[0]?.count ?? 0)
+    };
+    await audit(connection, input.userId, "account.deleted", input.userId, {
+      hosted_collections_scheduled_for_deletion:
+        result.hostedCollectionsScheduledForDeletion,
+      cross_account_replicas_revoked: result.crossAccountReplicasRevoked,
+      local_collections_preserved: result.localCollectionsPreserved
+    });
+    await connection.query("DELETE FROM users WHERE id = $1", [input.userId]);
+    await connection.query("COMMIT");
+    return result;
+  } catch (error) {
+    await connection.query("ROLLBACK");
+    throw error;
+  } finally {
+    connection.release();
+  }
 }
 
 export async function accountSignInMethodCounts(

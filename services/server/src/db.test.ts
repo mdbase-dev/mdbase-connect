@@ -58,7 +58,8 @@ describe("database migrations", () => {
       "0020_protocol_usage_telemetry",
       "0021_device_authorization_origin",
       "0022_account_creation_email_claims",
-      "0023_open_beta_entitlement"
+      "0023_open_beta_entitlement",
+      "0024_account_deletion_consistency"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -78,6 +79,47 @@ describe("database migrations", () => {
          AND column_name = 'normalized_email'`
     );
     expect(emailClaims.rows).toHaveLength(1);
+    const quarantineColumns = await db.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_name = 'hosted_collections'
+         AND column_name IN ('quarantined_at', 'quarantine_reason')`
+    );
+    expect(new Set(quarantineColumns.rows.map(({ column_name }) => column_name)))
+      .toEqual(new Set(["quarantined_at", "quarantine_reason"]));
+    const collectionDeletionJobs = await db.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_name = 'provider_collection_deletion_jobs'`
+    );
+    expect(new Set(collectionDeletionJobs.rows.map(({ column_name }) => column_name)))
+      .toEqual(new Set([
+        "id",
+        "collection_id",
+        "reason",
+        "state",
+        "attempts",
+        "available_at",
+        "last_error",
+        "completed_at",
+        "created_at"
+      ]));
+    const legacyRevocationShape = await db.query<{
+      column_name: string;
+      is_nullable: string;
+    }>(
+      `SELECT column_name, is_nullable FROM information_schema.columns
+       WHERE table_name = 'provider_revocation_jobs'
+         AND column_name IN ('replica_id', 'operation')`
+    );
+    expect(legacyRevocationShape.rows).toEqual([{
+      column_name: "replica_id",
+      is_nullable: "NO"
+    }]);
+    await expect(db.query(
+      `INSERT INTO provider_collection_deletion_jobs
+         (id, collection_id, reason)
+       VALUES ($1, $2, 'unexpected_reason')`,
+      [randomUUID(), randomUUID()]
+    )).rejects.toThrow();
 
     await expect(assertControlPlaneMigrationsCurrent(db)).resolves.toBeUndefined();
     await runControlPlaneMigrations(db);
@@ -577,7 +619,8 @@ describe("database migrations", () => {
       "0020_protocol_usage_telemetry",
       "0021_device_authorization_origin",
       "0022_account_creation_email_claims",
-      "0023_open_beta_entitlement"
+      "0023_open_beta_entitlement",
+      "0024_account_deletion_consistency"
     ]);
   });
 

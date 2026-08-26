@@ -625,10 +625,17 @@ export async function approveHostedAuthorization(
       pending.requirements,
       pending.notifications
     );
-    await connection.query(
-      "SELECT id FROM hosted_collections WHERE id = $1 FOR UPDATE",
+    const hostedCollection = await connection.query(
+      `SELECT id FROM hosted_collections
+       WHERE id = $1 AND quarantined_at IS NULL
+       FOR UPDATE`,
       [input.collectionId]
     );
+    if (!hostedCollection.rows[0]) {
+      throw new RequestValidationError(
+        "That hosted collection is unavailable."
+      );
+    }
     if (pending.collection_id && pending.collection_id !== input.collectionId) {
       throw new RequestValidationError(
         "This authorization request is restricted to a different collection."

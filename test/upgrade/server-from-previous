@@ -91,4 +91,65 @@ location=$(curl --silent --show-error \
   "$authorization_uri")
 [[ $location == "$UPGRADE_SERVER_URL/authorize/$authorization_id" ]]
 
-printf 'Previous server upgrade and OAuth path passed.\n'
+upgrade_phase 'proving account deletion rollback on PostgreSQL'
+docker run --rm --interactive --network host \
+  --env DATABASE_URL \
+  "$CANDIDATE_IMAGE" \
+  node --input-type=module <<'NODE'
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { deleteAccountLocally } from "/app/services/server/dist/account-management.js";
+import { createDatabase } from "/app/services/server/dist/db.js";
+
+const db = await createDatabase(process.env.DATABASE_URL);
+const userId = randomUUID();
+const collectionId = randomUUID();
+try {
+  await db.query(
+    "INSERT INTO users (id, email, name) VALUES ($1, $2, 'Deletion rollback canary')",
+    [userId, `${userId}@example.invalid`]
+  );
+  await db.query(
+    `INSERT INTO hosted_collections
+       (id, user_id, display_name, template, contracts)
+     VALUES ($1, $2, 'Deletion rollback canary', 'mdbase', '[]'::jsonb)`,
+    [collectionId, userId]
+  );
+  await db.query(
+    "CREATE TABLE account_deletion_upgrade_guard (user_id uuid REFERENCES users(id))"
+  );
+  await db.query(
+    "INSERT INTO account_deletion_upgrade_guard (user_id) VALUES ($1)",
+    [userId]
+  );
+
+  await assert.rejects(
+    deleteAccountLocally(db, {
+      userId,
+      sessionId: randomUUID(),
+      authorized: true,
+      queueProviderCleanup: true
+    })
+  );
+
+  const user = await db.query("SELECT id FROM users WHERE id = $1", [userId]);
+  const jobs = await db.query(
+    "SELECT id FROM provider_collection_deletion_jobs WHERE collection_id = $1",
+    [collectionId]
+  );
+  const events = await db.query(
+    `SELECT id FROM audit_events
+     WHERE event_type = 'account.deleted' AND subject_id = $1`,
+    [userId]
+  );
+  assert.equal(user.rowCount, 1, "the account must survive a failed local delete");
+  assert.equal(jobs.rowCount, 0, "the provider cleanup job must roll back");
+  assert.equal(events.rowCount, 0, "account.deleted must not survive rollback");
+} finally {
+  await db.query("DROP TABLE IF EXISTS account_deletion_upgrade_guard");
+  await db.query("DELETE FROM users WHERE id = $1", [userId]);
+  await db.end();
+}
+NODE
+
+printf 'Previous server upgrade, OAuth, and deletion-atomicity paths passed.\n'

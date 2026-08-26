@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.0-beta.90
+
+Beta.90 makes account deletion transactional, isolates stale hosted grants, and
+extends the production canary through application registration.
+
+- Account deletion revokes local capabilities and commits the user teardown in
+  one transaction before durable, retryable provider cleanup begins.
+- Cross-account replicas, failed local transactions, transferred authorities,
+  provider outages, and duplicate cleanup delivery are handled explicitly.
+- Confirmed missing provider collections are quarantined locally; their grants,
+  tokens, replicas, and pairing requests fail closed without conflating
+  ownership conflicts or transient provider failures.
+- One confirmed-missing grant no longer blocks another account from registering
+  the same application, while ownership conflicts remain visible failures.
+- The hosted-read canary now registers the exact portable CLI application before
+  authenticated describe, marker read, and digest verification.
+- `MDBASE_CONNECT_ACCOUNT_DELETION=disabled` retains a fail-closed operational
+  hold for future incident response.
+
 ## 0.1.0-beta.89
 
 Beta.89 temporarily pauses account deletion while the hosted deletion workflow

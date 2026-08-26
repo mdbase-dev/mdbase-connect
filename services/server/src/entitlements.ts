@@ -276,6 +276,7 @@ export async function reconcileHostedAccountCollections(
     `SELECT id FROM hosted_collections
      WHERE user_id = $1
        AND authority_state IN ('importing', 'active', 'transferring')
+       AND quarantined_at IS NULL
      ORDER BY id`,
     [userId]
   );

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { deleteAccountLocally } from "./account-management.js";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import { hashPassword } from "./password.js";
@@ -309,7 +310,40 @@ describe("account management", () => {
     expect(currentMethod.json().error.code).toBe("current_identity");
   });
 
-  it("fails account deletion closed without consuming fresh external reauthentication", async () => {
+  it("fails account deletion closed while the operational hold is active", async () => {
+    const deleteCollection = vi.fn(async () => undefined);
+    const { app, db } = await fixture({
+      accountDeletionEnabled: false,
+      hostedCollections: true,
+      hostedProvider: fakeProvider({ deleteCollection })
+    });
+    const account = await seedSession(db);
+    await seedPassword(db, account.userId, account.email, oldPassword);
+
+    const details = await app.inject({
+      method: "GET",
+      url: "/v1/account",
+      headers: { cookie: account.cookie }
+    });
+    expect(details.statusCode).toBe(200);
+    expect(details.json().deletion).toMatchObject({
+      available: false,
+      unavailable_reason: "temporarily_disabled"
+    });
+    const response = await app.inject({
+      method: "DELETE",
+      url: "/v1/account",
+      headers: { cookie: account.cookie, origin },
+      payload: { confirmation: "DELETE", current_password: oldPassword }
+    });
+    expect(response.statusCode).toBe(503);
+    expect(response.json().error.code).toBe("account_deletion_unavailable");
+    expect(deleteCollection).not.toHaveBeenCalled();
+    expect((await db.query("SELECT id FROM users WHERE id = $1", [account.userId])).rows)
+      .toHaveLength(1);
+  });
+
+  it("requires fresh external reauthentication, commits local deletion, and then cleans up hosted data", async () => {
     const deleteCollection = vi.fn(async () => undefined);
     const { app, db } = await fixture({
       githubAuth: githubConfig({ id: "12558714", login: "callumalpass" }),
@@ -324,34 +358,24 @@ describe("account management", () => {
       [account.userId]
     );
     const hostedId = randomUUID();
+    const transferredId = randomUUID();
     await db.query(
       `INSERT INTO hosted_collections
-         (id, user_id, display_name, template, contracts)
-       VALUES ($1, $2, 'Only hosted copy', 'mdbase', '[]'::jsonb)`,
-      [hostedId, account.userId]
+         (id, user_id, display_name, template, contracts, authority_state)
+       VALUES
+         ($1, $2, 'Only hosted copy', 'mdbase', '[]'::jsonb, 'active'),
+         ($3, $2, 'Transferred copy', 'mdbase', '[]'::jsonb, 'transferred')`,
+      [hostedId, account.userId, transferredId]
     );
-    const details = await app.inject({
-      method: "GET",
-      url: "/v1/account",
-      headers: { cookie: account.cookie }
-    });
-    expect(details.json().deletion).toMatchObject({
-      available: false,
-      unavailable_reason: "temporarily_disabled",
-      development_confirmation: false
-    });
-    expect((await app.inject({
+
+    const unconfirmed = await app.inject({
       method: "DELETE",
       url: "/v1/account",
-      headers: { origin },
+      headers: { cookie: account.cookie, origin },
       payload: { confirmation: "DELETE" }
-    })).statusCode).toBe(401);
-    expect((await app.inject({
-      method: "DELETE",
-      url: "/v1/account",
-      headers: { cookie: account.cookie, origin: "https://evil.example" },
-      payload: { confirmation: "DELETE" }
-    })).statusCode).toBe(403);
+    });
+    expect(unconfirmed.statusCode).toBe(403);
+    expect(deleteCollection).not.toHaveBeenCalled();
 
     const started = await app.inject({
       method: "GET",
@@ -363,28 +387,125 @@ describe("account management", () => {
     const token = new URLSearchParams(redirect.hash.slice(1)).get("delete_token")!;
     expect(token).toMatch(/^act_/);
 
-    const blocked = await app.inject({
+    const deleted = await app.inject({
       method: "DELETE",
       url: "/v1/account",
       headers: { cookie: account.cookie, origin },
       payload: { confirmation: "DELETE", reauth_token: token }
     });
-    expect(blocked.statusCode).toBe(503);
-    expect(blocked.json().error.code).toBe("account_deletion_unavailable");
-    expect(responseCookies(blocked).join("\n")).not.toContain("Max-Age=0");
-    expect(deleteCollection).not.toHaveBeenCalled();
-    expect((await db.query("SELECT id FROM users WHERE id = $1", [account.userId])).rows)
-      .toHaveLength(1);
-    expect((await db.query(
-      "SELECT consumed_at FROM account_action_tokens WHERE user_id = $1",
-      [account.userId]
-    )).rows[0].consumed_at).toBeNull();
-    expect((await db.query(
-      "SELECT id FROM audit_events WHERE event_type = 'account.deleted'"
-    )).rows).toEqual([]);
+    expect(deleted.statusCode, deleted.body).toBe(200);
+    await vi.waitFor(() => expect(deleteCollection).toHaveBeenCalledWith(hostedId));
+    expect(deleteCollection).not.toHaveBeenCalledWith(transferredId);
+    expect((await db.query("SELECT id FROM users WHERE id = $1", [account.userId])).rows).toEqual([]);
+    const event = await db.query<{ user_id: string | null; metadata: Record<string, number> }>(
+      "SELECT user_id, metadata FROM audit_events WHERE event_type = 'account.deleted'"
+    );
+    expect(event.rows[0]).toEqual({
+      user_id: null,
+      metadata: {
+        hosted_collections_scheduled_for_deletion: 1,
+        cross_account_replicas_revoked: 0,
+        local_collections_preserved: 0
+      }
+    });
+    expect(responseCookies(deleted).join("\n")).toContain("Max-Age=0");
   });
 
-  it("fails password-confirmed deletion closed without calling the provider", async () => {
+  it("revokes cross-account hosted replicas before deleting an account", async () => {
+    const deleteCollection = vi.fn(async () => undefined);
+    const revokeReplica = vi.fn(async () => undefined);
+    const revokeNotificationGrant = vi.fn(async () => undefined);
+    const { app, db } = await fixture({
+      hostedCollections: true,
+      hostedProvider: fakeProvider({
+        deleteCollection,
+        revokeReplica,
+        revokeNotificationGrant
+      })
+    });
+    const account = await seedSession(db, { email: "departing@example.com" });
+    await seedPassword(db, account.userId, account.email, oldPassword);
+    const owner = await seedSession(db, { email: "owner@example.com" });
+    const ownedCollectionId = randomUUID();
+    const sharedCollectionId = randomUUID();
+    const sharedReplicaId = randomUUID();
+    const previouslyRevokedReplicaId = randomUUID();
+    const applicationId = randomUUID();
+    const grantId = randomUUID();
+    await db.query(
+      `INSERT INTO hosted_collections
+         (id, user_id, display_name, template, contracts)
+       VALUES
+         ($1, $2, 'Departing account notes', 'mdbase', '[]'::jsonb),
+         ($3, $4, 'Shared notes', 'mdbase', '[]'::jsonb)`,
+      [ownedCollectionId, account.userId, sharedCollectionId, owner.userId]
+    );
+    await db.query(
+      `INSERT INTO hosted_replicas
+         (id, collection_id, authorized_user_id, name, purpose, mode,
+          token_hash, revoked_at)
+       VALUES
+         ($1, $2, $3, 'Shared application', 'application', 'read_write', $4, NULL),
+         ($5, $2, $3, 'Old shared mirror', 'mirror', 'read_only', NULL, now())`,
+      [
+        sharedReplicaId,
+        sharedCollectionId,
+        account.userId,
+        tokenHash("shared-replica-token"),
+        previouslyRevokedReplicaId
+      ]
+    );
+    await db.query(
+      `INSERT INTO applications
+         (id, canonical_identity, name, homepage, redirect_uris)
+       VALUES ($1, $2, 'Shared app', 'https://app.example', '[]'::jsonb)`,
+      [applicationId, `test:${applicationId}`]
+    );
+    await db.query(
+      `INSERT INTO grants
+         (id, user_id, application_id, hosted_collection_id,
+          hosted_replica_id, operations)
+       VALUES ($1, $2, $3, $4, $5, '["query"]'::jsonb)`,
+      [grantId, account.userId, applicationId, sharedCollectionId, sharedReplicaId]
+    );
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: "/v1/account",
+      headers: { cookie: account.cookie, origin },
+      payload: { confirmation: "DELETE", current_password: oldPassword }
+    });
+
+    expect(response.statusCode, response.body).toBe(200);
+    await vi.waitFor(() => expect(revokeReplica).toHaveBeenCalledWith(sharedReplicaId));
+    await vi.waitFor(() => expect(revokeNotificationGrant).toHaveBeenCalledWith(
+      sharedCollectionId,
+      grantId
+    ));
+    await vi.waitFor(() => expect(deleteCollection).toHaveBeenCalledWith(ownedCollectionId));
+    expect((await db.query("SELECT id FROM users WHERE id = $1", [account.userId])).rows)
+      .toEqual([]);
+    expect((await db.query(
+      "SELECT id FROM hosted_collections WHERE id = $1",
+      [sharedCollectionId]
+    )).rows).toEqual([{ id: sharedCollectionId }]);
+    expect((await db.query(
+      `SELECT authorized_user_id, revoked_at, token_hash
+       FROM hosted_replicas WHERE id = $1`,
+      [sharedReplicaId]
+    )).rows[0]).toEqual({
+      authorized_user_id: null,
+      revoked_at: expect.any(Date),
+      token_hash: null
+    });
+    expect((await db.query(
+      "SELECT authorized_user_id FROM hosted_replicas WHERE id = $1",
+      [previouslyRevokedReplicaId]
+    )).rows[0]).toEqual({ authorized_user_id: null });
+    expect(revokeReplica).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps provider cleanup durable when deletion succeeds while the provider is offline", async () => {
     const deleteCollection = vi.fn(async () => { throw new Error("provider offline"); });
     const { app, db } = await fixture({
       hostedCollections: true,
@@ -392,27 +513,75 @@ describe("account management", () => {
     });
     const account = await seedSession(db);
     await seedPassword(db, account.userId, account.email, oldPassword);
+    const collectionId = randomUUID();
+    await db.query(
+      `INSERT INTO hosted_collections
+         (id, user_id, display_name, template, contracts)
+       VALUES ($1, $2, 'Important', 'mdbase', '[]'::jsonb)`,
+      [collectionId, account.userId]
+    );
+    const response = await app.inject({
+      method: "DELETE",
+      url: "/v1/account",
+      headers: { cookie: account.cookie, origin },
+      payload: { confirmation: "DELETE", current_password: oldPassword }
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    await vi.waitFor(() => expect(deleteCollection).toHaveBeenCalledWith(collectionId));
+    expect((await db.query("SELECT id FROM users WHERE id = $1", [account.userId])).rows)
+      .toEqual([]);
+    await vi.waitFor(async () => {
+      expect((await db.query(
+        `SELECT collection_id, state, attempts, last_error
+         FROM provider_collection_deletion_jobs WHERE completed_at IS NULL`
+      )).rows).toEqual([{
+        collection_id: collectionId,
+        state: "pending",
+        attempts: 1,
+        last_error: "provider offline"
+      }]);
+    });
+  });
+
+  it("rolls back the cleanup job and account.deleted audit event when local deletion fails", async () => {
+    const { db } = await fixture();
+    const account = await seedSession(db);
+    const session = await db.query<{ id: string }>(
+      "SELECT id FROM sessions WHERE user_id = $1",
+      [account.userId]
+    );
     await db.query(
       `INSERT INTO hosted_collections
          (id, user_id, display_name, template, contracts)
        VALUES ($1, $2, 'Important', 'mdbase', '[]'::jsonb)`,
       [randomUUID(), account.userId]
     );
-    for (const currentPassword of ["not the password", oldPassword]) {
-      const response = await app.inject({
-        method: "DELETE",
-        url: "/v1/account",
-        headers: { cookie: account.cookie, origin },
-        payload: { confirmation: "DELETE", current_password: currentPassword }
-      });
-      expect(response.statusCode).toBe(503);
-    }
-    expect(deleteCollection).not.toHaveBeenCalled();
-    expect((await db.query("SELECT id FROM users WHERE id = $1", [account.userId])).rows)
-      .toHaveLength(1);
-    expect((await db.query(
-      "SELECT id FROM audit_events WHERE event_type = 'account.deleted'"
-    )).rows).toEqual([]);
+    const statements: string[] = [];
+    const failingPool = {
+      connect: async () => {
+        const connection = await db.connect();
+        return {
+          query: async (text: string, values?: unknown[]) => {
+            statements.push(text);
+            if (text === "DELETE FROM users WHERE id = $1") {
+              throw new Error("simulated local delete failure");
+            }
+            return connection.query(text, values);
+          },
+          release: () => connection.release()
+        };
+      }
+    } as typeof db;
+
+    await expect(deleteAccountLocally(failingPool, {
+      userId: account.userId,
+      sessionId: session.rows[0].id,
+      authorized: true,
+      queueProviderCleanup: true
+    })).rejects.toThrow("simulated local delete failure");
+
+    expect(statements.at(-1)).toBe("ROLLBACK");
+    expect(statements).not.toContain("COMMIT");
   });
 });
 

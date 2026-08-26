@@ -244,7 +244,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
 }
 
 export function DeletedAccount({ client }: { client: ConnectManagementClient }) {
-  return <main className="connect-deleted-account"><div><h1>Your account has been deleted.</h1><span>Hosted data and access credentials were removed. Any local collection and mirror files remain on your computers.</span><a className="connect-account-action" href={new URL("/login", client.baseUrl).href}>Return to sign in</a></div></main>;
+  return <main className="connect-deleted-account"><div><h1>Your account has been deleted.</h1><span>Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers.</span><a className="connect-account-action" href={new URL("/login", client.baseUrl).href}>Return to sign in</a></div></main>;
 }
 
 function StorageRow({ collection }: { collection: AccountData["storage"]["collections"][number] }) {
