@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { DatabasePool, DatabaseQueryable } from "./database-types.js";
-import type {
-  HostedAccountLimits,
-  HostedAccountUsage,
-  HostedProviderClient
+import {
+  HostedProviderResponseError,
+  type HostedAccountLimits,
+  type HostedAccountUsage,
+  type HostedProviderClient
 } from "./hosted-provider.js";
 
 export const BETA_ENTITLEMENT_PROFILE = "beta_v1";
@@ -269,7 +270,10 @@ export async function reconcileHostedAccount(
 export async function reconcileHostedAccountCollections(
   db: DatabaseQueryable,
   provider: HostedProviderClient,
-  userId: string
+  userId: string,
+  options: {
+    onMissingCollection?: (collectionId: string) => Promise<void>;
+  } = {}
 ): Promise<ReconciledHostedAccount & { reconciledCollections: number }> {
   const account = await reconcileHostedAccount(db, provider, userId);
   const collections = await db.query<{ id: string }>(
@@ -282,11 +286,24 @@ export async function reconcileHostedAccountCollections(
   );
   let reconciledCollections = 0;
   for (const collection of collections.rows) {
-    await provider.reconcileCollectionAccount(
-      account.providerAccountId,
-      collection.id
-    );
-    reconciledCollections += 1;
+    try {
+      await provider.reconcileCollectionAccount(
+        account.providerAccountId,
+        collection.id
+      );
+      reconciledCollections += 1;
+    } catch (error) {
+      if (
+        options.onMissingCollection
+        && error instanceof HostedProviderResponseError
+        && error.status === 404
+        && error.code === "hosted_collection_not_found"
+      ) {
+        await options.onMissingCollection(collection.id);
+        continue;
+      }
+      throw error;
+    }
   }
   const usage = await provider.accountUsage(account.providerAccountId);
   return { ...account, usage, reconciledCollections };

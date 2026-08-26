@@ -8,8 +8,15 @@ import {
   effectiveEntitlement,
   materializeInvitationEntitlement,
   materializePublicSignupEntitlement,
-  OPEN_BETA_ENTITLEMENT_PROFILE
+  OPEN_BETA_ENTITLEMENT_PROFILE,
+  reconcileHostedAccountCollections
 } from "./entitlements.js";
+import {
+  HostedProviderResponseError,
+  type HostedAccountLimits,
+  type HostedAccountUsage,
+  type HostedProviderClient
+} from "./hosted-provider.js";
 
 const resources: Array<() => Promise<void>> = [];
 
@@ -114,12 +121,101 @@ describe("account entitlements", () => {
       .toBe(1_073_741_824);
   });
 
+  it("isolates only a typed missing collection during batch reconciliation", async () => {
+    const { db, userId, invitationId } = await fixture();
+    await materializeInvitationEntitlement(
+      db,
+      userId,
+      invitationId,
+      BETA_ENTITLEMENT_PROFILE
+    );
+    const collectionId = randomUUID();
+    await db.query(
+      `INSERT INTO hosted_collections (id, user_id, display_name, template)
+       VALUES ($1, $2, 'Missing provider collection', 'blank')`,
+      [collectionId, userId]
+    );
+    const missing: string[] = [];
+    const result = await reconcileHostedAccountCollections(
+      db,
+      reconciliationProvider(() => {
+        throw new HostedProviderResponseError(
+          404,
+          "hosted_collection_not_found",
+          "Hosted collection not found."
+        );
+      }),
+      userId,
+      { onMissingCollection: async (id) => { missing.push(id); } }
+    );
+    expect(result.reconciledCollections).toBe(0);
+    expect(missing).toEqual([collectionId]);
+  });
+
+  it("keeps collection ownership conflicts visible during reconciliation", async () => {
+    const { db, userId, invitationId } = await fixture();
+    await materializeInvitationEntitlement(
+      db,
+      userId,
+      invitationId,
+      BETA_ENTITLEMENT_PROFILE
+    );
+    await db.query(
+      `INSERT INTO hosted_collections (id, user_id, display_name, template)
+       VALUES ($1, $2, 'Conflicting provider collection', 'blank')`,
+      [randomUUID(), userId]
+    );
+    await expect(reconcileHostedAccountCollections(
+      db,
+      reconciliationProvider(() => {
+        throw new HostedProviderResponseError(
+          409,
+          "hosted_collection_account_conflict",
+          "The hosted collection belongs to another account."
+        );
+      }),
+      userId,
+      { onMissingCollection: async () => undefined }
+    )).rejects.toMatchObject({ code: "hosted_collection_account_conflict" });
+  });
+
   it("rejects an unknown invitation profile", async () => {
     const { db, invitationId } = await fixture();
     await expect(attachInvitationEntitlement(db, invitationId, "missing_v1"))
       .rejects.toThrow("Unknown entitlement profile");
   });
 });
+
+function reconciliationProvider(
+  reconcile: () => void | Promise<void>
+): HostedProviderClient {
+  let usage: HostedAccountUsage | undefined;
+  return {
+    async upsertAccount(
+      accountId: string,
+      entitlementRevision: number,
+      limits: HostedAccountLimits
+    ) {
+      usage = {
+        account_id: accountId,
+        entitlement_revision: entitlementRevision,
+        collection_count: 0,
+        live_content_bytes: 0,
+        live_file_bytes: 0,
+        retained_file_bytes: 0,
+        ...limits
+      };
+      return usage;
+    },
+    async reconcileCollectionAccount() {
+      await reconcile();
+    },
+    async accountUsage() {
+      if (!usage) throw new Error("Hosted account was not reconciled.");
+      return usage;
+    }
+  } as unknown as HostedProviderClient;
+}
 
 async function fixture(): Promise<{
   db: DatabasePool;

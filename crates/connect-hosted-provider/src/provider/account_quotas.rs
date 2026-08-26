@@ -195,9 +195,21 @@ impl HostedProvider {
         .execute(&mut *transaction)
         .await?;
         if result.rows_affected() == 0 {
+            let existing = sqlx::query_scalar::<_, Uuid>(
+                "SELECT id FROM hosted_provider_collections WHERE id = $1 AND state <> 'deleting'",
+            )
+            .bind(collection_id)
+            .fetch_optional(&mut *transaction)
+            .await?;
+            if existing.is_none() {
+                return Err(ApiError::not_found(
+                    "hosted_collection_not_found",
+                    "Hosted collection not found.",
+                ));
+            }
             return Err(ApiError::conflict(
                 "hosted_collection_account_conflict",
-                "The hosted collection is missing or belongs to another account.",
+                "The hosted collection belongs to another account.",
             ));
         }
         sqlx::query(
