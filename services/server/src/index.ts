@@ -41,6 +41,7 @@ const { app } = await buildApp({
     ? new ResendEmailTransport(runtime.transactionalEmail)
     : undefined,
   resendWebhookSecret: runtime.resendWebhookSecret ?? undefined,
+  accountDeletionEnabled: runtime.accountDeletionEnabled,
   hostedCollections: runtime.hostedCollections,
   hostedReferenceAuthority: runtime.hostedReferenceAuthority,
   hostedProvider: runtime.hostedProvider

@@ -20,7 +20,10 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
-import { HostedProviderClient } from "./hosted-provider.js";
+import {
+  HostedProviderClient,
+  HostedProviderResponseError
+} from "./hosted-provider.js";
 import { authorityProofMessage } from "./authority-proof.js";
 import { pkceChallenge, tokenHash } from "./security.js";
 import {
@@ -144,7 +147,7 @@ describe("mdbase connect server", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       status: "ready",
       provider: {
-        version: "0.1.0-beta.89",
+        version: "0.1.0-beta.90",
         capabilities: [
           ...HOSTED_PROVIDER_REQUIRED_CAPABILITIES,
           HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY
@@ -1882,6 +1885,98 @@ describe("mdbase connect server", () => {
     });
     expect(removed.statusCode).toBe(200);
     expect(hostedProvider.deleteCollection).toHaveBeenCalledWith(collectionId);
+  });
+
+  it("keeps shared application registration available when another account has a confirmed missing collection", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const staleCollectionId = randomUUID();
+    const healthyCollectionId = randomUUID();
+    const revokeNotificationGrant = vi.fn(async (collectionId: string) => {
+      if (collectionId === staleCollectionId) {
+        throw new HostedProviderResponseError(
+          404,
+          "hosted_collection_not_found",
+          "Hosted collection not found."
+        );
+      }
+    });
+    const hostedProvider = {
+      url: "https://sync.example",
+      revokeNotificationGrant,
+      revokeReplica: vi.fn(async () => undefined)
+    } as unknown as HostedProviderClient;
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      hostedCollections: true,
+      hostedProvider,
+      publicUrl: "http://connect.test",
+      allowInsecureManifests: true
+    });
+    resources.push(() => app.close());
+    const manifest = applicationManifestFixture({
+      configuration: [],
+      contracts: [],
+      access: "full_collection",
+      collection_kind: "hosted"
+    }, "Shared hosted app").manifest;
+    const initial = await app.inject({
+      method: "POST",
+      url: "/v1/apps/register",
+      payload: { manifest }
+    });
+    expect(initial.statusCode, JSON.stringify(initial.json())).toBe(200);
+    const applicationId = initial.json().application.id as string;
+    const users = [randomUUID(), randomUUID()];
+    const collections = [staleCollectionId, healthyCollectionId];
+    const grants = [randomUUID(), randomUUID()];
+    for (let index = 0; index < users.length; index += 1) {
+      const replicaId = randomUUID();
+      await db.query(
+        "INSERT INTO users (id, email, name) VALUES ($1, $2, 'User')",
+        [users[index], `${users[index]}@example.com`]
+      );
+      await db.query(
+        `INSERT INTO hosted_collections
+           (id, user_id, display_name, template, contracts)
+         VALUES ($1, $2, 'Hosted collection', 'mdbase', '[]'::jsonb)`,
+        [collections[index], users[index]]
+      );
+      await db.query(
+        `INSERT INTO hosted_replicas
+           (id, collection_id, authorized_user_id, name, purpose, mode,
+            allowed_types)
+         VALUES ($1, $2, $3, 'Application', 'application', 'read_only',
+                 '[]'::jsonb)`,
+        [replicaId, collections[index], users[index]]
+      );
+      await db.query(
+        `INSERT INTO grants
+           (id, user_id, application_id, hosted_collection_id,
+            hosted_replica_id, operations, scope, notification_criteria,
+            application_origin)
+         VALUES ($1, $2, $3, $4, $5, '["query"]'::jsonb,
+                 '{"contracts":[],"access":"full_collection"}'::jsonb,
+                 '[]'::jsonb, 'http://localhost:4173')`,
+        [grants[index], users[index], applicationId, collections[index], replicaId]
+      );
+    }
+
+    const registration = await app.inject({
+      method: "POST",
+      url: "/v1/apps/register",
+      payload: { manifest }
+    });
+
+    expect(registration.statusCode, JSON.stringify(registration.json())).toBe(200);
+    expect(revokeNotificationGrant).toHaveBeenCalledWith(staleCollectionId, grants[0]);
+    expect(revokeNotificationGrant).toHaveBeenCalledWith(healthyCollectionId, grants[1]);
+    const state = await db.query<{ id: string; revoked_at: Date | null }>(
+      "SELECT id, revoked_at FROM grants ORDER BY id"
+    );
+    expect(state.rows.find(({ id }) => id === grants[0])?.revoked_at).toBeTruthy();
+    expect(state.rows.find(({ id }) => id === grants[1])?.revoked_at).toBeNull();
   });
 
   it("provisions and reconciles contract-free hosted application access as unrestricted", async () => {

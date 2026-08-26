@@ -1,15 +1,13 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
 import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
-import { promisify } from "node:util";
 
-import { markerDocumentSha256 } from "../hosted-read-canary.mjs";
-
-const execFileAsync = promisify(execFile);
-const SCRIPT = resolve(import.meta.dirname, "../hosted-read-canary.mjs");
+import {
+  markerDocumentSha256,
+  runCanary
+} from "../hosted-read-canary.mjs";
 const COLLECTION = "01900000-0000-7000-8000-000000000000";
 const ORIGIN = "https://connect.example";
 const NAME = "Status marker";
@@ -62,20 +60,24 @@ function argumentsFor({ stateDir, cli }, overrides = {}) {
   return Object.entries(values).flatMap(([name, value]) => [`--${name}`, value]);
 }
 
-async function invoke(options, overrides = {}, environment = {}) {
-  try {
-    const result = await execFileAsync(process.execPath, [SCRIPT, ...argumentsFor(options, overrides)], {
-      env: { ...process.env, ...environment }
-    });
-    return { code: 0, stdout: result.stdout, stderr: result.stderr, json: JSON.parse(result.stdout) };
-  } catch (error) {
-    return {
-      code: error.code,
-      stdout: error.stdout,
-      stderr: error.stderr,
-      json: JSON.parse(error.stdout)
-    };
-  }
+async function invoke(options, overrides = {}, environment = {}, dependencies = {}) {
+  const fetchImpl = dependencies.fetchImpl ?? (async () => Response.json({
+    application: {
+      id: "01900000-0000-7000-8000-000000000001",
+      manifest_digest: "a".repeat(64)
+    }
+  }));
+  const { exitCode, result } = await runCanary(
+    argumentsFor(options, overrides),
+    { ...process.env, ...environment },
+    { fetchImpl }
+  );
+  return {
+    code: exitCode,
+    stdout: `${JSON.stringify(result)}\n`,
+    stderr: "",
+    json: result
+  };
 }
 
 test("reports a successful least-privilege hosted read", async (t) => {
@@ -85,6 +87,7 @@ test("reports a successful least-privilege hosted read", async (t) => {
   assert.equal(result.stderr, "");
   assert.deepEqual(result.json.stages.map(({ name, status }) => ({ name, status })), [
     { name: "config", status: "operational" },
+    { name: "registration", status: "operational" },
     { name: "connections", status: "operational" },
     { name: "describe", status: "operational" },
     { name: "read", status: "operational" },
@@ -96,6 +99,41 @@ test("reports a successful least-privilege hosted read", async (t) => {
   assert.equal(result.json.status, "operational");
   assert.match(result.json.checked_at, /^\d{4}-\d{2}-\d{2}T/u);
   assert.ok(Number.isInteger(result.json.duration_ms));
+});
+
+test("registers the exact portable CLI application without exposing its response", async (t) => {
+  const options = await fixture(t);
+  let request;
+  const result = await invoke(options, {}, {}, {
+    fetchImpl: async (url, init) => {
+      request = { url, init };
+      return Response.json({
+        application: {
+          id: "01900000-0000-7000-8000-000000000001",
+          manifest_digest: "b".repeat(64),
+          private_value: SECRET
+        }
+      });
+    }
+  });
+  assert.equal(result.code, 0);
+  assert.equal(request.url, `${ORIGIN}/v1/apps/register`);
+  assert.equal(request.init.method, "POST");
+  const body = JSON.parse(request.init.body);
+  assert.equal(body.manifest.id, "dev.mdbase.cli");
+  assert.equal(body.manifest.distribution, "portable");
+  assert.deepEqual(body.manifest.requirements.contracts, []);
+  assert.doesNotMatch(result.stdout, new RegExp(SECRET, "u"));
+});
+
+test("reports registration failure with only a fixed status code", async (t) => {
+  const options = await fixture(t);
+  const result = await invoke(options, {}, {}, {
+    fetchImpl: async () => new Response(SECRET, { status: 502 })
+  });
+  assert.equal(result.code, 1);
+  assert.deepEqual(result.json.error, { stage: "registration", code: "http_502" });
+  assert.doesNotMatch(result.stdout + result.stderr, new RegExp(SECRET, "u"));
 });
 
 test("rejects a state directory bound to the wrong origin", async (t) => {
@@ -175,8 +213,16 @@ test("accepts all non-secret inputs from the documented environment variables", 
     MDBASE_HOSTED_CANARY_EXPECTED_MARKER_SHA256: markerDocumentSha256(DOCUMENT),
     MDBASE_HOSTED_CANARY_TIMEOUT_MS: "2000"
   };
-  const { stdout } = await execFileAsync(process.execPath, [SCRIPT], { env: environment });
-  assert.equal(JSON.parse(stdout).environment, "staging");
+  const { exitCode, result } = await runCanary([], environment, {
+    fetchImpl: async () => Response.json({
+      application: {
+        id: "01900000-0000-7000-8000-000000000001",
+        manifest_digest: "c".repeat(64)
+      }
+    })
+  });
+  assert.equal(exitCode, 0);
+  assert.equal(result.environment, "staging");
 });
 
 test("never reflects CLI response bodies, diagnostics, or stderr", async (t) => {

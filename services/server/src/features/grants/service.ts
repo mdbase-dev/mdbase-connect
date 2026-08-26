@@ -12,9 +12,15 @@ import type {
   NotificationCriterion
 } from "@mdbase-dev/connect-protocol";
 import type { DatabasePool, DatabaseQueryable } from "../../db.js";
-import { queueHostedGrantRevocation } from "../../hosted-capability-lifecycle.js";
+import {
+  quarantineMissingHostedCollection,
+  queueHostedGrantRevocation
+} from "../../hosted-capability-lifecycle.js";
 import { contractRequirements, effectiveHostedContractDescriptors } from "../../hosted.js";
-import { HostedProviderClient } from "../../hosted-provider.js";
+import {
+  HostedProviderClient,
+  HostedProviderResponseError
+} from "../../hosted-provider.js";
 import { fileCapabilityForRequirements } from "../../grant-planner.js";
 import { hostedReplicaCollectionOperations } from "../../hosted-replica-policy.js";
 import { RelayHub } from "../../relay.js";
@@ -243,7 +249,21 @@ export async function reconcileApplicationGrants(
       if (!hostedProvider) {
         throw new Error("Hosted provider unavailable during notification reconciliation.");
       }
-      await syncHostedNotificationGrant(db, hostedProvider, grant.id);
+      try {
+        await syncHostedNotificationGrant(db, hostedProvider, grant.id);
+      } catch (error) {
+        const missingCode = missingHostedResourceCode(error);
+        if (!missingCode) throw error;
+        await quarantineMissingHostedGrant(db, {
+          userId: grant.user_id,
+          grantId: grant.id,
+          collectionId: grant.hosted_collection_id,
+          applicationId: application.id,
+          providerErrorCode: missingCode
+        });
+        if (grant.connector_id) changedConnectors.add(grant.connector_id);
+        continue;
+      }
     }
     const hostedDescriptors = grant.template
       ? effectiveHostedContractDescriptors(grant.hosted_contracts, grant.template)
@@ -309,26 +329,40 @@ export async function reconcileApplicationGrants(
         ) || desiredFileCapability?.actions.some((action) =>
           ["add", "replace", "move", "delete"].includes(action)
         ) === true;
-        await hostedProvider.updateApplicationReplica(grant.hosted_replica_id, {
-          grantId: grant.id,
-          mode: write ? "read_write" : "read_only",
-          allowedTypes: desiredAllowedTypes,
-          contractScope: desiredScope.access === "contract" ? desiredScope.contracts : [],
-          fullCollection: application.requirements.access === "full_collection",
-          allowedOperations: hostedReplicaCollectionOperations(grant.operations),
-          operationTransportProtocol:
-            grant.application_authorization.binding.contracts.operation_transport,
-          operationTransportRecoveryProtocols:
-            grant.application_authorization.binding.contracts
-              .operation_transport_recovery ?? [],
-          fileCapability: desiredFileCapability,
-          allowedOrigin: grant.application_origin,
-          proofPublicKey: grant.proof_public_key,
-          applicationDeclarationId: declarationIdFromFamilyIdentity(
-            application.family_identity
-          ),
-          applicationDeclarationDigest: `sha256:${application.manifest_digest}`
-        });
+        try {
+          await hostedProvider.updateApplicationReplica(grant.hosted_replica_id, {
+            grantId: grant.id,
+            mode: write ? "read_write" : "read_only",
+            allowedTypes: desiredAllowedTypes,
+            contractScope: desiredScope.access === "contract" ? desiredScope.contracts : [],
+            fullCollection: application.requirements.access === "full_collection",
+            allowedOperations: hostedReplicaCollectionOperations(grant.operations),
+            operationTransportProtocol:
+              grant.application_authorization.binding.contracts.operation_transport,
+            operationTransportRecoveryProtocols:
+              grant.application_authorization.binding.contracts
+                .operation_transport_recovery ?? [],
+            fileCapability: desiredFileCapability,
+            allowedOrigin: grant.application_origin,
+            proofPublicKey: grant.proof_public_key,
+            applicationDeclarationId: declarationIdFromFamilyIdentity(
+              application.family_identity
+            ),
+            applicationDeclarationDigest: `sha256:${application.manifest_digest}`
+          });
+        } catch (error) {
+          const missingCode = missingHostedResourceCode(error);
+          if (!missingCode) throw error;
+          await quarantineMissingHostedGrant(db, {
+            userId: grant.user_id,
+            grantId: grant.id,
+            collectionId: grant.hosted_collection_id,
+            applicationId: application.id,
+            providerErrorCode: missingCode
+          });
+          if (grant.connector_id) changedConnectors.add(grant.connector_id);
+          continue;
+        }
         await db.query(
           "UPDATE hosted_replicas SET allowed_types = $2::jsonb, mode = $3 WHERE id = $1",
           [
@@ -382,6 +416,51 @@ export async function reconcileApplicationGrants(
   for (const connectorId of changedConnectors) {
     await relay.pushPolicy(connectorId);
   }
+}
+
+function missingHostedResourceCode(error: unknown): string | null {
+  if (
+    !(error instanceof HostedProviderResponseError)
+    || error.status !== 404
+    || !["hosted_collection_not_found", "replica_not_found"].includes(error.code)
+  ) return null;
+  return error.code;
+}
+
+async function quarantineMissingHostedGrant(
+  db: DatabasePool,
+  input: {
+    userId: string;
+    grantId: string;
+    collectionId: string | null;
+    applicationId: string;
+    providerErrorCode: string;
+  }
+): Promise<void> {
+  if (
+    input.providerErrorCode === "hosted_collection_not_found"
+    && input.collectionId
+  ) {
+    await quarantineMissingHostedCollection(db, input.collectionId);
+    return;
+  }
+  const queued = await queueHostedGrantRevocation(
+    db,
+    input.userId,
+    input.grantId,
+    "hosted_resource_missing"
+  );
+  if (!queued) return;
+  await audit(
+    db,
+    input.userId,
+    "grant.revoked_after_hosted_resource_missing",
+    input.grantId,
+    {
+      application_id: input.applicationId,
+      provider_error_code: input.providerErrorCode
+    }
+  );
 }
 
 function scopesEqual(left: GrantScope, right: GrantScope): boolean {

@@ -22,6 +22,7 @@ function config(overrides: Partial<Parameters<typeof validateRuntimeConfig>[0]> 
     authenticationLegalDocuments: null,
     transactionalEmail: null,
     resendWebhookSecret: null,
+    accountDeletionEnabled: true,
     hostedCollections: false,
     hostedProvider: null,
     hostedReferenceAuthority: false,
@@ -47,6 +48,23 @@ describe("public runtime configuration", () => {
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_ENVIRONMENT: "local"
     }).environment).toBe("local");
+  });
+
+  it("parses the account-deletion hold fail closed", () => {
+    expect(runtimeConfigFromEnv({
+      PUBLIC_URL: "http://localhost:8787",
+      MDBASE_CONNECT_DEV_AUTH: "1",
+      MDBASE_CONNECT_ACCOUNT_DELETION: "disabled"
+    }).accountDeletionEnabled).toBe(false);
+    expect(runtimeConfigFromEnv({
+      PUBLIC_URL: "http://localhost:8787",
+      MDBASE_CONNECT_DEV_AUTH: "1"
+    }).accountDeletionEnabled).toBe(true);
+    expect(() => runtimeConfigFromEnv({
+      PUBLIC_URL: "http://localhost:8787",
+      MDBASE_CONNECT_DEV_AUTH: "1",
+      MDBASE_CONNECT_ACCOUNT_DELETION: "maybe"
+    })).toThrow(/MDBASE_CONNECT_ACCOUNT_DELETION/);
   });
 
   it("allows explicit loopback development authentication", () => {

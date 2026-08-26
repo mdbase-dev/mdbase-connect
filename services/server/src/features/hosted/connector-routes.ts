@@ -152,7 +152,7 @@ export function registerConnectorHostedRoutes(
            AND EXISTS (
              SELECT 1 FROM hosted_collections
              WHERE id = $3 AND user_id = $2
-               AND authority_state = 'active'
+               AND authority_state = 'active' AND quarantined_at IS NULL
            )
          RETURNING id, mode`,
         [pairingId, connector.user_id, input.collection_id]

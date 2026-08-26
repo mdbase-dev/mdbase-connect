@@ -33,6 +33,7 @@ export interface RuntimeConfig {
   authenticationLegalDocuments: AuthenticationLegalDocuments | null;
   transactionalEmail: TransactionalEmailConfig | null;
   resendWebhookSecret: string | null;
+  accountDeletionEnabled: boolean;
   hostedCollections: boolean;
   hostedProvider: HostedProviderConfig | null;
   hostedReferenceAuthority: boolean;
@@ -267,6 +268,13 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     : null;
   const resendWebhookSecret =
     env.MDBASE_CONNECT_RESEND_WEBHOOK_SECRET?.trim() || null;
+  const accountDeletion =
+    env.MDBASE_CONNECT_ACCOUNT_DELETION?.trim() || "enabled";
+  if (!["enabled", "disabled"].includes(accountDeletion)) {
+    throw new Error(
+      "MDBASE_CONNECT_ACCOUNT_DELETION must be enabled or disabled."
+    );
+  }
   const port = Number(env.PORT ?? 8787);
   const host = env.HOST ?? "127.0.0.1";
   const hostedProvider = hostedProviderConfigFromEnv(env);
@@ -328,6 +336,7 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     authenticationLegalDocuments,
     transactionalEmail,
     resendWebhookSecret,
+    accountDeletionEnabled: accountDeletion === "enabled",
     hostedCollections: env.MDBASE_CONNECT_HOSTED_COLLECTIONS === "1",
     hostedReferenceAuthority:
       env.MDBASE_CONNECT_HOSTED_REFERENCE_AUTHORITY === "1",

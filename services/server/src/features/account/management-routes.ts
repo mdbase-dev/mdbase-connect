@@ -2,11 +2,11 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import {
   accountSignInMethodCounts,
+  deleteAccountLocally,
   removeExternalIdentity
 } from "../../account-management.js";
 import type { AuthenticationPolicyStore } from "../../authentication-policy.js";
 import type { DatabasePool } from "../../database-types.js";
-import type { HostedAuthorityRegistry } from "../../hosted.js";
 import type {
   HostedCollectionUsage,
   HostedProviderClient
@@ -16,12 +16,14 @@ import {
   PasswordAuthenticationUnavailableError
 } from "../../password-auth.js";
 import { PASSWORD_MAX_UTF8_BYTES } from "../../password.js";
+import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import {
   requireSessionContext,
   requireUser
 } from "../../platform/request-authentication.js";
 import { requireSameOrigin } from "../../platform/request-security.js";
+import { clearSessionCookies } from "../../platform/session-cookies.js";
 
 interface AccountManagementRoutesOptions {
   db: DatabasePool;
@@ -31,10 +33,11 @@ interface AccountManagementRoutesOptions {
   tailscaleAuth?: boolean;
   developmentAuth?: boolean;
   passwordAuthenticationAvailable?: boolean;
+  accountDeletionEnabled?: boolean;
   githubAvailable?: boolean;
   googleAvailable?: boolean;
   hostedProvider?: HostedProviderClient;
-  hostedReference?: HostedAuthorityRegistry;
+  triggerProviderCleanup?: () => void;
 }
 
 interface ExternalIdentityRow {
@@ -89,6 +92,7 @@ export function registerAccountManagementRoutes(
         options.db.query<HostedCollectionRow>(
           `SELECT id, display_name FROM hosted_collections
            WHERE user_id = $1 AND authority_state <> 'transferred'
+             AND quarantined_at IS NULL
            ORDER BY display_name`,
           [user.id]
         ),
@@ -149,12 +153,17 @@ export function registerAccountManagementRoutes(
       },
       storage,
       deletion: {
-        available: false,
-        unavailable_reason: "temporarily_disabled",
+        available: authenticationProvider !== "tailscale"
+          && options.accountDeletionEnabled !== false,
+        unavailable_reason: authenticationProvider === "tailscale"
+          ? "managed_identity"
+          : options.accountDeletionEnabled === false
+            ? "temporarily_disabled"
+            : null,
         hosted_collections: hostedCollections.rows.length,
         local_collections: Number(counts.rows[0]?.local_collections ?? 0),
         computers: Number(counts.rows[0]?.connectors ?? 0),
-        development_confirmation: false
+        development_confirmation: options.developmentAuth === true
       }
     };
   });
@@ -213,10 +222,35 @@ export function registerAccountManagementRoutes(
     requireSameOrigin(request, options.publicUrl, options.managementOrigins);
     const authenticated = await requireSessionContext(request, reply, options.db);
     if (!authenticated) return;
-    return reply.code(503).send(apiError(
-      "account_deletion_unavailable",
-      "Account deletion is temporarily unavailable."
-    ));
+    if (options.accountDeletionEnabled === false) {
+      return reply.code(503).send(apiError(
+        "account_deletion_unavailable",
+        "Account deletion is temporarily unavailable."
+      ));
+    }
+    const input = z.object({
+      confirmation: z.literal("DELETE"),
+      current_password: z.string().min(1).max(PASSWORD_MAX_UTF8_BYTES).optional(),
+      reauth_token: z.string().min(1).max(200).optional()
+    }).strict().parse(request.body);
+    let authorized = options.developmentAuth === true;
+    if (!authorized && input.current_password) {
+      authorized = await passwordAccounts.verifyAccountPassword(
+        authenticated.user.id,
+        input.current_password
+      );
+    }
+
+    await deleteAccountLocally(options.db, {
+      userId: authenticated.user.id,
+      sessionId: authenticated.sessionId,
+      authorized,
+      reauthToken: input.reauth_token,
+      queueProviderCleanup: options.hostedProvider !== undefined
+    });
+    options.triggerProviderCleanup?.();
+    clearSessionCookies(reply);
+    return { ok: true };
   });
 }
 

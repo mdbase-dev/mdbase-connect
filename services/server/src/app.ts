@@ -76,6 +76,7 @@ interface BuildOptions {
   authenticationLegalDocuments?: AuthenticationLegalDocuments;
   emailTransport?: EmailTransport;
   resendWebhookSecret?: string;
+  accountDeletionEnabled?: boolean;
   hostedCollections?: boolean;
   hostedProvider?: HostedProviderClient;
   hostedReferenceAuthority?: boolean;
@@ -146,7 +147,7 @@ export async function buildApp(options: BuildOptions) {
         options.hostedProvider,
         (error) => app.log.error(
           { err: error },
-          "hosted provider revocation worker failed"
+          "hosted provider cleanup worker failed"
         )
       )
     : undefined;
@@ -309,10 +310,17 @@ export async function buildApp(options: BuildOptions) {
     tailscaleAuth: options.tailscaleAuth,
     developmentAuth: options.devAuth,
     passwordAuthenticationAvailable: Boolean(options.authRateLimitSecret),
+    accountDeletionEnabled: options.accountDeletionEnabled !== false
+      && hostedReference === undefined,
     githubAvailable: options.githubAuth !== undefined,
     googleAvailable: options.googleAuth !== undefined,
     hostedProvider: options.hostedProvider,
-    hostedReference
+    triggerProviderCleanup: () => {
+      void providerRevocations?.drain().catch((error) => app.log.error(
+        { err: error },
+        "hosted account cleanup trigger failed"
+      ));
+    }
   });
   registerMirrorPairingRoutes(app, {
     db: options.db,

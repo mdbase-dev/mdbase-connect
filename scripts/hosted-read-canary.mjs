@@ -11,6 +11,42 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const MAX_OUTPUT_BYTES = 256 * 1024;
 const REQUIRED_OPERATIONS = ["describe", "read"];
+const CLI_APPLICATION_MANIFEST = {
+  manifest_version: 1,
+  distribution: "portable",
+  id: "dev.mdbase.cli",
+  name: "mdbase CLI",
+  requirements: {
+    access: "full_collection",
+    contracts: [],
+    capabilities: {
+      contract_version: 1,
+      required: [
+        "collection.inspect",
+        "records.watch",
+        "records.read",
+        "records.query",
+        "records.validate",
+        "records.create",
+        "records.update",
+        "records.delete",
+        "records.rename",
+        "views.list",
+        "views.execute",
+        "views.source.read",
+        "views.source.create",
+        "views.source.update",
+        "views.source.delete",
+        "definitions.read",
+        "definitions.create",
+        "definitions.update",
+        "definitions.type-pack.inspect",
+        "definitions.type-pack.apply",
+        "sync.offline-replica"
+      ]
+    }
+  }
+};
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const ENVIRONMENT = /^[a-z0-9][a-z0-9_-]{0,63}$/u;
@@ -134,7 +170,11 @@ export function markerDocumentSha256(document) {
   return `sha256:${createHash("sha256").update(document, "utf8").digest("hex")}`;
 }
 
-export async function runCanary(argv = process.argv.slice(2), environmentVariables = process.env) {
+export async function runCanary(
+  argv = process.argv.slice(2),
+  environmentVariables = process.env,
+  dependencies = {}
+) {
   const started = performance.now();
   const checkedAt = new Date().toISOString();
   const stages = [];
@@ -177,9 +217,13 @@ export async function runCanary(argv = process.argv.slice(2), environmentVariabl
     });
 
     const deadline = performance.now() + options.timeoutMs;
-    const runCli = async (stage, argumentsList) => {
+    const remainingTime = (stage) => {
       const remaining = Math.floor(deadline - performance.now());
       if (remaining <= 0) throw new CanaryError(stage, "timeout");
+      return remaining;
+    };
+    const runCli = async (stage, argumentsList) => {
+      const remaining = remainingTime(stage);
       try {
         const { stdout } = await execFileAsync(options.cli, argumentsList, {
           env: environmentVariables,
@@ -197,6 +241,47 @@ export async function runCanary(argv = process.argv.slice(2), environmentVariabl
         throw new CanaryError(stage, "cli_failed");
       }
     };
+    await runStage("registration", async () => {
+      let response;
+      try {
+        response = await (dependencies.fetchImpl ?? fetch)(
+          `${options.expectedOrigin}/v1/apps/register`,
+          {
+            method: "POST",
+            headers: {
+              accept: "application/json",
+              "content-type": "application/json"
+            },
+            body: JSON.stringify({ manifest: CLI_APPLICATION_MANIFEST }),
+            signal: AbortSignal.timeout(remainingTime("registration"))
+          }
+        );
+      } catch (error) {
+        if (error?.name === "AbortError" || error?.name === "TimeoutError") {
+          throw new CanaryError("registration", "timeout");
+        }
+        throw new CanaryError("registration", "network_error");
+      }
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new CanaryError("registration", `http_${response.status}`);
+      }
+      let body;
+      try {
+        body = await response.json();
+      } catch {
+        throw new CanaryError("registration", "malformed_json");
+      }
+      if (
+        typeof body?.application?.id !== "string"
+        || !UUID.test(body.application.id)
+        || typeof body.application.manifest_digest !== "string"
+        || !/^[0-9a-f]{64}$/u.test(body.application.manifest_digest)
+      ) {
+        throw new CanaryError("registration", "invalid_response");
+      }
+    });
+
     const common = ["--state-dir", options.stateDir, "--json"];
     const operation = (stage, name, input) => runCli(stage, [
       ...common,

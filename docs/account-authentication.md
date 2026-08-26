@@ -193,14 +193,21 @@ store a short browser/platform label for recognition; they do not store the
 source IP or raw user-agent string. `last_seen_at` is touched at most once per
 five minutes.
 
-## Account deletion hold
+## Account deletion
 
-Account deletion is temporarily unavailable while the hosted deletion workflow
-is corrected. `GET /v1/account` reports deletion as unavailable and authenticated
-`DELETE /v1/account` returns `503 account_deletion_unavailable` after same-origin
-and session checks. The hold does not consume reauthentication tokens, call the
-hosted provider, write `account.deleted`, clear session cookies, or mutate account
-state.
+`DELETE /v1/account` commits the complete control-plane teardown in one database
+transaction. The transaction revokes cross-account hosted replicas, records
+provider collection and capability cleanup as durable work, writes the
+`account.deleted` audit event, and deletes the user. A failed transaction leaves
+none of those effects committed. Irreversible provider cleanup starts only after
+the transaction commits and is idempotently retried until complete.
+
+`MDBASE_CONNECT_ACCOUNT_DELETION` is the operational hold. Its only accepted
+values are `enabled` and `disabled`; omitted means `enabled`. While disabled,
+`GET /v1/account` reports deletion as unavailable and `DELETE /v1/account`
+returns `503 account_deletion_unavailable` without changing account or provider
+state. The in-process development reference authority also fails account
+deletion closed because it has no durable provider-cleanup worker.
 
 ## Deployment
 

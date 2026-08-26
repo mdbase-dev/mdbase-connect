@@ -476,6 +476,34 @@ describe("ConnectApp", () => {
     )).toHaveLength(overviewCalls);
   });
 
+  it("explains a temporary account-deletion hold without offering the destructive action", async () => {
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/v1/account/sessions") return Response.json({ sessions: [] });
+      if (path === "/v1/account") {
+        const account = accountFixture();
+        return Response.json({
+          ...account,
+          deletion: {
+            ...account.deletion,
+            available: false,
+            unavailable_reason: "temporarily_disabled"
+          }
+        });
+      }
+      return Response.json(overview);
+    });
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+
+    await user.click(await screen.findByRole("link", { name: "Open account and sessions" }));
+    expect(await screen.findByText(
+      "Account deletion is temporarily unavailable while we complete a service correction."
+    )).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete account…" }))
+      .not.toBeInTheDocument();
+  });
+
   it("keeps hosted storage, sign-in methods, and account deletion in the editor", async () => {
     const user = userEvent.setup();
     render(<ConnectApp />);
@@ -490,11 +518,13 @@ describe("ConnectApp", () => {
     expect(screen.getByRole("heading", { name: "Sign-in methods" })).toBeInTheDocument();
     expect(screen.getByText("Local collection files stay on your computers and are not measured here.")).toBeInTheDocument();
 
-    expect(screen.getByText(
-      "Account deletion is temporarily unavailable while we complete a service correction."
-    )).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Delete account…" }))
-      .not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Delete account…" }));
+    await user.type(screen.getByLabelText("Type DELETE to confirm"), "DELETE");
+    await user.click(screen.getByRole("button", { name: "Delete account permanently" }));
+
+    expect(await screen.findByRole("heading", { name: "Your account has been deleted." })).toBeInTheDocument();
+    expect(location.pathname).toBe("/connect/account-deleted");
+    expect(screen.getByText(/local collection and mirror files remain/i)).toBeInTheDocument();
   });
 });
 
@@ -626,8 +656,8 @@ function accountFixture(): AccountData {
       }]
     },
     deletion: {
-      available: false,
-      unavailable_reason: "temporarily_disabled",
+      available: true,
+      unavailable_reason: null,
       hosted_collections: 1,
       local_collections: 1,
       computers: 1,

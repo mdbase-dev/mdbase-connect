@@ -46,7 +46,7 @@ export async function resolveHostedCollection(
             authority_state, authority_epoch, transferred_collection_id,
             created_at
      FROM hosted_collections
-     WHERE id = $1`,
+     WHERE id = $1 AND quarantined_at IS NULL`,
     [collectionId]
   );
   return result.rows[0] ? hostedEntry(result.rows[0]) : null;
@@ -72,7 +72,7 @@ export async function listHostedCollectionsVisibleToUser(
             authority_state, authority_epoch, transferred_collection_id,
             created_at
      FROM hosted_collections
-     WHERE user_id = $1
+     WHERE user_id = $1 AND quarantined_at IS NULL
      ORDER BY display_name`,
     [userId]
   );
