@@ -138,45 +138,48 @@ async fn hosted_request_path_rejects_protocol_discriminators_before_authorizatio
         before.get::<i64, _>("resources"),
     );
 
-    let cases = [
-        ("unknown_operation", json!({})),
-        (
-            "create",
-            json!({"path": "rejected.md", "operation": "delete"}),
-        ),
-        ("create", json!({"path": "rejected.md", "action": "mutate"})),
-        ("sync", json!({"action": "unknown"})),
-        (
-            "sync",
-            json!({"action": "mutate", "type": "commit_file_upload"}),
-        ),
-        (
-            "file_control",
-            json!({"protocol_version": 1, "type": "unknown_file_control"}),
-        ),
-        (
-            "file_control",
-            json!({"protocol_version": 1, "type": "commit_file_upload", "action": "mutate"}),
-        ),
-        (
-            "file_control",
-            json!({"protocol_version": 1, "type": "list_files", "operation": "read"}),
-        ),
-    ];
-    for (operation, input) in cases {
-        let error = fixture
-            .provider
-            .operation(
-                fixture.collection_id,
-                &token,
-                operation,
-                Uuid::now_v7(),
-                input,
-                None,
-            )
-            .await
-            .expect_err("malformed protocol discriminator is rejected");
-        assert_eq!(error.code, "invalid_request", "{operation}: {error:?}");
+    let invalid_token = format!("invalid-request-validation-{}", Uuid::new_v4());
+    for request_token in [&token, &invalid_token] {
+        let cases = [
+            ("unknown_operation", json!({})),
+            (
+                "create",
+                json!({"path": "rejected.md", "operation": "delete"}),
+            ),
+            ("create", json!({"path": "rejected.md", "action": "mutate"})),
+            ("sync", json!({"action": "unknown"})),
+            (
+                "sync",
+                json!({"action": "mutate", "type": "commit_file_upload"}),
+            ),
+            (
+                "file_control",
+                json!({"protocol_version": 1, "type": "unknown_file_control"}),
+            ),
+            (
+                "file_control",
+                json!({"protocol_version": 1, "type": "commit_file_upload", "action": "mutate"}),
+            ),
+            (
+                "file_control",
+                json!({"protocol_version": 1, "type": "list_files", "operation": "read"}),
+            ),
+        ];
+        for (operation, input) in cases {
+            let error = fixture
+                .provider
+                .operation(
+                    fixture.collection_id,
+                    request_token,
+                    operation,
+                    Uuid::now_v7(),
+                    input,
+                    None,
+                )
+                .await
+                .expect_err("malformed protocol discriminator is rejected");
+            assert_eq!(error.code, "invalid_request", "{operation}: {error:?}");
+        }
     }
 
     let after = sqlx::query(

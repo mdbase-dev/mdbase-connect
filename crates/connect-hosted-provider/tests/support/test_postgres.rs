@@ -10,6 +10,27 @@ const EXACT_APPROVAL: &str = "operation_dispatch_uuid_schema_v1";
 
 static SERIAL_TESTS: OnceLock<Arc<Mutex<()>>> = OnceLock::new();
 
+fn destructive_test_url(base_url: &str) -> Result<Url, &'static str> {
+    let url = Url::parse(base_url).map_err(|_| "PostgreSQL test URL is valid")?;
+    if !matches!(url.scheme(), "postgres" | "postgresql") {
+        return Err("PostgreSQL test URL must use postgres or postgresql");
+    }
+    if !matches!(
+        url.host_str(),
+        Some("localhost" | "127.0.0.1" | "::1" | "[::1]")
+    ) {
+        return Err("destructive hosted tests require a loopback PostgreSQL URL");
+    }
+    // SQLx accepts connection overrides including host, hostaddr, port, dbname,
+    // credentials, and options from URL query pairs. Reject every caller-supplied
+    // query rather than attempting to maintain an incomplete denylist. This helper
+    // appends its sole search_path option only after the base connection succeeds.
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err("PostgreSQL test URL must not supply query options or a fragment");
+    }
+    Ok(url)
+}
+
 /// A loopback-only, UUID-schema-scoped PostgreSQL target for ignored destructive tests.
 ///
 /// The serial guard keeps migration/global-count assertions isolated. Cleanup runs from
@@ -30,19 +51,7 @@ impl DisposablePostgres {
         );
         let base_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
             .expect("MDBASE_PROJECTION_DATABASE_URL is required");
-        let mut url = Url::parse(&base_url).expect("PostgreSQL test URL is valid");
-        assert!(
-            matches!(url.scheme(), "postgres" | "postgresql"),
-            "PostgreSQL test URL must use postgres or postgresql"
-        );
-        assert!(
-            matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1")),
-            "destructive hosted tests require a loopback PostgreSQL URL"
-        );
-        assert!(
-            url.query_pairs().all(|(key, _)| key != "options"),
-            "PostgreSQL test URL must not supply connection options"
-        );
+        let mut url = destructive_test_url(&base_url).unwrap_or_else(|message| panic!("{message}"));
 
         let serial = SERIAL_TESTS
             .get_or_init(|| Arc::new(Mutex::new(())))
@@ -100,5 +109,48 @@ impl Drop for DisposablePostgres {
         })
         .join()
         .expect("PostgreSQL cleanup thread completes");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::destructive_test_url;
+
+    #[test]
+    fn destructive_url_rejects_every_sqlx_query_override() {
+        for query in [
+            "host=production.example",
+            "hostaddr=203.0.113.1",
+            "port=6543",
+            "dbname=production",
+            "user=other",
+            "password=other",
+            "options=-csearch_path%3Dpublic",
+            "sslmode=require",
+        ] {
+            assert!(
+                destructive_test_url(&format!("postgres://user:pass@127.0.0.1/test?{query}"))
+                    .is_err(),
+                "accepted SQLx connection override {query}"
+            );
+        }
+    }
+
+    #[test]
+    fn destructive_url_accepts_only_literal_loopback_without_overrides() {
+        for url in [
+            "postgres://user:pass@localhost/test",
+            "postgresql://user:pass@127.0.0.1/test",
+            "postgres://user:pass@[::1]/test",
+        ] {
+            assert!(destructive_test_url(url).is_ok(), "rejected {url}");
+        }
+        for url in [
+            "postgres://user:pass@production.example/test",
+            "postgres://user:pass@127.0.0.1/test#fragment",
+            "file://127.0.0.1/test",
+        ] {
+            assert!(destructive_test_url(url).is_err(), "accepted {url}");
+        }
     }
 }

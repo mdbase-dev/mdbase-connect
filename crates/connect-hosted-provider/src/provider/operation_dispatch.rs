@@ -15,6 +15,11 @@ impl HostedProvider {
         input: Value,
         request_origin: Option<&str>,
     ) -> ApiResult<Value> {
+        // Protocol discriminators are public request syntax, not capability
+        // information. Reject malformed syntax before authentication or retired
+        // replay can make the same request appear credential- or state-dependent.
+        validate_operation_discriminators(operation, &input)
+            .map_err(|message| ApiError::bad_request("invalid_request", message))?;
         let replica = match self
             .authenticate_for(collection_id, token, ReplicaPurpose::Application)
             .await
@@ -33,11 +38,6 @@ impl HostedProvider {
                     .await;
             }
         };
-        // Protocol discriminators are public request syntax, not capability
-        // information. Reject malformed syntax before grant lookup can make
-        // the same request appear authorization-dependent.
-        validate_operation_discriminators(operation, &input)
-            .map_err(|message| ApiError::bad_request("invalid_request", message))?;
         authorize_application_operation(&replica, operation, request_origin)?;
         let mutating = mdbase_connect_protocol::is_mutating_operation(operation, &input);
         if mutating {
