@@ -5,10 +5,11 @@ use mdbase_connect_hosted_provider::{
     LifecycleDiagnosticSection, HOSTED_DIAGNOSTICS_SCHEMA_VERSION,
 };
 use serde_json::json;
-use sqlx::postgres::PgPoolOptions;
+use sqlx::{postgres::PgPoolOptions, AssertSqlSafe};
 use url::Url;
 use uuid::Uuid;
 
+#[allow(dead_code, unused_imports)]
 mod support;
 use support::FileLifecycleFixture;
 
@@ -39,7 +40,8 @@ async fn provider_lifecycle_aggregates_use_production_sql() {
         .await
         .expect("connect disposable PostgreSQL");
     let schema = format!("mdbase_provider_lifecycle_{}", Uuid::new_v4().simple());
-    sqlx::query(&format!(r#"CREATE SCHEMA "{schema}""#))
+    // `schema` is generated exclusively from UUID hex above.
+    sqlx::query(AssertSqlSafe(format!(r#"CREATE SCHEMA "{schema}""#)))
         .execute(&admin)
         .await
         .expect("create isolated schema");
@@ -141,10 +143,12 @@ async fn provider_lifecycle_aggregates_use_production_sql() {
     .catch_unwind()
     .await;
 
-    sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#))
-        .execute(&admin)
-        .await
-        .expect("unconditionally drop isolated schema");
+    sqlx::query(AssertSqlSafe(format!(
+        r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#
+    )))
+    .execute(&admin)
+    .await
+    .expect("unconditionally drop isolated schema");
     admin.close().await;
 
     let observed = match observed {
