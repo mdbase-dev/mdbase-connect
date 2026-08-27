@@ -26,7 +26,7 @@ class SwitchGateway extends DemoCollectionGateway {
   documents = { a: note("a"), b: note("b"), c: note("c") };
   authorizeGate = deferred<void>(); forgetGate = deferred<void>(); updateGate = deferred<void>();
   authorizeCalls = 0; authorizeTargets: Array<{ target: CollectionAuthorizationTarget; selected: string }> = [];
-  describeCalls = 0; forgetCalls: string[] = []; updateCalls: SaveNoteInput[] = []; events: string[] = []; selections: string[] = [];
+  describeCalls = 0; forgetCalls: string[] = []; updateCalls: SaveNoteInput[] = []; events: string[] = []; selections: string[] = []; startOwners: string[] = [];
   bMissingCapabilities: string[] = []; forgotten = false;
   private sessionListener?: (snapshot: CollectionSessionSnapshot) => void;
   sessionSnapshot(): CollectionSessionSnapshot {
@@ -45,9 +45,9 @@ class SwitchGateway extends DemoCollectionGateway {
   }
   async forgetConnection(collectionId: string) {
     this.forgetCalls.push(collectionId); this.events.push("forget:start"); await this.forgetGate.promise;
-    this.forgotten = true; this.events.push("forget:end"); this.emitSnapshot(this.sessionSnapshot());
+    this.forgotten = this.current === collectionId; this.events.push("forget:end"); this.emitSnapshot(this.sessionSnapshot());
   }
-  async describe(): Promise<CollectionDescription> { this.describeCalls += 1; const id = this.current, base = await super.describe(); const names = { a: "Collection A", b: "Collection B", c: "Collection C" }, types = { a: "alpha", b: "bravo", c: "charlie" }; return { ...base, collectionId: id, displayName: names[id], types: base.types.map((type) => ({ ...type, name: types[id] })) }; }
+  async describe(): Promise<CollectionDescription> { this.describeCalls += 1; const id = this.current; this.startOwners.push(id); const base = await super.describe(); const names = { a: "Collection A", b: "Collection B", c: "Collection C" }, types = { a: "alpha", b: "bravo", c: "charlie" }; return { ...base, collectionId: id, displayName: names[id], types: base.types.map((type) => ({ ...type, name: types[id] })) }; }
   async list(options: NoteIndexRequest = {}): Promise<NoteIndexResult> { const value = this.documents[this.current], { revision: _revision, ...rest } = value, summary = { ...rest, file: { ...value.file, path: value.path } }; options.onProgress?.({ notes: [summary], snapshot: this.current, structureComplete: true, complete: true, contentComplete: true, contentLoaded: 1, total: 1 }); return { notes: [summary], snapshot: this.current }; }
   async hydrateContent(options: NoteIndexRequest = {}) { return this.list(options); }
   async read(_path: string) { return structuredClone(this.documents[this.current]); }
@@ -371,12 +371,19 @@ describe("App collection switch ownership", () => {
     await user.click(screen.getByRole("button", { name: "Forget from this browser" }));
     await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Forget from this browser" }));
     await waitFor(() => expect(gateway.forgetCalls).toEqual(["a"]));
-    act(() => gateway.emitSnapshot({ status: "ready", connection: connection("b"), connections: [connection("b"), connection("c")] }));
-    expect(screen.queryByRole("button", { name: /Collection C/ })).not.toBeInTheDocument();
+    gateway.current = "b";
+    const reconnect = gateway.sessionSnapshot(); expect(reconnect).toEqual({ status: "ready", connection: connection("b"), connections: [connection("a"), connection("b"), connection("c")] });
+    act(() => gateway.emitSnapshot(reconnect));
+    expect(gateway.startOwners).toEqual(["a"]); expect(screen.queryByRole("button", { name: /Collection C/ })).not.toBeInTheDocument();
     gateway.forgetGate.resolve();
-    const c = (await screen.findAllByRole("button", { name: /Collection C/ })).find((button) => button.classList.contains("saved-collection-row"));
-    expect(c).toBeDefined(); await user.click(c!);
+    await waitFor(() => expect(gateway.startOwners).toEqual(["a", "b"]));
+    expect(gateway.sessionSnapshot()).toEqual(reconnect);
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Bravo note"));
+    const rail = screen.getByRole("complementary", { name: "Collection navigation" });
+    await user.click(within(rail).getByRole("button", { name: /Switch collection/ }));
+    await user.click(screen.getByRole("button", { name: /Collection C/ }));
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Charlie note"));
+    expect(gateway.startOwners).toEqual(["a", "b", "c"]);
     expect(gateway.events).toEqual(["forget:start", "forget:end", "select:c"]);
     const snapshot = gateway.sessionSnapshot(); expect(snapshot.status).toBe("ready");
     if (snapshot.status === "ready") expect(snapshot.connection.collectionId).toBe("c");
