@@ -12,6 +12,9 @@ pub fn validate_operation_discriminators(
     let object = input
         .as_object()
         .ok_or("Operation input must be an object.")?;
+    if object.contains_key("operation") {
+        return Err("Operation input must not contain a nested operation discriminator.");
+    }
     if operation == "file_control" {
         let message_type = object.get("type").and_then(Value::as_str).unwrap_or("");
         if !FILE_CONTROL_MESSAGE_TYPES.contains(&message_type) {
@@ -27,7 +30,7 @@ pub fn validate_operation_discriminators(
     }
     if operation == "sync" {
         match object.get("action").and_then(Value::as_str) {
-            Some("changes" | "mutate") => {}
+            Some("open_session" | "snapshot" | "file_snapshot" | "changes" | "mutate") => {}
             _ => return Err("Unknown sync action."),
         }
         if object.contains_key("type") {
@@ -35,9 +38,6 @@ pub fn validate_operation_discriminators(
         }
     } else if object.contains_key("action") {
         return Err("Collection operation input must not contain a sync action discriminator.");
-    }
-    if object.contains_key("operation") {
-        return Err("Operation input must not contain a nested operation discriminator.");
     }
     Ok(())
 }

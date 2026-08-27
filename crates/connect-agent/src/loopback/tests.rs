@@ -336,6 +336,12 @@ async fn encrypted_request_path_rejects_unknown_and_injected_discriminators_with
             None,
         ),
         (
+            "file_control",
+            json!({"protocol_version": 1, "type": "list_files", "operation": "read"}),
+            "invalid_request",
+            None,
+        ),
+        (
             "sync",
             json!({"action": "unknown"}),
             "invalid_request",
@@ -368,6 +374,43 @@ async fn encrypted_request_path_rejects_unknown_and_injected_discriminators_with
         assert_eq!(after.live_leases, before.live_leases, "{operation}");
     }
     assert!(!fixture.root.join("collection/_types/rejected.md").exists());
+
+    let root = fixture.root.clone();
+    drop(app);
+    drop(fixture);
+    remove_fixture_after_watchers_close(&root);
+}
+
+#[tokio::test]
+async fn encrypted_sync_session_and_file_snapshot_use_production_route_without_mutation_journal() {
+    let fixture = fixture();
+    let app = router(fixture.agent.clone(), 28_485);
+    let before = fixture.registry.mutation_journal_diagnostics().unwrap();
+
+    let opened = fixture
+        .direct(&app, "sync", json!({"action": "open_session"}), 1)
+        .await;
+    assert_eq!(opened["ok"], true, "{opened}");
+    let snapshot_id = opened["result"]["snapshot_id"]
+        .as_str()
+        .expect("open_session returns a snapshot ID");
+
+    let files = fixture
+        .direct(
+            &app,
+            "sync",
+            json!({"action": "file_snapshot", "snapshot_id": snapshot_id}),
+            2,
+        )
+        .await;
+    assert_eq!(files["ok"], true, "{files}");
+    assert_eq!(files["result"]["type"], "file_snapshot_page");
+    assert_eq!(files["result"]["snapshot_id"], snapshot_id);
+
+    let after = fixture.registry.mutation_journal_diagnostics().unwrap();
+    assert_eq!(after.state_counts, before.state_counts);
+    assert_eq!(after.live_leases, before.live_leases);
+    assert_eq!(after.tombstones, before.tombstones);
 
     let root = fixture.root.clone();
     drop(app);

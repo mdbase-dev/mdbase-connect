@@ -976,11 +976,33 @@ fn protocol_discriminator_rejections_are_separate_from_the_generated_catalog_ora
             serde_json::json!({"action": "mutate"}),
             "Collection operation input must not contain a sync action discriminator.",
         ),
+        (
+            "file_control",
+            serde_json::json!({"type": "list_files", "operation": "read"}),
+            "Operation input must not contain a nested operation discriminator.",
+        ),
     ] {
         assert_eq!(
             validate_operation_discriminators(operation, &input),
             Err(message),
             "{operation}: {input}"
+        );
+    }
+}
+
+#[test]
+fn every_implemented_sync_action_has_a_valid_discriminator() {
+    for action in [
+        "open_session",
+        "snapshot",
+        "file_snapshot",
+        "changes",
+        "mutate",
+    ] {
+        assert_eq!(
+            validate_operation_discriminators("sync", &serde_json::json!({"action": action})),
+            Ok(()),
+            "{action}"
         );
     }
 }

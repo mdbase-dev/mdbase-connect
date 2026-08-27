@@ -1,19 +1,22 @@
 #![allow(dead_code, unused_imports)]
 
 mod support;
+#[path = "support/test_postgres.rs"]
+mod test_postgres;
 
 use mdbase_connect_hosted_provider::{RegisterReplica, ReplicaPurpose};
 use mdbase_connect_protocol::SyncReplicaMode;
 use serde_json::json;
 use sqlx::Row;
 use support::FileLifecycleFixture;
+use test_postgres::DisposablePostgres;
 use uuid::Uuid;
 
 #[tokio::test]
-#[ignore = "requires a clean MDBASE_PROJECTION_DATABASE_URL disposable PostgreSQL database"]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
 async fn assess_collection_setup_dispatch_rejects_mismatched_declaration() {
-    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
-        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let database = DisposablePostgres::from_projection_env().await;
+    let database_url = database.url().to_string();
     let fixture = FileLifecycleFixture::new(&database_url).await;
     let replica_id = Uuid::now_v7();
     let token = format!("setup-assessment-{}-{}", Uuid::new_v4(), Uuid::new_v4());
@@ -74,10 +77,10 @@ async fn assess_collection_setup_dispatch_rejects_mismatched_declaration() {
 }
 
 #[tokio::test]
-#[ignore = "requires a clean loopback MDBASE_PROJECTION_DATABASE_URL disposable PostgreSQL database"]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
 async fn hosted_request_path_rejects_protocol_discriminators_before_authorization_or_state() {
-    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
-        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let database = DisposablePostgres::from_projection_env().await;
+    let database_url = database.url().to_string();
     let fixture = FileLifecycleFixture::new(&database_url).await;
     let token = format!("request-validation-{}-{}", Uuid::new_v4(), Uuid::new_v4());
     fixture
@@ -155,6 +158,10 @@ async fn hosted_request_path_rejects_protocol_discriminators_before_authorizatio
             "file_control",
             json!({"protocol_version": 1, "type": "commit_file_upload", "action": "mutate"}),
         ),
+        (
+            "file_control",
+            json!({"protocol_version": 1, "type": "list_files", "operation": "read"}),
+        ),
     ];
     for (operation, input) in cases {
         let error = fixture
@@ -202,10 +209,10 @@ async fn hosted_request_path_rejects_protocol_discriminators_before_authorizatio
 }
 
 #[tokio::test]
-#[ignore = "requires a clean loopback MDBASE_PROJECTION_DATABASE_URL disposable PostgreSQL database"]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
 async fn hosted_operation_mutations_replay_exactly_after_provider_recreation() {
-    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
-        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let database = DisposablePostgres::from_projection_env().await;
+    let database_url = database.url().to_string();
     let fixture = FileLifecycleFixture::new(&database_url).await;
     let replica_id = Uuid::now_v7();
     let token = format!("recovery-matrix-{}-{}", Uuid::new_v4(), Uuid::new_v4());

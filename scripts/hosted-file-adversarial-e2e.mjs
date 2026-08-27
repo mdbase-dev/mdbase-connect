@@ -24,6 +24,13 @@ try {
   const databaseUrl = `postgres://mdbase:${password}@127.0.0.1:${port}/mdbase`;
   await run("cargo", [
     "test", "-p", "mdbase-connect-hosted-provider",
+    "--test", "operation_dispatch", "--", "--ignored", "--nocapture", "--test-threads=1"
+  ], {
+    MDBASE_PROJECTION_DATABASE_URL: databaseUrl,
+    MDBASE_APPROVE_DESTRUCTIVE_HOSTED_TESTS: "operation_dispatch_uuid_schema_v1"
+  });
+  await run("cargo", [
+    "test", "-p", "mdbase-connect-hosted-provider",
     "--test", "file_lifecycle_adversarial", "--", "--ignored", "--nocapture"
   ], { MDBASE_ADVERSARIAL_DATABASE_URL: databaseUrl });
   const beta69Database = "mdbase_beta69_preflight";
@@ -132,16 +139,21 @@ try {
 }
 
 async function waitForPostgres() {
+  // The image briefly starts an initialization server before restarting into
+  // the final TCP-serving process. Require consecutive ready samples so tests
+  // cannot race that restart and receive a connection reset.
+  let consecutiveReady = 0;
   for (let attempt = 0; attempt < 120; attempt += 1) {
     const ready = await execute(
       "docker",
       ["exec", container, "pg_isready", "-U", "mdbase"],
       { cwd: root }
     ).then(() => true, () => false);
-    if (ready) return;
+    consecutiveReady = ready ? consecutiveReady + 1 : 0;
+    if (consecutiveReady === 4) return;
     await new Promise(resolveDelay => setTimeout(resolveDelay, 250));
   }
-  throw new Error("PostgreSQL did not become ready within 30 seconds");
+  throw new Error("PostgreSQL did not remain ready within 30 seconds");
 }
 
 async function proveFinalAdmissionAndRollbackGates(database) {
