@@ -206,6 +206,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [contractCatalog, setContractCatalog] = useState<ContractCatalogLoadState>({ status: "idle" });
   const [contractCatalogReload, setContractCatalogReload] = useState(0);
   const [saveState, setSaveState] = useState<SaveState>("saved");
+  const [remoteApplyToken, setRemoteApplyToken] = useState(0);
   const [notice, setNoticeState] = useState<{ message: string; tone: ToastTone } | undefined>();
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [backlinksOpen, setBacklinksOpen] = useState(false);
@@ -477,6 +478,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       setDocument(next);
       setDraft(nextDraft);
       setPathDraft(next.path);
+      setRemoteApplyToken((token) => token + 1);
     }
     touchSession(session);
   }, [touchSession, updateNoteSummary]);
@@ -2023,7 +2025,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
           {deletePlan && deletePlan.session === noteSessions.current.active && <div className="delete-confirm" role="alert"><div><strong>Delete this note?</strong><span>{deletePlan.brokenLinkPaths.length > 0 ? `${deletePlan.brokenLinkPaths.length.toLocaleString()} ${deletePlan.brokenLinkPaths.length === 1 ? "note will keep a broken link" : "notes will keep broken links"}. ` : ""}You can undo the note deletion.</span></div><button onClick={() => setDeletePlan(undefined)}>Keep note</button><button className="danger-action" onClick={() => void deleteNote(deletePlan)}>Delete</button></div>}
           <MarkdownNoteEditor editorKey={noteSessions.current.active?.editorSessionKey ?? document.path}
             draft={draft} preferences={preferences} documentId={noteSessions.current.active?.editorSessionKey}
-            autoFocus={editorAutoFocus}
+            remoteApplyToken={remoteApplyToken} autoFocus={editorAutoFocus}
             currentPath={document.path} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames}
             embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes} files={fileInventory.files} notes={allNotes}
             insertion={attachments.insertion} onTitleChange={(title) => changeActiveDraft((current) => ({ ...current, title }))}

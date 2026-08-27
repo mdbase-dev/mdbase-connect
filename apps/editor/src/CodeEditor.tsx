@@ -12,7 +12,7 @@ import {
 import { lintGutter, linter, lintKeymap, type Diagnostic } from "@codemirror/lint";
 import { closeSearchPanel, highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { registerActiveEditor, unregisterActiveEditor } from "./code-editor-reveal";
-import { Compartment, EditorSelection, EditorState, Prec, type Extension, type Range } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState, Prec, Transaction, type Extension, type Range } from "@codemirror/state";
 import {
   Decoration,
   EditorView,
@@ -78,6 +78,7 @@ interface CodeEditorProps {
   onVisibleNoteEmbeds?: (keys: string[]) => void;
   insertion?: { id: number; text: string; block?: boolean };
   onBlur?: () => void;
+  remoteApplyToken?: number;
 }
 
 interface RememberedEditor {
@@ -96,6 +97,7 @@ interface MarkdownEdit {
 
 const rememberedEditors = new Map<string, RememberedEditor>();
 const rememberedEditorLimit = 40;
+const EMPTY_HISTORY_STATE = EditorState.create({ extensions: [history()] }).field(historyField);
 
 export { internalLinkPathAt } from "./code-editor-writer-interactions";
 export { linkCompletion, mentionScope } from "./code-editor-completions";
@@ -131,12 +133,15 @@ export function CodeEditor({
   onVisibleFileEmbeds,
   onVisibleNoteEmbeds,
   insertion,
-  onBlur
+  onBlur,
+  remoteApplyToken
 }: CodeEditorProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | undefined>(undefined);
+  const appliedRemoteToken = useRef<number | null>(null);
   const onChangeRef = useRef(onChange);
   const syncing = useRef(false);
+  const historyMode = useRef(new Compartment());
   const vimMode = useRef(new Compartment());
   const wrapping = useRef(new Compartment());
   const completions = useRef(new Compartment());
@@ -190,6 +195,7 @@ export function CodeEditor({
     if (!parentRef.current) return;
     const extensions: Extension[] = [
       vimMode.current.of([]),
+      historyMode.current.of([history()]),
       editorSetup(variant),
       syntaxHighlighting(mdbaseHighlightStyle),
       variant === "writer" ? syntaxHighlighting(writerHighlightStyle) : [],
@@ -425,14 +431,24 @@ export function CodeEditor({
 
   useEffect(() => {
     const view = viewRef.current;
-    if (!view || restoreLineSeparators(view.state.doc.toString(), lineSeparator.current) === value) return;
+    if (!view) return;
+    let externalReset = false;
+    if (remoteApplyToken !== undefined && appliedRemoteToken.current !== remoteApplyToken) {
+      externalReset = appliedRemoteToken.current !== null;
+      appliedRemoteToken.current = remoteApplyToken;
+    }
+    if (!externalReset && restoreLineSeparators(view.state.doc.toString(), lineSeparator.current) === value) return;
     syncing.current = true;
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: value },
-      selection: EditorSelection.cursor(Math.min(view.state.selection.main.head, value.length))
+      selection: EditorSelection.cursor(Math.min(view.state.selection.main.head, value.length)),
+      effects: externalReset
+        ? historyMode.current.reconfigure([history(), historyField.init(() => EMPTY_HISTORY_STATE)])
+        : undefined,
+      annotations: externalReset ? Transaction.addToHistory.of(false) : undefined
     });
     syncing.current = false;
-  }, [value]);
+  }, [value, remoteApplyToken]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -508,7 +524,6 @@ export function markdownEdit(doc: string, from: number, to: number, format: Mark
 
 const editorSetup = (variant: EditorVariant): Extension => [
   highlightSpecialChars(),
-  history(),
   search({ top: true }),
   highlightSelectionMatches({ minSelectionLength: 2 }),
   bracketMatching(),

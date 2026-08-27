@@ -24,6 +24,7 @@ interface MarkdownNoteEditorProps {
   files: CollectionFile[];
   notes: NoteSummary[];
   insertion?: { id: number; text: string; block?: boolean };
+  remoteApplyToken?: number;
   onTitleChange: (title: string) => void;
   onBodyChange: (body: string) => void;
   onOpenLink: (path: string) => void;
@@ -38,7 +39,7 @@ interface MarkdownNoteEditorProps {
 }
 
 export function MarkdownNoteEditor({ editorKey, draft, preferences, documentId, currentPath, recentPaths,
-  linkSuggestions, linkTypes, embeddedFiles, embeddedNotes, files, notes, insertion, onTitleChange, onBodyChange,
+  linkSuggestions, linkTypes, embeddedFiles, embeddedNotes, files, notes, insertion, remoteApplyToken, onTitleChange, onBodyChange,
   onOpenLink, onCreateLink, onPreviewLink, onDismissLinkPreview, onOpenFile, onOpenFileLink,
   onVisibleFileEmbeds, onVisibleNoteEmbeds, autoFocus = true }: MarkdownNoteEditorProps) {
   return <article className="writing-surface" style={{ "--editor-font-size": `${preferences.fontSize}px` } as CSSProperties}>
@@ -52,7 +53,8 @@ export function MarkdownNoteEditor({ editorKey, draft, preferences, documentId, 
         onOpenLink={onOpenLink} onCreateLink={onCreateLink} onPreviewLink={onPreviewLink}
         onDismissLinkPreview={onDismissLinkPreview} embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes}
         onOpenFile={onOpenFile} files={files} notes={notes} onOpenFileLink={onOpenFileLink}
-        onVisibleFileEmbeds={onVisibleFileEmbeds} onVisibleNoteEmbeds={onVisibleNoteEmbeds} insertion={insertion} />
+        onVisibleFileEmbeds={onVisibleFileEmbeds} onVisibleNoteEmbeds={onVisibleNoteEmbeds} insertion={insertion}
+        remoteApplyToken={remoteApplyToken} />
     </Suspense>
   </article>;
 }
