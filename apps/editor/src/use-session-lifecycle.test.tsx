@@ -9,24 +9,43 @@ function ready(collectionId: string): CollectionSessionSnapshot {
 }
 
 describe("useSessionLifecycle", () => {
-  it("continues publishing session changes after the collection epoch changes", async () => {
+  it("routes initial, retry, and authoritative events through the transition callback", async () => {
     let snapshot = ready("collection-a");
     let publish: ((next: CollectionSessionSnapshot) => void) | undefined;
     const gateway = {
       startSession: vi.fn(async () => snapshot), sessionSnapshot: () => snapshot,
       onSessionChange: vi.fn((listener: (next: CollectionSessionSnapshot) => void) => { publish = listener; return () => undefined; })
     } as unknown as CollectionGateway;
-    const collectionEpoch = { current: 0 };
-    const setSessionSnapshot = vi.fn();
-    renderHook(() => useSessionLifecycle({ gateway, collectionEpoch, start: vi.fn(async () => undefined),
-      setSessionSnapshot, setNotice: vi.fn(), setPhase: vi.fn() }));
-    await waitFor(() => expect(publish).toBeDefined());
+    const acceptSnapshot = vi.fn(async () => undefined);
+    const { result } = renderHook(() => useSessionLifecycle({ gateway, acceptSnapshot, setNotice: vi.fn() }));
+    await waitFor(() => expect(acceptSnapshot).toHaveBeenCalledWith(snapshot));
 
-    collectionEpoch.current = 1; snapshot = ready("collection-b");
+    snapshot = ready("collection-b");
     act(() => publish?.(snapshot));
-    expect(setSessionSnapshot).toHaveBeenLastCalledWith(snapshot);
-    const calls = setSessionSnapshot.mock.calls.length;
+    await waitFor(() => expect(acceptSnapshot).toHaveBeenLastCalledWith(snapshot));
+    await act(() => result.current.retrySessionStart());
+    expect(acceptSnapshot).toHaveBeenLastCalledWith(snapshot);
+  });
+
+  it("rejects stale ready and non-ready events but accepts a genuine current disconnect", async () => {
+    let snapshot = ready("collection-b");
+    let publish: ((next: CollectionSessionSnapshot) => void) | undefined;
+    const gateway = {
+      startSession: vi.fn(async () => snapshot), sessionSnapshot: () => snapshot,
+      onSessionChange: vi.fn((listener: (next: CollectionSessionSnapshot) => void) => { publish = listener; return () => undefined; })
+    } as unknown as CollectionGateway;
+    const acceptSnapshot = vi.fn(async () => undefined);
+    renderHook(() => useSessionLifecycle({ gateway, acceptSnapshot, setNotice: vi.fn() }));
+    await waitFor(() => expect(publish).toBeDefined());
+    acceptSnapshot.mockClear();
+
     act(() => publish?.(ready("collection-a")));
-    expect(setSessionSnapshot).toHaveBeenCalledTimes(calls);
+    act(() => publish?.({ status: "unavailable", collectionId: "collection-a", reason: "not_authorized", connections: [] }));
+    act(() => publish?.({ status: "destroyed", connections: [] }));
+    expect(acceptSnapshot).not.toHaveBeenCalled();
+
+    snapshot = { status: "unavailable", collectionId: "collection-b", reason: "not_authorized", connections: [] };
+    act(() => publish?.(snapshot));
+    await waitFor(() => expect(acceptSnapshot).toHaveBeenCalledWith(snapshot));
   });
 });

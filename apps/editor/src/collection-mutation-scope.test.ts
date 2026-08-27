@@ -26,6 +26,27 @@ describe("CollectionMutationScope", () => {
     await expect(Promise.all(pending)).resolves.toEqual([1, 2]);
   });
 
+  it("waits for remaining and dynamically registered work before reporting the first failure", async () => {
+    const scope = new CollectionMutationScope();
+    scope.changeOwner("a");
+    const remaining = deferred<number>();
+    const dynamic = deferred<number>();
+    const failed = scope.register(scope.token(), Promise.reject(new Error("first failure")));
+    void failed.catch(() => undefined);
+    const pending = scope.register(scope.token(), remaining.promise);
+    const drain = scope.drain();
+    const late = scope.register(scope.token(), dynamic.promise);
+    remaining.resolve(1);
+    await Promise.resolve();
+    let settled = false;
+    void drain.finally(() => { settled = true; }).catch(() => undefined);
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    dynamic.resolve(2);
+    await expect(drain).rejects.toThrow("first failure");
+    await expect(Promise.all([pending, late])).resolves.toEqual([1, 2]);
+  });
+
   it("rejects completion from an exact stale collection epoch", async () => {
     const scope = new CollectionMutationScope();
     scope.changeOwner("a");

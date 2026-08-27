@@ -28,6 +28,7 @@ export function StructuredPropertiesEditor({
   allowAdd = true,
   allowCustom = true,
   emptyMessage = "This note has no persisted properties.",
+  readOnly = false,
   onChange,
   onValidityChange
 }: {
@@ -40,6 +41,7 @@ export function StructuredPropertiesEditor({
   allowAdd?: boolean;
   allowCustom?: boolean;
   emptyMessage?: string;
+  readOnly?: boolean;
   onChange: (value: JsonObject) => void;
   onValidityChange?: (valid: boolean) => void;
 }) {
@@ -121,6 +123,7 @@ export function StructuredPropertiesEditor({
       onChange={(next) => updateField(name, next)}
       onValidityChange={(valid) => setEditorValidity((current) => ({ ...current, [name]: valid }))}
       onRemove={initializeRequired && required.includes(name) ? undefined : () => removeField(name)}
+      readOnly={readOnly}
     />)}
 
     {!entries.length && !missingRequired.length && emptyMessage && <p className="quiet-empty">{emptyMessage}</p>}
@@ -163,7 +166,7 @@ export function StructuredPropertiesEditor({
   </div>;
 }
 
-function PropertyRow({ name, value, schema, required, error, recordPaths, onChange, onValidityChange, onRemove }: {
+function PropertyRow({ name, value, schema, required, error, recordPaths, onChange, onValidityChange, onRemove, readOnly }: {
   name: string;
   value: PropertyValue;
   schema?: JsonObject;
@@ -173,6 +176,7 @@ function PropertyRow({ name, value, schema, required, error, recordPaths, onChan
   onChange: (value: PropertyValue) => void;
   onValidityChange: (valid: boolean) => void;
   onRemove?: () => void;
+  readOnly: boolean;
 }) {
   const defined = Boolean(schema);
   const kind = propertyKind(value);
@@ -188,20 +192,21 @@ function PropertyRow({ name, value, schema, required, error, recordPaths, onChan
         </SelectControl>}
     </div>
     {description(schema) && <p className="property-description">{description(schema)}</p>}
-    <PropertyValue name={name} value={value} schema={schema} recordPaths={recordPaths} onChange={onChange} onValidityChange={onValidityChange} />
+    <PropertyValue name={name} value={value} schema={schema} recordPaths={recordPaths} onChange={onChange} onValidityChange={onValidityChange} readOnly={readOnly} />
     {schemaAllowsNull(schema) && value !== null && <button type="button" className="set-null-property" onClick={() => onChange(null)}>Set to null</button>}
     {error && <p className="field-error" role="alert">{error}</p>}
     {onRemove && <InlineRemoveButton className="remove-property" label={`Remove ${name} property`} onClick={onRemove} />}
   </div>;
 }
 
-function PropertyValue({ name, value, schema, recordPaths, onChange, onValidityChange }: {
+function PropertyValue({ name, value, schema, recordPaths, onChange, onValidityChange, readOnly }: {
   name: string;
   value: PropertyValue;
   schema?: JsonObject;
   recordPaths: string[];
   onChange: (value: PropertyValue) => void;
   onValidityChange: (valid: boolean) => void;
+  readOnly: boolean;
 }) {
   if (value === null) return <div className="null-property"><span>Persisted null</span><button type="button" onClick={() => onChange(schemaInitialValue(schema))}>Set a value</button></div>;
   if (isStringList(name, schema, value)) {
@@ -236,7 +241,7 @@ function PropertyValue({ name, value, schema, recordPaths, onChange, onValidityC
   if (typeof value === "string") {
     return <input aria-label={`${name} value`} value={value} onChange={(event) => onChange(event.target.value)} />;
   }
-  return <JsonValueEditor name={name} value={value} onChange={onChange} onValidityChange={onValidityChange} />;
+  return <JsonValueEditor name={name} value={value} onChange={onChange} onValidityChange={onValidityChange} readOnly={readOnly} />;
 }
 
 function StringListEditor({ name, value, suggestions, onChange }: { name: string; value: string[]; suggestions: string[]; onChange: (value: unknown) => void }) {
@@ -261,16 +266,18 @@ function StringListEditor({ name, value, suggestions, onChange }: { name: string
   </div>;
 }
 
-function JsonValueEditor({ name, value, onChange, onValidityChange }: {
+function JsonValueEditor({ name, value, onChange, onValidityChange, readOnly }: {
   name: string;
   value: PropertyValue;
   onChange: (value: PropertyValue) => void;
   onValidityChange: (valid: boolean) => void;
+  readOnly: boolean;
 }) {
   const [text, setText] = useState(() => JSON.stringify(value, null, 2));
   const [invalid, setInvalid] = useState(false);
   return <div className={`nested-property${invalid ? " invalid" : ""}`}>
-    <CodeEditor value={text} label={`${name} JSON value`} language="json" lineWrapping={false} onChange={(next) => {
+    <CodeEditor value={text} label={`${name} JSON value`} language="json" lineWrapping={false} readOnly={readOnly} onChange={(next) => {
+      if (readOnly) return;
       setText(next);
       try {
         onChange(JSON.parse(next) as unknown);

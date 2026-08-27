@@ -1,35 +1,23 @@
-import { useCallback, useEffect, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
-import type { AppPhase } from "./app-state-types";
-import { gatewayError, missingCoreCapabilities } from "./gateway";
+import { useCallback, useEffect, useRef } from "react";
+import { gatewayError } from "./gateway";
 import type { CollectionGateway, CollectionSessionSnapshot } from "./model";
 
-export function useSessionLifecycle({ gateway, start, setSessionSnapshot, setNotice, setPhase, collectionEpoch }: {
+export function useSessionLifecycle({ gateway, acceptSnapshot, setNotice }: {
   gateway: CollectionGateway;
-  start: () => Promise<void>;
-  setSessionSnapshot: Dispatch<SetStateAction<CollectionSessionSnapshot>>;
-  setNotice: (message?: string, tone?: "info" | "success" | "error") => void
-  setPhase: Dispatch<SetStateAction<AppPhase>>;
-  collectionEpoch: MutableRefObject<number>;
+  acceptSnapshot: (snapshot: CollectionSessionSnapshot) => Promise<void>;
+  setNotice: (message?: string, tone?: "info" | "success" | "error") => void;
 }) {
   const requestGeneration = useRef(0);
   const retrySessionStart = useCallback(async () => {
-    const epoch = collectionEpoch.current;
     const generation = ++requestGeneration.current;
     try {
       const snapshot = await gateway.startSession();
-      if (epoch !== collectionEpoch.current || generation !== requestGeneration.current) return;
-      setSessionSnapshot(snapshot);
-      if (snapshot.status === "ready" && missingCoreCapabilities(snapshot.connection).length === 0) await start();
-      else {
-        setNotice(snapshot.status === "start_failed" ? snapshot.problem.message : undefined);
-        setPhase("disconnected");
-      }
+      if (generation !== requestGeneration.current) return;
+      await acceptSnapshot(snapshot);
     } catch (error) {
-      if (epoch !== collectionEpoch.current || generation !== requestGeneration.current) return;
-      setNotice(gatewayError(error));
-      setPhase("disconnected");
+      if (generation === requestGeneration.current) setNotice(gatewayError(error));
     }
-  }, [collectionEpoch, gateway, setNotice, setPhase, setSessionSnapshot, start]);
+  }, [acceptSnapshot, gateway, setNotice]);
 
   useEffect(() => {
     let alive = true;
@@ -39,35 +27,26 @@ export function useSessionLifecycle({ gateway, start, setSessionSnapshot, setNot
       try {
         const initial = await gateway.startSession();
         if (!alive || generation !== requestGeneration.current) return;
-        setSessionSnapshot(initial);
         if (initial.status === "start_failed") setNotice(initial.problem.message);
         if (initial.status === "destroyed") setNotice("This editor session has been closed.");
         stopSessionChanges = gateway.onSessionChange((snapshot) => {
-          if (!alive) return;
-          const current = gateway.sessionSnapshot();
-          if (!sameAuthoritativeSnapshot(snapshot, current)) return;
-          setSessionSnapshot(snapshot);
-          if (snapshot.status !== "ready") setPhase((current) => current === "starting" ? current : "disconnected");
+          if (!alive || !sameAuthoritativeSnapshot(snapshot, gateway.sessionSnapshot())) return;
+          void acceptSnapshot(snapshot).catch((error) => { if (alive) setNotice(gatewayError(error)); });
         });
         const snapshot = gateway.sessionSnapshot();
-        if (!alive || generation !== requestGeneration.current) return;
-        setSessionSnapshot(snapshot);
-        const connection = snapshot.status === "ready" ? snapshot.connection : null;
-        if (connection && missingCoreCapabilities(connection).length === 0) await start();
-        else setPhase("disconnected");
+        if (!alive || generation !== requestGeneration.current || !sameAuthoritativeSnapshot(initial, snapshot)) return;
+        await acceptSnapshot(snapshot);
       } catch (error) {
-        if (!alive || generation !== requestGeneration.current) return;
-        setNotice(gatewayError(error));
-        setPhase("disconnected");
+        if (alive && generation === requestGeneration.current) setNotice(gatewayError(error));
       }
     })();
     return () => { alive = false; stopSessionChanges?.(); };
-  }, [collectionEpoch, gateway, setNotice, setPhase, setSessionSnapshot, start]);
+  }, [acceptSnapshot, gateway, setNotice]);
 
   return { retrySessionStart };
 }
 
-function sameAuthoritativeSnapshot(event: CollectionSessionSnapshot, current: CollectionSessionSnapshot): boolean {
+export function sameAuthoritativeSnapshot(event: CollectionSessionSnapshot, current: CollectionSessionSnapshot): boolean {
   if (event.status !== current.status) return false;
   if (event.status === "ready" && current.status === "ready") {
     return event.connection.collectionId === current.connection.collectionId;

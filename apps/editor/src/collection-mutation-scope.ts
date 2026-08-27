@@ -68,7 +68,18 @@ export class CollectionMutationScope {
   }
 
   async drain(): Promise<void> {
-    while (this.pending.size > 0) await Promise.all([...this.pending]);
+    let failure: unknown;
+    let failed = false;
+    while (this.pending.size > 0) {
+      const outcomes = await Promise.allSettled([...this.pending]);
+      for (const outcome of outcomes) {
+        if (!failed && outcome.status === "rejected") {
+          failed = true;
+          failure = outcome.reason;
+        }
+      }
+    }
+    if (failed) throw failure;
   }
 
   private publish(): void { for (const listener of this.listeners) listener(); }

@@ -573,9 +573,6 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   ]);
 
   const start = useCallback(async () => {
-    const snapshot = gateway.sessionSnapshot();
-    const owner = snapshot.status === "ready" ? snapshot.connection.collectionId : undefined;
-    if (mutationScope.current.token().collectionId !== owner) mutationScope.current.changeOwner(owner);
     const epoch = collectionEpoch.current, generation = ++startGeneration.current;
     const current = () => epoch === collectionEpoch.current && generation === startGeneration.current;
     const indexLoad = indexController.beginLoad();
@@ -617,20 +614,13 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     }
   }, [fileController, gateway, indexController, openNote, refreshDescription]);
 
-  const { transition: transitionCollection, authorize: authorizeCollection } = useCollectionTransition({
+  const { transition: transitionCollection, authorize: authorizeCollection, acceptSnapshot } = useCollectionTransition({
     gateway, scope: mutationScope.current, currentOwner: () => workspaceCollectionId.current,
     drain: flushCollectionWork, clear: clearCollectionWorkspace, start,
     setFrozen: setMutationsFrozen, setPhase, setSnapshot: setSessionSnapshot
   });
 
-  const { retrySessionStart } = useSessionLifecycle({
-    gateway,
-    start,
-    setSessionSnapshot,
-    setNotice,
-    setPhase,
-    collectionEpoch
-  });
+  const { retrySessionStart } = useSessionLifecycle({ gateway, acceptSnapshot, setNotice });
 
   useEffect(() => {
     if (phase !== "ready" || !structureComplete || listLoading || contentComplete || contentIndexing || contentError) return;
@@ -904,6 +894,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     indexController.reset();
     fileController.reset();
     fileAssetStore.reset();
+    attachments.reset();
     searchIndexCache.current.clear();
     navigationGeneration.current += 1;
     documentGeneration.current += 1;
@@ -1138,6 +1129,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   async function requestRename() {
     if (mutationScope.current.isFrozen) return;
+    const token = mutationScope.current.token();
     const session = noteSessions.current.active;
     if (!session) return;
     const nextPath = safeRenamePath(pathDraft);
@@ -1164,6 +1156,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         nextPath,
         session.document.revision
       ));
+      if (!mutationScope.current.isCurrent(token)) return;
       if (noteSessions.current.active !== session) {
         renameRequest.current = undefined;
         return;
@@ -1181,6 +1174,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       }
       await performRename(plan, true);
     } catch (error) {
+      if (!mutationScope.current.isCurrent(token)) return;
       const message = gatewayError(error);
       session.error = message;
       if (noteSessions.current.active === session) setPathDraft(session.document.path);
@@ -1194,6 +1188,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   async function performRename(plan: RenamePlan, updateRefs: boolean) {
     if (mutationScope.current.isFrozen) return;
+    const token = mutationScope.current.token();
     const { session, from, to } = plan;
     const controller = new AbortController();
     setRenamePlan(undefined);
@@ -1203,16 +1198,19 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     try {
       await flushSession(session);
       if (session.document.path !== from) throw new Error("This note moved before the rename could begin.");
-      const renamed = await runNoteOperation(session, updateRefs ? "renaming" : "moving", () => gateway.rename(
+      const renamed = await runNoteOperation(session, updateRefs ? "renaming" : "moving", (token) => gateway.rename(
         from,
         to,
         session.document.revision,
         updateRefs,
         {
           signal: controller.signal,
-          onProgress: (progress) => updateMutationActivity(session, progress, touchSession)
+          onProgress: (progress) => {
+            if (mutationScope.current.isCurrent(token)) updateMutationActivity(session, progress, touchSession);
+          }
         }
       ));
+      if (!mutationScope.current.isCurrent(token)) return;
       setPendingRenameRecovery(undefined);
       session.document = renamed;
       session.error = undefined;
@@ -1229,6 +1227,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       setRecoveryAction({ kind: "rename", from, to: renamed.path });
       touchSession(session);
     } catch (error) {
+      if (!mutationScope.current.isCurrent(token)) return;
       const message = gatewayError(error);
       session.error = message;
       if (error instanceof MdbaseConnectError && error.problem.operation_outcome === "unknown") {
@@ -1245,6 +1244,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         : `Couldn’t rename “${session.draft.title || session.document.path}”. ${message}`);
       touchSession(session);
     } finally {
+      if (!mutationScope.current.isCurrent(token)) return;
       if (session.mutationController === controller) {
         session.mutationController = undefined;
         session.mutationCancellable = false;
@@ -1267,6 +1267,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   async function saveProperties(path: string, next: Record<string, unknown>) {
     if (mutationScope.current.isFrozen) return;
+    const token = mutationScope.current.token();
     const session = noteSessions.current.get(path);
     if (!session) return;
     setPropertiesError(undefined);
@@ -1278,6 +1279,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         replaceDocumentFrontmatter(source, next),
         session.document.revision
       ));
+      if (!mutationScope.current.isCurrent(token)) return;
       const persistedDraft = editableNote(updated, typeDescriptors);
       session.document = updated;
       session.persistedDraft = persistedDraft;
@@ -1292,6 +1294,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       }
       touchSession(session);
     } catch (error) {
+      if (!mutationScope.current.isCurrent(token)) return;
       const message = gatewayError(error);
       session.error = message;
       setPropertiesError(message);
@@ -1305,11 +1308,13 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   async function saveRecordSource(path: string, source: string, previousSource: string): Promise<NoteDocument | false> {
     if (mutationScope.current.isFrozen) return false;
+    const token = mutationScope.current.token();
     const session = noteSessions.current.get(path);
     if (!session || session.deleted) return false;
     if (noteSessions.current.active === session) setPropertiesError(undefined);
     try {
       await flushSession(session);
+      if (!mutationScope.current.isCurrent(token)) return false;
       const currentSource = session.document.document ?? composeRecordSource(session.document.frontmatter, session.document.body ?? "");
       if (currentSource !== previousSource) {
         const message = "This note finished saving after Source was opened. Your source draft is preserved; close and reopen the panel to start from the latest record.";
@@ -1322,6 +1327,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         source,
         session.document.revision
       ));
+      if (!mutationScope.current.isCurrent(token)) return false;
       const persistedDraft = editableNote(updated, typeDescriptors);
       session.document = updated;
       session.persistedDraft = persistedDraft;
@@ -1337,6 +1343,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       touchSession(session);
       return updated;
     } catch (error) {
+      if (!mutationScope.current.isCurrent(token)) return false;
       const message = gatewayError(error);
       session.error = message;
       if (noteSessions.current.active === session) setPropertiesError(message);
@@ -1349,6 +1356,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   async function validateNote() {
+    if (mutationScope.current.isFrozen) return;
+    const token = mutationScope.current.token();
     const session = noteSessions.current.active;
     if (!session) return;
     setNotice(undefined);
@@ -1359,10 +1368,11 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         "validating",
         () => gateway.validate(session.document.path)
       );
-      if (noteSessions.current.active === session) {
+      if (mutationScope.current.isCurrent(token) && noteSessions.current.active === session) {
         setNotice(diagnostics.length ? diagnostics.map((item) => item.message).join(" ") : "No validation issues.");
       }
     } catch (error) {
+      if (!mutationScope.current.isCurrent(token)) return;
       const message = gatewayError(error);
       setNotice(noteSessions.current.active === session
         ? message
@@ -1372,6 +1382,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   async function requestDelete() {
     if (mutationScope.current.isFrozen) return;
+    const token = mutationScope.current.token();
     const session = noteSessions.current.active;
     if (!session) return;
     const requestKey = `${session.document.path}\n${session.document.revision}`;
@@ -1384,10 +1395,11 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         session.document.path,
         session.document.revision
       ));
-      if (noteSessions.current.active === session) {
+      if (mutationScope.current.isCurrent(token) && noteSessions.current.active === session) {
         setDeletePlan({ session, brokenLinkPaths: preflight.brokenLinkPaths });
       }
     } catch (error) {
+      if (!mutationScope.current.isCurrent(token)) return;
       const message = gatewayError(error);
       session.error = message;
       setNotice(noteSessions.current.active === session
@@ -1401,6 +1413,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   function deleteNote(plan: DeletePlan) {
     if (mutationScope.current.isFrozen) return;
+    const token = mutationScope.current.token();
     const { session } = plan;
     const path = session.document.path;
     const next = allNotes.find((note) => note.path !== path);
@@ -1418,17 +1431,21 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     void (async () => {
       try {
         let deletedDocument: NoteDocument | undefined;
-        await runNoteOperation(session, "deleting", async () => {
+        await runNoteOperation(session, "deleting", async (token) => {
           deletedDocument = structuredClone(session.document);
           await gateway.delete(session.document.path, session.document.revision, {
-            onProgress: (progress) => updateMutationActivity(session, progress, touchSession)
+            onProgress: (progress) => {
+              if (mutationScope.current.isCurrent(token)) updateMutationActivity(session, progress, touchSession);
+            }
           });
         });
+        if (!mutationScope.current.isCurrent(token)) return;
         noteSessions.current.delete(path);
         indexController.commitRemoval(path);
         setRecentPaths((current) => forgetRecentPath(current, path));
         if (deletedDocument) setRecoveryAction({ kind: "delete", document: deletedDocument });
       } catch (error) {
+        if (!mutationScope.current.isCurrent(token)) return;
         session.deleted = false;
         indexController.rollbackRemoval(summaryFromDocument(session.document));
         session.error = gatewayError(error);
@@ -1441,12 +1458,13 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   async function undoRecovery() {
     const action = recoveryAction;
     if (!action || recoveryBusy || mutationScope.current.isFrozen) return;
+    const token = mutationScope.current.token();
     setRecoveryBusy(true);
     setNotice(undefined);
     try {
       if (action.kind === "delete") {
-        const token = mutationScope.current.token();
         const restored = await mutationScope.current.register(token, gateway.restore(action.document));
+        if (!mutationScope.current.isCurrent(token)) return;
         noteSessions.current.create(restored, typeDescriptors);
         indexController.create(summaryFromDocument(restored));
         setNotice(`Restored “${noteTitle(restored, typeDescriptors)}”.`);
@@ -1477,9 +1495,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       }
       setRecoveryAction(undefined);
     } catch (error) {
-      setNotice(`Couldn’t undo that change. ${gatewayError(error)}`);
+      if (mutationScope.current.isCurrent(token)) setNotice(`Couldn’t undo that change. ${gatewayError(error)}`);
     } finally {
-      setRecoveryBusy(false);
+      if (mutationScope.current.isCurrent(token)) setRecoveryBusy(false);
     }
   }
 
@@ -2020,6 +2038,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
           types={description.types}
           recordPaths={allNotes.map((note) => note.path)}
           error={propertiesError}
+          readOnly={mutationsFrozen}
           onClose={() => setPropertiesOpen(false)}
           onSave={saveProperties}
           onSaveDocument={(source, previousSource) => saveRecordSource(document.path, source, previousSource)}
