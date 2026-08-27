@@ -16,6 +16,8 @@ const describePostgres = testUrl && approved ? describe : describe.skip;
 let admin: pg.Pool | undefined;
 let db: DatabasePool | undefined;
 let schema: string | undefined;
+let sentinelSchema: string | undefined;
+const sentinelBytes = Buffer.from("migration-isolation-sentinel\u0000unchanged");
 const fixtureApplications: string[] = [];
 
 function safeTestUrl(value: string): URL {
@@ -35,13 +37,21 @@ function schemaUrl(url: URL, name: string): string {
   return scoped.toString();
 }
 
+async function bounded<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      })
+    ]);
+  } finally { if (timer) clearTimeout(timer); }
+}
+
 async function promptly<T>(operation: Promise<T>): Promise<T> {
-  return Promise.race([
-    operation,
-    new Promise<never>((_, reject) => setTimeout(
-      () => reject(new Error("PostgreSQL reconciliation claim blocked on a row lock.")), 1_000
-    ))
-  ]);
+  return bounded(operation, 1_000,
+    "PostgreSQL reconciliation claim blocked on a row lock.");
 }
 
 async function addApplication(): Promise<string> {
@@ -70,25 +80,32 @@ async function rollbackRelease(connection: DatabaseConnection | undefined) {
 describePostgres("application reconciliation PostgreSQL locking", () => {
   beforeAll(async () => {
     const url = safeTestUrl(testUrl!);
-    schema = `mdbase_reconciliation_test_${randomUUID().replaceAll("-", "")}`;
+    const suffix = randomUUID().replaceAll("-", "");
+    schema = `mdbase_reconciliation_test_${suffix}`;
+    sentinelSchema = `mdbase_reconciliation_sentinel_${suffix}`;
     admin = new pg.Pool({ connectionString: url.toString(), max: 2 });
+    await admin.query(`CREATE SCHEMA "${sentinelSchema}"`);
+    await admin.query(`CREATE TABLE "${sentinelSchema}".sentinel (id integer PRIMARY KEY, payload bytea NOT NULL)`);
+    await admin.query(`INSERT INTO "${sentinelSchema}".sentinel VALUES (1,$1)`, [sentinelBytes]);
     await admin.query(`CREATE SCHEMA "${schema}"`);
     try {
-      db = await createDatabase(schemaUrl(url, schema));
+      const migrated = await createDatabase(schemaUrl(url, schema));
+      db = migrated;
       // Exercise takeover normalization of legacy rows that current constraints
       // prevent newly writing, but that the worker deliberately still repairs.
-      const shapeConstraints = await db.query<{ conname: string }>(`SELECT conname
+      const shapeConstraints = await migrated.query<{ conname: string }>(`SELECT conname
         FROM pg_constraint WHERE conrelid='application_reconciliation_jobs'::regclass
           AND contype='c' AND (pg_get_constraintdef(oid) LIKE '%phase <>%'
             OR pg_get_constraintdef(oid) LIKE '%state <>%completed%')`);
       for (const { conname } of shapeConstraints.rows) {
-        await db.query(`ALTER TABLE application_reconciliation_jobs DROP CONSTRAINT "${conname}"`);
+        await migrated.query(`ALTER TABLE application_reconciliation_jobs DROP CONSTRAINT "${conname}"`);
       }
     } catch (error) {
-      await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+      await db?.end().catch(() => undefined); db = undefined;
+      await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`).catch(() => undefined);
       throw error;
     }
-  });
+  }, 60_000);
 
   afterEach(async () => {
     if (db && fixtureApplications.length) {
@@ -98,11 +115,91 @@ describePostgres("application reconciliation PostgreSQL locking", () => {
   });
 
   afterAll(async () => {
-    await db?.end().catch(() => undefined);
+    if (db) await bounded(db.end(), 15_000, "Timed out closing the test database.").catch(() => undefined);
+    db = undefined;
     if (admin && schema) {
-      await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`).catch(() => undefined);
+      await bounded(admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`), 15_000,
+        "Timed out dropping the reconciliation test schema.").catch(() => undefined);
     }
-    await admin?.end().catch(() => undefined);
+    if (admin && sentinelSchema) {
+      await bounded(admin.query(`DROP SCHEMA IF EXISTS "${sentinelSchema}" CASCADE`), 15_000,
+        "Timed out dropping the sentinel test schema.").catch(() => undefined);
+    }
+    if (admin) await bounded(admin.end(), 15_000, "Timed out closing the admin pool.").catch(() => undefined);
+    admin = undefined;
+  }, 60_000);
+
+  it("keeps migrations and their ledger inside the configured schema", async () => {
+    const ledger = await db!.query<{ current_schema: string; migrations: number }>(
+      "SELECT current_schema(),(SELECT count(*)::integer FROM schema_migrations) AS migrations"
+    );
+    expect(ledger.rows[0].current_schema).toBe(schema);
+    expect(ledger.rows[0].migrations).toBeGreaterThan(1);
+    const sentinel = await admin!.query<{ payload: Buffer }>(
+      `SELECT payload FROM "${sentinelSchema}".sentinel WHERE id=1`
+    );
+    expect(sentinel.rows).toHaveLength(1);
+    expect(sentinel.rows[0].payload.equals(sentinelBytes)).toBe(true);
+    const sentinelTables = await admin!.query<{ table_name: string }>(`SELECT table_name
+      FROM information_schema.tables WHERE table_schema=$1 ORDER BY table_name`, [sentinelSchema]);
+    expect(sentinelTables.rows).toEqual([{ table_name: "sentinel" }]);
+  });
+
+  it("allows exactly one of two simultaneous workers to claim one due job", async () => {
+    const application = await addJob("'pending','scan',now()-interval '1 second',NULL,NULL,NULL,3");
+    let first: DatabaseConnection | undefined; let second: DatabaseConnection | undefined;
+    let start!: () => void;
+    const barrier = new Promise<void>((resolve) => { start = resolve; });
+    try {
+      first = await db!.connect(); second = await db!.connect();
+      const claims = [first, second].map(async (connection) => {
+        await barrier;
+        return claimApplicationReconciliationJob(connection, [], 60_000);
+      });
+      start();
+      const results = await bounded(Promise.all(claims), 2_000,
+        "Simultaneous one-job claims did not complete.");
+      const winners = results.filter((claim) => claim !== null);
+      expect(winners).toHaveLength(1);
+      expect(winners[0]!.applicationId).toBe(application);
+      const persisted = (await db!.query<{ state: string; attempts: number; lease_token: string }>(
+        "SELECT state,attempts,lease_token FROM application_reconciliation_jobs WHERE application_id=$1",
+        [application])).rows[0];
+      expect(persisted).toMatchObject({ state: "leased", attempts: 4,
+        lease_token: winners[0]!.token });
+    } finally { first?.release(); second?.release(); }
+  });
+
+  it("allows two simultaneous workers to claim two distinct due jobs without blocking", async () => {
+    const applications = [
+      await addJob("'pending','scan',now()-interval '2 seconds',NULL,NULL,NULL,0"),
+      await addJob("'pending','scan',now()-interval '1 second',NULL,NULL,NULL,0")
+    ];
+    let first: DatabaseConnection | undefined; let second: DatabaseConnection | undefined;
+    let start!: () => void;
+    const barrier = new Promise<void>((resolve) => { start = resolve; });
+    try {
+      first = await db!.connect(); second = await db!.connect();
+      const claims = [first, second].map(async (connection) => {
+        await barrier;
+        return claimApplicationReconciliationJob(connection, [], 60_000);
+      });
+      start();
+      const results = await bounded(Promise.all(claims), 2_000,
+        "Simultaneous two-job claims did not complete.");
+      expect(results.every((claim) => claim !== null)).toBe(true);
+      expect(new Set(results.map((claim) => claim!.applicationId))).toEqual(new Set(applications));
+      expect(new Set(results.map((claim) => claim!.token)).size).toBe(2);
+      const persisted = await db!.query<{ application_id: string; attempts: number; lease_token: string }>(
+        "SELECT application_id,attempts,lease_token FROM application_reconciliation_jobs WHERE application_id=ANY($1::uuid[])",
+        [applications]);
+      expect(persisted.rows).toHaveLength(2);
+      expect(persisted.rows.every((row) => row.attempts === 1)).toBe(true);
+      for (const row of persisted.rows) {
+        expect(row.lease_token).toBe(results.find(
+          (claim) => claim!.applicationId === row.application_id)!.token);
+      }
+    } finally { first?.release(); second?.release(); }
   });
 
   it("skips a due row rescheduled under lock and claims unrelated ready work promptly", async () => {
