@@ -91,6 +91,98 @@ async fn exact_origin_host_and_protocol_one_are_enforced() {
 }
 
 #[tokio::test]
+async fn durable_changes_cross_direct_and_relay_only_as_encrypted_public_events() {
+    let fixture = fixture();
+    let app = router(fixture.agent.clone(), 28_485);
+    let baseline = fixture.direct(&app, "describe", json!({}), 1).await["result"]["change_cursor"]
+        .as_u64()
+        .unwrap();
+    fixture
+        .registry
+        .operation(
+            fixture.encryption.collection_id,
+            "create",
+            &json!({
+                "path": "transport-fixture.md",
+                "frontmatter": {"title": "Transport fixture"},
+                "body": "PRIVATE_FIXTURE_BODY"
+            }),
+        )
+        .unwrap();
+    fixture
+        .registry
+        .finalize_runtime_changes(
+            fixture.encryption.collection_id,
+            &mdbase::OperationCancellation::new(),
+        )
+        .unwrap();
+
+    let direct_request = fixture.encrypted_request("changes", json!({"after": baseline}), 2);
+    let RelayMessage::EncryptedOperationRequest {
+        envelope: direct_request_envelope,
+    } = direct_request.clone()
+    else {
+        unreachable!()
+    };
+    let direct_envelope = fixture.send(&app, direct_request).await;
+    let encoded_direct = serde_json::to_string(&direct_envelope).unwrap();
+    assert!(!encoded_direct.contains("transport-fixture.md"));
+    assert!(!encoded_direct.contains("PRIVATE_FIXTURE_BODY"));
+    let direct = fixture.decrypt_response(&direct_request_envelope, &direct_envelope);
+    assert_eq!(direct["result"]["events"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        direct["result"]["events"][0]["type"],
+        "mdbase.record.created"
+    );
+    assert_eq!(
+        direct["result"]["events"][0]["payload"]["path"],
+        "transport-fixture.md"
+    );
+    assert!(direct["result"]["events"][0]["payload"]
+        .as_object()
+        .unwrap()
+        .values()
+        .all(|value| !value.to_string().contains("PRIVATE_FIXTURE_BODY")));
+
+    let relay_request = fixture.encrypted_request("changes", json!({"after": baseline}), 3);
+    let RelayMessage::EncryptedOperationRequest {
+        envelope: relay_request_envelope,
+    } = relay_request.clone()
+    else {
+        unreachable!()
+    };
+    let RelayMessage::EncryptedOperationResponse {
+        envelope: relay_envelope,
+    } = fixture
+        .agent
+        .handle_relay_message(relay_request)
+        .expect("relay response")
+    else {
+        panic!("expected encrypted relay response")
+    };
+    assert!(!serde_json::to_string(&relay_envelope)
+        .unwrap()
+        .contains("transport-fixture.md"));
+    let relay = fixture.decrypt_response(&relay_request_envelope, &relay_envelope);
+    assert_eq!(relay["result"], direct["result"]);
+
+    let empty = fixture
+        .direct(
+            &app,
+            "changes",
+            json!({"after": direct["result"]["cursor"]}),
+            4,
+        )
+        .await;
+    assert!(empty["result"]["events"].as_array().unwrap().is_empty());
+
+    let root = fixture.root.clone();
+    drop(app);
+    drop(fixture);
+    remove_fixture_after_watchers_close(&root);
+}
+
+#[tokio::test]
 async fn opaque_file_origin_requires_an_exact_encrypted_portable_grant() {
     let fixture = fixture_for_origin("null", "portable");
     let app = router(fixture.agent.clone(), 28_485);
