@@ -262,6 +262,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     pendingFilePath, setPendingFilePath, openAsset: openFileAsset, setOpenAsset: setOpenFileAsset, embeddedFiles } = fileWorkspace;
   const attachments = useAttachmentUpload({ gateway, inventory: fileController,
     inventoryFiles: fileInventory.files, activeSession: () => noteSessions.current.active, setNotice });
+  useEffect(() => () => { typeGeneration.current += 1; }, []);
   useEffect(() => { savePreferences(preferences); }, [preferences]);
   useEffect(() => { saveLayoutPreferences(layout); }, [layout]);
   useEffect(() => { saveNoteSort(noteSort); }, [noteSort]);
@@ -1551,23 +1552,30 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   async function saveType() {
     if (!typeCreating && !typeDocument) return;
+    const generation = ++typeGeneration.current;
+    const creating = typeCreating;
+    const source = typeSource;
+    const existing = typeDocument;
     setTypeSaving(true);
     setTypeError(undefined);
     try {
-      const saved = typeCreating
-        ? await gateway.createType(typeSource)
-        : await gateway.updateType(typeDocument!, typeSource);
-      typeGeneration.current += 1;
+      const saved = creating
+        ? await gateway.createType(source)
+        : await gateway.updateType(existing!, source);
+      if (generation !== typeGeneration.current) return;
       setTypeCreating(false);
       setTypeDocument(saved);
       setTypeSource(saved.document);
-      await refreshDescription();
+      const nextDescription = await gateway.describe();
+      if (generation !== typeGeneration.current) return;
+      typeDescriptorsRef.current = nextDescription.types;
+      setDescription(nextDescription);
       setSelectedTypeName(saved.name);
-      setNotice(typeCreating ? `Created type “${saved.name}”.` : `Saved type “${saved.name}”.`);
+      setNotice(creating ? `Created type “${saved.name}”.` : `Saved type “${saved.name}”.`);
     } catch (error) {
-      setTypeError(gatewayError(error));
+      if (generation === typeGeneration.current) setTypeError(gatewayError(error));
     } finally {
-      setTypeSaving(false);
+      if (generation === typeGeneration.current) setTypeSaving(false);
     }
   }
 
