@@ -608,6 +608,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     gateway,
     phase,
     start,
+    beforeCollectionChange: clearCollectionWorkspace,
     setSessionSnapshot
   });
 
@@ -905,11 +906,27 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setCreationDirty(false);
     setPropertiesOpen(false);
     setBacklinksOpen(false);
+    setPropertiesError(undefined);
+    setEditingPath(false);
+    setPathDraft("");
+    setDeletePlan(undefined);
+    setRenamePlan(undefined);
+    setPendingRenameRecovery(undefined);
+    setRecoveryAction(undefined);
+    setRecoveryBusy(false);
+    renameRequest.current = undefined;
+    deleteRequest.current = undefined;
+    setQuickOpen(false);
+    setConfirmation(undefined);
     setSelectedTypeName(undefined);
     setTypeDocument(undefined);
     setTypeSource("");
     setTypeCreating(false);
+    setTypeLoading(false);
+    setTypeSaving(false);
     setTypeError(undefined);
+    setSaveState("saved");
+    setNotice(undefined);
     setSearch("");
     setNoteFilter(undefined);
     setSurface("notes");
