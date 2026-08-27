@@ -475,6 +475,30 @@ function injectConnection(
   return { authorize };
 }
 
+describe("ConnectCollectionGateway type ownership", () => {
+  it("captures the exact connection when updateType is invoked", async () => {
+    const pending = deferred<ReturnType<typeof connectSuccess>>();
+    const updateA = vi.fn(() => pending.promise);
+    const updateB = vi.fn(async () => connectSuccess({ name: "note", path: "_types/note.md", revision: "b-2", document: "B" }));
+    const connectionA = { updateType: updateA } as unknown as MdbaseConnection;
+    const connectionB = { updateType: updateB } as unknown as MdbaseConnection;
+    let active = connectionA;
+    const gateway = new ConnectCollectionGateway("https://connect.example");
+    injectSession(gateway, { getSnapshot: () => ({ status: "unselected", connections: [] }), connection: () => active });
+    const current = { name: "note", path: "_types/a-note.md", revision: "a-7", document: "A baseline" };
+
+    const saving = gateway.updateType(current, "A exact document");
+    active = connectionB;
+    pending.resolve(connectSuccess({ ...current, revision: "a-8", document: "A exact document" }));
+
+    await expect(saving).resolves.toMatchObject({ path: "_types/a-note.md", revision: "a-8" });
+    expect(updateA).toHaveBeenCalledWith({ path: "_types/a-note.md", ifRevision: "a-7", document: "A exact document" });
+    expect(updateB).not.toHaveBeenCalled();
+  });
+});
+
+function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((yes) => { resolve = yes; }); return { promise, resolve }; }
+
 describe("ConnectCollectionGateway lifecycle", () => {
   it("preserves retryable startup failure and terminal destruction", async () => {
     const gateway = new ConnectCollectionGateway("https://connect.example");
@@ -509,7 +533,7 @@ function injectSession(
     subscribe?: (listener: () => void) => () => void;
     select?: (collectionId: string) => unknown;
     forget?: (collectionId: string) => void;
-    connection?: MdbaseConnection;
+    connection?: MdbaseConnection | (() => MdbaseConnection);
   }
 ): void {
   Object.defineProperty(gateway, "session", {
@@ -521,7 +545,7 @@ function injectSession(
         if (!("collectionId" in snapshot)) throw new Error("No selected connection.");
         return sessionConnection(snapshot.collectionId, "Notes");
       })()),
-      connection: () => session.connection ?? (() => {
+      connection: () => typeof session.connection === "function" ? session.connection() : session.connection ?? (() => {
         const snapshot = session.getSnapshot();
         return "collectionId" in snapshot
           ? sessionConnection(snapshot.collectionId, "Notes")
