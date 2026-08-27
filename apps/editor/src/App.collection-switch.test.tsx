@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { CollectionDescription } from "@mdbase-dev/connect";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
-import type { CollectionAuthorizationTarget, CollectionFile, CollectionSessionSnapshot, ConnectionSummary, CreateNoteInput, FileUploadRequest, NoteDocument, NoteIndexRequest, NoteIndexResult, SaveNoteInput } from "./model";
+import type { CollectionAuthorizationTarget, CollectionFile, CollectionSessionSnapshot, ConnectionSummary, CreateNoteInput, FileUploadRequest, MutationOperationOptions, NoteDocument, NoteIndexRequest, NoteIndexResult, SaveNoteInput } from "./model";
 
 vi.mock("./CodeEditor", () => ({ CodeEditor: ({ value, onChange, label }: { value: string; onChange?: (value: string) => void; label: string }) => <textarea aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} /> }));
 vi.mock("./MarkdownNoteEditor", () => ({ MarkdownNoteEditor: ({ draft, insertion, onTitleChange, onBodyChange, onCreateLink }: { draft: { title: string; body: string }; insertion?: { text: string }; onTitleChange: (value: string) => void; onBodyChange: (value: string) => void; onCreateLink: (target: string, label: string | undefined, format: "wikilink") => void }) => <>
@@ -43,9 +43,12 @@ class SwitchGateway extends DemoCollectionGateway {
 }
 
 class HostileGateway extends SwitchGateway {
-  createGate = deferred<void>(); uploadGate = deferred<void>();
-  createOwners: string[] = []; uploadOwners: string[] = [];
+  createGate = deferred<void>(); uploadGate = deferred<void>(); documentGate = deferred<void>();
+  renamePreflightGate = deferred<void>(); renameGate = deferred<void>(); deletePreflightGate = deferred<void>(); deleteGate = deferred<void>();
+  restoreGate = deferred<void>(); validateGate = deferred<void>();
+  createOwners: string[] = []; uploadOwners: string[] = []; operationOwners: string[] = [];
   uploadProgress?: NonNullable<FileUploadRequest["onProgress"]>;
+  renameProgress?: MutationOperationOptions["onProgress"]; deleteProgress?: MutationOperationOptions["onProgress"];
   async create(input: CreateNoteInput) {
     const owner = this.current; this.createOwners.push(owner); await this.createGate.promise;
     const body = `# ${input.title}\n\n${input.body}`;
@@ -57,6 +60,33 @@ class HostileGateway extends SwitchGateway {
     const owner = this.current; this.uploadOwners.push(owner); this.uploadProgress = options.onProgress;
     await this.uploadGate.promise;
     return super.uploadFile(path, source, options);
+  }
+  async updateDocument(_path: string, document: string) {
+    const owner = this.current; this.operationOwners.push(`document:${owner}`); await this.documentGate.promise;
+    const saved = { ...this.documents[owner], document, body: document, revision: `${owner}-document` };
+    this.documents[owner] = saved; return structuredClone(saved);
+  }
+  async preflightRename(from: string, to: string, _revision: string) {
+    const owner = this.current; this.operationOwners.push(`rename-preflight:${owner}`); this.events.push("preflight:rename"); await this.renamePreflightGate.promise;
+    return { affectedPaths: ["Shared/ref.md"], warnings: [], operation: { from, to, dryRun: true as const, wouldRename: true as const, referencesAffected: [{ path: "Shared/ref.md", location: "body" as const }] } };
+  }
+  async rename(_from: string, to: string, _revision: string, _updateRefs = true, options: MutationOperationOptions = {}) {
+    const owner = this.current; this.operationOwners.push(`rename:${owner}`); this.renameProgress = options.onProgress; await this.renameGate.promise;
+    const saved = { ...this.documents[owner], path: to, revision: `${owner}-renamed`, file: { ...this.documents[owner].file, name: to.split("/").at(-1)!, folder: to.split("/").slice(0, -1).join("/") } };
+    this.documents[owner] = saved; return structuredClone(saved);
+  }
+  async preflightDelete(target: string, _revision: string) {
+    const owner = this.current; this.operationOwners.push(`delete-preflight:${owner}`); await this.deletePreflightGate.promise;
+    return { brokenLinkPaths: ["Shared/ref.md"], operation: { path: target, deleted: false as const, dryRun: true as const, wouldDelete: true as const, brokenLinks: [{ path: "Shared/ref.md" }] } };
+  }
+  async delete(_path: string, _revision: string, options: MutationOperationOptions = {}) {
+    const owner = this.current; this.operationOwners.push(`delete:${owner}`); this.deleteProgress = options.onProgress; await this.deleteGate.promise;
+  }
+  async restore(document: NoteDocument) {
+    const owner = this.current; this.operationOwners.push(`restore:${owner}`); await this.restoreGate.promise; return structuredClone(document);
+  }
+  async validate() {
+    const owner = this.current; this.operationOwners.push(`validate:${owner}`); await this.validateGate.promise; return [];
   }
 }
 
@@ -86,6 +116,99 @@ async function finishSavedSwitch(gateway: HostileGateway) {
 }
 
 describe("App collection switch ownership", () => {
+  it("drains an A structured-properties save before switching to same-path B", async () => {
+    const { gateway, user } = await hostileHarness();
+    await user.click(screen.getByRole("button", { name: "Note properties" }));
+    await user.click(await screen.findByRole("button", { name: "Add property" }));
+    await user.click(screen.getByRole("button", { name: "Add a custom property…" }));
+    await user.type(screen.getByRole("textbox", { name: "Name" }), "status");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.type(screen.getByRole("textbox", { name: "status value" }), "hostile-a");
+    await waitFor(() => expect(gateway.operationOwners).toContain("document:a"), { timeout: 2_000 });
+    await requestSavedSwitch(user);
+    expect(gateway.current).toBe("a"); expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Alpha note");
+    gateway.documentGate.resolve(); await finishSavedSwitch(gateway);
+    expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("Bravo body");
+    expect(screen.queryByDisplayValue("hostile-a")).not.toBeInTheDocument();
+  });
+
+  it("drains an A complete-source save and cannot publish it into same-path B", async () => {
+    const { gateway, user } = await hostileHarness();
+    await user.click(screen.getByRole("button", { name: "Note properties" }));
+    await user.click(screen.getByRole("tab", { name: "Source" }));
+    const source = screen.getByLabelText("Complete record source");
+    fireEvent.change(source, { target: { value: "# Hostile source\n\nOwned by A" } });
+    await user.click(screen.getByRole("button", { name: "Save source" }));
+    await waitFor(() => expect(gateway.operationOwners).toContain("document:a"));
+    await requestSavedSwitch(user);
+    expect(gateway.current).toBe("a"); expect(source).toHaveValue("# Hostile source\n\nOwned by A");
+    gateway.documentGate.resolve(); await finishSavedSwitch(gateway);
+    expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("Bravo body");
+    expect(screen.queryByDisplayValue(/Hostile source/)).not.toBeInTheDocument();
+  });
+
+  it("drains A rename preflight before a saved switch and preserves save-before-preflight ordering", async () => {
+    const { gateway, user } = await hostileHarness();
+    await user.type(screen.getByRole("textbox", { name: "Note body" }), " dirty");
+    await waitFor(() => expect(gateway.updateCalls).toHaveLength(1));
+    await user.click(screen.getByRole("button", { name: path }));
+    const pathInput = screen.getByRole("textbox", { name: "Markdown path" }); await user.clear(pathInput); await user.type(pathInput, "Shared/renamed.md{Enter}");
+    expect(gateway.operationOwners).not.toContain("rename-preflight:a");
+    gateway.updateGate.resolve(); await waitFor(() => expect(gateway.operationOwners).toContain("rename-preflight:a"));
+    expect(gateway.events.indexOf("update:end")).toBeLessThan(gateway.events.indexOf("preflight:rename"));
+    await requestSavedSwitch(user); expect(gateway.current).toBe("a"); expect(pathInput).toHaveValue("Shared/renamed.md");
+    gateway.renamePreflightGate.resolve(); await finishSavedSwitch(gateway);
+    expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("Bravo body"); expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("drains A rename apply and ignores completion and late progress after B", async () => {
+    const { gateway, user } = await hostileHarness(); gateway.renamePreflightGate.resolve();
+    await user.click(screen.getByRole("button", { name: path })); const pathInput = screen.getByRole("textbox", { name: "Markdown path" });
+    await user.clear(pathInput); await user.type(pathInput, "Shared/renamed.md{Enter}");
+    await user.click(await screen.findByRole("button", { name: "Rename and update links" }));
+    await waitFor(() => expect(gateway.operationOwners).toContain("rename:a"));
+    await requestSavedSwitch(user); expect(gateway.current).toBe("a"); expect(pathInput).toHaveValue("Shared/renamed.md");
+    gateway.renameGate.resolve(); await finishSavedSwitch(gateway);
+    act(() => gateway.renameProgress?.({ operation: "rename", state: "applying", elapsedMs: 50, cancellable: false, resumed: false, completedUnits: 1, estimate: { affectedRecords: 9, totalUnits: 10, warnings: 0 } }));
+    expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("Bravo body"); expect(screen.queryByText(/Updating 9 linked notes/)).not.toBeInTheDocument();
+  });
+
+  it("drains A delete preflight before switching and does not publish its confirmation in B", async () => {
+    const { gateway, user } = await hostileHarness();
+    await user.click(screen.getByRole("button", { name: "More note actions" })); await user.click(screen.getByRole("menuitem", { name: "Delete note" }));
+    await waitFor(() => expect(gateway.operationOwners).toContain("delete-preflight:a"));
+    await requestSavedSwitch(user); expect(gateway.current).toBe("a"); expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    gateway.deletePreflightGate.resolve(); await finishSavedSwitch(gateway);
+    expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("Bravo body"); expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  it("drains A delete apply and ignores its completion and late progress in B", async () => {
+    const { gateway, user } = await hostileHarness(); gateway.deletePreflightGate.resolve();
+    await user.click(screen.getByRole("button", { name: "More note actions" })); await user.click(screen.getByRole("menuitem", { name: "Delete note" }));
+    await user.click(await screen.findByRole("button", { name: "Delete" })); await waitFor(() => expect(gateway.operationOwners).toContain("delete:a"));
+    await requestSavedSwitch(user); expect(gateway.current).toBe("a");
+    gateway.deleteGate.resolve(); await finishSavedSwitch(gateway);
+    act(() => gateway.deleteProgress?.({ operation: "delete", state: "applying", elapsedMs: 50, cancellable: false, resumed: false, completedUnits: 0, estimate: { affectedRecords: 9, totalUnits: 10, warnings: 0 } }));
+    expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Bravo note"); expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
+  });
+
+  it("drains A restore from the public Undo action before switching to B", async () => {
+    const { gateway, user } = await hostileHarness(); gateway.deletePreflightGate.resolve(); gateway.deleteGate.resolve();
+    await user.click(screen.getByRole("button", { name: "More note actions" })); await user.click(screen.getByRole("menuitem", { name: "Delete note" }));
+    await user.click(await screen.findByRole("button", { name: "Delete" })); await user.click(await screen.findByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(gateway.operationOwners).toContain("restore:a")); await requestSavedSwitch(user);
+    expect(gateway.current).toBe("a"); gateway.restoreGate.resolve(); await finishSavedSwitch(gateway);
+    expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("Bravo body"); expect(screen.queryByText(/restored/i)).not.toBeInTheDocument();
+  });
+
+  it("drains A validation and suppresses its result after B becomes authoritative", async () => {
+    const { gateway, user } = await hostileHarness();
+    await user.click(screen.getByRole("button", { name: "More note actions" })); await user.click(screen.getByRole("menuitem", { name: "Check note" }));
+    await waitFor(() => expect(gateway.operationOwners).toContain("validate:a")); await requestSavedSwitch(user);
+    expect(gateway.current).toBe("a"); gateway.validateGate.resolve(); await finishSavedSwitch(gateway);
+    expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("Bravo body"); expect(screen.queryByText("No validation issues.")).not.toBeInTheDocument();
+  });
+
   it("drains an ordinary A note creation before a saved switch and never publishes it into same-path B", async () => {
     const { gateway, user } = await hostileHarness();
     await user.click(screen.getByRole("button", { name: "New note" }));
