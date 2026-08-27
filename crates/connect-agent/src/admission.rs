@@ -687,17 +687,50 @@ mod tests {
     }
 
     #[test]
-    fn operation_classification_is_conservative_before_decryption() {
+    fn operation_classification_is_conservative_before_and_after_decryption() {
         assert_eq!(classify_operation("query", None), WorkClass::Foreground);
         assert_eq!(classify_operation("changes", None), WorkClass::Background);
         assert_eq!(classify_operation("sync", None), WorkClass::Mutation);
+        assert_eq!(classify_operation("create_type", None), WorkClass::Mutation);
+
         assert_eq!(
             classify_operation("batch", Some(&serde_json::json!({"operations": []}))),
             WorkClass::Mutation
         );
+
+        for operation in ["delete", "rename"] {
+            assert_eq!(
+                classify_operation(operation, Some(&serde_json::json!({"dry_run": true}))),
+                WorkClass::Foreground,
+                "catalog-declared {operation} preflight should be nonmutating"
+            );
+        }
+
+        for operation in [
+            "create",
+            "create_type",
+            "apply_type_pack",
+            "apply_collection_setup",
+        ] {
+            assert_eq!(
+                classify_operation(operation, Some(&serde_json::json!({"dry_run": true}))),
+                WorkClass::Mutation,
+                "injected dry_run must not downgrade {operation}"
+            );
+        }
         assert_eq!(
-            classify_operation("create", Some(&serde_json::json!({"dry_run": true}))),
-            WorkClass::Foreground
+            classify_operation(
+                "sync",
+                Some(&serde_json::json!({"action": "mutate", "dry_run": true}))
+            ),
+            WorkClass::Mutation
+        );
+        assert_eq!(
+            classify_operation(
+                "file_control",
+                Some(&serde_json::json!({"type": "move_file", "dry_run": true}))
+            ),
+            WorkClass::Mutation
         );
     }
 }
