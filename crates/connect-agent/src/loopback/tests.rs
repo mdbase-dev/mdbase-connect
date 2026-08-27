@@ -371,6 +371,205 @@ async fn every_grantable_operation_runs_directly_and_duplicate_writes_cross_tran
 }
 
 #[tokio::test]
+async fn encrypted_full_collection_operations_bound_and_repair_invalid_records() {
+    let fixture = fixture();
+    let app = router(fixture.agent.clone(), 28_485);
+    let collection = fixture.root.join("collection");
+    let valid = b"---\ntitle: Sibling\n---\nVisible sibling\n";
+    let malformed = b"---\ntitle: [broken\n---\nOpaque malformed\n";
+    let non_mapping = b"---\n- item\n---\nOpaque sequence\n";
+    let invalid_utf8 = b"---\ntitle: \xff\n---\nOpaque binary\n";
+    fs::write(collection.join("sibling.md"), valid).unwrap();
+    fs::write(collection.join("malformed.md"), malformed).unwrap();
+    fs::write(collection.join("non-mapping.md"), non_mapping).unwrap();
+    fs::write(collection.join("invalid-utf8.md"), invalid_utf8).unwrap();
+    fixture.watcher.rescan(fixture.encryption.collection_id);
+
+    let queried = fixture
+        .direct(
+            &app,
+            "query",
+            json!({ "frontmatter_mode": "persisted", "include_body": true }),
+            1,
+        )
+        .await;
+    assert_eq!(queried["result"]["valid"], true);
+    let results = queried["result"]["result"]["results"].as_array().unwrap();
+    let sibling = results
+        .iter()
+        .find(|record| record["path"] == "sibling.md")
+        .unwrap_or_else(|| {
+            panic!(
+                "missing sibling from paths {:?}",
+                results
+                    .iter()
+                    .filter_map(|record| record["path"].as_str())
+                    .collect::<Vec<_>>()
+            )
+        });
+    assert_eq!(sibling["frontmatter"]["title"], "Sibling");
+    assert_eq!(sibling["body"], "Visible sibling\n");
+
+    let mut revisions = std::collections::BTreeMap::new();
+    for path in ["malformed.md", "non-mapping.md", "invalid-utf8.md"] {
+        let stub = results
+            .iter()
+            .find(|record| record["path"] == path)
+            .unwrap();
+        assert_eq!(stub["types"], json!([]));
+        assert_eq!(stub["file"]["path"], path);
+        assert!(stub["file"]["revision"]
+            .as_str()
+            .is_some_and(|revision| revision.starts_with("sha256:")));
+        for forbidden in [
+            "frontmatter",
+            "effective_frontmatter",
+            "body",
+            "links",
+            "backlinks",
+            "memberships",
+            "reason",
+        ] {
+            assert!(
+                stub.get(forbidden).is_none(),
+                "unexpected {forbidden} in {path}"
+            );
+        }
+        revisions.insert(path, stub["file"]["revision"].as_str().unwrap().to_string());
+    }
+    assert_eq!(results.len(), 4);
+    let query_reasons = queried["result"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|diagnostic| {
+            (
+                diagnostic["path"].as_str().unwrap(),
+                diagnostic["details"]["reason"].as_str().unwrap(),
+            )
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    assert_eq!(
+        query_reasons,
+        std::collections::BTreeMap::from([
+            ("invalid-utf8.md", "invalid_utf8"),
+            ("malformed.md", "invalid_yaml"),
+            ("non-mapping.md", "non_mapping_frontmatter"),
+        ])
+    );
+
+    let validated = fixture.direct(&app, "validate", json!({}), 2).await;
+    assert_eq!(validated["result"]["valid"], false);
+    let validation_reasons = validated["result"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|diagnostic| {
+            Some((
+                diagnostic["path"].as_str()?,
+                diagnostic["details"]["reason"].as_str()?,
+            ))
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    assert_eq!(validation_reasons, query_reasons);
+
+    fs::create_dir(collection.join("loader-io.md")).unwrap();
+    let loader_io = fixture
+        .direct(&app, "validate", json!({ "path": "loader-io.md" }), 3)
+        .await;
+    assert_eq!(loader_io["result"]["valid"], false);
+    assert_eq!(
+        loader_io["result"]["diagnostics"][0]["path"],
+        "loader-io.md"
+    );
+    assert_eq!(
+        loader_io["result"]["diagnostics"][0]["code"],
+        "file_read_failed"
+    );
+
+    let malformed_path = collection.join("malformed.md");
+    let patch = fixture
+        .direct(
+            &app,
+            "update",
+            json!({
+                "path": "malformed.md",
+                "patch": { "title": "Must not apply" },
+                "if_revision": revisions["malformed.md"]
+            }),
+            4,
+        )
+        .await;
+    assert_eq!(patch["result"]["valid"], false);
+    assert_eq!(
+        patch["result"]["diagnostics"][0]["code"],
+        "invalid_frontmatter"
+    );
+    assert_eq!(fs::read(&malformed_path).unwrap(), malformed);
+
+    let repaired_malformed = b"---\ntitle: Repaired malformed\n---\nVisible\n";
+    let repaired = fixture
+        .direct(
+            &app,
+            "update",
+            json!({
+                "path": "malformed.md",
+                "document": std::str::from_utf8(repaired_malformed).unwrap(),
+                "if_revision": revisions["malformed.md"]
+            }),
+            5,
+        )
+        .await;
+    assert_eq!(repaired["result"]["valid"], true);
+    assert_eq!(fs::read(&malformed_path).unwrap(), repaired_malformed);
+
+    let utf8_path = collection.join("invalid-utf8.md");
+    let repaired_utf8 = b"---\ntitle: Repaired binary\n---\nVisible\n";
+    let repaired = fixture
+        .direct(
+            &app,
+            "update",
+            json!({
+                "path": "invalid-utf8.md",
+                "document": std::str::from_utf8(repaired_utf8).unwrap(),
+                "if_revision": revisions["invalid-utf8.md"]
+            }),
+            6,
+        )
+        .await;
+    assert_eq!(repaired["result"]["valid"], true);
+    assert_eq!(fs::read(&utf8_path).unwrap(), repaired_utf8);
+
+    let non_mapping_path = collection.join("non-mapping.md");
+    let newer = b"---\ntitle: Newer external bytes\n---\nPreserve me\n";
+    fs::write(&non_mapping_path, newer).unwrap();
+    fixture.watcher.rescan(fixture.encryption.collection_id);
+    let stale = fixture
+        .direct(
+            &app,
+            "update",
+            json!({
+                "path": "non-mapping.md",
+                "document": "---\ntitle: Stale replacement\n---\nMust not apply\n",
+                "if_revision": revisions["non-mapping.md"]
+            }),
+            7,
+        )
+        .await;
+    assert_eq!(stale["result"]["valid"], false);
+    assert_eq!(
+        stale["result"]["diagnostics"][0]["code"],
+        "concurrent_modification"
+    );
+    assert_eq!(fs::read(&non_mapping_path).unwrap(), newer);
+
+    let root = fixture.root.clone();
+    drop(app);
+    drop(fixture);
+    remove_fixture_after_watchers_close(&root);
+}
+
+#[tokio::test]
 async fn executable_grant_mutations_succeed_and_replay_exactly() {
     let fixture = fixture();
     let app = router(fixture.agent.clone(), 28_485);
@@ -977,6 +1176,7 @@ struct Fixture {
     root: std::path::PathBuf,
     registry: CollectionRegistry,
     agent: Arc<AgentState>,
+    watcher: crate::watcher::CollectionWatchService,
     origin: String,
     application: RelayIdentity,
     application_id: Uuid,
@@ -1298,10 +1498,11 @@ fn fixture_for_origin(origin: &str, distribution: &str) -> Fixture {
         registry: registry.clone(),
         agent: Arc::new(AgentState::with_identity(
             registry,
-            watcher,
+            watcher.clone(),
             None,
             connector.clone(),
         )),
+        watcher,
         origin,
         application,
         application_id,
