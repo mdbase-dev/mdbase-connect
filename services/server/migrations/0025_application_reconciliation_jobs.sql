@@ -47,6 +47,9 @@ CREATE INDEX application_reconciliation_jobs_sweep_idx
 CREATE INDEX application_reconciliation_results_retry_idx
   ON application_reconciliation_results(application_id, next_retry_at, grant_id)
   WHERE status = 'retryable';
+CREATE INDEX application_reconciliation_results_quarantine_idx
+  ON application_reconciliation_results(application_id, next_retry_at, grant_id)
+  WHERE status = 'quarantined';
 CREATE INDEX grants_active_application_id_idx
   ON grants(application_id, id)
   WHERE revoked_at IS NULL AND activated_at IS NOT NULL;

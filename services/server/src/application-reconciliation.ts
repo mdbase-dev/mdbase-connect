@@ -121,14 +121,14 @@ export class ApplicationReconciliationWorker {
     const token = randomUUID();
     const claimed = (await this.db.query<{ application_id: string; cursor_grant_id: string | null; phase: "scan" | "retry" }>(
       `UPDATE application_reconciliation_jobs SET state='leased',lease_token=$1,
-         lease_expires_at=$3,attempts=attempts+1,updated_at=now()
+         lease_expires_at=now()+(($3::text || ' milliseconds')::interval),attempts=attempts+1,updated_at=now()
        WHERE application_id=(SELECT application_id FROM application_reconciliation_jobs
          WHERE available_at<=now() AND NOT (application_id=ANY($2::uuid[]))
            AND (state='pending' OR (state='leased' AND lease_expires_at<=now()))
          ORDER BY available_at,application_id LIMIT 1)
          AND (state='pending' OR (state='leased' AND lease_expires_at<=now()))
        RETURNING application_id,cursor_grant_id,phase`,
-      [token, excluded, new Date(Date.now() + this.timing.leaseMs)])).rows[0];
+      [token, excluded, this.timing.leaseMs])).rows[0];
     if (!claimed) return null;
     const application = (await this.db.query<Application>(`SELECT id,family_identity,manifest_digest,
       requirements,notifications FROM applications WHERE id=$1`, [claimed.application_id])).rows[0];
@@ -183,7 +183,7 @@ export class ApplicationReconciliationWorker {
   private async retryPage(claim: Claim): Promise<Array<{ id: string }>> {
     return (await this.db.query<{ id: string }>(`SELECT r.grant_id AS id
       FROM application_reconciliation_results r JOIN grants g ON g.id=r.grant_id
-      WHERE r.application_id=$1 AND r.next_retry_at<=now()
+      WHERE r.application_id=$1 AND r.status IN ('retryable','quarantined') AND r.next_retry_at<=now()
         AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
       ORDER BY r.grant_id LIMIT $2`, [claim.application.id, PAGE_SIZE])).rows;
   }
@@ -193,32 +193,54 @@ export class ApplicationReconciliationWorker {
       await this.release(claim, "scan", grants[grants.length - 1].id, 0);
       return;
     }
-    const pending = (await this.db.query<{ due: Date }>(`SELECT min(next_retry_at) AS due
-      FROM application_reconciliation_results WHERE application_id=$1 AND next_retry_at IS NOT NULL`, [claim.application.id])).rows[0]?.due;
-    if (pending) {
-      await this.release(claim, "retry", null, Math.max(0, new Date(pending).getTime() - Date.now()));
+    const retryDue = (await this.db.query<{ due: Date | null }>(`SELECT min(next_retry_at) AS due
+      FROM application_reconciliation_results WHERE application_id=$1 AND status='retryable'`,
+    [claim.application.id])).rows[0]?.due;
+    if (retryDue) {
+      await this.releaseAt(claim, "retry", null, retryDue);
+      return;
+    }
+    const quarantine = (await this.db.query<{ due: Date | null; due_now: boolean }>(`SELECT min(next_retry_at) AS due,
+      EXISTS(SELECT 1 FROM application_reconciliation_results
+        WHERE application_id=$1 AND status='quarantined' AND next_retry_at<=now()) AS due_now
+      FROM application_reconciliation_results WHERE application_id=$1 AND status='quarantined'`,
+    [claim.application.id])).rows[0];
+    if (quarantine?.due_now) {
+      await this.release(claim, "retry", null, 0);
       return;
     }
     await this.db.query(`UPDATE application_reconciliation_jobs SET state='completed',phase='scan',
       lease_token=NULL,lease_expires_at=NULL,cursor_grant_id=NULL,last_error_class=NULL,
-      last_completed_at=now(),next_scan_at=$3,
-      available_at=$3,updated_at=now()
+      last_completed_at=now(),next_scan_at=CASE
+        WHEN $4::timestamptz IS NOT NULL AND $4::timestamptz < now()+(($3::text || ' milliseconds')::interval) THEN $4::timestamptz
+        ELSE now()+(($3::text || ' milliseconds')::interval) END,
+      available_at=CASE
+        WHEN $4::timestamptz IS NOT NULL AND $4::timestamptz < now()+(($3::text || ' milliseconds')::interval) THEN $4::timestamptz
+        ELSE now()+(($3::text || ' milliseconds')::interval) END,updated_at=now()
       WHERE application_id=$1 AND lease_token=$2 AND state='leased'`,
-    [claim.application.id, claim.token, new Date(Date.now() + this.timing.scanMs)]);
+    [claim.application.id, claim.token, this.timing.scanMs, quarantine?.due ?? null]);
   }
 
   private async release(claim: Claim, phase: "scan" | "retry", cursor: string | null, waitMs: number): Promise<void> {
     await this.db.query(`UPDATE application_reconciliation_jobs SET state='pending',phase=$3,
+      lease_token=NULL,lease_expires_at=NULL,cursor_grant_id=$4,
+      available_at=now()+(($5::text || ' milliseconds')::interval),updated_at=now()
+      WHERE application_id=$1 AND lease_token=$2 AND state='leased'`,
+    [claim.application.id, claim.token, phase, cursor, waitMs]);
+  }
+
+  private async releaseAt(claim: Claim, phase: "scan" | "retry", cursor: string | null, availableAt: Date): Promise<void> {
+    await this.db.query(`UPDATE application_reconciliation_jobs SET state='pending',phase=$3,
       lease_token=NULL,lease_expires_at=NULL,cursor_grant_id=$4,available_at=$5,updated_at=now()
       WHERE application_id=$1 AND lease_token=$2 AND state='leased'`,
-    [claim.application.id, claim.token, phase, cursor, new Date(Date.now() + waitMs)]);
+    [claim.application.id, claim.token, phase, cursor, availableAt]);
   }
 
   private async renew(claim: Claim): Promise<boolean> {
     return Boolean((await this.db.query(`UPDATE application_reconciliation_jobs
-      SET lease_expires_at=$3,updated_at=now()
+      SET lease_expires_at=now()+(($3::text || ' milliseconds')::interval),updated_at=now()
       WHERE application_id=$1 AND lease_token=$2 AND state='leased' RETURNING application_id`,
-    [claim.application.id, claim.token, new Date(Date.now() + this.timing.leaseMs)])).rows[0]);
+    [claim.application.id, claim.token, this.timing.leaseMs])).rows[0]);
   }
 
   private async clearInactiveResults(claim: Claim): Promise<void> {
@@ -232,7 +254,7 @@ export class ApplicationReconciliationWorker {
 
   private async recordFailure(claim: Claim, grantId: string, errorClass: ErrorClass): Promise<boolean> {
     const permanent = errorClass === "malformed_proof" || errorClass === "ownership";
-    const result = await this.db.query<{ was_quarantined: boolean }>(`WITH owned AS (
+    const result = await this.db.query<{ recorded: boolean; was_quarantined: boolean }>(`WITH owned AS (
       SELECT 1 FROM application_reconciliation_jobs
        WHERE application_id=$1 AND lease_token=$2 AND state='leased'
     ), previous AS (
@@ -241,7 +263,7 @@ export class ApplicationReconciliationWorker {
     ), upsert AS (
       INSERT INTO application_reconciliation_results
         (application_id,grant_id,status,error_class,consecutive_attempts,next_retry_at)
-      SELECT $1,$3,'retryable',$4,1,$5::timestamptz FROM owned
+      SELECT $1,$3,'retryable',$4,1,now()+(($5::text || ' milliseconds')::interval) FROM owned
       ON CONFLICT (application_id,grant_id) DO UPDATE SET
         consecutive_attempts=application_reconciliation_results.consecutive_attempts+1,
         error_class=excluded.error_class,last_attempted_at=now(),updated_at=now(),
@@ -255,11 +277,12 @@ export class ApplicationReconciliationWorker {
     ), counted AS (
       UPDATE application_reconciliation_jobs SET failure_count=failure_count+1,last_error_class=$4
        WHERE application_id=$1 AND lease_token=$2 AND state='leased' AND EXISTS (SELECT 1 FROM upsert)
-    ) SELECT COALESCE((SELECT was_quarantined FROM previous),false) AS was_quarantined`,
+    ) SELECT EXISTS(SELECT 1 FROM upsert) AS recorded,
+        COALESCE((SELECT was_quarantined FROM previous),false) AS was_quarantined`,
     [claim.application.id, claim.token, grantId, errorClass,
-      new Date(Date.now() + this.timing.retryBaseMs), permanent, PERMANENT_QUARANTINE_ATTEMPTS,
+      this.timing.retryBaseMs, permanent, PERMANENT_QUARANTINE_ATTEMPTS,
       this.timing.quarantineProbeMs, this.timing.retryMaxMs, this.timing.retryBaseMs]);
-    return !result.rows[0]?.was_quarantined;
+    return Boolean(result.rows[0]?.recorded) && !result.rows[0]?.was_quarantined;
   }
 
   private emit(phase: ReconciliationEvent["phase"], error: unknown): void {

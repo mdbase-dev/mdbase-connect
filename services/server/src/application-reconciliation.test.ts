@@ -5,7 +5,8 @@ import type { RelayHub } from "./relay.js";
 import {
   ApplicationReconciliationWorker,
   PERMANENT_QUARANTINE_ATTEMPTS,
-  RECONCILIATION_TIMING
+  RECONCILIATION_TIMING,
+  ensureApplicationReconciliation
 } from "./application-reconciliation.js";
 
 const databases: DatabasePool[] = [];
@@ -44,31 +45,52 @@ describe("application reconciliation worker", () => {
     const deterministic = fixture.grants[0][0];
     const transient = fixture.grants[0][1];
     const calls = new Map<string, number>();
+    let deterministicFails = true;
     const reconcile = vi.fn(async (_db, _relay, _provider, _application, grantId?: string) => {
       calls.set(grantId!, (calls.get(grantId!) ?? 0) + 1);
-      if (grantId === deterministic) throw new TypeError("bad proof https://secret/id");
-      if ((calls.get(grantId!) ?? 0) < 3) throw new Error("temporary body=secret");
+      if (grantId === deterministic && deterministicFails) throw new TypeError("bad proof https://secret/id");
+      if (grantId === transient && (calls.get(grantId!) ?? 0) < 3) throw new Error("temporary body=secret");
     });
     const worker = new ApplicationReconciliationWorker(fixture.db, relay, undefined,
       (event) => events.push(event), 60_000, 60_000, reconcile, timing);
     await worker.seedMissingJobs();
     for (let i = 0; i < PERMANENT_QUARANTINE_ATTEMPTS; i += 1) {
       await worker.drainUntilIdle();
-      await fixture.db.query("UPDATE application_reconciliation_results SET next_retry_at=now() WHERE status='retryable'");
-      await fixture.db.query("UPDATE application_reconciliation_jobs SET state='pending',phase='retry',available_at=now(),next_scan_at=NULL WHERE application_id=$1", [fixture.applications[0]]);
+      if (i < PERMANENT_QUARANTINE_ATTEMPTS - 1) {
+        await fixture.db.query("UPDATE application_reconciliation_results SET next_retry_at=now() WHERE status='retryable'");
+        await fixture.db.query("UPDATE application_reconciliation_jobs SET state='pending',phase='retry',available_at=now(),next_scan_at=NULL WHERE application_id=$1", [fixture.applications[0]]);
+      }
     }
     const result = await fixture.db.query<{ status: string; next_retry_at: Date }>(
       "SELECT status,next_retry_at FROM application_reconciliation_results WHERE grant_id=$1", [deterministic]);
     expect(result.rows[0].status).toBe("quarantined");
     expect(result.rows[0].next_retry_at).toBeTruthy();
+    expect((await fixture.db.query<{ state: string }>("SELECT state FROM application_reconciliation_jobs WHERE application_id=$1", [fixture.applications[0]])).rows[0].state).toBe("completed");
+
+    // An ordinary scan before the quiet probe skips A but discovers a later grant B.
+    const laterGrant = randomUUID();
+    await fixture.db.query(`INSERT INTO grants (id,user_id,application_id,hosted_collection_id,operations)
+      SELECT $1,user_id,application_id,hosted_collection_id,'["query"]'::jsonb FROM grants WHERE id=$2`, [laterGrant, deterministic]);
+    const aCalls = calls.get(deterministic);
+    await fixture.db.query("UPDATE application_reconciliation_jobs SET next_scan_at=now(),available_at=now() WHERE application_id=$1", [fixture.applications[0]]);
+    await worker.seedMissingJobs(); await worker.drainUntilIdle();
+    expect(calls.get(deterministic)).toBe(aCalls);
+    expect(calls.get(laterGrant)).toBe(1);
+    expect((await fixture.db.query<{ state: string }>("SELECT state FROM application_reconciliation_jobs WHERE application_id=$1", [fixture.applications[0]])).rows[0].state).toBe("completed");
+
+    // A due weekly probe runs immediately after the scan, then fails quietly and completes again.
     const eventCount = events.length;
     await fixture.db.query("UPDATE application_reconciliation_results SET next_retry_at=now() WHERE grant_id=$1", [deterministic]);
-    await fixture.db.query("UPDATE application_reconciliation_jobs SET state='pending',phase='retry',available_at=now() WHERE application_id=$1", [fixture.applications[0]]);
-    await worker.drainUntilIdle();
+    await fixture.db.query("UPDATE application_reconciliation_jobs SET next_scan_at=now(),available_at=now() WHERE application_id=$1", [fixture.applications[0]]);
+    await worker.seedMissingJobs(); await worker.drainUntilIdle();
+    expect(calls.get(deterministic)).toBe(aCalls! + 1);
     expect(events).toHaveLength(eventCount);
-    await fixture.db.query("UPDATE grants SET revoked_at=now() WHERE id=$1", [deterministic]);
-    await fixture.db.query("UPDATE application_reconciliation_jobs SET state='pending',phase='scan',available_at=now() WHERE application_id=$1", [fixture.applications[0]]);
-    await worker.drainUntilIdle();
+    expect((await fixture.db.query<{ state: string }>("SELECT state FROM application_reconciliation_jobs WHERE application_id=$1", [fixture.applications[0]])).rows[0].state).toBe("completed");
+
+    deterministicFails = false;
+    await fixture.db.query("UPDATE application_reconciliation_results SET next_retry_at=now() WHERE grant_id=$1", [deterministic]);
+    await fixture.db.query("UPDATE application_reconciliation_jobs SET next_scan_at=now(),available_at=now() WHERE application_id=$1", [fixture.applications[0]]);
+    await worker.seedMissingJobs(); await worker.drainUntilIdle();
     expect((await fixture.db.query("SELECT 1 FROM application_reconciliation_results WHERE grant_id=$1", [deterministic])).rows).toEqual([]);
   });
 
@@ -98,6 +120,44 @@ describe("application reconciliation worker", () => {
       "SELECT lease_expires_at FROM application_reconciliation_jobs")).rows[0].lease_expires_at.getTime();
     expect(unchanged).toBe(expiry);
     release(); await running;
+  });
+
+  it("recovers an expired lease and serializes simultaneous local drains", async () => {
+    const fixture = await makeFixture([1]);
+    await fixture.db.query(`INSERT INTO application_reconciliation_jobs
+      (application_id,state,phase,lease_token,lease_expires_at) VALUES ($1,'leased','scan',$2,now()-interval '1 second')`,
+    [fixture.applications[0], randomUUID()]);
+    let release!: () => void; let started!: () => void;
+    const entered = new Promise<void>((resolve) => { started = resolve; });
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    let active = 0; let peak = 0;
+    const reconcile = vi.fn(async () => { active += 1; peak = Math.max(peak, active); started(); await blocked; active -= 1; });
+    const worker = new ApplicationReconciliationWorker(fixture.db, relay, undefined, () => undefined,
+      60_000, 60_000, reconcile, timing);
+    const first = worker.drain(); const second = worker.drain();
+    await entered;
+    expect(reconcile).toHaveBeenCalledOnce(); expect(peak).toBe(1);
+    release(); await Promise.all([first, second]);
+    expect((await fixture.db.query<{ attempts: number; state: string }>("SELECT attempts,state FROM application_reconciliation_jobs")).rows[0])
+      .toMatchObject({ attempts: 1, state: "completed" });
+  });
+
+  it("emits only closed fields and repeated ensure never resets job state", async () => {
+    const fixture = await makeFixture([1]); const events: unknown[] = [];
+    const error = Object.assign(new Error("body secret"), { url: "https://secret", applicationId: randomUUID(), body: "secret" });
+    const worker = new ApplicationReconciliationWorker(fixture.db, relay, undefined, (event) => events.push(event),
+      60_000, 60_000, async () => { throw error; }, timing);
+    await worker.seedMissingJobs();
+    await fixture.db.query(`UPDATE application_reconciliation_jobs SET state='completed',phase='scan',
+      available_at=now()+interval '1 day',next_scan_at=now()+interval '1 day',attempts=7 WHERE application_id=$1`, [fixture.applications[0]]);
+    const before = (await fixture.db.query("SELECT * FROM application_reconciliation_jobs WHERE application_id=$1", [fixture.applications[0]])).rows[0];
+    await Promise.all([ensureApplicationReconciliation(fixture.db, fixture.applications[0]), ensureApplicationReconciliation(fixture.db, fixture.applications[0])]);
+    const after = (await fixture.db.query("SELECT * FROM application_reconciliation_jobs WHERE application_id=$1", [fixture.applications[0]])).rows[0];
+    expect(after).toEqual(before);
+    await fixture.db.query("UPDATE application_reconciliation_jobs SET state='pending',available_at=now(),next_scan_at=NULL WHERE application_id=$1", [fixture.applications[0]]);
+    await worker.drain();
+    expect(events).toEqual([{ phase: "scan", errorClass: "internal" }]);
+    expect(Object.keys(events[0] as object).sort()).toEqual(["errorClass", "phase"]);
   });
 
   it("seeds missing jobs, wakes due scans, coalesces registration, and fairly services a small app", async () => {
