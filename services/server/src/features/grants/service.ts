@@ -25,7 +25,6 @@ import { fileCapabilityForRequirements } from "../../grant-planner.js";
 import { hostedReplicaCollectionOperations } from "../../hosted-replica-policy.js";
 import { RelayHub } from "../../relay.js";
 import { audit } from "../../platform/audit-events.js";
-import { declarationIdFromFamilyIdentity } from "../applications/identity.js";
 import {
   allowedTypesForRequirements,
   collectionSupportsOperations,
@@ -180,7 +179,8 @@ export async function reconcileApplicationGrants(
     manifest_digest: string;
     requirements: ApplicationRequirements;
     notifications: ApplicationNotifications;
-  }
+  },
+  exactGrantId?: string
 ): Promise<void> {
   const requiredContracts = requiredContractsForRequirements(application.requirements);
   const grants = await db.query<{
@@ -213,8 +213,9 @@ export async function reconcileApplicationGrants(
      LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
      LEFT JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
      WHERE g.application_id = $1 AND g.revoked_at IS NULL
-       AND g.activated_at IS NOT NULL`,
-    [application.id]
+       AND g.activated_at IS NOT NULL
+       AND ($2::uuid IS NULL OR g.id = $2)`,
+    [application.id, exactGrantId ?? null]
   );
   const changedConnectors = new Set<string>();
   for (const grant of grants.rows) {
@@ -345,10 +346,10 @@ export async function reconcileApplicationGrants(
             fileCapability: desiredFileCapability,
             allowedOrigin: grant.application_origin,
             proofPublicKey: grant.proof_public_key,
-            applicationDeclarationId: declarationIdFromFamilyIdentity(
-              application.family_identity
-            ),
-            applicationDeclarationDigest: `sha256:${application.manifest_digest}`
+            applicationDeclarationId:
+              grant.application_authorization.binding.application_declaration_id,
+            applicationDeclarationDigest:
+              grant.application_authorization.binding.application_manifest_digest
           });
         } catch (error) {
           const missingCode = missingHostedResourceCode(error);

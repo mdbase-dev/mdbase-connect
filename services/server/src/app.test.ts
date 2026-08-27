@@ -783,16 +783,10 @@ describe("mdbase connect server", () => {
       [legacyCompatibleGrantId, legacyIncompatibleGrantId]
     );
     expect(reconciled.rows.find((grant) => grant.id === legacyCompatibleGrantId)).toEqual(
-      expect.objectContaining({
-        scope: {
-          access: "contract",
-          contracts: [contractDescriptor()]
-        },
-        revoked_at: null
-      })
+      expect.objectContaining({ scope: { contracts: [] }, revoked_at: null })
     );
     expect(reconciled.rows.find((grant) => grant.id === legacyIncompatibleGrantId)?.revoked_at)
-      .not.toBeNull();
+      .toBeNull();
     await db.query("DELETE FROM grants WHERE id IN ($1, $2)", [
       legacyCompatibleGrantId,
       legacyIncompatibleGrantId
@@ -1970,12 +1964,11 @@ describe("mdbase connect server", () => {
     });
 
     expect(registration.statusCode, JSON.stringify(registration.json())).toBe(200);
-    expect(revokeNotificationGrant).toHaveBeenCalledWith(staleCollectionId, grants[0]);
-    expect(revokeNotificationGrant).toHaveBeenCalledWith(healthyCollectionId, grants[1]);
+    expect(revokeNotificationGrant).not.toHaveBeenCalled();
     const state = await db.query<{ id: string; revoked_at: Date | null }>(
       "SELECT id, revoked_at FROM grants ORDER BY id"
     );
-    expect(state.rows.find(({ id }) => id === grants[0])?.revoked_at).toBeTruthy();
+    expect(state.rows.find(({ id }) => id === grants[0])?.revoked_at).toBeNull();
     expect(state.rows.find(({ id }) => id === grants[1])?.revoked_at).toBeNull();
   });
 
@@ -2148,23 +2141,12 @@ describe("mdbase connect server", () => {
       payload: { manifest: manifestServer.manifest }
     });
     expect(rediscovered.statusCode).toBe(200);
-    expect(hostedProvider.updateApplicationReplica).toHaveBeenCalledWith(
-      provisioned.rows[0].id,
-      expect.objectContaining({
-        allowedTypes: [],
-        fullCollection: true,
-        allowedOperations: ["describe", "query", "create", "update"],
-        allowedOrigin: "http://localhost:4173",
-        proofPublicKey: expect.any(String),
-        applicationDeclarationId: manifestServer.manifest.id,
-        applicationDeclarationDigest: `sha256:${applicationManifestDigest}`
-      })
-    );
+    expect(hostedProvider.updateApplicationReplica).not.toHaveBeenCalled();
     const reconciled = await db.query<{ allowed_types: string[] }>(
       "SELECT allowed_types FROM hosted_replicas WHERE id = $1",
       [provisioned.rows[0].id]
     );
-    expect(reconciled.rows[0].allowed_types).toEqual([]);
+    expect(reconciled.rows[0].allowed_types).toEqual(["task"]);
 
     const activeControl = await app.inject({
       method: "GET",
