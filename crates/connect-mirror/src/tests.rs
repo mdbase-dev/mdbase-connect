@@ -2,6 +2,7 @@ use super::*;
 use mdbase_connect_protocol::{
     CollectionFileDescriptor, FileMediaClass, SyncConflict, SyncMutationError, SyncResourceDocument,
 };
+use std::collections::VecDeque;
 use std::sync::Mutex;
 use tempfile::TempDir;
 
@@ -16,6 +17,56 @@ struct PortablePathFixtures {
 struct PortablePathAlias {
     left: String,
     right: String,
+}
+
+enum InjectedReadFailure {
+    Missing,
+    Interrupted,
+    Eio,
+}
+
+struct InjectedRecordReader {
+    failures: Mutex<BTreeMap<String, VecDeque<InjectedReadFailure>>>,
+}
+
+impl InjectedRecordReader {
+    fn new(failures: impl IntoIterator<Item = (String, InjectedReadFailure)>) -> Self {
+        let mut by_path = BTreeMap::<String, VecDeque<InjectedReadFailure>>::new();
+        for (path, failure) in failures {
+            by_path.entry(path).or_default().push_back(failure);
+        }
+        Self {
+            failures: Mutex::new(by_path),
+        }
+    }
+}
+
+impl LocalRecordReader for InjectedRecordReader {
+    fn read(&self, path: &Path) -> std::io::Result<LocalRecordRead> {
+        let path_key = path
+            .strip_prefix(
+                path.ancestors()
+                    .find(|ancestor| ancestor.ends_with("mirror"))
+                    .unwrap(),
+            )
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        let failure = self
+            .failures
+            .lock()
+            .unwrap()
+            .get_mut(&path_key)
+            .and_then(VecDeque::pop_front);
+        match failure {
+            Some(InjectedReadFailure::Missing) => Ok(LocalRecordRead::Missing),
+            Some(InjectedReadFailure::Interrupted) => {
+                Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+            }
+            Some(InjectedReadFailure::Eio) => Err(std::io::Error::from_raw_os_error(5)),
+            None => FilesystemRecordReader.read(path),
+        }
+    }
 }
 
 struct FakeAuthority {
@@ -1432,22 +1483,144 @@ async fn writable_mirror_uploads_create_update_rename_and_delete() {
 }
 
 #[tokio::test]
-async fn malformed_frontmatter_is_uploaded_as_opaque_markdown() {
+async fn invalid_local_records_fence_valid_siblings_without_changing_exact_bytes() {
     let (_temporary, mirror, authority) = harness(SyncReplicaMode::ReadWrite, Vec::new());
     mirror.sync().await.unwrap();
-    fs::write(mirror.root().join("bad.md"), "---\n[invalid\n---\nBody").unwrap();
+    let state_before = mirror.read_state().unwrap().unwrap();
+    let fixtures = [
+        ("malformed.md", b"---\ntitle: [\n---\nBody".as_slice()),
+        (
+            "duplicate.md",
+            b"---\ntitle: first\ntitle: second\n---\nBody".as_slice(),
+        ),
+        ("nonmapping.md", b"---\n- one\n- two\n---\nBody".as_slice()),
+        ("invalid-utf8.md", b"---\ntitle: Bad\n---\n\xff".as_slice()),
+    ];
+    for (path, bytes) in fixtures {
+        fs::write(mirror.root().join(path), bytes).unwrap();
+    }
     fs::write(mirror.root().join("good.md"), "---\ntitle: Good\n---\nBody").unwrap();
-    mirror.sync().await.unwrap();
-    let status = mirror.status().unwrap();
-    assert_eq!(status.state, MirrorStatusState::UpToDate);
-    assert!(status.local_issues.is_empty());
-    let mutations = authority.mutations();
-    assert_eq!(mutations.len(), 2);
-    let bad = mutations
+    fs::write(mirror.root().join("body-only.md"), "Body-only Markdown").unwrap();
+
+    let plan = mirror.inspect().await.unwrap();
+    let invalid_issues = plan
+        .issues
         .iter()
-        .find(|mutation| mutation.path.as_deref() == Some("bad.md"))
+        .filter(|issue| issue.code == "invalid_frontmatter")
+        .collect::<Vec<_>>();
+    assert_eq!(invalid_issues.len(), 4);
+    assert!(invalid_issues
+        .iter()
+        .all(|issue| { issue.blocking && issue.path.is_some() && issue.message.len() <= 40 }));
+    let result = mirror.apply(&plan).await.unwrap();
+    assert_eq!(result.status, "attention");
+    assert_eq!(result.applied, 0);
+    assert!(authority.mutations().is_empty());
+    let state_after = mirror.read_state().unwrap().unwrap();
+    assert_eq!(state_after.cursor, state_before.cursor);
+    assert_eq!(state_after.generation, state_before.generation);
+    for (path, bytes) in fixtures {
+        assert_eq!(fs::read(mirror.root().join(path)).unwrap(), bytes);
+    }
+
+    for (path, _) in fixtures {
+        fs::write(
+            mirror.root().join(path),
+            format!("---\ntitle: Repaired {path}\n---\nBody"),
+        )
         .unwrap();
-    assert_eq!(bad.document.as_deref(), Some("---\n[invalid\n---\nBody"));
+    }
+    mirror.sync().await.unwrap();
+    assert_eq!(authority.mutations().len(), 6);
+    let repaired_state = mirror.read_state().unwrap().unwrap();
+    mirror.sync().await.unwrap();
+    assert_eq!(authority.mutations().len(), 6);
+    assert_eq!(
+        mirror.read_state().unwrap().unwrap().generation,
+        repaired_state.generation
+    );
+}
+
+#[tokio::test]
+async fn listed_record_read_failures_are_blocking_and_never_plan_remote_deletion() {
+    let records = vec![
+        record("interrupted.md", "Interrupted"),
+        record("eio.md", "Eio"),
+        record("missing.md", "Missing"),
+    ];
+    let (temporary, mirror, authority) = harness(SyncReplicaMode::ReadWrite, records);
+    mirror.sync().await.unwrap();
+    fs::write(mirror.root().join("valid-sibling.md"), "valid sibling").unwrap();
+    let reader = Arc::new(InjectedRecordReader::new([
+        ("interrupted.md".into(), InjectedReadFailure::Interrupted),
+        ("interrupted.md".into(), InjectedReadFailure::Interrupted),
+        ("eio.md".into(), InjectedReadFailure::Eio),
+        ("eio.md".into(), InjectedReadFailure::Eio),
+        ("missing.md".into(), InjectedReadFailure::Missing),
+        ("missing.md".into(), InjectedReadFailure::Missing),
+    ]));
+    let mirror = DirectoryMirror::new(
+        mirror.root(),
+        temporary.path().join("state/state.json"),
+        temporary.path().join("locks/mirror.lock"),
+        authority.session.replica_id,
+        SyncReplicaMode::ReadWrite,
+        authority.clone(),
+    )
+    .unwrap()
+    .with_record_reader(reader);
+
+    let blocked = mirror.inspect().await.unwrap();
+    assert_eq!(
+        blocked
+            .issues
+            .iter()
+            .filter(|issue| issue.code == "file_read_failed")
+            .count(),
+        3
+    );
+    assert!(!blocked
+        .actions
+        .iter()
+        .any(|action| matches!(action, SyncAction::DeleteRemote { .. })));
+    let blocked_result = mirror.apply(&blocked).await.unwrap();
+    assert_eq!(blocked_result.status, "attention");
+    assert!(authority.mutations().is_empty());
+
+    mirror.sync().await.unwrap();
+    assert_eq!(authority.mutations().len(), 1);
+    assert_eq!(
+        authority.mutations()[0].path.as_deref(),
+        Some("valid-sibling.md")
+    );
+    let repaired_state = mirror.read_state().unwrap().unwrap();
+    mirror.sync().await.unwrap();
+    assert_eq!(authority.mutations().len(), 1);
+    assert_eq!(
+        mirror.read_state().unwrap().unwrap().generation,
+        repaired_state.generation
+    );
+}
+
+#[tokio::test]
+async fn receive_only_invalid_local_record_blocks_sibling_download_and_checkpoint() {
+    let (_temporary, mirror, authority) = harness(SyncReplicaMode::ReadOnly, Vec::new());
+    mirror.sync().await.unwrap();
+    let state_before = mirror.read_state().unwrap().unwrap();
+    fs::write(mirror.root().join("bad.md"), "---\nvalue: [\n---\nBody").unwrap();
+    authority.emit_put(record("remote-sibling.md", "Remote sibling"));
+
+    let plan = mirror.inspect().await.unwrap();
+    assert!(plan
+        .issues
+        .iter()
+        .any(|issue| issue.code == "invalid_frontmatter" && issue.blocking));
+    let result = mirror.apply(&plan).await.unwrap();
+    assert_eq!(result.status, "attention");
+    assert!(!mirror.root().join("remote-sibling.md").exists());
+    let state_after = mirror.read_state().unwrap().unwrap();
+    assert_eq!(state_after.cursor, state_before.cursor);
+    assert_eq!(state_after.generation, state_before.generation);
 }
 
 #[tokio::test]

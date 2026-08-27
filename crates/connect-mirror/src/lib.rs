@@ -2,7 +2,8 @@ use async_trait::async_trait;
 use chrono::Utc;
 use fs2::FileExt;
 #[cfg(test)]
-use mdbase::frontmatter::parser::{is_parse_error, parse_document, yaml_mapping_to_json};
+use mdbase::frontmatter::parser::{is_parse_error, yaml_mapping_to_json};
+use mdbase::frontmatter::parser::{parse_document, FrontmatterState};
 use mdbase_connect_protocol::{
     authority_manifest_digest, CollectionFileDescriptor, CommitFileUploadReceipt,
     CommitFileUploadReceiptKind, CommitFileUploadRequest, CommitFileUploadRequestKind,
@@ -303,6 +304,52 @@ pub struct AuthorityPromotionManifest {
     pub digest: String,
 }
 
+enum LocalRecordRead {
+    Missing,
+    Parsed { document: String, revision: String },
+    Invalid { reason: &'static str },
+}
+
+trait LocalRecordReader: Send + Sync {
+    fn read(&self, path: &Path) -> std::io::Result<LocalRecordRead>;
+}
+
+struct FilesystemRecordReader;
+
+impl LocalRecordReader for FilesystemRecordReader {
+    fn read(&self, path: &Path) -> std::io::Result<LocalRecordRead> {
+        let bytes = match fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(LocalRecordRead::Missing)
+            }
+            Err(error) => return Err(error),
+        };
+        let document = match String::from_utf8(bytes) {
+            Ok(document) => document,
+            Err(_) => {
+                return Ok(LocalRecordRead::Invalid {
+                    reason: "Document is not valid UTF-8.",
+                })
+            }
+        };
+        match parse_document(&document).frontmatter_state() {
+            FrontmatterState::Absent | FrontmatterState::Mapping(_) => {
+                let revision = format!("sha256:{}", digest(&document));
+                Ok(LocalRecordRead::Parsed { document, revision })
+            }
+            FrontmatterState::InvalidYaml => Ok(LocalRecordRead::Invalid {
+                reason: "Frontmatter is not valid YAML.",
+            }),
+            FrontmatterState::Null | FrontmatterState::NonMapping(_) => {
+                Ok(LocalRecordRead::Invalid {
+                    reason: "Frontmatter must be a mapping.",
+                })
+            }
+        }
+    }
+}
+
 pub struct DirectoryMirror {
     root: PathBuf,
     state_file: PathBuf,
@@ -311,6 +358,7 @@ pub struct DirectoryMirror {
     mode: SyncReplicaMode,
     sync_policy: SelectiveSyncPolicy,
     transport: Arc<dyn SyncTransport>,
+    record_reader: Arc<dyn LocalRecordReader>,
 }
 
 impl DirectoryMirror {
@@ -369,7 +417,14 @@ impl DirectoryMirror {
             mode,
             sync_policy,
             transport,
+            record_reader: Arc::new(FilesystemRecordReader),
         })
+    }
+
+    #[cfg(test)]
+    fn with_record_reader(mut self, reader: Arc<dyn LocalRecordReader>) -> Self {
+        self.record_reader = reader;
+        self
     }
 
     pub fn root(&self) -> &Path {

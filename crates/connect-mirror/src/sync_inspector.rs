@@ -10,6 +10,12 @@ pub(super) struct Inspection {
     pub payloads: DurablePayloads,
 }
 
+struct LocalInspection {
+    observed: Vec<ObservedObject>,
+    documents: BTreeMap<String, String>,
+    issues: Vec<MirrorPlanIssue>,
+}
+
 struct FinishInspection<'a> {
     prior: Option<DurableMirrorState>,
     kind: &'a str,
@@ -306,7 +312,11 @@ impl DirectoryMirror {
             resources,
             collection,
         } = input;
-        let (local, documents) = self.inspect_local(prior.as_ref(), &resources, collection)?;
+        let LocalInspection {
+            observed: local,
+            documents,
+            issues: local_issues,
+        } = self.inspect_local(prior.as_ref(), &resources, collection)?;
         validate_inspected_paths(
             remote_refs
                 .iter()
@@ -337,7 +347,7 @@ impl DirectoryMirror {
                 });
             }
         }
-        let mut issues = Vec::new();
+        let mut issues = local_issues;
         for object in &objects {
             if matches!(kind, "initial" | "rebuild")
                 && object.base == ExpectedObjectState::Absent
@@ -578,7 +588,7 @@ impl DirectoryMirror {
         state: Option<&DurableMirrorState>,
         resources: &[SyncResourceDocument],
         collection: Option<&mdbase::Collection>,
-    ) -> Result<(Vec<ObservedObject>, BTreeMap<String, String>), MirrorError> {
+    ) -> Result<LocalInspection, MirrorError> {
         let resource_paths = resources
             .iter()
             .map(|value| value.path.clone())
@@ -590,6 +600,7 @@ impl DirectoryMirror {
             .collect::<HashSet<_>>();
         let mut observed = Vec::new();
         let mut documents = BTreeMap::new();
+        let mut issues = Vec::new();
         let markdown = match collection {
             Some(collection) => self.list_markdown_with(&resource_paths, collection)?,
             None => self.list_markdown(&resource_paths)?,
@@ -601,10 +612,24 @@ impl DirectoryMirror {
             {
                 continue;
             }
-            let Some(document) = self.read_file(&path)? else {
-                continue;
+            let read = self.record_reader.read(&safe_path(&self.root, &path)?);
+            let (document, revision) = match read {
+                Ok(LocalRecordRead::Parsed { document, revision }) => (document, revision),
+                Ok(LocalRecordRead::Invalid { reason }) => {
+                    issues.push(local_record_issue("invalid_frontmatter", &path, reason));
+                    observe_prior_record(state, &path, &mut observed);
+                    continue;
+                }
+                Ok(LocalRecordRead::Missing) | Err(_) => {
+                    issues.push(local_record_issue(
+                        "file_read_failed",
+                        &path,
+                        "The listed record could not be read.",
+                    ));
+                    observe_prior_record(state, &path, &mut observed);
+                    continue;
+                }
             };
-            let revision = format!("sha256:{}", digest(&document));
             let conflict_identity = state.and_then(|value| {
                 value
                     .planned_conflicts
@@ -737,7 +762,11 @@ impl DirectoryMirror {
                 });
             }
         }
-        Ok((observed, documents))
+        Ok(LocalInspection {
+            observed,
+            documents,
+            issues,
+        })
     }
 
     pub(super) fn validate_session(&self, session: &SyncSession) -> Result<(), MirrorError> {
@@ -944,6 +973,36 @@ fn key(value: &SyncObjectRef) -> String {
         value.identity
     )
 }
+fn local_record_issue(code: &str, path: &str, message: &str) -> MirrorPlanIssue {
+    MirrorPlanIssue {
+        code: code.into(),
+        message: message.into(),
+        path: Some(path.into()),
+        blocking: true,
+    }
+}
+
+fn observe_prior_record(
+    state: Option<&DurableMirrorState>,
+    path: &str,
+    observed: &mut Vec<ObservedObject>,
+) {
+    let Some((identity, entry)) =
+        state.and_then(|state| state.records.iter().find(|(_, entry)| entry.path == path))
+    else {
+        return;
+    };
+    observed.push(ObservedObject {
+        stable_identity: true,
+        object: text_ref(
+            SyncObjectKind::Record,
+            identity.to_string(),
+            entry.path.clone(),
+            entry.revision.clone(),
+        ),
+    });
+}
+
 fn base_refs(state: &DurableMirrorState) -> Vec<SyncObjectRef> {
     state
         .records
