@@ -40,18 +40,24 @@ export async function openDatabase(
       implementation: (value: string, from: string, to: string) =>
         value.split(from).join(to)
     });
-    // pg-mem does not parse PostgreSQL's row-locking clause. Keep production
-    // queries intact while letting ordinary in-memory tests exercise their
-    // non-concurrent semantics; real locking is covered by the PostgreSQL test.
+    // pg-mem cannot execute this one PostgreSQL locking CTE. Recognize its
+    // private marker and preserve equivalent single-process test semantics.
     memory.public.interceptQueries((sql) => {
-      if (!sql.includes("FOR UPDATE SKIP LOCKED")) return null;
-      const unlocked = sql.replace(/\s+FOR UPDATE SKIP LOCKED/g, "");
-      const cte = unlocked.match(/^\s*WITH candidate AS \(([\s\S]*?)\)\s*UPDATE /);
-      if (!cte) return memory.public.many(unlocked);
+      const marker = "/* mdbase:application-reconciliation-claim:v1 */";
+      if (!sql.trimStart().startsWith(marker)) return null;
+      const lockClause = /\s+FOR UPDATE SKIP LOCKED/g;
+      if ([...sql.matchAll(lockClause)].length !== 1) {
+        throw new Error("The marked reconciliation claim has an unexpected locking shape.");
+      }
+      const unlocked = sql.replace(lockClause, "");
+      const cte = unlocked.match(/^\s*\/\*[^*]+\*\/\s*WITH candidate AS \(([\s\S]*?)\)\s*UPDATE /);
+      const join = "FROM candidate WHERE job.application_id=candidate.application_id";
+      if (!cte || !unlocked.includes(join)) {
+        throw new Error("The marked reconciliation claim cannot be adapted for pg-mem.");
+      }
       const compatible = unlocked
-        .replace(/^\s*WITH candidate AS \([\s\S]*?\)\s*(?=UPDATE )/, "")
-        .replace("FROM candidate WHERE job.application_id=candidate.application_id",
-          `WHERE application_id=(${cte[1]})`)
+        .replace(/^\s*\/\*[^*]+\*\/\s*WITH candidate AS \([\s\S]*?\)\s*(?=UPDATE )/, "")
+        .replace(join, `WHERE application_id=(${cte[1]})`)
         .replace(" AS job SET", " SET")
         .replaceAll("job.", "");
       return memory.public.many(compatible);

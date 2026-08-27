@@ -90,7 +90,7 @@ export async function assertControlPlaneMigrationsCurrent(
 async function ensureMigrationLedger(db: DatabaseQueryable): Promise<void> {
   const existing = await db.query(
     `SELECT table_name FROM information_schema.tables
-     WHERE table_schema = 'public' AND table_name = 'schema_migrations'`
+     WHERE table_schema = current_schema() AND table_name = 'schema_migrations'`
   );
   if (existing.rows[0]) return;
   await db.query(`
@@ -113,7 +113,7 @@ async function establishLegacyBaseline(db: DatabaseQueryable): Promise<void> {
   }
   const existingLegacySchema = await db.query(
     `SELECT table_name FROM information_schema.tables
-     WHERE table_schema = 'public' AND table_name = 'users'`
+     WHERE table_schema = current_schema() AND table_name = 'users'`
   );
   if (!existingLegacySchema.rows[0]) {
     await bootstrapLegacyBaseline(db);
@@ -206,7 +206,7 @@ async function tableExists(
 ): Promise<boolean> {
   const existing = await db.query(
     `SELECT table_name FROM information_schema.tables
-     WHERE table_schema = 'public' AND table_name = $1`,
+     WHERE table_schema = current_schema() AND table_name = $1`,
     [tableName]
   );
   return Boolean(existing.rows[0]);

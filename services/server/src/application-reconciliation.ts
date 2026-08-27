@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { ApplicationNotifications, ApplicationRequirements } from "@mdbase-dev/connect-protocol";
 import type { DatabasePool } from "./db.js";
 import {
@@ -9,6 +8,7 @@ import { HostedProviderResponseError, HostedProviderUnavailableError, type Hoste
 import { RelayUnavailableError } from "./relay-errors.js";
 import type { RelayHub } from "./relay.js";
 import { reconcileApplicationGrants } from "./features/grants/service.js";
+import { claimApplicationReconciliationJob } from "./application-reconciliation-claim.js";
 
 export const RECONCILIATION_TIMING = {
   pollMs: 30_000,
@@ -121,29 +121,18 @@ export class ApplicationReconciliationWorker {
   }
 
   private async claim(excluded: string[]): Promise<Claim | null> {
-    const token = randomUUID();
-    const claimed = (await this.db.query<{ application_id: string; cursor_grant_id: string | null; phase: "scan" | "retry" }>(
-      `WITH candidate AS (
-         SELECT application_id FROM application_reconciliation_jobs
-         WHERE available_at<=now() AND NOT (application_id=ANY($2::uuid[]))
-           AND (state='pending' OR (state='leased' AND lease_expires_at<=now())
-             OR (state='completed' AND next_scan_at<=now()))
-         ORDER BY available_at,application_id
-         FOR UPDATE SKIP LOCKED
-         LIMIT 1
-       )
-       UPDATE application_reconciliation_jobs AS job SET state='leased',lease_token=$1,
-         lease_expires_at=now()+(($3::text || ' milliseconds')::interval),
-         phase=CASE WHEN job.state='completed' THEN 'scan' ELSE job.phase END,
-         cursor_grant_id=CASE WHEN job.state='completed' THEN NULL ELSE job.cursor_grant_id END,
-         attempts=job.attempts+1,updated_at=now()
-       FROM candidate WHERE job.application_id=candidate.application_id
-       RETURNING job.application_id,job.cursor_grant_id,job.phase`,
-      [token, excluded, this.timing.leaseMs])).rows[0];
+    const claimed = await claimApplicationReconciliationJob(
+      this.db, excluded, this.timing.leaseMs
+    );
     if (!claimed) return null;
     const application = (await this.db.query<Application>(`SELECT id,family_identity,manifest_digest,
-      requirements,notifications FROM applications WHERE id=$1`, [claimed.application_id])).rows[0];
-    return application ? { application, token, cursor: claimed.cursor_grant_id, phase: claimed.phase } : null;
+      requirements,notifications FROM applications WHERE id=$1`, [claimed.applicationId])).rows[0];
+    return application ? {
+      application,
+      token: claimed.token,
+      cursor: claimed.cursorGrantId,
+      phase: claimed.phase
+    } : null;
   }
 
   private async process(claim: Claim): Promise<void> {
