@@ -956,25 +956,87 @@ fn rust_sync_messages_match_the_canonical_wire_schema() {
 #[test]
 fn generated_operation_catalog_classifies_collection_and_file_mutations() {
     assert!(is_mutating_operation("create", &serde_json::json!({})));
-    assert!(!is_mutating_operation(
-        "delete",
-        &serde_json::json!({ "dry_run": true })
-    ));
-    assert_eq!(
-        mutation_operation_identifier("sync", &serde_json::json!({ "action": "mutate" })),
-        Some("sync:mutate")
-    );
+
+    for operation in ["delete", "rename"] {
+        assert_eq!(
+            mutation_operation_identifier(operation, &serde_json::json!({ "dry_run": true })),
+            None
+        );
+    }
+
+    for operation in [
+        "create_type",
+        "apply_type_pack",
+        "apply_collection_setup",
+        "update_type",
+        "create_view_source",
+        "update_view_source",
+        "delete_view_source",
+    ] {
+        assert_eq!(
+            mutation_operation_identifier(operation, &serde_json::json!({ "dry_run": true })),
+            Some(operation)
+        );
+    }
+
     assert_eq!(
         mutation_operation_identifier(
-            "file_control",
-            &serde_json::json!({ "type": "commit_file_upload" })
+            "sync",
+            &serde_json::json!({ "action": "mutate", "dry_run": true })
         ),
-        Some("file_control:commit_file_upload")
+        Some("sync:mutate")
     );
-    assert!(!is_mutating_operation(
-        "file_control",
-        &serde_json::json!({ "type": "list_files" })
-    ));
+    for (message_type, identifier) in [
+        ("open_file_upload", "file_control:open_file_upload"),
+        ("move_file", "file_control:move_file"),
+        ("delete_file", "file_control:delete_file"),
+        ("commit_file_upload", "file_control:commit_file_upload"),
+        ("abort_file_transfer", "file_control:abort_file_transfer"),
+    ] {
+        assert_eq!(
+            mutation_operation_identifier(
+                "file_control",
+                &serde_json::json!({ "type": message_type, "dry_run": true })
+            ),
+            Some(identifier)
+        );
+    }
+    for message_type in [
+        "list_files",
+        "open_file_download",
+        "get_file_transfer_status",
+    ] {
+        assert!(!is_mutating_operation(
+            "file_control",
+            &serde_json::json!({ "type": message_type, "dry_run": true })
+        ));
+    }
+
+    assert_eq!(
+        MUTATING_OPERATION_IDENTIFIERS,
+        &[
+            "create_view_source",
+            "update_view_source",
+            "delete_view_source",
+            "create",
+            "update",
+            "delete",
+            "rename",
+            "create_type",
+            "update_type",
+            "apply_type_pack",
+            "apply_collection_setup",
+            "put_timer",
+            "cancel_timer",
+            "reconcile_timers",
+            "sync:mutate",
+            "file_control:open_file_upload",
+            "file_control:move_file",
+            "file_control:delete_file",
+            "file_control:commit_file_upload",
+            "file_control:abort_file_transfer",
+        ]
+    );
 }
 
 #[test]

@@ -127,6 +127,11 @@ const MUTATING_FILE_CONTROL_MESSAGE_TYPES: ReadonlySet<string> = new Set([
   "abort_file_transfer"
 ]);
 
+const NONMUTATING_DRY_RUN_OPERATIONS: ReadonlySet<string> = new Set([
+  "delete",
+  "rename"
+]);
+
 export const MUTATING_OPERATION_IDENTIFIERS = [
   "create_view_source",
   "update_view_source",
@@ -195,7 +200,7 @@ export function mutationOperationIdentifier(
   input: unknown
 ): MutationOperationIdentifier | null {
   const object = isObject(input) ? input : {};
-  if (object.dry_run === true) return null;
+  if (object.dry_run === true && NONMUTATING_DRY_RUN_OPERATIONS.has(operation)) return null;
   if (operation === "file_control") {
     const type = typeof object.type === "string" ? object.type : "";
     return MUTATING_FILE_CONTROL_MESSAGE_TYPES.has(type)

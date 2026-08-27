@@ -30,7 +30,44 @@ test("the generated catalogue classifies every public mutation", () => {
   );
   assert.equal(mutationOperationIdentifier("sync", { action: "mutate" }), "sync:mutate");
   assert.equal(mutationOperationIdentifier("sync", { action: "changes" }), null);
-  assert.equal(mutationOperationIdentifier("delete", { dry_run: true }), null);
+});
+
+test("only catalog-declared dry runs downgrade mutation classification", () => {
+  for (const operation of ["delete", "rename"]) {
+    assert.equal(mutationOperationIdentifier(operation, { dry_run: true }), null);
+  }
+
+  for (const operation of [
+    "create_type",
+    "apply_type_pack",
+    "apply_collection_setup",
+    "update_type",
+    "create_view_source",
+    "update_view_source",
+    "delete_view_source"
+  ]) {
+    assert.equal(mutationOperationIdentifier(operation, { dry_run: true }), operation);
+  }
+
+  assert.equal(
+    mutationOperationIdentifier("sync", { action: "mutate", dry_run: true }),
+    "sync:mutate"
+  );
+  for (const type of [
+    "open_file_upload",
+    "move_file",
+    "delete_file",
+    "commit_file_upload",
+    "abort_file_transfer"
+  ]) {
+    assert.equal(
+      mutationOperationIdentifier("file_control", { type, dry_run: true }),
+      `file_control:${type}`
+    );
+  }
+  for (const type of ["list_files", "open_file_download", "get_file_transfer_status"]) {
+    assert.equal(mutationOperationIdentifier("file_control", { type, dry_run: true }), null);
+  }
 });
 
 test("file-control mutations share the canonical recovery identifiers", () => {

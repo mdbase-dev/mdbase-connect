@@ -50,6 +50,12 @@ function validateCatalog(value) {
     if (operation.mutation === "sync_action" && operation.id !== "sync") {
       throw new Error("Only sync may use the sync_action mutation rule.");
     }
+    if (operation.dry_run !== undefined && operation.dry_run !== "nonmutating") {
+      throw new Error(`Invalid dry-run policy for ${operation.id}.`);
+    }
+    if (operation.dry_run === "nonmutating" && operation.mutation !== "always") {
+      throw new Error(`Nonmutating dry-run policy requires an always-mutating operation: ${operation.id}.`);
+    }
   }
   if (value.file_control_messages.some(({ mutation }) => typeof mutation !== "boolean")) {
     throw new Error("File-control mutation flags must be boolean.");
@@ -73,6 +79,8 @@ function typescriptSource(value) {
     `  ${JSON.stringify(id)}: ${input_schema_version}`
   ).join(",\n");
   const mutatingFiles = files.filter(({ mutation }) => mutation).map(({ id }) => JSON.stringify(id)).join(",\n  ");
+  const nonmutatingDryRuns = collection.filter(({ dry_run }) => dry_run === "nonmutating")
+    .map(({ id }) => JSON.stringify(id)).join(",\n  ");
   const identifiers = [
     ...collection.filter(({ mutation }) => mutation === "always").map(({ id }) => id),
     "sync:mutate",
@@ -93,6 +101,7 @@ function typescriptSource(value) {
     `const COLLECTION_INPUT_SCHEMA_VERSIONS = {\n${schemaVersions}\n} as const;\n\n` +
     `const FILE_CONTROL_INPUT_SCHEMA_VERSIONS = {\n${fileSchemaVersions}\n} as const;\n\n` +
     `const MUTATING_FILE_CONTROL_MESSAGE_TYPES: ReadonlySet<string> = new Set([\n  ${mutatingFiles}\n]);\n\n` +
+    `const NONMUTATING_DRY_RUN_OPERATIONS: ReadonlySet<string> = new Set([\n  ${nonmutatingDryRuns}\n]);\n\n` +
     `export const MUTATING_OPERATION_IDENTIFIERS = [\n  ${identifiers}\n] as const;\n\n` +
     `const TIMER_CRITERION_OPERATIONS: ReadonlySet<string> = new Set([\n  ${timerCriterionOperations}\n]);\n\n` +
     `export type MutationOperationIdentifier = typeof MUTATING_OPERATION_IDENTIFIERS[number];\n\n` +
@@ -110,7 +119,7 @@ function typescriptSource(value) {
     `  return COLLECTION_INPUT_SCHEMA_VERSIONS[operation];\n}\n\n` +
     `export function mutationOperationIdentifier(\n  operation: EncryptedOperation,\n  input: unknown\n): MutationOperationIdentifier | null {\n` +
     `  const object = isObject(input) ? input : {};\n` +
-    `  if (object.dry_run === true) return null;\n` +
+    `  if (object.dry_run === true && NONMUTATING_DRY_RUN_OPERATIONS.has(operation)) return null;\n` +
     `  if (operation === "file_control") {\n` +
     `    const type = typeof object.type === "string" ? object.type : "";\n` +
     `    return MUTATING_FILE_CONTROL_MESSAGE_TYPES.has(type)\n` +
@@ -139,6 +148,8 @@ function rustSource(value) {
   const fileRules = files.filter(({ mutation }) => mutation).map(({ id }) =>
     `            ${JSON.stringify(id)} => Some(${JSON.stringify(`file_control:${id}`)}),`
   ).join("\n");
+  const nonmutatingDryRuns = collection.filter(({ dry_run }) => dry_run === "nonmutating")
+    .map(({ id }) => JSON.stringify(id)).join(", ");
   const collectionSchemaVersions = collection.map(({ id, input_schema_version }) =>
     `        ${JSON.stringify(id)} => Some(${input_schema_version}),`
   ).join("\n");
@@ -160,13 +171,14 @@ function rustSource(value) {
     `pub const FILE_CONTROL_MESSAGE_TYPES: &[&str] = &[\n${fileIds}\n];\n\n` +
     `pub const MUTATING_OPERATION_IDENTIFIERS: &[&str] = &[\n${identifiers}\n];\n\n` +
     `pub const TIMER_CRITERION_OPERATIONS: &[&str] = &[\n${timerCriterionOperations}\n];\n\n` +
+    `const NONMUTATING_DRY_RUN_OPERATIONS: &[&str] = &[${nonmutatingDryRuns}];\n\n` +
     `pub fn is_collection_operation(operation: &str) -> bool {\n    COLLECTION_OPERATIONS.contains(&operation)\n}\n\n` +
     `pub fn operation_requires_timer_criterion(operation: &str) -> bool {\n    TIMER_CRITERION_OPERATIONS.contains(&operation)\n}\n\n` +
     `pub fn operation_input_schema_version(operation: &str, input: &Value) -> Option<u32> {\n` +
     `    if operation == "file_control" {\n        return match input.get("type").and_then(Value::as_str).unwrap_or("") {\n${fileSchemaVersions}\n            _ => None,\n        };\n    }\n` +
     `    match operation {\n${collectionSchemaVersions}\n        _ => None,\n    }\n}\n\n` +
     `pub fn mutation_operation_identifier<'a>(operation: &'a str, input: &Value) -> Option<&'a str> {\n` +
-    `    if input.get("dry_run").and_then(Value::as_bool) == Some(true) {\n        return None;\n    }\n` +
+    `    if input.get("dry_run").and_then(Value::as_bool) == Some(true)\n        && NONMUTATING_DRY_RUN_OPERATIONS.contains(&operation)\n    {\n        return None;\n    }\n` +
     `    if operation == "file_control" {\n        return match input.get("type").and_then(Value::as_str).unwrap_or("") {\n${fileRules}\n            _ => None,\n        };\n    }\n` +
     `    match operation {\n${collectionRules}\n        _ => None,\n    }\n}\n\n` +
     `pub fn is_mutating_operation(operation: &str, input: &Value) -> bool {\n` +
