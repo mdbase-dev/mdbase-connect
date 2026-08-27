@@ -144,28 +144,31 @@ export function planReconciliation(
   inspection: InspectionSummary,
   digest: (value: string) => string
 ): ReconciliationPlan {
+  const blocked = inspection.issues.some((issue) => issue.blocking);
   let drafts: ActionDraft[] = [];
-  for (const object of [...inspection.objects].sort(compareObject)) {
-    planObject(inspection, object, drafts);
-  }
-  drafts = orderLocalPathTransitions(drafts, inspection.objects, digest);
-  drafts = orderRemotePathTransitions(drafts, inspection.objects);
-  const requiresCheckpoint = drafts.length > 0
-    || inspection.kind !== "incremental"
-    || inspection.boundary.checkpoint.cursor !== inspection.boundary.authority_cursor;
-  if (requiresCheckpoint) {
-    const effectKeys = drafts.map((draft) => draft.key);
-    drafts.push({
-      key: "checkpoint",
-      depends_on_keys: effectKeys,
-      command: "advance_checkpoint",
-      reason: inspection.kind === "incremental" ? "remote_change" : inspection.kind,
-      expected: inspection.boundary.checkpoint,
-      next: {
-        generation: inspection.boundary.checkpoint.generation + 1,
-        cursor: inspection.boundary.authority_cursor
-      }
-    } satisfies ActionDraft);
+  if (!blocked) {
+    for (const object of [...inspection.objects].sort(compareObject)) {
+      planObject(inspection, object, drafts);
+    }
+    drafts = orderLocalPathTransitions(drafts, inspection.objects, digest);
+    drafts = orderRemotePathTransitions(drafts, inspection.objects);
+    const requiresCheckpoint = drafts.length > 0
+      || inspection.kind !== "incremental"
+      || inspection.boundary.checkpoint.cursor !== inspection.boundary.authority_cursor;
+    if (requiresCheckpoint) {
+      const effectKeys = drafts.map((draft) => draft.key);
+      drafts.push({
+        key: "checkpoint",
+        depends_on_keys: effectKeys,
+        command: "advance_checkpoint",
+        reason: inspection.kind === "incremental" ? "remote_change" : inspection.kind,
+        expected: inspection.boundary.checkpoint,
+        next: {
+          generation: inspection.boundary.checkpoint.generation + 1,
+          cursor: inspection.boundary.authority_cursor
+        }
+      } satisfies ActionDraft);
+    }
   }
 
   const ids = new Map<string, string>();
@@ -783,8 +786,21 @@ function compareObject(left: InspectedObject, right: InspectedObject): number {
 }
 
 function compareIssue(left: InspectionIssue, right: InspectionIssue): number {
-  return `${left.path ?? ""}\0${left.code}\0${left.message}`
-    .localeCompare(`${right.path ?? ""}\0${right.code}\0${right.message}`);
+  return compareUtf8(
+    `${left.path ?? ""}\0${left.code}\0${left.message}`,
+    `${right.path ?? ""}\0${right.code}\0${right.message}`
+  );
+}
+
+function compareUtf8(left: string, right: string): number {
+  const encoder = new TextEncoder();
+  const leftBytes = encoder.encode(left);
+  const rightBytes = encoder.encode(right);
+  const length = Math.min(leftBytes.length, rightBytes.length);
+  for (let index = 0; index < length; index += 1) {
+    if (leftBytes[index] !== rightBytes[index]) return leftBytes[index]! - rightBytes[index]!;
+  }
+  return leftBytes.length - rightBytes.length;
 }
 
 function isUpload(action: SyncAction): boolean {

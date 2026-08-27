@@ -137,6 +137,88 @@ describe("pure exact-document planner", () => {
       fingerprint: plan.fingerprint
     }).toEqual(expected);
   });
+  it("shares the canonical typed structural outcome oracle", async () => {
+    const fixture = JSON.parse(await readFile(
+      new URL("../../../test-fixtures/record-structural-outcomes.json", import.meta.url),
+      "utf8"
+    )) as {
+      source_revision: string;
+      cases: Array<{ name: string; document?: string; bytes_base64?: string; outcome: string }>;
+    };
+
+    expect(fixture.source_revision).toBe("mdbase-rs@aac02c5");
+    expect(fixture.cases.map(({ name, outcome }) => [name, outcome])).toEqual([
+      ["body_only", "parsed"],
+      ["empty_mapping", "parsed"],
+      ["malformed_yaml", "invalid_yaml"],
+      ["duplicate_yaml_key", "invalid_yaml"],
+      ["null_frontmatter", "non_mapping_frontmatter"],
+      ["list_frontmatter", "non_mapping_frontmatter"],
+      ["scalar_frontmatter", "non_mapping_frontmatter"],
+      ["invalid_utf8", "invalid_utf8"]
+    ]);
+    expect(fixture.cases.at(-1)).toEqual({
+      name: "invalid_utf8",
+      bytes_base64: "YmFk/3V0ZjgubWQ=",
+      outcome: "invalid_utf8"
+    });
+  });
+
+  it("fences all sibling effects and checkpointing when one issue blocks", async () => {
+    const uploadIdentity = "33333333-3333-4333-8333-333333333333";
+    const uploadBase = ref(uploadIdentity, "notes/upload.md", "upload base");
+    const uploadLocal = ref(uploadIdentity, "notes/upload.md", "upload local");
+    const downloadIdentity = "44444444-4444-4444-8444-444444444444";
+    const downloadBase = ref(downloadIdentity, "notes/download.md", "download base");
+    const downloadRemote = ref(downloadIdentity, "notes/download.md", "download remote");
+    const inspection = summary([
+      inspected(uploadIdentity, exact(uploadBase), exact(uploadLocal), exact(uploadBase)),
+      inspected(downloadIdentity, exact(downloadBase), exact(downloadBase), exact(downloadRemote))
+    ]);
+    const control = planReconciliation(structuredClone(inspection), digest);
+    expect(control.actions.map((action) => action.command)).toEqual([
+      "put_remote",
+      "write_local",
+      "advance_checkpoint"
+    ]);
+
+    const fixture = JSON.parse(await readFile(
+      new URL("../../../test-fixtures/record-structural-outcomes.json", import.meta.url),
+      "utf8"
+    )) as { cases: Array<{ name: string; outcome: string }> };
+    const reason = fixture.cases.find(({ name }) => name === "duplicate_yaml_key")!.outcome;
+    inspection.issues = [
+      { code: "notice", message: "Retained diagnostic.", blocking: false },
+      {
+        code: reason,
+        message: "Invalid frontmatter in notes/broken.md.",
+        path: "notes/broken.md",
+        blocking: true
+      }
+    ];
+
+    const first = planReconciliation(inspection, digest);
+    const second = planReconciliation(structuredClone(inspection), digest);
+    expect(first.actions).toEqual([]);
+    expect(first.issues).toEqual([
+      { code: "notice", message: "Retained diagnostic.", blocking: false },
+      {
+        code: "invalid_yaml",
+        message: "Invalid frontmatter in notes/broken.md.",
+        path: "notes/broken.md",
+        blocking: true
+      }
+    ]);
+    expect(first.summary).toEqual({
+      uploads: 0,
+      downloads: 0,
+      conflicts: 0,
+      blocking_issues: 1
+    });
+    expect(second.fingerprint).toBe(first.fingerprint);
+    expect(first.fingerprint).not.toBe(control.fingerprint);
+  });
+
   it("keeps inspection I/O separate from the pure plan", async () => {
     const authority = new MemoryAuthority();
     authority.seed([{

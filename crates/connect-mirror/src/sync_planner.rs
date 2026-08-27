@@ -194,40 +194,43 @@ pub fn plan_reconciliation(
     inspection.objects.sort_by(|left, right| {
         (&left.entity, &left.identity).cmp(&(&right.entity, &right.identity))
     });
+    let blocked = inspection.issues.iter().any(|issue| issue.blocking);
     let mut drafts = Vec::new();
-    for object in &inspection.objects {
-        plan_object(&inspection, object, &mut drafts)?;
-    }
-    drafts = order_local_path_transitions(drafts, &inspection.objects)?;
-    drafts = order_remote_path_transitions(drafts, &inspection.objects)?;
-    let requires_checkpoint = !drafts.is_empty()
-        || inspection.kind != "incremental"
-        || inspection.boundary.checkpoint.cursor != Some(inspection.boundary.authority_cursor);
-    if requires_checkpoint {
-        let effect_keys = drafts
-            .iter()
-            .map(|draft| draft.key.clone())
-            .collect::<Vec<_>>();
-        drafts.push(Draft {
-            key: "checkpoint".into(),
-            dependency_keys: effect_keys,
-            action: SyncAction::AdvanceCheckpoint {
-                action_id: String::new(),
-                depends_on: Vec::new(),
-                reason: if inspection.kind == "incremental" {
-                    SyncPlanReason::RemoteChange
-                } else if inspection.kind == "rebuild" {
-                    SyncPlanReason::Rebuild
-                } else {
-                    SyncPlanReason::Initial
+    if !blocked {
+        for object in &inspection.objects {
+            plan_object(&inspection, object, &mut drafts)?;
+        }
+        drafts = order_local_path_transitions(drafts, &inspection.objects)?;
+        drafts = order_remote_path_transitions(drafts, &inspection.objects)?;
+        let requires_checkpoint = !drafts.is_empty()
+            || inspection.kind != "incremental"
+            || inspection.boundary.checkpoint.cursor != Some(inspection.boundary.authority_cursor);
+        if requires_checkpoint {
+            let effect_keys = drafts
+                .iter()
+                .map(|draft| draft.key.clone())
+                .collect::<Vec<_>>();
+            drafts.push(Draft {
+                key: "checkpoint".into(),
+                dependency_keys: effect_keys,
+                action: SyncAction::AdvanceCheckpoint {
+                    action_id: String::new(),
+                    depends_on: Vec::new(),
+                    reason: if inspection.kind == "incremental" {
+                        SyncPlanReason::RemoteChange
+                    } else if inspection.kind == "rebuild" {
+                        SyncPlanReason::Rebuild
+                    } else {
+                        SyncPlanReason::Initial
+                    },
+                    expected: inspection.boundary.checkpoint.clone(),
+                    next: SyncCheckpoint {
+                        generation: inspection.boundary.checkpoint.generation + 1,
+                        cursor: Some(inspection.boundary.authority_cursor),
+                    },
                 },
-                expected: inspection.boundary.checkpoint.clone(),
-                next: SyncCheckpoint {
-                    generation: inspection.boundary.checkpoint.generation + 1,
-                    cursor: Some(inspection.boundary.authority_cursor),
-                },
-            },
-        });
+            });
+        }
     }
     let mut ids = BTreeMap::new();
     for draft in &drafts {

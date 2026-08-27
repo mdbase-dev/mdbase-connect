@@ -2000,6 +2000,167 @@ fn rust_planner_matches_the_shared_cross_runtime_canonical_fixture() {
 }
 
 #[test]
+fn shared_record_structural_outcome_oracle_is_canonical() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../test-fixtures/record-structural-outcomes.json"
+    ))
+    .unwrap();
+    assert_eq!(fixture["source_revision"], "mdbase-rs@aac02c5");
+    let outcomes = fixture["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|case| {
+            (
+                case["name"].as_str().unwrap(),
+                case["outcome"].as_str().unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        outcomes,
+        vec![
+            ("body_only", "parsed"),
+            ("empty_mapping", "parsed"),
+            ("malformed_yaml", "invalid_yaml"),
+            ("duplicate_yaml_key", "invalid_yaml"),
+            ("null_frontmatter", "non_mapping_frontmatter"),
+            ("list_frontmatter", "non_mapping_frontmatter"),
+            ("scalar_frontmatter", "non_mapping_frontmatter"),
+            ("invalid_utf8", "invalid_utf8"),
+        ]
+    );
+    let invalid_utf8 = fixture["cases"].as_array().unwrap().last().unwrap();
+    assert_eq!(invalid_utf8["bytes_base64"], "YmFk/3V0ZjgubWQ=");
+    assert!(invalid_utf8.get("document").is_none());
+}
+
+#[test]
+fn rust_planner_fences_all_sibling_effects_when_one_issue_blocks() {
+    let upload_identity = "33333333-3333-4333-8333-333333333333";
+    let download_identity = "44444444-4444-4444-8444-444444444444";
+    let object = |identity: &str, path: &str, document: &str| SyncObjectRef {
+        entity: SyncObjectKind::Record,
+        identity: identity.into(),
+        path: path.into(),
+        revision: format!("sha256:{}", digest(document)),
+        payload_revision: format!("sha256:{}", digest(document)),
+        size: None,
+    };
+    let upload_base = ExpectedObjectState::Exact {
+        object: object(upload_identity, "notes/upload.md", "upload base"),
+    };
+    let upload_local = ExpectedObjectState::Exact {
+        object: object(upload_identity, "notes/upload.md", "upload local"),
+    };
+    let download_base = ExpectedObjectState::Exact {
+        object: object(download_identity, "notes/download.md", "download base"),
+    };
+    let download_remote = ExpectedObjectState::Exact {
+        object: object(download_identity, "notes/download.md", "download remote"),
+    };
+    let mut inspection = crate::sync_planner::InspectionSummary {
+        boundary: crate::sync_planner::InspectionBoundary {
+            replica_id: "11111111-1111-4111-8111-111111111111".into(),
+            scope_epoch: 7,
+            authority_cursor: 19,
+            checkpoint: SyncCheckpoint {
+                generation: 3,
+                cursor: Some(11),
+            },
+        },
+        mode: SyncReplicaMode::ReadWrite,
+        kind: "incremental".into(),
+        selective_sync: SelectiveSyncPolicy::default(),
+        objects: vec![
+            crate::sync_planner::InspectedObject {
+                entity: SyncObjectKind::Record,
+                identity: upload_identity.into(),
+                base: upload_base.clone(),
+                local: upload_local.clone(),
+                remote: upload_base.clone(),
+                local_target_owner: upload_local,
+                remote_target_owner: upload_base,
+                frozen_conflict: None,
+            },
+            crate::sync_planner::InspectedObject {
+                entity: SyncObjectKind::Record,
+                identity: download_identity.into(),
+                base: download_base.clone(),
+                local: download_base.clone(),
+                remote: download_remote.clone(),
+                local_target_owner: download_base,
+                remote_target_owner: download_remote,
+                frozen_conflict: None,
+            },
+        ],
+        issues: vec![],
+    };
+    let control = crate::sync_planner::plan_reconciliation(inspection.clone()).unwrap();
+    assert!(matches!(control.actions[0], SyncAction::PutRemote { .. }));
+    assert!(matches!(control.actions[1], SyncAction::WriteLocal { .. }));
+    assert!(matches!(
+        control.actions[2],
+        SyncAction::AdvanceCheckpoint { .. }
+    ));
+
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../test-fixtures/record-structural-outcomes.json"
+    ))
+    .unwrap();
+    let reason = fixture["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|case| case["name"] == "duplicate_yaml_key")
+        .unwrap()["outcome"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    inspection.issues = vec![
+        MirrorPlanIssue {
+            code: reason,
+            message: "Invalid frontmatter in notes/broken.md.".into(),
+            path: Some("notes/broken.md".into()),
+            blocking: true,
+        },
+        MirrorPlanIssue {
+            code: "notice".into(),
+            message: "Retained diagnostic.".into(),
+            path: None,
+            blocking: false,
+        },
+    ];
+
+    let first = crate::sync_planner::plan_reconciliation(inspection.clone()).unwrap();
+    let second = crate::sync_planner::plan_reconciliation(inspection).unwrap();
+    assert!(first.actions.is_empty());
+    assert_eq!(
+        first.issues,
+        vec![
+            MirrorPlanIssue {
+                code: "notice".into(),
+                message: "Retained diagnostic.".into(),
+                path: None,
+                blocking: false,
+            },
+            MirrorPlanIssue {
+                code: "invalid_yaml".into(),
+                message: "Invalid frontmatter in notes/broken.md.".into(),
+                path: Some("notes/broken.md".into()),
+                blocking: true,
+            },
+        ]
+    );
+    assert_eq!(first.summary.uploads, 0);
+    assert_eq!(first.summary.downloads, 0);
+    assert_eq!(first.summary.conflicts, 0);
+    assert_eq!(first.summary.blocking_issues, 1);
+    assert_eq!(second.fingerprint, first.fingerprint);
+    assert_ne!(first.fingerprint, control.fingerprint);
+}
+
+#[test]
 fn rust_planner_breaks_local_rename_cycles_with_the_same_staged_graph() {
     let object = |identity: &str, path: &str, document: &str| SyncObjectRef {
         entity: SyncObjectKind::Record,
