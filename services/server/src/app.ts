@@ -10,6 +10,7 @@ import websocket from "@fastify/websocket";
 import rawBody from "fastify-raw-body";
 import Fastify, { LogController } from "fastify";
 import { AuthenticationPolicyStore } from "./authentication-policy.js";
+import { ApplicationReconciliationWorker } from "./application-reconciliation.js";
 import type { DatabasePool } from "./db.js";
 import type { EmailTransport } from "./email.js";
 import { registerResendWebhookRoute } from "./email-provider-webhooks.js";
@@ -141,6 +142,15 @@ export async function buildApp(options: BuildOptions) {
   const hostedReference = options.hostedReferenceAuthority
     ? new HostedAuthorityRegistry(options.db)
     : undefined;
+  const applicationReconciliation = new ApplicationReconciliationWorker(
+    options.db,
+    relay,
+    options.hostedProvider,
+    (event) => app.log.error(
+      { phase: event.phase, errorClass: event.errorClass },
+      "application reconciliation operation failed"
+    )
+  );
   const providerRevocations = options.hostedProvider
     ? new ProviderRevocationWorker(
         options.db,
@@ -203,11 +213,18 @@ export async function buildApp(options: BuildOptions) {
 
   app.addHook("onClose", async () => {
     await scheduledEmails?.close();
+    await applicationReconciliation.close();
     await providerRevocations?.close();
     await notifications?.close();
     await relay.close();
   });
   notifications?.start();
+  // Test hook intentionally drains the same production worker; it does not
+  // bypass leases, cursors, result rows, or provider/relay behavior.
+  app.decorate("drainApplicationReconciliation", () =>
+    applicationReconciliation.drainUntilIdle()
+  );
+  applicationReconciliation.start();
   providerRevocations?.start();
 
   app.addHook("onRequest", async (request, reply) => {
@@ -401,8 +418,6 @@ export async function buildApp(options: BuildOptions) {
   registerConnectorRelayRoute(app, { db: options.db, relay });
   registerApplicationRoutes(app, {
     db: options.db,
-    relay,
-    hostedProvider: options.hostedProvider,
     allowInsecureManifests: options.allowInsecureManifests
   });
   registerAccountOverviewRoute(app, {

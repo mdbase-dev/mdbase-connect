@@ -778,16 +778,15 @@ describe("mdbase connect server", () => {
       payload: { manifest: manifestServer.manifest }
     });
     expect(rediscovered.statusCode).toBe(200);
+    await (app as typeof app & { drainApplicationReconciliation(): Promise<void> })
+      .drainApplicationReconciliation();
     const reconciled = await db.query<{ id: string; scope: unknown; revoked_at: string | null }>(
       "SELECT id, scope, revoked_at FROM grants WHERE id IN ($1, $2) ORDER BY id",
       [legacyCompatibleGrantId, legacyIncompatibleGrantId]
     );
     expect(reconciled.rows.find((grant) => grant.id === legacyCompatibleGrantId)).toEqual(
       expect.objectContaining({
-        scope: {
-          access: "contract",
-          contracts: [contractDescriptor()]
-        },
+        scope: { access: "contract", contracts: [contractDescriptor()] },
         revoked_at: null
       })
     );
@@ -1970,6 +1969,8 @@ describe("mdbase connect server", () => {
     });
 
     expect(registration.statusCode, JSON.stringify(registration.json())).toBe(200);
+    await (app as typeof app & { drainApplicationReconciliation(): Promise<void> })
+      .drainApplicationReconciliation();
     expect(revokeNotificationGrant).toHaveBeenCalledWith(staleCollectionId, grants[0]);
     expect(revokeNotificationGrant).toHaveBeenCalledWith(healthyCollectionId, grants[1]);
     const state = await db.query<{ id: string; revoked_at: Date | null }>(
@@ -2148,6 +2149,8 @@ describe("mdbase connect server", () => {
       payload: { manifest: manifestServer.manifest }
     });
     expect(rediscovered.statusCode).toBe(200);
+    await (app as typeof app & { drainApplicationReconciliation(): Promise<void> })
+      .drainApplicationReconciliation();
     expect(hostedProvider.updateApplicationReplica).toHaveBeenCalledWith(
       provisioned.rows[0].id,
       expect.objectContaining({

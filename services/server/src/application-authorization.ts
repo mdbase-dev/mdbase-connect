@@ -83,6 +83,22 @@ const proofSchema = z.object({
   signature: z.string().min(1).max(200)
 }).strict();
 
+// Persisted grants can contain authorization-binding versions retained across
+// upgrades. Validate the production reconciliation access surface without
+// reinterpreting or re-verifying that already-approved proof.
+const persistedProofSchema = z.object({
+  binding: z.object({
+    application_id: z.uuid(),
+    application_declaration_id: z.string().min(1),
+    application_manifest_digest: z.string().regex(/^[0-9a-f]{64}$/),
+    contracts: z.object({
+      operation_transport: z.number().int().positive(),
+      operation_transport_recovery: z.array(z.number().int().positive()).optional()
+    }).passthrough()
+  }).passthrough(),
+  signature: z.string().min(1)
+}).passthrough();
+
 export interface ExpectedApplicationAuthorization {
   applicationId: string;
   applicationDeclarationId: string;
@@ -104,6 +120,13 @@ export class ApplicationAuthorizationError extends Error {
   }
 }
 
+export class MalformedPersistedApplicationAuthorizationError extends ApplicationAuthorizationError {
+  constructor() {
+    super("The persisted application authorization proof is malformed.");
+    this.name = "MalformedPersistedApplicationAuthorizationError";
+  }
+}
+
 export class ApplicationContractMismatchError extends ApplicationAuthorizationError {
   constructor(
     public readonly code: "transport_protocol_incompatible"
@@ -120,6 +143,14 @@ export class ApplicationContractMismatchError extends ApplicationAuthorizationEr
   ) {
     super("A required Connect contract is not supported by the application.");
     this.name = "ApplicationContractMismatchError";
+  }
+}
+
+export function parsePersistedApplicationAuthorization(value: unknown): ApplicationAuthorizationProof {
+  try {
+    return persistedProofSchema.parse(value) as unknown as ApplicationAuthorizationProof;
+  } catch {
+    throw new MalformedPersistedApplicationAuthorizationError();
   }
 }
 

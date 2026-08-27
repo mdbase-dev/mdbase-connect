@@ -45,21 +45,21 @@ const applicationAuthorization = {
     application_id: applicationId,
     application_declaration_id: "dev.tasknotes.app",
     application_manifest_digest: applicationManifestDigest,
-    application_installation_id: "installation",
-    installation_signing_public_key: "installation-key",
-    grant_agreement_public_key: "agreement-key",
-    grant_signing_public_key: "signing-key",
+    application_installation_id: "00000000-0000-4000-8000-000000000005",
+    installation_signing_public_key: "i".repeat(80),
+    grant_agreement_public_key: "a".repeat(80),
+    grant_signing_public_key: "s".repeat(80),
     flow: "authorization_code",
     authorization_nonce: "nonce",
     issued_at: "2026-08-05T20:00:00.000Z",
     expires_at: "2026-08-05T20:10:00.000Z",
     redirect_uri: "https://app.tasknotes.dev/auth/mdbase/callback",
-    code_challenge: "challenge",
+    code_challenge: "c".repeat(43),
     contracts: {
-      operation_transport_protocol: 2,
-      application_authorization_binding: 4,
-      semantic_capabilities_contract: 1,
-      durable_mutation_protocol: 1
+      operation_transport: 2,
+      authorization_binding: 4,
+      semantic_capabilities: 1,
+      durable_mutation: 1
     },
     requested_operations: ["query"]
   },
@@ -188,6 +188,18 @@ describe("hosted notification grant synchronization", () => {
     } finally {
       await fixture.db.end();
     }
+  });
+
+  it("rejects malformed persisted proof through production reconciliation", async () => {
+    const fixture = await reconciliationFixture(1);
+    try {
+      await fixture.db.query("UPDATE grants SET application_authorization='{}'::jsonb WHERE id=$1", [fixture.grantIds[0]]);
+      await expect(reconcileApplicationGrants(
+        fixture.db, { pushPolicy: vi.fn() } as unknown as RelayHub,
+        { upsertNotificationGrant: vi.fn() } as unknown as HostedProviderClient,
+        fixture.application, fixture.grantIds[0]
+      )).rejects.toMatchObject({ name: "MalformedPersistedApplicationAuthorizationError" });
+    } finally { await fixture.db.end(); }
   });
 
   it("does not reinterpret an ownership conflict as a missing collection", async () => {

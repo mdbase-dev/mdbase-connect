@@ -2,15 +2,11 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DatabasePool } from "../../db.js";
 import { registerApplicationManifest } from "../../manifest.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
-import type { RelayHub } from "../../relay.js";
-import { reconcileApplicationGrants } from "../grants/service.js";
+import { ensureApplicationReconciliation } from "../../application-reconciliation.js";
 import { upsertApplication } from "./store.js";
 
 interface ApplicationRouteOptions {
   db: DatabasePool;
-  relay: RelayHub;
-  hostedProvider?: HostedProviderClient;
   allowInsecureManifests?: boolean;
 }
 
@@ -40,13 +36,25 @@ export function registerApplicationRoutes(
       input.manifest,
       options.allowInsecureManifests
     );
-    const application = await upsertApplication(options.db, registered);
-    await reconcileApplicationGrants(
-      options.db,
-      options.relay,
-      options.hostedProvider,
-      application
-    );
-    return { application };
+    // Discovery and its first durable job are atomic. ON CONFLICT DO NOTHING is
+    // intentional: re-registering an immutable exact application must not wake
+    // a completed scan or disturb an in-flight lease/cursor.
+    const connection = await options.db.connect();
+    try {
+      await connection.query("BEGIN");
+      const application = await upsertApplication(connection, registered);
+      await ensureApplicationReconciliation(connection, application.id);
+      await connection.query("COMMIT");
+      return { application };
+    } catch (error) {
+      try {
+        await connection.query("ROLLBACK");
+      } catch {
+        // Preserve the operation failure; rollback failure must not mask it.
+      }
+      throw error;
+    } finally {
+      connection.release();
+    }
   });
 }
