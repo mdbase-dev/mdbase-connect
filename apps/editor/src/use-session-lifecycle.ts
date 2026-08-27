@@ -45,8 +45,7 @@ export function useSessionLifecycle({ gateway, start, setSessionSnapshot, setNot
         stopSessionChanges = gateway.onSessionChange((snapshot) => {
           if (!alive) return;
           const current = gateway.sessionSnapshot();
-          if (snapshot.status === "ready" && current.status === "ready"
-            && snapshot.connection.collectionId !== current.connection.collectionId) return;
+          if (!sameAuthoritativeSnapshot(snapshot, current)) return;
           setSessionSnapshot(snapshot);
           if (snapshot.status !== "ready") setPhase((current) => current === "starting" ? current : "disconnected");
         });
@@ -66,4 +65,15 @@ export function useSessionLifecycle({ gateway, start, setSessionSnapshot, setNot
   }, [collectionEpoch, gateway, setNotice, setPhase, setSessionSnapshot, start]);
 
   return { retrySessionStart };
+}
+
+function sameAuthoritativeSnapshot(event: CollectionSessionSnapshot, current: CollectionSessionSnapshot): boolean {
+  if (event.status !== current.status) return false;
+  if (event.status === "ready" && current.status === "ready") {
+    return event.connection.collectionId === current.connection.collectionId;
+  }
+  if (event.status === "unavailable" && current.status === "unavailable") {
+    return event.collectionId === current.collectionId;
+  }
+  return true;
 }

@@ -7,7 +7,7 @@ import {
   PencilSimpleIcon as Pencil,
   TrashIcon as Trash2
 } from "./icons";
-import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor, type MutationProgress } from "@mdbase-dev/connect";
+import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import {
   useCallback,
   useDeferredValue,
@@ -34,7 +34,7 @@ import {
 import { reviewCatalogPackInstallation } from "./catalog-pack-installation";
 import type { AppPhase, ConnectionState, ContractCatalogLoadState, CreationContext, MobileHistoryState, MobilePane, Surface } from "./app-state-types";
 import { gatewayError, missingCoreCapabilities, missingTypeCapabilities } from "./gateway";
-import { useCollectionAuthorization } from "./collection-authorization";
+import { CollectionMutationScope, type CollectionScopeToken } from "./collection-mutation-scope";
 import { useTypeDefinitionLifecycle } from "./use-type-definition-lifecycle";
 import { OpeningScreen, TypeWorkspaceLoading } from "./LoadingScreens";
 import { MarkdownNoteEditor } from "./MarkdownNoteEditor";
@@ -75,6 +75,7 @@ import {
 } from "./note-session";
 import { loadNoteSort, saveNoteSort, sortNotes, type NoteSort } from "./note-list-view";
 import { filterLabel, filterScopeLabel, NoteList, type NoteFilter, type NoteRowStatus } from "./NoteList";
+import { noteRowStatus, updateMutationActivity } from "./note-mutation-presentation";
 import {
   NotePreviewCard,
   useNotePreview
@@ -93,6 +94,7 @@ import { buildToastItems, ToastStack, type ToastTone } from "./Toasts";
 import { NEW_TYPE_SOURCE } from "./type-constants";
 import { useCollectionIndex } from "./use-collection-index";
 import { useCollectionWatch } from "./use-collection-watch";
+import { useCollectionTransition } from "./use-collection-transition";
 import { useFileInventory } from "./use-file-inventory";
 import { useFileAssetStore } from "./use-file-assets";
 import { useFileWorkspace } from "./use-file-workspace";
@@ -199,7 +201,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [typeWorkspace, setTypeWorkspace] = useState<"definition" | "packs">("definition");
   const [contractCatalog, setContractCatalog] = useState<ContractCatalogLoadState>({ status: "idle" });
   const [contractCatalogReload, setContractCatalogReload] = useState(0);
-  const [saveState, setSaveState] = useState<SaveState>("saved"), [, setSwitching] = useState(false);
+  const [saveState, setSaveState] = useState<SaveState>("saved");
+  const [mutationsFrozen, setMutationsFrozen] = useState(false);
   const [remoteApplyToken, setRemoteApplyToken] = useState(0);
   const [notice, setNoticeState] = useState<{ message: string; tone: ToastTone } | undefined>();
   const [propertiesOpen, setPropertiesOpen] = useState(false);
@@ -230,7 +233,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [, setSessionTick] = useState(0);
   const documentGeneration = useRef(0);
   const navigationGeneration = useRef(0);
-  const collectionEpoch = useRef(0), startGeneration = useRef(0), mutationsFrozen = useRef(false);
+  const collectionEpoch = useRef(0), startGeneration = useRef(0);
+  const mutationScope = useRef(new CollectionMutationScope());
   const typeDescriptorsRef = useRef<CollectionTypeDescriptor[]>(emptyTypeDescriptors);
   const workspaceCollectionId = useRef<string | undefined>(undefined);
   const noteSessions = useRef(new NoteSessionStore());
@@ -267,8 +271,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   );
   const { selectedFile: selectedCollectionFile, setSelectedFile: setSelectedCollectionFile, selectedAsset: selectedFileAsset,
     pendingFilePath, setPendingFilePath, openAsset: openFileAsset, setOpenAsset: setOpenFileAsset, embeddedFiles } = fileWorkspace;
-  const attachments = useAttachmentUpload({ gateway, inventory: fileController,
-    inventoryFiles: fileInventory.files, activeSession: () => mutationsFrozen.current ? undefined : noteSessions.current.active, setNotice });
+  const attachments = useAttachmentUpload({ gateway, inventory: fileController, scope: mutationScope.current,
+    inventoryFiles: fileInventory.files, activeSession: () => mutationsFrozen ? undefined : noteSessions.current.active, setNotice });
   useEffect(() => { savePreferences(preferences); }, [preferences]);
   useEffect(() => { saveLayoutPreferences(layout); }, [layout]);
   useEffect(() => { saveNoteSort(noteSort); }, [noteSort]);
@@ -417,7 +421,10 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }, []);
 
   const noteOperations = useMemo(() => new NoteOperationCoordinator({
-    update: (input) => gateway.update(input),
+    update: (input) => {
+      const token = mutationScope.current.token();
+      return mutationScope.current.register(token, gateway.update(input));
+    },
     onSaved: (session, next) => {
       if (noteSessions.current.get(session.document.path) !== session) return;
       updateNoteSummary(next);
@@ -566,6 +573,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   ]);
 
   const start = useCallback(async () => {
+    const snapshot = gateway.sessionSnapshot();
+    const owner = snapshot.status === "ready" ? snapshot.connection.collectionId : undefined;
+    if (mutationScope.current.token().collectionId !== owner) mutationScope.current.changeOwner(owner);
     const epoch = collectionEpoch.current, generation = ++startGeneration.current;
     const current = () => epoch === collectionEpoch.current && generation === startGeneration.current;
     const indexLoad = indexController.beginLoad();
@@ -607,18 +617,10 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     }
   }, [fileController, gateway, indexController, openNote, refreshDescription]);
 
-  const { authorizeCollection } = useCollectionAuthorization({
-    gateway,
-    phase,
-    start,
-    beforeAuthorization: async () => {
-      mutationsFrozen.current = true; setSwitching(true);
-      await flushCollectionWork();
-    },
-    finishAuthorization: () => { mutationsFrozen.current = false; setSwitching(false); },
-    beforeCollectionChange: clearCollectionWorkspace,
-    currentCollectionId: () => workspaceCollectionId.current,
-    setSessionSnapshot
+  const { transition: transitionCollection, authorize: authorizeCollection } = useCollectionTransition({
+    gateway, scope: mutationScope.current, currentOwner: () => workspaceCollectionId.current,
+    drain: flushCollectionWork, clear: clearCollectionWorkspace, start,
+    setFrozen: setMutationsFrozen, setPhase, setSnapshot: setSessionSnapshot
   });
 
   const { retrySessionStart } = useSessionLifecycle({
@@ -668,12 +670,12 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       session.saveState = "waiting";
       setSaveState("waiting");
     }
-    const timer = window.setTimeout(() => { if (!mutationsFrozen.current) void requestSave(session).catch(() => undefined); }, 650);
+    const timer = window.setTimeout(() => { if (!mutationScope.current.isFrozen) void requestSave(session).catch(() => undefined); }, 650);
     return () => window.clearTimeout(timer);
   }, [document, draft, requestSave]);
 
   function changeActiveDraft(change: (current: Draft) => Draft) {
-    if (mutationsFrozen.current) { setSwitching((current) => !current); return; }
+    if (mutationScope.current.isFrozen) return;
     const session = noteSessions.current.active;
     if (!session || session.deleted) return;
     const next = change(session.draft);
@@ -833,19 +835,23 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const runNoteOperation = useCallback(async <Result,>(
     session: NoteSession,
     activity: NoteActivity,
-    operation: () => Promise<Result>
-  ): Promise<Result> => noteOperations.run(session, async () => {
-    session.activity = activity;
-    session.activityDetail = undefined;
-    touchSession(session);
-    try {
-      return await operation();
-    } finally {
-      if (session.activity === activity) session.activity = undefined;
+    operation: (token: CollectionScopeToken) => Promise<Result>
+  ): Promise<Result> => {
+    if (mutationScope.current.isFrozen) throw new Error("Collection mutations are temporarily disabled.");
+    const token = mutationScope.current.token();
+    return mutationScope.current.register(token, noteOperations.run(session, async () => {
+      session.activity = activity;
       session.activityDetail = undefined;
       touchSession(session);
-    }
-  }), [noteOperations, touchSession]);
+      try {
+        return await operation(token);
+      } finally {
+        if (session.activity === activity) session.activity = undefined;
+        session.activityDetail = undefined;
+        if (mutationScope.current.isCurrent(token)) touchSession(session);
+      }
+    }));
+  }, [noteOperations, touchSession]);
 
   async function connectCollection() {
     setNotice(undefined);
@@ -890,6 +896,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       .filter((session) => !session.deleted)
       .map((session) => flushSession(session)));
     await noteOperations.waitForIdle();
+    await mutationScope.current.drain();
   }
 
   function clearCollectionWorkspace() {
@@ -944,20 +951,13 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setNotice(undefined);
     setCollectionSwitcherOpen(false);
     try {
-      await flushCollectionWork();
-      const selected = gateway.selectConnection(collectionId);
-      clearCollectionWorkspace();
-      if (missingCoreCapabilities(selected).length > 0) {
-        setPhase("disconnected");
-        await authorizeCollection("selected");
-        return;
-      }
-      setPhase("loading");
-      await start();
-    } catch (error) {
-      setNotice(gatewayError(error));
-      setPhase("disconnected");
-    }
+      await transitionCollection(async () => {
+        const selected = gateway.selectConnection(collectionId);
+        if (missingCoreCapabilities(selected).length > 0) {
+          await gateway.authorize("selected", { presentation: "popup" });
+        }
+      });
+    } catch (error) { setNotice(gatewayError(error)); }
   }
 
   function requestOpenSavedCollection(collectionId: string) {
@@ -982,12 +982,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   async function connectAnotherCollection() {
     setNotice(undefined);
     setCollectionSwitcherOpen(false);
-    try {
-      await flushCollectionWork();
-      await authorizeCollection("choose");
-    } catch (error) {
-      setNotice(gatewayError(error));
-    }
+    try { await authorizeCollection("choose"); }
+    catch (error) { setNotice(gatewayError(error)); }
   }
 
   function requestConnectAnotherCollection() {
@@ -1081,8 +1077,10 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   async function createNote(input: CreateNoteInput) {
-    if (mutationsFrozen.current) return;
-    const created = await gateway.create(input);
+    if (mutationScope.current.isFrozen) return;
+    const token = mutationScope.current.token();
+    const created = await mutationScope.current.register(token, gateway.create(input));
+    if (!mutationScope.current.isCurrent(token)) return;
     indexController.create(summaryFromDocument(created));
     setSearch("");
     setNoteFilter(undefined);
@@ -1100,7 +1098,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   function createLinkedNote(target: string, label: string | undefined, format: "wikilink" | "markdown") {
-    if (mutationsFrozen.current) return;
+    if (mutationScope.current.isFrozen) return;
     const sourcePath = noteSessions.current.active?.document.path;
     const linked = unresolvedNoteTarget(target, label, sourcePath, format);
     if (!linked) {
@@ -1112,12 +1110,14 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     saveCurrentInBackground();
     setPendingNotePath(linked.path);
     setNotice(undefined);
-    void gateway.create({
+    const token = mutationScope.current.token();
+    void mutationScope.current.register(token, gateway.create({
       title: linked.title,
       body: "",
       path: linked.path,
       properties: {}
-    }).then((created) => {
+    })).then((created) => {
+      if (!mutationScope.current.isCurrent(token)) return;
       indexController.create(summaryFromDocument(created));
       documentGeneration.current += 1;
       setPropertiesError(undefined);
@@ -1126,16 +1126,18 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       adoptDocument(created);
       recordNoteNavigation(created.path);
     }).catch(async (error) => {
+      if (!mutationScope.current.isCurrent(token)) return;
       const opened = await openNote(linked.path);
       if (!opened) setNotice(gatewayError(error));
     }).finally(() => {
+      if (!mutationScope.current.isCurrent(token)) return;
       linkCreations.current.delete(linked.path);
       setPendingNotePath((current) => current === linked.path ? undefined : current);
     });
   }
 
   async function requestRename() {
-    if (mutationsFrozen.current) return;
+    if (mutationScope.current.isFrozen) return;
     const session = noteSessions.current.active;
     if (!session) return;
     const nextPath = safeRenamePath(pathDraft);
@@ -1191,7 +1193,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   async function performRename(plan: RenamePlan, updateRefs: boolean) {
-    if (mutationsFrozen.current) return;
+    if (mutationScope.current.isFrozen) return;
     const { session, from, to } = plan;
     const controller = new AbortController();
     setRenamePlan(undefined);
@@ -1264,7 +1266,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   async function saveProperties(path: string, next: Record<string, unknown>) {
-    if (mutationsFrozen.current) return;
+    if (mutationScope.current.isFrozen) return;
     const session = noteSessions.current.get(path);
     if (!session) return;
     setPropertiesError(undefined);
@@ -1302,7 +1304,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   async function saveRecordSource(path: string, source: string, previousSource: string): Promise<NoteDocument | false> {
-    if (mutationsFrozen.current) return false;
+    if (mutationScope.current.isFrozen) return false;
     const session = noteSessions.current.get(path);
     if (!session || session.deleted) return false;
     if (noteSessions.current.active === session) setPropertiesError(undefined);
@@ -1369,7 +1371,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   async function requestDelete() {
-    if (mutationsFrozen.current) return;
+    if (mutationScope.current.isFrozen) return;
     const session = noteSessions.current.active;
     if (!session) return;
     const requestKey = `${session.document.path}\n${session.document.revision}`;
@@ -1398,7 +1400,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   function deleteNote(plan: DeletePlan) {
-    if (mutationsFrozen.current) return;
+    if (mutationScope.current.isFrozen) return;
     const { session } = plan;
     const path = session.document.path;
     const next = allNotes.find((note) => note.path !== path);
@@ -1438,12 +1440,13 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   async function undoRecovery() {
     const action = recoveryAction;
-    if (!action || recoveryBusy) return;
+    if (!action || recoveryBusy || mutationScope.current.isFrozen) return;
     setRecoveryBusy(true);
     setNotice(undefined);
     try {
       if (action.kind === "delete") {
-        const restored = await gateway.restore(action.document);
+        const token = mutationScope.current.token();
+        const restored = await mutationScope.current.register(token, gateway.restore(action.document));
         noteSessions.current.create(restored, typeDescriptors);
         indexController.create(summaryFromDocument(restored));
         setNotice(`Restored “${noteTitle(restored, typeDescriptors)}”.`);
@@ -1647,17 +1650,11 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   async function forgetConnection(collectionId: string) {
     const active = connectionSummary?.collectionId === collectionId;
     try {
-      if (active) await flushCollectionWork();
-      gateway.forgetConnection(collectionId);
+      if (active) await transitionCollection(() => gateway.forgetConnection(collectionId));
+      else gateway.forgetConnection(collectionId);
       setCollectionSwitcherOpen(false);
       setNotice(undefined);
-      if (active) {
-        clearCollectionWorkspace();
-        setPhase("disconnected");
-      }
-    } catch (error) {
-      setNotice(gatewayError(error));
-    }
+    } catch (error) { setNotice(gatewayError(error)); }
   }
 
   function requestForgetConnection(connection: ConnectionSummary, displayName?: string) {
@@ -1956,7 +1953,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
             <div className="path-wrap">
               {editingPath ? <form onSubmit={(event) => { event.preventDefault(); void requestRename(); }}>
                 <label className="sr-only" htmlFor="note-path">Markdown path</label>
-                <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => { if (!mutationsFrozen.current) setPathDraft(event.target.value); }} onBlur={() => void requestRename()} autoFocus />
+                <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} disabled={mutationsFrozen} autoFocus />
               </form> : <button className="path-button" onClick={() => setEditingPath(true)} title="Rename Markdown path"><span>{document.path}</span><Pencil aria-hidden="true" /></button>}
             </div>
             {!mobileLayout && <OutlineMenu headings={noteHeadings(draft.body)} onReveal={(line) => revealMarkdownLine(noteSessions.current.active?.editorSessionKey ?? document.path, line)} />}
@@ -1986,8 +1983,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
                 { label: "Note properties", icon: <Info aria-hidden="true" />, onSelect: () => { setBacklinksOpen(false); setPropertiesOpen(true); } }
               ] : []),
               attachmentMenuItem(attachments, canAttachFiles, () => void authorizeCollection("selected").catch((error) => setNotice(gatewayError(error)))),
-              { label: "Check note", icon: <Check aria-hidden="true" />, onSelect: () => void validateNote() },
-              { label: "Delete note", icon: <Trash2 aria-hidden="true" />, tone: "danger", onSelect: () => void requestDelete() }
+              { label: "Check note", icon: <Check aria-hidden="true" />, disabled: mutationsFrozen, onSelect: () => void validateNote() },
+              { label: "Delete note", icon: <Trash2 aria-hidden="true" />, tone: "danger", disabled: mutationsFrozen, onSelect: () => void requestDelete() }
             ]} />
           </header>
           <AttachmentTransfer controller={attachments} />
@@ -2000,7 +1997,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
           </div>}
           {deletePlan && deletePlan.session === noteSessions.current.active && <div className="delete-confirm" role="alert"><div><strong>Delete this note?</strong><span>{deletePlan.brokenLinkPaths.length > 0 ? `${deletePlan.brokenLinkPaths.length.toLocaleString()} ${deletePlan.brokenLinkPaths.length === 1 ? "note will keep a broken link" : "notes will keep broken links"}. ` : ""}You can undo the note deletion.</span></div><button onClick={() => setDeletePlan(undefined)}>Keep note</button><button className="danger-action" onClick={() => void deleteNote(deletePlan)}>Delete</button></div>}
           <MarkdownNoteEditor editorKey={noteSessions.current.active?.editorSessionKey ?? document.path}
-            draft={draft} preferences={preferences} documentId={noteSessions.current.active?.editorSessionKey}
+            draft={draft} preferences={preferences} documentId={noteSessions.current.active?.editorSessionKey} readOnly={mutationsFrozen}
             remoteApplyToken={remoteApplyToken} autoFocus={editorAutoFocus}
             currentPath={document.path} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames}
             embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes} files={fileInventory.files} notes={allNotes}
@@ -2170,49 +2167,6 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     <NotePreviewCard preview={notePreviewController.preview} />
     <ToastStack toasts={activeToasts} onDismiss={dismissToast} />
   </div>;
-}
-
-function updateMutationActivity(
-  session: NoteSession,
-  progress: MutationProgress,
-  touch: (target: NoteSession) => void
-): void {
-  if (progress.state === "preflighting") {
-    session.activityDetail = "Checking impact";
-  } else if (progress.state === "applying") {
-    if (progress.resumed) {
-      session.activityDetail = progress.operation === "rename" ? "Recovering rename" : "Recovering deletion";
-    } else if (progress.operation === "rename" && (progress.estimate?.affectedRecords ?? 0) > 0) {
-      const count = progress.estimate!.affectedRecords;
-      session.activityDetail = `Updating ${count.toLocaleString()} linked ${count === 1 ? "note" : "notes"}`;
-    } else {
-      session.activityDetail = progress.operation === "rename" ? "Moving note" : "Deleting note";
-    }
-  } else if (progress.state === "cancelled") {
-    session.activityDetail = "Stopping safely";
-  }
-  session.mutationCancellable = progress.cancellable;
-  touch(session);
-}
-
-function noteRowStatus(session: NoteSession): NoteRowStatus | undefined {
-  if (session.deleted) return { label: "Deleting", tone: "busy", busy: true, disabled: true };
-  if (session.remoteDocument) return { label: "Changed elsewhere", tone: "error", busy: false };
-  if (session.activity) {
-    const labels: Record<NoteActivity, string> = {
-      saving: "Saving",
-      properties: "Updating properties",
-      renaming: "Renaming",
-      moving: "Moving",
-      deleting: "Deleting",
-      validating: "Checking"
-    };
-    return { label: session.activityDetail ?? labels[session.activity], tone: "busy", busy: true };
-  }
-  if (session.saveState === "conflict") return { label: "Save failed", tone: "error", busy: false };
-  if (session.error) return { label: "Needs attention", tone: "error", busy: false };
-  if (session.saveState === "waiting") return { label: "Unsaved", tone: "quiet", busy: false };
-  return undefined;
 }
 
 function summaryFromDocument(document: NoteDocument): NoteSummary {

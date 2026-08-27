@@ -36,17 +36,18 @@ interface MarkdownNoteEditorProps {
   onVisibleFileEmbeds: (keys: string[]) => void;
   onVisibleNoteEmbeds: (keys: string[]) => void;
   autoFocus?: boolean;
+  readOnly?: boolean;
 }
 
 export function MarkdownNoteEditor({ editorKey, draft, preferences, documentId, currentPath, recentPaths,
   linkSuggestions, linkTypes, embeddedFiles, embeddedNotes, files, notes, insertion, remoteApplyToken, onTitleChange, onBodyChange,
   onOpenLink, onCreateLink, onPreviewLink, onDismissLinkPreview, onOpenFile, onOpenFileLink,
-  onVisibleFileEmbeds, onVisibleNoteEmbeds, autoFocus = true }: MarkdownNoteEditorProps) {
+  onVisibleFileEmbeds, onVisibleNoteEmbeds, autoFocus = true, readOnly = false }: MarkdownNoteEditorProps) {
   return <article className="writing-surface" style={{ "--editor-font-size": `${preferences.fontSize}px` } as CSSProperties}>
     <label className="sr-only" htmlFor="note-title">Note title</label>
-    <input id="note-title" className="title-input" value={draft.title} onChange={(event) => onTitleChange(event.target.value)} placeholder="Untitled" spellCheck="true" />
+    <input id="note-title" className="title-input" value={draft.title} onChange={(event) => onTitleChange(event.target.value)} placeholder="Untitled" spellCheck="true" readOnly={readOnly} aria-readonly={readOnly} />
     <Suspense fallback={<div className="body-editor code-editor-loading" role="status" aria-label="Loading note editor" aria-busy="true"><span /></div>}>
-      <CodeEditor key={editorKey} value={draft.body} onChange={onBodyChange} label="Note body" language="markdown"
+      <CodeEditor key={editorKey} value={draft.body} onChange={onBodyChange} label="Note body" language="markdown" readOnly={readOnly}
         variant="writer" placeholder="Start writing" vimEnabled={preferences.vim} lineWrapping={preferences.lineWrapping}
         quietMarkdown={preferences.quietMarkdown} autoFocus={autoFocus} className="body-editor" documentId={documentId}
         currentPath={currentPath} recentPaths={recentPaths} linkSuggestions={linkSuggestions} linkTypes={linkTypes}

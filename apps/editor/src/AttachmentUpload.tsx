@@ -6,6 +6,7 @@ import { FilePlusIcon as FilePlus } from "./icons";
 import type { FileInventoryController } from "./file-inventory-controller";
 import type { CollectionFile, CollectionGateway } from "./model";
 import type { NoteSession } from "./note-session";
+import type { CollectionMutationScope } from "./collection-mutation-scope";
 
 interface AttachmentUploadState {
   name: string;
@@ -16,6 +17,7 @@ export interface AttachmentUploadController {
   input: React.RefObject<HTMLInputElement | null>;
   upload?: AttachmentUploadState;
   insertion?: { id: number; text: string; block: true };
+  disabled: boolean;
   attach(files: readonly File[]): Promise<void>;
 }
 
@@ -24,6 +26,7 @@ export function useAttachmentUpload(input: {
   inventory: FileInventoryController;
   inventoryFiles: readonly CollectionFile[];
   activeSession: () => NoteSession | undefined;
+  scope: CollectionMutationScope;
   setNotice: (message?: string, tone?: "info" | "success" | "error") => void
 }): AttachmentUploadController {
   const fileInput = useRef<HTMLInputElement>(null);
@@ -33,6 +36,7 @@ export function useAttachmentUpload(input: {
 
   async function attach(files: readonly File[]) {
     const session = input.activeSession();
+    const token = input.scope.token();
     if (!session || files.length === 0) return;
     const occupiedPaths = new Set(input.inventoryFiles.map((file) => normalizedFilePath(file.path)));
     const references: string[] = [];
@@ -41,14 +45,17 @@ export function useAttachmentUpload(input: {
     for (const source of files) {
       const path = availableAttachmentPath(session.document.path, source.name, occupiedPaths);
       occupiedPaths.add(normalizedFilePath(path));
+      if (!input.scope.isCurrent(token)) return;
       setUpload({ name: source.name });
       try {
-        const uploaded = await input.gateway.uploadFile(path, source, {
-          onProgress: (progress) => setUpload({ name: source.name, progress })
-        });
+        const uploaded = await input.scope.register(token, input.gateway.uploadFile(path, source, {
+          onProgress: (progress) => { if (input.scope.isCurrent(token)) setUpload({ name: source.name, progress }); }
+        }));
+        if (!input.scope.isCurrent(token)) return;
         input.inventory.upsert(uploaded);
         references.push(attachmentReference(uploaded));
       } catch (error) {
+        if (!input.scope.isCurrent(token)) return;
         input.setNotice(`Couldn’t attach “${source.name}”. ${gatewayError(error)}`);
         setUpload(undefined);
         return;
@@ -64,7 +71,7 @@ export function useAttachmentUpload(input: {
     input.setNotice(`${files.length === 1 ? `Uploaded “${files[0]?.name ?? "attachment"}”` : `Uploaded ${files.length.toLocaleString()} files`}. The collection file is committed; the note link is saving separately.`, "success");
   }
 
-  return { input: fileInput, upload, insertion, attach };
+  return { input: fileInput, upload, insertion, disabled: input.scope.isFrozen, attach };
 }
 
 export function attachmentMenuItem(
@@ -75,7 +82,7 @@ export function attachmentMenuItem(
   return canAttach ? {
     label: controller.upload ? "Attaching file…" : "Attach file…",
     icon: <FilePlus aria-hidden="true" />,
-    disabled: Boolean(controller.upload),
+    disabled: Boolean(controller.upload) || controller.disabled,
     onSelect: () => controller.input.current?.click()
   } : {
     label: "Request attachment access",
@@ -93,6 +100,7 @@ export function AttachmentTransfer({ controller }: { controller: AttachmentUploa
       multiple
       tabIndex={-1}
       aria-hidden="true"
+      disabled={controller.disabled}
       onChange={(event) => {
         const files = [...(event.currentTarget.files ?? [])];
         event.currentTarget.value = "";
