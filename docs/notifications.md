@@ -63,12 +63,20 @@ into a notification. Each grant stores an exact copy of the criteria locally
 or at the hosted authority, which remains the final authorization boundary
 immediately before dispatch.
 
-The authorized grant stores an exact snapshot of each criterion. Rediscovery
-may remove a criterion that disappeared or changed, but it never adds or
-rewrites one on an existing grant. Registration returns
-`notification_reauthorization_required` if the application selects a new or
-changed criterion; run the ordinary authorization flow again so the user can
-review it.
+The authorized grant stores an exact snapshot of each criterion. An effective
+manifest change has a new normalized digest and therefore creates a distinct
+application UUID with no inherited grants. Existing grants remain pinned to
+the old UUID and signed digest. They are never migrated by family identity;
+the new version uses the ordinary authorization flow so the user can review
+it.
+
+Registration only validates discovery data and durably coalesces one repair
+scan for that exact application. It returns without waiting for provider or
+relay work. A leased background worker periodically scans active grants and may
+remove criteria no longer declared by that exact version, but it never adds or
+rewrites authorized criteria. Provider synchronization uses the declaration
+identity from each grant's signed authorization proof. Repair failures remain
+pending for bounded retry and do not make registration fail.
 
 `mdbase.runtime.timer.fired` is the portable scheduling event. The authority stores one-shot,
 generation-fenced timers durably and fires overdue timers once after restart.
