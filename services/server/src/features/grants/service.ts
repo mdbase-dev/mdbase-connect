@@ -12,6 +12,7 @@ import type {
   NotificationCriterion
 } from "@mdbase-dev/connect-protocol";
 import type { DatabasePool, DatabaseQueryable } from "../../db.js";
+import { parsePersistedApplicationAuthorization } from "../../application-authorization.js";
 import {
   quarantineMissingHostedCollection,
   queueHostedGrantRevocation
@@ -142,6 +143,9 @@ export async function syncHostedNotificationGrant(
     await provider.revokeNotificationGrant(row.collection_id, row.id);
     return;
   }
+  row.application_authorization = parsePersistedApplicationAuthorization(
+    row.application_authorization
+  );
   const grant: GrantSummary = {
     id: row.id,
     application_id: row.application_id,
@@ -307,6 +311,9 @@ export async function reconcileApplicationGrants(
         || isContractSubset(desiredScope.contracts, grant.scope.contracts));
     if ((scopeMatches || mayNarrow) && collectionCompatible && fileCapabilityMatches) {
       if (grant.hosted_replica_id) {
+        grant.application_authorization = parsePersistedApplicationAuthorization(
+          grant.application_authorization
+        );
         if (!hostedProvider) {
           throw new Error("Hosted provider unavailable during grant reconciliation.");
         }
@@ -349,7 +356,7 @@ export async function reconcileApplicationGrants(
             applicationDeclarationId:
               grant.application_authorization.binding.application_declaration_id,
             applicationDeclarationDigest:
-              grant.application_authorization.binding.application_manifest_digest
+              `sha256:${grant.application_authorization.binding.application_manifest_digest}`
           });
         } catch (error) {
           const missingCode = missingHostedResourceCode(error);

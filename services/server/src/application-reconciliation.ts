@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { ApplicationNotifications, ApplicationRequirements } from "@mdbase-dev/connect-protocol";
 import type { DatabasePool } from "./db.js";
-import { ApplicationAuthorizationError } from "./application-authorization.js";
+import {
+  ApplicationAuthorizationError,
+  MalformedPersistedApplicationAuthorizationError
+} from "./application-authorization.js";
 import { HostedProviderResponseError, HostedProviderUnavailableError, type HostedProviderClient } from "./hosted-provider.js";
 import { RelayUnavailableError } from "./relay-errors.js";
 import type { RelayHub } from "./relay.js";
@@ -121,12 +124,17 @@ export class ApplicationReconciliationWorker {
     const token = randomUUID();
     const claimed = (await this.db.query<{ application_id: string; cursor_grant_id: string | null; phase: "scan" | "retry" }>(
       `UPDATE application_reconciliation_jobs SET state='leased',lease_token=$1,
-         lease_expires_at=now()+(($3::text || ' milliseconds')::interval),attempts=attempts+1,updated_at=now()
+         lease_expires_at=now()+(($3::text || ' milliseconds')::interval),
+         phase=CASE WHEN state='completed' THEN 'scan' ELSE phase END,
+         cursor_grant_id=CASE WHEN state='completed' THEN NULL ELSE cursor_grant_id END,
+         attempts=attempts+1,updated_at=now()
        WHERE application_id=(SELECT application_id FROM application_reconciliation_jobs
          WHERE available_at<=now() AND NOT (application_id=ANY($2::uuid[]))
-           AND (state='pending' OR (state='leased' AND lease_expires_at<=now()))
+           AND (state='pending' OR (state='leased' AND lease_expires_at<=now())
+             OR (state='completed' AND next_scan_at<=now()))
          ORDER BY available_at,application_id LIMIT 1)
-         AND (state='pending' OR (state='leased' AND lease_expires_at<=now()))
+         AND (state='pending' OR (state='leased' AND lease_expires_at<=now())
+           OR (state='completed' AND next_scan_at<=now()))
        RETURNING application_id,cursor_grant_id,phase`,
       [token, excluded, this.timing.leaseMs])).rows[0];
     if (!claimed) return null;
@@ -265,12 +273,21 @@ export class ApplicationReconciliationWorker {
         (application_id,grant_id,status,error_class,consecutive_attempts,next_retry_at)
       SELECT $1,$3,'retryable',$4,1,now()+(($5::text || ' milliseconds')::interval) FROM owned
       ON CONFLICT (application_id,grant_id) DO UPDATE SET
-        consecutive_attempts=application_reconciliation_results.consecutive_attempts+1,
+        consecutive_attempts=CASE
+          WHEN application_reconciliation_results.error_class=excluded.error_class
+          THEN application_reconciliation_results.consecutive_attempts+1 ELSE 1 END,
         error_class=excluded.error_class,last_attempted_at=now(),updated_at=now(),
-        status=CASE WHEN $6 AND application_reconciliation_results.consecutive_attempts+1 >= $7 THEN 'quarantined' ELSE 'retryable' END,
-        next_retry_at=CASE WHEN $6 AND application_reconciliation_results.consecutive_attempts+1 >= $7
+        status=CASE WHEN $6 AND (CASE
+          WHEN application_reconciliation_results.error_class=excluded.error_class
+          THEN application_reconciliation_results.consecutive_attempts+1 ELSE 1 END) >= $7
+          THEN 'quarantined' ELSE 'retryable' END,
+        next_retry_at=CASE WHEN $6 AND (CASE
+          WHEN application_reconciliation_results.error_class=excluded.error_class
+          THEN application_reconciliation_results.consecutive_attempts+1 ELSE 1 END) >= $7
           THEN now()+(($8::text || ' milliseconds')::interval)
-          ELSE now()+((LEAST($9::integer,$10::integer*CASE LEAST(10,application_reconciliation_results.consecutive_attempts)
+          ELSE now()+((LEAST($9::integer,$10::integer*CASE LEAST(10,CASE
+            WHEN application_reconciliation_results.error_class=excluded.error_class
+            THEN application_reconciliation_results.consecutive_attempts ELSE 0 END)
             WHEN 1 THEN 2 WHEN 2 THEN 4 WHEN 3 THEN 8 WHEN 4 THEN 16 WHEN 5 THEN 32
             WHEN 6 THEN 64 WHEN 7 THEN 128 WHEN 8 THEN 256 WHEN 9 THEN 512 ELSE 1024 END)::integer::text || ' milliseconds')::interval) END
       RETURNING 1
@@ -294,8 +311,8 @@ export function classifyError(error: unknown): ErrorClass {
   if (error instanceof Error && error.name === "AbortError") return "timeout";
   if (error instanceof HostedProviderUnavailableError || error instanceof HostedProviderResponseError) return "provider";
   if (error instanceof RelayUnavailableError || (error instanceof Error && error.name === "ConnectorOperationError")) return "relay";
+  if (error instanceof MalformedPersistedApplicationAuthorizationError) return "malformed_proof";
   if (error instanceof ApplicationAuthorizationError) return "ownership";
-  if (error instanceof SyntaxError || error instanceof TypeError) return "malformed_proof";
   return "internal";
 }
 function delay(ms: number): Promise<void> { return new Promise((resolve) => setTimeout(resolve, ms)); }

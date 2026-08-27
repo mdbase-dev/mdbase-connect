@@ -2160,7 +2160,7 @@ describe("mdbase connect server", () => {
         allowedOrigin: "http://localhost:4173",
         proofPublicKey: expect.any(String),
         applicationDeclarationId: manifestServer.manifest.id,
-        applicationDeclarationDigest: applicationManifestDigest
+        applicationDeclarationDigest: `sha256:${applicationManifestDigest}`
       })
     );
     const reconciled = await db.query<{ allowed_types: string[] }>(
