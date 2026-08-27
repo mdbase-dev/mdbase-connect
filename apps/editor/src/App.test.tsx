@@ -948,11 +948,12 @@ describe("mdbase editor", () => {
       connections: [{ collectionId: "saved-notes", displayName: "Saved Notes", operations: [] }]
     };
     const unselected: CollectionSessionSnapshot = { status: "unselected", connections: [] };
+    let current: CollectionSessionSnapshot = failed;
     const startSession = vi.fn()
-      .mockResolvedValueOnce(failed)
-      .mockResolvedValueOnce(unselected);
+      .mockImplementationOnce(async () => failed)
+      .mockImplementationOnce(async () => { current = unselected; return unselected; });
     lifecycle.startSession = startSession;
-    lifecycle.sessionSnapshot = () => failed;
+    lifecycle.sessionSnapshot = () => current;
     lifecycle.onSessionChange = () => () => undefined;
 
     render(<App gateway={lifecycle} />);

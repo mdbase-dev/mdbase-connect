@@ -18,14 +18,16 @@ class SwitchGateway extends DemoCollectionGateway {
   current: "a" | "b" = "a";
   documents = { a: note("a"), b: note("b") };
   authorizeGate = deferred<void>(); updateGate = deferred<void>();
-  authorizeCalls = 0; describeCalls = 0; updateCalls: SaveNoteInput[] = []; events: string[] = [];
+  authorizeCalls = 0; describeCalls = 0; forgetCalls: string[] = []; updateCalls: SaveNoteInput[] = []; events: string[] = [];
   private sessionListener?: (snapshot: CollectionSessionSnapshot) => void;
   sessionSnapshot(): CollectionSessionSnapshot { const current = connection(this.current); return { status: "ready", connection: current, connections: [connection("a"), connection("b")] }; }
   async startSession() { return this.sessionSnapshot(); }
   onSessionChange(listener: (snapshot: CollectionSessionSnapshot) => void) { this.sessionListener = listener; listener(this.sessionSnapshot()); return () => { this.sessionListener = undefined; }; }
   emitSnapshot(snapshot: CollectionSessionSnapshot) { this.sessionListener?.(snapshot); }
   protected currentConnection() { return connection(this.current); }
+  selectConnection(collectionId: string) { this.current = collectionId as "a" | "b"; return connection(this.current); }
   async authorize(_target: CollectionAuthorizationTarget) { this.authorizeCalls += 1; this.events.push("authorize"); await this.authorizeGate.promise; this.current = "b"; }
+  forgetConnection(collectionId: string) { this.forgetCalls.push(collectionId); this.events.push("forget"); }
   async describe(): Promise<CollectionDescription> { this.describeCalls += 1; const id = this.current, base = await super.describe(); return { ...base, collectionId: id, displayName: id === "a" ? "Collection A" : "Collection B", types: base.types.map((type) => ({ ...type, name: id === "a" ? "alpha" : "bravo" })) }; }
   async list(options: NoteIndexRequest = {}): Promise<NoteIndexResult> { const value = this.documents[this.current], { revision: _revision, ...rest } = value, summary = { ...rest, file: { ...value.file, path: value.path } }; options.onProgress?.({ notes: [summary], snapshot: this.current, structureComplete: true, complete: true, contentComplete: true, contentLoaded: 1, total: 1 }); return { notes: [summary], snapshot: this.current }; }
   async hydrateContent(options: NoteIndexRequest = {}) { return this.list(options); }
@@ -59,6 +61,17 @@ describe("App collection switch ownership", () => {
     expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("Bravo body");
     act(() => gateway.emitSnapshot({ status: "ready", connection: connection("a"), connections: [connection("a"), connection("b")] }));
     expect(screen.getByRole("heading", { name: "Collection B" })).toBeInTheDocument();
+  });
+
+  it("serializes saved selection behind registered A work", async () => {
+    const gateway = new SwitchGateway(); const user = userEvent.setup(); render(<App gateway={gateway} />);
+    const body = await screen.findByRole("textbox", { name: "Note body" }); await user.type(body, " saved selection");
+    const rail = screen.getByRole("complementary", { name: "Collection navigation" });
+    await user.click(within(rail).getByRole("button", { name: /Switch collection/ }));
+    await user.click(screen.getByRole("button", { name: /Collection B/ }));
+    await waitFor(() => expect(gateway.updateCalls).toHaveLength(1));
+    expect(gateway.current).toBe("a"); gateway.updateGate.resolve();
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Bravo note"));
   });
 
   it("routes authoritative startup events and same-collection reconnects through the draining transition", async () => {

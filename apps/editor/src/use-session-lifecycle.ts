@@ -13,7 +13,8 @@ export function useSessionLifecycle({ gateway, acceptSnapshot, setNotice }: {
     try {
       const snapshot = await gateway.startSession();
       if (generation !== requestGeneration.current) return;
-      await acceptSnapshot(snapshot);
+      const current = gateway.sessionSnapshot();
+      await acceptSnapshot(sameAuthoritativeSnapshot(snapshot, current) ? snapshot : current);
     } catch (error) {
       if (generation === requestGeneration.current) setNotice(gatewayError(error));
     }

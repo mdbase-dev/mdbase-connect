@@ -16,65 +16,90 @@ interface TransitionInput {
   setSnapshot: Dispatch<SetStateAction<CollectionSessionSnapshot>>;
 }
 
+type OwnershipChange = () => Promise<CollectionSessionSnapshot | void> | CollectionSessionSnapshot | void;
+
 export function useCollectionTransition(input: TransitionInput) {
   const latest = useRef(input);
   latest.current = input;
-  const flight = useRef<Promise<void> | undefined>(undefined);
-  const queued = useRef<(() => Promise<CollectionSessionSnapshot | null | void> | CollectionSessionSnapshot | null | void) | undefined>(undefined);
-  const queuedFlight = useRef<Promise<void> | undefined>(undefined);
-  const acceptedSignature = useRef<string | undefined>(undefined);
+  const serialTail = useRef<Promise<void>>(Promise.resolve());
+  const serialBusy = useRef(false);
+  const explicitFlight = useRef<Promise<void> | undefined>(undefined);
+  const acceptedSnapshot = useRef<string | undefined>(undefined);
 
-  const transition: (change: () => Promise<CollectionSessionSnapshot | null | void> | CollectionSessionSnapshot | null | void) => Promise<void> = useCallback((change) => {
-    if (flight.current) {
-      queued.current = change;
-      if (!queuedFlight.current) queuedFlight.current = flight.current.then(async () => {
-        const next = queued.current;
-        queued.current = undefined;
-        if (next) await transition(next);
-      }, (error: unknown) => {
-        queued.current = undefined;
-        throw error;
-      }).finally(() => { queuedFlight.current = undefined; });
-      return queuedFlight.current;
-    }
+  const enqueue = useCallback((task: () => Promise<void>): Promise<void> => {
+    let own: Promise<void>;
+    if (!serialBusy.current) {
+      serialBusy.current = true;
+      own = task();
+    } else own = serialTail.current.then(task, task);
+    const tail = own.then(() => undefined, () => undefined);
+    serialTail.current = tail;
+    void tail.finally(() => {
+      if (serialTail.current === tail) serialBusy.current = false;
+    });
+    return own;
+  }, []);
+
+  const execute = useCallback((change: OwnershipChange): Promise<void> => {
     const owner = latest.current;
     owner.scope.freeze();
     owner.setFrozen(true);
     const previousOwner = owner.currentOwner();
-    const operation = (async () => {
+    return (async () => {
       await owner.drain();
-      const accepted = await change();
-      if (accepted === null) return;
-      const snapshot = accepted ?? owner.gateway.sessionSnapshot();
+      const supplied = await change();
+      const current = owner.gateway.sessionSnapshot();
+      const snapshot = supplied && sameAuthority(supplied, current) ? supplied : current;
       const nextOwner = snapshotOwner(snapshot);
       if (nextOwner !== previousOwner) owner.clear();
       owner.scope.changeOwner(nextOwner);
       owner.setSnapshot(snapshot);
-      acceptedSignature.current = snapshotSignature(snapshot);
+      acceptedSnapshot.current = exactSnapshot(snapshot);
       if (snapshot.status === "ready" && missingCoreCapabilities(snapshot.connection).length === 0) {
         owner.setPhase("loading");
         await owner.start();
       } else owner.setPhase("disconnected");
     })().finally(() => {
-      if (flight.current === operation) flight.current = undefined;
       owner.scope.unfreeze();
       owner.setFrozen(false);
     });
-    flight.current = operation;
-    return operation;
   }, []);
 
-  const acceptSnapshot = useCallback((snapshot: CollectionSessionSnapshot) => {
-    const queuedBehindFlight = Boolean(flight.current);
-    return transition(() => queuedBehindFlight && acceptedSignature.current === snapshotSignature(snapshot) ? null : snapshot);
-  }, [transition]);
+  const transition = useCallback((change: OwnershipChange): Promise<void> => {
+    if (explicitFlight.current) return explicitFlight.current;
+    const operation = enqueue(() => execute(change));
+    explicitFlight.current = operation;
+    void operation.finally(() => {
+      if (explicitFlight.current === operation) explicitFlight.current = undefined;
+    }).catch(() => undefined);
+    return operation;
+  }, [enqueue, execute]);
+
+  const acceptSnapshot = useCallback((requested: CollectionSessionSnapshot): Promise<void> => {
+    const delayed = serialBusy.current;
+    return enqueue(async () => {
+      const owner = latest.current;
+      const authoritative = owner.gateway.sessionSnapshot();
+      const snapshot = sameAuthority(requested, authoritative) ? requested : authoritative;
+      if (delayed && acceptedSnapshot.current === exactSnapshot(snapshot)) return;
+      await execute(() => snapshot);
+    });
+  }, [enqueue, execute]);
+
   const authorize = useCallback((target: "selected" | "choose") =>
     transition(() => latest.current.gateway.authorize(target, { presentation: "popup" })), [transition]);
   return { transition, acceptSnapshot, authorize };
 }
 
-function snapshotSignature(snapshot: CollectionSessionSnapshot): string {
-  return `${snapshot.status}:${snapshotOwner(snapshot) ?? ""}`;
+function sameAuthority(left: CollectionSessionSnapshot, right: CollectionSessionSnapshot): boolean {
+  if (left.status !== right.status) return false;
+  if (left.status === "ready" && right.status === "ready") return left.connection.collectionId === right.connection.collectionId;
+  if (left.status === "unavailable" && right.status === "unavailable") return left.collectionId === right.collectionId;
+  return true;
+}
+
+function exactSnapshot(snapshot: CollectionSessionSnapshot): string {
+  return JSON.stringify(snapshot);
 }
 
 function snapshotOwner(snapshot: CollectionSessionSnapshot): string | undefined {

@@ -3,12 +3,39 @@ import { describe, expect, it, vi } from "vitest";
 import type { CollectionGateway, CollectionSessionSnapshot, ConnectionSummary } from "./model";
 import { useSessionLifecycle } from "./use-session-lifecycle";
 
+function deferredSnapshot() {
+  let resolve!: (snapshot: CollectionSessionSnapshot) => void;
+  const promise = new Promise<CollectionSessionSnapshot>((yes) => { resolve = yes; });
+  return { promise, resolve };
+}
+
 function ready(collectionId: string): CollectionSessionSnapshot {
   const connection: ConnectionSummary = { collectionId, operations: ["all"], missingCapabilities: [] };
   return { status: "ready", connection, connections: [connection] };
 }
 
 describe("useSessionLifecycle", () => {
+  it("routes current B when a deferred retry returns stale A", async () => {
+    let snapshot = ready("collection-a");
+    const retry = deferredSnapshot();
+    const gateway = {
+      startSession: vi.fn().mockResolvedValueOnce(snapshot).mockImplementationOnce(() => retry.promise),
+      sessionSnapshot: () => snapshot,
+      onSessionChange: vi.fn(() => () => undefined)
+    } as unknown as CollectionGateway;
+    const acceptSnapshot = vi.fn(async () => undefined);
+    const { result } = renderHook(() => useSessionLifecycle({ gateway, acceptSnapshot, setNotice: vi.fn() }));
+    await waitFor(() => expect(acceptSnapshot).toHaveBeenCalled());
+    acceptSnapshot.mockClear();
+    let request!: Promise<void>;
+    act(() => { request = result.current.retrySessionStart(); });
+    snapshot = ready("collection-b");
+    retry.resolve(ready("collection-a"));
+    await act(async () => { await request; });
+    expect(acceptSnapshot).toHaveBeenCalledOnce();
+    expect(acceptSnapshot).toHaveBeenCalledWith(snapshot);
+  });
+
   it("routes initial, retry, and authoritative events through the transition callback", async () => {
     let snapshot = ready("collection-a");
     let publish: ((next: CollectionSessionSnapshot) => void) | undefined;
