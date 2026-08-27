@@ -26,7 +26,7 @@ export class CollectionMutationScope {
   }
 
   isCurrent = (token: CollectionScopeToken): boolean =>
-    token.epoch === this.epoch && token.collectionId === this.owner;
+    !this.frozen && this.owns(token);
 
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
@@ -59,7 +59,7 @@ export class CollectionMutationScope {
   /** Register coordinator work which was accepted before a transition froze input. */
   register<T>(token: CollectionScopeToken, promise: Promise<T>): Promise<T> {
     const bounded = promise.then((value) => {
-      if (!this.isCurrent(token)) throw new StaleCollectionOperationError();
+      if (!this.owns(token)) throw new StaleCollectionOperationError();
       return value;
     });
     this.pending.add(bounded);
@@ -80,6 +80,10 @@ export class CollectionMutationScope {
       }
     }
     if (failed) throw failure;
+  }
+
+  private owns(token: CollectionScopeToken): boolean {
+    return token.epoch === this.epoch && token.collectionId === this.owner;
   }
 
   private publish(): void { for (const listener of this.listeners) listener(); }

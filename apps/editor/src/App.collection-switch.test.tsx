@@ -4,9 +4,15 @@ import { describe, expect, it, vi } from "vitest";
 import type { CollectionDescription } from "@mdbase-dev/connect";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
-import type { CollectionAuthorizationTarget, CollectionFile, CollectionSessionSnapshot, ConnectionSummary, NoteDocument, NoteIndexRequest, NoteIndexResult, SaveNoteInput } from "./model";
+import type { CollectionAuthorizationTarget, CollectionFile, CollectionSessionSnapshot, ConnectionSummary, CreateNoteInput, FileUploadRequest, NoteDocument, NoteIndexRequest, NoteIndexResult, SaveNoteInput } from "./model";
 
 vi.mock("./CodeEditor", () => ({ CodeEditor: ({ value, onChange, label }: { value: string; onChange?: (value: string) => void; label: string }) => <textarea aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} /> }));
+vi.mock("./MarkdownNoteEditor", () => ({ MarkdownNoteEditor: ({ draft, insertion, onTitleChange, onBodyChange, onCreateLink }: { draft: { title: string; body: string }; insertion?: { text: string }; onTitleChange: (value: string) => void; onBodyChange: (value: string) => void; onCreateLink: (target: string, label: string | undefined, format: "wikilink") => void }) => <>
+  <input aria-label="Note title" value={draft.title} onChange={(event) => onTitleChange(event.target.value)} />
+  <textarea aria-label="Note body" value={draft.body} onChange={(event) => onBodyChange(event.target.value)} />
+  <button onClick={() => onCreateLink("Shared/linked.md", "Linked", "wikilink")}>Create hostile link</button>
+  {insertion && <output aria-label="Editor insertion">{insertion.text}</output>}
+</> }));
 vi.mock("@tanstack/react-virtual", () => ({ useVirtualizer: ({ count }: { count: number }) => ({ getTotalSize: () => count * 76, getVirtualItems: () => Array.from({ length: count }, (_, index) => ({ index, start: index * 76, size: 76 })) }) }));
 
 function deferred<T>() { let resolve!: (value: T) => void, reject!: (error: unknown) => void; const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
@@ -36,13 +42,101 @@ class SwitchGateway extends DemoCollectionGateway {
   async update(input: SaveNoteInput) { const owner = this.current; this.updateCalls.push(input); this.events.push("update:start"); await this.updateGate.promise; const saved = { ...this.documents[owner], body: input.body, revision: `${owner}-2` }; this.documents[owner] = saved; this.events.push("update:end"); return structuredClone(saved); }
 }
 
+class HostileGateway extends SwitchGateway {
+  createGate = deferred<void>(); uploadGate = deferred<void>();
+  createOwners: string[] = []; uploadOwners: string[] = [];
+  uploadProgress?: NonNullable<FileUploadRequest["onProgress"]>;
+  async create(input: CreateNoteInput) {
+    const owner = this.current; this.createOwners.push(owner); await this.createGate.promise;
+    const body = `# ${input.title}\n\n${input.body}`;
+    const created = { ...this.documents[owner], body, document: body, revision: `${owner}-created` };
+    this.documents[owner] = created;
+    return structuredClone(created);
+  }
+  async uploadFile(path: string, source: Parameters<DemoCollectionGateway["uploadFile"]>[1], options: FileUploadRequest = {}) {
+    const owner = this.current; this.uploadOwners.push(owner); this.uploadProgress = options.onProgress;
+    await this.uploadGate.promise;
+    return super.uploadFile(path, source, options);
+  }
+}
+
 async function requestSwitch(user: ReturnType<typeof userEvent.setup>) {
   const rail = screen.getByRole("complementary", { name: "Collection navigation" });
   await user.click(within(rail).getByRole("button", { name: /Switch collection/ }));
   await user.click(screen.getByRole("button", { name: "Connect another collection" }));
 }
 
+async function requestSavedSwitch(user: ReturnType<typeof userEvent.setup>) {
+  const rail = screen.getByRole("complementary", { name: "Collection navigation" });
+  await user.click(within(rail).getByRole("button", { name: /Switch collection/ }));
+  await user.click(screen.getByRole("button", { name: /Collection B/ }));
+  const confirm = screen.queryByRole("button", { name: "Switch collection" });
+  if (confirm) await user.click(confirm);
+}
+
+async function hostileHarness() {
+  const gateway = new HostileGateway(); const user = userEvent.setup(); render(<App gateway={gateway} />);
+  expect(await screen.findByRole("textbox", { name: "Note title" })).toHaveValue("Alpha note");
+  return { gateway, user };
+}
+
+async function finishSavedSwitch(gateway: HostileGateway) {
+  await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Bravo note"));
+  expect(gateway.current).toBe("b");
+}
+
 describe("App collection switch ownership", () => {
+  it("drains an ordinary A note creation before a saved switch and never publishes it into same-path B", async () => {
+    const { gateway, user } = await hostileHarness();
+    await user.click(screen.getByRole("button", { name: "New note" }));
+    await user.type(await screen.findByRole("textbox", { name: "Title" }), "Hostile create");
+    await user.type(screen.getByRole("textbox", { name: "Note body" }), "Owned by A");
+    await user.click(screen.getByRole("button", { name: "Create note" }));
+    await waitFor(() => expect(gateway.createOwners).toEqual(["a"]));
+
+    await requestSavedSwitch(user);
+    expect(gateway.current).toBe("a"); expect(screen.getByRole("textbox", { name: "Title" })).toHaveValue("Hostile create");
+    gateway.createGate.resolve();
+    await finishSavedSwitch(gateway);
+    expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("Bravo body");
+    expect(screen.queryByDisplayValue("Hostile create")).not.toBeInTheDocument();
+  });
+
+  it("drains linked-note creation from the real App callback before switching A to B", async () => {
+    const { gateway, user } = await hostileHarness();
+    await user.click(screen.getByRole("button", { name: "Create hostile link" }));
+    await waitFor(() => expect(gateway.createOwners).toEqual(["a"]));
+
+    await requestSavedSwitch(user);
+    expect(gateway.current).toBe("a"); expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Alpha note");
+    gateway.createGate.resolve();
+    await finishSavedSwitch(gateway);
+    expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("Bravo body");
+    expect(screen.queryByDisplayValue("Linked")).not.toBeInTheDocument();
+  });
+
+  it("contains deferred A attachment progress, completion, and insertion across a saved switch", async () => {
+    const { gateway, user } = await hostileHarness();
+    await user.click(screen.getByRole("button", { name: "More note actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Attach file…" }));
+    const input = document.querySelector<HTMLInputElement>(".attachment-input");
+    await user.upload(input!, new File(["pixels"], "hostile.png", { type: "image/png" }));
+    await waitFor(() => expect(gateway.uploadOwners).toEqual(["a"]));
+    act(() => gateway.uploadProgress?.({ phase: "uploading", transferredBytes: 2, totalBytes: 8 }));
+    expect(screen.getByRole("progressbar", { name: "Attachment progress for hostile.png" })).toHaveValue(2);
+
+    await requestSavedSwitch(user);
+    expect(gateway.current).toBe("a"); expect(screen.getByRole("progressbar")).toHaveValue(2);
+    gateway.uploadGate.resolve();
+    await finishSavedSwitch(gateway);
+    expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("Bravo body");
+    expect(screen.queryByLabelText("Editor insertion")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Uploaded “hostile\.png”/)).not.toBeInTheDocument();
+    act(() => gateway.uploadProgress?.({ phase: "uploading", transferredBytes: 8, totalBytes: 8 }));
+    expect(screen.queryByRole("progressbar", { name: "Attachment progress for hostile.png" })).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("Bravo body");
+  });
+
   it("flushes and freezes A before one shared authorization, then rejects stale same-path A publication", async () => {
     const gateway = new SwitchGateway(); const user = userEvent.setup(); render(<App gateway={gateway} />);
     const body = await screen.findByRole("textbox", { name: "Note body" }); expect(body).toHaveValue("Alpha body");
