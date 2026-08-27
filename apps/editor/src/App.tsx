@@ -582,7 +582,6 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       (error: unknown) => ({ error } as const)
     );
     setPhase("loading");
-    setNotice(undefined);
     setConnectionState("connected");
     setConnectionIssue(undefined);
     setNoteLoading(true);
@@ -591,6 +590,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       const nextDescription = await refreshDescription(current);
       if (!current() || !nextDescription) return;
       descriptionLoaded = true;
+      setNotice(undefined);
       setPhase("ready");
       const remembered = localStorage.getItem("mdbase-editor:last-note");
       let opened = remembered ? await openNote(remembered) : false;
@@ -615,7 +615,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }, [fileController, gateway, indexController, openNote, refreshDescription]);
 
   const { transition: transitionCollection, authorize: authorizeCollection, acceptSnapshot } = useCollectionTransition({
-    gateway, scope: mutationScope.current, currentOwner: () => workspaceCollectionId.current,
+    gateway, scope: mutationScope.current, currentOwner: () => mutationScope.current.token().collectionId,
     drain: flushCollectionWork, clear: clearCollectionWorkspace, start,
     setFrozen: setMutationsFrozen, setPhase, setSnapshot: setSessionSnapshot
   });
