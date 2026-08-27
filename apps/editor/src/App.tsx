@@ -35,6 +35,7 @@ import { reviewCatalogPackInstallation } from "./catalog-pack-installation";
 import type { AppPhase, ConnectionState, ContractCatalogLoadState, CreationContext, MobileHistoryState, MobilePane, Surface } from "./app-state-types";
 import { gatewayError, missingCoreCapabilities, missingTypeCapabilities } from "./gateway";
 import { useCollectionAuthorization } from "./collection-authorization";
+import { useTypeDefinitionLifecycle } from "./use-type-definition-lifecycle";
 import { OpeningScreen, TypeWorkspaceLoading } from "./LoadingScreens";
 import { MarkdownNoteEditor } from "./MarkdownNoteEditor";
 import { backlinksFor, linkSuggestions, unresolvedNoteTarget } from "./links";
@@ -53,8 +54,7 @@ import type {
   ConnectionSummary,
   CreateNoteInput,
   NoteDocument,
-  NoteSummary,
-  TypeDocument
+  NoteSummary
 } from "./model";
 import {
   editableNote,
@@ -197,12 +197,6 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [surface, setSurface] = useState<Surface>(initialEditorSurface);
   const [selectedTypeName, setSelectedTypeName] = useState<string>();
   const [typeWorkspace, setTypeWorkspace] = useState<"definition" | "packs">("definition");
-  const [typeDocument, setTypeDocument] = useState<TypeDocument>();
-  const [typeSource, setTypeSource] = useState("");
-  const [typeCreating, setTypeCreating] = useState(false);
-  const [typeLoading, setTypeLoading] = useState(false);
-  const [typeSaving, setTypeSaving] = useState(false);
-  const [typeError, setTypeError] = useState<string>();
   const [contractCatalog, setContractCatalog] = useState<ContractCatalogLoadState>({ status: "idle" });
   const [contractCatalogReload, setContractCatalogReload] = useState(0);
   const [saveState, setSaveState] = useState<SaveState>("saved");
@@ -236,8 +230,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [, setSessionTick] = useState(0);
   const documentGeneration = useRef(0);
   const navigationGeneration = useRef(0);
-  const typeGeneration = useRef(0);
   const typeDescriptorsRef = useRef<CollectionTypeDescriptor[]>(emptyTypeDescriptors);
+  const workspaceCollectionId = useRef<string | undefined>(undefined);
   const noteSessions = useRef(new NoteSessionStore());
   const noteHistory = useRef<NoteNavigationHistory>({ paths: [], index: -1 });
   const linkCreations = useRef(new Set<string>());
@@ -251,6 +245,17 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const setNotice = useCallback((message?: string, tone: ToastTone = "error") => {
     setNoticeState(message ? { message, tone } : undefined);
   }, []);
+  const publishTypeDescription = useCallback((next: CollectionDescription) => {
+    workspaceCollectionId.current = next.collectionId;
+    typeDescriptorsRef.current = next.types;
+    setDescription(next);
+  }, []);
+  const typeLifecycle = useTypeDefinitionLifecycle({ gateway, publishDescription: publishTypeDescription,
+    selectName: setSelectedTypeName, notify: setNotice });
+  const { document: typeDocument, source: typeSource, creating: typeCreating, loading: typeLoading,
+    saving: typeSaving, error: typeError, load: loadTypeSource, save: saveType, reset: resetTypeLifecycle,
+    clear: clearTypeLifecycle, beginCreate: beginTypeLifecycleCreate, setSource: setTypeSource,
+    discardChanges: discardTypeChanges, setError: setTypeError } = typeLifecycle;
   const notePreviewController = useNotePreview(gateway, allNotes, typeDescriptors);
   const fileWorkspace = useFileWorkspace(
     fileAssetStore,
@@ -263,7 +268,6 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     pendingFilePath, setPendingFilePath, openAsset: openFileAsset, setOpenAsset: setOpenFileAsset, embeddedFiles } = fileWorkspace;
   const attachments = useAttachmentUpload({ gateway, inventory: fileController,
     inventoryFiles: fileInventory.files, activeSession: () => noteSessions.current.active, setNotice });
-  useEffect(() => () => { typeGeneration.current += 1; }, []);
   useEffect(() => { savePreferences(preferences); }, [preferences]);
   useEffect(() => { saveLayoutPreferences(layout); }, [layout]);
   useEffect(() => { saveNoteSort(noteSort); }, [noteSort]);
@@ -344,6 +348,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   const refreshDescription = useCallback(async () => {
     const next = await gateway.describe();
+    workspaceCollectionId.current = next.collectionId;
     typeDescriptorsRef.current = next.types;
     setDescription(next);
     setSelectedTypeName((current) => next.types.some((type) => type.name === current) ? current : next.types[0]?.name);
@@ -360,25 +365,6 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       setConnectionIssue(gatewayError(error));
     }
   }, [fileController, loadIndex, refreshDescription]);
-
-  const loadTypeSource = useCallback(async (name: string) => {
-    const generation = ++typeGeneration.current;
-    setTypeCreating(false);
-    setTypeLoading(true);
-    setTypeError(undefined);
-    setTypeDocument(undefined);
-    setTypeSource("");
-    try {
-      const next = await gateway.readType(name);
-      if (generation !== typeGeneration.current) return;
-      setTypeDocument(next);
-      setTypeSource(next.document);
-    } catch (error) {
-      if (generation === typeGeneration.current) setTypeError(gatewayError(error));
-    } finally {
-      if (generation === typeGeneration.current) setTypeLoading(false);
-    }
-  }, [gateway]);
 
   const updateNoteSummary = useCallback((next: NoteDocument, previousPath = next.path) => {
     indexController.upsert(summaryFromDocument(next), previousPath);
@@ -612,6 +598,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     phase,
     start,
     beforeCollectionChange: clearCollectionWorkspace,
+    currentCollectionId: () => workspaceCollectionId.current,
     setSessionSnapshot
   });
 
@@ -891,11 +878,11 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     searchIndexCache.current.clear();
     navigationGeneration.current += 1;
     documentGeneration.current += 1;
-    typeGeneration.current += 1;
     noteSessions.current.clear();
     publishNoteHistory({ paths: [], index: -1 });
     linkCreations.current.clear();
     typeDescriptorsRef.current = emptyTypeDescriptors;
+    workspaceCollectionId.current = undefined;
     setDescription(undefined);
     setDocument(undefined);
     setDraft(undefined);
@@ -922,12 +909,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setQuickOpen(false);
     setConfirmation(undefined);
     setSelectedTypeName(undefined);
-    setTypeDocument(undefined);
-    setTypeSource("");
-    setTypeCreating(false);
-    setTypeLoading(false);
-    setTypeSaving(false);
-    setTypeError(undefined);
+    resetTypeLifecycle();
     setSaveState("saved");
     setNotice(undefined);
     setSearch("");
@@ -1495,15 +1477,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   function beginTypeCreate() {
     const begin = () => {
-      typeGeneration.current += 1;
       setTypeWorkspace("definition");
       setSelectedTypeName(undefined);
-      setTypeDocument(undefined);
-      setTypeSource(NEW_TYPE_SOURCE);
-      setTypeCreating(true);
-      setTypeLoading(false);
-      setTypeSaving(false);
-      setTypeError(undefined);
+      beginTypeLifecycleCreate(NEW_TYPE_SOURCE);
       setMobilePane("editor");
     };
     if (!typeDraftDirty()) {
@@ -1540,44 +1516,12 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   function finishCancelTypeCreate() {
     const next = description?.types[0]?.name;
-    setTypeCreating(false);
-    setTypeError(undefined);
     if (next) {
       setSelectedTypeName(next);
       void loadTypeSource(next);
     } else {
-      setTypeDocument(undefined);
-      setTypeSource("");
+      clearTypeLifecycle();
       setMobilePane("notes");
-    }
-  }
-
-  async function saveType() {
-    if (!typeCreating && !typeDocument) return;
-    const generation = ++typeGeneration.current;
-    const creating = typeCreating;
-    const source = typeSource;
-    const existing = typeDocument;
-    setTypeSaving(true);
-    setTypeError(undefined);
-    try {
-      const saved = creating
-        ? await gateway.createType(source)
-        : await gateway.updateType(existing!, source);
-      if (generation !== typeGeneration.current) return;
-      setTypeCreating(false);
-      setTypeDocument(saved);
-      setTypeSource(saved.document);
-      const nextDescription = await gateway.describe();
-      if (generation !== typeGeneration.current) return;
-      typeDescriptorsRef.current = nextDescription.types;
-      setDescription(nextDescription);
-      setSelectedTypeName(saved.name);
-      setNotice(creating ? `Created type “${saved.name}”.` : `Saved type “${saved.name}”.`);
-    } catch (error) {
-      if (generation === typeGeneration.current) setTypeError(gatewayError(error));
-    } finally {
-      if (generation === typeGeneration.current) setTypeSaving(false);
     }
   }
 
@@ -2101,13 +2045,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         saving={typeSaving}
         error={typeError}
         leadingActions={editorLeadingActions}
-        onSourceChange={(source) => { setTypeSource(source); setTypeError(undefined); }}
+        onSourceChange={setTypeSource}
         onSave={() => void saveType()}
-        onRevert={() => {
-          if (!typeDocument) return;
-          setTypeSource(typeDocument.document);
-          setTypeError(undefined);
-        }}
+        onRevert={discardTypeChanges}
         onCancel={cancelTypeCreate}
         onCreate={beginTypeCreate}
         onBrowsePacks={openTypePacks}
