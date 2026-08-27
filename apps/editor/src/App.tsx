@@ -813,6 +813,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const linkOptions = useMemo(() => linkSuggestions(allNotes, linkTypeNames, typeDescriptors), [allNotes, linkTypeNames, typeDescriptors]);
   const embeddedNotes = useEmbeddedNoteReferences(
     gateway,
+    { collectionId: workspaceCollectionId.current, epoch: collectionEpoch.current },
     draft?.body ?? "",
     allNotes,
     linkOptions,

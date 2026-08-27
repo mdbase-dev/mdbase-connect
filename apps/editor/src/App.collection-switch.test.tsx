@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useEffect } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { CollectionDescription } from "@mdbase-dev/connect";
 import { App } from "./App";
@@ -7,12 +8,17 @@ import { DemoCollectionGateway } from "./demo-gateway";
 import type { CollectionAuthorizationTarget, CollectionFile, CollectionSessionSnapshot, ConnectionSummary, CreateNoteInput, FileUploadRequest, MutationOperationOptions, NoteDocument, NoteIndexRequest, NoteIndexResult, SaveNoteInput } from "./model";
 
 vi.mock("./CodeEditor", () => ({ CodeEditor: ({ value, onChange, label }: { value: string; onChange?: (value: string) => void; label: string }) => <textarea aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} /> }));
-vi.mock("./MarkdownNoteEditor", () => ({ MarkdownNoteEditor: ({ draft, insertion, onTitleChange, onBodyChange, onCreateLink }: { draft: { title: string; body: string }; insertion?: { text: string }; onTitleChange: (value: string) => void; onBodyChange: (value: string) => void; onCreateLink: (target: string, label: string | undefined, format: "wikilink") => void }) => <>
+vi.mock("./MarkdownNoteEditor", () => ({ MarkdownNoteEditor: ({ draft, insertion, embeddedNotes, onTitleChange, onBodyChange, onCreateLink, onVisibleNoteEmbeds }: { draft: { title: string; body: string }; insertion?: { text: string }; embeddedNotes?: Array<{ key: string; body?: string }>; onTitleChange: (value: string) => void; onBodyChange: (value: string) => void; onCreateLink: (target: string, label: string | undefined, format: "wikilink") => void; onVisibleNoteEmbeds?: (keys: Set<string>) => void }) => {
+  const embedKeys = embeddedNotes?.map((embed) => embed.key).join("\n") ?? "";
+  useEffect(() => onVisibleNoteEmbeds?.(new Set(embedKeys ? embedKeys.split("\n") : [])), [embedKeys]);
+  return <>
   <input aria-label="Note title" value={draft.title} onChange={(event) => onTitleChange(event.target.value)} />
   <textarea aria-label="Note body" value={draft.body} onChange={(event) => onBodyChange(event.target.value)} />
   <button onClick={() => onCreateLink("Shared/linked.md", "Linked", "wikilink")}>Create hostile link</button>
   {insertion && <output aria-label="Editor insertion">{insertion.text}</output>}
-</> }));
+  {embeddedNotes?.map((embed, index) => <output aria-label="Embedded note" key={index}>{embed.body}</output>)}
+</>;
+} }));
 vi.mock("@tanstack/react-virtual", () => ({ useVirtualizer: ({ count }: { count: number }) => ({ getTotalSize: () => count * 76, getVirtualItems: () => Array.from({ length: count }, (_, index) => ({ index, start: index * 76, size: 76 })) }) }));
 
 function deferred<T>() { let resolve!: (value: T) => void, reject!: (error: unknown) => void; const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
@@ -53,6 +59,27 @@ class SwitchGateway extends DemoCollectionGateway {
   async read(_path: string) { return structuredClone(this.documents[this.current]); }
   async listFiles(): Promise<CollectionFile[]> { const [file] = await super.listFiles(); return [{ ...file!, path: `${this.current}.txt`, revision: `${this.current}-file` }]; }
   async update(input: SaveNoteInput) { const owner = this.current; this.updateCalls.push(input); this.events.push("update:start"); await this.updateGate.promise; const saved = { ...this.documents[owner], body: input.body, revision: `${owner}-2` }; this.documents[owner] = saved; this.events.push("update:end"); return structuredClone(saved); }
+}
+
+class EmbedSwitchGateway extends SwitchGateway {
+  readonly sourcePath = "Shared/source.md"; readonly targetPath = "Shared/target.md";
+  targetReads: string[] = [];
+  private ownedDocument(path: string) {
+    const owner = this.current, body = path === this.sourcePath ? "\n![[Shared/target.md]]\n" : `${owner.toUpperCase()} target body`;
+    const title = path === this.sourcePath ? "Source" : "Target";
+    return { ...note(owner), path, body, document: body, revision: `${owner}-${path}`, file: { ...note(owner).file, name: path.split("/").at(-1)!, folder: "Shared" }, frontmatter: { title }, effectiveFrontmatter: { title } };
+  }
+  async list(options: NoteIndexRequest = {}): Promise<NoteIndexResult> {
+    const summaries = [this.sourcePath, this.targetPath].map((item) => {
+      const owned = this.ownedDocument(item);
+      const { body: _body, document: _document, revision: _revision, ...value } = owned;
+      return { ...value, ...(item === this.sourcePath ? { body: owned.body } : {}), file: { ...value.file, path: item } };
+    });
+    options.onProgress?.({ notes: summaries, snapshot: this.current, structureComplete: true, complete: true, contentComplete: false, contentLoaded: 0, total: 2 });
+    return { notes: summaries, snapshot: this.current };
+  }
+  async hydrateContent(options: NoteIndexRequest = {}) { return this.list(options); }
+  async read(path: string) { if (path === this.targetPath) this.targetReads.push(this.current); return structuredClone(this.ownedDocument(path)); }
 }
 
 class HostileGateway extends SwitchGateway {
@@ -129,6 +156,19 @@ async function finishSavedSwitch(gateway: SwitchGateway) {
 }
 
 describe("App collection switch ownership", () => {
+  it.fails("invalidates same-path transclusion content on a saved selection with one mutable gateway", async () => {
+    const gateway = new EmbedSwitchGateway(), user = userEvent.setup();
+    render(<App gateway={gateway} />);
+    expect(await screen.findByRole("textbox", { name: "Note title" })).toHaveValue("source");
+    await waitFor(() => expect(screen.getByRole("Embedded note")).toHaveTextContent("A target body"));
+    expect(gateway.targetReads).toEqual(["a"]);
+    await requestSavedSwitch(user);
+    await waitFor(() => expect(gateway.current).toBe("b"));
+    expect(screen.queryByText("A target body")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("Embedded note")).toHaveTextContent("B target body"));
+    expect(gateway.targetReads).toEqual(["a", "b"]);
+  });
+
   it("drains an A structured-properties save before switching to same-path B", async () => {
     const { gateway, user } = await hostileHarness();
     await user.click(screen.getByRole("button", { name: "Note properties" }));
