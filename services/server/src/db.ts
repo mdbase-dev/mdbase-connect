@@ -40,6 +40,22 @@ export async function openDatabase(
       implementation: (value: string, from: string, to: string) =>
         value.split(from).join(to)
     });
+    // pg-mem does not parse PostgreSQL's row-locking clause. Keep production
+    // queries intact while letting ordinary in-memory tests exercise their
+    // non-concurrent semantics; real locking is covered by the PostgreSQL test.
+    memory.public.interceptQueries((sql) => {
+      if (!sql.includes("FOR UPDATE SKIP LOCKED")) return null;
+      const unlocked = sql.replace(/\s+FOR UPDATE SKIP LOCKED/g, "");
+      const cte = unlocked.match(/^\s*WITH candidate AS \(([\s\S]*?)\)\s*UPDATE /);
+      if (!cte) return memory.public.many(unlocked);
+      const compatible = unlocked
+        .replace(/^\s*WITH candidate AS \([\s\S]*?\)\s*(?=UPDATE )/, "")
+        .replace("FROM candidate WHERE job.application_id=candidate.application_id",
+          `WHERE application_id=(${cte[1]})`)
+        .replace(" AS job SET", " SET")
+        .replaceAll("job.", "");
+      return memory.public.many(compatible);
+    });
     const adapter = memory.adapters.createPg();
     pool = new adapter.Pool() as unknown as DatabasePool;
   } else {

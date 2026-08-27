@@ -123,19 +123,22 @@ export class ApplicationReconciliationWorker {
   private async claim(excluded: string[]): Promise<Claim | null> {
     const token = randomUUID();
     const claimed = (await this.db.query<{ application_id: string; cursor_grant_id: string | null; phase: "scan" | "retry" }>(
-      `UPDATE application_reconciliation_jobs SET state='leased',lease_token=$1,
-         lease_expires_at=now()+(($3::text || ' milliseconds')::interval),
-         phase=CASE WHEN state='completed' THEN 'scan' ELSE phase END,
-         cursor_grant_id=CASE WHEN state='completed' THEN NULL ELSE cursor_grant_id END,
-         attempts=attempts+1,updated_at=now()
-       WHERE application_id=(SELECT application_id FROM application_reconciliation_jobs
+      `WITH candidate AS (
+         SELECT application_id FROM application_reconciliation_jobs
          WHERE available_at<=now() AND NOT (application_id=ANY($2::uuid[]))
            AND (state='pending' OR (state='leased' AND lease_expires_at<=now())
              OR (state='completed' AND next_scan_at<=now()))
-         ORDER BY available_at,application_id LIMIT 1)
-         AND (state='pending' OR (state='leased' AND lease_expires_at<=now())
-           OR (state='completed' AND next_scan_at<=now()))
-       RETURNING application_id,cursor_grant_id,phase`,
+         ORDER BY available_at,application_id
+         FOR UPDATE SKIP LOCKED
+         LIMIT 1
+       )
+       UPDATE application_reconciliation_jobs AS job SET state='leased',lease_token=$1,
+         lease_expires_at=now()+(($3::text || ' milliseconds')::interval),
+         phase=CASE WHEN job.state='completed' THEN 'scan' ELSE job.phase END,
+         cursor_grant_id=CASE WHEN job.state='completed' THEN NULL ELSE job.cursor_grant_id END,
+         attempts=job.attempts+1,updated_at=now()
+       FROM candidate WHERE job.application_id=candidate.application_id
+       RETURNING job.application_id,job.cursor_grant_id,job.phase`,
       [token, excluded, this.timing.leaseMs])).rows[0];
     if (!claimed) return null;
     const application = (await this.db.query<Application>(`SELECT id,family_identity,manifest_digest,
