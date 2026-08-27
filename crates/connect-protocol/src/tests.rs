@@ -954,6 +954,38 @@ fn rust_sync_messages_match_the_canonical_wire_schema() {
 }
 
 #[test]
+fn protocol_discriminator_rejections_are_separate_from_the_generated_catalog_oracle() {
+    for (operation, input, message) in [
+        (
+            "unknown_operation",
+            serde_json::json!({}),
+            "Unknown collection operation.",
+        ),
+        (
+            "file_control",
+            serde_json::json!({"type": "unknown_file_control"}),
+            "Unknown file-control message type.",
+        ),
+        (
+            "sync",
+            serde_json::json!({"action": "unknown"}),
+            "Unknown sync action.",
+        ),
+        (
+            "create_type",
+            serde_json::json!({"action": "mutate"}),
+            "Collection operation input must not contain a sync action discriminator.",
+        ),
+    ] {
+        assert_eq!(
+            validate_operation_discriminators(operation, &input),
+            Err(message),
+            "{operation}: {input}"
+        );
+    }
+}
+
+#[test]
 fn generated_operation_catalog_classifies_collection_and_file_mutations() {
     assert!(is_mutating_operation("create", &serde_json::json!({})));
 
@@ -1013,7 +1045,7 @@ fn generated_operation_catalog_classifies_collection_and_file_mutations() {
     }
 
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../test-fixtures/operation-mutation-classification.json"
+        "../../../packages/protocol/schemas/operation-mutation-classification.v1.json"
     ))
     .unwrap();
     let mut covered_operations = std::collections::BTreeSet::new();

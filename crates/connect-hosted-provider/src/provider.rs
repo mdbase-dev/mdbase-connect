@@ -15,11 +15,11 @@ use mdbase::{
 };
 use mdbase_connect_protocol::{
     authority_file_hash, authority_manifest_digest as snapshot_manifest_digest,
-    ApplicationCollectionSetupProvisions, ApplicationCollectionSetupRequirements,
-    ApplicationProvisions, ApplicationRequirements, ApplyCollectionSetupInput, ApplyTypePackInput,
-    AssessCollectionSetupInput, AssessTypePackInput, AuthorityImportManifest,
-    AuthorityImportRecord, AuthorityImportRecordPage, AuthoritySnapshotRecord, CollectionChange,
-    CollectionChangesPage, CollectionContractDescriptor,
+    validate_operation_discriminators, ApplicationCollectionSetupProvisions,
+    ApplicationCollectionSetupRequirements, ApplicationProvisions, ApplicationRequirements,
+    ApplyCollectionSetupInput, ApplyTypePackInput, AssessCollectionSetupInput, AssessTypePackInput,
+    AuthorityImportManifest, AuthorityImportRecord, AuthorityImportRecordPage,
+    AuthoritySnapshotRecord, CollectionChange, CollectionChangesPage, CollectionContractDescriptor,
     CollectionContractImplementationDescriptor, CollectionDescription, CollectionTypeDescriptor,
     ContractRequirement, ContractSetupChoice, ContractSetupMode, FileAction, FileCapability,
     FileScope, GrantSummary, SyncChange, SyncChangesPage, SyncCollectionResources, SyncConflict,

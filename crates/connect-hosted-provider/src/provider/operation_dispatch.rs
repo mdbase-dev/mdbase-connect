@@ -34,6 +34,8 @@ impl HostedProvider {
             }
         };
         authorize_application_operation(&replica, operation, request_origin)?;
+        validate_operation_discriminators(operation, &input)
+            .map_err(|message| ApiError::bad_request("invalid_request", message))?;
         let mutating = mdbase_connect_protocol::is_mutating_operation(operation, &input);
         if mutating {
             if let Some(result) = self

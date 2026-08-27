@@ -6,7 +6,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const catalogPath = resolve(root, "packages/protocol/schemas/operation-catalog.v1.json");
 const typescriptPath = resolve(root, "packages/protocol/src/operations.ts");
 const rustPath = resolve(root, "crates/connect-protocol/src/collection_operations_generated.rs");
-const classificationFixturePath = resolve(root, "test-fixtures/operation-mutation-classification.json");
+const classificationFixturePath = resolve(root, "packages/protocol/schemas/operation-mutation-classification.v1.json");
 const catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
 const check = process.argv.includes("--check");
 
@@ -82,8 +82,7 @@ function classificationFixture(value) {
   }
   cases.push(
     { operation: "sync", input: { action: "changes", dry_run: true }, schema_version: 1, identifier: null },
-    { operation: "sync", input: { action: "mutate", dry_run: true }, schema_version: 1, identifier: "sync:mutate" },
-    { operation: "sync", input: { action: "unknown", dry_run: true }, schema_version: 1, identifier: null }
+    { operation: "sync", input: { action: "mutate", dry_run: true }, schema_version: 1, identifier: "sync:mutate" }
   );
   for (const message of value.file_control_messages) {
     const identifier = message.mutation ? `file_control:${message.id}` : null;
@@ -96,10 +95,6 @@ function classificationFixture(value) {
       });
     }
   }
-  cases.push(
-    { operation: "unknown_operation", input: { dry_run: true }, schema_version: null, identifier: null },
-    { operation: "file_control", input: { type: "unknown_file_control", dry_run: true }, schema_version: null, identifier: null }
-  );
   return { catalog_version: value.catalog_version, cases };
 }
 

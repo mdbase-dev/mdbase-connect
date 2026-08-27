@@ -582,6 +582,14 @@ impl AgentState {
                 .with_operation_outcome(ConnectOperationOutcome::Rejected),
             );
         }
+        if let Err(message) = validate_operation_discriminators(&envelope.operation, &input) {
+            return encrypted_problem_response(
+                &keys,
+                metadata,
+                ConnectProblem::new("invalid_request", message)
+                    .with_operation_outcome(ConnectOperationOutcome::Rejected),
+            );
+        }
         if let Some(problem) =
             context
                 .contracts

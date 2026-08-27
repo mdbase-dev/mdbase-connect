@@ -28,40 +28,6 @@ pub struct HostedMutationJournalDiagnostics {
     pub database_pool_idle: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct CanonicalMutationIdentity {
-    pub(super) operation_kind: String,
-    pub(super) input_schema_version: u32,
-    pub(super) input_digest: Vec<u8>,
-}
-
-pub(super) fn canonical_mutation_identity(
-    operation: &str,
-    input: &Value,
-) -> ApiResult<CanonicalMutationIdentity> {
-    let operation_kind = mdbase_connect_protocol::mutation_operation_identifier(operation, input)
-        .ok_or_else(|| {
-        ApiError::bad_request("invalid_request", "Operation is not a canonical mutation.")
-    })?;
-    let input_schema_version = mdbase_connect_protocol::operation_input_schema_version(
-        operation, input,
-    )
-    .ok_or_else(|| {
-        ApiError::bad_request(
-            "invalid_request",
-            "Mutation input schema version is unavailable.",
-        )
-    })?;
-    let input_digest = mdbase_connect_protocol::mutation_fingerprint_bytes(operation, input)
-        .map_err(|error| ApiError::bad_request("invalid_request", error.to_string()))?
-        .to_vec();
-    Ok(CanonicalMutationIdentity {
-        operation_kind: operation_kind.to_string(),
-        input_schema_version,
-        input_digest,
-    })
-}
-
 #[derive(Debug, Clone)]
 pub(super) struct HostedMutationLease {
     replica_id: Uuid,

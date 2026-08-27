@@ -11,7 +11,7 @@ import {
 } from "../dist/operations.js";
 
 const classificationFixture = JSON.parse(readFileSync(
-  new URL("../../../test-fixtures/operation-mutation-classification.json", import.meta.url),
+  new URL("../schemas/operation-mutation-classification.v1.json", import.meta.url),
   "utf8"
 ));
 
@@ -86,13 +86,11 @@ test("generated mutation-classification fixtures cover the complete catalog", ()
       entry.identifier,
       `${entry.operation} ${JSON.stringify(entry.input)}`
     );
-    let schemaVersion = null;
-    try {
-      schemaVersion = operationInputSchemaVersion(entry.operation, entry.input) ?? null;
-    } catch {
-      // Unknown discriminators are deliberately outside the canonical schema.
-    }
-    assert.equal(schemaVersion, entry.schema_version, `${entry.operation} schema`);
+    assert.equal(
+      operationInputSchemaVersion(entry.operation, entry.input),
+      entry.schema_version,
+      `${entry.operation} schema`
+    );
     if (COLLECTION_OPERATIONS.includes(entry.operation)) coveredCollections.add(entry.operation);
     if (entry.operation === "file_control" && FILE_CONTROL_MESSAGE_TYPES.includes(entry.input.type)) {
       coveredFiles.add(entry.input.type);
@@ -100,6 +98,14 @@ test("generated mutation-classification fixtures cover the complete catalog", ()
   }
   assert.deepEqual([...coveredCollections], [...COLLECTION_OPERATIONS]);
   assert.deepEqual([...coveredFiles], [...FILE_CONTROL_MESSAGE_TYPES]);
+});
+
+test("unknown discriminators are explicit schema rejections, not generated oracle cases", () => {
+  assert.throws(
+    () => operationInputSchemaVersion("file_control", { type: "unknown_file_control" }),
+    { message: "Unknown file-control message: unknown_file_control" }
+  );
+  assert.equal(mutationOperationIdentifier("sync", { action: "unknown" }), null);
 });
 
 test("file-control mutations share the canonical recovery identifiers", () => {

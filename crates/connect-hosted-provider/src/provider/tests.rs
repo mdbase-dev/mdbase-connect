@@ -1,4 +1,3 @@
-use super::mutation_journal::canonical_mutation_identity;
 use super::operation_dispatch::ensure_collection_setup_declaration_binding;
 use super::operation_input::validate_hosted_operation_input;
 use super::*;
@@ -44,74 +43,6 @@ fn hosted_changes_distinguishes_omitted_and_invalid_inputs() {
                 .code,
             "invalid_request",
             "input: {input}"
-        );
-    }
-}
-
-#[test]
-fn hosted_journal_identity_matrix_uses_canonical_production_fingerprints() {
-    let cases = [
-        (
-            "create_type",
-            json!({"document": "---\nname: test\n---\n", "dry_run": true}),
-            "create_type",
-        ),
-        (
-            "apply_type_pack",
-            json!({"pack": {}, "dry_run": true}),
-            "apply_type_pack",
-        ),
-        (
-            "apply_collection_setup",
-            json!({"setup": {}, "dry_run": true}),
-            "apply_collection_setup",
-        ),
-        (
-            "create_view_source",
-            json!({"name": "test", "dry_run": true}),
-            "create_view_source",
-        ),
-        (
-            "put_timer",
-            json!({"timer": {}, "dry_run": true}),
-            "put_timer",
-        ),
-        (
-            "sync",
-            json!({"action": "mutate", "mutation": {}, "dry_run": true}),
-            "sync:mutate",
-        ),
-        (
-            "file_control",
-            json!({"type": "move_file", "from": "a", "to": "b", "dry_run": true}),
-            "file_control:move_file",
-        ),
-    ];
-    for (operation, input, expected_kind) in cases {
-        let first = canonical_mutation_identity(operation, &input).unwrap();
-        let replay = canonical_mutation_identity(operation, &input).unwrap();
-        assert_eq!(first, replay, "{operation}");
-        assert_eq!(first.operation_kind, expected_kind, "{operation}");
-        assert_eq!(first.input_schema_version, 1, "{operation}");
-        assert_eq!(first.input_digest.len(), 32, "{operation}");
-    }
-
-    for (operation, input) in [
-        ("delete", json!({"path": "a", "dry_run": true})),
-        ("rename", json!({"from": "a", "to": "b", "dry_run": true})),
-        ("unknown_operation", json!({"dry_run": true})),
-        (
-            "file_control",
-            json!({"type": "unknown_file_control", "dry_run": true}),
-        ),
-        ("sync", json!({"action": "unknown", "dry_run": true})),
-    ] {
-        assert_eq!(
-            canonical_mutation_identity(operation, &input)
-                .unwrap_err()
-                .code,
-            "invalid_request",
-            "{operation} {input}"
         );
     }
 }

@@ -398,15 +398,6 @@
       "identifier": "sync:mutate"
     },
     {
-      "operation": "sync",
-      "input": {
-        "action": "unknown",
-        "dry_run": true
-      },
-      "schema_version": 1,
-      "identifier": null
-    },
-    {
       "operation": "file_control",
       "input": {
         "type": "list_files"
@@ -541,23 +532,6 @@
       },
       "schema_version": 1,
       "identifier": "file_control:abort_file_transfer"
-    },
-    {
-      "operation": "unknown_operation",
-      "input": {
-        "dry_run": true
-      },
-      "schema_version": null,
-      "identifier": null
-    },
-    {
-      "operation": "file_control",
-      "input": {
-        "type": "unknown_file_control",
-        "dry_run": true
-      },
-      "schema_version": null,
-      "identifier": null
     }
   ]
 }
