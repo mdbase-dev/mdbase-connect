@@ -4,7 +4,7 @@ import type {
   ApplicationProvisions,
   ApplicationRequirements
 } from "@mdbase-dev/connect-protocol";
-import type { DatabasePool } from "../../db.js";
+import type { DatabaseQueryable } from "../../db.js";
 import type { RegisteredApplicationManifest } from "../../manifest.js";
 
 export interface RegisteredApplication {
@@ -24,7 +24,7 @@ export interface RegisteredApplication {
 }
 
 export async function upsertApplication(
-  db: DatabasePool,
+  db: DatabaseQueryable,
   discovered: RegisteredApplicationManifest
 ): Promise<RegisteredApplication> {
   const application = await db.query<RegisteredApplication>(

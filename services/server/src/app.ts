@@ -146,9 +146,9 @@ export async function buildApp(options: BuildOptions) {
     options.db,
     relay,
     options.hostedProvider,
-    (error) => app.log.error(
-      { err: error },
-      "application reconciliation grant failed"
+    (event) => app.log.error(
+      { phase: event.phase, errorClass: event.errorClass },
+      "application reconciliation operation failed"
     )
   );
   const providerRevocations = options.hostedProvider
@@ -219,6 +219,11 @@ export async function buildApp(options: BuildOptions) {
     await relay.close();
   });
   notifications?.start();
+  // Test hook intentionally drains the same production worker; it does not
+  // bypass leases, cursors, result rows, or provider/relay behavior.
+  app.decorate("drainApplicationReconciliation", () =>
+    applicationReconciliation.drainUntilIdle()
+  );
   applicationReconciliation.start();
   providerRevocations?.start();
 

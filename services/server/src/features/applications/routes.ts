@@ -36,8 +36,25 @@ export function registerApplicationRoutes(
       input.manifest,
       options.allowInsecureManifests
     );
-    const application = await upsertApplication(options.db, registered);
-    await ensureApplicationReconciliation(options.db, application.id);
-    return { application };
+    // Discovery and its first durable job are atomic. ON CONFLICT DO NOTHING is
+    // intentional: re-registering an immutable exact application must not wake
+    // a completed scan or disturb an in-flight lease/cursor.
+    const connection = await options.db.connect();
+    try {
+      await connection.query("BEGIN");
+      const application = await upsertApplication(connection, registered);
+      await ensureApplicationReconciliation(connection, application.id);
+      await connection.query("COMMIT");
+      return { application };
+    } catch (error) {
+      try {
+        await connection.query("ROLLBACK");
+      } catch {
+        // Preserve the operation failure; rollback failure must not mask it.
+      }
+      throw error;
+    } finally {
+      connection.release();
+    }
   });
 }
