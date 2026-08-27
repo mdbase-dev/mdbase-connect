@@ -86,7 +86,7 @@ describe("useCollectionTransition serial ownership", () => {
     expect(state.input.start).toHaveBeenCalledTimes(shouldStart ? 2 : 1);
   });
 
-  it("revalidates stale queued snapshots and coalesces concurrent explicit actions", async () => {
+  it("revalidates stale queued snapshots", async () => {
     const state = setup(); const a = deferred<void>(); state.gates.set("a", a);
     let active!: Promise<void>, stale!: Promise<void>;
     act(() => { active = state.result.current.acceptSnapshot(ready("a")); });
@@ -95,10 +95,39 @@ describe("useCollectionTransition serial ownership", () => {
     state.setCurrent(ready("b")); a.resolve();
     await act(async () => { await Promise.all([active, stale]); });
     expect(state.starts).toEqual(["a", "b"]);
+  });
 
-    const change = vi.fn(async () => undefined);
+  it("executes every distinct explicit A to B to C change in order", async () => {
+    const state = setup(); const firstGate = deferred<void>(); const order: string[] = [];
+    let first!: Promise<void>, second!: Promise<void>, third!: Promise<void>;
+    act(() => {
+      first = state.result.current.transition(async () => { order.push("a"); await firstGate.promise; });
+      second = state.result.current.transition(() => { order.push("b"); state.setCurrent(ready("b")); });
+      third = state.result.current.transition(() => { order.push("c"); state.setCurrent(ready("c")); });
+    });
+    await waitFor(() => expect(order).toEqual(["a"])); firstGate.resolve();
+    await act(async () => { await Promise.all([first, second, third]); });
+    expect(order).toEqual(["a", "b", "c"]); expect(state.starts).toEqual(["a", "b", "c"]);
+  });
+
+  it("isolates an explicit B failure and continues with queued C", async () => {
+    const state = setup(); const firstGate = deferred<void>(); const failure = new Error("B failed"); const order: string[] = [];
+    let first!: Promise<void>, second!: Promise<void>, third!: Promise<void>;
+    act(() => {
+      first = state.result.current.transition(async () => { order.push("a"); await firstGate.promise; });
+      second = state.result.current.transition(() => { order.push("b"); throw failure; });
+      third = state.result.current.transition(() => { order.push("c"); state.setCurrent(ready("c")); });
+    });
+    firstGate.resolve(); await expect(first).resolves.toBeUndefined();
+    await expect(second).rejects.toBe(failure); await expect(third).resolves.toBeUndefined();
+    expect(order).toEqual(["a", "b", "c"]);
+  });
+
+  it("single-flights overlapping authorization popups", async () => {
+    const state = setup(); const popup = deferred<void>(); state.input.gateway.authorize = vi.fn(() => popup.promise);
     let first!: Promise<void>, second!: Promise<void>;
-    act(() => { first = state.result.current.transition(change); second = state.result.current.transition(change); });
-    expect(first).toBe(second); await act(async () => { await first; }); expect(change).toHaveBeenCalledOnce();
+    act(() => { first = state.result.current.authorize("choose"); second = state.result.current.authorize("choose"); });
+    expect(first).toBe(second); await waitFor(() => expect(state.input.gateway.authorize).toHaveBeenCalledOnce());
+    popup.resolve(); await act(async () => { await first; });
   });
 });

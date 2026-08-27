@@ -23,7 +23,7 @@ export function useCollectionTransition(input: TransitionInput) {
   latest.current = input;
   const serialTail = useRef<Promise<void>>(Promise.resolve());
   const serialBusy = useRef(false);
-  const explicitFlight = useRef<Promise<void> | undefined>(undefined);
+  const authorizationFlight = useRef<Promise<void> | undefined>(undefined);
   const acceptedSnapshot = useRef<string | undefined>(undefined);
 
   const enqueue = useCallback((task: () => Promise<void>): Promise<void> => {
@@ -64,15 +64,8 @@ export function useCollectionTransition(input: TransitionInput) {
     });
   }, []);
 
-  const transition = useCallback((change: OwnershipChange): Promise<void> => {
-    if (explicitFlight.current) return explicitFlight.current;
-    const operation = enqueue(() => execute(change));
-    explicitFlight.current = operation;
-    void operation.finally(() => {
-      if (explicitFlight.current === operation) explicitFlight.current = undefined;
-    }).catch(() => undefined);
-    return operation;
-  }, [enqueue, execute]);
+  const transition = useCallback((change: OwnershipChange): Promise<void> =>
+    enqueue(() => execute(change)), [enqueue, execute]);
 
   const acceptSnapshot = useCallback((requested: CollectionSessionSnapshot): Promise<void> => {
     const delayed = serialBusy.current;
@@ -84,8 +77,15 @@ export function useCollectionTransition(input: TransitionInput) {
     });
   }, [enqueue, execute]);
 
-  const authorize = useCallback((target: "selected" | "choose") =>
-    transition(() => latest.current.gateway.authorize(target, { presentation: "popup" })), [transition]);
+  const authorize = useCallback((target: "selected" | "choose") => {
+    if (authorizationFlight.current) return authorizationFlight.current;
+    const operation = transition(() => latest.current.gateway.authorize(target, { presentation: "popup" }));
+    authorizationFlight.current = operation;
+    void operation.finally(() => {
+      if (authorizationFlight.current === operation) authorizationFlight.current = undefined;
+    }).catch(() => undefined);
+    return operation;
+  }, [transition]);
   return { transition, acceptSnapshot, authorize };
 }
 
