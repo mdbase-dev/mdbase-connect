@@ -7,6 +7,14 @@ import { useCollectionTransition } from "./use-collection-transition";
 
 function deferred<T>() { let resolve!: (value: T) => void, reject!: (error: unknown) => void; const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
 function ready(id: string): CollectionSessionSnapshot { const connection: ConnectionSummary = { collectionId: id, operations: ["all"] }; return { status: "ready", connection, connections: [connection] }; }
+const staleSameOwner = ready("a");
+const exactCases: [string, CollectionSessionSnapshot, boolean][] = [
+  ["revoked capability", { status: "ready", connection: { collectionId: "a", operations: ["read"], missingCapabilities: ["files.read"] }, connections: [] }, false],
+  ["granted capability", { status: "ready", connection: { collectionId: "a", operations: ["read", "write"], missingCapabilities: [], fileActions: ["list", "replace"] }, connections: [{ collectionId: "other", operations: ["read"] }] }, true],
+  ["changed operations, file actions, and inventory", { status: "ready", connection: { collectionId: "a", operations: ["new-operation"], fileActions: ["move"] }, connections: [{ collectionId: "new-saved", operations: [] }] }, true],
+  ["changed start failure problem", { status: "start_failed", problem: { message: "current failure", recovery: "retry now" }, connections: [{ collectionId: "saved", operations: [] }] }, false],
+  ["changed destroyed ownerless inventory", { status: "destroyed", connections: [{ collectionId: "survivor", operations: ["read"] }] }, false]
+];
 
 function setup() {
   let current = ready("a"), owner: string | undefined;
@@ -54,6 +62,28 @@ describe("useCollectionTransition serial ownership", () => {
     b.reject(new Error("B failed"));
     await expect(bCall).rejects.toThrow("B failed");
     await expect(cCall).resolves.toBeUndefined();
+  });
+
+  it.each(exactCases)("publishes the exact current explicit snapshot after deferred same-owner %s", async (_name, current, shouldStart) => {
+    const state = setup(); const change = deferred<CollectionSessionSnapshot>();
+    let call!: Promise<void>;
+    act(() => { call = state.result.current.transition(() => change.promise); });
+    state.setCurrent(current); change.resolve(staleSameOwner);
+    await act(async () => { await call; });
+    expect(state.input.setSnapshot).toHaveBeenLastCalledWith(current);
+    expect(state.input.start).toHaveBeenCalledTimes(shouldStart ? 1 : 0);
+  });
+
+  it.each(exactCases)("publishes the exact current queued snapshot after deferred same-owner %s", async (_name, current, shouldStart) => {
+    const state = setup(); const active = deferred<void>(); state.gates.set("a", active);
+    let first!: Promise<void>, queued!: Promise<void>;
+    act(() => { first = state.result.current.acceptSnapshot(ready("a")); });
+    await waitFor(() => expect(state.starts).toEqual(["a"]));
+    act(() => { queued = state.result.current.acceptSnapshot(staleSameOwner); });
+    state.setCurrent(current); active.resolve();
+    await act(async () => { await Promise.all([first, queued]); });
+    expect(state.input.setSnapshot).toHaveBeenLastCalledWith(current);
+    expect(state.input.start).toHaveBeenCalledTimes(shouldStart ? 2 : 1);
   });
 
   it("revalidates stale queued snapshots and coalesces concurrent explicit actions", async () => {

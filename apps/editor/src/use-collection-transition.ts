@@ -47,9 +47,8 @@ export function useCollectionTransition(input: TransitionInput) {
     const previousOwner = owner.currentOwner();
     return (async () => {
       await owner.drain();
-      const supplied = await change();
-      const current = owner.gateway.sessionSnapshot();
-      const snapshot = supplied && sameAuthority(supplied, current) ? supplied : current;
+      await change();
+      const snapshot = owner.gateway.sessionSnapshot();
       const nextOwner = snapshotOwner(snapshot);
       if (nextOwner !== previousOwner) owner.clear();
       owner.scope.changeOwner(nextOwner);
@@ -80,22 +79,14 @@ export function useCollectionTransition(input: TransitionInput) {
     return enqueue(async () => {
       const owner = latest.current;
       const authoritative = owner.gateway.sessionSnapshot();
-      const snapshot = sameAuthority(requested, authoritative) ? requested : authoritative;
-      if (delayed && acceptedSnapshot.current === exactSnapshot(snapshot)) return;
-      await execute(() => snapshot);
+      if (delayed && acceptedSnapshot.current === exactSnapshot(authoritative)) return;
+      await execute(() => requested);
     });
   }, [enqueue, execute]);
 
   const authorize = useCallback((target: "selected" | "choose") =>
     transition(() => latest.current.gateway.authorize(target, { presentation: "popup" })), [transition]);
   return { transition, acceptSnapshot, authorize };
-}
-
-function sameAuthority(left: CollectionSessionSnapshot, right: CollectionSessionSnapshot): boolean {
-  if (left.status !== right.status) return false;
-  if (left.status === "ready" && right.status === "ready") return left.connection.collectionId === right.connection.collectionId;
-  if (left.status === "unavailable" && right.status === "unavailable") return left.collectionId === right.collectionId;
-  return true;
 }
 
 function exactSnapshot(snapshot: CollectionSessionSnapshot): string {
