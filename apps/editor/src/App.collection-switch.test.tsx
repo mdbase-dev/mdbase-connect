@@ -8,15 +8,15 @@ import { DemoCollectionGateway } from "./demo-gateway";
 import type { CollectionAuthorizationTarget, CollectionFile, CollectionSessionSnapshot, ConnectionSummary, CreateNoteInput, FileUploadRequest, MutationOperationOptions, NoteDocument, NoteIndexRequest, NoteIndexResult, SaveNoteInput } from "./model";
 
 vi.mock("./CodeEditor", () => ({ CodeEditor: ({ value, onChange, label }: { value: string; onChange?: (value: string) => void; label: string }) => <textarea aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} /> }));
-vi.mock("./MarkdownNoteEditor", () => ({ MarkdownNoteEditor: ({ draft, insertion, embeddedNotes, onTitleChange, onBodyChange, onCreateLink, onVisibleNoteEmbeds }: { draft: { title: string; body: string }; insertion?: { text: string }; embeddedNotes?: Array<{ key: string; body?: string }>; onTitleChange: (value: string) => void; onBodyChange: (value: string) => void; onCreateLink: (target: string, label: string | undefined, format: "wikilink") => void; onVisibleNoteEmbeds?: (keys: Set<string>) => void }) => {
+vi.mock("./MarkdownNoteEditor", () => ({ MarkdownNoteEditor: ({ draft, insertion, embeddedNotes, onTitleChange, onBodyChange, onCreateLink, onVisibleNoteEmbeds }: { draft: { title: string; body: string }; insertion?: { text: string }; embeddedNotes?: Array<{ key: string; body?: string }>; onTitleChange: (value: string) => void; onBodyChange: (value: string) => void; onCreateLink: (target: string, label: string | undefined, format: "wikilink") => void; onVisibleNoteEmbeds?: (keys: string[]) => void }) => {
   const embedKeys = embeddedNotes?.map((embed) => embed.key).join("\n") ?? "";
-  useEffect(() => onVisibleNoteEmbeds?.(new Set(embedKeys ? embedKeys.split("\n") : [])), [embedKeys]);
+  useEffect(() => onVisibleNoteEmbeds?.(embedKeys ? embedKeys.split("\n") : []), [embedKeys]);
   return <>
   <input aria-label="Note title" value={draft.title} onChange={(event) => onTitleChange(event.target.value)} />
   <textarea aria-label="Note body" value={draft.body} onChange={(event) => onBodyChange(event.target.value)} />
   <button onClick={() => onCreateLink("Shared/linked.md", "Linked", "wikilink")}>Create hostile link</button>
   {insertion && <output aria-label="Editor insertion">{insertion.text}</output>}
-  {embeddedNotes?.map((embed, index) => <output aria-label="Embedded note" key={index}>{embed.body}</output>)}
+  {embeddedNotes?.map((embed) => <output aria-label="Embedded note" key={embed.key}>{embed.body}</output>)}
 </>;
 } }));
 vi.mock("@tanstack/react-virtual", () => ({ useVirtualizer: ({ count }: { count: number }) => ({ getTotalSize: () => count * 76, getVirtualItems: () => Array.from({ length: count }, (_, index) => ({ index, start: index * 76, size: 76 })) }) }));
@@ -156,16 +156,16 @@ async function finishSavedSwitch(gateway: SwitchGateway) {
 }
 
 describe("App collection switch ownership", () => {
-  it.fails("invalidates same-path transclusion content on a saved selection with one mutable gateway", async () => {
+  it("invalidates same-path transclusion content on a saved selection with one mutable gateway", async () => {
     const gateway = new EmbedSwitchGateway(), user = userEvent.setup();
     render(<App gateway={gateway} />);
     expect(await screen.findByRole("textbox", { name: "Note title" })).toHaveValue("source");
-    await waitFor(() => expect(screen.getByRole("Embedded note")).toHaveTextContent("A target body"));
+    await waitFor(() => expect(screen.getByLabelText("Embedded note")).toHaveTextContent("A target body"));
     expect(gateway.targetReads).toEqual(["a"]);
     await requestSavedSwitch(user);
     await waitFor(() => expect(gateway.current).toBe("b"));
     expect(screen.queryByText("A target body")).not.toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("Embedded note")).toHaveTextContent("B target body"));
+    await waitFor(() => expect(screen.getByLabelText("Embedded note")).toHaveTextContent("B target body"));
     expect(gateway.targetReads).toEqual(["a", "b"]);
   });
 
