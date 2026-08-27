@@ -1,0 +1,563 @@
+{
+  "catalog_version": 1,
+  "cases": [
+    {
+      "operation": "describe",
+      "input": {},
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "describe",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "changes",
+      "input": {},
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "changes",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "read",
+      "input": {},
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "read",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "query",
+      "input": {},
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "query",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "list_views",
+      "input": {},
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "list_views",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "execute_view",
+      "input": {},
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "execute_view",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "read_view_source",
+      "input": {},
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "read_view_source",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "create_view_source",
+      "input": {},
+      "schema_version": 1,
+      "identifier": "create_view_source"
+    },
+    {
+      "operation": "create_view_source",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": "create_view_source"
+    },
+    {
+      "operation": "update_view_source",
+      "input": {},
+      "schema_version": 1,
+      "identifier": "update_view_source"
+    },
+    {
+      "operation": "update_view_source",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": "update_view_source"
+    },
+    {
+      "operation": "delete_view_source",
+      "input": {},
+      "schema_version": 1,
+      "identifier": "delete_view_source"
+    },
+    {
+      "operation": "delete_view_source",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": "delete_view_source"
+    },
+    {
+      "operation": "validate",
+      "input": {},
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "validate",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "create",
+      "input": {},
+      "schema_version": 1,
+      "identifier": "create"
+    },
+    {
+      "operation": "create",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": "create"
+    },
+    {
+      "operation": "update",
+      "input": {},
+      "schema_version": 1,
+      "identifier": "update"
+    },
+    {
+      "operation": "update",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": "update"
+    },
+    {
+      "operation": "delete",
+      "input": {},
+      "schema_version": 1,
+      "identifier": "delete"
+    },
+    {
+      "operation": "delete",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "rename",
+      "input": {},
+      "schema_version": 1,
+      "identifier": "rename"
+    },
+    {
+      "operation": "rename",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "read_type",
+      "input": {},
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "read_type",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "create_type",
+      "input": {},
+      "schema_version": 1,
+      "identifier": "create_type"
+    },
+    {
+      "operation": "create_type",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": "create_type"
+    },
+    {
+      "operation": "update_type",
+      "input": {},
+      "schema_version": 1,
+      "identifier": "update_type"
+    },
+    {
+      "operation": "update_type",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": "update_type"
+    },
+    {
+      "operation": "assess_type_pack",
+      "input": {},
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "assess_type_pack",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "apply_type_pack",
+      "input": {},
+      "schema_version": 1,
+      "identifier": "apply_type_pack"
+    },
+    {
+      "operation": "apply_type_pack",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": "apply_type_pack"
+    },
+    {
+      "operation": "assess_collection_setup",
+      "input": {},
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "assess_collection_setup",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "apply_collection_setup",
+      "input": {},
+      "schema_version": 1,
+      "identifier": "apply_collection_setup"
+    },
+    {
+      "operation": "apply_collection_setup",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": "apply_collection_setup"
+    },
+    {
+      "operation": "list_timers",
+      "input": {},
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "list_timers",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "put_timer",
+      "input": {},
+      "schema_version": 1,
+      "identifier": "put_timer"
+    },
+    {
+      "operation": "put_timer",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": "put_timer"
+    },
+    {
+      "operation": "cancel_timer",
+      "input": {},
+      "schema_version": 1,
+      "identifier": "cancel_timer"
+    },
+    {
+      "operation": "cancel_timer",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": "cancel_timer"
+    },
+    {
+      "operation": "reconcile_timers",
+      "input": {},
+      "schema_version": 1,
+      "identifier": "reconcile_timers"
+    },
+    {
+      "operation": "reconcile_timers",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": "reconcile_timers"
+    },
+    {
+      "operation": "sync",
+      "input": {},
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "sync",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "sync",
+      "input": {
+        "action": "changes",
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "sync",
+      "input": {
+        "action": "mutate",
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": "sync:mutate"
+    },
+    {
+      "operation": "sync",
+      "input": {
+        "action": "unknown",
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "file_control",
+      "input": {
+        "type": "list_files"
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "file_control",
+      "input": {
+        "type": "list_files",
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "file_control",
+      "input": {
+        "type": "open_file_upload"
+      },
+      "schema_version": 1,
+      "identifier": "file_control:open_file_upload"
+    },
+    {
+      "operation": "file_control",
+      "input": {
+        "type": "open_file_upload",
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": "file_control:open_file_upload"
+    },
+    {
+      "operation": "file_control",
+      "input": {
+        "type": "open_file_download"
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "file_control",
+      "input": {
+        "type": "open_file_download",
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "file_control",
+      "input": {
+        "type": "move_file"
+      },
+      "schema_version": 1,
+      "identifier": "file_control:move_file"
+    },
+    {
+      "operation": "file_control",
+      "input": {
+        "type": "move_file",
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": "file_control:move_file"
+    },
+    {
+      "operation": "file_control",
+      "input": {
+        "type": "delete_file"
+      },
+      "schema_version": 1,
+      "identifier": "file_control:delete_file"
+    },
+    {
+      "operation": "file_control",
+      "input": {
+        "type": "delete_file",
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": "file_control:delete_file"
+    },
+    {
+      "operation": "file_control",
+      "input": {
+        "type": "get_file_transfer_status"
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "file_control",
+      "input": {
+        "type": "get_file_transfer_status",
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "file_control",
+      "input": {
+        "type": "commit_file_upload"
+      },
+      "schema_version": 1,
+      "identifier": "file_control:commit_file_upload"
+    },
+    {
+      "operation": "file_control",
+      "input": {
+        "type": "commit_file_upload",
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": "file_control:commit_file_upload"
+    },
+    {
+      "operation": "file_control",
+      "input": {
+        "type": "abort_file_transfer"
+      },
+      "schema_version": 1,
+      "identifier": "file_control:abort_file_transfer"
+    },
+    {
+      "operation": "file_control",
+      "input": {
+        "type": "abort_file_transfer",
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": "file_control:abort_file_transfer"
+    },
+    {
+      "operation": "unknown_operation",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": null,
+      "identifier": null
+    },
+    {
+      "operation": "file_control",
+      "input": {
+        "type": "unknown_file_control",
+        "dry_run": true
+      },
+      "schema_version": null,
+      "identifier": null
+    }
+  ]
+}

@@ -294,10 +294,12 @@ async fn every_grantable_mutator_enters_the_durable_journal_and_replays_exactly(
         {
             (
                 "file_control",
-                json!({ "protocol_version": 1, "type": message_type }),
+                json!({ "protocol_version": 1, "type": message_type, "dry_run": true }),
             )
-        } else {
+        } else if matches!(*mutation, "delete" | "rename") {
             (*mutation, json!({}))
+        } else {
+            (*mutation, json!({ "dry_run": true }))
         };
         let request = fixture.encrypted_request(operation, input, index as u64 + 1);
         let first = fixture.send(&app, request.clone()).await;
@@ -311,6 +313,75 @@ async fn every_grantable_mutator_enters_the_durable_journal_and_replays_exactly(
     assert_eq!(diagnostics.live_leases, 0);
     let root = fixture.root.clone();
     drop(app);
+    drop(fixture);
+    remove_fixture_after_watchers_close(&root);
+}
+
+#[tokio::test]
+async fn injected_create_type_dry_run_replays_byte_exactly_after_lost_response_and_restart() {
+    let fixture = fixture();
+    let app = router(fixture.agent.clone(), 28_485);
+    let document = "---\nkind: mdbase.type\nname: durabletype\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n---\n";
+    let request = fixture.encrypted_request(
+        "create_type",
+        json!({ "document": document, "dry_run": true }),
+        1,
+    );
+    let RelayMessage::EncryptedOperationRequest {
+        envelope: request_envelope,
+    } = &request
+    else {
+        unreachable!()
+    };
+    let first = fixture.send(&app, request.clone()).await;
+    let body = fixture.decrypt_response(request_envelope, &first);
+    assert_eq!(body["ok"], true);
+    assert_eq!(body["result"]["valid"], true);
+    assert_eq!(
+        fixture
+            .registry
+            .mutation_journal_diagnostics()
+            .unwrap()
+            .state_counts
+            .get("completed"),
+        Some(&1)
+    );
+
+    drop(app);
+    let restarted_registry = CollectionRegistry::open(fixture.root.join("state")).unwrap();
+    let watcher = crate::watcher::CollectionWatchService::start(restarted_registry.clone());
+    watcher.refresh(&restarted_registry.list().unwrap());
+    let restarted = Arc::new(AgentState::with_identity(
+        restarted_registry.clone(),
+        watcher,
+        None,
+        fixture.connector.clone(),
+    ));
+    let restarted_app = router(restarted, 28_485);
+    let replay = fixture.send(&restarted_app, request).await;
+    assert_eq!(replay, first);
+    assert_eq!(
+        restarted_registry
+            .mutation_journal_diagnostics()
+            .unwrap()
+            .state_counts
+            .get("completed"),
+        Some(&1)
+    );
+    let type_files = fs::read_dir(fixture.root.join("collection/_types"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_name() == "durabletype.md")
+        .count();
+    assert_eq!(type_files, 1, "the type is written once despite replay");
+    assert_eq!(
+        fs::read_to_string(fixture.root.join("collection/_types/durabletype.md")).unwrap(),
+        document
+    );
+
+    let root = fixture.root.clone();
+    drop(restarted_app);
+    drop(restarted_registry);
     drop(fixture);
     remove_fixture_after_watchers_close(&root);
 }

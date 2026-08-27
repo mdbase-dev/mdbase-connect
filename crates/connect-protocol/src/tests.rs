@@ -1012,6 +1012,39 @@ fn generated_operation_catalog_classifies_collection_and_file_mutations() {
         ));
     }
 
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../test-fixtures/operation-mutation-classification.json"
+    ))
+    .unwrap();
+    let mut covered_operations = std::collections::BTreeSet::new();
+    let mut covered_file_types = std::collections::BTreeSet::new();
+    for case in fixture["cases"].as_array().unwrap() {
+        let operation = case["operation"].as_str().unwrap();
+        let input = &case["input"];
+        assert_eq!(
+            mutation_operation_identifier(operation, input),
+            case["identifier"].as_str(),
+            "{operation} {input}"
+        );
+        assert_eq!(
+            operation_input_schema_version(operation, input).map(u64::from),
+            case["schema_version"].as_u64(),
+            "{operation} schema"
+        );
+        if COLLECTION_OPERATIONS.contains(&operation) {
+            covered_operations.insert(operation);
+        }
+        if operation == "file_control" {
+            if let Some(message_type) = input.get("type").and_then(serde_json::Value::as_str) {
+                if FILE_CONTROL_MESSAGE_TYPES.contains(&message_type) {
+                    covered_file_types.insert(message_type);
+                }
+            }
+        }
+    }
+    assert_eq!(covered_operations.len(), COLLECTION_OPERATIONS.len());
+    assert_eq!(covered_file_types.len(), FILE_CONTROL_MESSAGE_TYPES.len());
+
     assert_eq!(
         MUTATING_OPERATION_IDENTIFIERS,
         &[
