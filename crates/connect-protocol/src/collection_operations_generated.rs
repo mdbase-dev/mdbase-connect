@@ -75,6 +75,8 @@ pub const TIMER_CRITERION_OPERATIONS: &[&str] = &[
     "reconcile_timers",
 ];
 
+const NONMUTATING_DRY_RUN_OPERATIONS: &[&str] = &["delete", "rename"];
+
 pub fn is_collection_operation(operation: &str) -> bool {
     COLLECTION_OPERATIONS.contains(&operation)
 }
@@ -130,7 +132,9 @@ pub fn operation_input_schema_version(operation: &str, input: &Value) -> Option<
 }
 
 pub fn mutation_operation_identifier<'a>(operation: &'a str, input: &Value) -> Option<&'a str> {
-    if input.get("dry_run").and_then(Value::as_bool) == Some(true) {
+    if input.get("dry_run").and_then(Value::as_bool) == Some(true)
+        && NONMUTATING_DRY_RUN_OPERATIONS.contains(&operation)
+    {
         return None;
     }
     if operation == "file_control" {
