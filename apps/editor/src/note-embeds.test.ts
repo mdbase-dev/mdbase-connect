@@ -1,4 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { createElement, startTransition, Suspense, useState, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { markdownFragment } from "./markdown-fragments";
 import { useEmbeddedNoteReferences } from "./note-embeds";
@@ -82,6 +83,33 @@ describe("embedded note owner cache", () => {
     await act(async () => b.resolve(document("B body"))); await ready(hook.result, "B body");
     await act(async () => a.resolve(document("A body")));
     expect(hook.result.current[0]?.body).toBe("B body");
+  });
+
+  it("keeps the committed A store active when an owner-changing render is discarded", async () => {
+    const a = deferred<ReturnType<typeof document>>(), suspendedB = deferred<void>();
+    const read = vi.fn().mockReturnValueOnce(a.promise);
+    const gateway = { read };
+    let selectOwner: ((owner: { collectionId: string | undefined; epoch: number }) => void) | undefined;
+    let attemptedB = 0;
+    const hook = renderHook(() => {
+      const [owner, setOwner] = useState({ collectionId: "a" as string | undefined, epoch: 1 });
+      selectOwner = setOwner;
+      const embeds = useEmbeddedNoteReferences(
+        gateway, owner, "![[Target]]", [summary()] as never, [target], [], "Shared/source.md"
+      );
+      if (owner.collectionId === "b") {
+        attemptedB += 1;
+        throw suspendedB.promise;
+      }
+      return embeds;
+    }, {
+      wrapper: ({ children }: { children: ReactNode }) => createElement(Suspense, { fallback: null }, children)
+    });
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    act(() => startTransition(() => selectOwner?.({ collectionId: "b", epoch: 2 })));
+    await waitFor(() => expect(attemptedB).toBeGreaterThan(0));
+    await act(async () => a.resolve(document("A committed body")));
+    await ready(hook.result, "A committed body");
   });
 
   it.each(["success", "error"])("ignores late A %s publication", async (outcome) => {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { resolveFileReference } from "./file-reference-resolution";
 import { resolveLinkSuggestionMatches, type LinkSuggestion } from "./links";
 import type { MarkdownReference } from "./markdown-references";
@@ -37,15 +37,21 @@ export function useEmbeddedNoteReferences(
   visibleKeys?: ReadonlySet<string>
 ): ResolvedNoteEmbed[] {
   const [, rerender] = useState(0);
-  const activeStore = useRef<EmbedCacheStore | undefined>(undefined);
-  let store = activeStore.current;
-  if (!store || store.gateway !== gateway || store.collectionId !== owner.collectionId || store.epoch !== owner.epoch) {
-    store = {
-      gateway, collectionId: owner.collectionId, epoch: owner.epoch,
-      documents: new Map(), errors: new Map(), pending: new Map()
+  const store = useMemo<EmbedCacheStore>(() => ({
+    gateway, collectionId: owner.collectionId, epoch: owner.epoch,
+    documents: new Map(), errors: new Map(), pending: new Map()
+  }), [gateway, owner.collectionId, owner.epoch]);
+  const activeStore = useRef<{ store: EmbedCacheStore } | undefined>(undefined);
+  useEffect(() => {
+    const activation = { store };
+    const previous = activeStore.current;
+    activeStore.current = activation;
+    if (previous?.store !== store) clearStore(previous?.store);
+    return () => {
+      if (activeStore.current === activation) activeStore.current = undefined;
+      clearStore(store);
     };
-    activeStore.current = store;
-  }
+  }, [store]);
   const cache = store.documents;
   const errors = store.errors;
 
@@ -121,30 +127,37 @@ export function useEmbeddedNoteReferences(
   ));
   const requestKey = requests.map((reference) => `${reference.path}:${reference.revision ?? ""}`).sort().join("\n");
   useEffect(() => {
+    const activation = activeStore.current;
+    if (!activation || activation.store !== store) return;
     for (const reference of requests) {
       const path = reference.path!;
       if (store.pending.has(path)) continue;
-      const capturedStore = store;
-      const request = gateway.read(path).then((document) => {
-        if (activeStore.current !== capturedStore) return;
-        capturedStore.documents.set(path, document);
-        capturedStore.errors.delete(path);
+      const request = store.gateway.read(path).then((document) => {
+        if (activeStore.current !== activation) return;
+        store.documents.set(path, document);
+        store.errors.delete(path);
         rerender((current) => current + 1);
       }).catch((error: unknown) => {
-        if (activeStore.current !== capturedStore) return;
-        capturedStore.errors.set(
+        if (activeStore.current !== activation) return;
+        store.errors.set(
           path,
           error instanceof Error ? error.message : "The transcluded note could not be opened."
         );
         rerender((current) => current + 1);
       }).finally(() => {
-        if (capturedStore.pending.get(path) === request) capturedStore.pending.delete(path);
+        if (store.pending.get(path) === request) store.pending.delete(path);
       });
-      capturedStore.pending.set(path, request);
+      store.pending.set(path, request);
     }
     // requestKey captures the stable set of visible revision-aware requests.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gateway, owner.collectionId, owner.epoch, requestKey]);
+  }, [store, requestKey]);
 
   return resolved;
+}
+
+function clearStore(store: EmbedCacheStore | undefined): void {
+  store?.documents.clear();
+  store?.errors.clear();
+  store?.pending.clear();
 }
