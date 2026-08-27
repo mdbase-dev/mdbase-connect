@@ -199,7 +199,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [typeWorkspace, setTypeWorkspace] = useState<"definition" | "packs">("definition");
   const [contractCatalog, setContractCatalog] = useState<ContractCatalogLoadState>({ status: "idle" });
   const [contractCatalogReload, setContractCatalogReload] = useState(0);
-  const [saveState, setSaveState] = useState<SaveState>("saved");
+  const [saveState, setSaveState] = useState<SaveState>("saved"), [, setSwitching] = useState(false);
   const [remoteApplyToken, setRemoteApplyToken] = useState(0);
   const [notice, setNoticeState] = useState<{ message: string; tone: ToastTone } | undefined>();
   const [propertiesOpen, setPropertiesOpen] = useState(false);
@@ -230,6 +230,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [, setSessionTick] = useState(0);
   const documentGeneration = useRef(0);
   const navigationGeneration = useRef(0);
+  const collectionEpoch = useRef(0), startGeneration = useRef(0), mutationsFrozen = useRef(false);
   const typeDescriptorsRef = useRef<CollectionTypeDescriptor[]>(emptyTypeDescriptors);
   const workspaceCollectionId = useRef<string | undefined>(undefined);
   const noteSessions = useRef(new NoteSessionStore());
@@ -267,7 +268,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const { selectedFile: selectedCollectionFile, setSelectedFile: setSelectedCollectionFile, selectedAsset: selectedFileAsset,
     pendingFilePath, setPendingFilePath, openAsset: openFileAsset, setOpenAsset: setOpenFileAsset, embeddedFiles } = fileWorkspace;
   const attachments = useAttachmentUpload({ gateway, inventory: fileController,
-    inventoryFiles: fileInventory.files, activeSession: () => noteSessions.current.active, setNotice });
+    inventoryFiles: fileInventory.files, activeSession: () => mutationsFrozen.current ? undefined : noteSessions.current.active, setNotice });
   useEffect(() => { savePreferences(preferences); }, [preferences]);
   useEffect(() => { saveLayoutPreferences(layout); }, [layout]);
   useEffect(() => { saveNoteSort(noteSort); }, [noteSort]);
@@ -346,8 +347,10 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     return indexController.hydrate();
   }, [indexController]);
 
-  const refreshDescription = useCallback(async () => {
+  const refreshDescription = useCallback(async (isCurrent: () => boolean = () => true) => {
+    const epoch = collectionEpoch.current;
     const next = await gateway.describe();
+    if (epoch !== collectionEpoch.current || !isCurrent()) return undefined;
     workspaceCollectionId.current = next.collectionId;
     typeDescriptorsRef.current = next.types;
     setDescription(next);
@@ -416,10 +419,12 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const noteOperations = useMemo(() => new NoteOperationCoordinator({
     update: (input) => gateway.update(input),
     onSaved: (session, next) => {
+      if (noteSessions.current.get(session.document.path) !== session) return;
       updateNoteSummary(next);
       if (noteSessions.current.active === session) setDocument(next);
     },
     onSaveError: (session, error) => {
+      if (noteSessions.current.get(session.document.path) !== session) return;
       const message = gatewayError(error);
       session.error = message;
       setNotice(noteSessions.current.active === session
@@ -470,6 +475,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }, [touchSession, updateNoteSummary]);
 
   const refreshCachedNote = useCallback(async (path: string) => {
+    const epoch = collectionEpoch.current;
     const initial = noteSessions.current.get(path);
     if (!initial || initial.deleted) return;
 
@@ -478,7 +484,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     if (session !== initial || session.deleted) return;
 
     const next = await gateway.read(path);
-    if (noteSessions.current.get(path) !== session || session.deleted || next.revision === session.document.revision) return;
+    if (epoch !== collectionEpoch.current || noteSessions.current.get(path) !== session || session.deleted || next.revision === session.document.revision) return;
 
     if (sessionDirty(session)) {
       session.remoteDocument = next;
@@ -493,12 +499,14 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }, [applyRemoteDocument, gateway, noteOperations, touchSession]);
 
   const refreshChangedNote = useCallback(async (path: string) => {
+    const epoch = collectionEpoch.current;
     if (noteSessions.current.has(path)) {
       await refreshCachedNote(path);
       return;
     }
 
     const next = await gateway.read(path);
+    if (epoch !== collectionEpoch.current) return;
     if (noteSessions.current.has(path)) {
       await refreshCachedNote(path);
       return;
@@ -507,6 +515,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }, [gateway, refreshCachedNote, updateNoteSummary]);
 
   const openNote = useCallback(async (path: string, options: NoteNavigationOptions = {}): Promise<boolean> => {
+    const epoch = collectionEpoch.current;
     const generation = ++documentGeneration.current;
     const cached = noteSessions.current.get(path);
     if (cached?.deleted) return false;
@@ -536,16 +545,16 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setNoteLoading(true);
     try {
       const next = await gateway.read(path);
-      if (generation !== documentGeneration.current) return false;
+      if (epoch !== collectionEpoch.current || generation !== documentGeneration.current) return false;
       adoptDocument(next);
       if (options.historyIndex === undefined) recordNoteNavigation(next.path);
       else selectNoteHistoryIndex(options.historyIndex, next.path);
       return true;
     } catch (error) {
-      if (generation === documentGeneration.current) setNotice(gatewayError(error));
+      if (epoch === collectionEpoch.current && generation === documentGeneration.current) setNotice(gatewayError(error));
       return false;
     } finally {
-      if (generation === documentGeneration.current) setNoteLoading(false);
+      if (epoch === collectionEpoch.current && generation === documentGeneration.current) setNoteLoading(false);
     }
   }, [
     activateSession,
@@ -557,6 +566,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   ]);
 
   const start = useCallback(async () => {
+    const epoch = collectionEpoch.current, generation = ++startGeneration.current;
+    const current = () => epoch === collectionEpoch.current && generation === startGeneration.current;
     const indexLoad = indexController.beginLoad();
     const fileLoad = fileController.reload().catch(() => []);
     const indexOutcome = indexLoad.complete.then(
@@ -570,7 +581,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setNoteLoading(true);
     let descriptionLoaded = false;
     try {
-      const nextDescription = await refreshDescription();
+      const nextDescription = await refreshDescription(current);
+      if (!current() || !nextDescription) return;
       descriptionLoaded = true;
       setPhase("ready");
       const remembered = localStorage.getItem("mdbase-editor:last-note");
@@ -583,10 +595,12 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       if (!opened) setNoteLoading(false);
       const outcome = await indexOutcome;
       await fileLoad;
+      if (!current()) return;
       if ("error" in outcome) throw outcome.error;
       if (outcome.result.cancelled) return;
       if (!nextDescription.types.length) setSelectedTypeName(undefined);
     } catch (error) {
+      if (!current()) return;
       setNoteLoading(false);
       setNotice(gatewayError(error));
       setPhase(descriptionLoaded && gateway.sessionSnapshot().status === "ready" ? "ready" : "disconnected");
@@ -597,6 +611,11 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     gateway,
     phase,
     start,
+    beforeAuthorization: async () => {
+      mutationsFrozen.current = true; setSwitching(true);
+      await flushCollectionWork();
+    },
+    finishAuthorization: () => { mutationsFrozen.current = false; setSwitching(false); },
     beforeCollectionChange: clearCollectionWorkspace,
     currentCollectionId: () => workspaceCollectionId.current,
     setSessionSnapshot
@@ -607,7 +626,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     start,
     setSessionSnapshot,
     setNotice,
-    setPhase
+    setPhase,
+    collectionEpoch
   });
 
   useEffect(() => {
@@ -648,11 +668,12 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       session.saveState = "waiting";
       setSaveState("waiting");
     }
-    const timer = window.setTimeout(() => void requestSave(session).catch(() => undefined), 650);
+    const timer = window.setTimeout(() => { if (!mutationsFrozen.current) void requestSave(session).catch(() => undefined); }, 650);
     return () => window.clearTimeout(timer);
   }, [document, draft, requestSave]);
 
   function changeActiveDraft(change: (current: Draft) => Draft) {
+    if (mutationsFrozen.current) { setSwitching((current) => !current); return; }
     const session = noteSessions.current.active;
     if (!session || session.deleted) return;
     const next = change(session.draft);
@@ -872,6 +893,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   function clearCollectionWorkspace() {
+    collectionEpoch.current += 1; startGeneration.current += 1;
     indexController.reset();
     fileController.reset();
     fileAssetStore.reset();
@@ -1059,6 +1081,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   async function createNote(input: CreateNoteInput) {
+    if (mutationsFrozen.current) return;
     const created = await gateway.create(input);
     indexController.create(summaryFromDocument(created));
     setSearch("");
@@ -1077,6 +1100,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   function createLinkedNote(target: string, label: string | undefined, format: "wikilink" | "markdown") {
+    if (mutationsFrozen.current) return;
     const sourcePath = noteSessions.current.active?.document.path;
     const linked = unresolvedNoteTarget(target, label, sourcePath, format);
     if (!linked) {
@@ -1111,6 +1135,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   async function requestRename() {
+    if (mutationsFrozen.current) return;
     const session = noteSessions.current.active;
     if (!session) return;
     const nextPath = safeRenamePath(pathDraft);
@@ -1166,6 +1191,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   async function performRename(plan: RenamePlan, updateRefs: boolean) {
+    if (mutationsFrozen.current) return;
     const { session, from, to } = plan;
     const controller = new AbortController();
     setRenamePlan(undefined);
@@ -1238,6 +1264,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   async function saveProperties(path: string, next: Record<string, unknown>) {
+    if (mutationsFrozen.current) return;
     const session = noteSessions.current.get(path);
     if (!session) return;
     setPropertiesError(undefined);
@@ -1275,6 +1302,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   async function saveRecordSource(path: string, source: string, previousSource: string): Promise<NoteDocument | false> {
+    if (mutationsFrozen.current) return false;
     const session = noteSessions.current.get(path);
     if (!session || session.deleted) return false;
     if (noteSessions.current.active === session) setPropertiesError(undefined);
@@ -1341,6 +1369,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   async function requestDelete() {
+    if (mutationsFrozen.current) return;
     const session = noteSessions.current.active;
     if (!session) return;
     const requestKey = `${session.document.path}\n${session.document.revision}`;
@@ -1369,6 +1398,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   function deleteNote(plan: DeletePlan) {
+    if (mutationsFrozen.current) return;
     const { session } = plan;
     const path = session.document.path;
     const next = allNotes.find((note) => note.path !== path);
@@ -1529,7 +1559,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     await reviewCatalogPackInstallation(pack, gateway, {
       installedTypeNames: description?.types.map(({ name }) => name) ?? [],
       confirm: (confirmation) => setConfirmation(confirmation),
-      refreshDescription,
+      refreshDescription: async () => refreshDescription().then((next) => {
+        if (!next) throw new Error("Collection changed before the type pack finished."); return next;
+      }),
       isTypeDraftDirty: typeDraftDirty,
       openType: async (name) => {
         setTypeWorkspace("definition");
@@ -1924,7 +1956,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
             <div className="path-wrap">
               {editingPath ? <form onSubmit={(event) => { event.preventDefault(); void requestRename(); }}>
                 <label className="sr-only" htmlFor="note-path">Markdown path</label>
-                <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} autoFocus />
+                <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => { if (!mutationsFrozen.current) setPathDraft(event.target.value); }} onBlur={() => void requestRename()} autoFocus />
               </form> : <button className="path-button" onClick={() => setEditingPath(true)} title="Rename Markdown path"><span>{document.path}</span><Pencil aria-hidden="true" /></button>}
             </div>
             {!mobileLayout && <OutlineMenu headings={noteHeadings(draft.body)} onReveal={(line) => revealMarkdownLine(noteSessions.current.active?.editorSessionKey ?? document.path, line)} />}

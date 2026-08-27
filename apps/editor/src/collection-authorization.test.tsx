@@ -87,6 +87,41 @@ describe("useCollectionAuthorization", () => {
     expect(beforeCollectionChange).not.toHaveBeenCalled();
   });
 
+  it("coalesces overlapping authorization requests into one popup", async () => {
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    const authorize = vi.fn(() => pending);
+    const gateway = { sessionSnapshot: () => ready("collection-a"), authorize } as unknown as CollectionGateway;
+    const { result } = renderHook(() => useCollectionAuthorization({
+      gateway, phase: "ready", currentCollectionId: () => "collection-a", start: vi.fn(), setSessionSnapshot: vi.fn()
+    }));
+
+    let first!: Promise<void>;
+    let second!: Promise<void>;
+    act(() => {
+      first = result.current.authorizeCollection("choose");
+      second = result.current.authorizeCollection("selected");
+    });
+    expect(first).toBe(second);
+    await act(async () => { await Promise.resolve(); });
+    expect(authorize).toHaveBeenCalledOnce();
+    release();
+    await act(async () => first);
+  });
+
+  it("does not authorize when the pre-authorization flush fails", async () => {
+    const authorize = vi.fn();
+    const finishAuthorization = vi.fn();
+    const gateway = { sessionSnapshot: () => ready("collection-a"), authorize } as unknown as CollectionGateway;
+    const { result } = renderHook(() => useCollectionAuthorization({
+      gateway, phase: "ready", currentCollectionId: () => "collection-a", start: vi.fn(), setSessionSnapshot: vi.fn(),
+      beforeAuthorization: async () => { throw new Error("save conflict"); }, finishAuthorization
+    }));
+    await expect(act(async () => result.current.authorizeCollection("choose"))).rejects.toThrow("save conflict");
+    expect(authorize).not.toHaveBeenCalled();
+    expect(finishAuthorization).toHaveBeenCalledOnce();
+  });
+
   it("does not clear or start when authorization fails", async () => {
     const beforeCollectionChange = vi.fn();
     const start = vi.fn();
