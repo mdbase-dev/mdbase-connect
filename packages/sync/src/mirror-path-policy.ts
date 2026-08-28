@@ -1,6 +1,6 @@
 import type { SyncResourceDocument } from "@mdbase-dev/connect-protocol";
 import { parse } from "yaml";
-import { SyncError } from "./sync-error.js";
+import { invalidMirrorState, SyncError } from "./sync-error.js";
 import { documentRevision, parseMarkdown } from "./mirror-format.js";
 import {
   portableMirrorPathKey,
@@ -139,10 +139,7 @@ export async function loadMirrorRecordPathPolicy(
   if (resourcePaths.length === 0) return defaultRecordPathPolicy(new Set());
   const configuration = await readConfiguration();
   if (configuration === null) {
-    throw new SyncError(
-      "invalid_mirror_state",
-      "Mirror collection configuration is missing."
-    );
+    throw invalidMirrorState("Mirror collection configuration is missing.");
   }
   return recordPathPolicy(configuration, new Set(resourcePaths));
 }

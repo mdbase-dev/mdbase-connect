@@ -30,6 +30,7 @@ import {
   type MirrorLease,
   type MirrorProgress,
   type MirrorRuntime,
+  type MirrorTextReadResult,
   type MirrorState,
   type MirrorStateStore
 } from "./mirror.js";
@@ -280,6 +281,27 @@ function isWithinDirectory(candidate: string, directory: string): boolean {
     || (offset !== ".." && !offset.startsWith(`..${sep}`) && !isAbsolute(offset));
 }
 
+const EXPECTED_TEXT_READ_ERRORS = new Set([
+  "EACCES",
+  "EBUSY",
+  "EIO",
+  "EISDIR",
+  "EMFILE",
+  "ENFILE",
+  "ENOTDIR",
+  "EPERM"
+]);
+
+function classifyTextReadError(error: unknown, path: string): "missing" | SyncError | null {
+  if (!(error instanceof Error)) return null;
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code === "ENOENT") return "missing";
+  if (code && EXPECTED_TEXT_READ_ERRORS.has(code)) {
+    return new SyncError("file_read_failed", `Could not read ${path}.`);
+  }
+  return null;
+}
+
 export class NodeMirrorFileSystem implements MirrorFileSystem {
   private readonly root: string;
 
@@ -299,7 +321,30 @@ export class NodeMirrorFileSystem implements MirrorFileSystem {
   }
 
   async read(path: string): Promise<string | null> {
-    return readOptional(await this.safePath(path));
+    const result = await this.readText(path);
+    if (result === null || typeof result === "string") return result;
+    throw new SyncError(result.code, result.reason);
+  }
+
+  async readText(path: string): Promise<MirrorTextReadResult> {
+    const target = await this.safePath(path);
+    try {
+      const bytes = await readFile(target);
+      try {
+        return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      } catch {
+        return {
+          kind: "invalid",
+          code: "invalid_utf8",
+          reason: "File is not valid UTF-8.",
+          revision: `sha256:${createHash("sha256").update(bytes).digest("hex")}`
+        };
+      }
+    } catch (error) {
+      const failure = classifyTextReadError(error, path);
+      if (failure === "missing") return null;
+      throw failure ?? error;
+    }
   }
 
   async write(path: string, value: string): Promise<void> {

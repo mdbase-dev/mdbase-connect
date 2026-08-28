@@ -22,6 +22,7 @@ export {
   type MirrorLocalIssue,
   type MirrorProgress,
   type MirrorRuntime,
+  type MirrorTextReadResult,
   type MirrorState,
   type MirrorStateStore,
   type MirrorStatus

@@ -240,7 +240,11 @@ pub(super) fn parse_markdown(
 }
 
 pub(super) fn digest(value: &str) -> String {
-    Sha256::digest(value.as_bytes())
+    digest_bytes(value.as_bytes())
+}
+
+pub(super) fn digest_bytes(value: &[u8]) -> String {
+    Sha256::digest(value)
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()

@@ -49,6 +49,10 @@ class BinaryFileSystem implements MirrorFileSystem {
     return value ? text.decode(value) : null;
   }
 
+  async readText(path: string): Promise<string | null> {
+    return this.read(path);
+  }
+
   async write(path: string, value: string): Promise<void> {
     this.files.set(path, utf8.encode(value));
   }

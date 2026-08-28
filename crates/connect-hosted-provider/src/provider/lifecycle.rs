@@ -1,5 +1,10 @@
 use super::*;
 impl HostedProvider {
+    #[cfg(feature = "test-hooks")]
+    pub fn test_primary_pool(&self) -> PgPool {
+        self.pool.clone()
+    }
+
     pub async fn connect(
         database_url: &str,
         crypto: ProviderCrypto,

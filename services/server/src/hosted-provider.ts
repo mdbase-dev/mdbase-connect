@@ -23,6 +23,20 @@ export interface HostedProviderConfig {
   internalToken: string;
 }
 
+export interface HostedProviderOperationOptions {
+  /** Absolute Unix epoch deadline in milliseconds. */
+  deadline?: number;
+  signal?: AbortSignal;
+}
+
+interface RequiredOperationOptions {
+  deadline: number;
+  signal?: AbortSignal;
+}
+
+const PROVIDER_OPERATION_TIMEOUT_MS = 14_000;
+const PROVIDER_REQUEST_TIMEOUT_MS = 15_000;
+
 export interface HostedProjectionGenerationStatus {
   collection_id: string;
   generation_id: string;
@@ -269,49 +283,101 @@ export class HostedProviderClient {
     }
   }
 
-  async projectionStatus(collectionId: string): Promise<HostedProjectionStatus> {
+  async projectionStatus(
+    collectionId: string,
+    options?: HostedProviderOperationOptions
+  ): Promise<HostedProjectionStatus> {
+    const operation = requiredOperation(options);
     const result = await this.request(
       "GET",
-      `/internal/v1/collections/${encodeURIComponent(collectionId)}/projection`
+      `/internal/v1/collections/${encodeURIComponent(collectionId)}/projection`,
+      undefined,
+      true,
+      operation
     ) as { projection?: HostedProjectionStatus } | undefined;
-    return requiredProjectionStatus(result?.projection);
+    return requiredProjectionStatus(result?.projection, collectionId);
   }
 
   async advanceProjection(
     collectionId: string,
-    generationId: string
+    generationId: string,
+    options?: HostedProviderOperationOptions
   ): Promise<HostedProjectionStatus> {
-    try {
-      const result = await this.request(
-        "POST",
-        `/internal/v1/collections/${encodeURIComponent(collectionId)}/projection/advance`,
-        { generation_id: generationId }
-      ) as { projection?: HostedProjectionStatus } | undefined;
-      return requiredProjectionStatus(result?.projection);
-    } catch (error) {
-      // A bounded batch may commit while its HTTP response is lost. The retry
-      // then observes a completed generation. Reconcile only that exact ID;
-      // never reinterpret another generation as success.
-      if (
-        error instanceof HostedProviderResponseError
-        && error.code === "projection_generation_not_building"
-      ) {
-        const status = await this.projectionStatus(collectionId);
+    const operation = requiredOperation(options);
+    let retryDelay = 25;
+    for (;;) {
+      try {
+        const result = await this.request(
+          "POST",
+          `/internal/v1/collections/${encodeURIComponent(collectionId)}/projection/advance`,
+          { generation_id: generationId },
+          true,
+          operation
+        ) as { projection?: HostedProjectionStatus } | undefined;
+        return exactProjectionHandoff(
+          requiredProjectionStatus(result?.projection, collectionId),
+          generationId
+        );
+      } catch (error) {
+        // A bounded batch may commit while its HTTP response is lost. Reconcile
+        // only the requested generation in the requested collection. An old
+        // active A alongside requested building B is a valid Candidate B
+        // handoff, but A is never accepted as completion of B.
         if (
-          status.ready
-          && status.active_generation_id === generationId
-        ) return status;
+          error instanceof HostedProviderResponseError
+          && matchesProjectionHandoff(error.code)
+        ) {
+          const status = await this.projectionStatus(collectionId, operation);
+          if (
+            status.ready
+            && status.active_generation_id === generationId
+          ) return status;
+          if (status.latest_terminal_generation_id === generationId) {
+            throw new HostedProviderResponseError(
+              409,
+              status.latest_terminal_error_code ?? "projection_generation_not_building",
+              "The requested projection generation terminated before activation."
+            );
+          }
+          if (
+            error.code === "projection_lease_unavailable"
+            && status.building_generation?.generation_id === generationId
+          ) {
+            if (remainingMilliseconds(operation) <= 0) {
+              throw projectionActivationPending();
+            }
+            try {
+              await boundedDelay(retryDelay, operation);
+            } catch (delayError) {
+              if (operation.signal?.aborted) throw delayError;
+              if (remainingMilliseconds(operation) <= 0) {
+                throw projectionActivationPending();
+              }
+              throw delayError;
+            }
+            retryDelay = Math.min(retryDelay * 2, 200);
+            continue;
+          }
+        }
+        throw error;
       }
-      throw error;
     }
   }
 
-  private async completeProjection(collectionId: string): Promise<void> {
-    let status = await this.projectionStatus(collectionId);
-    // Keep every control-plane request finite. Large authority imports resume
-    // the same fenced generation through an explicit typed pending response.
+  private async completeProjection(
+    collectionId: string,
+    operation: RequiredOperationOptions
+  ): Promise<void> {
+    let status = await this.projectionStatus(collectionId, operation);
+    // All sixteen bounded batches share the authority operation's one absolute
+    // deadline and cancellation signal. Large imports resume only the exact
+    // fenced generation through the typed pending response.
     for (let batch = 0; batch < 16; batch += 1) {
-      if (status.ready && status.active_generation_id) return;
+      if (
+        status.ready
+        && status.active_generation_id
+        && status.building_generation === null
+      ) return;
       const generationId = status.building_generation?.generation_id;
       if (!generationId) {
         throw new HostedProviderResponseError(
@@ -320,13 +386,9 @@ export class HostedProviderClient {
           "Candidate B activation has no building projection generation."
         );
       }
-      status = await this.advanceProjection(collectionId, generationId);
+      status = await this.advanceProjection(collectionId, generationId, operation);
     }
-    throw new HostedProviderResponseError(
-      409,
-      "projection_activation_pending",
-      "Candidate B activation is still building; resume the same fenced authority import."
-    );
+    throw projectionActivationPending();
   }
 
   async renameCollection(collectionId: string, displayName: string): Promise<void> {
@@ -609,26 +671,22 @@ export class HostedProviderClient {
   async completeAuthorityImport(
     transferId: string,
     manifestDigest: string,
-    sourceRevision: string
+    sourceRevision: string,
+    options?: HostedProviderOperationOptions
   ): Promise<AuthorityImport> {
-    let completed = await this.request(
+    const operation = requiredOperation(options);
+    const complete = () => this.request(
       "POST",
       `/internal/v1/authority-imports/${encodeURIComponent(transferId)}`,
-      { manifest_digest: manifestDigest, source_revision: sourceRevision }
-    ) as AuthorityImport;
-    if (completed.state === "completed") {
-      return completed;
-    }
-    await this.completeProjection(completed.collection_id);
-    // The import endpoint advances only one bounded projection batch.
-    // Projection completion may finish the fenced generation through the
-    // projection API, so reconcile the import row before exposing completion
-    // to the authority-transfer transaction.
-    completed = await this.request(
-      "POST",
-      `/internal/v1/authority-imports/${encodeURIComponent(transferId)}`,
-      { manifest_digest: manifestDigest, source_revision: sourceRevision }
-    ) as AuthorityImport;
+      { manifest_digest: manifestDigest, source_revision: sourceRevision },
+      true,
+      operation
+    ) as Promise<AuthorityImport>;
+    let completed = await complete();
+    if (completed.state === "completed") return completed;
+    await this.completeProjection(completed.collection_id, operation);
+    // Reconcile the same import row inside the original operation budget.
+    completed = await complete();
     return completed;
   }
 
@@ -643,42 +701,56 @@ export class HostedProviderClient {
     method: string,
     path: string,
     body?: unknown,
-    authenticated = true
+    authenticated = true,
+    options?: HostedProviderOperationOptions
   ): Promise<unknown> {
+    const operation = requiredOperation(options);
     let unavailable: unknown;
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      let response: Response;
+      throwIfCancelled(operation);
+      const requestController = new AbortController();
+      const requestTimeout = setTimeout(
+        () => requestController.abort(new DOMException("Provider request deadline exceeded.", "TimeoutError")),
+        Math.min(PROVIDER_REQUEST_TIMEOUT_MS, remainingMilliseconds(operation))
+      );
+      const signal = operation.signal
+        ? AbortSignal.any([operation.signal, requestController.signal])
+        : requestController.signal;
+      let retryable = false;
       try {
-        response = await fetch(`${this.endpointUrl}${path}`, {
+        const response = await fetch(`${this.endpointUrl}${path}`, {
           method,
           headers: {
             ...(authenticated ? { authorization: `Bearer ${this.internalToken}` } : {}),
             ...(body === undefined ? {} : { "content-type": "application/json" })
           },
           ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-          signal: AbortSignal.timeout(15_000)
+          signal
         });
-      } catch (error) {
-        unavailable = error;
-        if (attempt < 2) {
-          await delay(100 * 2 ** attempt);
-          continue;
+        const value = await readResponse(response);
+        if (response.ok) return value;
+        if ([429, 502, 503, 504].includes(response.status) && attempt < 2) {
+          retryable = true;
+        } else {
+          const providerError = asProviderError(value);
+          throw new HostedProviderResponseError(
+            response.status,
+            providerError.code,
+            providerError.message
+          );
         }
-        break;
+      } catch (error) {
+        if (error instanceof HostedProviderResponseError) throw error;
+        unavailable = error;
+        if (operation.signal?.aborted) throw operation.signal.reason;
+        retryable = attempt < 2;
+      } finally {
+        clearTimeout(requestTimeout);
       }
-      if (response.ok) return readResponse(response);
-      const value = await readResponse(response);
-      if ([429, 502, 503, 504].includes(response.status) && attempt < 2) {
-        await delay(100 * 2 ** attempt);
-        continue;
-      }
-      const providerError = asProviderError(value);
-      throw new HostedProviderResponseError(
-        response.status,
-        providerError.code,
-        providerError.message
-      );
+      if (!retryable || remainingMilliseconds(operation) <= 0) break;
+      await boundedDelay(100 * 2 ** attempt, operation);
     }
+    throwIfCancelled(operation);
     throw new HostedProviderUnavailableError(unavailable);
   }
 }
@@ -695,7 +767,43 @@ function hostedContractSupportMatches(value: unknown): value is ConnectContractS
     && includes("durable_mutation", CONNECT_CONTRACT_SUPPORT.durable_mutation);
 }
 
-function requiredProjectionStatus(value: unknown): HostedProjectionStatus {
+function projectionActivationPending(): HostedProviderResponseError {
+  return new HostedProviderResponseError(
+    409,
+    "projection_activation_pending",
+    "Candidate B activation is still building; resume the same fenced authority import."
+  );
+}
+
+function matchesProjectionHandoff(code: string): boolean {
+  return code === "projection_generation_not_building"
+    || code === "projection_lease_unavailable";
+}
+
+function exactProjectionHandoff(
+  status: HostedProjectionStatus,
+  generationId: string
+): HostedProjectionStatus {
+  if (status.ready && status.active_generation_id === generationId) return status;
+  if (status.latest_terminal_generation_id === generationId) {
+    throw new HostedProviderResponseError(
+      409,
+      status.latest_terminal_error_code ?? "projection_generation_not_building",
+      "The requested projection generation terminated before activation."
+    );
+  }
+  if (status.building_generation?.generation_id === generationId) return status;
+  throw new HostedProviderResponseError(
+    409,
+    "projection_generation_not_building",
+    "The requested projection generation is no longer building."
+  );
+}
+
+function requiredProjectionStatus(
+  value: unknown,
+  expectedCollectionId?: string
+): HostedProjectionStatus {
   if (!value || typeof value !== "object") {
     throw new HostedProviderResponseError(
       502,
@@ -707,14 +815,24 @@ function requiredProjectionStatus(value: unknown): HostedProjectionStatus {
   const building = status.building_generation;
   if (
     typeof status.collection_id !== "string"
+    || (expectedCollectionId !== undefined && status.collection_id !== expectedCollectionId)
     || typeof status.ready !== "boolean"
     || !Number.isSafeInteger(status.head)
     || typeof status.resource_revision !== "string"
     || !(status.active_generation_id === null
       || typeof status.active_generation_id === "string")
+    || !(status.latest_terminal_generation_id === undefined
+      || status.latest_terminal_generation_id === null
+      || typeof status.latest_terminal_generation_id === "string")
+    || !(status.latest_terminal_error_code === undefined
+      || status.latest_terminal_error_code === null
+      || typeof status.latest_terminal_error_code === "string")
     || !(building === null || (
       typeof building === "object"
+      && typeof (building as Record<string, unknown>).collection_id === "string"
+      && (building as Record<string, unknown>).collection_id === status.collection_id
       && typeof (building as Record<string, unknown>).generation_id === "string"
+      && Number.isSafeInteger((building as Record<string, unknown>).source_head)
       && ["projection", "resolution"].includes(
         String((building as Record<string, unknown>).phase)
       )
@@ -770,6 +888,46 @@ function asProviderError(value: unknown): { code: string; message: string } {
   };
 }
 
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+function requiredOperation(
+  options?: HostedProviderOperationOptions
+): RequiredOperationOptions {
+  return {
+    deadline: options?.deadline ?? Date.now() + PROVIDER_OPERATION_TIMEOUT_MS,
+    ...(options?.signal ? { signal: options.signal } : {})
+  };
+}
+
+function remainingMilliseconds(options: RequiredOperationOptions): number {
+  return Math.max(0, options.deadline - Date.now());
+}
+
+function throwIfCancelled(options: RequiredOperationOptions): void {
+  if (options.signal?.aborted) throw options.signal.reason;
+  if (remainingMilliseconds(options) <= 0) {
+    throw new HostedProviderUnavailableError(
+      new DOMException("Provider operation deadline exceeded.", "TimeoutError")
+    );
+  }
+}
+
+async function boundedDelay(
+  milliseconds: number,
+  options: RequiredOperationOptions
+): Promise<void> {
+  throwIfCancelled(options);
+  const delayMilliseconds = Math.min(milliseconds, remainingMilliseconds(options));
+  await new Promise<void>((resolveDelay, rejectDelay) => {
+    const finish = () => {
+      options.signal?.removeEventListener("abort", abort);
+      resolveDelay();
+    };
+    const timeout = setTimeout(finish, delayMilliseconds);
+    const abort = () => {
+      clearTimeout(timeout);
+      options.signal?.removeEventListener("abort", abort);
+      rejectDelay(options.signal?.reason);
+    };
+    options.signal?.addEventListener("abort", abort, { once: true });
+  });
+  throwIfCancelled(options);
 }
