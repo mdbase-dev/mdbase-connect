@@ -18,7 +18,7 @@ fn file_grant(collection_id: Uuid, actions: Vec<FileAction>, scope: FileScope) -
         application_distribution: "portable".to_string(),
         application_homepage: "https://example.test".to_string(),
         application_project_url: None,
-        application_origin: String::new(),
+        application_origin: None,
         application_icon: None,
         collection_id,
         collection_name: "Files".to_string(),
