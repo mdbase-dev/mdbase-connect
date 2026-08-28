@@ -1,4 +1,4 @@
-import { SyncError } from "./sync-error.js";
+import { invalidMirrorState } from "./sync-error.js";
 import type { MirrorState, MirrorStateStore } from "./mirror-state.js";
 import { applySyncJournalEvent, type SyncJournalEvent } from "./sync-journal.js";
 
@@ -15,7 +15,7 @@ export class MemoryMirrorStateStore implements MirrorStateStore {
   }
 
   async appendJournal(event: SyncJournalEvent): Promise<void> {
-    if (!this.state) throw new SyncError("invalid_mirror_state", "Mirror journal has no base state.");
+    if (!this.state) throw invalidMirrorState("Mirror journal has no base state.");
     applySyncJournalEvent(this.state, structuredClone(event));
   }
 }

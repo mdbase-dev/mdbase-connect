@@ -27,4 +27,5 @@ walkdir = "2"
 
 [dev-dependencies]
 axum.workspace = true
+base64.workspace = true
 tokio.workspace = true
