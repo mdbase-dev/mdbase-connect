@@ -6,12 +6,14 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const catalogPath = resolve(root, "packages/protocol/schemas/operation-catalog.v1.json");
 const typescriptPath = resolve(root, "packages/protocol/src/operations.ts");
 const rustPath = resolve(root, "crates/connect-protocol/src/collection_operations_generated.rs");
+const classificationFixturePath = resolve(root, "packages/protocol/schemas/operation-mutation-classification.v1.json");
 const catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
 const check = process.argv.includes("--check");
 
 validateCatalog(catalog);
 emit(typescriptPath, typescriptSource(catalog));
 emit(rustPath, rustSource(catalog));
+emit(classificationFixturePath, `${JSON.stringify(classificationFixture(catalog), null, 2)}\n`);
 
 function emit(path, content) {
   if (check) {
@@ -64,6 +66,36 @@ function validateCatalog(value) {
     !Number.isSafeInteger(input_schema_version) || input_schema_version < 1)) {
     throw new Error("File-control input schema versions must be positive integers.");
   }
+}
+
+function classificationFixture(value) {
+  const cases = [];
+  for (const operation of value.collection_operations) {
+    const identifier = operation.mutation === "always" ? operation.id : null;
+    cases.push({ operation: operation.id, input: {}, schema_version: operation.input_schema_version, identifier });
+    cases.push({
+      operation: operation.id,
+      input: { dry_run: true },
+      schema_version: operation.input_schema_version,
+      identifier: operation.dry_run === "nonmutating" ? null : identifier
+    });
+  }
+  cases.push(
+    { operation: "sync", input: { action: "changes", dry_run: true }, schema_version: 1, identifier: null },
+    { operation: "sync", input: { action: "mutate", dry_run: true }, schema_version: 1, identifier: "sync:mutate" }
+  );
+  for (const message of value.file_control_messages) {
+    const identifier = message.mutation ? `file_control:${message.id}` : null;
+    for (const dry_run of [false, true]) {
+      cases.push({
+        operation: "file_control",
+        input: { type: message.id, ...(dry_run ? { dry_run: true } : {}) },
+        schema_version: message.input_schema_version,
+        identifier
+      });
+    }
+  }
+  return { catalog_version: value.catalog_version, cases };
 }
 
 function typescriptSource(value) {

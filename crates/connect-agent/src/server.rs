@@ -15,10 +15,10 @@ use mdbase_connect_protocol::crypto::{
 };
 use mdbase_connect_protocol::{
     mutation_fingerprint, mutation_operation_identifier, operation_input_schema_version,
-    AgentConnectionState, AgentStatus, ApplicationAccess, AuthorityTarget,
-    AuthorizationCollectionOffer, AuthorizationCollectionTypes, ConnectOperationOutcome,
-    ConnectProblem, ContractSetupChoice, ControlCommand, ControlError, ControlRequest,
-    ControlResponse, RelayMessage, SyncReplicaMode, CONTROL_PROTOCOL_VERSION,
+    validate_operation_discriminators, AgentConnectionState, AgentStatus, ApplicationAccess,
+    AuthorityTarget, AuthorizationCollectionOffer, AuthorizationCollectionTypes,
+    ConnectOperationOutcome, ConnectProblem, ContractSetupChoice, ControlCommand, ControlError,
+    ControlRequest, ControlResponse, RelayMessage, SyncReplicaMode, CONTROL_PROTOCOL_VERSION,
     LOCAL_CONTROL_PROTOCOL_VERSION,
 };
 use std::io;

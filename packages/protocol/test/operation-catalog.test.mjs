@@ -1,12 +1,19 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   COLLECTION_OPERATIONS,
   FILE_CONTROL_MESSAGE_TYPES,
   MUTATING_OPERATION_IDENTIFIERS,
   isMutatingOperation,
-  mutationOperationIdentifier
+  mutationOperationIdentifier,
+  operationInputSchemaVersion
 } from "../dist/operations.js";
+
+const classificationFixture = JSON.parse(readFileSync(
+  new URL("../schemas/operation-mutation-classification.v1.json", import.meta.url),
+  "utf8"
+));
 
 test("the generated catalogue classifies every public mutation", () => {
   assert.deepEqual(
@@ -68,6 +75,37 @@ test("only catalog-declared dry runs downgrade mutation classification", () => {
   for (const type of ["list_files", "open_file_download", "get_file_transfer_status"]) {
     assert.equal(mutationOperationIdentifier("file_control", { type, dry_run: true }), null);
   }
+});
+
+test("generated mutation-classification fixtures cover the complete catalog", () => {
+  const coveredCollections = new Set();
+  const coveredFiles = new Set();
+  for (const entry of classificationFixture.cases) {
+    assert.equal(
+      mutationOperationIdentifier(entry.operation, entry.input),
+      entry.identifier,
+      `${entry.operation} ${JSON.stringify(entry.input)}`
+    );
+    assert.equal(
+      operationInputSchemaVersion(entry.operation, entry.input),
+      entry.schema_version,
+      `${entry.operation} schema`
+    );
+    if (COLLECTION_OPERATIONS.includes(entry.operation)) coveredCollections.add(entry.operation);
+    if (entry.operation === "file_control" && FILE_CONTROL_MESSAGE_TYPES.includes(entry.input.type)) {
+      coveredFiles.add(entry.input.type);
+    }
+  }
+  assert.deepEqual([...coveredCollections], [...COLLECTION_OPERATIONS]);
+  assert.deepEqual([...coveredFiles], [...FILE_CONTROL_MESSAGE_TYPES]);
+});
+
+test("unknown discriminators are explicit schema rejections, not generated oracle cases", () => {
+  assert.throws(
+    () => operationInputSchemaVersion("file_control", { type: "unknown_file_control" }),
+    { message: "Unknown file-control message: unknown_file_control" }
+  );
+  assert.equal(mutationOperationIdentifier("sync", { action: "unknown" }), null);
 });
 
 test("file-control mutations share the canonical recovery identifiers", () => {

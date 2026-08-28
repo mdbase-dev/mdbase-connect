@@ -818,7 +818,7 @@ impl CollectionRegistry {
                     serde_json::to_value(store.changes(id, replica.id, after, limit)?)
                         .map_err(Into::into)
                 }
-                other => Err(ConnectError::AccessDenied(format!(
+                other => Err(ConnectError::InvalidInput(format!(
                     "Unsupported sync action: {other}"
                 ))),
             };
