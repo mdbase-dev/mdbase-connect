@@ -37,15 +37,17 @@ pub use key_wrapping::{
 pub use notifications::{HostedNotificationConfig, HostedNotificationRuntime};
 pub use provider::run_hosted_cutover_migrations;
 pub use provider::{
-    DiagnosticSection, DrainStateDiagnostic, HostedDiagnostics, HostedMutationJournalDiagnostics,
-    HostedProjectionBatch, HostedProjectionGeneration, HostedProjectionIndexPlan,
-    HostedProjectionIndexPlanEntry, HostedProjectionStatus, HostedProjectionVerification,
-    HostedProvider, HostedQueryActivity, MigrationLedgerDiagnostic, NotificationRecoveryState,
+    DiagnosticSection, DrainStateDiagnostic, HostedDiagnostics, HostedLifecycleWorkDiagnostic,
+    HostedMutationJournalDiagnostics, HostedProjectionBatch, HostedProjectionGeneration,
+    HostedProjectionIndexPlan, HostedProjectionIndexPlanEntry, HostedProjectionStatus,
+    HostedProjectionVerification, HostedProvider, HostedQueryActivity, LifecycleDiagnosticSection,
+    MigrationLedgerDiagnostic, MutationJournalLifecycleDiagnostic, NotificationRecoveryState,
     NotificationRecoveryStatus, PrepareAuthorityImport, PrepareAuthorityTransfer,
     ProjectionProgressDiagnostic, ProjectionReadinessDiagnostic, ProviderAccountLimits,
     ProviderAccountUsage, ProviderAuthorityImport, ProviderAuthorityImportState,
     ProviderAuthorityTransfer, ProviderAuthorityTransferState, ProviderLimits, RegisterReplica,
-    ReplicaPurpose, ResourceChangeDiagnostic, StorageDiagnostic,
+    ReplicaPurpose, ResourceChangeDiagnostic, RuntimeOutboxLifecycleDiagnostic, StorageDiagnostic,
+    HOSTED_DIAGNOSTICS_SCHEMA_VERSION,
 };
 #[cfg(feature = "test-hooks")]
 pub use test_hooks::{AuthorityImportHookError, AuthorityImportHookPoint, AuthorityImportTestHook};

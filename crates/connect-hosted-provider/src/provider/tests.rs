@@ -5,6 +5,51 @@ use mdbase_connect_protocol::CollectionFileDescriptor;
 use serde_json::Map;
 
 #[test]
+fn lifecycle_diagnostic_schema_is_additive_fixed_and_privacy_safe() {
+    assert_eq!(HOSTED_DIAGNOSTICS_SCHEMA_VERSION, 2);
+    let section = LifecycleDiagnosticSection::Ok {
+        value: HostedLifecycleWorkDiagnostic {
+            runtime_outbox: RuntimeOutboxLifecycleDiagnostic {
+                open: 3,
+                stale: 2,
+                poison: 1,
+                expired_leases: 1,
+                impossible: 2,
+                oldest_open_seconds: Some(1_801),
+            },
+            mutation_journal: MutationJournalLifecycleDiagnostic {
+                unfinished: 4,
+                stale: 2,
+                outcome_unknown: 1,
+                expired_leases: 1,
+                oldest_unfinished_seconds: Some(181),
+            },
+            stuck_deleting_collections: 1,
+        },
+    };
+    let serialized = serde_json::to_value(section).unwrap();
+    assert_eq!(serialized["state"], "ok");
+    assert_eq!(serialized["value"]["runtime_outbox"]["poison"], 1);
+    assert_eq!(
+        serialized["value"]["mutation_journal"]["outcome_unknown"],
+        1
+    );
+    let text = serialized.to_string();
+    for private in [
+        "11111111-1111-4111-8111-111111111111",
+        "fixture provider error",
+        "/customer/path",
+        "customer-123",
+    ] {
+        assert!(!text.contains(private));
+    }
+    assert_eq!(
+        serde_json::to_value(LifecycleDiagnosticSection::Unavailable).unwrap(),
+        json!({"state": "unavailable"})
+    );
+}
+
+#[test]
 fn rollback_binaries_tolerate_newer_additive_migrations() {
     assert!(hosted_migrator().ignore_missing);
 }

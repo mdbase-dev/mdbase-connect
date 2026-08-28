@@ -24,8 +24,13 @@ impl HostedProvider {
         }
 
         let activity = self.hosted_query_activity();
+        let lifecycle_work =
+            match tokio::time::timeout(budget, self.lifecycle_work_diagnostic()).await {
+                Ok(Ok(value)) => LifecycleDiagnosticSection::Ok { value },
+                Ok(Err(_)) | Err(_) => LifecycleDiagnosticSection::Unavailable,
+            };
         HostedDiagnostics {
-            schema_version: 1,
+            schema_version: HOSTED_DIAGNOSTICS_SCHEMA_VERSION,
             provider_version: env!("CARGO_PKG_VERSION"),
             query_activity: activity,
             projection_readiness: section!(self.projection_readiness_diagnostic()),
@@ -34,7 +39,94 @@ impl HostedProvider {
             migration_ledger: section!(self.migration_ledger_diagnostic()),
             storage: section!(self.storage_diagnostic()),
             recent_resource_changes: section!(self.recent_resource_changes_diagnostic()),
+            lifecycle_work,
         }
+    }
+
+    async fn lifecycle_work_diagnostic(&self) -> ApiResult<HostedLifecycleWorkDiagnostic> {
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query("SET TRANSACTION READ ONLY")
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query("SET LOCAL statement_timeout = '2s'")
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query("SET LOCAL lock_timeout = '250ms'")
+            .execute(&mut *transaction)
+            .await?;
+        let row = sqlx::query(
+            r#"WITH outbox AS (
+                 SELECT
+                   count(*) FILTER (WHERE processed_at IS NULL) AS open,
+                   count(*) FILTER (WHERE processed_at IS NULL
+                     AND occurred_at <= now() - interval '30 minutes') AS stale,
+                   count(*) FILTER (WHERE processed_at IS NULL AND attempts >= 11
+                     AND last_error IS NOT NULL) AS poison,
+                   count(*) FILTER (WHERE processed_at IS NULL
+                     AND leased_until <= now()) AS expired_leases,
+                   count(*) FILTER (WHERE
+                     ((lease_token IS NULL) <> (leased_until IS NULL))
+                     OR (processed_at IS NOT NULL AND
+                       (lease_token IS NOT NULL OR leased_until IS NOT NULL
+                         OR last_error IS NOT NULL))) AS impossible,
+                   greatest(0, extract(epoch FROM now() - min(occurred_at)
+                     FILTER (WHERE processed_at IS NULL)))::bigint AS oldest_open_seconds
+                 FROM hosted_provider_runtime_outbox
+               ), journal AS (
+                 SELECT
+                   count(*) FILTER (WHERE state IN ('claimed', 'prepared', 'applied')) AS unfinished,
+                   count(*) FILTER (WHERE state IN ('claimed', 'prepared', 'applied')
+                     AND updated_at <= now() - interval '120 seconds') AS stale,
+                   count(*) FILTER (WHERE state = 'outcome_unknown') AS outcome_unknown,
+                   count(*) FILTER (WHERE state IN ('claimed', 'prepared', 'applied')
+                     AND lease_expires_at <= now()) AS expired_leases,
+                   greatest(0, extract(epoch FROM now() - min(accepted_at)
+                     FILTER (WHERE state IN ('claimed', 'prepared', 'applied'))))::bigint
+                     AS oldest_unfinished_seconds
+                 FROM hosted_provider_mutation_journal
+               ), deleting AS (
+                 SELECT count(*) AS stuck
+                 FROM hosted_provider_collections
+                 WHERE state = 'deleting'
+                   AND updated_at <= now() - interval '10 minutes'
+               )
+               SELECT outbox.open AS outbox_open, outbox.stale AS outbox_stale,
+                 outbox.poison AS outbox_poison,
+                 outbox.expired_leases AS outbox_expired_leases,
+                 outbox.impossible AS outbox_impossible,
+                 outbox.oldest_open_seconds,
+                 journal.unfinished AS journal_unfinished,
+                 journal.stale AS journal_stale,
+                 journal.outcome_unknown AS journal_outcome_unknown,
+                 journal.expired_leases AS journal_expired_leases,
+                 journal.oldest_unfinished_seconds,
+                 deleting.stuck AS stuck_deleting_collections
+               FROM outbox CROSS JOIN journal CROSS JOIN deleting"#,
+        )
+        .fetch_one(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        let count = |name: &str| -> ApiResult<u64> {
+            number(row.get::<i64, _>(name), "lifecycle diagnostic count")
+        };
+        Ok(HostedLifecycleWorkDiagnostic {
+            runtime_outbox: RuntimeOutboxLifecycleDiagnostic {
+                open: count("outbox_open")?,
+                stale: count("outbox_stale")?,
+                poison: count("outbox_poison")?,
+                expired_leases: count("outbox_expired_leases")?,
+                impossible: count("outbox_impossible")?,
+                oldest_open_seconds: row.get("oldest_open_seconds"),
+            },
+            mutation_journal: MutationJournalLifecycleDiagnostic {
+                unfinished: count("journal_unfinished")?,
+                stale: count("journal_stale")?,
+                outcome_unknown: count("journal_outcome_unknown")?,
+                expired_leases: count("journal_expired_leases")?,
+                oldest_unfinished_seconds: row.get("oldest_unfinished_seconds"),
+            },
+            stuck_deleting_collections: count("stuck_deleting_collections")?,
+        })
     }
 
     async fn projection_readiness_diagnostic(&self) -> ApiResult<ProjectionReadinessDiagnostic> {
