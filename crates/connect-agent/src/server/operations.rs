@@ -571,15 +571,15 @@ impl AgentState {
         let Ok(input) = serde_json::from_slice::<serde_json::Value>(&plaintext) else {
             return rejected();
         };
-        if envelope.operation == "batch" {
+        if let Some(problem) = owner_only_operation_problem(&envelope.operation) {
+            return encrypted_problem_response(&keys, metadata, problem);
+        }
+        if let Err(message) = validate_operation_discriminators(&envelope.operation, &input) {
             return encrypted_problem_response(
                 &keys,
                 metadata,
-                ConnectProblem::new(
-                    "invalid_request",
-                    "Batch operations are available only to the local collection owner.",
-                )
-                .with_operation_outcome(ConnectOperationOutcome::Rejected),
+                ConnectProblem::new("invalid_request", message)
+                    .with_operation_outcome(ConnectOperationOutcome::Rejected),
             );
         }
         if let Some(problem) =
