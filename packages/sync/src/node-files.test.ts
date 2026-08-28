@@ -33,9 +33,23 @@ describe("Node collection file adapters", () => {
       await expect(fileSystem.readText("invalid.md")).resolves.toEqual({
         kind: "invalid",
         code: "invalid_utf8",
-        reason: "File is not valid UTF-8."
+        reason: "File is not valid UTF-8.",
+        revision: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u)
       });
       await expect(fileSystem.read("invalid.md")).rejects.toMatchObject({ code: "invalid_utf8" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("types bounded platform text-read failures", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mdbase-node-read-failure-"));
+    try {
+      const fileSystem = new NodeMirrorFileSystem(root);
+      await mkdir(join(root, "directory.md"));
+      await expect(fileSystem.readText("directory.md")).rejects.toMatchObject({
+        code: "file_read_failed"
+      });
     } finally {
       await rm(root, { recursive: true, force: true });
     }

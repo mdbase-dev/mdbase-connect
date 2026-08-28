@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { MemoryAuthority, type SyncTransport } from "./index.js";
 import { documentRevision } from "./mirror-format.js";
+import { SyncError } from "./sync-error.js";
 import {
   DirectoryMirror,
   MemoryMirrorLease,
@@ -22,12 +24,16 @@ class TestFileSystem implements MirrorFileSystem {
   readonly files = new Map<string, string>();
   readonly rawFiles = new Map<string, Uint8Array>();
   readonly readFailures = new Map<string, Error>();
+  readonly existsFailures = new Map<string, Error>();
+  readonly readFailureSequences = new Map<string, Array<Error | null>>();
   reads = 0;
   writes = 0;
   lists = 0;
   failAfterWrites: number | null = null;
 
   async exists(path: string): Promise<boolean> {
+    const failure = this.existsFailures.get(path);
+    if (failure) throw failure;
     return this.files.has(path) || this.rawFiles.has(path);
   }
 
@@ -39,6 +45,8 @@ class TestFileSystem implements MirrorFileSystem {
 
   async readText(path: string): Promise<MirrorTextReadResult> {
     this.reads += 1;
+    const sequencedFailure = this.readFailureSequences.get(path)?.shift();
+    if (sequencedFailure) throw sequencedFailure;
     const failure = this.readFailures.get(path);
     if (failure) throw failure;
     const raw = this.rawFiles.get(path);
@@ -46,7 +54,12 @@ class TestFileSystem implements MirrorFileSystem {
       try {
         return new TextDecoder("utf-8", { fatal: true }).decode(raw);
       } catch {
-        return { kind: "invalid", code: "invalid_utf8", reason: "File is not valid UTF-8." };
+        return {
+          kind: "invalid",
+          code: "invalid_utf8",
+          reason: "File is not valid UTF-8.",
+          revision: `sha256:${createHash("sha256").update(raw).digest("hex")}`
+        };
       }
     }
     return this.files.get(path) ?? null;
@@ -1488,6 +1501,208 @@ describe("platform-neutral directory mirror", () => {
     expect((await hosted.transport(replicaId).snapshot(
       (await hosted.transport(replicaId).openSession()).snapshot_id
     )).records).toHaveLength(1);
+  });
+
+  it("blocks receive-only repair when production inspection also has a read failure", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed([
+      { record_id: "invalid", path: "invalid.md", frontmatter: {}, body: "Authority", types: [] },
+      { record_id: "eio", path: "eio.md", frontmatter: {}, body: "Unreadable", types: [] }
+    ]);
+    const replicaId = hosted.registerReplica({ name: "Receiver", mode: "read_only" });
+    const fileSystem = new TestFileSystem();
+    const mirror = new DirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem,
+      stateStore: new MemoryMirrorStateStore(),
+      runtime: deterministicRuntime()
+    });
+    await mirror.sync();
+    fileSystem.files.set("invalid.md", "---\na: [broken\n---\n");
+    fileSystem.readFailures.set("eio.md", Object.assign(new Error("EIO"), { code: "EIO" }));
+
+    const blocked = await mirror.inspect();
+    expect(blocked.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "invalid_frontmatter", path: "invalid.md", blocking: true }),
+      expect.objectContaining({ code: "file_read_failed", path: "eio.md", blocking: true })
+    ]));
+    expect(blocked.actions).toEqual([]);
+    expect(hosted.serialize().receipts).toEqual([]);
+  });
+
+  it("repairs authority records over exactly sealed invalid receive-only bytes", async () => {
+    const invalidCases: Array<[string, string | Uint8Array]> = [
+      ["invalid UTF-8", Uint8Array.from([0x62, 0x61, 0x64, 0xff])],
+      ["invalid YAML", "---\na: [broken\n---\n"],
+      ["nonmapping", "---\n- item\n---\n"]
+    ];
+    for (const [label, invalid] of invalidCases) {
+      const hosted = new MemoryAuthority();
+      hosted.seed([{ record_id: "managed", path: "managed.md", frontmatter: {}, body: "Authority", types: [] }]);
+      const replicaId = hosted.registerReplica({ name: label, mode: "read_only" });
+      const fileSystem = new TestFileSystem();
+      const stateStore = new MemoryMirrorStateStore();
+      const mirror = new DirectoryMirror(replicaId, hosted.transport(replicaId), {
+        fileSystem,
+        stateStore,
+        runtime: deterministicRuntime()
+      });
+      await mirror.sync();
+      const before = await stateStore.read();
+      if (typeof invalid === "string") fileSystem.files.set("managed.md", invalid);
+      else {
+        fileSystem.files.delete("managed.md");
+        fileSystem.rawFiles.set("managed.md", invalid);
+      }
+
+      const plan = await mirror.inspect();
+      expect(plan.actions).toMatchObject([
+        {
+          command: "write_local",
+          expected_local: {
+            state: "exact",
+            object: { payload_revision: expect.stringMatching(/^sha256:/u) }
+          }
+        },
+        { command: "advance_checkpoint" }
+      ]);
+      const checkpoint = plan.actions[1];
+      expect(checkpoint?.command === "advance_checkpoint" && checkpoint.next).toEqual(
+        checkpoint?.command === "advance_checkpoint" ? checkpoint.expected : undefined
+      );
+      expect((await mirror.inspect()).fingerprint).toBe(plan.fingerprint);
+      const applied = await mirror.apply(plan);
+      expect(applied.status, JSON.stringify(applied)).toBe("applied");
+      expect(fileSystem.files.get("managed.md")).toBe("Authority");
+      expect(fileSystem.rawFiles.has("managed.md")).toBe(false);
+      const after = await stateStore.read();
+      expect(after?.cursor).toBe(before?.cursor);
+      expect(after?.generation).toBe(before?.generation);
+      expect(hosted.serialize().receipts).toEqual([]);
+    }
+  });
+
+  it("maps a concurrent repair reread failure to stale without writing or checkpointing", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed([{ record_id: "managed", path: "managed.md", frontmatter: {}, body: "Authority", types: [] }]);
+    const replicaId = hosted.registerReplica({ name: "Receiver", mode: "read_only" });
+    const fileSystem = new TestFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    const mirror = new DirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem,
+      stateStore,
+      runtime: deterministicRuntime()
+    });
+    await mirror.sync();
+    const invalid = "---\na: [broken\n---\n";
+    fileSystem.files.set("managed.md", invalid);
+    const plan = await mirror.inspect();
+    const stateBefore = await stateStore.read();
+    const writesBefore = fileSystem.writes;
+    fileSystem.readFailureSequences.set("managed.md", [
+      null,
+      null,
+      new SyncError("file_read_failed", "Injected EIO.")
+    ]);
+
+    await expect(mirror.apply(plan)).resolves.toMatchObject({
+      status: "stale",
+      failure: { code: "sync_plan_stale" }
+    });
+    expect(fileSystem.writes).toBe(writesBefore);
+    expect(fileSystem.files.get("managed.md")).toBe(invalid);
+    expect(await stateStore.read()).toEqual(stateBefore);
+    expect(hosted.serialize().receipts).toEqual([]);
+  });
+
+  it("does not disguise a concurrent adapter programmer error as stale", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed([{ record_id: "managed", path: "managed.md", frontmatter: {}, body: "Authority", types: [] }]);
+    const replicaId = hosted.registerReplica({ name: "Receiver", mode: "read_only" });
+    const fileSystem = new TestFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    const mirror = new DirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem,
+      stateStore,
+      runtime: deterministicRuntime()
+    });
+    await mirror.sync();
+    const invalid = "---\na: [broken\n---\n";
+    fileSystem.files.set("managed.md", invalid);
+    const plan = await mirror.inspect();
+    const stateBefore = await stateStore.read();
+    const writesBefore = fileSystem.writes;
+    fileSystem.readFailureSequences.set("managed.md", [
+      null,
+      null,
+      new Error("programmer bug")
+    ]);
+
+    await expect(mirror.apply(plan)).resolves.toMatchObject({
+      status: "failed",
+      failure: { code: "sync_revalidation_failed", message: "programmer bug" }
+    });
+    expect(fileSystem.writes).toBe(writesBefore);
+    expect(fileSystem.files.get("managed.md")).toBe(invalid);
+    expect(await stateStore.read()).toEqual(stateBefore);
+    expect(hosted.serialize().receipts).toEqual([]);
+  });
+
+  it("does not map typed non-readText failures to stale", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed([{ record_id: "managed", path: "managed.md", frontmatter: {}, body: "Authority", types: [] }]);
+    const replicaId = hosted.registerReplica({ name: "Receiver", mode: "read_only" });
+    const fileSystem = new TestFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    const mirror = new DirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem,
+      stateStore,
+      runtime: deterministicRuntime()
+    });
+    const plan = await mirror.inspect();
+    const writesBefore = fileSystem.writes;
+    fileSystem.existsFailures.set(
+      "managed.md",
+      new SyncError("file_read_failed", "exists programmer failure")
+    );
+
+    await expect(mirror.apply(plan)).resolves.toMatchObject({
+      status: "failed",
+      failure: { code: "file_read_failed", message: "exists programmer failure" }
+    });
+    expect(fileSystem.writes).toBe(writesBefore);
+    expect(fileSystem.files.has("managed.md")).toBe(false);
+    expect(await stateStore.read()).toBeNull();
+    expect(hosted.serialize().receipts).toEqual([]);
+  });
+
+  it("rejects changed invalid bytes and never repairs a receive-only read failure", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed([{ record_id: "managed", path: "managed.md", frontmatter: {}, body: "Authority", types: [] }]);
+    const replicaId = hosted.registerReplica({ name: "Receiver", mode: "read_only" });
+    const fileSystem = new TestFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    const mirror = new DirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem,
+      stateStore,
+      runtime: deterministicRuntime()
+    });
+    await mirror.sync();
+    fileSystem.files.set("managed.md", "---\na: [broken\n---\n");
+    const plan = await mirror.inspect();
+    const concurrent = "---\na: [different\n---\n";
+    fileSystem.files.set("managed.md", concurrent);
+    await expect(mirror.apply(plan)).resolves.toMatchObject({ status: "stale" });
+    expect(fileSystem.files.get("managed.md")).toBe(concurrent);
+
+    fileSystem.readFailures.set("managed.md", Object.assign(new Error("EIO"), { code: "EIO" }));
+    const failed = await mirror.inspect();
+    expect(failed.actions).toEqual([]);
+    expect(failed.issues).toContainEqual(expect.objectContaining({
+      code: "file_read_failed",
+      path: "managed.md",
+      blocking: true
+    }));
+    expect(hosted.serialize().receipts).toEqual([]);
   });
 
   it("fences receive-only downloads and checkpointing on an invalid local record", async () => {

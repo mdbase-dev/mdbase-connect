@@ -6,8 +6,8 @@ import type {
   SyncRecord,
   SyncResourceDocument
 } from "@mdbase-dev/connect-protocol";
-import { SyncError } from "./sync-error.js";
-import { classifyLocalRecord } from "./mirror-format.js";
+import { asError, errorCode, SyncError } from "./sync-error.js";
+import { classifyLocalRecord, runtimeDocumentRevision } from "./mirror-format.js";
 import {
   ensureFileBlob,
   fileSelected,
@@ -175,6 +175,10 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
       resources,
       await this.currentRecordPathPolicy(state)
     );
+    if (
+      this.mode === "read_only"
+      && local.issues.some((issue) => issue.code === "invalid_frontmatter")
+    ) return this.inspectSnapshot("rebuild", state);
     return this.finish({
       kind: "incremental",
       prior: state,
@@ -273,7 +277,7 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
       }
       if (read === null) continue;
       const document = read;
-      const revision = `sha256:${this.runtime.digest(document)}`;
+      const revision = runtimeDocumentRevision(document, this.runtime);
       observations.push({
         stable_identity: true,
         object: textRef("resource", path, path, revision)
@@ -323,16 +327,15 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
               path,
               blocking: true
             });
-        if (priorRecord) {
-          observations.push({
-            stable_identity: true,
-            object: textRef("record", priorRecord[0], path, priorRecord[1].revision)
-          });
-        }
+        const revision = read?.revision ?? priorRecord?.[1].revision;
+        if (revision) observations.push({
+          stable_identity: identity !== "",
+          object: textRef("record", identity, path, revision)
+        });
         continue;
       }
       const document = read;
-      const revision = `sha256:${this.runtime.digest(document)}`;
+      const revision = runtimeDocumentRevision(document, this.runtime);
       observations.push({
         stable_identity: identity !== "",
         object: textRef("record", identity, path, revision)
@@ -402,9 +405,9 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
         ...binary.keys()
       ]);
     } catch (error) {
-      const value = error instanceof Error ? error : new Error(String(error));
+      const value = asError(error);
       issues.push({
-        code: errorCode(error),
+        code: errorCode(error, "sync_inspection_failed"),
         message: value.message,
         blocking: true
       });
@@ -479,8 +482,12 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
         ...local.observations.map(({ object }) => object.path)
       ]);
     } catch (error) {
-      const value = error instanceof Error ? error : new Error(String(error));
-      issues.push({ code: errorCode(error), message: value.message, blocking: true });
+      const value = asError(error);
+      issues.push({
+        code: errorCode(error, "sync_inspection_failed"),
+        message: value.message,
+        blocking: true
+      });
     }
     if (this.mode === "read_only") {
       for (const object of objects) {
@@ -568,7 +575,10 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
           payloads.local_files[action.action_id] = { path: localPath, ...info };
         } else {
           const document = local.documents.get(localPath);
-          if (document === undefined || `sha256:${this.runtime.digest(document)}` !== action.payload_revision) {
+          if (
+            document === undefined
+            || runtimeDocumentRevision(document, this.runtime) !== action.payload_revision
+          ) {
             throw missingPayload(action.action_id);
           }
           payloads.documents[action.action_id] = document;
@@ -745,12 +755,6 @@ function missingPayload(actionId: string): SyncError {
     "sync_payload_incomplete",
     `Inspected action ${actionId} has no revision-bound payload.`
   );
-}
-
-function errorCode(error: unknown): string {
-  return error && typeof error === "object" && "code" in error && typeof error.code === "string"
-    ? error.code
-    : "sync_inspection_failed";
 }
 
 function readFailureIssue(path: string): InspectionIssue {

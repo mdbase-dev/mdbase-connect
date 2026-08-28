@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { normalizeSelectiveSyncPolicy } from "./mirror-files.js";
 import { portableMirrorRuntime } from "./mirror-state.js";
 import type { InspectionSummary, InspectedObject } from "./sync-inspection-model.js";
@@ -18,6 +20,7 @@ import { advanceSyncCheckpoint } from "./sync-checkpoint.js";
 import { MemoryAuthority } from "./memory-authority.js";
 import { classifyLocalRecord } from "./mirror-format.js";
 import type { MirrorFileSystem } from "./mirror-state.js";
+import { NodeMirrorFileSystem } from "./node.js";
 
 class InspectorFileSystem implements MirrorFileSystem {
   readonly files = new Map<string, string>();
@@ -153,32 +156,26 @@ describe("pure exact-document planner", () => {
     };
 
     expect(fixture.source_revision).toBe("mdbase-rs@aac02c5");
-    expect(fixture.cases.map(({ name, outcome }) => [name, outcome])).toEqual([
-      ["body_only", "parsed"],
-      ["empty_mapping", "parsed"],
-      ["malformed_yaml", "invalid_yaml"],
-      ["duplicate_yaml_key", "invalid_yaml"],
-      ["null_frontmatter", "non_mapping_frontmatter"],
-      ["list_frontmatter", "non_mapping_frontmatter"],
-      ["scalar_frontmatter", "non_mapping_frontmatter"],
-      ["later_horizontal_rule_block", "parsed"],
-      ["single_bom_frontmatter", "non_mapping_frontmatter"],
-      ["double_bom_body_only", "parsed"],
-      ["crlf_frontmatter", "non_mapping_frontmatter"],
-      ["unclosed_opening_fence", "parsed"],
-      ["trailing_whitespace_fences", "non_mapping_frontmatter"],
-      ["invalid_utf8", "invalid_utf8"]
-    ]);
-    for (const fixtureCase of fixture.cases) {
-      if (fixtureCase.document === undefined) continue;
-      expect(classifyLocalRecord(fixtureCase.document).outcome, fixtureCase.name)
-        .toBe(fixtureCase.outcome);
+    expect(fixture.cases).toHaveLength(14);
+    const root = await mkdtemp(join(tmpdir(), "mdbase-structural-oracle-"));
+    const fileSystem = new NodeMirrorFileSystem(root);
+    try {
+      for (const fixtureCase of fixture.cases) {
+        if (fixtureCase.document !== undefined) {
+          expect(classifyLocalRecord(fixtureCase.document).outcome, fixtureCase.name)
+            .toBe(fixtureCase.outcome);
+          continue;
+        }
+        expect(fixtureCase.bytes_base64, fixtureCase.name).toBeDefined();
+        const path = `${fixtureCase.name}.md`;
+        await writeFile(join(root, path), Buffer.from(fixtureCase.bytes_base64!, "base64"));
+        const read = await fileSystem.readText(path);
+        expect(typeof read === "object" && read?.kind === "invalid" ? read.code : "parsed")
+          .toBe(fixtureCase.outcome);
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
-    expect(fixture.cases.at(-1)).toEqual({
-      name: "invalid_utf8",
-      bytes_base64: "YmFk/3V0ZjgubWQ=",
-      outcome: "invalid_utf8"
-    });
   });
 
   it("fences all sibling effects and checkpointing when one issue blocks", async () => {
@@ -199,15 +196,10 @@ describe("pure exact-document planner", () => {
       "advance_checkpoint"
     ]);
 
-    const fixture = JSON.parse(await readFile(
-      new URL("../../../test-fixtures/record-structural-outcomes.json", import.meta.url),
-      "utf8"
-    )) as { cases: Array<{ name: string; outcome: string }> };
-    const reason = fixture.cases.find(({ name }) => name === "duplicate_yaml_key")!.outcome;
     inspection.issues = [
       { code: "notice", message: "Retained diagnostic.", blocking: false },
       {
-        code: reason,
+        code: "invalid_frontmatter",
         message: "Invalid frontmatter in notes/broken.md.",
         path: "notes/broken.md",
         blocking: true
@@ -220,7 +212,7 @@ describe("pure exact-document planner", () => {
     expect(first.issues).toEqual([
       { code: "notice", message: "Retained diagnostic.", blocking: false },
       {
-        code: "invalid_yaml",
+        code: "invalid_frontmatter",
         message: "Invalid frontmatter in notes/broken.md.",
         path: "notes/broken.md",
         blocking: true

@@ -71,8 +71,9 @@ pub use transport::{HttpSyncTransport, SyncTransport};
 #[cfg(test)]
 use filesystem::parse_markdown;
 use filesystem::{
-    atomic_write, digest, is_remote_mirror_record_path, now, portable_mirror_path_key,
-    record_markdown_document, safe_path, validate_portable_mirror_path, MirrorLease,
+    atomic_write, digest, digest_bytes, is_remote_mirror_record_path, now,
+    portable_mirror_path_key, record_markdown_document, safe_path, validate_portable_mirror_path,
+    MirrorLease,
 };
 
 #[cfg(test)]
@@ -306,8 +307,14 @@ pub struct AuthorityPromotionManifest {
 
 enum LocalRecordRead {
     Missing,
-    Parsed { document: String, revision: String },
-    Invalid { reason: &'static str },
+    Parsed {
+        document: String,
+        revision: String,
+    },
+    Invalid {
+        reason: &'static str,
+        revision: String,
+    },
 }
 
 trait LocalRecordReader: Send + Sync {
@@ -325,25 +332,28 @@ impl LocalRecordReader for FilesystemRecordReader {
             }
             Err(error) => return Err(error),
         };
+        let revision = format!("sha256:{}", digest_bytes(&bytes));
         let document = match String::from_utf8(bytes) {
             Ok(document) => document,
             Err(_) => {
                 return Ok(LocalRecordRead::Invalid {
                     reason: "Document is not valid UTF-8.",
+                    revision,
                 })
             }
         };
         match parse_document(&document).frontmatter_state() {
             FrontmatterState::Absent | FrontmatterState::Mapping(_) => {
-                let revision = format!("sha256:{}", digest(&document));
                 Ok(LocalRecordRead::Parsed { document, revision })
             }
             FrontmatterState::InvalidYaml => Ok(LocalRecordRead::Invalid {
                 reason: "Frontmatter is not valid YAML.",
+                revision,
             }),
             FrontmatterState::Null | FrontmatterState::NonMapping(_) => {
                 Ok(LocalRecordRead::Invalid {
                     reason: "Frontmatter must be a mapping.",
+                    revision,
                 })
             }
         }

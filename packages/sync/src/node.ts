@@ -281,6 +281,27 @@ function isWithinDirectory(candidate: string, directory: string): boolean {
     || (offset !== ".." && !offset.startsWith(`..${sep}`) && !isAbsolute(offset));
 }
 
+const EXPECTED_TEXT_READ_ERRORS = new Set([
+  "EACCES",
+  "EBUSY",
+  "EIO",
+  "EISDIR",
+  "EMFILE",
+  "ENFILE",
+  "ENOTDIR",
+  "EPERM"
+]);
+
+function classifyTextReadError(error: unknown, path: string): "missing" | SyncError | null {
+  if (!(error instanceof Error)) return null;
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code === "ENOENT") return "missing";
+  if (code && EXPECTED_TEXT_READ_ERRORS.has(code)) {
+    return new SyncError("file_read_failed", `Could not read ${path}.`);
+  }
+  return null;
+}
+
 export class NodeMirrorFileSystem implements MirrorFileSystem {
   private readonly root: string;
 
@@ -315,12 +336,14 @@ export class NodeMirrorFileSystem implements MirrorFileSystem {
         return {
           kind: "invalid",
           code: "invalid_utf8",
-          reason: "File is not valid UTF-8."
+          reason: "File is not valid UTF-8.",
+          revision: `sha256:${createHash("sha256").update(bytes).digest("hex")}`
         };
       }
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-      throw error;
+      const failure = classifyTextReadError(error, path);
+      if (failure === "missing") return null;
+      throw failure ?? error;
     }
   }
 

@@ -1,5 +1,5 @@
 import type { SelectiveSyncPolicy } from "@mdbase-dev/connect-protocol";
-import { SyncError } from "./sync-error.js";
+import { invalidMirrorState, SyncError } from "./sync-error.js";
 import type {
   MirrorEntry,
   MirrorFileEntry,
@@ -51,6 +51,10 @@ export async function prepareSyncBatch(
   );
   state.scope_epoch = plan.scope_epoch;
   state.selective_sync = plan.selective_sync;
+  const checkpoint = plan.actions.at(-1);
+  if (checkpoint?.command !== "advance_checkpoint") {
+    throw new SyncError("invalid_sync_plan", "Prepared plan has no checkpoint action.");
+  }
   state.batch = {
     phase: "prepared",
     plan,
@@ -61,10 +65,7 @@ export async function prepareSyncBatch(
       generation: plan.checkpoint_generation,
       cursor: plan.base_cursor
     },
-    checkpoint_after: {
-      generation: plan.checkpoint_generation + 1,
-      cursor: plan.authority_cursor
-    }
+    checkpoint_after: checkpoint.next
   };
   await store.write(state);
   return state;
@@ -93,10 +94,7 @@ export async function recordActionReceipt(
   const batch = requireBatch(state);
   const action = batch.plan.actions[batch.next_action];
   if (!action || action.action_id !== receipt.action_id) {
-    throw new SyncError(
-      "invalid_mirror_state",
-      "The durable sync receipt does not match the next prepared action."
-    );
+    throw invalidMirrorState("The durable sync receipt does not match the next prepared action.");
   }
   const event: SyncJournalEvent = {
     type: "receipt",
@@ -116,10 +114,7 @@ export async function markEffectsComplete(
   const batch = requireBatch(state);
   const next = batch.plan.actions[batch.next_action];
   if (!next || next.command !== "advance_checkpoint") {
-    throw new SyncError(
-      "invalid_mirror_state",
-      "Sync effects cannot complete before the checkpoint action is next."
-    );
+    throw invalidMirrorState("Sync effects cannot complete before the checkpoint action is next.");
   }
   batch.phase = "effects_complete";
   await appendOrWrite(state, {
@@ -162,7 +157,7 @@ export function applySyncJournalEvent(state: MirrorState, event: SyncJournalEven
   if (!action) return;
   if (action.action_id !== event.receipt.action_id) {
     if (batch.receipts.some(({ action_id }) => action_id === event.receipt.action_id)) return;
-    throw new SyncError("invalid_mirror_state", "Mirror journal receipts are out of order.");
+    throw invalidMirrorState("Mirror journal receipts are out of order.");
   }
   applyDelta(state, event.delta);
   batch.receipts.push(structuredClone(event.receipt));
@@ -237,7 +232,7 @@ function applyMapDelta<Value>(
 
 export function requireBatch(state: MirrorState): NonNullable<MirrorState["batch"]> {
   if (!state.batch) {
-    throw new SyncError("invalid_mirror_state", "The mirror has no prepared sync batch.");
+    throw invalidMirrorState("The mirror has no prepared sync batch.");
   }
   return state.batch;
 }

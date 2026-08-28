@@ -1,6 +1,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { parse, stringify } from "yaml";
+import type { MirrorRuntime } from "./mirror-state.js";
 import type {
   CollectionFileDescriptor,
   JsonObject,
@@ -58,6 +59,10 @@ export function documentHash(document: string): string {
 
 export function documentRevision(document: string): string {
   return `sha256:${documentHash(document)}`;
+}
+
+export function runtimeDocumentRevision(document: string, runtime: MirrorRuntime): string {
+  return `sha256:${runtime.digest(document)}`;
 }
 
 export function recordMarkdownDocument(record: SyncRecord): string {

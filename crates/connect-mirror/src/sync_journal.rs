@@ -33,16 +33,26 @@ impl DirectoryMirror {
         }
         state.scope_epoch = plan.scope_epoch;
         state.sync_policy = plan.selective_sync.clone();
+        let checkpoint_after = plan
+            .actions
+            .last()
+            .and_then(|action| match action {
+                SyncAction::AdvanceCheckpoint { next, .. } => Some(next.clone()),
+                _ => None,
+            })
+            .ok_or_else(|| {
+                MirrorError::new(
+                    "invalid_sync_plan",
+                    "Prepared plan has no checkpoint action.",
+                )
+            })?;
         state.batch = Some(DurableBatch {
             phase: BatchPhase::Prepared,
             checkpoint_before: SyncCheckpoint {
                 generation: plan.checkpoint_generation,
                 cursor: plan.base_cursor,
             },
-            checkpoint_after: SyncCheckpoint {
-                generation: plan.checkpoint_generation + 1,
-                cursor: Some(plan.authority_cursor),
-            },
+            checkpoint_after,
             plan,
             next_action: 0,
             receipts: Vec::new(),

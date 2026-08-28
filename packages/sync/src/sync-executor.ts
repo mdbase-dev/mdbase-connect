@@ -5,9 +5,9 @@ import type {
   SyncMutationReceipt,
   SyncRecord
 } from "@mdbase-dev/connect-protocol";
-import { SyncError } from "./sync-error.js";
+import { asError, errorCode, invalidMirrorState, SyncError } from "./sync-error.js";
 import { MirrorMaterializer } from "./mirror-materializer.js";
-import { recordMarkdownDocument } from "./mirror-format.js";
+import { recordMarkdownDocument, runtimeDocumentRevision } from "./mirror-format.js";
 import {
   sameBinaryInfo,
   validateCollectionFileDescriptor
@@ -26,6 +26,7 @@ import type {
   SyncFailure,
   SyncObjectRef
 } from "./sync-model.js";
+import { matchesLocalRef, stale } from "./sync-revalidator.js";
 import {
   beginApplying,
   markBatchInterrupted,
@@ -113,7 +114,7 @@ export class PlanOnlySyncExecutor {
         };
       }
     }
-    throw new SyncError("invalid_mirror_state", "Prepared plan has no checkpoint action.");
+    throw invalidMirrorState("Prepared plan has no checkpoint action.");
   }
 
   private async dispatch(state: MirrorState, action: SyncAction): Promise<DurableSyncReceipt> {
@@ -162,10 +163,7 @@ export class PlanOnlySyncExecutor {
         delete state.local_bindings?.[action.identity];
         return { action_id: action.action_id, status: "completed" };
       case "advance_checkpoint":
-        throw new SyncError(
-          "invalid_mirror_state",
-          "The executor cannot dispatch checkpoint actions."
-        );
+        throw invalidMirrorState("The executor cannot dispatch checkpoint actions.");
     }
   }
 
@@ -207,28 +205,27 @@ export class PlanOnlySyncExecutor {
     state: MirrorState,
     action: Extract<SyncAction, { command: "write_local" }>
   ): Promise<DurableSyncReceipt> {
+    const batch = requireBatch(state);
     const targetOccupied = await this.ports.fileSystem.exists(action.target.path);
     if (!targetOccupied || !await this.matchesRef(action.target)) {
       await this.assertLocal(action.expected_local);
-      await this.assertPathOwner(
-        action.target.path,
-        action.expected_path_owner,
-        targetOccupied
-      );
+      await this.assertPathOwner(action.target.path, action.expected_path_owner, targetOccupied);
     }
-    const payloads = requireBatch(state).payloads;
+    const payloads = batch.payloads;
     if (action.target.entity === "record") {
       const record = payloads.records[action.action_id];
       if (!record || record.revision !== action.payload_revision) throw missingPayload(action);
       assertExactDocument(record, this.ports.runtime, action.payload_revision);
-      await this.materializer.put(state, record, { inspectionPreflighted: true });
+      await this.materializer.put(state, record, {
+        inspectionPreflighted: batch.plan.summary.blocking_issues ? 1 : true
+      });
       this.installPathOwner(action.target);
       return { action_id: action.action_id, status: "completed" };
     }
     if (action.target.entity === "resource") {
       const resource = payloads.resources[action.action_id];
       if (!resource || resource.revision !== action.payload_revision) throw missingPayload(action);
-      if (`sha256:${this.ports.runtime.digest(resource.document)}` !== resource.revision) {
+      if (runtimeDocumentRevision(resource.document, this.ports.runtime) !== resource.revision) {
         throw missingPayload(action);
       }
       await this.materializer.putResource(state, resource, state);
@@ -296,8 +293,8 @@ export class PlanOnlySyncExecutor {
       const mutation = payloads.mutations[action.action_id];
       const document = payloads.documents[action.action_id];
       if (!mutation || mutation.operation !== "put" || document === undefined) throw missingPayload(action);
-      if (`sha256:${this.ports.runtime.digest(document)}` !== action.payload_revision) {
-        throw new SyncError("sync_plan_stale", "Prepared local document payload no longer matches its revision.");
+      if (runtimeDocumentRevision(document, this.ports.runtime) !== action.payload_revision) {
+        throw stale("Prepared local document payload no longer matches its revision.");
       }
       const receipt = await this.ports.transport.mutate(mutation);
       this.acceptRecordReceipt(state, action, receipt, document);
@@ -386,10 +383,7 @@ export class PlanOnlySyncExecutor {
       ({ action_id }) => action_id === action.revision_from_dependency
     );
     if (!receipt?.file || receipt.file.file_id !== action.source.identity) {
-      throw new SyncError(
-        "invalid_mirror_state",
-        `Move ${action.action_id} is missing its dependency file receipt.`
-      );
+      throw invalidMirrorState(`Move ${action.action_id} is missing its dependency file receipt.`);
     }
     return receipt.file.revision;
   }
@@ -509,10 +503,7 @@ export class PlanOnlySyncExecutor {
   private async assertLocal(expected: ExpectedObjectState): Promise<void> {
     if (expected.state === "absent") return;
     if (!await this.matchesRef(expected.object)) {
-      throw new SyncError(
-        "sync_plan_stale",
-        `${expected.object.path} no longer matches the inspected revision.`
-      );
+      throw stale(`${expected.object.path} no longer matches the inspected revision.`);
     }
   }
 
@@ -523,30 +514,18 @@ export class PlanOnlySyncExecutor {
   ): Promise<void> {
     const owner = this.ownersByPath.get(path);
     if (expected.state === "absent") {
-      if (owner || (observedExists ?? await this.pathExists(path))) {
-        throw new SyncError("sync_plan_stale", `${path} is no longer vacant.`);
+      if (owner || (observedExists ?? await this.ports.fileSystem.exists(path))) {
+        throw stale(`${path} is no longer vacant.`);
       }
       return;
     }
     if (!owner || owner.entity !== expected.object.entity || owner.identity !== expected.object.identity) {
-      throw new SyncError("sync_plan_stale", `${path} has a different path owner.`);
+      throw stale(`${path} has a different path owner.`);
     }
   }
 
-  private async matchesRef(ref: SyncObjectRef): Promise<boolean> {
-    if (ref.entity === "file") {
-      const info = await this.ports.fileSystem.inspectBinary(ref.path);
-      return info !== null
-        && info.content_digest === ref.payload_revision
-        && (ref.size === undefined || info.size === ref.size);
-    }
-    const document = await this.ports.fileSystem.read(ref.path);
-    return document !== null
-      && `sha256:${this.ports.runtime.digest(document)}` === ref.payload_revision;
-  }
-
-  private async pathExists(path: string): Promise<boolean> {
-    return this.ports.fileSystem.exists(path);
+  private matchesRef(ref: SyncObjectRef): Promise<boolean> {
+    return matchesLocalRef(this.ports.fileSystem, this.ports.runtime, ref, false);
   }
 
   private indexPathOwners(state: MirrorState): void {
@@ -637,7 +616,7 @@ function assertExactDocument(
   revision: string
 ): void {
   const document = recordMarkdownDocument(record);
-  if (record.revision !== revision || `sha256:${runtime.digest(document)}` !== revision) {
+  if (record.revision !== revision || runtimeDocumentRevision(document, runtime) !== revision) {
     throw new SyncError("invalid_sync_response", "Record receipt does not match its exact document revision.");
   }
 }
@@ -668,11 +647,9 @@ function invalidReceipt(action: SyncAction): SyncError {
 }
 
 function failureFrom(error: unknown, actionId: string): SyncFailure {
-  const value = error instanceof Error ? error : new Error(String(error));
+  const value = asError(error);
   return {
-    code: error && typeof error === "object" && "code" in error && typeof error.code === "string"
-      ? error.code
-      : "sync_action_failed",
+    code: errorCode(error, "sync_action_failed"),
     message: value.message,
     action_id: actionId
   };

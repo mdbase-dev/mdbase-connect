@@ -317,6 +317,14 @@ impl DirectoryMirror {
             documents,
             issues: local_issues,
         } = self.inspect_local(prior.as_ref(), &resources, collection)?;
+        if self.mode == SyncReplicaMode::ReadOnly
+            && kind == "incremental"
+            && local_issues
+                .iter()
+                .any(|issue| issue.code == "invalid_frontmatter")
+        {
+            return Box::pin(self.inspect_snapshot(prior, "rebuild")).await;
+        }
         validate_inspected_paths(
             remote_refs
                 .iter()
@@ -369,6 +377,12 @@ impl DirectoryMirror {
             if self.mode == SyncReplicaMode::ReadOnly
                 && object.entity != SyncObjectKind::Resource
                 && object.local != object.base
+                && !object.local.exact().is_some_and(|local| {
+                    issues.iter().any(|issue| {
+                        issue.code == "invalid_frontmatter"
+                            && issue.path.as_deref() == Some(local.path.as_str())
+                    })
+                })
             {
                 let path = object
                     .local
@@ -612,24 +626,6 @@ impl DirectoryMirror {
             {
                 continue;
             }
-            let read = self.record_reader.read(&safe_path(&self.root, &path)?);
-            let (document, revision) = match read {
-                Ok(LocalRecordRead::Parsed { document, revision }) => (document, revision),
-                Ok(LocalRecordRead::Invalid { reason }) => {
-                    issues.push(local_record_issue("invalid_frontmatter", &path, reason));
-                    observe_prior_record(state, &path, &mut observed);
-                    continue;
-                }
-                Ok(LocalRecordRead::Missing) | Err(_) => {
-                    issues.push(local_record_issue(
-                        "file_read_failed",
-                        &path,
-                        "The listed record could not be read.",
-                    ));
-                    observe_prior_record(state, &path, &mut observed);
-                    continue;
-                }
-            };
             let conflict_identity = state.and_then(|value| {
                 value
                     .planned_conflicts
@@ -663,6 +659,27 @@ impl DirectoryMirror {
                 .or(bound_identity)
                 .or(prior_identity)
                 .unwrap_or_default();
+            let read = self.record_reader.read(&safe_path(&self.root, &path)?);
+            let (document, revision) = match read {
+                Ok(LocalRecordRead::Parsed { document, revision }) => (document, revision),
+                Ok(LocalRecordRead::Invalid { reason, revision }) => {
+                    issues.push(local_record_issue("invalid_frontmatter", &path, reason));
+                    observed.push(ObservedObject {
+                        stable_identity: !identity.is_empty(),
+                        object: text_ref(SyncObjectKind::Record, identity, path.clone(), revision),
+                    });
+                    continue;
+                }
+                Ok(LocalRecordRead::Missing) | Err(_) => {
+                    issues.push(local_record_issue(
+                        "file_read_failed",
+                        &path,
+                        "The listed record could not be read.",
+                    ));
+                    observe_prior_record(state, &path, &mut observed);
+                    continue;
+                }
+            };
             observed.push(ObservedObject {
                 stable_identity: !identity.is_empty(),
                 object: text_ref(SyncObjectKind::Record, identity, path.clone(), revision),

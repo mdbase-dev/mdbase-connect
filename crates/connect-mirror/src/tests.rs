@@ -1,4 +1,5 @@
 use super::*;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use mdbase_connect_protocol::{
     CollectionFileDescriptor, FileMediaClass, SyncConflict, SyncMutationError, SyncResourceDocument,
 };
@@ -1603,6 +1604,129 @@ async fn listed_record_read_failures_are_blocking_and_never_plan_remote_deletion
 }
 
 #[tokio::test]
+async fn receive_only_repair_is_blocked_by_an_unrelated_production_read_failure() {
+    let records = vec![
+        record("invalid.md", "Authority"),
+        record("eio.md", "Unreadable"),
+    ];
+    let (temporary, mirror, authority) = harness(SyncReplicaMode::ReadOnly, records);
+    mirror.sync().await.unwrap();
+    fs::write(mirror.root().join("invalid.md"), "---\na: [broken\n---\n").unwrap();
+    let reader = Arc::new(InjectedRecordReader::new([
+        ("eio.md".into(), InjectedReadFailure::Eio),
+        ("eio.md".into(), InjectedReadFailure::Eio),
+    ]));
+    let blocked = DirectoryMirror::new(
+        mirror.root(),
+        temporary.path().join("state/state.json"),
+        temporary.path().join("locks/mirror.lock"),
+        authority.session.replica_id,
+        SyncReplicaMode::ReadOnly,
+        authority.clone(),
+    )
+    .unwrap()
+    .with_record_reader(reader)
+    .inspect()
+    .await
+    .unwrap();
+
+    assert!(blocked
+        .issues
+        .iter()
+        .any(|issue| issue.code == "invalid_frontmatter" && issue.blocking));
+    assert!(blocked
+        .issues
+        .iter()
+        .any(|issue| issue.code == "file_read_failed" && issue.blocking));
+    assert!(blocked.actions.is_empty());
+    assert!(authority.mutations().is_empty());
+}
+
+#[tokio::test]
+async fn receive_only_repairs_authority_records_over_exactly_sealed_invalid_local_bytes() {
+    let invalid_cases = [
+        ("invalid UTF-8", b"bad\xffbytes".as_slice()),
+        ("invalid YAML", b"---\na: [broken\n---\n".as_slice()),
+        ("nonmapping", b"---\n- item\n---\n".as_slice()),
+    ];
+    for (label, invalid) in invalid_cases {
+        let authority_record = record("managed.md", "Authority");
+        let (_temporary, mirror, authority) =
+            harness(SyncReplicaMode::ReadOnly, vec![authority_record.clone()]);
+        mirror.sync().await.unwrap();
+        let before = mirror.read_state().unwrap().unwrap();
+        fs::write(mirror.root().join("managed.md"), invalid).unwrap();
+
+        let plan = mirror.inspect().await.unwrap();
+        assert!(
+            matches!(
+                plan.actions.as_slice(),
+                [
+                    SyncAction::WriteLocal {
+                        invalid_local_revision: Some(_),
+                        ..
+                    },
+                    SyncAction::AdvanceCheckpoint { expected, next, .. }
+                ] if expected == next
+            ),
+            "{label}"
+        );
+        let result = mirror.apply(&plan).await.unwrap();
+        assert_eq!(result.status, "applied", "{label}");
+        assert_eq!(
+            fs::read_to_string(mirror.root().join("managed.md")).unwrap(),
+            record_markdown_document(&authority_record).unwrap(),
+            "{label}"
+        );
+        let after = mirror.read_state().unwrap().unwrap();
+        assert_eq!(after.cursor, before.cursor, "{label}");
+        assert_eq!(after.generation, before.generation, "{label}");
+        assert!(authority.mutations().is_empty(), "{label}");
+    }
+}
+
+#[tokio::test]
+async fn invalid_local_repair_rejects_concurrent_replacement_and_read_failures() {
+    let authority_record = record("managed.md", "Authority");
+    let (temporary, mirror, authority) = harness(SyncReplicaMode::ReadOnly, vec![authority_record]);
+    mirror.sync().await.unwrap();
+    fs::write(mirror.root().join("managed.md"), "---\na: [broken\n---\n").unwrap();
+    let plan = mirror.inspect().await.unwrap();
+    let concurrent = b"---\na: [different\n---\n";
+    fs::write(mirror.root().join("managed.md"), concurrent).unwrap();
+    let stale = mirror.apply(&plan).await.unwrap();
+    assert_eq!(stale.status, "stale");
+    assert_eq!(
+        fs::read(mirror.root().join("managed.md")).unwrap(),
+        concurrent
+    );
+    assert!(authority.mutations().is_empty());
+
+    let reader = Arc::new(InjectedRecordReader::new([(
+        "managed.md".into(),
+        InjectedReadFailure::Eio,
+    )]));
+    let failed = DirectoryMirror::new(
+        mirror.root(),
+        temporary.path().join("state/state.json"),
+        temporary.path().join("locks/mirror.lock"),
+        authority.session.replica_id,
+        SyncReplicaMode::ReadOnly,
+        authority,
+    )
+    .unwrap()
+    .with_record_reader(reader)
+    .inspect()
+    .await
+    .unwrap();
+    assert!(failed.actions.is_empty());
+    assert!(failed
+        .issues
+        .iter()
+        .any(|issue| issue.code == "file_read_failed" && issue.blocking));
+}
+
+#[tokio::test]
 async fn receive_only_invalid_local_record_blocks_sibling_download_and_checkpoint() {
     let (_temporary, mirror, authority) = harness(SyncReplicaMode::ReadOnly, Vec::new());
     mirror.sync().await.unwrap();
@@ -1699,7 +1823,9 @@ async fn action_journal_is_append_only_replayable_and_ignores_a_torn_tail() {
         panic!("first exact snapshot action should materialize the record");
     };
     let record = state.batch.as_ref().unwrap().payloads.records[&action_id].clone();
-    mirror.put_record(&mut state, record.clone(), None).unwrap();
+    mirror
+        .put_record(&mut state, record.clone(), None, false)
+        .unwrap();
     mirror
         .journal_receipt(
             &mut state,
@@ -2173,39 +2299,64 @@ fn rust_planner_matches_the_shared_cross_runtime_canonical_fixture() {
 }
 
 #[test]
-fn shared_record_structural_outcome_oracle_is_canonical() {
+fn shared_record_structural_outcome_oracle_uses_the_production_reader() {
     let fixture: Value = serde_json::from_str(include_str!(
         "../../../test-fixtures/record-structural-outcomes.json"
     ))
     .unwrap();
     assert_eq!(fixture["source_revision"], "mdbase-rs@aac02c5");
-    let outcomes = fixture["cases"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|case| {
-            (
-                case["name"].as_str().unwrap(),
-                case["outcome"].as_str().unwrap(),
-            )
-        })
-        .collect::<Vec<_>>();
+    let temporary = tempfile::tempdir().unwrap();
+    let cases = fixture["cases"].as_array().unwrap();
+    assert_eq!(cases.len(), 14);
+    let mut observed = Vec::new();
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        let bytes = case
+            .get("document")
+            .and_then(Value::as_str)
+            .map(|document| document.as_bytes().to_vec())
+            .unwrap_or_else(|| {
+                BASE64
+                    .decode(case["bytes_base64"].as_str().unwrap())
+                    .unwrap()
+            });
+        let path = temporary.path().join(format!("{name}.md"));
+        fs::write(&path, bytes).unwrap();
+        let outcome = match FilesystemRecordReader.read(&path).unwrap() {
+            LocalRecordRead::Parsed { .. } => "parsed",
+            LocalRecordRead::Invalid {
+                reason: "Document is not valid UTF-8.",
+                ..
+            } => "invalid_utf8",
+            LocalRecordRead::Invalid {
+                reason: "Frontmatter is not valid YAML.",
+                ..
+            } => "invalid_yaml",
+            LocalRecordRead::Invalid { .. } => "non_mapping_frontmatter",
+            LocalRecordRead::Missing => panic!("fixture record disappeared"),
+        };
+        assert_eq!(outcome, case["outcome"].as_str().unwrap(), "{name}");
+        observed.push((name, outcome));
+    }
     assert_eq!(
-        outcomes,
+        observed.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
         vec![
-            ("body_only", "parsed"),
-            ("empty_mapping", "parsed"),
-            ("malformed_yaml", "invalid_yaml"),
-            ("duplicate_yaml_key", "invalid_yaml"),
-            ("null_frontmatter", "non_mapping_frontmatter"),
-            ("list_frontmatter", "non_mapping_frontmatter"),
-            ("scalar_frontmatter", "non_mapping_frontmatter"),
-            ("invalid_utf8", "invalid_utf8"),
+            "body_only",
+            "empty_mapping",
+            "malformed_yaml",
+            "duplicate_yaml_key",
+            "null_frontmatter",
+            "list_frontmatter",
+            "scalar_frontmatter",
+            "later_horizontal_rule_block",
+            "single_bom_frontmatter",
+            "double_bom_body_only",
+            "crlf_frontmatter",
+            "unclosed_opening_fence",
+            "trailing_whitespace_fences",
+            "invalid_utf8",
         ]
     );
-    let invalid_utf8 = fixture["cases"].as_array().unwrap().last().unwrap();
-    assert_eq!(invalid_utf8["bytes_base64"], "YmFk/3V0ZjgubWQ=");
-    assert!(invalid_utf8.get("document").is_none());
 }
 
 #[test]
@@ -2277,22 +2428,9 @@ fn rust_planner_fences_all_sibling_effects_when_one_issue_blocks() {
         SyncAction::AdvanceCheckpoint { .. }
     ));
 
-    let fixture: Value = serde_json::from_str(include_str!(
-        "../../../test-fixtures/record-structural-outcomes.json"
-    ))
-    .unwrap();
-    let reason = fixture["cases"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|case| case["name"] == "duplicate_yaml_key")
-        .unwrap()["outcome"]
-        .as_str()
-        .unwrap()
-        .to_string();
     inspection.issues = vec![
         MirrorPlanIssue {
-            code: reason,
+            code: "invalid_frontmatter".into(),
             message: "Invalid frontmatter in notes/broken.md.".into(),
             path: Some("notes/broken.md".into()),
             blocking: true,
@@ -2318,7 +2456,7 @@ fn rust_planner_fences_all_sibling_effects_when_one_issue_blocks() {
                 blocking: false,
             },
             MirrorPlanIssue {
-                code: "invalid_yaml".into(),
+                code: "invalid_frontmatter".into(),
                 message: "Invalid frontmatter in notes/broken.md.".into(),
                 path: Some("notes/broken.md".into()),
                 blocking: true,
@@ -2730,7 +2868,9 @@ async fn incremental_record_puts_recheck_the_live_collection_policy() {
     hostile.body = "malware".to_string();
     refresh_revision(&mut hostile);
 
-    let error = mirror.put_record(&mut state, hostile, None).unwrap_err();
+    let error = mirror
+        .put_record(&mut state, hostile, None, false)
+        .unwrap_err();
 
     assert_eq!(error.code, "invalid_sync_plan");
     assert!(!mirror.root().join("payload.exe").exists());
