@@ -18,6 +18,7 @@ import { requireUser } from "../../platform/request-authentication.js";
 import { sqlPlaceholders } from "../../platform/sql.js";
 import { recoverExpiredAuthorityTransfers } from "../authority-transfer/lifecycle.js";
 import { liveAuthorizationCollections } from "../authorizations/local-collections.js";
+import { grantWithCompatibleApplicationOrigin } from "../grants/application-origin.js";
 import { requiresHostedCollection } from "../grants/policy.js";
 import { hostedMirrorReplicas } from "../hosted/service.js";
 
@@ -312,10 +313,7 @@ export function registerAccountOverviewRoute(
             sync_status: hostedReplicaStatuses.get(replica.id) ?? null
           }))
       })),
-      grants: grants.rows.map((grant) => ({
-        ...grant,
-        application_origin: normalizedApplicationOrigin(grant.application_origin)
-      })),
+      grants: grants.rows.map(grantWithCompatibleApplicationOrigin),
       pending_authorizations: await Promise.all(
         pendingAuthorizations.rows.map(async (authorization) => {
           const live = requiresHostedCollection(authorization.requirements)
@@ -335,8 +333,4 @@ export function registerAccountOverviewRoute(
       )
     };
   });
-}
-
-function normalizedApplicationOrigin(value: string): string {
-  return value === "null" ? value : new URL(value).origin;
 }
