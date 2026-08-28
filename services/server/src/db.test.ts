@@ -60,7 +60,8 @@ describe("database migrations", () => {
       "0022_account_creation_email_claims",
       "0023_open_beta_entitlement",
       "0024_account_deletion_consistency",
-      "0025_application_reconciliation_jobs"
+      "0025_application_reconciliation_jobs",
+      "0026_connector_policy_freshness"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -622,7 +623,8 @@ describe("database migrations", () => {
       "0022_account_creation_email_claims",
       "0023_open_beta_entitlement",
       "0024_account_deletion_consistency",
-      "0025_application_reconciliation_jobs"
+      "0025_application_reconciliation_jobs",
+      "0026_connector_policy_freshness"
     ]);
   });
 

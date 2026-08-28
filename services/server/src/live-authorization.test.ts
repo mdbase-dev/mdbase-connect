@@ -1,7 +1,7 @@
 import { once } from "node:events";
-import { createECDH } from "node:crypto";
+import { createECDH, randomUUID } from "node:crypto";
 import WebSocket from "ws";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import { pkceChallenge } from "./security.js";
@@ -123,6 +123,7 @@ describe("live connector-mediated authorization", () => {
     let releaseActivation!: () => void;
     let activationReceived!: () => void;
     let policyObserved!: () => void;
+    let policyAck: "exact" | "wrong_revision" = "exact";
     const activationGate = new Promise<void>((resolve) => {
       releaseActivation = resolve;
     });
@@ -141,7 +142,8 @@ describe("live connector-mediated authorization", () => {
           "application-authorization-v4",
           "authorization-activation",
           "encrypted-relay",
-          "policy-ack"
+          "policy-ack",
+          "policy-freshness-lease-v1"
         ],
         contract_support: CONNECT_CONTRACT_SUPPORT
       }));
@@ -155,7 +157,9 @@ describe("live connector-mediated authorization", () => {
           type: "policy_applied",
           protocol_version: 1,
           request_id: message.request_id,
-          revision: message.revision,
+          revision: policyAck === "exact"
+            ? message.revision
+            : `sha256:${"f".repeat(64)}`,
           ok: true
         }));
       }
@@ -216,6 +220,16 @@ describe("live connector-mediated authorization", () => {
       operation: "describe",
       operationInput: {}
     })).resolves.toEqual({ display_name: "Current notes" });
+    const snapshot = relayMessages.find((message) =>
+      message.type === "policy_snapshot"
+    )!;
+    expect(Number(snapshot.lease_expires_at_ms)
+      - Number(snapshot.lease_issued_at_ms)).toBe(55_000);
+    policyAck = "wrong_revision";
+    await expect(relay.pushPolicy(connector.connector.id))
+      .rejects.toThrow("different policy revision");
+    policyAck = "exact";
+    await expect(relay.pushPolicy(connector.connector.id)).resolves.toBeUndefined();
 
     const firstRequestId = await createAuthorizationRequest(
       app,
@@ -518,6 +532,62 @@ describe("live connector-mediated authorization", () => {
       "SELECT COUNT(*) AS count FROM grants WHERE activated_at IS NULL"
     );
     expect(Number(pendingGrants.rows[0].count)).toBe(0);
+
+    const degradedConnector = (await app.inject({
+      method: "POST",
+      url: "/v1/connectors",
+      headers: { cookie },
+      payload: { name: "Degraded fence computer" }
+    })).json().connector;
+    const fenceFailure = vi.spyOn(relay, "fenceConnector")
+      .mockRejectedValueOnce(new Error("broker unavailable"));
+    const degradedDeletion = await app.inject({
+      method: "DELETE",
+      url: `/v1/connectors/${degradedConnector.id}`,
+      headers: { cookie }
+    });
+    expect(degradedDeletion.statusCode).toBe(200);
+    expect(degradedDeletion.json()).toEqual({
+      ok: true,
+      committed: true,
+      fence: "committed_with_degraded_fence"
+    });
+    const durableDeletion = await db.query<{
+      revoked_at: Date | null;
+      relay_generation: string | number;
+    }>(
+      "SELECT revoked_at, relay_generation FROM connectors WHERE id = $1",
+      [degradedConnector.id]
+    );
+    expect(durableDeletion.rows[0]).toMatchObject({
+      revoked_at: expect.any(Date),
+      relay_generation: 1
+    });
+    const deletionAudit = await db.query<{ count: string | number }>(
+      `SELECT count(*) AS count FROM audit_events
+       WHERE subject_id = $1 AND event_type = 'connector.revoked'`,
+      [degradedConnector.id]
+    );
+    expect(Number(deletionAudit.rows[0].count)).toBe(1);
+    fenceFailure.mockRestore();
+
+    const fenced = once(socket, "close");
+    const removed = await app.inject({
+      method: "DELETE",
+      url: `/v1/connectors/${connector.connector.id}`,
+      headers: { cookie }
+    });
+    expect(removed.statusCode).toBe(200);
+    await expect(fenced).resolves.toEqual(expect.arrayContaining([4003]));
+    await expect(relay.route({
+      connectorId: connector.connector.id,
+      localCollectionId,
+      requestId: randomUUID(),
+      grantId: "525cc8cf-dad5-4fc9-b0bc-a1c92e99f3ed",
+      applicationId,
+      operation: "describe",
+      operationInput: {}
+    })).rejects.toThrow();
   });
 
   it("rejects incompatible contract axes but accepts a package-version-only difference", async () => {
@@ -558,7 +628,8 @@ describe("live connector-mediated authorization", () => {
         "application-authorization-v2",
         "authorization-activation",
         "encrypted-relay",
-        "policy-ack"
+        "policy-ack",
+        "policy-freshness-lease-v1"
       ],
       contract_support: {
         operation_transport: [1],
@@ -630,7 +701,8 @@ describe("live connector-mediated authorization", () => {
         "application-authorization-v4",
         "authorization-activation",
         "encrypted-relay",
-        "policy-ack"
+        "policy-ack",
+        "policy-freshness-lease-v1"
       ],
       contract_support: {
         operation_transport: [2],
@@ -668,7 +740,8 @@ describe("live connector-mediated authorization", () => {
         "application-authorization-v4",
         "authorization-activation",
         "encrypted-relay",
-        "policy-ack"
+        "policy-ack",
+        "policy-freshness-lease-v1"
       ],
       contract_support: {
         operation_transport: [3],
@@ -697,6 +770,7 @@ describe("live connector-mediated authorization", () => {
         "authorization-activation",
         "encrypted-relay",
         "policy-ack",
+        "policy-freshness-lease-v1",
         "protocol-usage-report-v1"
       ],
       contract_support: CONNECT_CONTRACT_SUPPORT

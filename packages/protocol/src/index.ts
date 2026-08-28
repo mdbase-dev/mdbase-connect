@@ -31,11 +31,13 @@ export const SYNC_PROTOCOL_VERSION = 1 as const;
 export const CONTRACT_SETUP_CAPABILITY = "contract-setup-v1" as const;
 export const FILE_RELAY_CAPABILITY = "file-relay-v1" as const;
 export const PROTOCOL_USAGE_REPORT_CAPABILITY = "protocol-usage-report-v1" as const;
+export const POLICY_FRESHNESS_LEASE_CAPABILITY = "policy-freshness-lease-v1" as const;
 export const RELAY_REQUIRED_CAPABILITIES = [
   "application-authorization-v4",
   "authorization-activation",
   "encrypted-relay",
-  "policy-ack"
+  "policy-ack",
+  POLICY_FRESHNESS_LEASE_CAPABILITY
 ] as const;
 export const MINIMUM_CONNECTOR_VERSION = "0.1.0-beta.33" as const;
 export const HOSTED_PROVIDER_REQUIRED_CAPABILITIES = [
@@ -588,6 +590,10 @@ export interface RelayPolicySnapshot {
   protocol_version: 1;
   request_id: string;
   revision: string;
+  connector_id: string;
+  sequence: number;
+  lease_issued_at_ms: number;
+  lease_expires_at_ms: number;
   grants: GrantPolicy[];
 }
 

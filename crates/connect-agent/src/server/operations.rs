@@ -1,88 +1,41 @@
-use super::{metrics, operation_responses::*, runtime_mutations::runtime_host_claim, *};
+use super::{operation_responses::*, runtime_mutations::runtime_host_claim, *};
 impl AgentState {
-    pub(crate) fn handle_direct_encrypted_operation_cancellable(
-        &self,
-        origin: &str,
-        envelope: mdbase_connect_protocol::EncryptedRelayEnvelope,
-        cancellation: &mdbase::OperationCancellation,
-        execution_state: &OperationExecutionState,
-    ) -> RelayMessage {
-        let origin_matches = self
-            .registry
-            .grant_replay_context(envelope.grant_id, &envelope.key_id)
-            .ok()
-            .flatten()
-            .is_some_and(|context| context.grant.application_origin == origin);
-        if !origin_matches {
-            return encrypted_rejection(envelope.protocol_version, envelope.request_id);
-        }
-        metrics::direct_operation_transport(envelope.protocol_version);
-        self.handle_encrypted_operation(envelope, cancellation, execution_state)
-    }
-
-    pub fn handle_relay_message(&self, message: RelayMessage) -> Option<RelayMessage> {
-        self.handle_relay_message_cancellable(
-            message,
-            &mdbase::OperationCancellation::new(),
-            &OperationExecutionState::default(),
-        )
-    }
-
-    pub(crate) fn handle_relay_message_cancellable(
+    pub(super) fn handle_relay_message_cancellable_inner(
         &self,
         message: RelayMessage,
         cancellation: &mdbase::OperationCancellation,
         execution_state: &OperationExecutionState,
     ) -> Option<RelayMessage> {
-        match message {
+        let operation_registration = matches!(
+            &message,
+            RelayMessage::OperationRequest { .. } | RelayMessage::EncryptedOperationRequest { .. }
+        )
+        .then(|| self.register_remote_operation(cancellation));
+        let response = match message {
             RelayMessage::PolicySnapshot {
                 protocol_version,
                 request_id,
                 revision,
+                connector_id,
+                sequence,
+                lease_issued_at_ms,
+                lease_expires_at_ms,
                 grants,
             } => {
-                if protocol_version != CONTROL_PROTOCOL_VERSION {
-                    return Some(RelayMessage::PolicyApplied {
-                        protocol_version: CONTROL_PROTOCOL_VERSION,
+                let response = super::policy::apply_policy_snapshot(
+                    self,
+                    protocol_version,
+                    super::policy::PolicySnapshot {
                         request_id,
                         revision,
-                        ok: false,
-                        error: Some(ControlError {
-                            code: "unsupported_protocol_version".to_string(),
-                            message: format!(
-                                "Relay protocol {protocol_version} is unsupported; expected {}.",
-                                CONTROL_PROTOCOL_VERSION
-                            ),
-                            details: None,
-                        }),
-                    });
-                }
-                match self.registry.replace_grants_at_revision(&revision, &grants) {
-                    Ok(()) => {
-                        tracing::debug!(grants = grants.len(), %revision, "relay policy snapshot applied");
-                        Some(RelayMessage::PolicyApplied {
-                            protocol_version: CONTROL_PROTOCOL_VERSION,
-                            request_id,
-                            revision,
-                            ok: true,
-                            error: None,
-                        })
-                    }
-                    Err(error) => {
-                        tracing::error!(%error, %revision, "failed to apply relay policy snapshot");
-                        Some(RelayMessage::PolicyApplied {
-                            protocol_version: CONTROL_PROTOCOL_VERSION,
-                            request_id,
-                            revision,
-                            ok: false,
-                            error: Some(ControlError {
-                                code: error.code().to_string(),
-                                message: error.to_string(),
-                                details: None,
-                            }),
-                        })
-                    }
-                }
+                        connector_id,
+                        sequence,
+                        lease_issued_at_ms,
+                        lease_expires_at_ms,
+                        grants,
+                    },
+                );
+                Some(response)
             }
             RelayMessage::AuthorizationOfferRequest {
                 request_id,
@@ -311,6 +264,18 @@ impl AgentState {
                 operation,
                 input,
             } => {
+                if !self.registry.remote_policy_is_fresh().unwrap_or(false) {
+                    return Some(RelayMessage::OperationResponse {
+                        protocol_version,
+                        request_id,
+                        ok: false,
+                        result: None,
+                        problem: Some(mdbase_connect_protocol::ConnectProblem::new(
+                            "access_denied",
+                            "The remote application policy lease has expired.",
+                        )),
+                    });
+                }
                 if !mdbase_connect_protocol::SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS
                     .contains(&protocol_version)
                 {
@@ -491,15 +456,22 @@ impl AgentState {
             | RelayMessage::EncryptedOperationResponse { .. }
             | RelayMessage::EncryptedOperationRejected { .. }
             | RelayMessage::ProtocolUsageReport { .. } => None,
+        };
+        if let Some(id) = operation_registration {
+            self.unregister_remote_operation(id);
         }
+        response
     }
 
-    fn handle_encrypted_operation(
+    pub(super) fn handle_encrypted_operation(
         &self,
         envelope: mdbase_connect_protocol::EncryptedRelayEnvelope,
         cancellation: &mdbase::OperationCancellation,
         execution_state: &OperationExecutionState,
     ) -> RelayMessage {
+        if !self.registry.remote_policy_is_fresh().unwrap_or(false) {
+            return encrypted_rejection(envelope.protocol_version, envelope.request_id);
+        }
         if !mdbase_connect_protocol::SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS
             .contains(&envelope.protocol_version)
         {

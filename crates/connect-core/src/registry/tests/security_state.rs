@@ -41,6 +41,129 @@ fn claim_read_at_protocol(
 }
 
 #[test]
+fn remote_policy_lease_is_bounded_ordered_and_cannot_resurrect_after_restart() {
+    let state = tempdir().unwrap();
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let grant = signed_test_grant(&registry, vec!["read".to_string()]);
+    registry
+        .replace_grants_at_revision_at(
+            None,
+            "sha256:lease-one",
+            1,
+            1_000,
+            61_000,
+            std::slice::from_ref(&grant),
+            1_000,
+        )
+        .unwrap();
+
+    assert!(registry.remote_policy_is_fresh_at(60_999).unwrap());
+    assert!(!registry.remote_policy_is_fresh_at(61_000).unwrap());
+    assert!(!registry.remote_policy_is_fresh_at(50_000).unwrap());
+    assert!(registry
+        .replace_grants_at_revision_at(None, "sha256:stale", 0, 2_000, 62_000, &[], 2_000)
+        .is_err());
+    assert!(registry
+        .replace_grants_at_revision_at(None, "sha256:conflict", 1, 1_000, 61_000, &[], 1_000)
+        .is_err());
+    assert!(registry
+        .replace_grants_at_revision_at(None, "sha256:future", 2, 100_000, 160_000, &[], 1_000)
+        .is_err());
+    registry
+        .replace_grants_at_revision_at(None, "sha256:lease-one", 1, 1_000, 61_000, &[grant], 1_000)
+        .unwrap();
+    drop(registry);
+
+    let reopened = CollectionRegistry::open(state.path()).unwrap();
+    assert!(!reopened.remote_policy_is_fresh_at(50_000).unwrap());
+}
+
+#[test]
+fn authenticated_policy_pins_connector_across_empty_revocation_and_restart() {
+    let state = tempdir().unwrap();
+    let connector_id = Uuid::new_v4();
+    let other_connector_id = Uuid::new_v4();
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let mut grant = signed_test_grant(&registry, vec!["read".to_string()]);
+    grant.encryption.as_mut().unwrap().connector_id = connector_id;
+    let mut wrong_grant = grant.clone();
+    wrong_grant.encryption.as_mut().unwrap().connector_id = other_connector_id;
+    assert!(registry
+        .replace_grants_at_revision_at(
+            Some(connector_id),
+            "sha256:mismatched-grant",
+            1,
+            1_000,
+            61_000,
+            &[wrong_grant],
+            1_000,
+        )
+        .is_err());
+
+    registry
+        .replace_grants_at_revision_at(
+            Some(connector_id),
+            "sha256:first",
+            1,
+            1_000,
+            61_000,
+            &[grant],
+            1_000,
+        )
+        .unwrap();
+    registry
+        .replace_grants_at_revision_at(
+            Some(connector_id),
+            "sha256:revoked",
+            2,
+            2_000,
+            62_000,
+            &[],
+            2_000,
+        )
+        .unwrap();
+    drop(registry);
+
+    let reopened = CollectionRegistry::open(state.path()).unwrap();
+    assert!(reopened
+        .replace_grants_at_revision_at(
+            Some(other_connector_id),
+            "sha256:wrong-authority",
+            3,
+            3_000,
+            63_000,
+            &[],
+            3_000,
+        )
+        .is_err());
+}
+
+#[test]
+fn policy_lease_accepts_modest_server_ahead_skew_but_rejects_far_future_time() {
+    let state = tempdir().unwrap();
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    // A server exactly 5s ahead issues a 55s lease: its absolute expiry is
+    // still no more than 60s from the connector's local receipt.
+    registry
+        .replace_grants_at_revision_at(None, "sha256:skew", 1, 6_000, 61_000, &[], 1_000)
+        .unwrap();
+    assert!(registry
+        .replace_grants_at_revision_at(
+            None,
+            "sha256:too-long-locally",
+            2,
+            6_000,
+            61_001,
+            &[],
+            1_000,
+        )
+        .is_err());
+    assert!(registry
+        .replace_grants_at_revision_at(None, "sha256:far-future", 2, 7_000, 62_000, &[], 1_000,)
+        .is_err());
+}
+
+#[test]
 fn legacy_read_receipt_survives_restart_without_large_sqlite_response_bodies() {
     let state = tempdir().unwrap();
     let request_id = Uuid::new_v4();
@@ -523,8 +646,18 @@ fn policy_control_stays_bounded_during_maximum_size_read_completion_burst() {
 
     barrier.wait();
     let started = std::time::Instant::now();
+    let issued_at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
     registry
-        .replace_grants_at_revision("stress-policy-revision", std::slice::from_ref(&grant))
+        .replace_grants_at_revision(
+            "stress-policy-revision",
+            2,
+            issued_at_ms,
+            issued_at_ms + 60_000,
+            std::slice::from_ref(&grant),
+        )
         .unwrap();
     assert!(
         started.elapsed() < std::time::Duration::from_secs(2),

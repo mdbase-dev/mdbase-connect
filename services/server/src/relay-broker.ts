@@ -120,24 +120,24 @@ export class LocalRelayBroker implements RelayBroker {
     connectorId: string,
     generation: string,
     command: RelayBrokerCommand,
-    _timeoutMs: number
+    timeoutMs: number
   ): Promise<RelayBrokerReply> {
     this.assertOpen();
     const binding = this.bindings.get(deliverySubject(connectorId, generation));
     if (!binding) throw new RelayBrokerUnavailableError("No relay owns the current connector session.");
-    return binding.handle(command);
+    return withLocalTimeout(binding.handle(command), timeoutMs);
   }
 
   async requestBinary(
     connectorId: string,
     generation: string,
     frame: Uint8Array,
-    _timeoutMs: number
+    timeoutMs: number
   ): Promise<RelayBrokerBinaryReply> {
     this.assertOpen();
     const binding = this.bindings.get(deliverySubject(connectorId, generation));
     if (!binding) throw new RelayBrokerUnavailableError("No relay owns the current connector session.");
-    return binding.handleBinary(frame);
+    return withLocalTimeout(binding.handleBinary(frame), timeoutMs);
   }
 
   async publishReplacement(connectorId: string, generation: string): Promise<void> {
@@ -161,6 +161,24 @@ export class LocalRelayBroker implements RelayBroker {
   private assertOpen(): void {
     if (this.closed) throw new RelayBrokerUnavailableError("The relay broker is closed.");
   }
+}
+
+function withLocalTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new RelayBrokerUnavailableError(
+      "The relay broker request timed out."
+    )), timeoutMs);
+    void operation.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timeout);
+        reject(error);
+      }
+    );
+  });
 }
 
 export class NatsRelayBroker implements RelayBroker {

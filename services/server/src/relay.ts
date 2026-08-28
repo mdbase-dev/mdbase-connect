@@ -9,8 +9,6 @@ import type {
   EncryptedRelayOperationRequest,
   EncryptedRelayOperationResponse,
   GrantPolicy,
-  GrantScope,
-  ApplicationAuthorizationProof,
   ConnectContractSupport,
   ConnectContractRequirements,
   ConnectProblem,
@@ -42,7 +40,7 @@ import {
   RelayUnavailableError
 } from "./relay-errors.js";
 import { RelayFileBridge } from "./relay-file.js";
-import { canonicalSha256 } from "./canonical-json.js";
+import { buildPolicySnapshot, resolvePolicyAppliedAck } from "./relay-policy.js";
 import type { WebSocket } from "ws";
 import { recordConnectorProtocolUsage } from "./protocol-telemetry.js";
 import {
@@ -66,6 +64,10 @@ const BROKER_OPERATION_TIMEOUT_MS = OPERATION_TIMEOUT_MS + 1_000;
 const OFFER_TIMEOUT_MS = 3_000;
 const BROKER_OFFER_TIMEOUT_MS = OFFER_TIMEOUT_MS + 1_000;
 const POLICY_TIMEOUT_MS = 5_000;
+// A connector may observe the server clock up to 5s ahead while its hard
+// local authority horizon must remain no more than 60s from local receipt.
+export const POLICY_LEASE_MS = 55_000;
+const POLICY_RENEWAL_MS = 20_000;
 
 interface PendingRequest {
   resolve(value: unknown): void;
@@ -82,6 +84,8 @@ interface PendingRequest {
     | "authorization_activation_response"
     | "policy_applied";
   expectedPolicyRevision?: string;
+  expectedPolicyConnectorId?: string;
+  expectedPolicyGeneration?: string;
 }
 
 interface ConnectorSession {
@@ -91,6 +95,7 @@ interface ConnectorSession {
   capabilities: string[];
   contractSupport: ConnectContractSupport;
   lastUsageReportAt: number;
+  policyRenewal: NodeJS.Timeout;
 }
 
 export class RelayHub {
@@ -163,7 +168,8 @@ export class RelayHub {
            incompatibility_code = NULL,
            minimum_connector_version = NULL,
            connector_update_url = NULL
-       WHERE id = $1
+       WHERE id = $1 AND revoked_at IS NULL
+         AND user_id IN (SELECT id FROM users WHERE suspended_at IS NULL)
        RETURNING relay_generation`,
       [connectorId, hello.connector_version]
     );
@@ -191,18 +197,27 @@ export class RelayHub {
       socket.close(4001, "Replaced by a newer connector session");
       return;
     }
+    const policyRenewal = setInterval(() => {
+      void this.pushPolicy(connectorId).catch(() => {
+        // Payload-free: connector identities and provider errors are not log data.
+        console.warn("connector policy renewal failed", { class: "delivery_unavailable" });
+      });
+    }, POLICY_RENEWAL_MS);
+    policyRenewal.unref();
     session = {
       generation,
       socket,
       binding,
       capabilities: [...hello.capabilities],
       contractSupport: hello.contract_support,
-      lastUsageReportAt: 0
+      lastUsageReportAt: 0,
+      policyRenewal
     };
 
     const previous = this.connectors.get(connectorId);
     this.connectors.set(connectorId, session);
     if (previous) {
+      clearInterval(previous.policyRenewal);
       previous.socket.close(4001, "Replaced by a newer connector session");
       await previous.binding.close();
     }
@@ -351,27 +366,24 @@ export class RelayHub {
           return;
         }
         if (message.type === "policy_applied") {
-          if (pending.expectedType !== "policy_applied"
-              || message.revision !== pending.expectedPolicyRevision) {
-            this.rejectPending(
-              message.request_id,
-              new ConnectorOperationError(
-                "invalid_policy_acknowledgement",
-                "The connector acknowledged a different policy revision."
-              )
-            );
-            return;
-          }
-          if (message.ok) this.resolvePending(message.request_id, message);
-          else {
-            this.rejectPending(
-              message.request_id,
-              new ConnectorOperationError(
-                message.error?.code ?? "policy_apply_failed",
-                message.error?.message ?? "The connector could not apply its policy."
-              )
-            );
-          }
+          void resolvePolicyAppliedAck({
+            db: this.db,
+            requestId: message.request_id,
+            message,
+            expectedRevision: pending.expectedPolicyRevision,
+            connectorId: pending.expectedPolicyConnectorId,
+            generation: pending.expectedPolicyGeneration,
+            isStillCurrent: () => this.pending.get(message.request_id!) === pending
+              && pending.socket === socket
+              && this.connectors.get(pending.expectedPolicyConnectorId!)?.generation
+                === pending.expectedPolicyGeneration
+              && this.connectors.get(pending.expectedPolicyConnectorId!)?.socket === socket,
+            resolve: () => this.resolvePending(message.request_id!, message),
+            reject: (error) => this.rejectPending(message.request_id!, error)
+          }).catch(() => this.rejectPending(message.request_id!, new ConnectorOperationError(
+            "policy_acknowledgement_unavailable",
+            "The policy acknowledgement could not be verified."
+          )));
           return;
         }
         if (message.type !== "operation_response") return;
@@ -418,6 +430,7 @@ export class RelayHub {
     socket.once("close", () => {
       const current = this.connectors.get(connectorId);
       if (current?.socket === socket && current.generation === generation) {
+        clearInterval(current.policyRenewal);
         this.connectors.delete(connectorId);
       }
       void binding.close();
@@ -438,6 +451,34 @@ export class RelayHub {
     return this.connectors.get(connectorId)?.socket.readyState === 1;
   }
 
+  async fenceConnector(
+    connectorId: string,
+    fenceGeneration: string,
+    reason = "Computer access was revoked"
+  ): Promise<"closed" | "degraded"> {
+    let degraded = false;
+    const session = this.connectors.get(connectorId);
+    if (session) {
+      clearInterval(session.policyRenewal);
+      this.connectors.delete(connectorId);
+      try {
+        session.socket.close(4003, reason);
+        await session.binding.close();
+      } catch {
+        degraded = true;
+      }
+    }
+    try {
+      await this.broker.publishReplacement(connectorId, fenceGeneration);
+    } catch {
+      degraded = true;
+    }
+    // PostgreSQL deletion/generation is already committed and is the hard
+    // server fence. Cross-server socket closure is mandatory best effort; an
+    // unreachable broker converges when the <=60s connector lease expires.
+    return degraded ? "degraded" : "closed";
+  }
+
   supportsContracts(
     connectorId: string,
     required: ConnectContractRequirements
@@ -456,85 +497,41 @@ export class RelayHub {
   }
 
   async pushPolicy(connectorId: string): Promise<void> {
-    const grants = await this.db.query<{
-      id: string;
-      application_id: string;
-      application_name: string;
-      application_distribution: "web" | "portable";
-      application_homepage: string;
-      application_project_url: string | null;
-      application_origin: string;
-      application_icon: string | null;
-      local_id: string;
-      collection_name: string;
-      operations: string[];
-      scope: GrantScope;
-      encryption: unknown | null;
-      file_capability: unknown | null;
-      application_authorization: ApplicationAuthorizationProof;
-      notification_criteria: unknown[];
-      created_at: string;
-    }>(
-      `SELECT g.id, g.application_id, a.name AS application_name,
-              a.distribution AS application_distribution,
-              a.homepage AS application_homepage,
-              a.project_url AS application_project_url,
-              CASE WHEN g.application_origin = '' THEN a.homepage
-                   ELSE g.application_origin END AS application_origin,
-              a.icon AS application_icon,
-              c.local_id, c.display_name AS collection_name, g.operations, g.scope,
-              g.encryption, g.file_capability, g.application_authorization,
-              g.notification_criteria, g.created_at
-       FROM grants g
-       JOIN collections c ON c.id = g.collection_id
-       JOIN applications a ON a.id = g.application_id
-       WHERE c.connector_id = $1 AND g.revoked_at IS NULL
-         AND g.activated_at IS NOT NULL`,
-      [connectorId]
+    const message = await buildPolicySnapshot(
+      this.db,
+      connectorId,
+      POLICY_LEASE_MS
     );
+    if (!message) return;
     const generation = await this.currentGeneration(connectorId);
     if (!generation) return;
-    const policyGrants = grants.rows.map((grant) => ({
-      id: grant.id,
-      application_id: grant.application_id,
-      collection_id: grant.local_id,
-      operations: grant.operations,
-      scope: grant.scope,
-      application_name: grant.application_name,
-      application_distribution: grant.application_distribution,
-      application_homepage: grant.application_homepage,
-      ...(grant.application_project_url
-        ? { application_project_url: grant.application_project_url }
-        : {}),
-      application_origin: grant.application_origin === "null"
-        ? "null"
-        : new URL(grant.application_origin).origin,
-      application_icon: grant.application_icon,
-      collection_name: grant.collection_name,
-      notification_criteria: grant.notification_criteria,
-      created_at: grant.created_at,
-      ...(grant.encryption ? { encryption: grant.encryption } : {}),
-      ...(grant.file_capability ? { file_capability: grant.file_capability } : {}),
-      application_authorization: grant.application_authorization
-    }));
-    const message = {
-      type: "policy_snapshot",
-      protocol_version: CONTROL_PROTOCOL_VERSION,
-      request_id: randomUUID(),
-      revision: canonicalSha256(policyGrants),
-      grants: policyGrants
-    };
     try {
-      await this.broker.request(
+      const reply = await this.broker.request(
         connectorId,
         generation,
         { version: 1, kind: "policy", message },
         POLICY_TIMEOUT_MS
       );
+      if (!reply.ok) {
+        if (reply.error.kind === "unavailable") throw new RelayUnavailableError();
+        if (reply.error.kind === "connector") {
+          throw new ConnectorOperationError(
+            reply.error.problem.code === "unknown"
+              ? reply.error.problem.server_code
+              : reply.error.problem.code,
+            reply.error.problem.message,
+            reply.error.problem,
+            reply.error.details
+          );
+        }
+        throw new ConnectorOperationError(reply.error.code, reply.error.message);
+      }
     } catch (error) {
-      // Policy snapshots are best effort while a connector is offline. The
-      // complete snapshot is sent again whenever the connector reconnects.
-      if (!(error instanceof RelayBrokerUnavailableError)) throw error;
+      // The durable sequence remains ahead of the acknowledgement. Periodic
+      // renewal and reconnect issue a newer complete snapshot; expiry fences
+      // the cached authority if every delivery attempt is interrupted.
+      if (!(error instanceof RelayBrokerUnavailableError)
+          && !(error instanceof RelayUnavailableError)) throw error;
     }
   }
 
@@ -720,7 +717,8 @@ export class RelayHub {
           command.message,
           undefined,
           "policy_applied",
-          revision
+          revision,
+          generation
         );
         return { version: 1, ok: true, value };
       } catch (error) {
@@ -772,7 +770,8 @@ export class RelayHub {
     message: unknown,
     expectedEncrypted?: EncryptedRelayEnvelope,
     expectedType?: PendingRequest["expectedType"],
-    expectedPolicyRevision?: string
+    expectedPolicyRevision?: string,
+    expectedPolicyGeneration?: string
   ): Promise<unknown> {
     if (this.pending.has(requestId)) {
       return Promise.reject(new ConnectorOperationError(
@@ -817,7 +816,11 @@ export class RelayHub {
         ...(grantId ? { connectorId, grantId, requestBytes } : {}),
         expectedEncrypted,
         expectedType,
-        expectedPolicyRevision
+        expectedPolicyRevision,
+        ...(expectedPolicyRevision ? {
+          expectedPolicyConnectorId: connectorId,
+          expectedPolicyGeneration
+        } : {})
       });
       try {
         socket.send(encoded, (error) => {
@@ -831,7 +834,9 @@ export class RelayHub {
 
   private async currentGeneration(connectorId: string): Promise<string | null> {
     const result = await this.db.query<{ relay_generation: string | number }>(
-      "SELECT relay_generation FROM connectors WHERE id = $1",
+      `SELECT c.relay_generation FROM connectors c
+       JOIN users u ON u.id = c.user_id
+       WHERE c.id = $1 AND c.revoked_at IS NULL AND u.suspended_at IS NULL`,
       [connectorId]
     );
     return result.rows[0] ? String(result.rows[0].relay_generation) : null;

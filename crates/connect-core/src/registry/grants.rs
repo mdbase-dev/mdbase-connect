@@ -6,17 +6,99 @@ impl CollectionRegistry {
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
-        self.replace_grants_at_revision(&format!("local:{digest}"), grants)
+        let sequence = self.authority.connection()?.query_row(
+            "SELECT sequence FROM policy_state WHERE singleton = 1",
+            [],
+            |row| row.get::<_, u64>(0),
+        )? + 1;
+        let issued_at_ms = super::authority_store::current_time_ms();
+        self.replace_grants_at_revision(
+            &format!("local:{digest}"),
+            sequence,
+            issued_at_ms,
+            issued_at_ms + 60_000,
+            grants,
+        )
     }
 
+    /// Test/local compatibility helper. Authenticated relay snapshots must use
+    /// `replace_remote_grants_at_revision` so connector continuity is pinned.
     pub fn replace_grants_at_revision(
         &self,
         revision: &str,
+        sequence: u64,
+        lease_issued_at_ms: i64,
+        lease_expires_at_ms: i64,
         grants: &[GrantPolicy],
     ) -> Result<(), ConnectError> {
+        self.replace_grants_at_revision_at(
+            None,
+            revision,
+            sequence,
+            lease_issued_at_ms,
+            lease_expires_at_ms,
+            grants,
+            super::authority_store::current_time_ms(),
+        )
+    }
+
+    pub fn replace_remote_grants_at_revision(
+        &self,
+        connector_id: Uuid,
+        revision: &str,
+        sequence: u64,
+        lease_issued_at_ms: i64,
+        lease_expires_at_ms: i64,
+        grants: &[GrantPolicy],
+    ) -> Result<(), ConnectError> {
+        self.replace_grants_at_revision_at(
+            Some(connector_id),
+            revision,
+            sequence,
+            lease_issued_at_ms,
+            lease_expires_at_ms,
+            grants,
+            super::authority_store::current_time_ms(),
+        )
+    }
+
+    pub(crate) fn replace_grants_at_revision_at(
+        &self,
+        connector_id: Option<Uuid>,
+        revision: &str,
+        sequence: u64,
+        lease_issued_at_ms: i64,
+        lease_expires_at_ms: i64,
+        grants: &[GrantPolicy],
+        now_ms: i64,
+    ) -> Result<(), ConnectError> {
+        const MAX_POLICY_LEASE_MS: i64 = 60_000;
+        const CLOCK_SKEW_ALLOWANCE_MS: i64 = 5_000;
+        if sequence > 9_007_199_254_740_991
+            || lease_issued_at_ms < 0
+            || lease_issued_at_ms > now_ms.saturating_add(CLOCK_SKEW_ALLOWANCE_MS)
+            || lease_expires_at_ms <= lease_issued_at_ms
+            || lease_expires_at_ms.saturating_sub(lease_issued_at_ms) > MAX_POLICY_LEASE_MS
+            || lease_expires_at_ms > now_ms.saturating_add(MAX_POLICY_LEASE_MS)
+        {
+            return Err(ConnectError::InvalidInput(
+                "Invalid policy freshness lease.".to_string(),
+            ));
+        }
         for grant in grants {
             validate_grant_application_authorization(grant)?;
+            if connector_id.is_some_and(|expected| {
+                grant
+                    .encryption
+                    .as_ref()
+                    .is_none_or(|encryption| encryption.connector_id != expected)
+            }) {
+                return Err(ConnectError::InvalidInput(
+                    "Policy grant authority does not match the pinned connector.".to_string(),
+                ));
+            }
         }
+        let connector_id = connector_id.map(|value| value.to_string());
         let revision = revision.to_string();
         let grants = grants.to_vec();
         let active_crypto_keys = grants
@@ -31,6 +113,33 @@ impl CollectionRegistry {
         self.authority
             .write(AuthorityWritePriority::Control, move |connection| {
                 let transaction = connection.transaction()?;
+                let current = transaction.query_row(
+                    "SELECT sequence, revision, connector_id FROM policy_state WHERE singleton = 1",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, u64>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                        ))
+                    },
+                )?;
+                if let (Some(expected), Some(received)) = (&current.2, &connector_id) {
+                    if expected != received {
+                        return Err(ConnectError::InvalidInput(
+                            "Policy snapshot connector does not match the pinned authority."
+                                .to_string(),
+                        ));
+                    }
+                }
+                if sequence < current.0 || (sequence == current.0 && revision != current.1) {
+                    return Err(ConnectError::InvalidInput(
+                        "Stale or conflicting policy snapshot.".to_string(),
+                    ));
+                }
+                if sequence == current.0 && revision == current.1 {
+                    return Ok(());
+                }
                 let stored_crypto_keys = {
                     let mut statement = transaction.prepare(
                         "SELECT id, json_extract(encryption, '$.key_id')
@@ -90,10 +199,18 @@ impl CollectionRegistry {
                 }
                 transaction.execute(
                     "UPDATE policy_state
-                     SET revision = ?1, epoch = epoch + 1,
+                     SET revision = ?1, sequence = ?2, lease_expires_at_ms = ?3,
+                         observed_at_ms = max(observed_at_ms, ?4),
+                         connector_id = COALESCE(connector_id, ?5), epoch = epoch + 1,
                          applied_at_ms = CAST(unixepoch('subsec') * 1000 AS INTEGER)
                      WHERE singleton = 1",
-                    [revision],
+                    params![
+                        revision,
+                        sequence,
+                        lease_expires_at_ms,
+                        now_ms,
+                        connector_id
+                    ],
                 )?;
                 transaction.commit()?;
                 Ok(())
@@ -417,6 +534,63 @@ impl CollectionRegistry {
             )
             .optional()?
             .is_some())
+    }
+
+    /// Remote application authority is usable only while the latest server-issued
+    /// snapshot lease is fresh. Local collection registration and offline collection
+    /// operations do not consult this lease.
+    pub fn remote_policy_is_fresh(&self) -> Result<bool, ConnectError> {
+        self.remote_policy_is_fresh_at(super::authority_store::current_time_ms())
+    }
+
+    pub fn remote_policy_revision_if_fresh(&self) -> Result<Option<String>, ConnectError> {
+        let now_ms = super::authority_store::current_time_ms();
+        let (revision, expires_at_ms, observed_at_ms) = self.authority.connection()?.query_row(
+            "SELECT revision, lease_expires_at_ms, observed_at_ms FROM policy_state WHERE singleton = 1",
+            [],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?)),
+        )?;
+        Ok((expires_at_ms > now_ms.max(observed_at_ms)).then_some(revision))
+    }
+
+    pub fn remote_policy_matches_fresh(&self, revision: &str) -> Result<bool, ConnectError> {
+        Ok(self.remote_policy_revision_if_fresh()?.as_deref() == Some(revision))
+    }
+
+    pub fn remote_policy_remaining(&self) -> Result<std::time::Duration, ConnectError> {
+        let now_ms = super::authority_store::current_time_ms();
+        if !self.remote_policy_is_fresh_at(now_ms)? {
+            return Ok(std::time::Duration::ZERO);
+        }
+        let (expires_at_ms, observed_at_ms) = self.authority.connection()?.query_row(
+            "SELECT lease_expires_at_ms, observed_at_ms FROM policy_state WHERE singleton = 1",
+            [],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+        )?;
+        Ok(std::time::Duration::from_millis(
+            expires_at_ms.saturating_sub(now_ms.max(observed_at_ms)) as u64,
+        ))
+    }
+
+    pub(crate) fn remote_policy_is_fresh_at(&self, now_ms: i64) -> Result<bool, ConnectError> {
+        let (expires_at_ms, observed_at_ms) = self.authority.connection()?.query_row(
+            "SELECT lease_expires_at_ms, observed_at_ms FROM policy_state WHERE singleton = 1",
+            [],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+        )?;
+        let effective_now = now_ms.max(observed_at_ms);
+        if effective_now > observed_at_ms {
+            self.authority
+                .write(AuthorityWritePriority::Control, move |connection| {
+                    connection.execute(
+                        "UPDATE policy_state SET observed_at_ms = max(observed_at_ms, ?1)
+                         WHERE singleton = 1",
+                        [effective_now],
+                    )?;
+                    Ok(())
+                })?;
+        }
+        Ok(expires_at_ms > effective_now)
     }
 
     pub fn authorizes(

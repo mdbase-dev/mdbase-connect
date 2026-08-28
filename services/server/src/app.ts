@@ -348,7 +348,8 @@ export async function buildApp(options: BuildOptions) {
   });
   registerConnectorManagementRoutes(app, {
     db: options.db,
-    tailscaleAuth: options.tailscaleAuth
+    tailscaleAuth: options.tailscaleAuth,
+    relay
   });
   registerConnectorInventoryRoutes(app, { db: options.db });
   registerAuthorityConflictRoutes(app, { db: options.db, relay });
