@@ -86,6 +86,12 @@ pub(super) async fn authority_import_contracts(
     provider: &HostedProvider,
     row: &PgRow,
 ) -> ApiResult<Vec<CollectionContractDescriptor>> {
+    #[cfg(feature = "test-hooks")]
+    crate::test_hooks::pause_authority_import(
+        row.get("id"),
+        crate::test_hooks::AuthorityImportHookPoint::BeforeAuthorityImportContracts,
+    )
+    .await;
     let collection_id: Uuid = row.get("collection_id");
     let wrapped_data_key: Vec<u8> = row.get("wrapped_data_key");
     let data_key = provider
