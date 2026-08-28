@@ -53,6 +53,7 @@ mod sync_model;
 mod sync_path_planner;
 mod sync_planner;
 mod sync_revalidator;
+mod sync_snapshot;
 mod transport;
 
 const MIRROR_ENGINE_VERSION: u32 = 3;

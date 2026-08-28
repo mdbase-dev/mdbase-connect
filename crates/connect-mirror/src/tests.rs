@@ -2662,6 +2662,7 @@ fn rust_plan_only_architecture_has_enforced_responsibility_boundaries() {
         ("sync_executor", executor),
         ("sync_journal", include_str!("sync_journal.rs")),
         ("sync_revalidator", include_str!("sync_revalidator.rs")),
+        ("sync_snapshot", include_str!("sync_snapshot.rs")),
     ] {
         assert!(
             !source.contains("action: SyncAction::"),
