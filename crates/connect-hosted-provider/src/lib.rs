@@ -12,6 +12,8 @@ mod provider;
 mod r2_session_token;
 mod symmetric_crypto;
 mod template;
+#[cfg(feature = "test-hooks")]
+mod test_hooks;
 mod workspace;
 
 pub use backup_admin::{BackupHold, BackupHoldInventory, BackupHoldRelease, HostedBackupAdmin};
@@ -45,3 +47,5 @@ pub use provider::{
     ProviderAuthorityTransfer, ProviderAuthorityTransferState, ProviderLimits, RegisterReplica,
     ReplicaPurpose, ResourceChangeDiagnostic, StorageDiagnostic,
 };
+#[cfg(feature = "test-hooks")]
+pub use test_hooks::{AuthorityImportHookError, AuthorityImportHookPoint, AuthorityImportTestHook};
