@@ -16,12 +16,18 @@ import { PlanOnlySyncExecutor } from "./sync-executor.js";
 import { prepareSyncBatch } from "./sync-journal.js";
 import { advanceSyncCheckpoint } from "./sync-checkpoint.js";
 import { MemoryAuthority } from "./memory-authority.js";
+import { classifyLocalRecord } from "./mirror-format.js";
 import type { MirrorFileSystem } from "./mirror-state.js";
 
 class InspectorFileSystem implements MirrorFileSystem {
   readonly files = new Map<string, string>();
+  reads = 0;
   async exists(path: string): Promise<boolean> { return this.files.has(path); }
-  async read(path: string): Promise<string | null> { return this.files.get(path) ?? null; }
+  async read(path: string): Promise<string | null> {
+    this.reads += 1;
+    return this.files.get(path) ?? null;
+  }
+  async readText(path: string): Promise<string | null> { return this.read(path); }
   async write(path: string, value: string): Promise<void> { this.files.set(path, value); }
   async move(source: string, target: string): Promise<void> {
     const value = this.files.get(source);
@@ -155,8 +161,19 @@ describe("pure exact-document planner", () => {
       ["null_frontmatter", "non_mapping_frontmatter"],
       ["list_frontmatter", "non_mapping_frontmatter"],
       ["scalar_frontmatter", "non_mapping_frontmatter"],
+      ["later_horizontal_rule_block", "parsed"],
+      ["single_bom_frontmatter", "non_mapping_frontmatter"],
+      ["double_bom_body_only", "parsed"],
+      ["crlf_frontmatter", "non_mapping_frontmatter"],
+      ["unclosed_opening_fence", "parsed"],
+      ["trailing_whitespace_fences", "non_mapping_frontmatter"],
       ["invalid_utf8", "invalid_utf8"]
     ]);
+    for (const fixtureCase of fixture.cases) {
+      if (fixtureCase.document === undefined) continue;
+      expect(classifyLocalRecord(fixtureCase.document).outcome, fixtureCase.name)
+        .toBe(fixtureCase.outcome);
+    }
     expect(fixture.cases.at(-1)).toEqual({
       name: "invalid_utf8",
       bytes_base64: "YmFk/3V0ZjgubWQ=",
@@ -257,6 +274,33 @@ describe("pure exact-document planner", () => {
       inspection.plan.actions[1]!.action_id
     );
     expect(fileSystem.files.get("remote.md")).toBeUndefined();
+  });
+
+  it("fails closed when an adapter lacks classified text reads", async () => {
+    const authority = new MemoryAuthority();
+    const replicaId = authority.registerReplica({ name: "legacy adapter", mode: "read_write" });
+    const fileSystem = new InspectorFileSystem();
+    fileSystem.files.set("unknown.md", "bytes from an unclassified decoder");
+    Object.defineProperty(fileSystem, "readText", { value: undefined });
+
+    const inspection = await new PlanOnlyMirrorInspector(
+      replicaId,
+      authority.transport(replicaId),
+      "read_write",
+      fileSystem,
+      undefined,
+      normalizeSelectiveSyncPolicy(),
+      portableMirrorRuntime,
+      async () => null,
+      async () => { throw new Error("unused"); }
+    ).inspect();
+
+    expect(inspection.plan.actions).toEqual([]);
+    expect(inspection.plan.issues).toEqual([
+      expect.objectContaining({ code: "file_read_failed", path: "unknown.md", blocking: true })
+    ]);
+    expect(fileSystem.reads).toBe(0);
+    expect(authority.serialize().records).toEqual([]);
   });
 
   it("journals, executes only bound commands, and checkpoints afterward", async () => {

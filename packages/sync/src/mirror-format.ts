@@ -13,6 +13,45 @@ const utf8 = new TextEncoder();
 const YAML_AMBIGUOUS_WORDS = new Set(["null", "true", "false"]);
 const INVALID_JSON_PROJECTION = Symbol("invalid-json-projection");
 
+export type LocalRecordStructuralOutcome = {
+  outcome: "parsed" | "invalid_yaml" | "non_mapping_frontmatter";
+};
+
+/** Strict structural check for local mirror records; authority parsing remains opaque-compatible. */
+export function classifyLocalRecord(document: string): LocalRecordStructuralOutcome {
+  const yaml = leadingFrontmatterYaml(document);
+  if (yaml === null) return { outcome: "parsed" };
+
+  let frontmatter: unknown;
+  try {
+    frontmatter = parse(yaml, { mapAsMap: true, uniqueKeys: true });
+  } catch {
+    return { outcome: "invalid_yaml" };
+  }
+  if (frontmatter === null && yaml.trim() === "") return { outcome: "parsed" };
+  if (!(frontmatter instanceof Map)) {
+    return { outcome: "non_mapping_frontmatter" };
+  }
+  return { outcome: "parsed" };
+}
+
+/** Mirrors mdbase-rs parse_document_without_bom delimiter recognition. */
+function leadingFrontmatterYaml(document: string): string | null {
+  const content = document.startsWith("\uFEFF") ? document.slice(1) : document;
+  const openingEnd = content.indexOf("\n");
+  if (openingEnd < 0 || content.slice(0, openingEnd).trimEnd() !== "---") return null;
+  const yamlStart = openingEnd + 1;
+  for (let lineStart = yamlStart; lineStart < content.length;) {
+    let lineEnd = content.indexOf("\n", lineStart);
+    if (lineEnd < 0) lineEnd = content.length;
+    if (content.slice(lineStart, lineEnd).trimEnd() === "---") {
+      return content.slice(yamlStart, lineStart);
+    }
+    lineStart = lineEnd + 1;
+  }
+  return null;
+}
+
 export function documentHash(document: string): string {
   return bytesToHex(sha256(utf8.encode(document)));
 }

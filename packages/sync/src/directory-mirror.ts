@@ -328,8 +328,13 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
 
   async status(): Promise<MirrorStatus> {
     const checkpoint = await this.checkpointStatus();
-    if (checkpoint.state === "not_initialized") return checkpoint;
-    return mirrorStatusFromPlan(checkpoint, await this.inspect());
+    const plan = await this.inspect();
+    if (
+      checkpoint.state === "not_initialized"
+      && !plan.issues.some((issue) =>
+        issue.code === "invalid_frontmatter" || issue.code === "file_read_failed")
+    ) return checkpoint;
+    return mirrorStatusFromPlan(checkpoint, plan);
   }
 
   async checkpointStatus(): Promise<MirrorStatus> {

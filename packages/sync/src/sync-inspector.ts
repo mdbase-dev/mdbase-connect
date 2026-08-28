@@ -7,6 +7,7 @@ import type {
   SyncResourceDocument
 } from "@mdbase-dev/connect-protocol";
 import { SyncError } from "./sync-error.js";
+import { classifyLocalRecord } from "./mirror-format.js";
 import {
   ensureFileBlob,
   fileSelected,
@@ -256,9 +257,22 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
       ...resources.map((resource) => resource.path)
     ]);
     for (const path of resourcePaths) {
-      const document = await this.fileSystem.read(path);
       const prior = state?.resources?.[path];
-      if (document === null) continue;
+      let read;
+      try {
+        read = await this.fileSystem.read(path);
+      } catch {
+        issues.push(readFailureIssue(path));
+        if (prior) {
+          observations.push({
+            stable_identity: true,
+            object: textRef("resource", path, path, prior.revision)
+          });
+        }
+        continue;
+      }
+      if (read === null) continue;
+      const document = read;
       const revision = `sha256:${this.runtime.digest(document)}`;
       observations.push({
         stable_identity: true,
@@ -289,18 +303,50 @@ export class PlanOnlyMirrorInspector<Frontmatter extends JsonObject = JsonObject
       pathPolicy
     ).filter((path) => pathSelected(this.selectiveSync, path) || managedRecordPaths.has(path));
     for (const path of recordPaths) {
-      const document = await this.fileSystem.read(path);
-      if (document === null) continue;
-      const revision = `sha256:${this.runtime.digest(document)}`;
       const conflictIdentity = recordConflictsByPath.get(path);
       const boundIdentity = recordBindingsByPath.get(path);
-      const priorIdentity = priorRecordsByPath.get(path)?.[0];
+      const priorRecord = priorRecordsByPath.get(path);
+      const priorIdentity = priorRecord?.[0];
       const identity = conflictIdentity ?? boundIdentity ?? priorIdentity ?? "";
+      let read;
+      try {
+        read = await this.fileSystem.readText(path);
+      } catch {
+        read = null;
+      }
+      if (typeof read !== "string") {
+        issues.push(read === null
+          ? readFailureIssue(path)
+          : {
+              code: "invalid_frontmatter",
+              message: `Invalid frontmatter (${read.code}).`,
+              path,
+              blocking: true
+            });
+        if (priorRecord) {
+          observations.push({
+            stable_identity: true,
+            object: textRef("record", priorRecord[0], path, priorRecord[1].revision)
+          });
+        }
+        continue;
+      }
+      const document = read;
+      const revision = `sha256:${this.runtime.digest(document)}`;
       observations.push({
         stable_identity: identity !== "",
         object: textRef("record", identity, path, revision)
       });
       documents.set(path, document);
+      const structural = classifyLocalRecord(document);
+      if (structural.outcome !== "parsed") {
+        issues.push({
+          code: "invalid_frontmatter",
+          message: `Invalid frontmatter (${structural.outcome}).`,
+          path,
+          blocking: true
+        });
+      }
     }
 
     if (this.selectiveSync.file_classes.length > 0) {
@@ -705,6 +751,15 @@ function errorCode(error: unknown): string {
   return error && typeof error === "object" && "code" in error && typeof error.code === "string"
     ? error.code
     : "sync_inspection_failed";
+}
+
+function readFailureIssue(path: string): InspectionIssue {
+  return {
+    code: "file_read_failed",
+    message: "Could not read local file.",
+    path,
+    blocking: true
+  };
 }
 
 function resourceKind(path: string): SyncResourceDocument["kind"] {

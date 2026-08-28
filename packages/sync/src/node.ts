@@ -30,6 +30,7 @@ import {
   type MirrorLease,
   type MirrorProgress,
   type MirrorRuntime,
+  type MirrorTextReadResult,
   type MirrorState,
   type MirrorStateStore
 } from "./mirror.js";
@@ -299,7 +300,28 @@ export class NodeMirrorFileSystem implements MirrorFileSystem {
   }
 
   async read(path: string): Promise<string | null> {
-    return readOptional(await this.safePath(path));
+    const result = await this.readText(path);
+    if (result === null || typeof result === "string") return result;
+    throw new SyncError(result.code, result.reason);
+  }
+
+  async readText(path: string): Promise<MirrorTextReadResult> {
+    const target = await this.safePath(path);
+    try {
+      const bytes = await readFile(target);
+      try {
+        return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      } catch {
+        return {
+          kind: "invalid",
+          code: "invalid_utf8",
+          reason: "File is not valid UTF-8."
+        };
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
   }
 
   async write(path: string, value: string): Promise<void> {

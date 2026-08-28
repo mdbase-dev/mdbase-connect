@@ -37,6 +37,36 @@
       "outcome": "non_mapping_frontmatter"
     },
     {
+      "name": "later_horizontal_rule_block",
+      "document": "Intro body\n\n---\nnull\n---\n",
+      "outcome": "parsed"
+    },
+    {
+      "name": "single_bom_frontmatter",
+      "document": "﻿---\nnull\n---\n",
+      "outcome": "non_mapping_frontmatter"
+    },
+    {
+      "name": "double_bom_body_only",
+      "document": "﻿﻿---\nnull\n---\n",
+      "outcome": "parsed"
+    },
+    {
+      "name": "crlf_frontmatter",
+      "document": "---\r\nnull\r\n---\r\nBody\r\n",
+      "outcome": "non_mapping_frontmatter"
+    },
+    {
+      "name": "unclosed_opening_fence",
+      "document": "---\na: [broken\nBody",
+      "outcome": "parsed"
+    },
+    {
+      "name": "trailing_whitespace_fences",
+      "document": "--- \t\r\nnull\r\n--- \t\r\nBody",
+      "outcome": "non_mapping_frontmatter"
+    },
+    {
       "name": "invalid_utf8",
       "bytes_base64": "YmFk/3V0ZjgubWQ=",
       "outcome": "invalid_utf8"

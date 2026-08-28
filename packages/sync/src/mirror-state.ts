@@ -33,9 +33,17 @@ export interface MirrorFileEntry {
 
 export interface MirrorLocalIssue {
   path: string;
-  code: "invalid_frontmatter";
+  code: "invalid_frontmatter" | "file_read_failed";
   message: string;
 }
+
+export interface MirrorInvalidTextRead {
+  kind: "invalid";
+  code: "invalid_utf8";
+  reason: string;
+}
+
+export type MirrorTextReadResult = string | null | MirrorInvalidTextRead;
 
 export interface DurableSyncReceipt {
   action_id: string;
@@ -138,6 +146,8 @@ export interface MirrorFileSystem {
   /** True when any filesystem entry occupies this exact portable path. */
   exists(path: string): Promise<boolean>;
   read(path: string): Promise<string | null>;
+  /** Classified byte-aware read required for local Markdown inspection. */
+  readText(path: string): Promise<MirrorTextReadResult>;
   write(path: string, value: string): Promise<void>;
   /** Atomically rename one managed path without changing its bytes. */
   move(source: string, target: string): Promise<void>;
