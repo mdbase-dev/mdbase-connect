@@ -33,10 +33,10 @@ import { withoutSnapshotDocument } from "./mirror-snapshot-validator.js";
 
 export interface PutOptions {
   managedState?: MirrorState;
-  acceptedHash?: string | null;
+  acceptedHash?: string;
   materialized?: { document: string; hash: string };
-  /** The plan inspector already sealed namespace and physical-path policy. */
-  inspectionPreflighted?: boolean;
+  /** The inspector sealed policy; level 1 also authorizes byte-fenced replacement. */
+  inspectionPreflighted?: boolean | 1;
 }
 
 export interface RemoveOptions {
@@ -68,7 +68,7 @@ export class MirrorMaterializer {
       managedState = state,
       acceptedHash,
       materialized,
-      inspectionPreflighted = false
+      inspectionPreflighted
     } = options;
     if (!inspectionPreflighted) {
       validateRecordPath(record.path, await this.recordPathPolicy(state));
@@ -83,16 +83,18 @@ export class MirrorMaterializer {
       );
     }
     const document = materialized?.document ?? recordMarkdownDocument(record);
-    const existing = await this.fileSystem.read(record.path);
+    const existing = inspectionPreflighted === 1
+      ? null
+      : await this.fileSystem.read(record.path);
     const prior = managedState?.records[record.record_id];
-    if (existing !== null && existing !== document) {
-      const existingHash = this.runtime.digest(existing);
+    const existingHash = existing === null ? null : this.runtime.digest(existing);
+    if (existingHash !== null && existing !== document) {
       const destinationBelongsToRecord = prior !== undefined
         && prior.path === record.path
         && existingHash === prior.hash;
       if (
         !destinationBelongsToRecord
-        && (acceptedHash === undefined || existingHash !== acceptedHash)
+        && (!acceptedHash || existingHash !== acceptedHash)
       ) {
         throw new MirrorDivergenceError(record.record_id, record.path);
       }
@@ -101,10 +103,8 @@ export class MirrorMaterializer {
       await this.remove(managedState!, record.record_id, prior.path);
     }
     const authoritativeHash = this.runtime.digest(document);
-    const acceptedLocalHash = typeof acceptedHash === "string"
-      && acceptedHash === authoritativeHash
-      && existing !== null
-      && this.runtime.digest(existing) === authoritativeHash;
+    const acceptedLocalHash = acceptedHash === authoritativeHash
+      && existingHash === authoritativeHash;
     if (!acceptedLocalHash) {
       await this.fileSystem.write(record.path, document);
     }

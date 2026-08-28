@@ -92,11 +92,27 @@ impl DirectoryMirror {
                 target,
                 expected_local,
                 expected_path_owner,
+                invalid_local_revision,
                 ..
             } => {
-                if !self.matches_ref(target)? {
-                    self.revalidate_expected(expected_local)?;
-                    self.revalidate_at(&target.path, expected_path_owner)?;
+                let target_matches = if invalid_local_revision.is_some() {
+                    self.matches_ref(target).unwrap_or(false)
+                } else {
+                    self.matches_ref(target)?
+                };
+                let replacing_invalid = invalid_local_revision.is_some() && !target_matches;
+                if !target_matches {
+                    if let Some(revision) = invalid_local_revision {
+                        self.revalidate_raw_revision(&target.path, revision)?;
+                        self.revalidate_path_owner_without_bytes(
+                            Some(state),
+                            &target.path,
+                            expected_path_owner,
+                        )?;
+                    } else {
+                        self.revalidate_expected(expected_local)?;
+                        self.revalidate_at(&target.path, expected_path_owner)?;
+                    }
                 }
                 match target.entity {
                     SyncObjectKind::Record => {
@@ -106,7 +122,7 @@ impl DirectoryMirror {
                             .and_then(|batch| batch.payloads.records.get(action_id))
                             .cloned()
                             .ok_or_else(|| missing_payload(action_id))?;
-                        self.put_record(state, record.clone(), None)?;
+                        self.put_record(state, record.clone(), None, replacing_invalid)?;
                         Ok(completed_record(action_id, Some(record)))
                     }
                     SyncObjectKind::Resource => {

@@ -227,14 +227,28 @@ async fn stale_projection_bindings_use_canonical_exact_fallback_for_projection_e
     );
 }
 
+#[cfg(feature = "test-hooks")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
 async fn authority_imports_remain_hidden_until_projection_indexing_completes() {
-    use mdbase_connect_hosted_provider::{PrepareAuthorityImport, ProviderAuthorityImportState};
+    use mdbase_connect_hosted_provider::{
+        AuthorityImportHookError, AuthorityImportHookPoint, AuthorityImportTestHook,
+        HostedProvider, PrepareAuthorityImport, ProviderAuthorityImportState, ProviderLimits,
+    };
 
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
     let fixture = FileLifecycleFixture::new(&database_url).await;
+    let missed_hook = AuthorityImportTestHook::install(
+        Uuid::new_v4(),
+        AuthorityImportHookPoint::BeforeSecondPhaseLock,
+        Duration::from_millis(25),
+    );
+    assert_eq!(
+        missed_hook.wait_until_paused().await,
+        Err(AuthorityImportHookError::MissedBoundary)
+    );
+    drop(missed_hook);
     let account_id: Uuid =
         sqlx::query_scalar("SELECT account_id FROM hosted_provider_collections WHERE id = $1")
             .bind(fixture.collection_id)
@@ -344,6 +358,7 @@ async fn authority_imports_remain_hidden_until_projection_indexing_completes() {
         &[],
     );
     let source_revision = "authority-source-v1".to_string();
+    let terminal_resources = resources.clone();
     fixture
         .provider
         .put_authority_import_manifest(
@@ -387,12 +402,215 @@ async fn authority_imports_remain_hidden_until_projection_indexing_completes() {
         .unwrap();
     assert_eq!(uploaded.state, ProviderAuthorityImportState::Uploaded);
 
-    let first_indexing = fixture
-        .provider
-        .complete_authority_import(import_id, &manifest_digest, &source_revision)
+    let recovery_provider = HostedProvider::connect(
+        &database_url,
+        fixture.crypto.clone(),
+        ProviderLimits::default(),
+        Arc::new(fixture.blobs.clone()),
+        None,
+    )
+    .await
+    .unwrap();
+    let lease_hook = AuthorityImportTestHook::install(
+        import_id,
+        AuthorityImportHookPoint::BeforeProjectionAdvance,
+        Duration::from_secs(5),
+    );
+    let completion_provider = fixture.provider.clone();
+    let completion_digest = manifest_digest.clone();
+    let completion_revision = source_revision.clone();
+    let in_flight = tokio::spawn(async move {
+        completion_provider
+            .complete_authority_import(import_id, &completion_digest, &completion_revision)
+            .await
+    });
+    lease_hook.wait_until_paused().await.unwrap();
+    let recovery_generation = recovery_provider
+        .projection_status(collection_id)
+        .await
+        .unwrap()
+        .building_generation
+        .expect("production completion opened the generation before pausing");
+    // Fence completion's own bounded advance so it reaches the second phase
+    // without waiting on a row lock. The committed lease is exact and remains
+    // unavailable to any other generation.
+    sqlx::query(
+        r#"UPDATE hosted_provider_projection_generations
+           SET lease_owner = $3, lease_expires_at = now() + interval '30 seconds'
+           WHERE collection_id = $1 AND generation_id = $2"#,
+    )
+    .bind(collection_id)
+    .bind(recovery_generation.generation_id)
+    .bind(Uuid::new_v4())
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+
+    // The scheduled projection recovery worker legitimately owns the generation
+    // row while a batch reads exact authority. Completion owns import then
+    // collection, so its NOWAIT generation probe must release those locks and
+    // retry rather than leak an incidental 409 through the public operation.
+    let completion_lock_hook = AuthorityImportTestHook::install(
+        import_id,
+        AuthorityImportHookPoint::AfterCollectionBeforeGenerationLock,
+        Duration::from_secs(5),
+    );
+    lease_hook.release();
+    completion_lock_hook.wait_until_paused().await.unwrap();
+    sqlx::query(
+        r#"UPDATE hosted_provider_projection_generations
+           SET lease_owner = NULL, lease_expires_at = NULL
+           WHERE collection_id = $1 AND generation_id = $2"#,
+    )
+    .bind(collection_id)
+    .bind(recovery_generation.generation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+
+    let generation_lease_hook = AuthorityImportTestHook::install(
+        recovery_generation.generation_id,
+        AuthorityImportHookPoint::AfterProjectionGenerationLease,
+        Duration::from_secs(5),
+    );
+    let generation_worker_provider = recovery_provider.clone();
+    let contended_generation_id = recovery_generation.generation_id;
+    let generation_worker = tokio::spawn(async move {
+        generation_worker_provider
+            .advance_projection_generation(collection_id, contended_generation_id)
+            .await
+    });
+    generation_lease_hook.wait_until_paused().await.unwrap();
+    let unavailable_hook = AuthorityImportTestHook::install(
+        import_id,
+        AuthorityImportHookPoint::AfterProjectionLeaseUnavailable,
+        Duration::from_secs(5),
+    );
+    completion_lock_hook.release();
+    drop(completion_lock_hook);
+    unavailable_hook.wait_until_paused().await.unwrap();
+
+    // The 55P03/NOWAIT attempt has returned before the retry hook. Prove its
+    // transaction dropped both higher-order locks, rather than sleeping while
+    // preserving a deadlock cycle.
+    let mut released_locks = fixture.pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL lock_timeout = '100ms'")
+        .execute(&mut *released_locks)
         .await
         .unwrap();
+    sqlx::query(
+        r#"SELECT import.id
+           FROM hosted_provider_authority_imports import
+           JOIN hosted_provider_collections collection
+             ON collection.id = import.collection_id
+           WHERE import.id = $1
+           FOR UPDATE OF import, collection NOWAIT"#,
+    )
+    .bind(import_id)
+    .fetch_one(&mut *released_locks)
+    .await
+    .expect("failed completion attempt released import and collection locks");
+    released_locks.commit().await.unwrap();
+
+    generation_lease_hook.release();
+    drop(generation_lease_hook);
+    generation_worker
+        .await
+        .unwrap()
+        .expect("the production recovery helper releases its exact generation lease");
+    unavailable_hook.release();
+    let first_indexing = in_flight
+        .await
+        .unwrap()
+        .expect("bounded completion retries exact generation-row contention");
+    assert_eq!(
+        unavailable_hook.arrivals(),
+        1,
+        "completion performs one retry after the observed 55P03"
+    );
+    drop(unavailable_hook);
+    drop(lease_hook);
     assert_eq!(first_indexing.state, ProviderAuthorityImportState::Indexing);
+
+    // Saturate the real production primary pool before the second phase starts.
+    // The one absolute two-second timeout must include pool acquisition and
+    // leave no detached acquire future behind.
+    let pool_hook = AuthorityImportTestHook::install(
+        import_id,
+        AuthorityImportHookPoint::BeforeSecondPhaseLock,
+        Duration::from_secs(5),
+    );
+    let pool_provider = fixture.provider.clone();
+    let pool_digest = manifest_digest.clone();
+    let pool_revision = source_revision.clone();
+    let pool_completion = tokio::spawn(async move {
+        pool_provider
+            .complete_authority_import(import_id, &pool_digest, &pool_revision)
+            .await
+    });
+    pool_hook.wait_until_paused().await.unwrap();
+    let primary_pool = fixture.provider.test_primary_pool();
+    let mut held_permits = Vec::new();
+    for _ in 0..18 {
+        held_permits.push(primary_pool.acquire().await.unwrap());
+    }
+    let pool_started = Instant::now();
+    pool_hook.release();
+    drop(pool_hook);
+    let pool_timeout = pool_completion.await.unwrap().unwrap_err();
+    assert_eq!(pool_timeout.code, "projection_lease_unavailable");
+    assert!(
+        pool_started.elapsed() <= Duration::from_millis(2_250),
+        "pool acquisition exceeded the absolute subordinate wall: {:?}",
+        pool_started.elapsed()
+    );
+    drop(held_permits);
+    tokio::time::timeout(Duration::from_millis(250), primary_pool.acquire())
+        .await
+        .expect("timed-out completion left a detached pool acquisition")
+        .unwrap();
+
+    // Pause the production contract/key path while its transaction owns the
+    // import and collection rows. timeout_at must cancel that await, drop the
+    // transaction, and release both locks at the same absolute wall.
+    let contracts_hook = AuthorityImportTestHook::install(
+        import_id,
+        AuthorityImportHookPoint::BeforeAuthorityImportContracts,
+        Duration::from_secs(5),
+    );
+    let contracts_provider = fixture.provider.clone();
+    let contracts_digest = manifest_digest.clone();
+    let contracts_revision = source_revision.clone();
+    let contracts_completion = tokio::spawn(async move {
+        contracts_provider
+            .complete_authority_import(import_id, &contracts_digest, &contracts_revision)
+            .await
+    });
+    contracts_hook.wait_until_paused().await.unwrap();
+    let contracts_started = Instant::now();
+    let contracts_timeout = contracts_completion.await.unwrap().unwrap_err();
+    assert_eq!(contracts_timeout.code, "projection_lease_unavailable");
+    assert!(
+        contracts_started.elapsed() <= Duration::from_millis(2_250),
+        "contract/key await exceeded the absolute subordinate wall: {:?}",
+        contracts_started.elapsed()
+    );
+    drop(contracts_hook);
+    let mut released_contract_locks = fixture.pool.begin().await.unwrap();
+    sqlx::query(
+        r#"SELECT import.id
+           FROM hosted_provider_authority_imports import
+           JOIN hosted_provider_collections collection
+             ON collection.id = import.collection_id
+           WHERE import.id = $1
+           FOR UPDATE OF import, collection NOWAIT"#,
+    )
+    .bind(import_id)
+    .fetch_one(&mut *released_contract_locks)
+    .await
+    .expect("timed-out contract/key await retained authority locks");
+    released_contract_locks.commit().await.unwrap();
+
     let hidden_state: String =
         sqlx::query_scalar("SELECT state FROM hosted_provider_collections WHERE id = $1")
             .bind(collection_id)
@@ -407,18 +625,723 @@ async fn authority_imports_remain_hidden_until_projection_indexing_completes() {
         .unwrap_err();
     assert_eq!(abort.code, "authority_import_indexing");
 
-    let mut completed = first_indexing;
-    for _ in 0..8 {
-        if completed.state == ProviderAuthorityImportState::Completed {
-            break;
-        }
-        completed = fixture
-            .provider
-            .complete_authority_import(import_id, &manifest_digest, &source_revision)
+    let mismatched_while_fenced = fixture
+        .provider
+        .complete_authority_import(import_id, "0", &source_revision)
+        .await
+        .unwrap_err();
+    assert_eq!(mismatched_while_fenced.code, "authority_import_not_ready");
+
+    for (mutation, restoration) in [
+        (
+            "UPDATE hosted_provider_projection_generations SET projection_format_version = projection_format_version + 1 WHERE collection_id = $1 AND generation_id = $2",
+            "UPDATE hosted_provider_projection_generations SET projection_format_version = projection_format_version - 1 WHERE collection_id = $1 AND generation_id = $2",
+        ),
+        (
+            "UPDATE hosted_provider_projection_generations SET semantic_engine_version = semantic_engine_version || '-stale' WHERE collection_id = $1 AND generation_id = $2",
+            "UPDATE hosted_provider_projection_generations SET semantic_engine_version = regexp_replace(semantic_engine_version, '-stale$', '') WHERE collection_id = $1 AND generation_id = $2",
+        ),
+    ] {
+        let building_hook = AuthorityImportTestHook::install(
+            import_id,
+            AuthorityImportHookPoint::AfterCollectionBeforeGenerationLock,
+            Duration::from_secs(5),
+        );
+        let completion_provider = fixture.provider.clone();
+        let completion_digest = manifest_digest.clone();
+        let completion_revision = source_revision.clone();
+        let completion = tokio::spawn(async move {
+            completion_provider
+                .complete_authority_import(import_id, &completion_digest, &completion_revision)
+                .await
+        });
+        building_hook.wait_until_paused().await.unwrap();
+        sqlx::query(mutation)
+            .bind(collection_id)
+            .bind(recovery_generation.generation_id)
+            .execute(&fixture.pool)
+            .await
+            .unwrap();
+        building_hook.release();
+        let stale_building = completion.await.unwrap().unwrap_err();
+        drop(building_hook);
+        assert_eq!(stale_building.code, "projection_generation_not_building");
+        sqlx::query(restoration)
+            .bind(collection_id)
+            .bind(recovery_generation.generation_id)
+            .execute(&fixture.pool)
             .await
             .unwrap();
     }
+
+    let mut ready_projection = None;
+    for _ in 0..8 {
+        let status = fixture
+            .provider
+            .projection_status(collection_id)
+            .await
+            .unwrap();
+        if status.ready {
+            ready_projection = Some(status);
+            break;
+        }
+        let generation = status
+            .building_generation
+            .expect("projection remains building until activation");
+        recovery_provider
+            .advance_projection_generation(collection_id, generation.generation_id)
+            .await
+            .unwrap();
+    }
+    let ready_projection = ready_projection.expect("bounded projection work reaches activation");
+    assert!(ready_projection.ready);
+
+    let stale_binding_hook = AuthorityImportTestHook::install(
+        import_id,
+        AuthorityImportHookPoint::BeforeSecondPhaseLock,
+        Duration::from_secs(5),
+    );
+    let completion_provider = fixture.provider.clone();
+    let completion_digest = manifest_digest.clone();
+    let completion_revision = source_revision.clone();
+    let stale_binding_completion = tokio::spawn(async move {
+        completion_provider
+            .complete_authority_import(import_id, &completion_digest, &completion_revision)
+            .await
+    });
+    stale_binding_hook.wait_until_paused().await.unwrap();
+    sqlx::query(
+        r#"UPDATE hosted_provider_projection_generations generation
+           SET integrity_verified_epoch = integrity_epoch - 1
+           FROM hosted_provider_collections collection
+           WHERE collection.id = $1
+             AND generation.collection_id = collection.id
+             AND generation.generation_id = collection.active_projection_generation_id"#,
+    )
+    .bind(collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    stale_binding_hook.release();
+    let stale_binding_error = stale_binding_completion.await.unwrap().unwrap_err();
+    drop(stale_binding_hook);
+    assert_eq!(
+        stale_binding_error.code, "projection_generation_not_building",
+        "stale pre-lock readiness must fail closed"
+    );
+    sqlx::query(
+        r#"UPDATE hosted_provider_projection_generations generation
+           SET integrity_verified_epoch = integrity_epoch
+           FROM hosted_provider_collections collection
+           WHERE collection.id = $1
+             AND generation.collection_id = collection.id
+             AND generation.generation_id = collection.active_projection_generation_id"#,
+    )
+    .bind(collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+
+    let finalizer_hook = AuthorityImportTestHook::install(
+        import_id,
+        AuthorityImportHookPoint::BeforeSecondPhaseLock,
+        Duration::from_secs(5),
+    );
+    let completion_provider = fixture.provider.clone();
+    let completion_digest = manifest_digest.clone();
+    let completion_revision = source_revision.clone();
+    let in_flight = tokio::spawn(async move {
+        completion_provider
+            .complete_authority_import(import_id, &completion_digest, &completion_revision)
+            .await
+    });
+    finalizer_hook.wait_until_paused().await.unwrap();
+
+    let epoch_hook = AuthorityImportTestHook::install(
+        import_id,
+        AuthorityImportHookPoint::BeforeRecoveryFinalizerLock,
+        Duration::from_secs(5),
+    );
+    let epoch_recovery_provider = recovery_provider.clone();
+    let epoch_recovery = tokio::spawn(async move {
+        epoch_recovery_provider
+            .recover_projection_generations(1)
+            .await
+    });
+    epoch_hook.wait_until_paused().await.unwrap();
+    sqlx::query(
+        "UPDATE hosted_provider_collections SET authority_epoch = authority_epoch + 1 WHERE id = $1",
+    )
+    .bind(collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    epoch_hook.release();
+    epoch_recovery.await.unwrap().unwrap();
+    drop(epoch_hook);
+    let epoch_fenced_state: String =
+        sqlx::query_scalar("SELECT state FROM hosted_provider_authority_imports WHERE id = $1")
+            .bind(import_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    assert_eq!(epoch_fenced_state, "indexing");
+    sqlx::query(
+        "UPDATE hosted_provider_collections SET authority_epoch = authority_epoch - 1 WHERE id = $1",
+    )
+    .bind(collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+
+    let readiness_hook = AuthorityImportTestHook::install(
+        import_id,
+        AuthorityImportHookPoint::BeforeRecoveryFinalizerLock,
+        Duration::from_secs(5),
+    );
+    let readiness_recovery_provider = recovery_provider.clone();
+    let readiness_recovery = tokio::spawn(async move {
+        readiness_recovery_provider
+            .recover_projection_generations(1)
+            .await
+    });
+    readiness_hook.wait_until_paused().await.unwrap();
+    sqlx::query(
+        r#"UPDATE hosted_provider_projection_generations generation
+           SET integrity_verified_epoch = integrity_epoch - 1
+           FROM hosted_provider_collections collection
+           WHERE collection.id = $1
+             AND generation.collection_id = collection.id
+             AND generation.generation_id = collection.active_projection_generation_id"#,
+    )
+    .bind(collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    readiness_hook.release();
+    readiness_recovery.await.unwrap().unwrap();
+    drop(readiness_hook);
+    let readiness_fenced_state: String =
+        sqlx::query_scalar("SELECT state FROM hosted_provider_authority_imports WHERE id = $1")
+            .bind(import_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    assert_eq!(readiness_fenced_state, "indexing");
+    sqlx::query(
+        r#"UPDATE hosted_provider_projection_generations generation
+           SET integrity_verified_epoch = integrity_epoch
+           FROM hosted_provider_collections collection
+           WHERE collection.id = $1
+             AND generation.collection_id = collection.id
+             AND generation.generation_id = collection.active_projection_generation_id"#,
+    )
+    .bind(collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+
+    recovery_provider
+        .recover_projection_generations(1)
+        .await
+        .expect("recovery finalizer commits the completed receipt");
+    finalizer_hook.release();
+    let completed = in_flight
+        .await
+        .unwrap()
+        .expect("in-flight completion observes the recovery receipt");
+    drop(finalizer_hook);
     assert_eq!(completed.state, ProviderAuthorityImportState::Completed);
+    let durable_receipt = fixture
+        .provider
+        .complete_authority_import(import_id, &manifest_digest, &source_revision)
+        .await
+        .expect("completed import is idempotent");
+    assert_eq!(
+        serde_json::to_value(&completed).unwrap(),
+        serde_json::to_value(&durable_receipt).unwrap(),
+        "the raced completion returns the exact durable receipt"
+    );
+
+    let active_generation_id: Uuid = sqlx::query_scalar(
+        "SELECT active_projection_generation_id FROM hosted_provider_collections WHERE id = $1",
+    )
+    .bind(collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"UPDATE hosted_provider_collections
+           SET active_projection_generation_id = NULL,
+               active_projection_head = NULL,
+               active_catalog_revision = NULL,
+               active_projection_format_version = NULL,
+               active_semantic_engine_version = NULL
+           WHERE id = $1"#,
+    )
+    .bind(collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let absent_active = fixture
+        .provider
+        .complete_authority_import(import_id, &manifest_digest, &source_revision)
+        .await
+        .unwrap_err();
+    assert_eq!(absent_active.code, "authority_import_not_ready");
+    assert!(absent_active.details.is_none());
+    sqlx::query(
+        r#"UPDATE hosted_provider_collections collection
+           SET active_projection_generation_id = generation.generation_id,
+               active_projection_head = collection.head,
+               active_catalog_revision = generation.target_catalog_revision,
+               active_projection_format_version = generation.projection_format_version,
+               active_semantic_engine_version = generation.semantic_engine_version
+           FROM hosted_provider_projection_generations generation
+           WHERE collection.id = $1
+             AND generation.collection_id = collection.id
+             AND generation.generation_id = $2"#,
+    )
+    .bind(collection_id)
+    .bind(active_generation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+
+    for (mutation, restoration) in [
+        (
+            "UPDATE hosted_provider_projection_generations SET integrity_verified_epoch = integrity_epoch - 1 WHERE collection_id = $1 AND generation_id = $2",
+            "UPDATE hosted_provider_projection_generations SET integrity_verified_epoch = integrity_epoch WHERE collection_id = $1 AND generation_id = $2",
+        ),
+        (
+            "UPDATE hosted_provider_projection_generations SET status = 'building', completed_at = NULL WHERE collection_id = $1 AND generation_id = $2",
+            "UPDATE hosted_provider_projection_generations SET status = 'complete', completed_at = now() WHERE collection_id = $1 AND generation_id = $2",
+        ),
+    ] {
+        let generation_lock_hook = AuthorityImportTestHook::install(
+            import_id,
+            AuthorityImportHookPoint::AfterCollectionBeforeGenerationLock,
+            Duration::from_secs(5),
+        );
+        let replay_provider = fixture.provider.clone();
+        let replay_digest = manifest_digest.clone();
+        let replay_revision = source_revision.clone();
+        let replay = tokio::spawn(async move {
+            replay_provider
+                .complete_authority_import(import_id, &replay_digest, &replay_revision)
+                .await
+        });
+        generation_lock_hook.wait_until_paused().await.unwrap();
+        sqlx::query(mutation)
+            .bind(collection_id)
+            .bind(active_generation_id)
+            .execute(&fixture.pool)
+            .await
+            .unwrap();
+        generation_lock_hook.release();
+        let error = replay.await.unwrap().unwrap_err();
+        drop(generation_lock_hook);
+        assert_eq!(error.code, "authority_import_not_ready");
+        assert!(error.details.is_none());
+        sqlx::query(restoration)
+            .bind(collection_id)
+            .bind(active_generation_id)
+            .execute(&fixture.pool)
+            .await
+            .unwrap();
+    }
+
+    for (mutation, restoration) in [
+        (
+            "UPDATE hosted_provider_projection_generations SET status = 'building', completed_at = NULL WHERE collection_id = $1 AND generation_id = (SELECT active_projection_generation_id FROM hosted_provider_collections WHERE id = $1)",
+            "UPDATE hosted_provider_projection_generations SET status = 'complete', completed_at = now() WHERE collection_id = $1 AND generation_id = (SELECT active_projection_generation_id FROM hosted_provider_collections WHERE id = $1)",
+        ),
+        (
+            "UPDATE hosted_provider_collections SET active_projection_head = head - 1 WHERE id = $1",
+            "UPDATE hosted_provider_collections SET active_projection_head = head WHERE id = $1",
+        ),
+        (
+            "UPDATE hosted_provider_projection_generations SET source_resource_revision = 'stale-resource' WHERE collection_id = $1 AND generation_id = (SELECT active_projection_generation_id FROM hosted_provider_collections WHERE id = $1)",
+            "UPDATE hosted_provider_projection_generations generation SET source_resource_revision = collection.resource_revision FROM hosted_provider_collections collection WHERE collection.id = $1 AND generation.collection_id = collection.id AND generation.generation_id = collection.active_projection_generation_id",
+        ),
+        (
+            "UPDATE hosted_provider_collections SET active_projection_format_version = active_projection_format_version + 1 WHERE id = $1",
+            "UPDATE hosted_provider_collections SET active_projection_format_version = active_projection_format_version - 1 WHERE id = $1",
+        ),
+        (
+            "UPDATE hosted_provider_collections SET active_semantic_engine_version = active_semantic_engine_version || '-stale' WHERE id = $1",
+            "UPDATE hosted_provider_collections SET active_semantic_engine_version = regexp_replace(active_semantic_engine_version, '-stale$', '') WHERE id = $1",
+        ),
+        (
+            "UPDATE hosted_provider_projection_generations SET projection_format_version = projection_format_version + 1 WHERE collection_id = $1 AND generation_id = (SELECT active_projection_generation_id FROM hosted_provider_collections WHERE id = $1)",
+            "UPDATE hosted_provider_projection_generations SET projection_format_version = projection_format_version - 1 WHERE collection_id = $1 AND generation_id = (SELECT active_projection_generation_id FROM hosted_provider_collections WHERE id = $1)",
+        ),
+        (
+            "UPDATE hosted_provider_projection_generations SET semantic_engine_version = semantic_engine_version || '-stale' WHERE collection_id = $1 AND generation_id = (SELECT active_projection_generation_id FROM hosted_provider_collections WHERE id = $1)",
+            "UPDATE hosted_provider_projection_generations SET semantic_engine_version = regexp_replace(semantic_engine_version, '-stale$', '') WHERE collection_id = $1 AND generation_id = (SELECT active_projection_generation_id FROM hosted_provider_collections WHERE id = $1)",
+        ),
+        (
+            "UPDATE hosted_provider_projection_generations generation SET source_head = collection.active_projection_head + 1 FROM hosted_provider_collections collection WHERE collection.id = $1 AND generation.collection_id = collection.id AND generation.generation_id = collection.active_projection_generation_id",
+            "UPDATE hosted_provider_projection_generations generation SET source_head = collection.active_projection_head FROM hosted_provider_collections collection WHERE collection.id = $1 AND generation.collection_id = collection.id AND generation.generation_id = collection.active_projection_generation_id",
+        ),
+        (
+            "UPDATE hosted_provider_projection_generations SET integrity_verified_epoch = integrity_epoch - 1 WHERE collection_id = $1 AND generation_id = (SELECT active_projection_generation_id FROM hosted_provider_collections WHERE id = $1)",
+            "UPDATE hosted_provider_projection_generations SET integrity_verified_epoch = integrity_epoch WHERE collection_id = $1 AND generation_id = (SELECT active_projection_generation_id FROM hosted_provider_collections WHERE id = $1)",
+        ),
+    ] {
+        sqlx::query(mutation)
+            .bind(collection_id)
+            .execute(&fixture.pool)
+            .await
+            .unwrap();
+        let replay = fixture
+            .provider
+            .complete_authority_import(import_id, &manifest_digest, &source_revision)
+            .await
+            .unwrap_err();
+        assert_eq!(replay.code, "authority_import_not_ready");
+        assert!(replay.details.is_none());
+        sqlx::query(restoration)
+            .bind(collection_id)
+            .execute(&fixture.pool)
+            .await
+            .unwrap();
+    }
+    sqlx::query(
+        "UPDATE hosted_provider_collections SET authority_epoch = authority_epoch + 1 WHERE id = $1",
+    )
+    .bind(collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let stale_epoch_replay = fixture
+        .provider
+        .complete_authority_import(import_id, &manifest_digest, &source_revision)
+        .await
+        .unwrap_err();
+    assert_eq!(stale_epoch_replay.code, "authority_import_not_ready");
+    assert!(stale_epoch_replay.details.is_none());
+    sqlx::query(
+        "UPDATE hosted_provider_collections SET authority_epoch = authority_epoch - 1 WHERE id = $1",
+    )
+    .bind(collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+
+    let healthy_replay = fixture
+        .provider
+        .complete_authority_import(import_id, &manifest_digest, &source_revision)
+        .await
+        .expect("healthy exact completed receipt remains idempotent");
+    assert_eq!(
+        serde_json::to_value(healthy_replay).unwrap(),
+        serde_json::to_value(&durable_receipt).unwrap()
+    );
+
+    for (digest, revision) in [
+        ("0", source_revision.as_str()),
+        (manifest_digest.as_str(), "different-source"),
+    ] {
+        let mismatch = fixture
+            .provider
+            .complete_authority_import(import_id, digest, revision)
+            .await
+            .unwrap_err();
+        assert_eq!(mismatch.code, "authority_import_not_ready");
+    }
+
+    let terminal_collection_id = Uuid::new_v4();
+    fixture
+        .provider
+        .create_collection(
+            account_id,
+            terminal_collection_id,
+            "mdbase",
+            "Terminal import",
+            "UTC",
+        )
+        .await
+        .unwrap();
+    let terminal_import_id = Uuid::new_v4();
+    let terminal_token = format!("authority-import-terminal-{}", Uuid::new_v4());
+    fixture
+        .provider
+        .prepare_authority_import(PrepareAuthorityImport {
+            transfer_id: terminal_import_id,
+            collection_id: terminal_collection_id,
+            account_id,
+            display_name: "Terminal import".to_string(),
+            token: terminal_token.clone(),
+            authority_epoch: 2,
+            ttl_seconds: 300,
+        })
+        .await
+        .unwrap();
+    let terminal_record_id = Uuid::new_v4();
+    let terminal_path = "notes/terminal.md".to_string();
+    let terminal_document = "---\ntitle: Terminal\n---\nCorrupt after fencing.\n".to_string();
+    let terminal_digest_record = SyncRecord {
+        record_id: terminal_record_id,
+        path: terminal_path.clone(),
+        document: terminal_document.clone(),
+        revision: String::new(),
+        frontmatter: serde_json::Map::new(),
+        body: String::new(),
+        types: Vec::new(),
+    };
+    let terminal_digest = authority_manifest_digest(
+        &terminal_resources.documents,
+        std::slice::from_ref(&terminal_digest_record),
+        &[],
+    );
+    let terminal_revision = "authority-source-terminal".to_string();
+    fixture
+        .provider
+        .put_authority_import_manifest(
+            terminal_import_id,
+            &terminal_token,
+            AuthorityImportManifest {
+                protocol_version: CONTROL_PROTOCOL_VERSION,
+                collection_id: terminal_collection_id,
+                source_head: 9,
+                source_revision: terminal_revision.clone(),
+                manifest_digest: terminal_digest.clone(),
+                resources: terminal_resources,
+                record_count: 1,
+                file_count: 0,
+                files: Vec::new(),
+            },
+        )
+        .await
+        .unwrap();
+    fixture
+        .provider
+        .put_authority_import_records(
+            terminal_import_id,
+            &terminal_token,
+            AuthorityImportRecordPage {
+                protocol_version: CONTROL_PROTOCOL_VERSION,
+                page: 0,
+                records: vec![AuthorityImportRecord {
+                    record_id: terminal_record_id,
+                    path: terminal_path,
+                    document: terminal_document,
+                }],
+            },
+        )
+        .await
+        .unwrap();
+    fixture
+        .provider
+        .finalize_authority_import(terminal_import_id, &terminal_token)
+        .await
+        .unwrap();
+
+    let terminal_hook = AuthorityImportTestHook::install(
+        terminal_import_id,
+        AuthorityImportHookPoint::BeforeSecondPhaseLock,
+        Duration::from_secs(5),
+    );
+    let completion_provider = fixture.provider.clone();
+    let completion_digest = terminal_digest.clone();
+    let completion_revision = terminal_revision.clone();
+    let terminal_in_flight = tokio::spawn(async move {
+        completion_provider
+            .complete_authority_import(terminal_import_id, &completion_digest, &completion_revision)
+            .await
+    });
+    terminal_hook.wait_until_paused().await.unwrap();
+    let terminal_generation = recovery_provider
+        .projection_status(terminal_collection_id)
+        .await
+        .unwrap()
+        .building_generation
+        .expect("local advancement succeeded before the second-phase boundary");
+    sqlx::query(
+        r#"UPDATE hosted_provider_projection_generations
+           SET lease_owner = NULL, lease_expires_at = NULL
+           WHERE collection_id = $1 AND generation_id = $2"#,
+    )
+    .bind(terminal_collection_id)
+    .bind(terminal_generation.generation_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let original_terminal_ciphertext: Vec<u8> = sqlx::query_scalar(
+        r#"SELECT payload_ciphertext
+           FROM hosted_provider_record_versions
+           WHERE collection_id = $1 AND record_id = $2 AND deleted = false"#,
+    )
+    .bind(terminal_collection_id)
+    .bind(terminal_record_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"UPDATE hosted_provider_record_versions
+           SET payload_ciphertext = decode('00', 'hex')
+           WHERE collection_id = $1 AND record_id = $2 AND deleted = false"#,
+    )
+    .bind(terminal_collection_id)
+    .bind(terminal_record_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"UPDATE hosted_provider_record_projections
+           SET semantic_projection = jsonb_set(
+                 semantic_projection, '{path}', '"invalid.md"'::jsonb
+               )
+           WHERE collection_id = $1 AND generation_id = $2
+             AND record_id = $3 AND valid_to_sequence IS NULL"#,
+    )
+    .bind(terminal_collection_id)
+    .bind(terminal_generation.generation_id)
+    .bind(terminal_record_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let mut terminal_advance = None;
+    for _ in 0..4 {
+        match recovery_provider
+            .advance_projection_generation(
+                terminal_collection_id,
+                terminal_generation.generation_id,
+            )
+            .await
+        {
+            Ok(_) => {}
+            Err(error) => {
+                terminal_advance = Some(error);
+                break;
+            }
+        }
+    }
+    assert_eq!(
+        terminal_advance
+            .expect("bounded recovery advancement reaches the authority check")
+            .code,
+        "projection_authority_invalid"
+    );
+    terminal_hook.release();
+    let terminal_completion = terminal_in_flight.await.unwrap().unwrap_err();
+    drop(terminal_hook);
+    assert_eq!(
+        terminal_completion.code, "projection_authority_invalid",
+        "terminal projection quarantine must not be reported as live indexing"
+    );
+    let terminal_status = recovery_provider
+        .projection_status(terminal_collection_id)
+        .await
+        .unwrap();
+    assert!(terminal_status.building_generation.is_none());
+    assert_eq!(
+        terminal_status.latest_terminal_error_code.as_deref(),
+        Some("projection_authority_invalid")
+    );
+    for (mutation, restoration) in [
+        (
+            "UPDATE hosted_provider_projection_generations SET projection_format_version = projection_format_version + 1 WHERE collection_id = $1 AND generation_id = $2",
+            "UPDATE hosted_provider_projection_generations SET projection_format_version = projection_format_version - 1 WHERE collection_id = $1 AND generation_id = $2",
+        ),
+        (
+            "UPDATE hosted_provider_projection_generations SET semantic_engine_version = semantic_engine_version || '-stale' WHERE collection_id = $1 AND generation_id = $2",
+            "UPDATE hosted_provider_projection_generations SET semantic_engine_version = regexp_replace(semantic_engine_version, '-stale$', '') WHERE collection_id = $1 AND generation_id = $2",
+        ),
+    ] {
+        sqlx::query(
+            r#"UPDATE hosted_provider_projection_generations
+               SET status = 'building', abandoned_at = NULL,
+                   last_error_code = NULL, lease_owner = NULL, lease_expires_at = NULL
+               WHERE collection_id = $1 AND generation_id = $2"#,
+        )
+        .bind(terminal_collection_id)
+        .bind(terminal_generation.generation_id)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+        let terminal_format_hook = AuthorityImportTestHook::install(
+            terminal_import_id,
+            AuthorityImportHookPoint::BeforeProjectionAdvance,
+            Duration::from_secs(5),
+        );
+        let completion_provider = fixture.provider.clone();
+        let completion_digest = terminal_digest.clone();
+        let completion_revision = terminal_revision.clone();
+        let completion = tokio::spawn(async move {
+            completion_provider
+                .complete_authority_import(
+                    terminal_import_id,
+                    &completion_digest,
+                    &completion_revision,
+                )
+                .await
+        });
+        terminal_format_hook.wait_until_paused().await.unwrap();
+        sqlx::query(
+            r#"UPDATE hosted_provider_projection_generations
+               SET lease_owner = NULL, lease_expires_at = NULL
+               WHERE collection_id = $1 AND generation_id = $2"#,
+        )
+        .bind(terminal_collection_id)
+        .bind(terminal_generation.generation_id)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+        let terminalized = recovery_provider
+            .advance_projection_generation(
+                terminal_collection_id,
+                terminal_generation.generation_id,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(terminalized.code, "projection_authority_invalid");
+        sqlx::query(mutation)
+            .bind(terminal_collection_id)
+            .bind(terminal_generation.generation_id)
+            .execute(&fixture.pool)
+            .await
+            .unwrap();
+        terminal_format_hook.release();
+        let stale_terminal = completion.await.unwrap().unwrap_err();
+        drop(terminal_format_hook);
+        assert_eq!(stale_terminal.code, "projection_generation_not_building");
+        sqlx::query(restoration)
+            .bind(terminal_collection_id)
+            .bind(terminal_generation.generation_id)
+            .execute(&fixture.pool)
+            .await
+            .unwrap();
+    }
+    sqlx::query(
+        r#"UPDATE hosted_provider_projection_generations
+           SET source_head = source_head - 1
+           WHERE collection_id = $1 AND generation_id = $2"#,
+    )
+    .bind(terminal_collection_id)
+    .bind(terminal_status.latest_terminal_generation_id.unwrap())
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"UPDATE hosted_provider_record_versions
+           SET payload_ciphertext = $3
+           WHERE collection_id = $1 AND record_id = $2 AND deleted = false"#,
+    )
+    .bind(terminal_collection_id)
+    .bind(terminal_record_id)
+    .bind(original_terminal_ciphertext)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let stale_terminal = fixture
+        .provider
+        .complete_authority_import(terminal_import_id, &terminal_digest, &terminal_revision)
+        .await
+        .expect("a stale terminal generation does not poison current authority work");
+    assert_eq!(stale_terminal.state, ProviderAuthorityImportState::Indexing);
+
     assert!(
         fixture
             .provider

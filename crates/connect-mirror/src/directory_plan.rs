@@ -80,7 +80,35 @@ impl DirectoryMirror {
         inspection: Inspection,
     ) -> Result<MirrorApplyResult, MirrorError> {
         let plan = inspection.plan.clone();
-        if plan.issues.iter().any(|issue| issue.blocking) {
+        if plan.issues.iter().any(|issue| issue.blocking)
+            && !plan.actions.iter().any(|action| {
+                matches!(
+                    action,
+                    SyncAction::WriteLocal {
+                        invalid_local_revision: Some(_),
+                        ..
+                    }
+                )
+            })
+        {
+            return Ok(result(
+                "attention",
+                &plan,
+                self.status_from_state(inspection.prior.clone()),
+                0,
+                None,
+            ));
+        }
+        let repair_only = plan.actions.iter().all(|action| {
+            matches!(
+                action,
+                SyncAction::WriteLocal {
+                    invalid_local_revision: Some(_),
+                    ..
+                } | SyncAction::AdvanceCheckpoint { .. }
+            )
+        });
+        if plan.issues.iter().any(|issue| issue.blocking) && !repair_only {
             return Ok(result(
                 "attention",
                 &plan,

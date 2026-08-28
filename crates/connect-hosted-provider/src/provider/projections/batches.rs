@@ -34,6 +34,12 @@ impl HostedProvider {
         .fetch_optional(&mut *transaction)
         .await?
         .ok_or_else(projection_lease_unavailable)?;
+        #[cfg(feature = "test-hooks")]
+        crate::test_hooks::pause_authority_import(
+            generation_id,
+            crate::test_hooks::AuthorityImportHookPoint::AfterProjectionGenerationLease,
+        )
+        .await;
         let catalog_revision: String = generation.get("target_catalog_revision");
         let format_version = number(
             i64::from(generation.get::<i32, _>("projection_format_version")),
@@ -515,6 +521,12 @@ impl HostedProvider {
         .fetch_optional(&mut *transaction)
         .await?
         .ok_or_else(projection_lease_unavailable)?;
+        #[cfg(feature = "test-hooks")]
+        crate::test_hooks::pause_authority_import(
+            generation_id,
+            crate::test_hooks::AuthorityImportHookPoint::AfterProjectionGenerationLease,
+        )
+        .await;
         let catalog_revision: String = generation.get("target_catalog_revision");
         let format_version = number(
             i64::from(generation.get::<i32, _>("projection_format_version")),
