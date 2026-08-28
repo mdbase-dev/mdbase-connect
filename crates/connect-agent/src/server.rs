@@ -256,9 +256,10 @@ impl AgentState {
     pub fn origin_allowed(&self, origin: &str) -> bool {
         !origin.is_empty()
             && (self.registry.list_grants().is_ok_and(|grants| {
-                grants
-                    .iter()
-                    .any(|grant| grant.application_origin == origin && grant.encryption.is_some())
+                grants.iter().any(|grant| {
+                    grant.application_origin.as_deref() == Some(origin)
+                        && grant.encryption.is_some()
+                })
             }) || self.registry.replay_origin_allowed(origin).unwrap_or(false))
     }
 

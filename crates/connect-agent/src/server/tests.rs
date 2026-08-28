@@ -79,6 +79,77 @@ async fn access_snapshot_falls_back_for_transient_http_statuses() {
 }
 
 #[tokio::test]
+async fn access_snapshot_keeps_usable_account_data_with_mixed_origin_encodings() {
+    fn grant(name: &str, origin: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({
+            "id": Uuid::new_v4(),
+            "application_id": Uuid::new_v4(),
+            "application_declaration_id": format!("dev.mdbase.{name}"),
+            "application_manifest_digest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "application_name": name,
+            "application_distribution": if name == "portable" { "portable" } else { "web" },
+            "application_homepage": "https://apps.example",
+            "application_origin": origin,
+            "collection_id": Uuid::new_v4(),
+            "collection_name": "Notes",
+            "operations": ["describe"],
+            "scope": { "contracts": [], "access": "full_collection" },
+            "created_at": "2026-08-23T00:00:00Z",
+            "contracts": {
+                "operation_transport": 2,
+                "authorization_binding": 1,
+                "semantic_capabilities": 1
+            }
+        })
+    }
+
+    let valid_origin = "https://valid.example:8443";
+    let app = axum::Router::new().route(
+        "/v1/connectors/control",
+        axum::routing::get(move || async move {
+            axum::Json(serde_json::json!({
+                "configured": true,
+                "online": true,
+                "account": {
+                    "connector_id": Uuid::new_v4(),
+                    "connector_name": "Home computer",
+                    "user_name": "Example user",
+                    "user_email": "user@example.test"
+                },
+                "grants": [
+                    grant("valid", serde_json::json!(valid_origin)),
+                    grant("portable", serde_json::json!("null")),
+                    grant("null-origin", serde_json::Value::Null),
+                    grant("malformed-origin", serde_json::json!({ "unexpected": true }))
+                ],
+                "pending_authorizations": [],
+                "authority_conflicts": []
+            }))
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let response = access_snapshot_response(CloudControlClient::new(
+        format!("http://{address}"),
+        "connector-token".to_string(),
+    ))
+    .await;
+
+    assert!(response.ok, "{:?}", response.error);
+    let snapshot = response.result.unwrap();
+    assert_eq!(snapshot["account"]["connector_name"], "Home computer");
+    assert_eq!(snapshot["grants"].as_array().unwrap().len(), 4);
+    assert_eq!(snapshot["grants"][0]["application_origin"], valid_origin);
+    assert_eq!(snapshot["grants"][1]["application_origin"], "null");
+    for grant in snapshot["grants"].as_array().unwrap().iter().skip(2) {
+        assert!(grant.get("application_origin").is_none(), "{grant}");
+    }
+    server.abort();
+}
+
+#[tokio::test]
 async fn access_snapshot_propagates_malformed_control_plane_json() {
     let app = axum::Router::new().route(
         "/v1/connectors/control",

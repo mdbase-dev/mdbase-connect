@@ -12,7 +12,7 @@ impl AgentState {
             .grant_replay_context(envelope.grant_id, &envelope.key_id)
             .ok()
             .flatten()
-            .is_some_and(|context| context.grant.application_origin == origin);
+            .is_some_and(|context| context.grant.application_origin.as_deref() == Some(origin));
         if !origin_matches {
             return encrypted_rejection(envelope.protocol_version, envelope.request_id);
         }
