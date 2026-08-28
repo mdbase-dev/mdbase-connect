@@ -115,14 +115,61 @@ impl HostedProvider {
             crate::test_hooks::AuthorityImportHookPoint::BeforeSecondPhaseLock,
         )
         .await;
-        self.complete_authority_import_second_phase(
-            import_id,
-            collection_id,
-            manifest_digest,
-            source_revision,
-            expected_generation_id,
-        )
-        .await
+        // A projection batch takes the generation row before reading the
+        // collection. The import finalizer deliberately takes the exact import
+        // and collection locks first, then probes the generation with NOWAIT to
+        // avoid inverting that order into a deadlock. Yield the whole lock set
+        // and retry only that typed contention while the request still has a
+        // bounded budget.
+        // Keep this well inside the provider client's 15-second request
+        // deadline; longer generation work is resumed by the exact-ID client
+        // handoff below the public authority operation.
+        let retry_deadline = Instant::now() + Duration::from_secs(2);
+        let mut retry_delay = Duration::from_millis(10);
+        loop {
+            // This timeout owns the entire subordinate future: pool acquire,
+            // transaction locks, key/contract awaits, and commit. Elapsing
+            // drops the future and transaction synchronously, so no detached
+            // database or key work survives the absolute deadline.
+            let outcome = match tokio::time::timeout_at(
+                tokio::time::Instant::from_std(retry_deadline),
+                self.complete_authority_import_second_phase(
+                    import_id,
+                    collection_id,
+                    manifest_digest,
+                    source_revision,
+                    expected_generation_id,
+                    retry_deadline,
+                ),
+            )
+            .await
+            {
+                Ok(outcome) => outcome,
+                Err(_) => Err(projection_lease_unavailable()),
+            };
+            match outcome {
+                Err(error)
+                    if error.code == "projection_lease_unavailable"
+                        && Instant::now() < retry_deadline =>
+                {
+                    // The subordinate transaction has returned and dropped all
+                    // import/collection locks before this observable boundary.
+                    #[cfg(feature = "test-hooks")]
+                    crate::test_hooks::pause_authority_import(
+                        import_id,
+                        crate::test_hooks::AuthorityImportHookPoint::AfterProjectionLeaseUnavailable,
+                    )
+                    .await;
+                    let remaining = retry_deadline.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() {
+                        return Err(error);
+                    }
+                    tokio::time::sleep(retry_delay.min(remaining)).await;
+                    retry_delay = (retry_delay * 2).min(Duration::from_millis(200));
+                }
+                outcome => return outcome,
+            }
+        }
     }
 
     async fn complete_authority_import_second_phase(
@@ -132,9 +179,28 @@ impl HostedProvider {
         manifest_digest: &str,
         source_revision: &str,
         expected_generation_id: Option<Uuid>,
+        retry_deadline: Instant,
     ) -> ApiResult<ProviderAuthorityImport> {
         let mut transaction = self.pool.begin().await?;
-        let row = authority_import_row(&mut transaction, import_id).await?;
+        let remaining = retry_deadline.saturating_duration_since(Instant::now());
+        if remaining < Duration::from_millis(1) {
+            return Err(projection_lease_unavailable());
+        }
+        // This is a subordinate budget inside the client's single 14-second
+        // authority-operation deadline. Short lock waits avoid both busy-spin
+        // and import/collection -> generation lock-order deadlocks.
+        let lock_wait_ms = remaining.as_millis().min(100);
+        sqlx::query("SELECT set_config('lock_timeout', $1, true)")
+            .bind(format!("{lock_wait_ms}ms"))
+            .execute(&mut *transaction)
+            .await?;
+        let row = match authority_import_row(&mut transaction, import_id).await {
+            Ok(row) => row,
+            Err(error) if exact_database_lock_timeout(&error) => {
+                return Err(projection_lease_unavailable());
+            }
+            Err(error) => return Err(error),
+        };
         let state: String = row.get("import_state");
         if state == "completed" {
             return self
@@ -313,6 +379,23 @@ impl HostedProvider {
         }
         Ok(finalized)
     }
+}
+
+fn projection_lease_unavailable() -> ApiError {
+    ApiError::conflict(
+        "projection_lease_unavailable",
+        "The projection generation lease is unavailable or fenced.",
+    )
+}
+
+fn exact_database_lock_timeout(error: &ApiError) -> bool {
+    error.code == "provider_database_timeout"
+        && error
+            .details
+            .as_ref()
+            .and_then(|details| details.get("timeout_class"))
+            .and_then(Value::as_str)
+            == Some("lock")
 }
 
 async fn lock_authority_import_projection_generations(

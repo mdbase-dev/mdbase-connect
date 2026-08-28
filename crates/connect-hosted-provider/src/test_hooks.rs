@@ -1,6 +1,9 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex, OnceLock,
+    },
     time::Duration,
 };
 
@@ -13,6 +16,9 @@ pub enum AuthorityImportHookPoint {
     BeforeSecondPhaseLock,
     BeforeRecoveryFinalizerLock,
     AfterCollectionBeforeGenerationLock,
+    AfterProjectionGenerationLease,
+    AfterProjectionLeaseUnavailable,
+    BeforeAuthorityImportContracts,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,6 +30,7 @@ struct AuthorityImportHookState {
     arrived: Semaphore,
     release: Semaphore,
     timeout: Duration,
+    arrivals: AtomicUsize,
 }
 
 type HookKey = (Uuid, AuthorityImportHookPoint);
@@ -51,6 +58,7 @@ impl AuthorityImportTestHook {
             arrived: Semaphore::new(0),
             release: Semaphore::new(0),
             timeout,
+            arrivals: AtomicUsize::new(0),
         });
         let replaced = authority_import_hooks()
             .lock()
@@ -75,6 +83,10 @@ impl AuthorityImportTestHook {
 
     pub fn release(&self) {
         self.state.release.add_permits(1);
+    }
+
+    pub fn arrivals(&self) -> usize {
+        self.state.arrivals.load(Ordering::SeqCst)
     }
 }
 
@@ -101,6 +113,7 @@ pub(crate) async fn pause_authority_import(import_id: Uuid, point: AuthorityImpo
         .get(&(import_id, point))
         .cloned();
     if let Some(state) = state {
+        state.arrivals.fetch_add(1, Ordering::SeqCst);
         state.arrived.add_permits(1);
         if let Ok(Ok(permit)) = timeout(state.timeout, state.release.acquire()).await {
             permit.forget();

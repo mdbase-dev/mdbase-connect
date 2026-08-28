@@ -431,6 +431,32 @@ async fn authority_imports_remain_hidden_until_projection_indexing_completes() {
         .unwrap()
         .building_generation
         .expect("production completion opened the generation before pausing");
+    // Fence completion's own bounded advance so it reaches the second phase
+    // without waiting on a row lock. The committed lease is exact and remains
+    // unavailable to any other generation.
+    sqlx::query(
+        r#"UPDATE hosted_provider_projection_generations
+           SET lease_owner = $3, lease_expires_at = now() + interval '30 seconds'
+           WHERE collection_id = $1 AND generation_id = $2"#,
+    )
+    .bind(collection_id)
+    .bind(recovery_generation.generation_id)
+    .bind(Uuid::new_v4())
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+
+    // The scheduled projection recovery worker legitimately owns the generation
+    // row while a batch reads exact authority. Completion owns import then
+    // collection, so its NOWAIT generation probe must release those locks and
+    // retry rather than leak an incidental 409 through the public operation.
+    let completion_lock_hook = AuthorityImportTestHook::install(
+        import_id,
+        AuthorityImportHookPoint::AfterCollectionBeforeGenerationLock,
+        Duration::from_secs(5),
+    );
+    lease_hook.release();
+    completion_lock_hook.wait_until_paused().await.unwrap();
     sqlx::query(
         r#"UPDATE hosted_provider_projection_generations
            SET lease_owner = NULL, lease_expires_at = NULL
@@ -441,17 +467,150 @@ async fn authority_imports_remain_hidden_until_projection_indexing_completes() {
     .execute(&fixture.pool)
     .await
     .unwrap();
-    recovery_provider
-        .advance_projection_generation(collection_id, recovery_generation.generation_id)
+
+    let generation_lease_hook = AuthorityImportTestHook::install(
+        recovery_generation.generation_id,
+        AuthorityImportHookPoint::AfterProjectionGenerationLease,
+        Duration::from_secs(5),
+    );
+    let generation_worker_provider = recovery_provider.clone();
+    let contended_generation_id = recovery_generation.generation_id;
+    let generation_worker = tokio::spawn(async move {
+        generation_worker_provider
+            .advance_projection_generation(collection_id, contended_generation_id)
+            .await
+    });
+    generation_lease_hook.wait_until_paused().await.unwrap();
+    let unavailable_hook = AuthorityImportTestHook::install(
+        import_id,
+        AuthorityImportHookPoint::AfterProjectionLeaseUnavailable,
+        Duration::from_secs(5),
+    );
+    completion_lock_hook.release();
+    drop(completion_lock_hook);
+    unavailable_hook.wait_until_paused().await.unwrap();
+
+    // The 55P03/NOWAIT attempt has returned before the retry hook. Prove its
+    // transaction dropped both higher-order locks, rather than sleeping while
+    // preserving a deadlock cycle.
+    let mut released_locks = fixture.pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL lock_timeout = '100ms'")
+        .execute(&mut *released_locks)
         .await
-        .expect("recovery owner advances through the production helper");
-    lease_hook.release();
+        .unwrap();
+    sqlx::query(
+        r#"SELECT import.id
+           FROM hosted_provider_authority_imports import
+           JOIN hosted_provider_collections collection
+             ON collection.id = import.collection_id
+           WHERE import.id = $1
+           FOR UPDATE OF import, collection NOWAIT"#,
+    )
+    .bind(import_id)
+    .fetch_one(&mut *released_locks)
+    .await
+    .expect("failed completion attempt released import and collection locks");
+    released_locks.commit().await.unwrap();
+
+    generation_lease_hook.release();
+    drop(generation_lease_hook);
+    generation_worker
+        .await
+        .unwrap()
+        .expect("the production recovery helper releases its exact generation lease");
+    unavailable_hook.release();
     let first_indexing = in_flight
         .await
         .unwrap()
-        .expect("lease handoff returns truthful indexing");
+        .expect("bounded completion retries exact generation-row contention");
+    assert_eq!(
+        unavailable_hook.arrivals(),
+        1,
+        "completion performs one retry after the observed 55P03"
+    );
+    drop(unavailable_hook);
     drop(lease_hook);
     assert_eq!(first_indexing.state, ProviderAuthorityImportState::Indexing);
+
+    // Saturate the real production primary pool before the second phase starts.
+    // The one absolute two-second timeout must include pool acquisition and
+    // leave no detached acquire future behind.
+    let pool_hook = AuthorityImportTestHook::install(
+        import_id,
+        AuthorityImportHookPoint::BeforeSecondPhaseLock,
+        Duration::from_secs(5),
+    );
+    let pool_provider = fixture.provider.clone();
+    let pool_digest = manifest_digest.clone();
+    let pool_revision = source_revision.clone();
+    let pool_completion = tokio::spawn(async move {
+        pool_provider
+            .complete_authority_import(import_id, &pool_digest, &pool_revision)
+            .await
+    });
+    pool_hook.wait_until_paused().await.unwrap();
+    let primary_pool = fixture.provider.test_primary_pool();
+    let mut held_permits = Vec::new();
+    for _ in 0..18 {
+        held_permits.push(primary_pool.acquire().await.unwrap());
+    }
+    let pool_started = Instant::now();
+    pool_hook.release();
+    drop(pool_hook);
+    let pool_timeout = pool_completion.await.unwrap().unwrap_err();
+    assert_eq!(pool_timeout.code, "projection_lease_unavailable");
+    assert!(
+        pool_started.elapsed() <= Duration::from_millis(2_250),
+        "pool acquisition exceeded the absolute subordinate wall: {:?}",
+        pool_started.elapsed()
+    );
+    drop(held_permits);
+    tokio::time::timeout(Duration::from_millis(250), primary_pool.acquire())
+        .await
+        .expect("timed-out completion left a detached pool acquisition")
+        .unwrap();
+
+    // Pause the production contract/key path while its transaction owns the
+    // import and collection rows. timeout_at must cancel that await, drop the
+    // transaction, and release both locks at the same absolute wall.
+    let contracts_hook = AuthorityImportTestHook::install(
+        import_id,
+        AuthorityImportHookPoint::BeforeAuthorityImportContracts,
+        Duration::from_secs(5),
+    );
+    let contracts_provider = fixture.provider.clone();
+    let contracts_digest = manifest_digest.clone();
+    let contracts_revision = source_revision.clone();
+    let contracts_completion = tokio::spawn(async move {
+        contracts_provider
+            .complete_authority_import(import_id, &contracts_digest, &contracts_revision)
+            .await
+    });
+    contracts_hook.wait_until_paused().await.unwrap();
+    let contracts_started = Instant::now();
+    let contracts_timeout = contracts_completion.await.unwrap().unwrap_err();
+    assert_eq!(contracts_timeout.code, "projection_lease_unavailable");
+    assert!(
+        contracts_started.elapsed() <= Duration::from_millis(2_250),
+        "contract/key await exceeded the absolute subordinate wall: {:?}",
+        contracts_started.elapsed()
+    );
+    drop(contracts_hook);
+    let mut released_contract_locks = fixture.pool.begin().await.unwrap();
+    sqlx::query(
+        r#"SELECT import.id
+           FROM hosted_provider_authority_imports import
+           JOIN hosted_provider_collections collection
+             ON collection.id = import.collection_id
+           WHERE import.id = $1
+           FOR UPDATE OF import, collection NOWAIT"#,
+    )
+    .bind(import_id)
+    .fetch_one(&mut *released_contract_locks)
+    .await
+    .expect("timed-out contract/key await retained authority locks");
+    released_contract_locks.commit().await.unwrap();
+
     let hidden_state: String =
         sqlx::query_scalar("SELECT state FROM hosted_provider_collections WHERE id = $1")
             .bind(collection_id)
