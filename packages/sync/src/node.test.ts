@@ -62,6 +62,10 @@ class MemoryMirrorFileSystem implements MirrorFileSystem {
     return this.files.get(path) ?? null;
   }
 
+  async readText(path: string): Promise<string | null> {
+    return this.read(path);
+  }
+
   async write(path: string, value: string): Promise<void> {
     this.files.set(path, value);
   }

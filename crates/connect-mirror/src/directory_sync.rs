@@ -313,7 +313,7 @@ impl DirectoryMirror {
                 .local
                 .exact()
                 .map(|value| value.payload_revision.trim_start_matches("sha256:"));
-            self.put_record(state, record, accepted)?;
+            self.put_record(state, record, accepted, false)?;
         } else {
             let path = conflict
                 .local
