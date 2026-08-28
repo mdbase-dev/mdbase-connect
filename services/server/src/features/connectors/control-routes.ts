@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { DatabasePool } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireConnector } from "../../platform/request-authentication.js";
+import { grantWithCompatibleApplicationOrigin } from "../grants/application-origin.js";
 
 interface ConnectorControlRoutesOptions {
   db: DatabasePool;
@@ -105,12 +106,7 @@ export function registerConnectorControlRoutes(
       configured: true,
       online: true,
       account: account.rows[0],
-      grants: grants.rows.map((grant) => ({
-        ...grant,
-        application_origin: normalizedApplicationOrigin(
-          grant.application_origin
-        )
-      })),
+      grants: grants.rows.map(grantWithCompatibleApplicationOrigin),
       pending_authorizations: pendingAuthorizations.rows.filter(
         (authorization) =>
           authorization.requirements?.collection_kind !== "hosted"
@@ -139,8 +135,4 @@ export function registerConnectorControlRoutes(
     }
     return { application: application.rows[0] };
   });
-}
-
-function normalizedApplicationOrigin(value: string): string {
-  return value === "null" ? "null" : new URL(value).origin;
 }

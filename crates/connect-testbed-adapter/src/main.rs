@@ -282,7 +282,7 @@ fn test_grant(collection_id: Uuid) -> GrantSummary {
         application_distribution: "web".to_string(),
         application_homepage: "https://testbed.example".to_string(),
         application_project_url: None,
-        application_origin: "https://testbed.example".to_string(),
+        application_origin: Some("https://testbed.example".to_string()),
         application_icon: None,
         collection_id,
         collection_name: "Testbed collection".to_string(),
