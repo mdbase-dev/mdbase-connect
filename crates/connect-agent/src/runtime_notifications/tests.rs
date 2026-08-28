@@ -99,7 +99,7 @@ fn compiled_workflows_keep_record_data_out_of_action_input() {
         application_distribution: "web".to_string(),
         application_homepage: "https://tasks.example".to_string(),
         application_project_url: None,
-        application_origin: "https://tasks.example".to_string(),
+        application_origin: Some("https://tasks.example".to_string()),
         application_icon: None,
         collection_id: Uuid::new_v4(),
         collection_name: "Private".to_string(),

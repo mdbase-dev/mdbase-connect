@@ -321,21 +321,24 @@ impl HostedProvider {
         request_id: Uuid,
         input: &Value,
     ) -> ApiResult<HostedMutationClaim> {
-        let operation_kind = mdbase_connect_protocol::mutation_operation_identifier(
-            operation, input,
-        )
-        .ok_or_else(|| {
-            ApiError::bad_request("invalid_request", "Operation is not a canonical mutation.")
-        })?;
-        let input_schema_version = mdbase_connect_protocol::operation_input_schema_version(
-            operation, input,
-        )
-        .ok_or_else(|| {
-            ApiError::bad_request(
-                "invalid_request",
-                "Mutation input schema version is unavailable.",
-            )
-        })?;
+        let operation_kind =
+            mdbase_connect_protocol::mutation_operation_identifier(operation, input)
+                .ok_or_else(|| {
+                    ApiError::bad_request(
+                        "invalid_request",
+                        "Operation is not a canonical mutation.",
+                    )
+                })?
+                .to_string();
+        let input_schema_version =
+            mdbase_connect_protocol::operation_input_schema_version(operation, input).ok_or_else(
+                || {
+                    ApiError::bad_request(
+                        "invalid_request",
+                        "Mutation input schema version is unavailable.",
+                    )
+                },
+            )?;
         let input_digest = mdbase_connect_protocol::mutation_fingerprint_bytes(operation, input)
             .map_err(|error| ApiError::bad_request("invalid_request", error.to_string()))?
             .to_vec();

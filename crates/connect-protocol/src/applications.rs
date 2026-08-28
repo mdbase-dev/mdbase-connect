@@ -1,4 +1,15 @@
 use super::*;
+
+fn deserialize_application_origin<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    match serde_json::Value::deserialize(deserializer)? {
+        serde_json::Value::String(origin) => Ok(Some(origin)),
+        _ => Ok(None),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApplicationSummary {
     pub id: Uuid,
@@ -335,8 +346,15 @@ pub struct GrantSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub application_project_url: Option<String>,
     /// Exact browser origin authorized to use this grant over loopback.
-    #[serde(default)]
-    pub application_origin: String,
+    /// Missing, JSON-null, and malformed values carry no browser-origin
+    /// authority. String values are opaque; this preserves the legacy `"null"`
+    /// origin used by explicitly authorized portable applications.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_application_origin",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub application_origin: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub application_icon: Option<String>,
     pub collection_id: Uuid,

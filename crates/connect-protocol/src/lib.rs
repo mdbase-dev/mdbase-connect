@@ -15,6 +15,7 @@ pub mod crypto;
 mod file_crypto;
 mod files;
 mod mutation_fingerprint;
+mod operation_validation;
 mod relay;
 mod sync;
 
@@ -28,6 +29,7 @@ pub use control::*;
 pub use file_crypto::*;
 pub use files::*;
 pub use mutation_fingerprint::*;
+pub use operation_validation::*;
 pub use relay::*;
 pub use sync::*;
 pub const CONTROL_PROTOCOL_VERSION: u32 = 1;

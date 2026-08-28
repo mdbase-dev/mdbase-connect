@@ -6,7 +6,7 @@ use mdbase_connect_protocol::crypto::{RelayBinding, RelayDirection, RelayIdentit
 use mdbase_connect_protocol::{
     mutation_fingerprint, EncryptedRelayEnvelope, FileAction, FileCapability, FileCapabilityKind,
     FileScope, GrantEncryption, GrantPolicy, GrantScope, RelayMessage,
-    MUTATING_OPERATION_IDENTIFIERS, OPERATION_TRANSPORT_PROTOCOL_VERSION, RELAY_ENCRYPTION_SUITE,
+    OPERATION_TRANSPORT_PROTOCOL_VERSION, RELAY_ENCRYPTION_SUITE,
 };
 use std::fs;
 use tower::ServiceExt;
@@ -271,38 +271,210 @@ async fn every_grantable_operation_runs_directly_and_duplicate_writes_cross_tran
 }
 
 #[tokio::test]
-async fn every_grantable_mutator_enters_the_durable_journal_and_replays_exactly() {
+async fn executable_grant_mutations_succeed_and_replay_exactly() {
     let fixture = fixture();
     let app = router(fixture.agent.clone(), 28_485);
-    let mut exercised = 0_u64;
+    let type_document = "---\nkind: mdbase.type\nname: matrixnote\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n---\n";
+    let cases = [
+        (
+            "create",
+            json!({"path": "matrix.md", "frontmatter": {"title": "Matrix"}}),
+        ),
+        (
+            "create_type",
+            json!({"document": type_document, "dry_run": true}),
+        ),
+    ];
 
-    for (index, mutation) in MUTATING_OPERATION_IDENTIFIERS.iter().enumerate() {
-        // Sync mutation is authenticated by a mirror replica rather than an
-        // application grant and has its own local-sync conformance suite.
-        if *mutation == "sync:mutate" {
-            continue;
-        }
-        let (operation, input) = if let Some(message_type) = mutation.strip_prefix("file_control:")
-        {
-            (
-                "file_control",
-                json!({ "protocol_version": 1, "type": message_type }),
-            )
-        } else {
-            (*mutation, json!({}))
-        };
+    for (index, (operation, input)) in cases.into_iter().enumerate() {
         let request = fixture.encrypted_request(operation, input, index as u64 + 1);
+        let RelayMessage::EncryptedOperationRequest { envelope } = &request else {
+            unreachable!()
+        };
         let first = fixture.send(&app, request.clone()).await;
+        let body = fixture.decrypt_response(envelope, &first);
+        assert_eq!(body["ok"], true, "{operation}: {body}");
+        assert_eq!(body["result"]["valid"], true, "{operation}: {body}");
         let replay = fixture.send(&app, request).await;
-        assert_eq!(first, replay, "{mutation}");
-        exercised += 1;
+        assert_eq!(first, replay, "{operation}");
     }
 
     let diagnostics = fixture.registry.mutation_journal_diagnostics().unwrap();
-    assert_eq!(diagnostics.state_counts.get("completed"), Some(&exercised));
+    assert_eq!(diagnostics.state_counts.get("completed"), Some(&2));
     assert_eq!(diagnostics.live_leases, 0);
+    assert!(fixture.root.join("collection/matrix.md").exists());
+    assert!(fixture
+        .root
+        .join("collection/_types/matrixnote.md")
+        .exists());
     let root = fixture.root.clone();
     drop(app);
+    drop(fixture);
+    remove_fixture_after_watchers_close(&root);
+}
+
+#[tokio::test]
+async fn encrypted_request_path_rejects_unknown_and_injected_discriminators_without_mutation_journal(
+) {
+    let fixture = fixture();
+    let app = router(fixture.agent.clone(), 28_485);
+    let before = fixture.registry.mutation_journal_diagnostics().unwrap();
+    let cases = [
+        ("unknown_operation", json!({}), "invalid_request", None),
+        (
+            "file_control",
+            json!({"protocol_version": 1, "type": "unknown_file_control"}),
+            "invalid_request",
+            None,
+        ),
+        (
+            "file_control",
+            json!({"protocol_version": 1, "type": "list_files", "operation": "read"}),
+            "invalid_request",
+            None,
+        ),
+        (
+            "sync",
+            json!({"action": "unknown"}),
+            "invalid_request",
+            None,
+        ),
+        (
+            "create_type",
+            json!({"document": "---\nkind: mdbase.type\nname: rejected\nversion: 1\n---\n", "action": "mutate"}),
+            "invalid_request",
+            None,
+        ),
+    ];
+
+    for (index, (operation, input, expected_code, server_code)) in cases.into_iter().enumerate() {
+        let response = fixture
+            .direct(&app, operation, input, index as u64 + 1)
+            .await;
+        assert_eq!(response["ok"], false, "{operation}: {response}");
+        assert_eq!(
+            response["problem"]["code"], expected_code,
+            "{operation}: {response}"
+        );
+        assert_eq!(
+            response["problem"]["server_code"].as_str(),
+            server_code,
+            "{operation}: {response}"
+        );
+        let after = fixture.registry.mutation_journal_diagnostics().unwrap();
+        assert_eq!(after.state_counts, before.state_counts, "{operation}");
+        assert_eq!(after.live_leases, before.live_leases, "{operation}");
+    }
+    assert!(!fixture.root.join("collection/_types/rejected.md").exists());
+
+    let root = fixture.root.clone();
+    drop(app);
+    drop(fixture);
+    remove_fixture_after_watchers_close(&root);
+}
+
+#[tokio::test]
+async fn encrypted_sync_session_and_file_snapshot_use_production_route_without_mutation_journal() {
+    let fixture = fixture();
+    let app = router(fixture.agent.clone(), 28_485);
+    let before = fixture.registry.mutation_journal_diagnostics().unwrap();
+
+    let opened = fixture
+        .direct(&app, "sync", json!({"action": "open_session"}), 1)
+        .await;
+    assert_eq!(opened["ok"], true, "{opened}");
+    let snapshot_id = opened["result"]["snapshot_id"]
+        .as_str()
+        .expect("open_session returns a snapshot ID");
+
+    let files = fixture
+        .direct(
+            &app,
+            "sync",
+            json!({"action": "file_snapshot", "snapshot_id": snapshot_id}),
+            2,
+        )
+        .await;
+    assert_eq!(files["ok"], true, "{files}");
+    assert_eq!(files["result"]["type"], "file_snapshot_page");
+    assert_eq!(files["result"]["snapshot_id"], snapshot_id);
+
+    let after = fixture.registry.mutation_journal_diagnostics().unwrap();
+    assert_eq!(after.state_counts, before.state_counts);
+    assert_eq!(after.live_leases, before.live_leases);
+    assert_eq!(after.tombstones, before.tombstones);
+
+    let root = fixture.root.clone();
+    drop(app);
+    drop(fixture);
+    remove_fixture_after_watchers_close(&root);
+}
+
+#[tokio::test]
+async fn injected_create_type_dry_run_replays_byte_exactly_after_lost_response_and_restart() {
+    let fixture = fixture();
+    let app = router(fixture.agent.clone(), 28_485);
+    let document = "---\nkind: mdbase.type\nname: durabletype\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n---\n";
+    let request = fixture.encrypted_request(
+        "create_type",
+        json!({ "document": document, "dry_run": true }),
+        1,
+    );
+    let RelayMessage::EncryptedOperationRequest {
+        envelope: request_envelope,
+    } = &request
+    else {
+        unreachable!()
+    };
+    let first = fixture.send(&app, request.clone()).await;
+    let body = fixture.decrypt_response(request_envelope, &first);
+    assert_eq!(body["ok"], true);
+    assert_eq!(body["result"]["valid"], true);
+    assert_eq!(
+        fixture
+            .registry
+            .mutation_journal_diagnostics()
+            .unwrap()
+            .state_counts
+            .get("completed"),
+        Some(&1)
+    );
+
+    drop(app);
+    let restarted_registry = CollectionRegistry::open(fixture.root.join("state")).unwrap();
+    let watcher = crate::watcher::CollectionWatchService::start(restarted_registry.clone());
+    watcher.refresh(&restarted_registry.list().unwrap());
+    let restarted = Arc::new(AgentState::with_identity(
+        restarted_registry.clone(),
+        watcher,
+        None,
+        fixture.connector.clone(),
+    ));
+    let restarted_app = router(restarted, 28_485);
+    let replay = fixture.send(&restarted_app, request).await;
+    assert_eq!(replay, first);
+    assert_eq!(
+        restarted_registry
+            .mutation_journal_diagnostics()
+            .unwrap()
+            .state_counts
+            .get("completed"),
+        Some(&1)
+    );
+    let type_files = fs::read_dir(fixture.root.join("collection/_types"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_name() == "durabletype.md")
+        .count();
+    assert_eq!(type_files, 1, "the type is written once despite replay");
+    assert_eq!(
+        fs::read_to_string(fixture.root.join("collection/_types/durabletype.md")).unwrap(),
+        document
+    );
+
+    let root = fixture.root.clone();
+    drop(restarted_app);
+    drop(restarted_registry);
     drop(fixture);
     remove_fixture_after_watchers_close(&root);
 }
@@ -887,6 +1059,10 @@ fn fixture_for_origin(origin: &str, distribution: &str) -> Fixture {
         "put_timer",
         "cancel_timer",
         "reconcile_timers",
+        // Deliberately grant these protocol names so rejection tests exercise
+        // authenticated production dispatch rather than stopping at policy.
+        "sync",
+        "unknown_operation",
     ]
     .map(str::to_string)
     .to_vec();

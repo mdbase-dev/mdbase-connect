@@ -56,6 +56,7 @@ import { registerNotificationRoutes } from "./features/notifications/routes.js";
 import { registerOnboardingRoutes } from "./features/onboarding/routes.js";
 import { registerLocalOperationRoutes } from "./features/operations/local-routes.js";
 import { registerSystemRoutes } from "./features/system/routes.js";
+import { registerLifecycleDiagnosticRoute } from "./features/system/lifecycle-diagnostics.js";
 import { registerErrorHandler } from "./platform/error-handler.js";
 import { authorityUrl } from "./platform/authority-url.js";
 import { apiError } from "./platform/http-errors.js";
@@ -381,6 +382,10 @@ export async function buildApp(options: BuildOptions) {
     service: notifications,
     publicKey: options.notifications?.publicKey,
     transports: options.notifications?.transports,
+    hostedProvider: options.hostedProvider
+  });
+  registerLifecycleDiagnosticRoute(app, {
+    db: options.db,
     hostedProvider: options.hostedProvider
   });
   registerLocalOperationRoutes(app, { db: options.db, relay });

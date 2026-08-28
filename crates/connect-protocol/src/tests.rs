@@ -962,6 +962,60 @@ fn rust_sync_messages_match_the_canonical_wire_schema() {
 }
 
 #[test]
+fn protocol_discriminator_rejections_are_separate_from_the_generated_catalog_oracle() {
+    for (operation, input, message) in [
+        (
+            "unknown_operation",
+            serde_json::json!({}),
+            "Unknown collection operation.",
+        ),
+        (
+            "file_control",
+            serde_json::json!({"type": "unknown_file_control"}),
+            "Unknown file-control message type.",
+        ),
+        (
+            "sync",
+            serde_json::json!({"action": "unknown"}),
+            "Unknown sync action.",
+        ),
+        (
+            "create_type",
+            serde_json::json!({"action": "mutate"}),
+            "Collection operation input must not contain a sync action discriminator.",
+        ),
+        (
+            "file_control",
+            serde_json::json!({"type": "list_files", "operation": "read"}),
+            "Operation input must not contain a nested operation discriminator.",
+        ),
+    ] {
+        assert_eq!(
+            validate_operation_discriminators(operation, &input),
+            Err(message),
+            "{operation}: {input}"
+        );
+    }
+}
+
+#[test]
+fn every_implemented_sync_action_has_a_valid_discriminator() {
+    for action in [
+        "open_session",
+        "snapshot",
+        "file_snapshot",
+        "changes",
+        "mutate",
+    ] {
+        assert_eq!(
+            validate_operation_discriminators("sync", &serde_json::json!({"action": action})),
+            Ok(()),
+            "{action}"
+        );
+    }
+}
+
+#[test]
 fn generated_operation_catalog_classifies_collection_and_file_mutations() {
     assert!(is_mutating_operation("create", &serde_json::json!({})));
 
@@ -1019,6 +1073,39 @@ fn generated_operation_catalog_classifies_collection_and_file_mutations() {
             &serde_json::json!({ "type": message_type, "dry_run": true })
         ));
     }
+
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../packages/protocol/schemas/operation-mutation-classification.v1.json"
+    ))
+    .unwrap();
+    let mut covered_operations = std::collections::BTreeSet::new();
+    let mut covered_file_types = std::collections::BTreeSet::new();
+    for case in fixture["cases"].as_array().unwrap() {
+        let operation = case["operation"].as_str().unwrap();
+        let input = &case["input"];
+        assert_eq!(
+            mutation_operation_identifier(operation, input),
+            case["identifier"].as_str(),
+            "{operation} {input}"
+        );
+        assert_eq!(
+            operation_input_schema_version(operation, input).map(u64::from),
+            case["schema_version"].as_u64(),
+            "{operation} schema"
+        );
+        if COLLECTION_OPERATIONS.contains(&operation) {
+            covered_operations.insert(operation);
+        }
+        if operation == "file_control" {
+            if let Some(message_type) = input.get("type").and_then(serde_json::Value::as_str) {
+                if FILE_CONTROL_MESSAGE_TYPES.contains(&message_type) {
+                    covered_file_types.insert(message_type);
+                }
+            }
+        }
+    }
+    assert_eq!(covered_operations.len(), COLLECTION_OPERATIONS.len());
+    assert_eq!(covered_file_types.len(), FILE_CONTROL_MESSAGE_TYPES.len());
 
     assert_eq!(
         MUTATING_OPERATION_IDENTIFIERS,
