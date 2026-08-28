@@ -1944,7 +1944,7 @@ async fn diagnostics_attribute_unready_collections_to_a_cause() {
     complete_generation(&fixture).await;
 
     let healthy = fixture.provider.hosted_diagnostics().await;
-    assert_eq!(healthy.schema_version, 1);
+    assert_eq!(healthy.schema_version, 2);
     let readiness = match &healthy.projection_readiness {
         DiagnosticSection::Ok { value } => *value,
         DiagnosticSection::Unavailable { reason } => {

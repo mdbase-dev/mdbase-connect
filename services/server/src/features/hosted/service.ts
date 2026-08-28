@@ -50,6 +50,7 @@ import { bearerToken } from "../../platform/request-authentication.js";
 import {
   recoverExpiredAuthorityTransfers
 } from "../authority-transfer/lifecycle.js";
+import { grantWithCompatibleApplicationOrigin } from "../grants/application-origin.js";
 import { assertOperationsAllowedByRequirements } from "../grants/policy.js";
 
 export interface HostedServiceOptions {
@@ -264,12 +265,7 @@ export async function hostedControlSnapshot(
           sync_status: statuses.get(replica.id) ?? null
         }))
     })),
-    grants: grants.rows.map((grant) => ({
-      ...grant,
-      application_origin: normalizedApplicationOrigin(
-        grant.application_origin
-      )
-    })),
+    grants: grants.rows.map(grantWithCompatibleApplicationOrigin),
     pending_authorizations: pending.rows.map((authorization) => ({
       ...authorization,
       compatible_collection_ids: [],
@@ -786,10 +782,6 @@ export async function requireHostedReplica(
     return null;
   }
   return result.rows[0];
-}
-
-function normalizedApplicationOrigin(value: string): string {
-  return value === "null" ? "null" : new URL(value).origin;
 }
 
 function sqlPlaceholders(count: number): string {

@@ -432,7 +432,7 @@ impl AgentState {
             .registry
             .grant_context(grant_id)?
             .filter(|grant| {
-                origin.is_none_or(|expected| grant.application_origin == expected)
+                origin.is_none_or(|expected| grant.application_origin.as_deref() == Some(expected))
                     && grant.encryption.is_some()
             })
             .ok_or_else(|| ConnectError::AccessDenied("File access was denied.".to_string()))?;
@@ -856,7 +856,7 @@ mod tests {
             application_distribution: "portable".to_string(),
             application_homepage: "https://example.test".to_string(),
             application_project_url: None,
-            application_origin: String::new(),
+            application_origin: None,
             application_icon: None,
             collection_id,
             collection_name: "Files".to_string(),

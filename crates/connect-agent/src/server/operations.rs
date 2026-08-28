@@ -12,7 +12,7 @@ impl AgentState {
             .grant_replay_context(envelope.grant_id, &envelope.key_id)
             .ok()
             .flatten()
-            .is_some_and(|context| context.grant.application_origin == origin);
+            .is_some_and(|context| context.grant.application_origin.as_deref() == Some(origin));
         if !origin_matches {
             return encrypted_rejection(envelope.protocol_version, envelope.request_id);
         }
@@ -571,15 +571,15 @@ impl AgentState {
         let Ok(input) = serde_json::from_slice::<serde_json::Value>(&plaintext) else {
             return rejected();
         };
-        if envelope.operation == "batch" {
+        if let Some(problem) = owner_only_operation_problem(&envelope.operation) {
+            return encrypted_problem_response(&keys, metadata, problem);
+        }
+        if let Err(message) = validate_operation_discriminators(&envelope.operation, &input) {
             return encrypted_problem_response(
                 &keys,
                 metadata,
-                ConnectProblem::new(
-                    "invalid_request",
-                    "Batch operations are available only to the local collection owner.",
-                )
-                .with_operation_outcome(ConnectOperationOutcome::Rejected),
+                ConnectProblem::new("invalid_request", message)
+                    .with_operation_outcome(ConnectOperationOutcome::Rejected),
             );
         }
         if let Some(problem) =

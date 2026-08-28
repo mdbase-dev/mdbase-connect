@@ -15,11 +15,11 @@ use mdbase::{
 };
 use mdbase_connect_protocol::{
     authority_file_hash, authority_manifest_digest as snapshot_manifest_digest,
-    ApplicationCollectionSetupProvisions, ApplicationCollectionSetupRequirements,
-    ApplicationProvisions, ApplicationRequirements, ApplyCollectionSetupInput, ApplyTypePackInput,
-    AssessCollectionSetupInput, AssessTypePackInput, AuthorityImportManifest,
-    AuthorityImportRecord, AuthorityImportRecordPage, AuthoritySnapshotRecord, CollectionChange,
-    CollectionChangesPage, CollectionContractDescriptor,
+    validate_operation_discriminators, ApplicationCollectionSetupProvisions,
+    ApplicationCollectionSetupRequirements, ApplicationProvisions, ApplicationRequirements,
+    ApplyCollectionSetupInput, ApplyTypePackInput, AssessCollectionSetupInput, AssessTypePackInput,
+    AuthorityImportManifest, AuthorityImportRecord, AuthorityImportRecordPage,
+    AuthoritySnapshotRecord, CollectionChange, CollectionChangesPage, CollectionContractDescriptor,
     CollectionContractImplementationDescriptor, CollectionDescription, CollectionTypeDescriptor,
     ContractRequirement, ContractSetupChoice, ContractSetupMode, FileAction, FileCapability,
     FileScope, GrantSummary, SyncChange, SyncChangesPage, SyncCollectionResources, SyncConflict,
@@ -119,6 +119,7 @@ pub use projections::{
 };
 
 const SNAPSHOT_PAGE_SIZE: i64 = 200;
+pub const HOSTED_DIAGNOSTICS_SCHEMA_VERSION: u32 = 2;
 const DATABASE_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 const DATABASE_CONNECTION_BUDGET: u32 = 20;
 const QUERY_POOL_CONNECTIONS: u32 = 2;
@@ -257,6 +258,43 @@ pub struct HostedDiagnostics {
     pub migration_ledger: DiagnosticSection<MigrationLedgerDiagnostic>,
     pub storage: DiagnosticSection<StorageDiagnostic>,
     pub recent_resource_changes: DiagnosticSection<Vec<ResourceChangeDiagnostic>>,
+    pub lifecycle_work: LifecycleDiagnosticSection,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum LifecycleDiagnosticSection {
+    Ok {
+        value: HostedLifecycleWorkDiagnostic,
+    },
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Default)]
+pub struct HostedLifecycleWorkDiagnostic {
+    pub runtime_outbox: RuntimeOutboxLifecycleDiagnostic,
+    pub mutation_journal: MutationJournalLifecycleDiagnostic,
+    /// Observational backlog only; ordinary `deleting` is not itself an error.
+    pub stuck_deleting_collections: u64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Default)]
+pub struct RuntimeOutboxLifecycleDiagnostic {
+    pub open: u64,
+    pub stale: u64,
+    pub poison: u64,
+    pub expired_leases: u64,
+    pub impossible: u64,
+    pub oldest_open_seconds: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Default)]
+pub struct MutationJournalLifecycleDiagnostic {
+    pub unfinished: u64,
+    pub stale: u64,
+    pub outcome_unknown: u64,
+    pub expired_leases: u64,
+    pub oldest_unfinished_seconds: Option<i64>,
 }
 
 /// A section that resolved, or the reason it did not. Keeping the failure in
