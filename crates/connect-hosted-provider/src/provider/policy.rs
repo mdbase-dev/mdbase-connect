@@ -112,7 +112,7 @@ pub(super) fn authorize_file_access(
                 (FileScope::SelectedFolders { folders }, Some(path))
                     if folders
                         .iter()
-                        .any(|folder| file_path_in_folder(path, folder)) =>
+                        .any(|folder| file_path_below_folder(path, folder)) =>
                 {
                     Ok(())
                 }

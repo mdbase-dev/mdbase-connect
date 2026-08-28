@@ -46,11 +46,13 @@ pub(super) fn portable_file_path_key(path: &str) -> String {
         .collect()
 }
 
+pub(super) fn file_path_below_folder(path: &str, folder: &str) -> bool {
+    path.strip_prefix(folder)
+        .is_some_and(|suffix| suffix.starts_with('/'))
+}
+
 pub(super) fn file_path_in_folder(path: &str, folder: &str) -> bool {
-    path == folder
-        || path
-            .strip_prefix(folder)
-            .is_some_and(|suffix| suffix.starts_with('/'))
+    path == folder || file_path_below_folder(path, folder)
 }
 
 fn invalid_file_path() -> ApiError {
@@ -66,7 +68,12 @@ mod tests {
 
     #[test]
     fn hosted_file_paths_are_visible_portable_and_non_markdown() {
-        for valid in ["photo.png", "Project assets/diagram.svg", "notes.txt"] {
+        for valid in [
+            "Assets",
+            "photo.png",
+            "Project assets/diagram.svg",
+            "notes.txt",
+        ] {
             validate_hosted_file_path(valid).unwrap();
         }
         for invalid in [
@@ -95,6 +102,18 @@ mod tests {
             portable_file_path_key("Assets/CAFÉ.png"),
             portable_file_path_key("assets/cafe\u{301}.PNG")
         );
+    }
+
+    #[test]
+    fn authorization_containment_excludes_the_folder_label_itself() {
+        assert!(!file_path_below_folder("Assets", "Assets"));
+        assert!(file_path_below_folder("Assets/icons/add.svg", "Assets"));
+        assert!(!file_path_below_folder("Assets-old/icon.svg", "Assets"));
+    }
+
+    #[test]
+    fn folder_query_matching_preserves_exact_and_descendant_entries() {
+        assert!(file_path_in_folder("Assets", "Assets"));
         assert!(file_path_in_folder("Assets/icons/add.svg", "Assets"));
         assert!(!file_path_in_folder("Assets-old/icon.svg", "Assets"));
     }

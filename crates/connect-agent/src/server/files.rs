@@ -726,6 +726,10 @@ fn local_file_error(code: impl Into<String>, message: impl Into<String>) -> Conn
 }
 
 #[cfg(test)]
+#[path = "files_scope_tests.rs"]
+mod scope_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use mdbase_connect_protocol::{
