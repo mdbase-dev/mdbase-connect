@@ -128,6 +128,7 @@ describe("mdbase editor", () => {
   });
 
   it("previews notes from the virtualized sidebar after a deliberate hover", async () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
     render(<App gateway={new DemoCollectionGateway(12)} />);
 
     await screen.findByRole("heading", { name: "Writing" });
@@ -135,21 +136,15 @@ describe("mdbase editor", () => {
     const title = row.querySelector(".note-title")?.textContent;
     expect(title).toBeTruthy();
 
-    vi.useFakeTimers();
-    try {
-      fireEvent.mouseEnter(row);
-      await act(() => vi.advanceTimersByTimeAsync(400));
-      const preview = screen.getByRole("tooltip");
-      expect(preview).toHaveAccessibleName(/Preview of/);
-      expect(preview.querySelector("header strong")?.textContent).toBeTruthy();
-      expect(preview.querySelector("header span")?.textContent).toMatch(/\.md$/);
-      expect(row).toHaveAttribute("aria-describedby", "note-preview-popover");
+    fireEvent.mouseEnter(row);
+    const preview = await screen.findByRole("tooltip");
+    expect(preview).toHaveAccessibleName(/Preview of/);
+    expect(preview.querySelector("header strong")?.textContent).toBeTruthy();
+    expect(preview.querySelector("header span")?.textContent).toMatch(/\.md$/);
+    expect(row).toHaveAttribute("aria-describedby", "note-preview-popover");
 
-      fireEvent.mouseLeave(row);
-      expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
-    } finally {
-      vi.useRealTimers();
-    }
+    fireEvent.mouseLeave(row);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 
   it("does not reload the collection index after saving one note", async () => {
