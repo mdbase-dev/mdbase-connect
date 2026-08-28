@@ -419,6 +419,12 @@ export function registerLocalToHostedTransferRoutes(
           "Completed authority transfer cannot be cancelled."
         ));
       }
+      if (transfer.state === "cancelled") {
+        // A connector may have lost the first successful response or crashed
+        // before reopening its durable local fence. Preserve cancellation as
+        // an idempotent recovery confirmation for that exact transfer.
+        return { ok: true };
+      }
       if (!["requested", "prepared"].includes(transfer.state)) {
         return reply.code(409).send(apiError(
           "authority_transfer_activation_started",

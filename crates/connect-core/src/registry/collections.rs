@@ -103,6 +103,7 @@ impl CollectionRegistry {
             let id = Uuid::parse_str(&id).map_err(|error| {
                 ConnectError::CollectionOpen(format!("invalid collection id in registry: {error}"))
             })?;
+            let transfer_id = crate::LocalSyncStore::for_registry(self).transfer_id(id)?;
             Ok(CollectionSummary {
                 id,
                 display_name,
@@ -110,6 +111,10 @@ impl CollectionRegistry {
                 path,
                 spec_version,
                 enabled,
+                authority_transfer: transfer_id.map(|transfer_id| CollectionAuthorityTransfer {
+                    transfer_id,
+                    state: CollectionAuthorityTransferState::Fenced,
+                }),
                 contracts: Vec::new(),
             })
         })
@@ -427,12 +432,19 @@ impl CollectionRegistry {
                         path: row.get(2)?,
                         spec_version: row.get(3)?,
                         enabled: row.get(4)?,
+                        authority_transfer: None,
                         contracts: Vec::new(),
                     })
                 },
             )
             .optional()?;
         let mut collection = row.ok_or(ConnectError::CollectionNotFound(id))?;
+        collection.authority_transfer = crate::LocalSyncStore::for_registry(self)
+            .transfer_id(id)?
+            .map(|transfer_id| CollectionAuthorityTransfer {
+                transfer_id,
+                state: CollectionAuthorityTransferState::Fenced,
+            });
         if mirror_collection_id(Path::new(&collection.path))?.is_some() {
             collection.enabled = false;
         }

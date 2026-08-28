@@ -54,6 +54,18 @@ pub(super) fn control_command(
             }),
             OutputKind::Generic,
         ),
+        ConnectCommand::Collection(CollectionCommand::CancelAuthorityTransfer {
+            collection_id,
+            transfer_id,
+        }) => (
+            ControlCommand::CollectionCancelAuthorityTransfer(
+                CollectionAuthorityTransferRecoveryParams {
+                    collection_id,
+                    transfer_id,
+                },
+            ),
+            OutputKind::Generic,
+        ),
         ConnectCommand::Mirror(MirrorCommand::List) => {
             (ControlCommand::MirrorList, OutputKind::Mirrors)
         }

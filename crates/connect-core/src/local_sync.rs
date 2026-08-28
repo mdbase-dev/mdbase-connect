@@ -134,6 +134,13 @@ impl LocalSyncStore {
         }
     }
 
+    pub(crate) fn transfer_id(&self, collection_id: Uuid) -> Result<Option<Uuid>, ConnectError> {
+        Ok(match self.authority_role(collection_id)? {
+            AuthorityRole::Transferring(transfer_id) => Some(transfer_id),
+            AuthorityRole::Active | AuthorityRole::Retired => None,
+        })
+    }
+
     pub(crate) fn is_retired(&self, collection_id: Uuid) -> Result<bool, ConnectError> {
         Ok(matches!(
             self.authority_role(collection_id)?,

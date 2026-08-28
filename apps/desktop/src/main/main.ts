@@ -291,6 +291,17 @@ function registerIpc(): void {
       description: typeof description === "string" && description.trim() ? description.trim() : undefined
     });
   });
+  ipcMain.handle("connect:collections:cancel-authority-transfer", async (event, input: unknown) => {
+    trustedIpc(event);
+    const value = asObject(input, "Invalid authority transfer recovery request.");
+    if (typeof value.collectionId !== "string" || typeof value.transferId !== "string") {
+      throw new Error("Invalid authority transfer recovery request.");
+    }
+    return requestReadyAgent("collections.cancel-authority-transfer", {
+      collection_id: value.collectionId,
+      transfer_id: value.transferId
+    });
+  });
   ipcMain.handle("connect:collections:set-enabled", async (event, input: unknown) => {
     trustedIpc(event);
     const value = asObject(input, "Invalid collection setting.");

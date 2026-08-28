@@ -381,8 +381,36 @@ fn control_request_has_stable_wire_shape() {
         serde_json::to_value(request).unwrap(),
         serde_json::json!({
             "id": "00000000-0000-0000-0000-000000000000",
-            "protocol_version": 4,
+            "protocol_version": 5,
             "method": "collections.list"
+        })
+    );
+}
+
+#[test]
+fn authority_transfer_cancellation_binds_collection_and_transfer_ids() {
+    let collection_id = Uuid::parse_str("01900000-0000-7000-8000-000000000000").unwrap();
+    let transfer_id = Uuid::parse_str("01911111-1111-7111-8111-111111111111").unwrap();
+    let request = ControlRequest {
+        id: Uuid::nil(),
+        protocol_version: LOCAL_CONTROL_PROTOCOL_VERSION,
+        command: ControlCommand::CollectionCancelAuthorityTransfer(
+            CollectionAuthorityTransferRecoveryParams {
+                collection_id,
+                transfer_id,
+            },
+        ),
+    };
+    assert_eq!(
+        serde_json::to_value(request).unwrap(),
+        serde_json::json!({
+            "id": "00000000-0000-0000-0000-000000000000",
+            "protocol_version": 5,
+            "method": "collections.cancel-authority-transfer",
+            "params": {
+                "collection_id": collection_id,
+                "transfer_id": transfer_id
+            }
         })
     );
 }
@@ -402,7 +430,7 @@ fn hosted_cli_authorization_has_an_explicit_control_shape() {
         serde_json::to_value(request).unwrap(),
         serde_json::json!({
             "id": "00000000-0000-0000-0000-000000000000",
-            "protocol_version": 4,
+            "protocol_version": 5,
             "method": "hosted.connections.authorize.begin",
             "params": {
                 "collection_id": collection_id,
@@ -475,7 +503,7 @@ fn copied_collection_registration_has_an_explicit_wire_command() {
         serde_json::to_value(request).unwrap(),
         serde_json::json!({
             "id": "00000000-0000-0000-0000-000000000000",
-            "protocol_version": 4,
+            "protocol_version": 5,
             "method": "collections.add-copy",
             "params": { "path": "/collections/notes-copy" }
         })
@@ -500,7 +528,7 @@ fn mirror_file_preferences_have_an_explicit_control_command() {
         serde_json::to_value(request).unwrap(),
         serde_json::json!({
             "id": "00000000-0000-0000-0000-000000000000",
-            "protocol_version": 4,
+            "protocol_version": 5,
             "method": "mirrors.configure-selective-sync",
             "params": {
                 "replica_id": replica_id,
@@ -531,7 +559,7 @@ fn mirror_conflicts_and_resolution_are_entity_aware_on_the_wire() {
         serde_json::to_value(request).unwrap(),
         serde_json::json!({
             "id": "00000000-0000-0000-0000-000000000000",
-            "protocol_version": 4,
+            "protocol_version": 5,
             "method": "mirrors.resolve",
             "params": {
                 "replica_id": replica_id,

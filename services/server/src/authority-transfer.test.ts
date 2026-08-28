@@ -680,6 +680,11 @@ describe("local-to-hosted authority transfer", () => {
       url: `/v1/connectors/authority-transfers/${roundTripId}`,
       headers: { authorization: `Bearer ${connectorToken}` }
     })).statusCode).toBe(200);
+    expect((await app.inject({
+      method: "DELETE",
+      url: `/v1/connectors/authority-transfers/${roundTripId}`,
+      headers: { authorization: `Bearer ${connectorToken}` }
+    })).statusCode).toBe(200);
     const restored = await db.query<{
       hosted_state: string;
       authority_epoch: string | number;
