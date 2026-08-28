@@ -374,6 +374,9 @@ async fn every_grantable_operation_runs_directly_and_duplicate_writes_cross_tran
 async fn encrypted_full_collection_operations_bound_and_repair_invalid_records() {
     let fixture = fixture();
     let app = router(fixture.agent.clone(), 28_485);
+    let baseline = fixture.direct(&app, "describe", json!({}), 1).await["result"]["change_cursor"]
+        .as_u64()
+        .unwrap();
     let collection = fixture.root.join("collection");
     let valid = b"---\ntitle: Sibling\n---\nVisible sibling\n";
     let malformed = b"---\ntitle: [broken\n---\nOpaque malformed\n";
@@ -390,7 +393,7 @@ async fn encrypted_full_collection_operations_bound_and_repair_invalid_records()
             &app,
             "query",
             json!({ "frontmatter_mode": "persisted", "include_body": true }),
-            1,
+            2,
         )
         .await;
     assert_eq!(queried["result"]["valid"], true);
@@ -458,7 +461,21 @@ async fn encrypted_full_collection_operations_bound_and_repair_invalid_records()
         ])
     );
 
-    let validated = fixture.direct(&app, "validate", json!({}), 2).await;
+    let changes = fixture
+        .direct(&app, "changes", json!({ "after": baseline }), 3)
+        .await;
+    let events = changes["result"]["events"].as_array().unwrap();
+    assert_eq!(
+        events.len(),
+        1,
+        "invalid cache stubs must not synthesize public create/delete events"
+    );
+    assert_eq!(events[0]["cursor"], baseline + 1);
+    assert_eq!(events[0]["type"], "mdbase.record.created");
+    assert_eq!(events[0]["payload"]["path"], "sibling.md");
+    assert_eq!(changes["result"]["cursor"], baseline + 1);
+
+    let validated = fixture.direct(&app, "validate", json!({}), 4).await;
     assert_eq!(validated["result"]["valid"], false);
     let validation_reasons = validated["result"]["diagnostics"]
         .as_array()
@@ -475,7 +492,7 @@ async fn encrypted_full_collection_operations_bound_and_repair_invalid_records()
 
     fs::create_dir(collection.join("loader-io.md")).unwrap();
     let loader_io = fixture
-        .direct(&app, "validate", json!({ "path": "loader-io.md" }), 3)
+        .direct(&app, "validate", json!({ "path": "loader-io.md" }), 5)
         .await;
     assert_eq!(loader_io["result"]["valid"], false);
     assert_eq!(
@@ -497,7 +514,7 @@ async fn encrypted_full_collection_operations_bound_and_repair_invalid_records()
                 "patch": { "title": "Must not apply" },
                 "if_revision": revisions["malformed.md"]
             }),
-            4,
+            6,
         )
         .await;
     assert_eq!(patch["result"]["valid"], false);
@@ -517,7 +534,7 @@ async fn encrypted_full_collection_operations_bound_and_repair_invalid_records()
                 "document": std::str::from_utf8(repaired_malformed).unwrap(),
                 "if_revision": revisions["malformed.md"]
             }),
-            5,
+            7,
         )
         .await;
     assert_eq!(repaired["result"]["valid"], true);
@@ -534,7 +551,7 @@ async fn encrypted_full_collection_operations_bound_and_repair_invalid_records()
                 "document": std::str::from_utf8(repaired_utf8).unwrap(),
                 "if_revision": revisions["invalid-utf8.md"]
             }),
-            6,
+            8,
         )
         .await;
     assert_eq!(repaired["result"]["valid"], true);
@@ -553,7 +570,7 @@ async fn encrypted_full_collection_operations_bound_and_repair_invalid_records()
                 "document": "---\ntitle: Stale replacement\n---\nMust not apply\n",
                 "if_revision": revisions["non-mapping.md"]
             }),
-            7,
+            9,
         )
         .await;
     assert_eq!(stale["result"]["valid"], false);
