@@ -98,19 +98,22 @@ try {
   await portalPage
     .getByRole("heading", { name: "Docker test computer" })
     .waitFor();
+  const computerApproved = pairingWindow
+    .getByText("Computer approved. Connecting securely…")
+    .waitFor({ timeout: 15_000 });
   await portalPage
     .getByRole("button", { name: "Approve computer" })
     .click();
-  await portalPage
-    .getByRole("heading", { name: "Return to mdbase connect." })
-    .waitFor();
+  await Promise.all([
+    portalPage
+      .getByRole("heading", { name: "Return to mdbase connect." })
+      .waitFor(),
+    computerApproved
+  ]);
   const sessionCookie = (await portalContext.cookies(environment.serverUrl))
     .find((candidate) => candidate.name === "mdbase_session");
   assert.ok(sessionCookie, "Portal login did not retain a session cookie");
   const cookie = `${sessionCookie.name}=${sessionCookie.value}`;
-  await pairingWindow
-    .getByText("Computer approved. Connecting securely…")
-    .waitFor({ timeout: 10_000 });
   await pairingWindow
     .getByText("mdbase connect is restarting with the new secure connection.")
     .waitFor();
