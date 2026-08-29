@@ -50,8 +50,7 @@ fn remote_policy_lease_is_bounded_ordered_and_cannot_resurrect_after_restart() {
             None,
             "sha256:lease-one",
             1,
-            1_000,
-            61_000,
+            1_000..61_000,
             std::slice::from_ref(&grant),
             1_000,
         )
@@ -61,16 +60,16 @@ fn remote_policy_lease_is_bounded_ordered_and_cannot_resurrect_after_restart() {
     assert!(!registry.remote_policy_is_fresh_at(61_000).unwrap());
     assert!(!registry.remote_policy_is_fresh_at(50_000).unwrap());
     assert!(registry
-        .replace_grants_at_revision_at(None, "sha256:stale", 0, 2_000, 62_000, &[], 2_000)
+        .replace_grants_at_revision_at(None, "sha256:stale", 0, 2_000..62_000, &[], 2_000)
         .is_err());
     assert!(registry
-        .replace_grants_at_revision_at(None, "sha256:conflict", 1, 1_000, 61_000, &[], 1_000)
+        .replace_grants_at_revision_at(None, "sha256:conflict", 1, 1_000..61_000, &[], 1_000)
         .is_err());
     assert!(registry
-        .replace_grants_at_revision_at(None, "sha256:future", 2, 100_000, 160_000, &[], 1_000)
+        .replace_grants_at_revision_at(None, "sha256:future", 2, 100_000..160_000, &[], 1_000)
         .is_err());
     registry
-        .replace_grants_at_revision_at(None, "sha256:lease-one", 1, 1_000, 61_000, &[grant], 1_000)
+        .replace_grants_at_revision_at(None, "sha256:lease-one", 1, 1_000..61_000, &[grant], 1_000)
         .unwrap();
     drop(registry);
 
@@ -93,8 +92,7 @@ fn authenticated_policy_pins_connector_across_empty_revocation_and_restart() {
             Some(connector_id),
             "sha256:mismatched-grant",
             1,
-            1_000,
-            61_000,
+            1_000..61_000,
             &[wrong_grant],
             1_000,
         )
@@ -105,8 +103,7 @@ fn authenticated_policy_pins_connector_across_empty_revocation_and_restart() {
             Some(connector_id),
             "sha256:first",
             1,
-            1_000,
-            61_000,
+            1_000..61_000,
             &[grant],
             1_000,
         )
@@ -116,8 +113,7 @@ fn authenticated_policy_pins_connector_across_empty_revocation_and_restart() {
             Some(connector_id),
             "sha256:revoked",
             2,
-            2_000,
-            62_000,
+            2_000..62_000,
             &[],
             2_000,
         )
@@ -130,8 +126,7 @@ fn authenticated_policy_pins_connector_across_empty_revocation_and_restart() {
             Some(other_connector_id),
             "sha256:wrong-authority",
             3,
-            3_000,
-            63_000,
+            3_000..63_000,
             &[],
             3_000,
         )
@@ -145,21 +140,20 @@ fn policy_lease_accepts_modest_server_ahead_skew_but_rejects_far_future_time() {
     // A server exactly 5s ahead issues a 55s lease: its absolute expiry is
     // still no more than 60s from the connector's local receipt.
     registry
-        .replace_grants_at_revision_at(None, "sha256:skew", 1, 6_000, 61_000, &[], 1_000)
+        .replace_grants_at_revision_at(None, "sha256:skew", 1, 6_000..61_000, &[], 1_000)
         .unwrap();
     assert!(registry
         .replace_grants_at_revision_at(
             None,
             "sha256:too-long-locally",
             2,
-            6_000,
-            61_001,
+            6_000..61_001,
             &[],
             1_000,
         )
         .is_err());
     assert!(registry
-        .replace_grants_at_revision_at(None, "sha256:far-future", 2, 7_000, 62_000, &[], 1_000,)
+        .replace_grants_at_revision_at(None, "sha256:far-future", 2, 7_000..62_000, &[], 1_000)
         .is_err());
 }
 

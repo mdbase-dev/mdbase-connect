@@ -35,8 +35,7 @@ impl CollectionRegistry {
             None,
             revision,
             sequence,
-            lease_issued_at_ms,
-            lease_expires_at_ms,
+            lease_issued_at_ms..lease_expires_at_ms,
             grants,
             super::authority_store::current_time_ms(),
         )
@@ -55,8 +54,7 @@ impl CollectionRegistry {
             Some(connector_id),
             revision,
             sequence,
-            lease_issued_at_ms,
-            lease_expires_at_ms,
+            lease_issued_at_ms..lease_expires_at_ms,
             grants,
             super::authority_store::current_time_ms(),
         )
@@ -67,12 +65,13 @@ impl CollectionRegistry {
         connector_id: Option<Uuid>,
         revision: &str,
         sequence: u64,
-        lease_issued_at_ms: i64,
-        lease_expires_at_ms: i64,
+        lease_ms: std::ops::Range<i64>,
         grants: &[GrantPolicy],
         now_ms: i64,
     ) -> Result<(), ConnectError> {
         const MAX_POLICY_LEASE_MS: i64 = 60_000;
+        let lease_issued_at_ms = lease_ms.start;
+        let lease_expires_at_ms = lease_ms.end;
         const CLOCK_SKEW_ALLOWANCE_MS: i64 = 5_000;
         if sequence > 9_007_199_254_740_991
             || lease_issued_at_ms < 0

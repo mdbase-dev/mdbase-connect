@@ -20,6 +20,8 @@ pub(crate) struct PolicyRevisionPermit {
 struct PublicationState {
     active: HashMap<Uuid, Instant>,
     snapshot_pending: bool,
+    #[cfg(test)]
+    manual_now: Option<Instant>,
 }
 
 #[derive(Debug, Default)]
@@ -34,6 +36,46 @@ pub(crate) struct PublicationPermit {
     revision: String,
     deadline: Instant,
     gate: Arc<PublicationGate>,
+}
+
+#[cfg(test)]
+pub(crate) struct ManualPublicationClock {
+    gate: Arc<PublicationGate>,
+}
+
+#[cfg(test)]
+impl ManualPublicationClock {
+    pub(crate) fn advance_to(&self, now: Instant) {
+        let mut state = self.gate.state.lock().expect("publication gate poisoned");
+        let current = state.manual_now.expect("manual publication clock missing");
+        assert!(now >= current, "manual publication clock moved backwards");
+        state.manual_now = Some(now);
+        self.gate.changed.notify_all();
+    }
+
+    pub(crate) fn wait_until_snapshot_pending(&self) {
+        let mut state = self.gate.state.lock().expect("publication gate poisoned");
+        while !state.snapshot_pending {
+            state = self
+                .gate
+                .changed
+                .wait(state)
+                .expect("publication gate poisoned");
+        }
+    }
+}
+
+#[cfg(test)]
+impl Drop for ManualPublicationClock {
+    fn drop(&mut self) {
+        let mut state = self
+            .gate
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.manual_now = None;
+        self.gate.changed.notify_all();
+    }
 }
 
 impl Drop for PublicationPermit {
@@ -150,7 +192,9 @@ impl AgentState {
         deadline: tokio::time::Instant,
     ) -> Result<PublicationPermit, ConnectError> {
         let deadline = deadline.into_std();
+        #[cfg(not(test))]
         let now = Instant::now();
+        #[cfg(not(test))]
         if now >= deadline {
             return Err(policy_changed());
         }
@@ -159,6 +203,12 @@ impl AgentState {
             .state
             .lock()
             .expect("publication gate poisoned");
+        #[cfg(test)]
+        let now = publication_now(&state);
+        #[cfg(test)]
+        if now >= deadline {
+            return Err(policy_changed());
+        }
         state.active.retain(|_, bound| *bound > now);
         if state.snapshot_pending {
             return Err(policy_changed());
@@ -180,7 +230,18 @@ impl AgentState {
     }
 
     pub(crate) fn publication_is_current(&self, permit: &PublicationPermit) -> bool {
-        Instant::now() < permit.deadline
+        #[cfg(not(test))]
+        let now = Instant::now();
+        #[cfg(test)]
+        let now = {
+            let state = self
+                .publication_gate
+                .state
+                .lock()
+                .expect("publication gate poisoned");
+            publication_now(&state)
+        };
+        now < permit.deadline
             && self
                 .registry
                 .remote_policy_matches_fresh(&permit.revision)
@@ -188,13 +249,30 @@ impl AgentState {
     }
 
     #[cfg(test)]
-    pub(crate) fn publication_snapshot_pending(&self) -> bool {
-        self.publication_gate
+    pub(crate) fn manual_publication_clock(&self, now: Instant) -> ManualPublicationClock {
+        let mut state = self
+            .publication_gate
             .state
             .lock()
-            .expect("publication gate poisoned")
-            .snapshot_pending
+            .expect("publication gate poisoned");
+        assert!(
+            state.active.is_empty(),
+            "publication permits already active"
+        );
+        assert!(
+            state.manual_now.is_none(),
+            "manual publication clock installed twice"
+        );
+        state.manual_now = Some(now);
+        ManualPublicationClock {
+            gate: self.publication_gate.clone(),
+        }
     }
+}
+
+#[cfg(test)]
+fn publication_now(state: &PublicationState) -> Instant {
+    state.manual_now.unwrap_or_else(Instant::now)
 }
 
 pub(crate) struct PolicySnapshot {
@@ -265,12 +343,26 @@ pub(crate) fn apply_policy_snapshot(
     // Close publication admission before waiting so a stream of newly finished
     // old-revision operations cannot starve replacement.
     publications.snapshot_pending = true;
+    #[cfg(test)]
+    state.publication_gate.changed.notify_all();
     loop {
+        #[cfg(not(test))]
         let now = Instant::now();
+        #[cfg(test)]
+        let now = publication_now(&publications);
         publications.active.retain(|_, deadline| *deadline > now);
         let Some(next) = publications.active.values().copied().min() else {
             break;
         };
+        #[cfg(test)]
+        if publications.manual_now.is_some() {
+            publications = state
+                .publication_gate
+                .changed
+                .wait(publications)
+                .expect("publication gate poisoned");
+            continue;
+        }
         let wait = next.saturating_duration_since(now);
         let (guard, _) = state
             .publication_gate
@@ -439,9 +531,12 @@ mod tests {
     #[test]
     fn publication_winner_delays_successor_only_until_bounded_send_drops() {
         let (_directory, state) = state();
+        let now = Instant::now();
+        let clock = state.manual_publication_clock(now);
+        let deadline = now + Duration::from_secs(1);
         let old = state.capture_policy_revision().unwrap();
         let publication = state
-            .acquire_publication_permit(&old, tokio::time::Instant::now() + Duration::from_secs(1))
+            .acquire_publication_permit(&old, tokio::time::Instant::from_std(deadline))
             .unwrap();
         let next_state = state.clone();
         let (done_tx, done_rx) = std::sync::mpsc::channel();
@@ -449,29 +544,13 @@ mod tests {
             let result = apply_policy_snapshot(&next_state, CONTROL_PROTOCOL_VERSION, snapshot(2));
             done_tx.send(result).unwrap();
         });
-        assert!(done_rx.recv_timeout(Duration::from_millis(20)).is_err());
-        for _ in 0..100 {
-            if state
-                .publication_gate
-                .state
-                .lock()
-                .unwrap()
-                .snapshot_pending
-            {
-                break;
-            }
-            std::thread::yield_now();
-        }
-        assert!(
-            state
-                .publication_gate
-                .state
-                .lock()
-                .unwrap()
-                .snapshot_pending
-        );
+        clock.wait_until_snapshot_pending();
+        assert!(matches!(
+            done_rx.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        ));
         assert!(state
-            .acquire_publication_permit(&old, tokio::time::Instant::now() + Duration::from_secs(1),)
+            .acquire_publication_permit(&old, tokio::time::Instant::from_std(deadline))
             .is_err());
         drop(publication);
         assert!(matches!(
@@ -484,14 +563,16 @@ mod tests {
     #[test]
     fn publication_permit_expires_without_drop() {
         let (_directory, state) = state();
+        let now = Instant::now();
+        let clock = state.manual_publication_clock(now);
+        let deadline = now + Duration::from_millis(5);
         let revision = state.capture_policy_revision().unwrap();
         let publication = state
-            .acquire_publication_permit(
-                &revision,
-                tokio::time::Instant::now() + Duration::from_millis(5),
-            )
+            .acquire_publication_permit(&revision, tokio::time::Instant::from_std(deadline))
             .unwrap();
-        std::thread::sleep(Duration::from_millis(10));
+        clock.advance_to(deadline - Duration::from_nanos(1));
+        assert!(state.publication_is_current(&publication));
+        clock.advance_to(deadline);
         assert!(!state.publication_is_current(&publication));
     }
 }

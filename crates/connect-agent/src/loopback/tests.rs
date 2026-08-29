@@ -700,6 +700,9 @@ async fn encrypted_file_control_and_binary_frames_round_trip_directly() {
         .await
         .unwrap();
     assert_eq!(uploaded.status(), StatusCode::NO_CONTENT);
+    // Fenced, unpolled responses intentionally retain publication ownership
+    // until the transport drops them.
+    drop(uploaded);
 
     let committed = fixture
         .file_control(
@@ -793,9 +796,11 @@ async fn encrypted_file_control_and_binary_frames_round_trip_directly() {
     assert_eq!(listed["result"]["files"][0]["path"], "Assets/direct.bin");
 
     let root = fixture.root.clone();
+    let agent = Arc::downgrade(&fixture.agent);
     drop(app);
     drop(fixture);
-    remove_fixture_after_watchers_close(&root);
+    assert!(agent.upgrade().is_none());
+    fs::remove_dir_all(&root).unwrap();
 }
 
 struct Fixture {

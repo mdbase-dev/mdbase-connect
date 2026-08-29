@@ -75,6 +75,9 @@ async fn preflight_pause_tampering_and_revocation_fail_closed() {
         .await
         .unwrap();
     assert_eq!(tampered_response.status(), StatusCode::FORBIDDEN);
+    // Fenced, unpolled responses intentionally retain publication ownership
+    // until the transport drops them.
+    drop(tampered_response);
 
     fixture.registry.replace_grants(&[]).unwrap();
     let revoked = fixture.direct(&app, "query", json!({}), 3).await;
@@ -83,7 +86,9 @@ async fn preflight_pause_tampering_and_revocation_fail_closed() {
     assert_eq!(revoked["problem"]["operation_outcome"], "not_sent");
 
     let root = fixture.root.clone();
+    let agent = Arc::downgrade(&fixture.agent);
     drop(app);
     drop(fixture);
-    remove_fixture_after_watchers_close(&root);
+    assert!(agent.upgrade().is_none());
+    fs::remove_dir_all(&root).unwrap();
 }

@@ -19,6 +19,18 @@ fn publication_state() -> (tempfile::TempDir, Arc<AgentState>) {
     )
 }
 
+fn publication_state_with_clock() -> (
+    tempfile::TempDir,
+    Arc<AgentState>,
+    crate::server::policy::ManualPublicationClock,
+    Instant,
+) {
+    let (directory, agent) = publication_state();
+    let now = Instant::now();
+    let clock = agent.manual_publication_clock(now);
+    (directory, agent, clock, now)
+}
+
 fn policy_snapshot(sequence: u64) -> crate::server::policy::PolicySnapshot {
     let connector_id = Uuid::nil();
     let now = SystemTime::now()
@@ -68,16 +80,6 @@ fn start_successor(
     (task, done_rx)
 }
 
-fn wait_until_snapshot_pending(agent: &AgentState) {
-    for _ in 0..200 {
-        if agent.publication_snapshot_pending() {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(1));
-    }
-    panic!("successor snapshot did not reach the publication gate");
-}
-
 fn assert_applied(message: RelayMessage) {
     assert!(matches!(
         message,
@@ -87,20 +89,23 @@ fn assert_applied(message: RelayMessage) {
 
 #[tokio::test]
 async fn no_content_never_polled_holds_publication_until_response_drop() {
-    let (_directory, agent) = publication_state();
+    let (_directory, agent, clock, now) = publication_state_with_clock();
     let policy = agent.capture_policy_revision().unwrap();
     let response = fenced_response(
         StatusCode::NO_CONTENT.into_response(),
         agent.clone(),
         policy,
-        tokio::time::Instant::now() + Duration::from_secs(1),
+        tokio::time::Instant::from_std(now + Duration::from_secs(1)),
         None,
     );
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
 
-    let (successor, done) = start_successor(agent.clone(), 2);
-    wait_until_snapshot_pending(&agent);
-    assert!(done.recv_timeout(Duration::from_millis(20)).is_err());
+    let (successor, done) = start_successor(agent, 2);
+    clock.wait_until_snapshot_pending();
+    assert!(matches!(
+        done.try_recv(),
+        Err(std::sync::mpsc::TryRecvError::Empty)
+    ));
     drop(response);
     assert_applied(done.recv_timeout(Duration::from_millis(200)).unwrap());
     successor.join().unwrap();
@@ -108,22 +113,22 @@ async fn no_content_never_polled_holds_publication_until_response_drop() {
 
 #[test]
 fn stale_error_response_uses_connection_abort_instead_of_http_status() {
-    let (_directory, agent) = publication_state();
+    let (_directory, agent, clock, now) = publication_state_with_clock();
     let policy = agent.capture_policy_revision().unwrap();
     let blocker = agent
         .acquire_publication_permit(
             &policy,
-            tokio::time::Instant::now() + Duration::from_secs(1),
+            tokio::time::Instant::from_std(now + Duration::from_secs(1)),
         )
         .unwrap();
     let (successor, done) = start_successor(agent.clone(), 2);
-    wait_until_snapshot_pending(&agent);
+    clock.wait_until_snapshot_pending();
 
     let stale = fenced_response(
         StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         agent,
         policy,
-        tokio::time::Instant::now() + Duration::from_secs(1),
+        tokio::time::Instant::from_std(now + Duration::from_secs(1)),
         None,
     );
     let error = finish_response(stale).unwrap_err();
@@ -136,8 +141,9 @@ fn stale_error_response_uses_connection_abort_instead_of_http_status() {
 
 #[tokio::test]
 async fn pending_second_chunk_is_suppressed_when_deadline_expires() {
-    let (_directory, agent) = publication_state();
+    let (_directory, agent, clock, now) = publication_state_with_clock();
     let policy = agent.capture_policy_revision().unwrap();
+    let deadline = now + Duration::from_millis(50);
     let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
     let first =
         futures_util::stream::iter(vec![Ok::<Bytes, io::Error>(Bytes::from_static(b"one"))]);
@@ -149,7 +155,7 @@ async fn pending_second_chunk_is_suppressed_when_deadline_expires() {
         Response::new(Body::from_stream(first.chain(second))),
         agent,
         policy,
-        tokio::time::Instant::now() + Duration::from_millis(50),
+        tokio::time::Instant::from_std(deadline),
         None,
     );
     let mut body = response.into_body().into_data_stream();
@@ -159,30 +165,29 @@ async fn pending_second_chunk_is_suppressed_when_deadline_expires() {
     );
     let pending = body.next();
     tokio::pin!(pending);
-    assert!(
-        tokio::time::timeout(Duration::from_millis(10), &mut pending)
-            .await
-            .is_err()
-    );
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(futures_util::poll!(&mut pending).is_pending());
+    clock.advance_to(deadline);
     release_tx.send(()).unwrap();
     assert!(pending.await.is_none());
 }
 
 #[test]
 fn dropping_nonempty_body_releases_publication_permit() {
-    let (_directory, agent) = publication_state();
+    let (_directory, agent, clock, now) = publication_state_with_clock();
     let policy = agent.capture_policy_revision().unwrap();
     let response = fenced_response(
         Response::new(Body::from("held body")),
         agent.clone(),
         policy,
-        tokio::time::Instant::now() + Duration::from_secs(1),
+        tokio::time::Instant::from_std(now + Duration::from_secs(1)),
         None,
     );
-    let (successor, done) = start_successor(agent.clone(), 2);
-    wait_until_snapshot_pending(&agent);
-    assert!(done.recv_timeout(Duration::from_millis(20)).is_err());
+    let (successor, done) = start_successor(agent, 2);
+    clock.wait_until_snapshot_pending();
+    assert!(matches!(
+        done.try_recv(),
+        Err(std::sync::mpsc::TryRecvError::Empty)
+    ));
     drop(response);
     assert_applied(done.recv_timeout(Duration::from_millis(200)).unwrap());
     successor.join().unwrap();
@@ -190,24 +195,37 @@ fn dropping_nonempty_body_releases_publication_permit() {
 
 #[test]
 fn published_status_and_headers_delay_successor_only_to_absolute_deadline() {
-    let (_directory, agent) = publication_state();
+    let (_directory, agent, clock, now) = publication_state_with_clock();
     let policy = agent.capture_policy_revision().unwrap();
-    let deadline = tokio::time::Instant::now() + Duration::from_millis(60);
+    let deadline = now + Duration::from_millis(60);
     let mut source = Response::new(Body::from("late"));
     *source.status_mut() = StatusCode::ACCEPTED;
     source
         .headers_mut()
         .insert("x-publication", HeaderValue::from_static("old"));
-    let response = fenced_response(source, agent.clone(), policy, deadline, None);
+    let response = fenced_response(
+        source,
+        agent.clone(),
+        policy,
+        tokio::time::Instant::from_std(deadline),
+        None,
+    );
     assert_eq!(response.status(), StatusCode::ACCEPTED);
     assert_eq!(response.headers()["x-publication"], "old");
 
-    let started = Instant::now();
-    let (successor, done) = start_successor(agent.clone(), 2);
-    wait_until_snapshot_pending(&agent);
-    assert!(done.recv_timeout(Duration::from_millis(20)).is_err());
+    let (successor, done) = start_successor(agent, 2);
+    clock.wait_until_snapshot_pending();
+    assert!(matches!(
+        done.try_recv(),
+        Err(std::sync::mpsc::TryRecvError::Empty)
+    ));
+    clock.advance_to(deadline - Duration::from_nanos(1));
+    assert!(matches!(
+        done.try_recv(),
+        Err(std::sync::mpsc::TryRecvError::Empty)
+    ));
+    clock.advance_to(deadline);
     assert_applied(done.recv_timeout(Duration::from_millis(200)).unwrap());
-    assert!(started.elapsed() >= Duration::from_millis(40));
     drop(response);
     successor.join().unwrap();
 }
