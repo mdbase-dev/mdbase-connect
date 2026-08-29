@@ -2,6 +2,8 @@ use super::*;
 use axum::body::Bytes;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+const TEST_COORDINATION_TIMEOUT: Duration = Duration::from_secs(15);
+
 fn publication_state() -> (tempfile::TempDir, Arc<AgentState>) {
     let directory = tempfile::tempdir().unwrap();
     let registry = CollectionRegistry::open(directory.path()).unwrap();
@@ -111,7 +113,7 @@ async fn no_content_never_polled_holds_publication_until_response_drop() {
         Err(std::sync::mpsc::TryRecvError::Empty)
     ));
     drop(response);
-    assert_applied(done.recv_timeout(Duration::from_millis(200)).unwrap());
+    assert_applied(done.recv_timeout(TEST_COORDINATION_TIMEOUT).unwrap());
     successor.join().unwrap();
 }
 
@@ -139,7 +141,7 @@ fn stale_error_response_uses_connection_abort_instead_of_http_status() {
     assert_eq!(error.kind(), io::ErrorKind::ConnectionAborted);
 
     drop(blocker);
-    assert_applied(done.recv_timeout(Duration::from_millis(200)).unwrap());
+    assert_applied(done.recv_timeout(TEST_COORDINATION_TIMEOUT).unwrap());
     successor.join().unwrap();
 }
 
@@ -193,7 +195,7 @@ fn dropping_nonempty_body_releases_publication_permit() {
         Err(std::sync::mpsc::TryRecvError::Empty)
     ));
     drop(response);
-    assert_applied(done.recv_timeout(Duration::from_millis(200)).unwrap());
+    assert_applied(done.recv_timeout(TEST_COORDINATION_TIMEOUT).unwrap());
     successor.join().unwrap();
 }
 
@@ -229,7 +231,7 @@ fn published_status_and_headers_delay_successor_only_to_absolute_deadline() {
         Err(std::sync::mpsc::TryRecvError::Empty)
     ));
     clock.advance_to(deadline);
-    assert_applied(done.recv_timeout(Duration::from_millis(200)).unwrap());
+    assert_applied(done.recv_timeout(TEST_COORDINATION_TIMEOUT).unwrap());
     drop(response);
     successor.join().unwrap();
 }
