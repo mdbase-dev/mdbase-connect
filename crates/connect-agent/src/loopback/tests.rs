@@ -84,6 +84,98 @@ async fn exact_origin_host_and_protocol_one_are_enforced() {
 }
 
 #[tokio::test]
+async fn durable_changes_cross_direct_and_relay_only_as_encrypted_public_events() {
+    let fixture = fixture();
+    let app = router(fixture.agent.clone(), 28_485);
+    let baseline = fixture.direct(&app, "describe", json!({}), 1).await["result"]["change_cursor"]
+        .as_u64()
+        .unwrap();
+    fixture
+        .registry
+        .operation(
+            fixture.encryption.collection_id,
+            "create",
+            &json!({
+                "path": "transport-fixture.md",
+                "frontmatter": {"title": "Transport fixture"},
+                "body": "PRIVATE_FIXTURE_BODY"
+            }),
+        )
+        .unwrap();
+    fixture
+        .registry
+        .finalize_runtime_changes(
+            fixture.encryption.collection_id,
+            &mdbase::OperationCancellation::new(),
+        )
+        .unwrap();
+
+    let direct_request = fixture.encrypted_request("changes", json!({"after": baseline}), 2);
+    let RelayMessage::EncryptedOperationRequest {
+        envelope: direct_request_envelope,
+    } = direct_request.clone()
+    else {
+        unreachable!()
+    };
+    let direct_envelope = fixture.send(&app, direct_request).await;
+    let encoded_direct = serde_json::to_string(&direct_envelope).unwrap();
+    assert!(!encoded_direct.contains("transport-fixture.md"));
+    assert!(!encoded_direct.contains("PRIVATE_FIXTURE_BODY"));
+    let direct = fixture.decrypt_response(&direct_request_envelope, &direct_envelope);
+    assert_eq!(direct["result"]["events"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        direct["result"]["events"][0]["type"],
+        "mdbase.record.created"
+    );
+    assert_eq!(
+        direct["result"]["events"][0]["payload"]["path"],
+        "transport-fixture.md"
+    );
+    assert!(direct["result"]["events"][0]["payload"]
+        .as_object()
+        .unwrap()
+        .values()
+        .all(|value| !value.to_string().contains("PRIVATE_FIXTURE_BODY")));
+
+    let relay_request = fixture.encrypted_request("changes", json!({"after": baseline}), 3);
+    let RelayMessage::EncryptedOperationRequest {
+        envelope: relay_request_envelope,
+    } = relay_request.clone()
+    else {
+        unreachable!()
+    };
+    let RelayMessage::EncryptedOperationResponse {
+        envelope: relay_envelope,
+    } = fixture
+        .agent
+        .handle_relay_message(relay_request)
+        .expect("relay response")
+    else {
+        panic!("expected encrypted relay response")
+    };
+    assert!(!serde_json::to_string(&relay_envelope)
+        .unwrap()
+        .contains("transport-fixture.md"));
+    let relay = fixture.decrypt_response(&relay_request_envelope, &relay_envelope);
+    assert_eq!(relay["result"], direct["result"]);
+
+    let empty = fixture
+        .direct(
+            &app,
+            "changes",
+            json!({"after": direct["result"]["cursor"]}),
+            4,
+        )
+        .await;
+    assert!(empty["result"]["events"].as_array().unwrap().is_empty());
+
+    let root = fixture.root.clone();
+    drop(app);
+    drop(fixture);
+    remove_fixture_after_watchers_close(&root);
+}
+
+#[tokio::test]
 async fn opaque_file_origin_requires_an_exact_encrypted_portable_grant() {
     let fixture = fixture_for_origin("null", "portable");
     let app = router(fixture.agent.clone(), 28_485);
@@ -264,6 +356,222 @@ async fn every_grantable_operation_runs_directly_and_duplicate_writes_cross_tran
     assert_eq!(revoked_new["problem"]["code"], "access_denied");
     assert_eq!(revoked_new["problem"]["operation_outcome"], "not_sent");
     assert!(!fixture.root.join("collection/must-not-exist.md").exists());
+
+    let root = fixture.root.clone();
+    drop(app);
+    drop(fixture);
+    remove_fixture_after_watchers_close(&root);
+}
+
+#[tokio::test]
+async fn encrypted_full_collection_operations_bound_and_repair_invalid_records() {
+    let fixture = fixture();
+    let app = router(fixture.agent.clone(), 28_485);
+    let baseline = fixture.direct(&app, "describe", json!({}), 1).await["result"]["change_cursor"]
+        .as_u64()
+        .unwrap();
+    let collection = fixture.root.join("collection");
+    let valid = b"---\ntitle: Sibling\n---\nVisible sibling\n";
+    let malformed = b"---\ntitle: [broken\n---\nOpaque malformed\n";
+    let non_mapping = b"---\n- item\n---\nOpaque sequence\n";
+    let invalid_utf8 = b"---\ntitle: \xff\n---\nOpaque binary\n";
+    fs::write(collection.join("sibling.md"), valid).unwrap();
+    fs::write(collection.join("malformed.md"), malformed).unwrap();
+    fs::write(collection.join("non-mapping.md"), non_mapping).unwrap();
+    fs::write(collection.join("invalid-utf8.md"), invalid_utf8).unwrap();
+    fixture.watcher.rescan(fixture.encryption.collection_id);
+
+    let queried = fixture
+        .direct(
+            &app,
+            "query",
+            json!({ "frontmatter_mode": "persisted", "include_body": true }),
+            2,
+        )
+        .await;
+    assert_eq!(queried["result"]["valid"], true);
+    let results = queried["result"]["result"]["results"].as_array().unwrap();
+    let sibling = results
+        .iter()
+        .find(|record| record["path"] == "sibling.md")
+        .unwrap_or_else(|| {
+            panic!(
+                "missing sibling from paths {:?}",
+                results
+                    .iter()
+                    .filter_map(|record| record["path"].as_str())
+                    .collect::<Vec<_>>()
+            )
+        });
+    assert_eq!(sibling["frontmatter"]["title"], "Sibling");
+    assert_eq!(sibling["body"], "Visible sibling\n");
+
+    let mut revisions = std::collections::BTreeMap::new();
+    for path in ["malformed.md", "non-mapping.md", "invalid-utf8.md"] {
+        let stub = results
+            .iter()
+            .find(|record| record["path"] == path)
+            .unwrap();
+        assert_eq!(stub["types"], json!([]));
+        assert_eq!(stub["file"]["path"], path);
+        assert!(stub["file"]["revision"]
+            .as_str()
+            .is_some_and(|revision| revision.starts_with("sha256:")));
+        for forbidden in [
+            "frontmatter",
+            "effective_frontmatter",
+            "body",
+            "links",
+            "backlinks",
+            "memberships",
+            "reason",
+        ] {
+            assert!(
+                stub.get(forbidden).is_none(),
+                "unexpected {forbidden} in {path}"
+            );
+        }
+        revisions.insert(path, stub["file"]["revision"].as_str().unwrap().to_string());
+    }
+    assert_eq!(results.len(), 4);
+    let query_reasons = queried["result"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|diagnostic| {
+            (
+                diagnostic["path"].as_str().unwrap(),
+                diagnostic["details"]["reason"].as_str().unwrap(),
+            )
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    assert_eq!(
+        query_reasons,
+        std::collections::BTreeMap::from([
+            ("invalid-utf8.md", "invalid_utf8"),
+            ("malformed.md", "invalid_yaml"),
+            ("non-mapping.md", "non_mapping_frontmatter"),
+        ])
+    );
+
+    let changes = fixture
+        .direct(&app, "changes", json!({ "after": baseline }), 3)
+        .await;
+    let events = changes["result"]["events"].as_array().unwrap();
+    assert_eq!(
+        events.len(),
+        1,
+        "invalid cache stubs must not synthesize public create/delete events"
+    );
+    assert_eq!(events[0]["cursor"], baseline + 1);
+    assert_eq!(events[0]["type"], "mdbase.record.created");
+    assert_eq!(events[0]["payload"]["path"], "sibling.md");
+    assert_eq!(changes["result"]["cursor"], baseline + 1);
+
+    let validated = fixture.direct(&app, "validate", json!({}), 4).await;
+    assert_eq!(validated["result"]["valid"], false);
+    let validation_reasons = validated["result"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|diagnostic| {
+            Some((
+                diagnostic["path"].as_str()?,
+                diagnostic["details"]["reason"].as_str()?,
+            ))
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    assert_eq!(validation_reasons, query_reasons);
+
+    fs::create_dir(collection.join("loader-io.md")).unwrap();
+    let loader_io = fixture
+        .direct(&app, "validate", json!({ "path": "loader-io.md" }), 5)
+        .await;
+    assert_eq!(loader_io["result"]["valid"], false);
+    assert_eq!(
+        loader_io["result"]["diagnostics"][0]["path"],
+        "loader-io.md"
+    );
+    assert_eq!(
+        loader_io["result"]["diagnostics"][0]["code"],
+        "file_read_failed"
+    );
+
+    let malformed_path = collection.join("malformed.md");
+    let patch = fixture
+        .direct(
+            &app,
+            "update",
+            json!({
+                "path": "malformed.md",
+                "patch": { "title": "Must not apply" },
+                "if_revision": revisions["malformed.md"]
+            }),
+            6,
+        )
+        .await;
+    assert_eq!(patch["result"]["valid"], false);
+    assert_eq!(
+        patch["result"]["diagnostics"][0]["code"],
+        "invalid_frontmatter"
+    );
+    assert_eq!(fs::read(&malformed_path).unwrap(), malformed);
+
+    let repaired_malformed = b"---\ntitle: Repaired malformed\n---\nVisible\n";
+    let repaired = fixture
+        .direct(
+            &app,
+            "update",
+            json!({
+                "path": "malformed.md",
+                "document": std::str::from_utf8(repaired_malformed).unwrap(),
+                "if_revision": revisions["malformed.md"]
+            }),
+            7,
+        )
+        .await;
+    assert_eq!(repaired["result"]["valid"], true);
+    assert_eq!(fs::read(&malformed_path).unwrap(), repaired_malformed);
+
+    let utf8_path = collection.join("invalid-utf8.md");
+    let repaired_utf8 = b"---\ntitle: Repaired binary\n---\nVisible\n";
+    let repaired = fixture
+        .direct(
+            &app,
+            "update",
+            json!({
+                "path": "invalid-utf8.md",
+                "document": std::str::from_utf8(repaired_utf8).unwrap(),
+                "if_revision": revisions["invalid-utf8.md"]
+            }),
+            8,
+        )
+        .await;
+    assert_eq!(repaired["result"]["valid"], true);
+    assert_eq!(fs::read(&utf8_path).unwrap(), repaired_utf8);
+
+    let non_mapping_path = collection.join("non-mapping.md");
+    let newer = b"---\ntitle: Newer external bytes\n---\nPreserve me\n";
+    fs::write(&non_mapping_path, newer).unwrap();
+    fixture.watcher.rescan(fixture.encryption.collection_id);
+    let stale = fixture
+        .direct(
+            &app,
+            "update",
+            json!({
+                "path": "non-mapping.md",
+                "document": "---\ntitle: Stale replacement\n---\nMust not apply\n",
+                "if_revision": revisions["non-mapping.md"]
+            }),
+            9,
+        )
+        .await;
+    assert_eq!(stale["result"]["valid"], false);
+    assert_eq!(
+        stale["result"]["diagnostics"][0]["code"],
+        "concurrent_modification"
+    );
+    assert_eq!(fs::read(&non_mapping_path).unwrap(), newer);
 
     let root = fixture.root.clone();
     drop(app);
@@ -808,6 +1116,7 @@ struct Fixture {
     root: std::path::PathBuf,
     registry: CollectionRegistry,
     agent: Arc<AgentState>,
+    watcher: crate::watcher::CollectionWatchService,
     origin: String,
     application: RelayIdentity,
     application_id: Uuid,
@@ -1141,10 +1450,11 @@ fn fixture_for_origin(origin: &str, distribution: &str) -> Fixture {
         registry: registry.clone(),
         agent: Arc::new(AgentState::with_identity(
             registry,
-            watcher,
+            watcher.clone(),
             None,
             connector.clone(),
         )),
+        watcher,
         origin,
         application,
         application_id,

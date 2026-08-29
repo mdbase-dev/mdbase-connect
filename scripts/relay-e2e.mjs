@@ -30,8 +30,11 @@ const repoRoot = resolve(import.meta.dirname, "..");
 const requireFromServer = createRequire(new URL("../services/server/package.json", import.meta.url));
 const { WebSocket } = requireFromServer("ws");
 const { buildApp } = await import("../services/server/dist/app.js");
-const { createDatabase } = await import("../services/server/dist/db.js");
+const { createDatabase, openDatabase } = await import("../services/server/dist/db.js");
 const { createRelayBroker } = await import("../services/server/dist/relay-broker.js");
+const { ensureApplicationReconciliation } = await import(
+  "../services/server/dist/application-reconciliation.js"
+);
 const { tokenHash } = await import("../services/server/dist/security.js");
 
 const postgresPort = await availableTcpPort();
@@ -47,7 +50,8 @@ const natsImage = `mdbase-connect-nats-e2e-${suffix}`;
 let postgresProcess;
 let natsProcess;
 let natsImageBuilt = false;
-let database;
+let databaseA;
+let databaseB;
 let appA;
 let appB;
 let socketA;
@@ -96,20 +100,24 @@ try {
     return response.ok ? true : null;
   }, "NATS monitoring did not become ready");
 
-  database = await createDatabase(
-    `postgres://mdbase:${postgresPassword}@127.0.0.1:${postgresPort}/mdbase_connect`
-  );
+  const databaseUrl =
+    `postgres://mdbase:${postgresPassword}@127.0.0.1:${postgresPort}/mdbase_connect`;
+  databaseA = await createDatabase(databaseUrl);
+  const fixture = await seed(databaseA, tokenHash);
+  // Use independent pools so readiness proves visibility through the same
+  // database boundary used by two separately deployed Connect instances.
+  databaseB = await openDatabase(databaseUrl);
   const config = { servers: [`nats://127.0.0.1:${natsPort}`], token: natsToken };
   const brokerA = await createRelayBroker(config);
   const brokerB = await createRelayBroker(config);
   ({ app: appA } = await buildApp({
-    db: database,
+    db: databaseA,
     devAuth: true,
     publicUrl: "http://127.0.0.1",
     relayBroker: brokerA
   }));
   const builtB = await buildApp({
-    db: database,
+    db: databaseB,
     devAuth: true,
     publicUrl: "http://127.0.0.1",
     relayBroker: brokerB
@@ -122,7 +130,18 @@ try {
   const urlA = appUrl(appA);
   const urlB = appUrl(appB);
 
-  const fixture = await seed(database, tokenHash);
+  // Seed the production reconciliation job explicitly before draining. Worker
+  // startup seeds asynchronously, so draining without this barrier could see
+  // an empty queue and return before the startup seed completed.
+  await ensureApplicationReconciliation(databaseA, fixture.applicationId);
+  // Force both instance workers across the committed fixture. Before the
+  // declaration matched its full-collection grant, this deterministically
+  // revoked the grant and token that only occasionally raced in merge runs.
+  await Promise.all([
+    appA.drainApplicationReconciliation(),
+    appB.drainApplicationReconciliation()
+  ]);
+
   const connectorA = await connectFakeConnector({
     WebSocket,
     serverUrl: urlA,
@@ -131,10 +150,36 @@ try {
   });
   socketA = connectorA.socket;
   await connectorA.waitForPolicy();
+  const initialPolicy = connectorA.policies.at(-1);
+  const initialPolicyPredicates = {
+    one_grant: initialPolicy?.grants?.length === 1,
+    read_allowed: initialPolicy?.grants?.[0]?.operations?.includes("read") === true,
+    query_allowed: initialPolicy?.grants?.[0]?.operations?.includes("query") === true
+  };
+  assert(Object.values(initialPolicyPredicates).every(Boolean),
+    `Connector did not apply the committed authorization: ${JSON.stringify(initialPolicyPredicates)}`);
+  await waitForAuthorizationReadiness([
+    { name: "instance-a", db: databaseA },
+    { name: "instance-b", db: databaseB }
+  ], fixture);
 
+  // This is the authorization assertion, not a readiness probe. In particular,
+  // never retry this request if its live bearer credential is rejected.
   const crossA = await operation(urlB, fixture, "read", { path: "first.md" });
-  assert(crossA.status === 200 && crossA.body.result?.owner === "instance-a",
-    `Instance B did not route through the socket on A: ${JSON.stringify(crossA)}`);
+  if (crossA.status !== 200 || crossA.body.result?.owner !== "instance-a") {
+    const diagnostics = await authorizationDiagnosticsForInstances([
+      { name: "instance-a", db: databaseA },
+      { name: "instance-b", db: databaseB }
+    ], fixture);
+    throw new Error(
+      "Instance B did not route through the socket on A: "
+      + JSON.stringify({
+        status: crossA.status,
+        error_code: crossA.body.error?.code ?? null,
+        authorization_predicates: diagnostics
+      })
+    );
+  }
 
   const large = "x".repeat(1_500_000);
   const largeResult = await operation(urlB, fixture, "read", { blob: large });
@@ -159,7 +204,7 @@ try {
   assert((await fetch(`${urlA}/health`)).ok && (await fetch(`${urlB}/health`)).ok,
     "A large framed response terminated a Connect instance");
 
-  await database.query("UPDATE grants SET operations = $2::jsonb WHERE id = $1", [
+  await databaseA.query("UPDATE grants SET operations = $2::jsonb WHERE id = $1", [
     fixture.grantId,
     JSON.stringify(["read"])
   ]);
@@ -170,7 +215,7 @@ try {
       && connectorA.policies.at(-1)?.grants?.[0]?.operations?.length === 1,
     "A policy update from B did not reach the socket on A"
   );
-  await database.query("UPDATE grants SET operations = $2::jsonb WHERE id = $1", [
+  await databaseA.query("UPDATE grants SET operations = $2::jsonb WHERE id = $1", [
     fixture.grantId,
     JSON.stringify(["read", "query"])
   ]);
@@ -250,7 +295,7 @@ try {
     application_agreement_public_key: fixture.grantAgreementPublicKey,
     connector_agreement_public_key: fixture.connectorAgreementPublicKey
   };
-  await database.query(
+  await databaseA.query(
     `UPDATE grants
      SET encryption = $2::jsonb,
          file_capability = $3::jsonb,
@@ -388,7 +433,7 @@ try {
       && recoveredMutation.body.envelope?.counter === timedMutation.counter
       && recoveredMutation.body.envelope?.ciphertext === timedMutation.ciphertext,
   `The same durable mutation identity did not recover with a fresh deadline: ${JSON.stringify(recoveredMutation)}`);
-  await database.query("UPDATE grants SET encryption = NULL WHERE id = $1", [fixture.grantId]);
+  await databaseA.query("UPDATE grants SET encryption = NULL WHERE id = $1", [fixture.grantId]);
   await builtB.relay.pushPolicy(fixture.connectorId);
 
   await stopContainer(natsName, natsProcess);
@@ -431,13 +476,13 @@ try {
   assert(reconnected.status === 200 && reconnected.body.result?.owner === "instance-a-reconnected",
     `Relay did not follow a post-outage reconnect: ${JSON.stringify(reconnected)}`);
 
-  const generation = await database.query(
+  const generation = await databaseA.query(
     "SELECT relay_generation::text AS relay_generation FROM connectors WHERE id = $1",
     [fixture.connectorId]
   );
   assert(generation.rows[0]?.relay_generation === "3",
     `Expected three fenced connector generations, got ${generation.rows[0]?.relay_generation}`);
-  const persisted = await database.query(
+  const persisted = await databaseA.query(
     "SELECT count(*)::int AS count FROM audit_events WHERE metadata::text LIKE $1",
     [`%${large.slice(0, 64)}%`]
   );
@@ -449,7 +494,9 @@ try {
     if (socket?.readyState === WebSocket.OPEN) socket.close(1000, "test cleanup");
   }
   await Promise.allSettled([appA?.close(), appB?.close()].filter(Boolean));
-  if (database) await database.end();
+  await Promise.allSettled(
+    [databaseA, databaseB].filter(Boolean).map((database) => database.end())
+  );
   if (natsProcess) await stopContainer(natsName, natsProcess);
   if (postgresProcess) await stopContainer(postgresName, postgresProcess);
   if (natsImageBuilt) {
@@ -543,58 +590,69 @@ async function seed(db, hash) {
     requested_operations: ["read", "query"],
     collection_id: collectionId
   }, installationKey);
-  await db.query(
-    "INSERT INTO users (id, email, name) VALUES ($1, $2, $3)",
-    [userId, "relay-e2e@example.com", "Relay E2E"]
-  );
-  await db.query(
-    "INSERT INTO connectors (id, user_id, name, token_hash) VALUES ($1, $2, $3, $4)",
-    [connectorId, userId, "Relay E2E connector", hash(connectorToken)]
-  );
-  await db.query(
-    `INSERT INTO collections
-       (id, user_id, connector_id, local_id, display_name, spec_version, contracts)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
-    [collectionId, userId, connectorId, localCollectionId, "Relay E2E collection", "0.3.0", "[]"]
-  );
-  await db.query(
-    `INSERT INTO applications
-       (id, canonical_identity, name, homepage, redirect_uris, requirements, provisions)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb)`,
-    [
-      applicationId,
-      "bundle:dev.mdbase.relay-e2e:sha256:test",
-      "Relay E2E app",
-      "https://relay-e2e.example",
-      JSON.stringify(["https://relay-e2e.example/callback"]),
-      JSON.stringify({ contracts: [] }),
-      JSON.stringify({ types: [] })
-    ]
-  );
-  await db.query(
-    `INSERT INTO grants
-       (id, user_id, application_id, collection_id, operations, scope,
-        application_origin, application_authorization,
-        application_installation_id, activated_at)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb, $9, now())`,
-    [
-      grantId,
-      userId,
-      applicationId,
-      collectionId,
-      JSON.stringify(["read", "query"]),
-      JSON.stringify({ contracts: [], access: "full_collection" }),
-      "https://relay-e2e.example",
-      JSON.stringify(applicationAuthorization),
-      applicationAuthorization.binding.application_installation_id
-    ]
-  );
-  await db.query(
-    `INSERT INTO access_tokens (id, token_hash, grant_id, expires_at)
-     VALUES ($1, $2, $3, now() + interval '1 hour')`,
-    [randomUUID(), hash(accessToken), grantId]
-  );
+  const connection = await db.connect();
+  try {
+    await connection.query("BEGIN");
+    await connection.query(
+      "INSERT INTO users (id, email, name) VALUES ($1, $2, $3)",
+      [userId, "relay-e2e@example.com", "Relay E2E"]
+    );
+    await connection.query(
+      "INSERT INTO connectors (id, user_id, name, token_hash) VALUES ($1, $2, $3, $4)",
+      [connectorId, userId, "Relay E2E connector", hash(connectorToken)]
+    );
+    await connection.query(
+      `INSERT INTO collections
+         (id, user_id, connector_id, local_id, display_name, spec_version, contracts)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
+      [collectionId, userId, connectorId, localCollectionId, "Relay E2E collection", "0.3.0", "[]"]
+    );
+    await connection.query(
+      `INSERT INTO applications
+         (id, canonical_identity, name, homepage, redirect_uris, requirements, provisions)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb)`,
+      [
+        applicationId,
+        "bundle:dev.mdbase.relay-e2e:sha256:test",
+        "Relay E2E app",
+        "https://relay-e2e.example",
+        JSON.stringify(["https://relay-e2e.example/callback"]),
+        JSON.stringify({ contracts: [], access: "full_collection" }),
+        JSON.stringify({ types: [] })
+      ]
+    );
+    await connection.query(
+      `INSERT INTO grants
+         (id, user_id, application_id, collection_id, operations, scope,
+          application_origin, application_authorization,
+          application_installation_id, activated_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb, $9, now())`,
+      [
+        grantId,
+        userId,
+        applicationId,
+        collectionId,
+        JSON.stringify(["read", "query"]),
+        JSON.stringify({ contracts: [], access: "full_collection" }),
+        "https://relay-e2e.example",
+        JSON.stringify(applicationAuthorization),
+        applicationAuthorization.binding.application_installation_id
+      ]
+    );
+    await connection.query(
+      `INSERT INTO access_tokens (id, token_hash, grant_id, expires_at)
+       VALUES ($1, $2, $3, now() + interval '1 hour')`,
+      [randomUUID(), hash(accessToken), grantId]
+    );
+    await connection.query("COMMIT");
+  } catch (error) {
+    await connection.query("ROLLBACK");
+    throw error;
+  } finally {
+    connection.release();
+  }
   return {
+    userId,
     connectorId,
     collectionId,
     localCollectionId,
@@ -605,6 +663,86 @@ async function seed(db, hash) {
     connectorToken,
     accessToken
   };
+}
+
+async function waitForAuthorizationReadiness(instances, fixture) {
+  let diagnostics;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    diagnostics = await authorizationDiagnosticsForInstances(instances, fixture);
+    if (diagnostics.every(({ predicates }) => predicates.authorized)) return;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 20));
+  }
+  throw new Error(
+    "Committed relay authorization was not ready on both instances: "
+    + JSON.stringify({ authorization_predicates: diagnostics })
+  );
+}
+
+async function authorizationDiagnosticsForInstances(instances, fixture) {
+  return Promise.all(instances.map(async ({ name, db }) => ({
+    instance: name,
+    predicates: await authorizationDiagnostics(db, fixture)
+  })));
+}
+
+async function authorizationDiagnostics(db, fixture) {
+  const result = await db.query(
+    `SELECT
+       EXISTS(SELECT 1 FROM access_tokens WHERE token_hash = $1) AS token_present,
+       EXISTS(SELECT 1 FROM access_tokens
+         WHERE token_hash = $1 AND grant_id = $3) AS token_grant_match,
+       EXISTS(SELECT 1 FROM access_tokens
+         WHERE token_hash = $1 AND expires_at > now()) AS token_not_expired,
+       EXISTS(SELECT 1 FROM access_tokens
+         WHERE token_hash = $1 AND revoked_at IS NULL) AS token_not_revoked,
+       EXISTS(SELECT 1 FROM grants WHERE id = $3) AS grant_present,
+       EXISTS(SELECT 1 FROM grants
+         WHERE id = $3 AND revoked_at IS NULL AND activated_at IS NOT NULL) AS grant_active,
+       EXISTS(SELECT 1 FROM grants
+         WHERE id = $3 AND user_id = $4 AND collection_id = $5
+           AND application_id = $7) AS grant_links_match,
+       EXISTS(SELECT 1 FROM users WHERE id = $4) AS user_present,
+       EXISTS(SELECT 1 FROM users
+         WHERE id = $4 AND suspended_at IS NULL) AS user_not_suspended,
+       EXISTS(SELECT 1 FROM connectors WHERE id = $6) AS connector_present,
+       EXISTS(SELECT 1 FROM connectors
+         WHERE id = $6 AND user_id = $4 AND revoked_at IS NULL) AS connector_active,
+       EXISTS(SELECT 1 FROM collections WHERE id = $5) AS collection_present,
+       EXISTS(SELECT 1 FROM collections
+         WHERE id = $5 AND connector_id = $6 AND local_id = $2) AS collection_links_match,
+       EXISTS(SELECT 1 FROM collections
+         WHERE id = $5 AND enabled = true) AS collection_enabled,
+       EXISTS(SELECT 1 FROM collections
+         WHERE id = $5 AND present = true) AS collection_inventory_present,
+       EXISTS(SELECT 1 FROM collections
+         WHERE id = $5 AND authority_state = 'active') AS collection_authority_active,
+       EXISTS(SELECT 1 FROM applications
+         WHERE id = $7 AND requirements->>'access' = 'full_collection') AS application_scope_compatible,
+       EXISTS(
+         SELECT 1
+         FROM access_tokens tok
+         JOIN grants g ON g.id = tok.grant_id
+         JOIN users u ON u.id = g.user_id
+         JOIN collections col ON col.id = g.collection_id
+         WHERE tok.token_hash = $1 AND tok.expires_at > now()
+           AND tok.revoked_at IS NULL
+           AND g.id = $3 AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
+           AND g.user_id = $4 AND g.application_id = $7 AND g.collection_id = $5
+           AND u.suspended_at IS NULL
+           AND col.connector_id = $6 AND col.local_id = $2 AND col.enabled = true
+           AND col.present = true AND col.authority_state = 'active'
+       ) AS authorized`,
+    [
+      tokenHash(fixture.accessToken),
+      fixture.localCollectionId,
+      fixture.grantId,
+      fixture.userId,
+      fixture.collectionId,
+      fixture.connectorId,
+      fixture.applicationId
+    ]
+  );
+  return result.rows[0];
 }
 
 async function connectFakeConnector({ WebSocket: Socket, serverUrl, token, owner }) {

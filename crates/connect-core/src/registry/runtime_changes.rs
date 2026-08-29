@@ -367,6 +367,66 @@ fn runtime_context(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
+    use std::time::Instant;
+
+    fn collect_external_events(
+        registry: &CollectionRegistry,
+        collection_id: Uuid,
+        expected: usize,
+    ) -> Vec<(mdbase::watch::WatchEvent, u64)> {
+        let cancellation = mdbase::OperationCancellation::new();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut events = Vec::new();
+        while events.len() < expected && Instant::now() < deadline {
+            registry
+                .ingest_runtime_external(collection_id, Duration::from_millis(100), &cancellation)
+                .unwrap();
+            events.extend(
+                registry
+                    .finalize_runtime_changes(collection_id, &cancellation)
+                    .unwrap(),
+            );
+        }
+        assert_eq!(
+            events.len(),
+            expected,
+            "timed out waiting for watcher events"
+        );
+        events
+    }
+
+    fn assert_runtime_feed_quiet(registry: &CollectionRegistry, collection_id: Uuid) {
+        let cancellation = mdbase::OperationCancellation::new();
+        assert!(!registry
+            .ingest_runtime_external(collection_id, Duration::from_millis(200), &cancellation,)
+            .unwrap());
+        assert!(registry
+            .finalize_runtime_changes(collection_id, &cancellation)
+            .unwrap()
+            .is_empty());
+    }
+
+    fn event_paths(
+        events: &[(mdbase::watch::WatchEvent, u64)],
+    ) -> BTreeSet<(String, String, Option<String>)> {
+        events
+            .iter()
+            .map(|(event, _)| {
+                (
+                    event.event_type.clone(),
+                    event
+                        .payload
+                        .get("path")
+                        .or_else(|| event.payload.get("to"))
+                        .and_then(Value::as_str)
+                        .expect("record event has path or rename target")
+                        .to_string(),
+                    event.payload["from"].as_str().map(str::to_string),
+                )
+            })
+            .collect()
+    }
 
     #[test]
     fn provider_event_receipt_closes_append_before_ack_crash_window() {
@@ -424,6 +484,281 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn collection_wide_outcome_translates_and_replays_durably_once() {
+        let state = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        let collection = registry
+            .create(parent.path().join("notes"), Some("Notes"), "UTC")
+            .unwrap();
+        registry
+            .operation(
+                collection.id,
+                "create",
+                &json!({"path": "fixture.md", "frontmatter": {"title": "Fixture"}}),
+            )
+            .unwrap();
+
+        let registered = registry.get(collection.id).unwrap();
+        let executor = registry.executor_for(&registered).unwrap();
+        let context = runtime_context(&mdbase::OperationCancellation::new());
+        let mut event = executor
+            .read_change_events(None, &context)
+            .unwrap()
+            .events
+            .into_iter()
+            .next()
+            .unwrap();
+        event.changes = ChangeSet::CollectionWide {
+            reason: mdbase::runtime::RebuildReason::ExternalChangeUncertain,
+        };
+        event.origin = ChangeOrigin::Filesystem;
+        event.commit_id = None;
+        let translated =
+            runtime_watch_events(executor.runtime().unwrap().as_ref(), &event, &context).unwrap();
+        assert_eq!(translated.len(), 1);
+        assert_eq!(translated[0].event_type, "mdbase.collection.invalidated");
+        assert_eq!(translated[0].payload["reason"], "external_change_uncertain");
+        assert!(translated[0].payload.get("path").is_none());
+        assert_eq!(translated[0].payload["runtime"]["origin"], "filesystem");
+        assert!(translated[0].payload["runtime"]["event_id"].is_string());
+        assert!(translated[0].payload["runtime"]["generation"]["epoch"].is_string());
+        assert!(!serde_json::to_string(&translated)
+            .unwrap()
+            .contains("fixture.md"));
+        assert!(!serde_json::to_string(&translated)
+            .unwrap()
+            .contains("Fixture"));
+
+        let key = runtime_change_receipt_key(collection.id, &event);
+        let first = registry
+            .append_runtime_change(collection.id, &key, &event, &translated)
+            .unwrap();
+        assert_eq!(
+            registry
+                .append_runtime_change(collection.id, &key, &event, &translated)
+                .unwrap(),
+            first
+        );
+        assert_eq!(first.1, vec![1]);
+
+        let finalized = registry
+            .finalize_runtime_changes(collection.id, &mdbase::OperationCancellation::new())
+            .unwrap();
+        assert_eq!(
+            finalized,
+            first.0.into_iter().zip(first.1).collect::<Vec<_>>()
+        );
+        assert!(registry
+            .finalize_runtime_changes(collection.id, &mdbase::OperationCancellation::new())
+            .unwrap()
+            .is_empty());
+        let public = registry
+            .changes(collection.id, &json!({"after": 0}))
+            .unwrap();
+        assert_eq!(public.events.len(), 1);
+        assert_eq!(public.events[0].event_type, "mdbase.collection.invalidated");
+        assert_eq!(public.cursor, 1);
+    }
+
+    #[test]
+    fn recursive_directory_changes_translate_once_and_only_current_paths_resolve() {
+        let state = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("notes");
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        let collection = registry.create(&root, Some("Notes"), "UTC").unwrap();
+
+        std::fs::create_dir_all(root.join("before/nested")).unwrap();
+        std::fs::write(
+            root.join("before/nested/immediate.md"),
+            "---\ntitle: Immediate\n---\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("before/second.md"), "---\ntitle: Second\n---\n").unwrap();
+        let created = collect_external_events(&registry, collection.id, 2);
+        assert_eq!(
+            event_paths(&created),
+            BTreeSet::from([
+                (
+                    "mdbase.record.created".to_string(),
+                    "before/nested/immediate.md".to_string(),
+                    None
+                ),
+                (
+                    "mdbase.record.created".to_string(),
+                    "before/second.md".to_string(),
+                    None
+                ),
+            ])
+        );
+
+        std::fs::rename(root.join("before"), root.join("after")).unwrap();
+        let renamed = collect_external_events(&registry, collection.id, 2);
+        assert_eq!(
+            event_paths(&renamed),
+            BTreeSet::from([
+                (
+                    "mdbase.record.renamed".to_string(),
+                    "after/nested/immediate.md".to_string(),
+                    Some("before/nested/immediate.md".to_string())
+                ),
+                (
+                    "mdbase.record.renamed".to_string(),
+                    "after/second.md".to_string(),
+                    Some("before/second.md".to_string())
+                ),
+            ])
+        );
+        let query = registry
+            .operation(collection.id, "query", &json!({}))
+            .unwrap();
+        let paths = query["result"]["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|record| record["path"].as_str().unwrap())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            paths,
+            BTreeSet::from(["after/nested/immediate.md", "after/second.md"])
+        );
+        assert_eq!(
+            registry
+                .operation(collection.id, "read", &json!({"path": "before/second.md"}))
+                .unwrap()["valid"],
+            false
+        );
+        assert_eq!(
+            registry
+                .operation(collection.id, "read", &json!({"path": "after/second.md"}))
+                .unwrap()["valid"],
+            true
+        );
+
+        std::fs::remove_dir_all(root.join("after")).unwrap();
+        let deleted = collect_external_events(&registry, collection.id, 2);
+        assert_eq!(
+            event_paths(&deleted),
+            BTreeSet::from([
+                (
+                    "mdbase.record.deleted".to_string(),
+                    "after/nested/immediate.md".to_string(),
+                    None
+                ),
+                (
+                    "mdbase.record.deleted".to_string(),
+                    "after/second.md".to_string(),
+                    None
+                ),
+            ])
+        );
+        assert_runtime_feed_quiet(&registry, collection.id);
+
+        let all = registry
+            .changes(collection.id, &json!({"after": 0}))
+            .unwrap();
+        assert_eq!(all.events.len(), 6);
+        assert!(all
+            .events
+            .iter()
+            .all(|event| event.event_type != "mdbase.collection.invalidated"));
+        assert_eq!(
+            all.events
+                .iter()
+                .map(|event| event.cursor)
+                .collect::<Vec<_>>(),
+            vec![1, 2, 3, 4, 5, 6]
+        );
+        assert!(registry
+            .operation(collection.id, "query", &json!({}))
+            .unwrap()["result"]["results"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn duplicate_bytes_remain_delete_create_and_public_cursor_replays_once() {
+        let state = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("notes");
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        let collection = registry.create(&root, Some("Notes"), "UTC").unwrap();
+        std::fs::create_dir_all(root.join("before/nested")).unwrap();
+        let duplicate = "---\ntitle: Duplicate\n---\nSame\n";
+        std::fs::write(root.join("before/one.md"), duplicate).unwrap();
+        std::fs::write(root.join("before/nested/two.md"), duplicate).unwrap();
+        collect_external_events(&registry, collection.id, 2);
+        let baseline = registry.changes(collection.id, &json!({})).unwrap();
+        assert!(baseline.events.is_empty());
+        assert_eq!(baseline.cursor, 2);
+
+        std::fs::rename(root.join("before"), root.join("after")).unwrap();
+        let changes = collect_external_events(&registry, collection.id, 4);
+        assert!(changes
+            .iter()
+            .all(|(event, _)| event.event_type != "mdbase.record.renamed"));
+        assert_eq!(
+            event_paths(&changes),
+            BTreeSet::from([
+                (
+                    "mdbase.record.deleted".to_string(),
+                    "before/nested/two.md".to_string(),
+                    None
+                ),
+                (
+                    "mdbase.record.deleted".to_string(),
+                    "before/one.md".to_string(),
+                    None
+                ),
+                (
+                    "mdbase.record.created".to_string(),
+                    "after/nested/two.md".to_string(),
+                    None
+                ),
+                (
+                    "mdbase.record.created".to_string(),
+                    "after/one.md".to_string(),
+                    None
+                ),
+            ])
+        );
+        assert_runtime_feed_quiet(&registry, collection.id);
+
+        let replay = registry
+            .changes(collection.id, &json!({"after": baseline.cursor}))
+            .unwrap();
+        assert_eq!(replay.events.len(), 4);
+        assert_eq!(
+            replay
+                .events
+                .iter()
+                .map(|event| event.cursor)
+                .collect::<Vec<_>>(),
+            vec![3, 4, 5, 6]
+        );
+        let empty = registry
+            .changes(collection.id, &json!({"after": replay.cursor}))
+            .unwrap();
+        assert!(empty.events.is_empty());
+        assert_eq!(empty.cursor, replay.cursor);
+
+        drop(registry);
+        let reopened = CollectionRegistry::open(state.path()).unwrap();
+        let durable = reopened
+            .changes(collection.id, &json!({"after": baseline.cursor}))
+            .unwrap();
+        assert_eq!(durable.cursor, replay.cursor);
+        assert_eq!(durable.has_more, replay.has_more);
+        assert_eq!(durable.reset, replay.reset);
+        assert_eq!(
+            serde_json::to_value(durable.events).unwrap(),
+            serde_json::to_value(replay.events).unwrap()
+        );
     }
 
     #[test]
