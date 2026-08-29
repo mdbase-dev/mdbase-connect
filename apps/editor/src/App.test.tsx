@@ -132,19 +132,39 @@ describe("mdbase editor", () => {
     render(<App gateway={new DemoCollectionGateway(12)} />);
 
     await screen.findByRole("heading", { name: "Writing" });
-    const row = screen.getAllByRole("option")[1] as HTMLButtonElement;
+    const row = screen.getByRole("option", { name: /^Garden notes 2/ }) as HTMLButtonElement;
     const title = row.querySelector(".note-title")?.textContent;
     expect(title).toBeTruthy();
 
-    fireEvent.mouseEnter(row);
-    const preview = await screen.findByRole("tooltip");
-    expect(preview).toHaveAccessibleName(/Preview of/);
-    expect(preview.querySelector("header strong")?.textContent).toBeTruthy();
-    expect(preview.querySelector("header span")?.textContent).toMatch(/\.md$/);
-    expect(row).toHaveAttribute("aria-describedby", "note-preview-popover");
-
     fireEvent.mouseLeave(row);
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    let openPreview: TimerHandler | undefined;
+    const nativeSetTimeout = window.setTimeout.bind(window);
+    const timeout = vi.spyOn(window, "setTimeout").mockImplementation((handler, delay, ...args) => {
+      if (delay === 360) {
+        openPreview = handler;
+        return 1;
+      }
+      return nativeSetTimeout(handler, delay, ...args);
+    });
+    try {
+      fireEvent.mouseOver(row);
+      expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+      expect(timeout.mock.calls.filter(([, delay]) => delay === 360)).toHaveLength(1);
+      expect(openPreview).toBeTypeOf("function");
+
+      await act(async () => { (openPreview as () => void)(); });
+      const preview = screen.getByRole("tooltip");
+      expect(preview).toHaveAccessibleName(/Preview of/);
+      expect(preview.querySelector("header strong")?.textContent).toBeTruthy();
+      expect(preview.querySelector("header span")?.textContent).toMatch(/\.md$/);
+      expect(row).toHaveAttribute("aria-describedby", "note-preview-popover");
+
+      fireEvent.mouseLeave(row);
+      expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    } finally {
+      timeout.mockRestore();
+    }
   });
 
   it("does not reload the collection index after saving one note", async () => {
