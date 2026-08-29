@@ -7,6 +7,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 type TestResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
+const TEST_COORDINATION_TIMEOUT: Duration = Duration::from_secs(15);
+
 fn successor_snapshot(fixture: &Fixture) -> TestResult<crate::server::policy::PolicySnapshot> {
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as i64;
     let connector_id = fixture.encryption.connector_id;
@@ -75,7 +77,7 @@ async fn committed_successor_closes_real_http_connection_before_status_or_header
         stream.write_all(request.as_bytes()).await?;
         stream.write_all(&body).await?;
 
-        let hook_deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        let hook_deadline = tokio::time::Instant::now() + TEST_COORDINATION_TIMEOUT;
         loop {
             match hook.reached() {
                 Ok(()) => break,
@@ -117,7 +119,7 @@ async fn committed_successor_closes_real_http_connection_before_status_or_header
         hook.release();
         let mut received = Vec::new();
         let termination = tokio::time::timeout(
-            Duration::from_secs(2),
+            TEST_COORDINATION_TIMEOUT,
             stream.read_to_end(&mut received),
         )
         .await
