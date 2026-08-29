@@ -15,7 +15,7 @@ function isTestFile(file) {
   return (
     /(^|\/)(test|tests)\//.test(file) ||
     /\.(spec|test)\.[^.]+$/.test(file) ||
-    /(^|\/)tests\.rs$/.test(file)
+    /(^|\/)(?:tests|.+_(?:test|tests))\.rs$/.test(file)
   );
 }
 
@@ -27,6 +27,14 @@ function lineCount(source) {
   if (source.length === 0) return 0;
   const lines = source.split(/\r?\n/);
   return lines.at(-1) === "" ? lines.length - 1 : lines.length;
+}
+
+function matchCount(source, pattern) {
+  return [...source.matchAll(pattern)].length;
+}
+
+function packagePath(file) {
+  return file.split("/").slice(0, 2).join("/");
 }
 
 async function walk(directory) {
@@ -166,13 +174,33 @@ async function workspacePackageGraph(root) {
   }
 
   const packages = new Map();
+  const packagePaths = new Set();
   for (const packageFile of packageFiles) {
     try {
       const manifest = JSON.parse(await readFile(packageFile, "utf8"));
-      if (typeof manifest.name === "string") packages.set(manifest.name, manifest);
+      packagePaths.add(relativePath(root, path.dirname(packageFile)));
+      if (typeof manifest.name === "string") {
+        packages.set(manifest.name, manifest);
+      }
     } catch (error) {
       if (error?.code !== "ENOENT") throw error;
     }
+  }
+
+  const cratesDirectory = path.join(root, "crates");
+  try {
+    const crateEntries = await readdir(cratesDirectory, { withFileTypes: true });
+    for (const entry of crateEntries) {
+      if (!entry.isDirectory()) continue;
+      try {
+        await readFile(path.join(cratesDirectory, entry.name, "Cargo.toml"), "utf8");
+        packagePaths.add(`crates/${entry.name}`);
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
+    }
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
   }
 
   const graph = new Map();
@@ -187,7 +215,7 @@ async function workspacePackageGraph(root) {
       Object.keys(dependencies).filter((dependency) => packages.has(dependency)).sort()
     );
   }
-  return graph;
+  return { graph, packagePaths };
 }
 
 export async function evaluateArchitecture(root, budgets) {
@@ -202,9 +230,13 @@ export async function evaluateArchitecture(root, budgets) {
   }
 
   const measured = new Map();
-  for (const file of productionFiles.filter((file) => !isGeneratedFile(relativePath(root, file)))) {
+  const productionSources = new Map();
+  for (const file of productionFiles) {
     const relative = relativePath(root, file);
-    const lines = lineCount(await readFile(file, "utf8"));
+    const source = await readFile(file, "utf8");
+    productionSources.set(relative, source);
+    if (isGeneratedFile(relative)) continue;
+    const lines = lineCount(source);
     measured.set(relative, lines);
     const maximum = legacyBudgets[relative] ?? productionFileMaxLines;
     if (lines > maximum) {
@@ -222,6 +254,111 @@ export async function evaluateArchitecture(root, budgets) {
     }
   }
 
+  const productionFilesByPackage = {};
+  for (const relative of productionSources.keys()) {
+    const packageName = packagePath(relative);
+    productionFilesByPackage[packageName] = (productionFilesByPackage[packageName] ?? 0) + 1;
+  }
+  const workspaceInventory = await workspacePackageGraph(root);
+  const packageBudgets = budgets.productionFileBudgetsByPackage;
+  if (packageBudgets) {
+    const knownPackagePaths = new Set(Object.keys(productionFilesByPackage));
+    for (const packageName of workspaceInventory.packagePaths) {
+      knownPackagePaths.add(packageName);
+    }
+    for (const packageName of [...knownPackagePaths].sort()) {
+      const count = productionFilesByPackage[packageName] ?? 0;
+      const maximum = packageBudgets[packageName];
+      if (!Number.isSafeInteger(maximum)) {
+        failures.push(`${packageName} has ${count} production files but no package budget.`);
+      } else if (count > maximum) {
+        failures.push(`${packageName} has ${count} production files; its budget is ${maximum}.`);
+      }
+    }
+    for (const packageName of Object.keys(packageBudgets)) {
+      if (!knownPackagePaths.has(packageName)) {
+        failures.push(`${packageName} has a package budget but is not a source or workspace package.`);
+      }
+    }
+  }
+
+  const deadCodeReferencesByFile = {};
+  let rustPublicDeclarationCount = 0;
+  let typeScriptExportDeclarationCount = 0;
+  let collectionReferenceCount = 0;
+  let typedCollectionReferenceCount = 0;
+  for (const [relative, source] of productionSources) {
+    if (path.extname(relative) === ".rs") {
+      const deadCode = matchCount(source, /\bdead_code\b/g);
+      if (deadCode > 0) deadCodeReferencesByFile[relative] = deadCode;
+      rustPublicDeclarationCount += matchCount(source, /\bpub(?:\([^)]*\))?\b/g);
+    } else if (TYPESCRIPT_EXTENSIONS.has(path.extname(relative))) {
+      typeScriptExportDeclarationCount += matchCount(source, /\bexport\b/g);
+    }
+    collectionReferenceCount += matchCount(source, /\bmdbase::Collection\b/g);
+    typedCollectionReferenceCount += matchCount(source, /\bTypedCollection\b/g);
+  }
+
+  const deadCodeBudgets = budgets.deadCodeReferencesByFile;
+  if (deadCodeBudgets) {
+    for (const [file, count] of Object.entries(deadCodeReferencesByFile)) {
+      const maximum = deadCodeBudgets[file];
+      if (!Number.isSafeInteger(maximum)) {
+        failures.push(`${file} has ${count} unregistered dead-code reference(s).`);
+      } else if (count > maximum) {
+        failures.push(`${file} has ${count} dead-code references; its budget is ${maximum}.`);
+      }
+    }
+    for (const file of Object.keys(deadCodeBudgets)) {
+      if (!(file in deadCodeReferencesByFile)) {
+        failures.push(`${file} has a dead-code budget but no production dead-code reference.`);
+      }
+    }
+  }
+
+  const reviewBudgets =
+    budgets.reviewBudgets && typeof budgets.reviewBudgets === "object" && !Array.isArray(budgets.reviewBudgets)
+      ? budgets.reviewBudgets
+      : {};
+  const supportedReviewBudgets = new Set([
+    "productionFiles",
+    "relativeImports",
+    "workspacePackages",
+    "rustPublicDeclarations",
+    "typeScriptExportDeclarations",
+    "mdbaseCollectionReferences",
+    "typedCollectionReferences"
+  ]);
+  if (reviewBudgets !== budgets.reviewBudgets) {
+    failures.push("reviewBudgets must be an object with every reviewed surface.");
+  }
+  for (const name of supportedReviewBudgets) {
+    if (!(name in reviewBudgets)) {
+      failures.push(`reviewBudgets.${name} is required.`);
+    }
+  }
+  for (const [name, maximum] of Object.entries(reviewBudgets)) {
+    if (!supportedReviewBudgets.has(name)) {
+      failures.push(`reviewBudgets.${name} is not a supported reviewed surface.`);
+    } else if (!Number.isSafeInteger(maximum) || maximum < 0) {
+      failures.push(`reviewBudgets.${name} must be a non-negative integer.`);
+    }
+  }
+
+  const reviewedCounts = {
+    productionFiles: productionFiles.length,
+    rustPublicDeclarations: rustPublicDeclarationCount,
+    typeScriptExportDeclarations: typeScriptExportDeclarationCount,
+    mdbaseCollectionReferences: collectionReferenceCount,
+    typedCollectionReferences: typedCollectionReferenceCount
+  };
+  for (const [name, count] of Object.entries(reviewedCounts)) {
+    const maximum = reviewBudgets[name];
+    if (Number.isSafeInteger(maximum) && count > maximum) {
+      failures.push(`${name} is ${count}; its reviewed budget is ${maximum}.`);
+    }
+  }
+
   const importGraph = await relativeImportGraph(root, files);
   for (const cycle of graphCycles(importGraph)) {
     failures.push(
@@ -229,19 +366,38 @@ export async function evaluateArchitecture(root, budgets) {
     );
   }
 
-  const packageGraph = await workspacePackageGraph(root);
+  const packageGraph = workspaceInventory.graph;
   for (const cycle of graphCycles(packageGraph)) {
     failures.push(`Workspace package cycle: ${cycle.join(" -> ")}`);
+  }
+
+  const relativeImportCount = [...importGraph.values()].reduce(
+    (total, dependencies) => total + dependencies.length,
+    0
+  );
+  if (Number.isSafeInteger(reviewBudgets.relativeImports) && reviewBudgets.relativeImports >= 0 && relativeImportCount > reviewBudgets.relativeImports) {
+    failures.push(
+      `relativeImports is ${relativeImportCount}; its reviewed budget is ${reviewBudgets.relativeImports}.`
+    );
+  }
+  const workspacePackageCount = workspaceInventory.packagePaths.size;
+  if (Number.isSafeInteger(reviewBudgets.workspacePackages) && reviewBudgets.workspacePackages >= 0 && workspacePackageCount > reviewBudgets.workspacePackages) {
+    failures.push(
+      `workspacePackages is ${workspacePackageCount}; its reviewed budget is ${reviewBudgets.workspacePackages}.`
+    );
   }
 
   return {
     failures,
     productionFileCount: productionFiles.length,
-    relativeImportCount: [...importGraph.values()].reduce(
-      (total, dependencies) => total + dependencies.length,
-      0
-    ),
-    workspacePackageCount: packageGraph.size
+    productionFilesByPackage,
+    relativeImportCount,
+    workspacePackageCount,
+    rustPublicDeclarationCount,
+    typeScriptExportDeclarationCount,
+    deadCodeReferencesByFile,
+    collectionReferenceCount,
+    typedCollectionReferenceCount
   };
 }
 
@@ -261,7 +417,9 @@ if (invokedPath === fileURLToPath(import.meta.url)) {
     console.log(
       `Architecture check passed: ${result.productionFileCount} production files, ` +
       `${result.relativeImportCount} relative imports, ` +
-      `${result.workspacePackageCount} workspace packages.`
+      `${result.workspacePackageCount} workspace packages; ` +
+      `${result.rustPublicDeclarationCount} Rust public declarations, ` +
+      `${result.typeScriptExportDeclarationCount} TypeScript export declarations.`
     );
   }
 }

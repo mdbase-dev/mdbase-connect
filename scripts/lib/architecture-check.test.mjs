@@ -17,7 +17,16 @@ async function fixture(files) {
 
 const strictBudget = {
   productionFileMaxLines: 3,
-  legacyFileLineBudgets: {}
+  legacyFileLineBudgets: {},
+  reviewBudgets: {
+    productionFiles: 100,
+    relativeImports: 100,
+    workspacePackages: 100,
+    rustPublicDeclarations: 100,
+    typeScriptExportDeclarations: 100,
+    mdbaseCollectionReferences: 100,
+    typedCollectionReferences: 100
+  }
 };
 
 test("accepts small acyclic feature modules", async (t) => {
@@ -89,5 +98,168 @@ test("rejects cycles between workspace packages", async (t) => {
 
   assert.deepEqual(result.failures, [
     "Workspace package cycle: @mdbase/a -> @mdbase/b -> @mdbase/a"
+  ]);
+});
+
+test("makes package and public-surface growth an explicit budget change", async (t) => {
+  const root = await fixture({
+    "packages/example/package.json": JSON.stringify({ name: "@mdbase/example" }),
+    "packages/example/src/index.ts": "export const first = 1;\nexport const second = 2;\n"
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const rejected = await evaluateArchitecture(root, {
+    ...strictBudget,
+    productionFileBudgetsByPackage: {},
+    reviewBudgets: { ...strictBudget.reviewBudgets, typeScriptExportDeclarations: 1 }
+  });
+  assert.deepEqual(rejected.failures, [
+    "packages/example has 1 production files but no package budget.",
+    "typeScriptExportDeclarations is 2; its reviewed budget is 1."
+  ]);
+
+  const accepted = await evaluateArchitecture(root, {
+    ...strictBudget,
+    productionFileBudgetsByPackage: { "packages/example": 1 },
+    reviewBudgets: { ...strictBudget.reviewBudgets, typeScriptExportDeclarations: 2 }
+  });
+  assert.deepEqual(accepted.failures, []);
+});
+
+test("treats reviewed-surface baselines as flexible upper bounds", async (t) => {
+  const root = await fixture({
+    "packages/example/package.json": JSON.stringify({ name: "@mdbase/example" }),
+    "packages/example/src/index.ts": "export const value = 1;\n"
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const result = await evaluateArchitecture(root, {
+    ...strictBudget,
+    productionFileBudgetsByPackage: { "packages/example": 2 },
+    reviewBudgets: {
+      productionFiles: 2,
+      relativeImports: 1,
+      workspacePackages: 2,
+      rustPublicDeclarations: 1,
+      typeScriptExportDeclarations: 2,
+      mdbaseCollectionReferences: 1,
+      typedCollectionReferences: 1
+    }
+  });
+
+  assert.deepEqual(result.failures, []);
+  assert.equal(result.productionFileCount, 1);
+  assert.equal(result.typeScriptExportDeclarationCount, 1);
+});
+
+test("rejects dead-code references outside the reviewed file inventory", async (t) => {
+  const root = await fixture({
+    "crates/example/src/lib.rs": "#![allow(unused, dead_code)]\npub fn retained() {}\n"
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const result = await evaluateArchitecture(root, {
+    ...strictBudget,
+    deadCodeReferencesByFile: {}
+  });
+
+  assert.deepEqual(result.failures, [
+    "crates/example/src/lib.rs has 1 unregistered dead-code reference(s)."
+  ]);
+});
+
+test("excludes conventional Rust test modules from production budgets", async (t) => {
+  const root = await fixture({
+    "crates/example/src/lib.rs": "pub fn live() {}\n",
+    "crates/example/src/hostile_tests.rs": "pub fn fixture_only() {}\n"
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const result = await evaluateArchitecture(root, strictBudget);
+
+  assert.equal(result.productionFileCount, 1);
+  assert.equal(result.rustPublicDeclarationCount, 1);
+});
+
+test("counts same-line exports and Rust public fields conservatively", async (t) => {
+  const root = await fixture({
+    "packages/example/src/index.ts": "export const one = 1; export const two = 2;\n",
+    "crates/example/src/lib.rs": "pub struct Item { pub first: u8, pub second: u8 } pub fn build() {}\n"
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const result = await evaluateArchitecture(root, strictBudget);
+
+  assert.equal(result.typeScriptExportDeclarationCount, 2);
+  assert.equal(result.rustPublicDeclarationCount, 4);
+});
+
+test("inventories unnamed workspace packages even when they have no source files", async (t) => {
+  const root = await fixture({
+    "packages/empty/package.json": JSON.stringify({ private: true })
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const result = await evaluateArchitecture(root, {
+    ...strictBudget,
+    productionFileBudgetsByPackage: {}
+  });
+
+  assert.deepEqual(result.failures, [
+    "packages/empty has 0 production files but no package budget."
+  ]);
+});
+
+test("rejects malformed and unknown reviewed-surface budgets", async (t) => {
+  const root = await fixture({
+    "packages/example/src/index.ts": "export const value = 1;\n"
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const result = await evaluateArchitecture(root, {
+    ...strictBudget,
+    reviewBudgets: {
+      ...strictBudget.reviewBudgets,
+      relativeImports: "bad",
+      workspacePackages: -1,
+      inventedSurface: 0
+    }
+  });
+
+  assert.deepEqual(result.failures, [
+    "reviewBudgets.relativeImports must be a non-negative integer.",
+    "reviewBudgets.workspacePackages must be a non-negative integer.",
+    "reviewBudgets.inventedSurface is not a supported reviewed surface."
+  ]);
+});
+
+test("requires every reviewed-surface baseline", async (t) => {
+  const root = await fixture({
+    "packages/example/src/index.ts": "export const value = 1;\n"
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { relativeImports: _omitted, ...incomplete } = strictBudget.reviewBudgets;
+
+  const result = await evaluateArchitecture(root, {
+    ...strictBudget,
+    reviewBudgets: incomplete
+  });
+
+  assert.deepEqual(result.failures, ["reviewBudgets.relativeImports is required."]);
+});
+
+test("inventories empty Rust workspace crates", async (t) => {
+  const root = await fixture({
+    "crates/empty/Cargo.toml": "[package]\nname = 'empty'\nversion = '0.0.0'\n"
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const result = await evaluateArchitecture(root, {
+    ...strictBudget,
+    productionFileBudgetsByPackage: {}
+  });
+
+  assert.deepEqual(result.failures, [
+    "crates/empty has 0 production files but no package budget."
   ]);
 });
