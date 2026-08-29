@@ -21,6 +21,7 @@ allowBuilds:
   esbuild: true
   fs-xattr: true
   macos-alias: true
+  workerd: true
 
 overrides:
   "@hono/node-server": "2.0.11"

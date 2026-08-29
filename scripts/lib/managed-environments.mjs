@@ -1,7 +1,8 @@
 export const managedEnvironments = Object.freeze({
   lab: Object.freeze({
-    connectOrigin: "https://mdbase-connect-lab.onrender.com",
-    editorOrigin: "https://candidate-b.mdbase-editor.pages.dev"
+    connectOrigin: "https://connect-lab.mdbase.dev",
+    editorOrigin: "https://editor-lab.mdbase.dev",
+    cloudflareAccountId: "a738af70299a1b59abd43fe1275f5892"
   }),
   staging: Object.freeze({
     connectOrigin: "https://connect-staging.mdbase.dev",

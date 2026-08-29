@@ -78,17 +78,84 @@ generates a manifest for the staging editor origin, and targets the same-site
 custom domain idempotently; Cloudflare DNS must proxy
 `editor-staging.mdbase.dev` to `staging.mdbase-editor.pages.dev`.
 
-To publish the current working tree to that development surface without waiting
-for CI, sign in with Wrangler once, then run:
+LAB is a separate Direct Upload Pages project, `mdbase-editor-lab`, with the
+allowlisted `candidate-b` production branch and canonical custom origin
+`https://editor-lab.mdbase.dev/`. It targets the same-site
+`https://connect-lab.mdbase.dev` Connect origin. These project, branch, and
+origins are static and disjoint from staging and production; the deploy command
+has no target override. Operations must independently record and validate the
+Pages project, `candidate-b` production branch, canonical domain, and managed
+Cloudflare account before each qualified release. If Cloudflare configuration
+no longer matches this repository contract, an operator must correct and
+document that prerequisite before using the command. Do not guess a replacement
+branch or attach the LAB domain from this script.
+
+A LAB upload is an explicit exact-commit release, not a working-tree preview.
+From a clean checkout whose `origin` identifies
+`mdbase-dev/mdbase-connect`, supply the full lowercase commit both as the
+expected source and build revision, the exact managed
+`CLOUDFLARE_ACCOUNT_ID`, and an absolute report path outside the repository. The
+report parent must be operator-owned and not group/world writable, and the
+report itself must not already exist:
 
 ```sh
-pnpm dlx wrangler@4.114.0 login
-pnpm deploy:dev                         # lab (experimental default)
-MDBASE_ENV=staging pnpm deploy:dev      # staging release rehearsal
+commit=$(git rev-parse HEAD)
+MDBASE_ENV=lab \
+MDBASE_LAB_RELEASE_MODE=exact \
+MDBASE_LAB_EXPECTED_COMMIT="$commit" \
+VITE_MDBASE_BUILD_REVISION="$commit" \
+CLOUDFLARE_ACCOUNT_ID=<exact-managed-account-id> \
+MDBASE_LAB_DEPLOYMENT_REPORT=/private/operator/path/editor-lab-deployment.json \
+pnpm deploy:dev
 ```
 
-The command builds workspace packages, generates the editor for the staging
-origins, deploys the `staging` Pages branch using Wrangler's current login, and
-verifies the deployed manifest and assets. The Pages project already owns the
-custom domain. The command restores the pre-existing local manifest after the
-build.
+All source, account, target, and report guards run before package installation,
+builds, or Wrangler. The command runs `pnpm install --frozen-lockfile`, uses the
+root-pinned Wrangler `4.114.0`, and gives build commands only a minimal
+credential-free environment. Cloudflare credentials are exposed only to
+Wrangler. Wrangler receives an explicit private empty `--env-file`, so it cannot
+auto-load repository `.env` or `.env.local` files. Its human output is
+discarded; its pre-created private output file is parsed as NDJSON and must
+identify exactly one production deployment bound to the allowlisted project,
+branch, expected commit, deployment UUID, and immutable
+`<first-8-UUID-chars>.mdbase-editor-lab.pages.dev` origin.
+
+After upload, the command compares deployable files served by both the immutable
+deployment origin and canonical LAB origin byte-for-byte with local `dist`.
+Cloudflare's supported root routing is explicit: local `index.html` is fetched
+at `/`, while other implicit HTML routes are rejected. Pages `_headers` and
+`_redirects` control files are validated locally rather than fetched, and
+resulting security and cache headers are checked remotely. The manifest
+homepage, redirects, Connect origin, and full build revision must all match. In
+the report contract, `verification.assertions.build_revision` is the boolean
+qualification result; the exact commit remains in `source.commit` and
+`verification.revision_evidence.revision`.
+
+A private exclusive sidecar reserves the evidence name while the final report
+path remains absent. Before any build, the command also exclusively creates and
+fsyncs deterministic sibling evidence `<report>.wrangler.ndjson`, then fsyncs
+the secure parent directory. Wrangler appends directly to that mode-`0600` file.
+The command fsyncs it before parsing and retains it after every success or
+failure so operations can recover the candidate deployment after a crash.
+Final reports always contain its filename, digest, and byte count.
+
+Report publication writes and fsyncs a same-directory mode-`0600` temporary
+file, hard-links it into the final name without replacement, fsyncs the
+directory, removes temporary state, and fsyncs again. A competing final report
+or Wrangler evidence file therefore fails closed without being overwritten.
+Exceptions finalize a bounded failure report; failures after NDJSON parsing
+retain deployment ID and immutable URL, while nonzero or malformed Wrangler
+output retains whatever structured evidence was written. The source manifest is
+restored in every handled case.
+
+The existing staging rehearsal remains explicit and unchanged:
+
+```sh
+pnpm exec wrangler login
+MDBASE_ENV=staging pnpm deploy:dev
+```
+
+A bare `pnpm deploy:dev` now fails closed instead of publishing an unqualified
+LAB working tree. The staging command builds workspace packages, generates the
+staging manifest, uploads the allowlisted staging branch, verifies the deployed
+manifest and assets, and restores the pre-existing source manifest.
