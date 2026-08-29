@@ -63,7 +63,7 @@
     "stress:soak:smoke": "pnpm stress:prepare && node scripts/stress/functional-stress.mjs --profile soak --duration 10s --steps 100000 --clients 4 --initial-records 8 --checkpoint-every 100 --mirror-every 250",
     "test:stress-regressions": "pnpm stress:prepare && node scripts/stress/replay-regressions.mjs",
     "pretest": "pnpm build:packages",
-    "test": "node --test scripts/lib/*.test.mjs && pnpm --filter @mdbase/connect-desktop test && pnpm --filter '!@mdbase/connect-desktop' -r test",
+    "test": "node --test scripts/deploy-editor-dev.test.mjs scripts/lib/*.test.mjs && pnpm --filter @mdbase/connect-desktop test && pnpm --filter '!@mdbase/connect-desktop' -r test",
     "test:fast": "pnpm test && node test/rust/run.mjs",
     "test:integration": "pnpm test:browser-storage && pnpm test:accessibility",
     "test:system": "node test/system/run.mjs",
@@ -75,6 +75,7 @@
     "version:check": "node scripts/check-release-version.mjs"
   },
   "devDependencies": {
-    "@playwright/test": "^1.61.1"
+    "@playwright/test": "^1.61.1",
+    "wrangler": "4.114.0"
   }
 }

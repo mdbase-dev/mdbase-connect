@@ -1202,24 +1202,55 @@ fn file_capabilities_are_independent_scoped_and_mode_checked() {
         grant_id: capability.grant_id,
         scope_epoch: 1,
     };
+    let mut scoped_replica = replica.clone();
+    scoped_replica.mode = SyncReplicaMode::ReadWrite;
+    scoped_replica
+        .file_capability
+        .as_mut()
+        .unwrap()
+        .actions
+        .push(FileAction::Delete);
+    for action in [FileAction::List, FileAction::Read, FileAction::Delete] {
+        authorize_file_access(
+            &scoped_replica,
+            action,
+            Some("Assets/photo.png"),
+            Some("https://assets.example"),
+        )
+        .unwrap();
+        for denied in ["Assets", "Assets-old/photo.png"] {
+            assert_eq!(
+                authorize_file_access(
+                    &scoped_replica,
+                    action,
+                    Some(denied),
+                    Some("https://assets.example"),
+                )
+                .unwrap_err()
+                .code,
+                "scope_denied",
+                "{action:?} unexpectedly authorized {denied}"
+            );
+        }
+    }
+
+    let collection_replica = Replica {
+        file_capability: Some(FileCapability {
+            kind: mdbase_connect_protocol::FileCapabilityKind::Files,
+            protocol_version: FILE_PROTOCOL_VERSION,
+            actions: vec![FileAction::Read],
+            scope: FileScope::Collection,
+        }),
+        ..replica
+    };
     authorize_file_access(
-        &replica,
+        &collection_replica,
         FileAction::Read,
-        Some("Assets/photo.png"),
+        Some("Assets"),
         Some("https://assets.example"),
     )
     .unwrap();
-    assert_eq!(
-        authorize_file_access(
-            &replica,
-            FileAction::Read,
-            Some("Private/photo.png"),
-            Some("https://assets.example"),
-        )
-        .unwrap_err()
-        .code,
-        "scope_denied"
-    );
+
     capability
         .file_capability
         .as_mut()

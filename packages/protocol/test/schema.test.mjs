@@ -817,6 +817,10 @@ test("relay request and response discriminators reject malformed wire messages",
     protocol_version: 1,
     request_id: request.request_id,
     revision: `sha256:${"0".repeat(64)}`,
+    connector_id: "01955555-5555-7555-8555-555555555555",
+    sequence: 1,
+    lease_issued_at_ms: 1_700_000_000_000,
+    lease_expires_at_ms: 1_700_000_060_000,
     grants: []
   };
   assert.equal(validate(policy), true, JSON.stringify(validate.errors));
