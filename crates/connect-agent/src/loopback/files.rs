@@ -60,22 +60,49 @@ async fn file_upload(
             &origin,
         );
     };
+    let execution_deadline = state.agent.remote_policy_execution_deadline(None);
+    let Ok(policy_permit) = state.agent.capture_policy_revision() else {
+        return cors_error(
+            StatusCode::FORBIDDEN,
+            "access_denied",
+            "The remote policy lease expired.",
+            &origin,
+        );
+    };
     let admission = AdmissionRequest {
         grant_id: frame.header.grant_id,
         collection_id: frame.header.collection_id,
         class: WorkClass::File,
         weight_bytes: body.len(),
     };
-    let Ok(permit) = state.agent.admission().admit(admission).await else {
-        return cors_busy("The local connector is busy.", &origin);
+    let Ok(permit) = state
+        .agent
+        .admission()
+        .admit_before(
+            admission,
+            crate::admission::queue_deadline(execution_deadline),
+        )
+        .await
+    else {
+        return fenced_response(
+            cors_busy("The local connector is busy.", &origin),
+            state.agent.clone(),
+            policy_permit,
+            execution_deadline,
+            None,
+        );
     };
+    if state.agent.admit_policy_revision(&policy_permit).is_err() {
+        return abort_transport();
+    }
     let agent = state.agent.clone();
     let upload_origin = origin.clone();
     let execution = tokio::task::spawn_blocking(move || {
         let _permit = permit;
         agent.handle_direct_file_upload_frame(&upload_origin, frame)
     });
-    match tokio::time::timeout(Duration::from_secs(30), execution).await {
+    let outcome = tokio::time::timeout_at(execution_deadline, execution).await;
+    let response = match outcome {
         Ok(Ok(Ok(()))) => cors_response(StatusCode::NO_CONTENT.into_response(), &origin),
         Ok(Ok(Err(_))) => cors_error(
             StatusCode::FORBIDDEN,
@@ -89,13 +116,15 @@ async fn file_upload(
             "The local connector could not store this file chunk.",
             &origin,
         ),
-        Err(_) => cors_error(
-            StatusCode::GATEWAY_TIMEOUT,
-            "connector_timeout",
-            "The local connector did not store this file chunk in time.",
-            &origin,
-        ),
-    }
+        Err(_) => return abort_transport(),
+    };
+    fenced_response(
+        response,
+        state.agent.clone(),
+        policy_permit,
+        execution_deadline,
+        None,
+    )
 }
 
 async fn file_download(
@@ -107,22 +136,49 @@ async fn file_download(
     let Ok(origin) = authorize_browser_request(&state, &request, false) else {
         return denied();
     };
+    let execution_deadline = state.agent.remote_policy_execution_deadline(None);
+    let Ok(policy_permit) = state.agent.capture_policy_revision() else {
+        return cors_error(
+            StatusCode::FORBIDDEN,
+            "access_denied",
+            "The remote policy lease expired.",
+            &origin,
+        );
+    };
     let admission = AdmissionRequest {
         grant_id,
         collection_id: uuid::Uuid::nil(),
         class: WorkClass::File,
         weight_bytes: 1,
     };
-    let Ok(permit) = state.agent.admission().admit(admission).await else {
-        return cors_busy("The local connector is busy.", &origin);
+    let Ok(permit) = state
+        .agent
+        .admission()
+        .admit_before(
+            admission,
+            crate::admission::queue_deadline(execution_deadline),
+        )
+        .await
+    else {
+        return fenced_response(
+            cors_busy("The local connector is busy.", &origin),
+            state.agent.clone(),
+            policy_permit,
+            execution_deadline,
+            None,
+        );
     };
+    if state.agent.admit_policy_revision(&policy_permit).is_err() {
+        return abort_transport();
+    }
     let agent = state.agent.clone();
     let download_origin = origin.clone();
     let execution = tokio::task::spawn_blocking(move || {
         let _permit = permit;
         agent.direct_file_download_chunk(&download_origin, grant_id, transfer_id, chunk_index)
     });
-    match tokio::time::timeout(Duration::from_secs(30), execution).await {
+    let outcome = tokio::time::timeout_at(execution_deadline, execution).await;
+    let response = match outcome {
         Ok(Ok(Ok(bytes))) => {
             let mut response = Response::new(Body::from(bytes));
             *response.status_mut() = StatusCode::OK;
@@ -144,11 +200,13 @@ async fn file_download(
             "The local connector could not read this file chunk.",
             &origin,
         ),
-        Err(_) => cors_error(
-            StatusCode::GATEWAY_TIMEOUT,
-            "connector_timeout",
-            "The local connector did not read this file chunk in time.",
-            &origin,
-        ),
-    }
+        Err(_) => return abort_transport(),
+    };
+    fenced_response(
+        response,
+        state.agent.clone(),
+        policy_permit,
+        execution_deadline,
+        None,
+    )
 }

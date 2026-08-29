@@ -6,7 +6,7 @@ use std::sync::{mpsc, Condvar};
 use std::thread;
 use std::time::{Duration, Instant};
 
-const AUTHORITY_SCHEMA_VERSION: u32 = 2;
+const AUTHORITY_SCHEMA_VERSION: u32 = 3;
 const AUTHORITY_SCHEMA_V1_NAME: &str = "isolated_authority_store";
 const AUTHORITY_SCHEMA_V1_CHECKSUM: &str =
     "9130129006fd8b244b969bbbd6588d508e416fc10089df4fd1fe17cf1aca45b2";
@@ -16,6 +16,11 @@ const AUTHORITY_SCHEMA_V2_CHECKSUM: &str =
     "4caf46297b7c0f8b5461314b424d79d1ce0adba1c37e43f1400ab978eba79cfd";
 const AUTHORITY_SCHEMA_V2_SQL: &str =
     include_str!("migrations/authority/0002_legacy_read_receipts.sql");
+const AUTHORITY_SCHEMA_V3_NAME: &str = "policy_freshness_lease";
+const AUTHORITY_SCHEMA_V3_CHECKSUM: &str =
+    "d51160f590ed3a6337d9849115463efcc62bc19f83c0a2c86c307ceccbd414aa";
+const AUTHORITY_SCHEMA_V3_SQL: &str =
+    include_str!("migrations/authority/0003_policy_freshness_lease.sql");
 const DATA_QUEUE_CAPACITY: usize = 128;
 const CONTROL_QUEUE_CAPACITY: usize = 16;
 const MAX_CONTROL_BURST: usize = 8;
@@ -448,6 +453,10 @@ fn migrate_authority_store_with_hook(
         sha256_hex(AUTHORITY_SCHEMA_V2_SQL.as_bytes()),
         AUTHORITY_SCHEMA_V2_CHECKSUM
     );
+    debug_assert_eq!(
+        sha256_hex(AUTHORITY_SCHEMA_V3_SQL.as_bytes()),
+        AUTHORITY_SCHEMA_V3_CHECKSUM
+    );
     if authority_path.exists() {
         upgrade_authority_store(authority_path)?;
         verify_authority_store(authority_path)?;
@@ -568,6 +577,7 @@ fn migrate_authority_store_with_hook(
     externalize_migrated_receipts(&mut connection, &receipts)?;
     hook("after_authority_receipts")?;
     apply_authority_v2(&mut connection)?;
+    apply_authority_v3(&mut connection)?;
     connection.pragma_update(None, "journal_mode", "WAL")?;
     hook("after_authority_wal")?;
     let quick_check: String =
@@ -686,6 +696,11 @@ fn verify_authority_store(path: &Path) -> Result<(), ConnectError> {
             AUTHORITY_SCHEMA_V2_NAME,
             AUTHORITY_SCHEMA_V2_CHECKSUM,
         ),
+        (
+            3_u32,
+            AUTHORITY_SCHEMA_V3_NAME,
+            AUTHORITY_SCHEMA_V3_CHECKSUM,
+        ),
     ] {
         let checksum: String = connection.query_row(
             "SELECT checksum FROM authority_schema_migrations WHERE version = ?1 AND name = ?2",
@@ -728,8 +743,10 @@ fn upgrade_authority_store(path: &Path) -> Result<(), ConnectError> {
                     detail: "authority migration 1 checksum does not match this build".to_string(),
                 });
             }
-            apply_authority_v2(&mut connection)
+            apply_authority_v2(&mut connection)?;
+            apply_authority_v3(&mut connection)
         }
+        2 => apply_authority_v3(&mut connection),
         found => Err(ConnectError::RegistrySchemaIncompatible {
             path: path.to_path_buf(),
             found,
@@ -751,12 +768,29 @@ fn apply_authority_v2(connection: &mut Connection) -> Result<(), ConnectError> {
             current_time_ms()
         ],
     )?;
+    transaction.pragma_update(None, "user_version", 2_u32)?;
+    transaction.commit()?;
+    Ok(())
+}
+
+fn apply_authority_v3(connection: &mut Connection) -> Result<(), ConnectError> {
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    transaction.execute_batch(AUTHORITY_SCHEMA_V3_SQL)?;
+    transaction.execute(
+        "INSERT INTO authority_schema_migrations
+         (version, name, checksum, applied_at_ms) VALUES (3, ?1, ?2, ?3)",
+        params![
+            AUTHORITY_SCHEMA_V3_NAME,
+            AUTHORITY_SCHEMA_V3_CHECKSUM,
+            current_time_ms()
+        ],
+    )?;
     transaction.pragma_update(None, "user_version", AUTHORITY_SCHEMA_VERSION)?;
     transaction.commit()?;
     Ok(())
 }
 
-fn current_time_ms() -> i64 {
+pub(super) fn current_time_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()

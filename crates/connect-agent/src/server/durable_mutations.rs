@@ -38,6 +38,20 @@ impl AgentState {
                 .with_operation_outcome(ConnectOperationOutcome::Rejected),
             );
         };
+        // Recheck the lease/revision cancellation immediately before the durable
+        // boundary. Policy replacement cancels admitted remote work; the lease
+        // deadline is also installed as the worker's cancellation deadline.
+        if cancellation.is_cancelled() || !self.registry.remote_policy_is_fresh().unwrap_or(false) {
+            return encrypted_problem_response(
+                keys,
+                metadata,
+                ConnectProblem::new(
+                    "operation_cancelled",
+                    "Remote authority changed before the durable mutation was claimed.",
+                )
+                .with_operation_outcome(ConnectOperationOutcome::NotSent),
+            );
+        }
         // The timeout and worker race at one atomic boundary. If timeout wins,
         // this request is provably not sent. If the durable transition wins,
         // the caller must recover by replaying the exact request identity.

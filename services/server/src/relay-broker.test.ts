@@ -4,12 +4,13 @@ import {
   RelayBrokerUnavailableError,
   type RelayBrokerCommand
 } from "./relay-broker.js";
+import { POLICY_PUSH_SIGNAL } from "./relay-policy-session.js";
 
 const connectorId = "01234567-89ab-4def-8123-456789abcdef";
 const policy: RelayBrokerCommand = {
   version: 1,
   kind: "policy",
-  message: { type: "policy_snapshot", grants: [] }
+  message: POLICY_PUSH_SIGNAL
 };
 
 describe("local relay broker", () => {
@@ -57,11 +58,38 @@ describe("local relay broker", () => {
     expect(replaced).toHaveBeenCalledOnce();
   });
 
-  it("fails readiness and routing after shutdown", async () => {
+  it("times out a stalled local broker handler", async () => {
     const broker = new LocalRelayBroker();
+    await broker.bind({
+      connectorId,
+      generation: "1",
+      handle: () => new Promise(() => undefined),
+      handleBinary: () => new Promise(() => undefined),
+      replaced: vi.fn()
+    });
+
+    await expect(broker.request(connectorId, "1", policy, 5))
+      .rejects.toThrow("timed out");
+    await expect(broker.requestBinary(connectorId, "1", Uint8Array.of(1), 5))
+      .rejects.toThrow("timed out");
+  });
+
+  it("fails after shutdown and does not replay bindings into a restarted broker", async () => {
+    const broker = new LocalRelayBroker();
+    await broker.bind({
+      connectorId,
+      generation: "1",
+      handle: async () => ({ version: 1, ok: true }),
+      handleBinary: async (frame) => ({ version: 1, ok: true, value: frame }),
+      replaced: vi.fn()
+    });
     await broker.close();
     await expect(broker.ready()).rejects.toBeInstanceOf(RelayBrokerUnavailableError);
     await expect(broker.request(connectorId, "1", policy, 10))
+      .rejects.toBeInstanceOf(RelayBrokerUnavailableError);
+
+    const restarted = new LocalRelayBroker();
+    await expect(restarted.request(connectorId, "1", policy, 10))
       .rejects.toBeInstanceOf(RelayBrokerUnavailableError);
   });
 
