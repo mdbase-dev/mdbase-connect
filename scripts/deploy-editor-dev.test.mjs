@@ -97,7 +97,7 @@ function successfulGitCapture(command, args) {
 test("pinned Wrangler CLI exposes the expected Pages contract and no JSON flag", () => {
   const version = spawnSync("pnpm", ["exec", "wrangler", "--version"], { cwd: root, encoding: "utf8" });
   assert.equal(version.status, 0, version.stderr);
-  assert.match(version.stdout, /4\.114\.0/u);
+  assert.match(version.stdout, /4\.126\.0/u);
   const help = spawnSync("pnpm", ["exec", "wrangler", "pages", "deploy", "--help"], { cwd: root, encoding: "utf8" });
   assert.equal(help.status, 0, help.stderr);
   assert.match(help.stdout, /--commit-hash/u);
