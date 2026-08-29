@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.1.0-beta.91
+
+Beta.91 hardens collection ownership, filesystem convergence, and authorization
+revocation across the Editor, local connector, hosted provider, and mirrors.
+
+- Editor collection transitions freeze and drain owned work before changing
+  authority, fence stale publication, isolate transclusions, and keep detached
+  type-definition saves generation-safe.
+- Watcher and mirror paths preserve typed invalid-record outcomes, capability-
+  bound filesystem reads, exact cache acknowledgement, bounded retry state, and
+  feed silence for invalid private observations.
+- Hosted authority imports, mutation recovery, account snapshots, selected-folder
+  scopes, and exact timer reconciliation now retain their execution-time
+  authority and fail closed under contention or stale completion.
+- Connector policy leases use exact-session acknowledgements, bounded renewal,
+  cross-instance coalescing, and transport-bound publication fences so revoked
+  work cannot publish through a successor policy.
+- Release tooling can bind an exact signed candidate, client, and Editor revision
+  to guarded LAB-only deployment and rollback evidence without permitting a
+  staging or production target.
+
 ## 0.1.0-beta.90
 
 Beta.90 makes account deletion transactional, isolates stale hosted grants, and
