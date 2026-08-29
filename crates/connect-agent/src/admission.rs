@@ -27,8 +27,8 @@ pub(crate) fn execution_timeout(deadline_unix_ms: Option<u64>) -> Duration {
     Duration::from_millis(remaining_ms.min(MAX_OPERATION_EXECUTION.as_millis()) as u64)
 }
 
-pub(crate) fn queue_deadline(deadline_unix_ms: Option<u64>) -> TokioInstant {
-    TokioInstant::now() + execution_timeout(deadline_unix_ms).min(DEFAULT_QUEUE_WAIT)
+pub(crate) fn queue_deadline(operation_deadline: TokioInstant) -> TokioInstant {
+    operation_deadline.min(TokioInstant::now() + DEFAULT_QUEUE_WAIT)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -464,6 +464,17 @@ mod tests {
             class,
             weight_bytes: 1,
         }
+    }
+
+    #[tokio::test]
+    async fn near_expiry_after_queue_uses_the_original_absolute_deadline() {
+        let operation_deadline = TokioInstant::now() + Duration::from_millis(1);
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        assert!(
+            tokio::time::timeout_at(operation_deadline, std::future::pending::<()>(),)
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]

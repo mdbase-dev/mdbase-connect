@@ -1,8 +1,8 @@
 use mdbase_connect_core::{CollectionRegistry, ConnectError};
 use mdbase_connect_protocol::CollectionSummary;
 use std::collections::BTreeSet;
-use std::sync::mpsc;
-use std::thread;
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -22,7 +22,33 @@ pub struct CollectionRuntimeEvent {
 /// runtimes and persists their already-normalized, ordered feed events.
 #[derive(Clone)]
 pub struct CollectionWatchService {
+    inner: Arc<FinalizerWorker>,
+}
+
+struct FinalizerWorker {
     commands: mpsc::Sender<Command>,
+    worker: Mutex<Option<JoinHandle<()>>>,
+}
+
+impl Drop for FinalizerWorker {
+    fn drop(&mut self) {
+        let _ = self.commands.send(Command::Shutdown);
+        // The worker owns only its receiver and registry, never this Arc, so the
+        // final Arc cannot be dropped by the worker itself. Release the mutex
+        // before joining because worker teardown must not depend on this lock.
+        let worker = {
+            let mut worker = self
+                .worker
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            worker.take()
+        };
+        if let Some(worker) = worker {
+            if worker.join().is_err() {
+                tracing::warn!("collection runtime finalizer panicked during shutdown");
+            }
+        }
+    }
 }
 
 enum Command {
@@ -30,6 +56,7 @@ enum Command {
     Deactivate(Uuid, mpsc::SyncSender<()>),
     Finalize(Uuid, mpsc::SyncSender<Result<(), ConnectError>>),
     Reconcile(Uuid, mpsc::SyncSender<()>),
+    Shutdown,
     #[cfg(test)]
     IsActive(Uuid, mpsc::SyncSender<bool>),
 }
@@ -45,11 +72,16 @@ impl CollectionWatchService {
         runtime_events: Option<tokio::sync::mpsc::UnboundedSender<CollectionRuntimeEvent>>,
     ) -> Self {
         let (commands, receiver) = mpsc::channel();
-        thread::Builder::new()
+        let worker = thread::Builder::new()
             .name("mdbase-connect-runtime-finalizer".to_string())
             .spawn(move || run_finalizer(registry, receiver, runtime_events))
             .expect("failed to start collection runtime finalizer");
-        Self { commands }
+        Self {
+            inner: Arc::new(FinalizerWorker {
+                commands,
+                worker: Mutex::new(Some(worker)),
+            }),
+        }
     }
 
     pub fn refresh(&self, collections: &[CollectionSummary]) {
@@ -59,7 +91,12 @@ impl CollectionWatchService {
             .filter(|collection| collection.enabled)
             .cloned()
             .collect();
-        if self.commands.send(Command::Refresh(active, ready)).is_err() {
+        if self
+            .inner
+            .commands
+            .send(Command::Refresh(active, ready))
+            .is_err()
+        {
             tracing::warn!("collection runtime finalizer is unavailable");
             return;
         }
@@ -76,6 +113,7 @@ impl CollectionWatchService {
     pub fn deactivate(&self, collection_id: Uuid) {
         let (ready, receiver) = mpsc::sync_channel(0);
         if self
+            .inner
             .commands
             .send(Command::Deactivate(collection_id, ready))
             .is_err()
@@ -91,7 +129,8 @@ impl CollectionWatchService {
     #[cfg(test)]
     pub fn is_active(&self, collection_id: Uuid) -> bool {
         let (ready, receiver) = mpsc::sync_channel(0);
-        self.commands
+        self.inner
+            .commands
             .send(Command::IsActive(collection_id, ready))
             .expect("collection runtime finalizer is available");
         receiver
@@ -115,7 +154,8 @@ impl CollectionWatchService {
     fn request(&self, collection_id: Uuid, reconcile: bool) -> Result<(), ConnectError> {
         if reconcile {
             let (ready, receiver) = mpsc::sync_channel(0);
-            self.commands
+            self.inner
+                .commands
                 .send(Command::Reconcile(collection_id, ready))
                 .map_err(|_| {
                     ConnectError::CollectionOpen(
@@ -130,7 +170,8 @@ impl CollectionWatchService {
             return Ok(());
         }
         let (ready, receiver) = mpsc::sync_channel(0);
-        self.commands
+        self.inner
+            .commands
             .send(Command::Finalize(collection_id, ready))
             .map_err(|_| {
                 ConnectError::CollectionOpen(
@@ -153,11 +194,15 @@ fn run_finalizer(
     let mut active = BTreeSet::new();
     loop {
         match commands.recv_timeout(EXTERNAL_POLL) {
+            Ok(Command::Shutdown) => return,
             Ok(command) => handle_command(&registry, &mut active, command, runtime_events.as_ref()),
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => return,
         }
         while let Ok(command) = commands.try_recv() {
+            if matches!(&command, Command::Shutdown) {
+                return;
+            }
             handle_command(&registry, &mut active, command, runtime_events.as_ref());
         }
         for collection_id in active_resident_ids(&registry, &active) {
@@ -210,6 +255,7 @@ fn handle_command(
             }
             let _ = ready.send(());
         }
+        Command::Shutdown => unreachable!("shutdown is handled by the worker loop"),
         #[cfg(test)]
         Command::IsActive(collection_id, ready) => {
             let _ = ready.send(active.contains(&collection_id));
@@ -288,5 +334,40 @@ fn log_finalize_resident(
             %error,
             "resident runtime change finalization failed"
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn final_service_drop_joins_worker_before_fixture_removal() {
+        let root =
+            std::env::temp_dir().join(format!("mdbase-watch-service-lifecycle-{}", Uuid::new_v4()));
+        let registry = CollectionRegistry::open(root.join("state")).unwrap();
+        let collection = registry
+            .create(root.join("collection"), Some("Lifecycle"), "UTC")
+            .unwrap();
+        assert!(registry
+            .resident_collection_ids()
+            .unwrap()
+            .contains(&collection.id));
+
+        let service = CollectionWatchService::start(registry.clone());
+        service.refresh(&registry.list().unwrap());
+        let final_service = service.clone();
+        let worker_owner = Arc::downgrade(&service.inner);
+
+        drop(registry);
+        drop(service);
+        assert!(worker_owner.upgrade().is_some());
+        drop(final_service);
+        assert!(worker_owner.upgrade().is_none());
+
+        // This is deliberately one attempt: final service drop is the barrier
+        // that must release the runtime's Windows directory handle.
+        fs::remove_dir_all(&root).unwrap();
     }
 }

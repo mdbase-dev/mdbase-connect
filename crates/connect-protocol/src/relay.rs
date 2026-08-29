@@ -29,6 +29,10 @@ pub enum RelayMessage {
         protocol_version: u32,
         request_id: Uuid,
         revision: String,
+        connector_id: Uuid,
+        sequence: u64,
+        lease_issued_at_ms: i64,
+        lease_expires_at_ms: i64,
         grants: Vec<GrantPolicy>,
     },
     PolicyApplied {
