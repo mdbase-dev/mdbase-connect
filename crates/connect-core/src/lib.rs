@@ -14,13 +14,13 @@ pub use config::{
 };
 pub use local_sync::{LocalReplica, LocalSyncStore};
 pub use registry::{
-    collection_identity, default_control_endpoint, default_state_dir,
-    encrypted_request_fingerprint, mirror_collection_id, AuthorityReceiptDiagnostics,
-    CollectionCatalogEntry, CollectionRegistry, ConnectError, EncryptedReplayClass,
-    EncryptedRequestClaim, GrantReplayContext, MutationClaim, MutationClaimRequest,
-    MutationJournalDiagnostics, MutationJournalState, MutationLease, MutationRecoveryData,
-    RegistryBackupDiagnostic, RegistryBackupMetadata, RegistryDiagnostics,
-    RuntimeResidencyDiagnostics,
+    canonical_policy_authority_digest, collection_identity, default_control_endpoint,
+    default_state_dir, encrypted_request_fingerprint, mirror_collection_id,
+    AuthorityReceiptDiagnostics, CollectionCatalogEntry, CollectionRegistry, ConnectError,
+    EncryptedReplayClass, EncryptedRequestClaim, GrantReplayContext, MutationClaim,
+    MutationClaimRequest, MutationJournalDiagnostics, MutationJournalState, MutationLease,
+    MutationRecoveryData, RegistryBackupDiagnostic, RegistryBackupMetadata, RegistryDiagnostics,
+    RemotePolicyAuthority, RuntimeResidencyDiagnostics,
 };
 pub use secrets::SystemSecretStore;
 pub mod profiling;

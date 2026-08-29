@@ -152,10 +152,11 @@ describe("instance administration", () => {
     );
     const revokeReplica = vi.fn(async () => {});
     const abortAuthorityImport = vi.fn(async () => {});
+    const fenceUser = vi.fn(async () => {});
     const service = new InstanceAdminService(db, {
       revokeReplica,
       abortAuthorityImport
-    });
+    }, { fenceUser });
     const operationId = randomUUID();
     const mutation = {
       operationId,
@@ -169,6 +170,7 @@ describe("instance administration", () => {
       user_id: userId,
       status: "suspended",
       changed: true,
+      fence: "closed",
       revoked: {
         sessions: 1,
         connectors: 1,
@@ -185,11 +187,25 @@ describe("instance administration", () => {
     });
     expect(revokeReplica).toHaveBeenCalledWith(replicaId);
     expect(abortAuthorityImport).toHaveBeenCalledWith(adoptionId);
+    expect(fenceUser).toHaveBeenCalledWith(userId);
 
+    fenceUser.mockRejectedValueOnce(new Error("broker interrupted"));
     const replayed = await service.suspendUser(userId, mutation);
-    expect(replayed).toEqual(suspended);
+    expect(replayed).toEqual({
+      ...suspended,
+      fence: "committed_with_degraded_fence"
+    });
     expect(revokeReplica).toHaveBeenCalledTimes(1);
     expect(abortAuthorityImport).toHaveBeenCalledTimes(1);
+    const noBroker = new InstanceAdminService(db);
+    await expect(noBroker.suspendUser(userId, {
+      operationId: randomUUID(),
+      actor: "operator:callum",
+      reason: "Reassert suspension without a broker"
+    })).resolves.toEqual(expect.objectContaining({
+      status: "suspended",
+      fence: "committed_with_degraded_fence"
+    }));
     await expect(service.restoreUser(userId, {
       ...mutation,
       reason: "Different request with a reused identifier"

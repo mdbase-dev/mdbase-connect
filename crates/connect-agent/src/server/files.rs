@@ -138,6 +138,9 @@ impl AgentState {
                 let capability = require_file_action(grant, FileAction::Move)?;
                 require_visible_path(capability, &request.from_path)?;
                 require_visible_path(capability, &request.path)?;
+                cancellation
+                    .check()
+                    .map_err(|_| ConnectError::OperationCancelled)?;
                 let receipt = self
                     .registry
                     .move_file(grant.collection_id, grant.id, &request)?;
@@ -148,6 +151,9 @@ impl AgentState {
                 let request: DeleteFileRequest = parse_file_control(input)?;
                 let capability = require_file_action(grant, FileAction::Delete)?;
                 require_visible_path(capability, &request.path)?;
+                cancellation
+                    .check()
+                    .map_err(|_| ConnectError::OperationCancelled)?;
                 let receipt = self
                     .registry
                     .delete_file(grant.collection_id, grant.id, &request)?;
@@ -188,6 +194,9 @@ impl AgentState {
                     },
                 )?;
                 require_visible_path(capability, &path)?;
+                cancellation
+                    .check()
+                    .map_err(|_| ConnectError::OperationCancelled)?;
                 let receipt = self.registry.commit_file_upload(
                     grant.collection_id,
                     grant.id,
@@ -220,15 +229,7 @@ impl AgentState {
         result
     }
 
-    pub fn handle_direct_file_upload_frame(
-        &self,
-        origin: &str,
-        frame: FileFrame,
-    ) -> Result<(), ConnectError> {
-        self.handle_file_upload(Some(origin), frame)
-    }
-
-    pub fn handle_relay_file_frame(&self, request: RelayFileFrame) -> RelayFileFrame {
+    pub(super) fn handle_relay_file_frame_inner(&self, request: RelayFileFrame) -> RelayFileFrame {
         let response = match request.kind {
             RelayFileKind::UploadChunk => FileFrame::decode(&request.payload)
                 .map_err(|error| {
@@ -276,7 +277,7 @@ impl AgentState {
         }
     }
 
-    fn handle_file_upload(
+    pub(super) fn handle_file_upload(
         &self,
         origin: Option<&str>,
         frame: FileFrame,
@@ -319,6 +320,11 @@ impl AgentState {
                 "The upload chunk could not be authenticated.",
             )
         })?;
+        if !self.registry.remote_policy_is_fresh()? {
+            return Err(ConnectError::AccessDenied(
+                "The remote application policy lease has expired.".to_string(),
+            ));
+        }
         self.registry.put_file_upload_chunk(
             grant.collection_id,
             grant.id,
@@ -329,17 +335,7 @@ impl AgentState {
         Ok(())
     }
 
-    pub fn direct_file_download_chunk(
-        &self,
-        origin: &str,
-        grant_id: uuid::Uuid,
-        transfer_id: uuid::Uuid,
-        chunk_index: u64,
-    ) -> Result<Vec<u8>, ConnectError> {
-        self.file_download_chunk(Some(origin), grant_id, transfer_id, chunk_index)
-    }
-
-    fn file_download_chunk(
+    pub(super) fn file_download_chunk(
         &self,
         origin: Option<&str>,
         grant_id: uuid::Uuid,
@@ -366,6 +362,11 @@ impl AgentState {
             return Err(local_file_error(
                 "invalid_file_transfer",
                 "The local download session is inconsistent.",
+            ));
+        }
+        if !self.registry.remote_policy_is_fresh()? {
+            return Err(ConnectError::AccessDenied(
+                "The remote application policy lease has expired.".to_string(),
             ));
         }
         let bytes = self.registry.read_file_download_chunk(
@@ -423,6 +424,11 @@ impl AgentState {
         action: FileAction,
         allow_either_write: bool,
     ) -> Result<mdbase_connect_protocol::GrantSummary, ConnectError> {
+        if !self.registry.remote_policy_is_fresh()? {
+            return Err(ConnectError::AccessDenied(
+                "The remote application policy lease has expired.".to_string(),
+            ));
+        }
         if self.registry.paused()? {
             return Err(ConnectError::AccessDenied(
                 "Remote access is paused on this computer.".to_string(),

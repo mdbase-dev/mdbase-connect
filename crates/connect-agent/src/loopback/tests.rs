@@ -9,19 +9,12 @@ use mdbase_connect_protocol::{
     OPERATION_TRANSPORT_PROTOCOL_VERSION, RELAY_ENCRYPTION_SUITE,
 };
 use std::fs;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tower::ServiceExt;
 use uuid::Uuid;
 
-#[test]
-fn busy_responses_are_explicitly_retryable() {
-    let response = cors_busy("Busy.", "https://app.example");
-    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-    assert_eq!(response.headers().get(header::RETRY_AFTER).unwrap(), "1");
-    assert_eq!(
-        response.headers().get(ACCESS_CONTROL_ALLOW_ORIGIN).unwrap(),
-        "https://app.example"
-    );
-}
+mod publication;
+mod service_boundary;
 
 #[tokio::test]
 async fn exact_origin_host_and_protocol_one_are_enforced() {
@@ -581,82 +574,7 @@ async fn applied_but_unrecorded_filesystem_change_becomes_durable_unknown_not_re
     remove_fixture_after_watchers_close(&root);
 }
 
-#[tokio::test]
-async fn preflight_pause_tampering_and_revocation_fail_closed() {
-    let fixture = fixture();
-    let app = router(fixture.agent.clone(), 28_485);
-    let preflight = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method(Method::OPTIONS)
-                .uri("/v1/operations")
-                .header(HOST, "127.0.0.1:28485")
-                .header(ORIGIN, &fixture.origin)
-                .header(header::ACCESS_CONTROL_REQUEST_METHOD, "POST")
-                .header(header::ACCESS_CONTROL_REQUEST_HEADERS, "content-type")
-                .header("access-control-request-private-network", "true")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(preflight.status(), StatusCode::NO_CONTENT);
-    assert_eq!(
-        preflight
-            .headers()
-            .get("access-control-allow-private-network")
-            .unwrap(),
-        "true"
-    );
-
-    fixture.registry.set_paused(true).unwrap();
-    let paused = fixture.direct(&app, "query", json!({}), 1).await;
-    assert_eq!(paused["ok"], false);
-    assert_eq!(paused["problem"]["code"], "access_paused");
-    assert_eq!(paused["problem"]["category"], "availability");
-    assert_eq!(paused["problem"]["recovery"], "resume_connector_access");
-    let activity = fixture.registry.list_activity(20).unwrap();
-    assert!(activity
-        .iter()
-        .any(|entry| entry.operation == "query" && entry.outcome == "denied"));
-    fixture.registry.set_paused(false).unwrap();
-
-    let mut tampered = fixture.encrypted_request("query", json!({}), 2);
-    let RelayMessage::EncryptedOperationRequest { envelope } = &mut tampered else {
-        unreachable!()
-    };
-    envelope.ciphertext.replace_range(
-        ..1,
-        if envelope.ciphertext.starts_with('A') {
-            "B"
-        } else {
-            "A"
-        },
-    );
-    let tampered_response = app
-        .clone()
-        .oneshot(request(
-            Method::POST,
-            "/v1/operations",
-            &fixture.origin,
-            Some(&serde_json::to_string(&tampered).unwrap()),
-        ))
-        .await
-        .unwrap();
-    assert_eq!(tampered_response.status(), StatusCode::FORBIDDEN);
-
-    fixture.registry.replace_grants(&[]).unwrap();
-    let revoked = fixture.direct(&app, "query", json!({}), 3).await;
-    assert_eq!(revoked["ok"], false);
-    assert_eq!(revoked["problem"]["code"], "access_denied");
-    assert_eq!(revoked["problem"]["operation_outcome"], "not_sent");
-
-    let root = fixture.root.clone();
-    drop(app);
-    drop(fixture);
-    remove_fixture_after_watchers_close(&root);
-}
+mod request_policy;
 
 #[tokio::test]
 async fn concurrent_direct_requests_allow_authenticated_counter_reordering() {
@@ -783,6 +701,9 @@ async fn encrypted_file_control_and_binary_frames_round_trip_directly() {
         .await
         .unwrap();
     assert_eq!(uploaded.status(), StatusCode::NO_CONTENT);
+    // Fenced, unpolled responses intentionally retain publication ownership
+    // until the transport drops them.
+    drop(uploaded);
 
     let committed = fixture
         .file_control(
@@ -876,9 +797,11 @@ async fn encrypted_file_control_and_binary_frames_round_trip_directly() {
     assert_eq!(listed["result"]["files"][0]["path"], "Assets/direct.bin");
 
     let root = fixture.root.clone();
+    let agent = Arc::downgrade(&fixture.agent);
     drop(app);
     drop(fixture);
-    remove_fixture_after_watchers_close(&root);
+    assert!(agent.upgrade().is_none());
+    fs::remove_dir_all(&root).unwrap();
 }
 
 struct Fixture {
@@ -1173,31 +1096,43 @@ fn fixture_for_origin(origin: &str, distribution: &str) -> Fixture {
             file_capability: Some(&file_capability),
         },
     );
+    let grant = GrantPolicy {
+        id: grant_id,
+        application_id,
+        collection_id: collection.id,
+        operations,
+        scope: GrantScope::full_collection(),
+        application_name: "Tasks".to_string(),
+        application_distribution: distribution.to_string(),
+        application_homepage: if distribution == "web" {
+            origin.clone()
+        } else {
+            String::new()
+        },
+        application_project_url: (distribution == "portable")
+            .then(|| "https://example.test/portable".to_string()),
+        application_origin: origin.clone(),
+        application_icon: None,
+        collection_name: "Direct notes".to_string(),
+        notification_criteria: Vec::new(),
+        created_at: "2026-07-22T00:00:00Z".to_string(),
+        encryption: Some(encryption.clone()),
+        file_capability: Some(file_capability),
+        application_authorization: security.proof,
+    };
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
     registry
-        .replace_grants(&[GrantPolicy {
-            id: grant_id,
-            application_id,
-            collection_id: collection.id,
-            operations,
-            scope: GrantScope::full_collection(),
-            application_name: "Tasks".to_string(),
-            application_distribution: distribution.to_string(),
-            application_homepage: if distribution == "web" {
-                origin.clone()
-            } else {
-                String::new()
-            },
-            application_project_url: (distribution == "portable")
-                .then(|| "https://example.test/portable".to_string()),
-            application_origin: origin.clone(),
-            application_icon: None,
-            collection_name: "Direct notes".to_string(),
-            notification_criteria: Vec::new(),
-            created_at: "2026-07-22T00:00:00Z".to_string(),
-            encryption: Some(encryption.clone()),
-            file_capability: Some(file_capability),
-            application_authorization: security.proof,
-        }])
+        .replace_remote_grants_at_revision(
+            connector_id,
+            "test:direct-authority",
+            1,
+            now,
+            now + 60_000,
+            &[grant],
+        )
         .unwrap();
     let watcher = crate::watcher::CollectionWatchService::start(registry.clone());
     watcher.refresh(&registry.list().unwrap());
