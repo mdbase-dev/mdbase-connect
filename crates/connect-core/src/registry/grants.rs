@@ -1,5 +1,95 @@
 use super::*;
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RemotePolicyAuthority {
+    pub revision: String,
+    pub sequence: u64,
+    pub connector_id: Option<Uuid>,
+    pub authority_digest: Option<String>,
+    pub lease_expires_at_ms: i64,
+    pub observed_at_ms: i64,
+    pub fresh: bool,
+}
+
+/// Digest the exact normalized policy authority represented by the wire type.
+/// Array order is normalized by grant ID; serde's GrantPolicy representation
+/// decides which optional fields are present, identically to snapshot hashing.
+pub fn canonical_policy_authority_digest(
+    connector_id: Uuid,
+    grants: &[GrantPolicy],
+) -> Result<String, ConnectError> {
+    let mut grants = grants.to_vec();
+    grants.sort_by_key(|grant| grant.id);
+    let body = serde_json::json!({
+        "connector_id": connector_id,
+        "grants": grants,
+    });
+    let canonical = serde_jcs::to_vec(&body)?;
+    Ok(format!("sha256:{:x}", Sha256::digest(canonical)))
+}
+
+#[derive(Debug)]
+struct CurrentPolicySnapshot {
+    sequence: u64,
+    revision: String,
+    connector_id: Option<String>,
+}
+
+fn validate_policy_snapshot(
+    connector_id: Option<Uuid>,
+    revision: &str,
+    sequence: u64,
+    lease_ms: &std::ops::Range<i64>,
+    grants: &[GrantPolicy],
+    now_ms: i64,
+    current: &CurrentPolicySnapshot,
+) -> Result<(), ConnectError> {
+    const MAX_POLICY_SEQUENCE: u64 = 9_007_199_254_740_991;
+    const MAX_POLICY_LEASE_MS: i64 = 60_000;
+    const CLOCK_SKEW_ALLOWANCE_MS: i64 = 5_000;
+    let lease_issued_at_ms = lease_ms.start;
+    let lease_expires_at_ms = lease_ms.end;
+    if sequence > MAX_POLICY_SEQUENCE
+        || lease_issued_at_ms < 0
+        || lease_issued_at_ms > now_ms.saturating_add(CLOCK_SKEW_ALLOWANCE_MS)
+        || lease_expires_at_ms <= lease_issued_at_ms
+        || lease_expires_at_ms.saturating_sub(lease_issued_at_ms) > MAX_POLICY_LEASE_MS
+        || lease_expires_at_ms > now_ms.saturating_add(MAX_POLICY_LEASE_MS)
+    {
+        return Err(ConnectError::InvalidInput(
+            "Invalid policy freshness lease.".to_string(),
+        ));
+    }
+    for grant in grants {
+        validate_grant_application_authorization(grant)?;
+        if connector_id.is_some_and(|expected| {
+            grant
+                .encryption
+                .as_ref()
+                .is_none_or(|encryption| encryption.connector_id != expected)
+        }) {
+            return Err(ConnectError::InvalidInput(
+                "Policy grant authority does not match the pinned connector.".to_string(),
+            ));
+        }
+    }
+    let connector_id = connector_id.map(|value| value.to_string());
+    if let (Some(expected), Some(received)) = (&current.connector_id, &connector_id) {
+        if expected != received {
+            return Err(ConnectError::InvalidInput(
+                "Policy snapshot connector does not match the pinned authority.".to_string(),
+            ));
+        }
+    }
+    if sequence < current.sequence || (sequence == current.sequence && revision != current.revision)
+    {
+        return Err(ConnectError::InvalidInput(
+            "Stale or conflicting policy snapshot.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 impl CollectionRegistry {
     pub fn replace_grants(&self, grants: &[GrantPolicy]) -> Result<(), ConnectError> {
         let digest = Sha256::digest(serde_json::to_vec(grants)?)
@@ -60,6 +150,40 @@ impl CollectionRegistry {
         )
     }
 
+    /// Run the exact durable snapshot checks without mutating policy state.
+    /// The write transaction repeats these checks against its authoritative
+    /// current row, so this early rejection is only a side-effect guard.
+    pub fn prevalidate_remote_grants_at_revision(
+        &self,
+        connector_id: Uuid,
+        revision: &str,
+        sequence: u64,
+        lease_issued_at_ms: i64,
+        lease_expires_at_ms: i64,
+        grants: &[GrantPolicy],
+    ) -> Result<(), ConnectError> {
+        let current = self.authority.connection()?.query_row(
+            "SELECT sequence, revision, connector_id FROM policy_state WHERE singleton = 1",
+            [],
+            |row| {
+                Ok(CurrentPolicySnapshot {
+                    sequence: row.get(0)?,
+                    revision: row.get(1)?,
+                    connector_id: row.get(2)?,
+                })
+            },
+        )?;
+        validate_policy_snapshot(
+            Some(connector_id),
+            revision,
+            sequence,
+            &(lease_issued_at_ms..lease_expires_at_ms),
+            grants,
+            super::authority_store::current_time_ms(),
+            &current,
+        )
+    }
+
     pub(crate) fn replace_grants_at_revision_at(
         &self,
         connector_id: Option<Uuid>,
@@ -69,35 +193,8 @@ impl CollectionRegistry {
         grants: &[GrantPolicy],
         now_ms: i64,
     ) -> Result<(), ConnectError> {
-        const MAX_POLICY_LEASE_MS: i64 = 60_000;
-        let lease_issued_at_ms = lease_ms.start;
         let lease_expires_at_ms = lease_ms.end;
-        const CLOCK_SKEW_ALLOWANCE_MS: i64 = 5_000;
-        if sequence > 9_007_199_254_740_991
-            || lease_issued_at_ms < 0
-            || lease_issued_at_ms > now_ms.saturating_add(CLOCK_SKEW_ALLOWANCE_MS)
-            || lease_expires_at_ms <= lease_issued_at_ms
-            || lease_expires_at_ms.saturating_sub(lease_issued_at_ms) > MAX_POLICY_LEASE_MS
-            || lease_expires_at_ms > now_ms.saturating_add(MAX_POLICY_LEASE_MS)
-        {
-            return Err(ConnectError::InvalidInput(
-                "Invalid policy freshness lease.".to_string(),
-            ));
-        }
-        for grant in grants {
-            validate_grant_application_authorization(grant)?;
-            if connector_id.is_some_and(|expected| {
-                grant
-                    .encryption
-                    .as_ref()
-                    .is_none_or(|encryption| encryption.connector_id != expected)
-            }) {
-                return Err(ConnectError::InvalidInput(
-                    "Policy grant authority does not match the pinned connector.".to_string(),
-                ));
-            }
-        }
-        let connector_id = connector_id.map(|value| value.to_string());
+        let connector_id_string = connector_id.map(|value| value.to_string());
         let revision = revision.to_string();
         let grants = grants.to_vec();
         let active_crypto_keys = grants
@@ -116,27 +213,23 @@ impl CollectionRegistry {
                     "SELECT sequence, revision, connector_id FROM policy_state WHERE singleton = 1",
                     [],
                     |row| {
-                        Ok((
-                            row.get::<_, u64>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, Option<String>>(2)?,
-                        ))
+                        Ok(CurrentPolicySnapshot {
+                            sequence: row.get(0)?,
+                            revision: row.get(1)?,
+                            connector_id: row.get(2)?,
+                        })
                     },
                 )?;
-                if let (Some(expected), Some(received)) = (&current.2, &connector_id) {
-                    if expected != received {
-                        return Err(ConnectError::InvalidInput(
-                            "Policy snapshot connector does not match the pinned authority."
-                                .to_string(),
-                        ));
-                    }
-                }
-                if sequence < current.0 || (sequence == current.0 && revision != current.1) {
-                    return Err(ConnectError::InvalidInput(
-                        "Stale or conflicting policy snapshot.".to_string(),
-                    ));
-                }
-                if sequence == current.0 && revision == current.1 {
+                validate_policy_snapshot(
+                    connector_id,
+                    &revision,
+                    sequence,
+                    &lease_ms,
+                    &grants,
+                    now_ms,
+                    &current,
+                )?;
+                if sequence == current.sequence && revision == current.revision {
                     return Ok(());
                 }
                 let stored_crypto_keys = {
@@ -208,7 +301,7 @@ impl CollectionRegistry {
                         sequence,
                         lease_expires_at_ms,
                         now_ms,
-                        connector_id
+                        connector_id_string
                     ],
                 )?;
                 transaction.commit()?;
@@ -542,6 +635,106 @@ impl CollectionRegistry {
         self.remote_policy_is_fresh_at(super::authority_store::current_time_ms())
     }
 
+    /// Reconstruct the authority digest from exact stored columns. Every
+    /// GrantPolicy field is supplied explicitly; serde defaults are never used
+    /// to infer absent database state.
+    pub fn remote_policy_authority(&self) -> Result<RemotePolicyAuthority, ConnectError> {
+        let mut connection = self.authority.connection()?;
+        let transaction = connection.transaction()?;
+        let (revision, sequence, connector_id, lease_expires_at_ms, observed_at_ms) = transaction
+            .query_row(
+            "SELECT revision, sequence, connector_id, lease_expires_at_ms, observed_at_ms
+                 FROM policy_state WHERE singleton = 1",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, u64>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            },
+        )?;
+        let connector_id = connector_id
+            .as_deref()
+            .map(parse_registry_uuid)
+            .transpose()?;
+        let authority_digest = connector_id
+            .map(|connector_id| {
+                let mut statement = transaction.prepare(
+                    "SELECT id, application_id, collection_id, operations, scope,
+                            application_name, application_distribution, application_homepage,
+                            application_project_url, application_origin, application_icon,
+                            collection_name, notification_criteria, created_at, encryption,
+                            file_capability, application_authorization
+                     FROM grants ORDER BY id",
+                )?;
+                let grants = statement
+                    .query_map([], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, String>(3)?,
+                            row.get::<_, String>(4)?,
+                            row.get::<_, String>(5)?,
+                            row.get::<_, String>(6)?,
+                            row.get::<_, String>(7)?,
+                            row.get::<_, Option<String>>(8)?,
+                            row.get::<_, String>(9)?,
+                            row.get::<_, Option<String>>(10)?,
+                            row.get::<_, String>(11)?,
+                            row.get::<_, String>(12)?,
+                            row.get::<_, String>(13)?,
+                            row.get::<_, Option<String>>(14)?,
+                            row.get::<_, Option<String>>(15)?,
+                            row.get::<_, String>(16)?,
+                        ))
+                    })?
+                    .map(|row| {
+                        let row = row?;
+                        Ok(GrantPolicy {
+                            id: parse_registry_uuid(&row.0)?,
+                            application_id: parse_registry_uuid(&row.1)?,
+                            collection_id: parse_registry_uuid(&row.2)?,
+                            operations: serde_json::from_str(&row.3)?,
+                            scope: serde_json::from_str(&row.4)?,
+                            application_name: row.5,
+                            application_distribution: row.6,
+                            application_homepage: row.7,
+                            application_project_url: row.8,
+                            application_origin: row.9,
+                            application_icon: row.10,
+                            collection_name: row.11,
+                            notification_criteria: serde_json::from_str(&row.12)?,
+                            created_at: row.13,
+                            encryption: row.14.as_deref().map(serde_json::from_str).transpose()?,
+                            file_capability: row
+                                .15
+                                .as_deref()
+                                .map(serde_json::from_str)
+                                .transpose()?,
+                            application_authorization: serde_json::from_str(&row.16)?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, ConnectError>>()?;
+                canonical_policy_authority_digest(connector_id, &grants)
+            })
+            .transpose()?;
+        transaction.commit()?;
+        let now_ms = super::authority_store::current_time_ms();
+        Ok(RemotePolicyAuthority {
+            revision,
+            sequence,
+            connector_id,
+            authority_digest,
+            lease_expires_at_ms,
+            observed_at_ms,
+            fresh: lease_expires_at_ms > now_ms.max(observed_at_ms),
+        })
+    }
+
     pub fn remote_policy_revision_if_fresh(&self) -> Result<Option<String>, ConnectError> {
         let now_ms = super::authority_store::current_time_ms();
         let (revision, expires_at_ms, observed_at_ms) = self.authority.connection()?.query_row(
@@ -659,4 +852,66 @@ pub(super) fn archive_grant_replay_material(
         [grant_id],
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod canonical_fixture_tests {
+    use super::*;
+
+    #[test]
+    fn protocol_v1_fixture_round_trips_exact_grant_policy_and_digests() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../test-fixtures/protocol-v1-policy-canonical.json"
+        ))
+        .unwrap();
+        assert_eq!(fixture["protocol_version"], 1);
+        let wire_body = &fixture["normalized_wire_body"];
+        let mut grants: Vec<GrantPolicy> =
+            serde_json::from_value(wire_body["grants"].clone()).unwrap();
+        assert_eq!(serde_json::to_value(&grants).unwrap(), wire_body["grants"]);
+        grants.reverse();
+
+        let connector_id: Uuid = serde_json::from_value(wire_body["connector_id"].clone()).unwrap();
+        assert_eq!(
+            canonical_policy_authority_digest(connector_id, &grants).unwrap(),
+            fixture["authority_digest"].as_str().unwrap()
+        );
+        let mut normalized = grants;
+        normalized.sort_by_key(|grant| grant.id);
+        let reconstructed_wire = serde_json::json!({
+            "connector_id": connector_id,
+            "sequence": wire_body["sequence"],
+            "lease_issued_at_ms": wire_body["lease_issued_at_ms"],
+            "lease_expires_at_ms": wire_body["lease_expires_at_ms"],
+            "grants": &normalized,
+        });
+        let reconstructed_authority = serde_json::json!({
+            "connector_id": connector_id,
+            "grants": &normalized,
+        });
+        assert_eq!(reconstructed_authority, fixture["authority_body"]);
+        let canonical = String::from_utf8(serde_jcs::to_vec(&reconstructed_wire).unwrap()).unwrap();
+        let authority_canonical =
+            String::from_utf8(serde_jcs::to_vec(&reconstructed_authority).unwrap()).unwrap();
+        assert_eq!(
+            canonical,
+            fixture["normalized_wire_canonical"].as_str().unwrap()
+        );
+        assert_eq!(
+            authority_canonical,
+            fixture["authority_canonical"].as_str().unwrap()
+        );
+        assert_eq!(
+            format!("sha256:{:x}", Sha256::digest(canonical.as_bytes())),
+            fixture["revision"].as_str().unwrap()
+        );
+        assert_eq!(
+            fixture["revision"],
+            "sha256:ccfe7bb1eb75acbec1abe0ee2e8a0c13f1d2be3e2cb47aa30cf6ba6bc3d982ea"
+        );
+        assert_eq!(
+            fixture["authority_digest"],
+            "sha256:141ae510bcd2582cc075046327940a622d68a87355e1f11fb7358bf5fe0803fd"
+        );
+    }
 }

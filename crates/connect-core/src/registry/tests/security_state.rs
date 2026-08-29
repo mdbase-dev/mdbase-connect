@@ -98,6 +98,8 @@ fn authenticated_policy_pins_connector_across_empty_revocation_and_restart() {
         )
         .is_err());
 
+    let expected_authority_digest =
+        canonical_policy_authority_digest(connector_id, std::slice::from_ref(&grant)).unwrap();
     registry
         .replace_grants_at_revision_at(
             Some(connector_id),
@@ -108,6 +110,14 @@ fn authenticated_policy_pins_connector_across_empty_revocation_and_restart() {
             1_000,
         )
         .unwrap();
+    assert_eq!(
+        registry
+            .remote_policy_authority()
+            .unwrap()
+            .authority_digest
+            .as_deref(),
+        Some(expected_authority_digest.as_str())
+    );
     registry
         .replace_grants_at_revision_at(
             Some(connector_id),

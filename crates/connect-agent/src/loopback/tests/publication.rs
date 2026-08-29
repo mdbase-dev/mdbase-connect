@@ -10,7 +10,7 @@ fn publication_state() -> (tempfile::TempDir, Arc<AgentState>) {
         .unwrap()
         .as_millis() as i64;
     registry
-        .replace_grants_at_revision("old", 1, now, now + 60_000, &[])
+        .replace_remote_grants_at_revision(Uuid::nil(), "old", 1, now, now + 60_000, &[])
         .unwrap();
     let watcher = crate::watcher::CollectionWatchService::start(registry.clone());
     (
@@ -68,8 +68,12 @@ fn start_successor(
     std::thread::JoinHandle<()>,
     std::sync::mpsc::Receiver<RelayMessage>,
 ) {
+    // Force an authority continuity break without coupling production to the
+    // publication clock used for bounded-send tests.
+    let expiry = agent.policy_lease_expiry_for_test();
     let (done_tx, done_rx) = std::sync::mpsc::channel();
     let task = std::thread::spawn(move || {
+        let _clock = agent.manual_policy_clock(expiry);
         let result = crate::server::policy::apply_policy_snapshot(
             &agent,
             mdbase_connect_protocol::CONTROL_PROTOCOL_VERSION,

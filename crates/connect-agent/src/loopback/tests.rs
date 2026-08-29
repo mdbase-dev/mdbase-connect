@@ -9,6 +9,7 @@ use mdbase_connect_protocol::{
     OPERATION_TRANSPORT_PROTOCOL_VERSION, RELAY_ENCRYPTION_SUITE,
 };
 use std::fs;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -1095,31 +1096,43 @@ fn fixture_for_origin(origin: &str, distribution: &str) -> Fixture {
             file_capability: Some(&file_capability),
         },
     );
+    let grant = GrantPolicy {
+        id: grant_id,
+        application_id,
+        collection_id: collection.id,
+        operations,
+        scope: GrantScope::full_collection(),
+        application_name: "Tasks".to_string(),
+        application_distribution: distribution.to_string(),
+        application_homepage: if distribution == "web" {
+            origin.clone()
+        } else {
+            String::new()
+        },
+        application_project_url: (distribution == "portable")
+            .then(|| "https://example.test/portable".to_string()),
+        application_origin: origin.clone(),
+        application_icon: None,
+        collection_name: "Direct notes".to_string(),
+        notification_criteria: Vec::new(),
+        created_at: "2026-07-22T00:00:00Z".to_string(),
+        encryption: Some(encryption.clone()),
+        file_capability: Some(file_capability),
+        application_authorization: security.proof,
+    };
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
     registry
-        .replace_grants(&[GrantPolicy {
-            id: grant_id,
-            application_id,
-            collection_id: collection.id,
-            operations,
-            scope: GrantScope::full_collection(),
-            application_name: "Tasks".to_string(),
-            application_distribution: distribution.to_string(),
-            application_homepage: if distribution == "web" {
-                origin.clone()
-            } else {
-                String::new()
-            },
-            application_project_url: (distribution == "portable")
-                .then(|| "https://example.test/portable".to_string()),
-            application_origin: origin.clone(),
-            application_icon: None,
-            collection_name: "Direct notes".to_string(),
-            notification_criteria: Vec::new(),
-            created_at: "2026-07-22T00:00:00Z".to_string(),
-            encryption: Some(encryption.clone()),
-            file_capability: Some(file_capability),
-            application_authorization: security.proof,
-        }])
+        .replace_remote_grants_at_revision(
+            connector_id,
+            "test:direct-authority",
+            1,
+            now,
+            now + 60_000,
+            &[grant],
+        )
         .unwrap();
     let watcher = crate::watcher::CollectionWatchService::start(registry.clone());
     watcher.refresh(&registry.list().unwrap());

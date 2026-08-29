@@ -4,12 +4,13 @@ import {
   RelayBrokerUnavailableError,
   type RelayBrokerCommand
 } from "./relay-broker.js";
+import { POLICY_PUSH_SIGNAL } from "./relay-policy-session.js";
 
 const connectorId = "01234567-89ab-4def-8123-456789abcdef";
 const policy: RelayBrokerCommand = {
   version: 1,
   kind: "policy",
-  message: { type: "policy_snapshot", grants: [] }
+  message: POLICY_PUSH_SIGNAL
 };
 
 describe("local relay broker", () => {

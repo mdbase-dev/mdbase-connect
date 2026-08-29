@@ -72,14 +72,75 @@ export async function resolvePolicyAppliedAck(input: {
   ));
 }
 
+export function policyGrantCreatedAtIso(value: Date | string): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new TypeError("Policy grant created_at is invalid.");
+  }
+  return date.toISOString();
+}
+
+export interface PolicyGrantSource {
+  id: string;
+  application_id: string;
+  collection_id: string;
+  operations: string[];
+  scope: GrantScope;
+  application_name: string;
+  application_distribution: "web" | "portable";
+  application_homepage: string;
+  application_project_url?: string | null;
+  application_origin: string;
+  application_icon?: string | null;
+  collection_name: string;
+  notification_criteria: unknown[];
+  created_at: Date | string;
+  encryption?: unknown | null;
+  file_capability?: unknown | null;
+  application_authorization: ApplicationAuthorizationProof;
+}
+
+export function normalizePolicyGrant(grant: PolicyGrantSource): Record<string, unknown> {
+  return {
+    id: grant.id,
+    application_id: grant.application_id,
+    collection_id: grant.collection_id,
+    operations: grant.operations,
+    scope: grant.scope,
+    application_name: grant.application_name,
+    application_distribution: grant.application_distribution,
+    application_homepage: grant.application_homepage,
+    ...(grant.application_project_url == null
+      ? {}
+      : { application_project_url: grant.application_project_url }),
+    application_origin: grant.application_origin === "null"
+      ? "null"
+      : new URL(grant.application_origin).origin,
+    ...(grant.application_icon == null ? {} : { application_icon: grant.application_icon }),
+    collection_name: grant.collection_name,
+    notification_criteria: grant.notification_criteria,
+    created_at: policyGrantCreatedAtIso(grant.created_at),
+    ...(grant.encryption == null ? {} : { encryption: grant.encryption }),
+    ...(grant.file_capability == null ? {} : { file_capability: grant.file_capability }),
+    application_authorization: grant.application_authorization
+  };
+}
+
 export async function buildPolicySnapshot(
   db: DatabasePool,
   connectorId: string,
-  leaseMs: number
+  leaseMs: number,
+  expectedRelayGeneration?: string,
+  isStillCurrent: () => boolean = () => true
 ): Promise<PolicySnapshot | null> {
   const connection = await db.connect();
   try {
+    if (!isStillCurrent()) return null;
     await connection.query("BEGIN");
+    if (!isStillCurrent()) {
+      await connection.query("ROLLBACK");
+      return null;
+    }
     const active = await connection.query<{
       policy_sequence: string | number;
       database_now: Date | string;
@@ -88,16 +149,18 @@ export async function buildPolicySnapshot(
        SET policy_sequence = policy_sequence + 1
        WHERE id = $1 AND revoked_at IS NULL
          AND policy_sequence < $2::bigint
+         AND ($3::bigint IS NULL OR relay_generation = $3::bigint)
          AND user_id IN (SELECT id FROM users WHERE suspended_at IS NULL)
        RETURNING policy_sequence, now() AS database_now`,
-      [connectorId, MAX_POLICY_SEQUENCE.toString()]
+      [connectorId, MAX_POLICY_SEQUENCE.toString(), expectedRelayGeneration ?? null]
     );
     if (!active.rows[0]) {
       const existing = await connection.query<{ policy_sequence: string | number }>(
         `SELECT policy_sequence FROM connectors
          WHERE id = $1 AND revoked_at IS NULL
+           AND ($2::bigint IS NULL OR relay_generation = $2::bigint)
            AND user_id IN (SELECT id FROM users WHERE suspended_at IS NULL)`,
-        [connectorId]
+        [connectorId, expectedRelayGeneration ?? null]
       );
       await connection.query("ROLLBACK");
       if (existing.rows[0]
@@ -114,7 +177,7 @@ export async function buildPolicySnapshot(
       operations: string[]; scope: GrantScope; encryption: unknown | null;
       file_capability: unknown | null;
       application_authorization: ApplicationAuthorizationProof;
-      notification_criteria: unknown[]; created_at: string;
+      notification_criteria: unknown[]; created_at: Date | string;
     }>(
       `SELECT g.id, g.application_id, a.name AS application_name,
               a.distribution AS application_distribution,
@@ -138,28 +201,9 @@ export async function buildPolicySnapshot(
     if (sequenceValue > MAX_POLICY_SEQUENCE) throw new PolicySequenceExhaustedError();
     const sequence = Number(sequenceValue);
     const leaseIssuedAtMs = new Date(active.rows[0].database_now).getTime();
-    const policyGrants = grants.rows.map((grant) => ({
-      id: grant.id,
-      application_id: grant.application_id,
-      collection_id: grant.local_id,
-      operations: grant.operations,
-      scope: grant.scope,
-      application_name: grant.application_name,
-      application_distribution: grant.application_distribution,
-      application_homepage: grant.application_homepage,
-      ...(grant.application_project_url
-        ? { application_project_url: grant.application_project_url }
-        : {}),
-      application_origin: grant.application_origin === "null"
-        ? "null"
-        : new URL(grant.application_origin).origin,
-      application_icon: grant.application_icon,
-      collection_name: grant.collection_name,
-      notification_criteria: grant.notification_criteria,
-      created_at: grant.created_at,
-      ...(grant.encryption ? { encryption: grant.encryption } : {}),
-      ...(grant.file_capability ? { file_capability: grant.file_capability } : {}),
-      application_authorization: grant.application_authorization
+    const policyGrants = grants.rows.map((grant) => normalizePolicyGrant({
+      ...grant,
+      collection_id: grant.local_id
     }));
     await connection.query("COMMIT");
     const leaseExpiresAtMs = leaseIssuedAtMs + leaseMs;

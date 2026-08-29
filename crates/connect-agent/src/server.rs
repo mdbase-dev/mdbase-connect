@@ -128,6 +128,7 @@ impl AgentState {
         cloud: Option<CloudControlClient>,
         relay_identity: RelayIdentity,
     ) -> Self {
+        let policy_revision_gate = policy::PolicyRevisionGate::new(&registry);
         Self {
             registry,
             watcher,
@@ -144,7 +145,7 @@ impl AgentState {
             state_dir: std::sync::RwLock::new(None),
             account_configuration_lock: std::sync::Mutex::new(()),
             admission: crate::admission::AdmissionScheduler::default(),
-            policy_revision_gate: policy::PolicyRevisionGate::default(),
+            policy_revision_gate,
             publication_gate: Arc::new(policy::PublicationGate::default()),
             remote_operations: std::sync::Mutex::new(std::collections::HashMap::new()),
         }

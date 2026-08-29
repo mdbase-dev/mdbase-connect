@@ -6,14 +6,41 @@ use std::sync::{Arc, Condvar, Mutex, RwLock};
 use std::time::Instant;
 use uuid::Uuid;
 
-/// Linearizes exact-revision admission with snapshot replacement. Its shared
-/// side is never held while admitted work executes.
-#[derive(Debug, Default)]
-pub(crate) struct PolicyRevisionGate(RwLock<()>);
+/// Linearizes authority admission with snapshot replacement. Its shared side
+/// is never held while admitted work executes. The epoch is process-local: it
+/// prevents a permit from becoming valid again after an expiry discontinuity.
+#[derive(Debug)]
+pub(crate) struct PolicyRevisionGate(RwLock<PolicyAuthorityState>);
+
+#[derive(Debug)]
+struct PolicyAuthorityState {
+    epoch: u64,
+    digest: Option<String>,
+    #[cfg(test)]
+    manual_now_ms: Option<i64>,
+}
+
+impl PolicyRevisionGate {
+    pub(crate) fn new(registry: &mdbase_connect_core::CollectionRegistry) -> Self {
+        let digest = registry
+            .remote_policy_authority()
+            .ok()
+            .and_then(|authority| authority.authority_digest);
+        Self(RwLock::new(PolicyAuthorityState {
+            epoch: 1,
+            digest,
+            #[cfg(test)]
+            manual_now_ms: None,
+        }))
+    }
+}
 
 #[derive(Clone, Debug)]
 pub(crate) struct PolicyRevisionPermit {
+    /// Exact wire snapshot revision retained as admission/publication evidence.
     revision: String,
+    authority_digest: String,
+    authority_epoch: u64,
 }
 
 #[derive(Debug, Default)]
@@ -34,6 +61,8 @@ pub(crate) struct PublicationGate {
 pub(crate) struct PublicationPermit {
     id: Uuid,
     revision: String,
+    authority_digest: String,
+    authority_epoch: u64,
     deadline: Instant,
     gate: Arc<PublicationGate>,
 }
@@ -41,6 +70,11 @@ pub(crate) struct PublicationPermit {
 #[cfg(test)]
 pub(crate) struct ManualPublicationClock {
     gate: Arc<PublicationGate>,
+}
+
+#[cfg(test)]
+pub(crate) struct ManualPolicyClock<'a> {
+    gate: &'a PolicyRevisionGate,
 }
 
 #[cfg(test)]
@@ -75,6 +109,27 @@ impl Drop for ManualPublicationClock {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         state.manual_now = None;
         self.gate.changed.notify_all();
+    }
+}
+
+#[cfg(test)]
+impl ManualPolicyClock<'_> {
+    pub(crate) fn advance_to(&self, now_ms: i64) {
+        let mut state = self.gate.0.write().expect("policy gate poisoned");
+        let current = state.manual_now_ms.expect("manual policy clock missing");
+        assert!(now_ms >= current, "manual policy clock moved backwards");
+        state.manual_now_ms = Some(now_ms);
+    }
+}
+
+#[cfg(test)]
+impl Drop for ManualPolicyClock<'_> {
+    fn drop(&mut self) {
+        self.gate
+            .0
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .manual_now_ms = None;
     }
 }
 
@@ -152,13 +207,28 @@ impl AgentState {
         self.handle_relay_message_cancellable_inner(message, cancellation, execution_state)
     }
 
-    /// Capture before queueing. Admission later rechecks this exact revision
-    /// under the shared replacement gate.
+    /// Capture before queueing. Admission later rechecks the authority digest
+    /// and instance-scoped continuity epoch under the shared replacement gate.
     pub(crate) fn capture_policy_revision(&self) -> Result<PolicyRevisionPermit, ConnectError> {
-        self.registry
-            .remote_policy_revision_if_fresh()?
-            .map(|revision| PolicyRevisionPermit { revision })
-            .ok_or_else(policy_changed)
+        let mut gate = self
+            .policy_revision_gate
+            .0
+            .write()
+            .expect("policy gate poisoned");
+        let authority = self.registry.remote_policy_authority()?;
+        if !authority_is_fresh(&gate, &authority) {
+            return Err(policy_changed());
+        }
+        let digest = authority.authority_digest.ok_or_else(policy_changed)?;
+        if gate.digest.as_deref() != Some(&digest) {
+            gate.epoch = gate.epoch.checked_add(1).ok_or_else(policy_changed)?;
+            gate.digest = Some(digest.clone());
+        }
+        Ok(PolicyRevisionPermit {
+            revision: authority.revision,
+            authority_digest: digest,
+            authority_epoch: gate.epoch,
+        })
     }
 
     /// Explicit authorization linearization point. The gate is released before
@@ -167,15 +237,12 @@ impl AgentState {
         &self,
         permit: &PolicyRevisionPermit,
     ) -> Result<(), ConnectError> {
-        let _gate = self
+        let gate = self
             .policy_revision_gate
             .0
             .read()
             .expect("policy gate poisoned");
-        if self
-            .registry
-            .remote_policy_matches_fresh(&permit.revision)?
-        {
+        if permit_matches(&self.registry, &gate, permit)? {
             Ok(())
         } else {
             Err(policy_changed())
@@ -213,10 +280,12 @@ impl AgentState {
         if state.snapshot_pending {
             return Err(policy_changed());
         }
-        if !self
-            .registry
-            .remote_policy_matches_fresh(&permit.revision)?
-        {
+        let authority = self
+            .policy_revision_gate
+            .0
+            .read()
+            .expect("policy gate poisoned");
+        if !permit_matches(&self.registry, &authority, permit)? {
             return Err(policy_changed());
         }
         let id = Uuid::new_v4();
@@ -224,6 +293,8 @@ impl AgentState {
         Ok(PublicationPermit {
             id,
             revision: permit.revision.clone(),
+            authority_digest: permit.authority_digest.clone(),
+            authority_epoch: permit.authority_epoch,
             deadline,
             gate: self.publication_gate.clone(),
         })
@@ -241,11 +312,40 @@ impl AgentState {
                 .expect("publication gate poisoned");
             publication_now(&state)
         };
-        now < permit.deadline
-            && self
-                .registry
-                .remote_policy_matches_fresh(&permit.revision)
-                .unwrap_or(false)
+        if now >= permit.deadline {
+            return false;
+        }
+        let authority = self
+            .policy_revision_gate
+            .0
+            .read()
+            .expect("policy gate poisoned");
+        publication_permit_matches(&self.registry, &authority, permit).unwrap_or(false)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn policy_lease_expiry_for_test(&self) -> i64 {
+        self.registry
+            .remote_policy_authority()
+            .expect("policy authority missing")
+            .lease_expires_at_ms
+    }
+
+    #[cfg(test)]
+    pub(crate) fn manual_policy_clock(&self, now_ms: i64) -> ManualPolicyClock<'_> {
+        let mut state = self
+            .policy_revision_gate
+            .0
+            .write()
+            .expect("policy gate poisoned");
+        assert!(
+            state.manual_now_ms.is_none(),
+            "manual policy clock installed twice"
+        );
+        state.manual_now_ms = Some(now_ms);
+        ManualPolicyClock {
+            gate: &self.policy_revision_gate,
+        }
     }
 
     #[cfg(test)]
@@ -273,6 +373,65 @@ impl AgentState {
 #[cfg(test)]
 fn publication_now(state: &PublicationState) -> Instant {
     state.manual_now.unwrap_or_else(Instant::now)
+}
+
+fn authority_is_fresh(
+    _state: &PolicyAuthorityState,
+    authority: &mdbase_connect_core::RemotePolicyAuthority,
+) -> bool {
+    #[cfg(not(test))]
+    {
+        authority.fresh
+    }
+    #[cfg(test)]
+    {
+        _state.manual_now_ms.map_or(authority.fresh, |now_ms| {
+            authority.lease_expires_at_ms > now_ms.max(authority.observed_at_ms)
+        })
+    }
+}
+
+fn authority_matches(
+    registry: &mdbase_connect_core::CollectionRegistry,
+    state: &PolicyAuthorityState,
+    digest: &str,
+    epoch: u64,
+) -> Result<bool, ConnectError> {
+    let authority = registry.remote_policy_authority()?;
+    Ok(authority_is_fresh(state, &authority)
+        && authority.authority_digest.as_deref() == Some(digest)
+        && state.digest.as_deref() == Some(digest)
+        && state.epoch == epoch)
+}
+
+fn permit_matches(
+    registry: &mdbase_connect_core::CollectionRegistry,
+    state: &PolicyAuthorityState,
+    permit: &PolicyRevisionPermit,
+) -> Result<bool, ConnectError> {
+    // The exact revision remains attached as evidence, while continuity is
+    // intentionally decided by authority identity plus the local epoch.
+    let _exact_wire_revision = &permit.revision;
+    authority_matches(
+        registry,
+        state,
+        &permit.authority_digest,
+        permit.authority_epoch,
+    )
+}
+
+fn publication_permit_matches(
+    registry: &mdbase_connect_core::CollectionRegistry,
+    state: &PolicyAuthorityState,
+    permit: &PublicationPermit,
+) -> Result<bool, ConnectError> {
+    let _exact_wire_revision = &permit.revision;
+    authority_matches(
+        registry,
+        state,
+        &permit.authority_digest,
+        permit.authority_epoch,
+    )
 }
 
 pub(crate) struct PolicySnapshot {
@@ -310,12 +469,14 @@ pub(crate) fn apply_policy_snapshot(
             ),
         );
     }
+    let mut normalized_grants = grants.clone();
+    normalized_grants.sort_by_key(|grant| grant.id);
     let policy_body = serde_json::json!({
         "connector_id": connector_id,
         "sequence": sequence,
         "lease_issued_at_ms": lease_issued_at_ms,
         "lease_expires_at_ms": lease_expires_at_ms,
-        "grants": &grants,
+        "grants": &normalized_grants,
     });
     let bound_revision = serde_jcs::to_vec(&policy_body)
         .map(|body| {
@@ -331,20 +492,101 @@ pub(crate) fn apply_policy_snapshot(
             "The policy lease did not match its bound revision.".to_string(),
         );
     }
+    let authority_digest = match mdbase_connect_core::canonical_policy_authority_digest(
+        connector_id,
+        &normalized_grants,
+    ) {
+        Ok(digest) => digest,
+        Err(error) => {
+            return rejected(request_id, revision, error.code(), error.to_string());
+        }
+    };
+    if let Err(error) = state.registry.prevalidate_remote_grants_at_revision(
+        connector_id,
+        &revision,
+        sequence,
+        lease_issued_at_ms,
+        lease_expires_at_ms,
+        &normalized_grants,
+    ) {
+        return rejected(request_id, revision, error.code(), error.to_string());
+    }
 
-    // Cancellation starts immediately. Durable work may ignore it and drain,
-    // but it owns no publication permit and cannot delay replacement.
-    state.cancel_remote_operations();
+    // Every apply takes publication state before the policy gate. This
+    // serializes equivalent renewals with genuine replacement and matches the
+    // publication admission lock order.
     let mut publications = state
         .publication_gate
         .state
         .lock()
         .expect("publication gate poisoned");
+    let mut authority = state
+        .policy_revision_gate
+        .0
+        .write()
+        .expect("policy gate poisoned");
+    let current = match state.registry.remote_policy_authority() {
+        Ok(current) => current,
+        Err(error) => {
+            return rejected(request_id, revision, error.code(), error.to_string());
+        }
+    };
+    if authority.digest != current.authority_digest {
+        let Some(next_epoch) = authority.epoch.checked_add(1) else {
+            return rejected(
+                request_id,
+                revision,
+                "policy_epoch_exhausted",
+                "The local policy continuity epoch is exhausted.".to_string(),
+            );
+        };
+        authority.epoch = next_epoch;
+        authority.digest = current.authority_digest.clone();
+    }
+    if sequence < current.sequence || (sequence == current.sequence && revision != current.revision)
+    {
+        return rejected(
+            request_id,
+            revision,
+            "invalid_request",
+            "Stale or conflicting policy snapshot.".to_string(),
+        );
+    }
+    if sequence == current.sequence {
+        return RelayMessage::PolicyApplied {
+            protocol_version: CONTROL_PROTOCOL_VERSION,
+            request_id,
+            revision,
+            ok: true,
+            error: None,
+        };
+    }
+
+    let equivalent_renewal = authority_is_fresh(&authority, &current)
+        && current.connector_id == Some(connector_id)
+        && current.authority_digest.as_deref() == Some(&authority_digest);
+    if equivalent_renewal {
+        let result = state.registry.replace_remote_grants_at_revision(
+            connector_id,
+            &revision,
+            sequence,
+            lease_issued_at_ms,
+            lease_expires_at_ms,
+            &normalized_grants,
+        );
+        drop(authority);
+        drop(publications);
+        return applied(request_id, revision, normalized_grants.len(), result);
+    }
+
     // Close publication admission before waiting so a stream of newly finished
-    // old-revision operations cannot starve replacement.
+    // old-authority operations cannot starve replacement. Durable work may
+    // ignore cancellation, but the epoch prevents later resurrection.
     publications.snapshot_pending = true;
     #[cfg(test)]
     state.publication_gate.changed.notify_all();
+    state.cancel_remote_operations();
+    drop(authority);
     loop {
         #[cfg(not(test))]
         let now = Instant::now();
@@ -371,28 +613,48 @@ pub(crate) fn apply_policy_snapshot(
             .expect("publication gate poisoned");
         publications = guard;
     }
-    let _admission = state
+    let mut authority = state
         .policy_revision_gate
         .0
         .write()
         .expect("policy gate poisoned");
-    let result = state.registry.replace_remote_grants_at_revision(
-        connector_id,
-        &revision,
-        sequence,
-        lease_issued_at_ms,
-        lease_expires_at_ms,
-        &grants,
-    );
+    let next_epoch = authority.epoch.checked_add(1);
+    let result = if next_epoch.is_some() {
+        state.registry.replace_remote_grants_at_revision(
+            connector_id,
+            &revision,
+            sequence,
+            lease_issued_at_ms,
+            lease_expires_at_ms,
+            &normalized_grants,
+        )
+    } else {
+        Err(ConnectError::InvalidInput(
+            "The local policy continuity epoch is exhausted.".to_string(),
+        ))
+    };
+    if result.is_ok() {
+        authority.epoch = next_epoch.expect("epoch checked before replacement");
+        authority.digest = Some(authority_digest);
+    }
     state.cancel_remote_operations();
-    drop(_admission);
+    drop(authority);
     publications.snapshot_pending = false;
     drop(publications);
     state.publication_gate.changed.notify_all();
 
+    applied(request_id, revision, normalized_grants.len(), result)
+}
+
+fn applied(
+    request_id: Uuid,
+    revision: String,
+    grant_count: usize,
+    result: Result<(), ConnectError>,
+) -> RelayMessage {
     match result {
         Ok(()) => {
-            tracing::debug!(grants = grants.len(), "relay policy snapshot applied");
+            tracing::debug!(grants = grant_count, "relay policy snapshot applied");
             RelayMessage::PolicyApplied {
                 protocol_version: CONTROL_PROTOCOL_VERSION,
                 request_id,
@@ -429,150 +691,5 @@ fn rejected(request_id: Uuid, revision: String, code: &str, message: String) -> 
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::watcher::CollectionWatchService;
-    use mdbase_connect_core::CollectionRegistry;
-    use std::sync::Arc;
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
-    use tempfile::tempdir;
-
-    fn install_revision(state: &AgentState, revision: &str, sequence: u64) {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as i64;
-        state
-            .registry
-            .replace_grants_at_revision(revision, sequence, now, now + 60_000, &[])
-            .unwrap();
-    }
-
-    fn state() -> (tempfile::TempDir, Arc<AgentState>) {
-        let directory = tempdir().unwrap();
-        let registry = CollectionRegistry::open(directory.path()).unwrap();
-        let watcher = CollectionWatchService::start(registry.clone());
-        let state = Arc::new(AgentState::new(registry, watcher, None));
-        install_revision(&state, "old", 1);
-        (directory, state)
-    }
-
-    fn snapshot(sequence: u64) -> PolicySnapshot {
-        let connector_id = Uuid::nil();
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as i64;
-        let expires = now + 60_000;
-        let body = serde_json::json!({
-            "connector_id": connector_id,
-            "sequence": sequence,
-            "lease_issued_at_ms": now,
-            "lease_expires_at_ms": expires,
-            "grants": Vec::<GrantPolicy>::new(),
-        });
-        use sha2::Digest;
-        let revision = format!(
-            "sha256:{:x}",
-            sha2::Sha256::digest(serde_jcs::to_vec(&body).unwrap())
-        );
-        PolicySnapshot {
-            request_id: Uuid::new_v4(),
-            revision,
-            connector_id,
-            sequence,
-            lease_issued_at_ms: now,
-            lease_expires_at_ms: expires,
-            grants: Vec::new(),
-        }
-    }
-
-    #[test]
-    fn admission_releases_before_durable_work_and_successor_wins_publication() {
-        let (_directory, state) = state();
-        let permit = state.capture_policy_revision().unwrap();
-        state.admit_policy_revision(&permit).unwrap();
-        {
-            let _publication = state.publication_gate.state.lock().unwrap();
-            let _admission = state.policy_revision_gate.0.write().unwrap();
-            install_revision(&state, "new", 2);
-        }
-        assert!(state
-            .acquire_publication_permit(
-                &permit,
-                tokio::time::Instant::now() + Duration::from_secs(1)
-            )
-            .is_err());
-    }
-
-    #[test]
-    fn stuck_admitted_durable_work_does_not_delay_snapshot_or_publish_receipt() {
-        let (_directory, state) = state();
-        let old = state.capture_policy_revision().unwrap();
-        state.admit_policy_revision(&old).unwrap();
-        let (release_tx, release_rx) = std::sync::mpsc::channel();
-        let durable = std::thread::spawn(move || release_rx.recv().unwrap());
-
-        let started = Instant::now();
-        let applied = apply_policy_snapshot(&state, CONTROL_PROTOCOL_VERSION, snapshot(2));
-        assert!(matches!(
-            applied,
-            RelayMessage::PolicyApplied { ok: true, .. }
-        ));
-        assert!(started.elapsed() < Duration::from_millis(100));
-        assert!(state
-            .acquire_publication_permit(&old, tokio::time::Instant::now() + Duration::from_secs(1),)
-            .is_err());
-
-        release_tx.send(()).unwrap();
-        durable.join().unwrap();
-    }
-
-    #[test]
-    fn publication_winner_delays_successor_only_until_bounded_send_drops() {
-        let (_directory, state) = state();
-        let now = Instant::now();
-        let clock = state.manual_publication_clock(now);
-        let deadline = now + Duration::from_secs(1);
-        let old = state.capture_policy_revision().unwrap();
-        let publication = state
-            .acquire_publication_permit(&old, tokio::time::Instant::from_std(deadline))
-            .unwrap();
-        let next_state = state.clone();
-        let (done_tx, done_rx) = std::sync::mpsc::channel();
-        let successor = std::thread::spawn(move || {
-            let result = apply_policy_snapshot(&next_state, CONTROL_PROTOCOL_VERSION, snapshot(2));
-            done_tx.send(result).unwrap();
-        });
-        clock.wait_until_snapshot_pending();
-        assert!(matches!(
-            done_rx.try_recv(),
-            Err(std::sync::mpsc::TryRecvError::Empty)
-        ));
-        assert!(state
-            .acquire_publication_permit(&old, tokio::time::Instant::from_std(deadline))
-            .is_err());
-        drop(publication);
-        assert!(matches!(
-            done_rx.recv_timeout(Duration::from_millis(200)).unwrap(),
-            RelayMessage::PolicyApplied { ok: true, .. }
-        ));
-        successor.join().unwrap();
-    }
-
-    #[test]
-    fn publication_permit_expires_without_drop() {
-        let (_directory, state) = state();
-        let now = Instant::now();
-        let clock = state.manual_publication_clock(now);
-        let deadline = now + Duration::from_millis(5);
-        let revision = state.capture_policy_revision().unwrap();
-        let publication = state
-            .acquire_publication_permit(&revision, tokio::time::Instant::from_std(deadline))
-            .unwrap();
-        clock.advance_to(deadline - Duration::from_nanos(1));
-        assert!(state.publication_is_current(&publication));
-        clock.advance_to(deadline);
-        assert!(!state.publication_is_current(&publication));
-    }
-}
+#[path = "policy_tests.rs"]
+mod tests;

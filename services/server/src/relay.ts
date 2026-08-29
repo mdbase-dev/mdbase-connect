@@ -1,60 +1,36 @@
 import { randomUUID } from "node:crypto";
 import type {
-  ApplicationProvisions,
-  ApplicationRequirements,
-  AuthorizationActivationResponse,
-  AuthorizationOfferResponse,
-  ContractSetupChoice,
-  EncryptedRelayEnvelope,
-  EncryptedRelayOperationRequest,
-  EncryptedRelayOperationResponse,
-  GrantPolicy,
-  ConnectContractSupport,
-  ConnectContractRequirements,
-  ConnectProblem,
+  ApplicationProvisions, ApplicationRequirements, AuthorizationActivationResponse,
+  AuthorizationOfferResponse, ConnectContractRequirements, ConnectContractSupport,
+  ConnectProblem, ContractSetupChoice, EncryptedRelayEnvelope,
+  EncryptedRelayOperationRequest, EncryptedRelayOperationResponse, GrantPolicy,
   RelayFileFrame
 } from "@mdbase-dev/connect-protocol";
 import {
-  CONNECT_CONTRACT_SUPPORT,
-  CONTROL_PROTOCOL_VERSION,
-  OPERATION_TRANSPORT_PROTOCOL_VERSION,
-  CONTRACT_SETUP_CAPABILITY,
-  isConnectProblem,
-  isMutatingOperation,
-  MINIMUM_CONNECTOR_VERSION,
-  normalizeConnectProblem,
-  RELAY_CAPABILITIES,
-  PROTOCOL_USAGE_REPORT_CAPABILITY
+  CONNECT_CONTRACT_SUPPORT, CONTRACT_SETUP_CAPABILITY, CONTROL_PROTOCOL_VERSION,
+  isConnectProblem, isMutatingOperation, MINIMUM_CONNECTOR_VERSION,
+  normalizeConnectProblem, OPERATION_TRANSPORT_PROTOCOL_VERSION,
+  PROTOCOL_USAGE_REPORT_CAPABILITY, RELAY_CAPABILITIES
 } from "@mdbase-dev/connect-protocol";
 import type { DatabasePool } from "./db.js";
 import {
-  LocalRelayBroker,
-  RelayBrokerUnavailableError,
-  type RelayBroker,
-  type RelayBrokerBinding,
-  type RelayBrokerCommand,
-  type RelayBrokerReply
+  LocalRelayBroker, RelayBrokerUnavailableError, type RelayBroker,
+  type RelayBrokerBinding, type RelayBrokerCommand, type RelayBrokerReply
 } from "./relay-broker.js";
-import {
-  ConnectorOperationError,
-  RelayUnavailableError
-} from "./relay-errors.js";
+import { ConnectorOperationError, RelayUnavailableError } from "./relay-errors.js";
 import { RelayFileBridge } from "./relay-file.js";
-import { buildPolicySnapshot, resolvePolicyAppliedAck } from "./relay-policy.js";
+import { resolvePolicyAppliedAck } from "./relay-policy.js";
+import {
+  ExactPolicyPublisher, handlePolicyPushCommand, RelayPolicySession,
+  requestPolicyPush
+} from "./relay-policy-session.js";
 import type { WebSocket } from "ws";
 import { recordConnectorProtocolUsage } from "./protocol-telemetry.js";
 import {
-  CONNECTOR_UPDATE_URL,
-  receiveRelayHello,
-  rejectIncompatibleRelay,
-  relayCapabilityMismatch,
-  relayContractMismatch,
-  type RelayHello
+  CONNECTOR_UPDATE_URL, receiveRelayHello, rejectIncompatibleRelay,
+  relayCapabilityMismatch, relayContractMismatch, type RelayHello
 } from "./relay-compatibility.js";
-import {
-  grantIdFromMessage,
-  hasPendingOperationCapacity
-} from "./relay-admission.js";
+import { grantIdFromMessage, hasPendingOperationCapacity } from "./relay-admission.js";
 
 export { ConnectorOperationError, RelayUnavailableError } from "./relay-errors.js";
 export { connectorVersionAtLeast } from "./relay-compatibility.js";
@@ -62,12 +38,11 @@ export { connectorVersionAtLeast } from "./relay-compatibility.js";
 const OPERATION_TIMEOUT_MS = 30_000;
 const BROKER_OPERATION_TIMEOUT_MS = OPERATION_TIMEOUT_MS + 1_000;
 const OFFER_TIMEOUT_MS = 3_000;
+const POLICY_ACK_TIMEOUT_MS = 5_000;
 const BROKER_OFFER_TIMEOUT_MS = OFFER_TIMEOUT_MS + 1_000;
-const POLICY_TIMEOUT_MS = 5_000;
 // A connector may observe the server clock up to 5s ahead while its hard
 // local authority horizon must remain no more than 60s from local receipt.
 export const POLICY_LEASE_MS = 55_000;
-const POLICY_RENEWAL_MS = 20_000;
 
 interface PendingRequest {
   resolve(value: unknown): void;
@@ -95,13 +70,16 @@ interface ConnectorSession {
   capabilities: string[];
   contractSupport: ConnectContractSupport;
   lastUsageReportAt: number;
-  policyRenewal: NodeJS.Timeout;
+  policy: RelayPolicySession;
 }
 
 export class RelayHub {
   private readonly connectors = new Map<string, ConnectorSession>();
   private readonly pending = new Map<string, PendingRequest>();
+  private readonly detachedPolicyPushes = new Set<Promise<void>>();
   private readonly files: RelayFileBridge;
+  private readonly policyPublisher: ExactPolicyPublisher;
+  private closed = false;
 
   constructor(
     private readonly db: DatabasePool,
@@ -111,6 +89,12 @@ export class RelayHub {
       broker,
       (connectorId) => this.connectors.get(connectorId),
       (connectorId) => this.currentGeneration(connectorId)
+    );
+    this.policyPublisher = new ExactPolicyPublisher(
+      db,
+      POLICY_LEASE_MS,
+      (connectorId) => this.currentGeneration(connectorId),
+      () => !this.closed
     );
   }
 
@@ -188,7 +172,11 @@ export class RelayHub {
       replaced: () => {
         const current = this.connectors.get(connectorId);
         if (current?.generation === generation && current.socket === socket) {
+          this.connectors.delete(connectorId);
+          current.policy.stop(new RelayUnavailableError());
+          this.rejectForSocket(socket, new RelayUnavailableError());
           socket.close(4001, "Replaced by a newer connector session");
+          void binding.close();
         }
       }
     });
@@ -197,13 +185,27 @@ export class RelayHub {
       socket.close(4001, "Replaced by a newer connector session");
       return;
     }
-    const policyRenewal = setInterval(() => {
-      void this.pushPolicy(connectorId).catch(() => {
-        // Payload-free: connector identities and provider errors are not log data.
-        console.warn("connector policy renewal failed", { class: "delivery_unavailable" });
-      });
-    }, POLICY_RENEWAL_MS);
-    policyRenewal.unref();
+    const policy = new RelayPolicySession(
+      { connectorId, generation, socket },
+      {
+        isActive: (identity) => !this.closed
+          && this.connectors.get(identity.connectorId) === session
+          && session.generation === identity.generation
+          && session.socket === identity.socket
+          && identity.socket.readyState === 1,
+        push: (identity, isStillCurrent) => this.policyPublisher.push(
+          { connectorId: identity.connectorId, generation: identity.generation, isStillCurrent },
+          (message) => this.sendToConnector(
+            identity.socket, identity.connectorId, undefined, message.request_id,
+            message, undefined, "policy_applied", message.revision, identity.generation
+          )
+        ),
+        renewalFailed: () => {
+          // Payload-free: connector identities and provider errors are not log data.
+          console.warn("connector policy renewal failed", { class: "delivery_unavailable" });
+        }
+      }
+    );
     session = {
       generation,
       socket,
@@ -211,15 +213,19 @@ export class RelayHub {
       capabilities: [...hello.capabilities],
       contractSupport: hello.contract_support,
       lastUsageReportAt: 0,
-      policyRenewal
+      policy
     };
 
     const previous = this.connectors.get(connectorId);
     this.connectors.set(connectorId, session);
     if (previous) {
-      clearInterval(previous.policyRenewal);
+      previous.policy.stop(new RelayUnavailableError());
       previous.socket.close(4001, "Replaced by a newer connector session");
-      await previous.binding.close();
+      this.rejectForSocket(previous.socket, new RelayUnavailableError());
+      await Promise.allSettled([
+        previous.binding.close(),
+        previous.policy.waitForIdle()
+      ]);
     }
 
     socket.on("message", (raw, isBinary) => {
@@ -429,10 +435,8 @@ export class RelayHub {
     }));
     socket.once("close", () => {
       const current = this.connectors.get(connectorId);
-      if (current?.socket === socket && current.generation === generation) {
-        clearInterval(current.policyRenewal);
-        this.connectors.delete(connectorId);
-      }
+      if (current === session) this.connectors.delete(connectorId);
+      session.policy.stop(new RelayUnavailableError());
       void binding.close();
       this.rejectForSocket(socket, new RelayUnavailableError());
     });
@@ -444,7 +448,18 @@ export class RelayHub {
       // only accelerates closing a stale socket when the broker is available.
       if (!(error instanceof RelayBrokerUnavailableError)) throw error;
     }
-    await this.pushPolicy(connectorId);
+    try {
+      await session.policy.start();
+    } catch (error) {
+      if (this.connectors.get(connectorId) === session) {
+        this.connectors.delete(connectorId);
+      }
+      session.policy.stop(new RelayUnavailableError());
+      socket.close(4003, "Initial connector policy unavailable");
+      this.rejectForSocket(socket, new RelayUnavailableError());
+      await Promise.allSettled([binding.close(), session.policy.waitForIdle()]);
+      throw error;
+    }
   }
 
   isConnected(connectorId: string): boolean {
@@ -459,11 +474,16 @@ export class RelayHub {
     let degraded = false;
     const session = this.connectors.get(connectorId);
     if (session) {
-      clearInterval(session.policyRenewal);
       this.connectors.delete(connectorId);
+      session.policy.stop(new RelayUnavailableError());
+      this.rejectForSocket(session.socket, new RelayUnavailableError());
       try {
         session.socket.close(4003, reason);
-        await session.binding.close();
+        const results = await Promise.allSettled([
+          session.binding.close(),
+          session.policy.waitForIdle()
+        ]);
+        if (results.some((result) => result.status === "rejected")) degraded = true;
       } catch {
         degraded = true;
       }
@@ -497,41 +517,24 @@ export class RelayHub {
   }
 
   async pushPolicy(connectorId: string): Promise<void> {
-    const message = await buildPolicySnapshot(
-      this.db,
-      connectorId,
-      POLICY_LEASE_MS
-    );
-    if (!message) return;
+    if (this.closed) throw new RelayUnavailableError();
+    const session = this.connectors.get(connectorId);
+    if (session) {
+      await session.policy.request();
+      return;
+    }
     const generation = await this.currentGeneration(connectorId);
     if (!generation) return;
+    const pushing = requestPolicyPush(this.broker, connectorId, generation);
+    this.detachedPolicyPushes.add(pushing);
     try {
-      const reply = await this.broker.request(
-        connectorId,
-        generation,
-        { version: 1, kind: "policy", message },
-        POLICY_TIMEOUT_MS
-      );
-      if (!reply.ok) {
-        if (reply.error.kind === "unavailable") throw new RelayUnavailableError();
-        if (reply.error.kind === "connector") {
-          throw new ConnectorOperationError(
-            reply.error.problem.code === "unknown"
-              ? reply.error.problem.server_code
-              : reply.error.problem.code,
-            reply.error.problem.message,
-            reply.error.problem,
-            reply.error.details
-          );
-        }
-        throw new ConnectorOperationError(reply.error.code, reply.error.message);
-      }
+      await pushing;
     } catch (error) {
-      // The durable sequence remains ahead of the acknowledgement. Periodic
-      // renewal and reconnect issue a newer complete snapshot; expiry fences
-      // the cached authority if every delivery attempt is interrupted.
-      if (!(error instanceof RelayBrokerUnavailableError)
-          && !(error instanceof RelayUnavailableError)) throw error;
+      // No owner can acknowledge an offline connector. An exact owner that
+      // becomes stale after accepting the request rejects it explicitly.
+      if (!(error instanceof RelayBrokerUnavailableError)) throw error;
+    } finally {
+      this.detachedPolicyPushes.delete(pushing);
     }
   }
 
@@ -637,9 +640,21 @@ export class RelayHub {
   }
 
   async close(): Promise<void> {
+    this.closed = true;
     const sessions = [...this.connectors.values()];
     this.connectors.clear();
-    await Promise.allSettled(sessions.map((session) => session.binding.close()));
+    for (const session of sessions) {
+      session.policy.stop(new RelayUnavailableError());
+      this.rejectForSocket(session.socket, new RelayUnavailableError());
+      session.socket.close(1001, "Relay server closed");
+    }
+    await Promise.allSettled([
+      ...sessions.flatMap((session) => [
+        session.binding.close(),
+        session.policy.waitForIdle()
+      ]),
+      ...this.detachedPolicyPushes
+    ]);
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
       pending.reject(new RelayUnavailableError());
@@ -703,33 +718,13 @@ export class RelayHub {
       );
     }
     if (command.kind === "policy") {
-      const requestId = requestIdFromMessage(command.message);
-      const revision = policyRevisionFromMessage(command.message);
-      if (!requestId || !revision) {
-        return brokerError("internal", "invalid_policy_snapshot", "The policy snapshot was incomplete.");
-      }
-      try {
-        const value = await this.sendToConnector(
-          session.socket,
-          connectorId,
-          undefined,
-          requestId,
-          command.message,
-          undefined,
-          "policy_applied",
-          revision,
-          generation
-        );
-        return { version: 1, ok: true, value };
-      } catch (error) {
-        if (error instanceof RelayUnavailableError) {
-          return brokerError("unavailable", "connector_offline", error.message);
-        }
-        if (error instanceof ConnectorOperationError) {
-          return brokerProblem(error.problem, error.details);
-        }
-        return brokerError("internal", "policy_delivery_failed", "The connector could not apply its policy.");
-      }
+      return handlePolicyPushCommand({
+        message: command.message,
+        isActive: () => this.connectors.get(connectorId) === session
+          && session.generation === generation
+          && session.socket.readyState === 1,
+        request: () => session.policy.request()
+      });
     }
     const requestId = requestIdFromMessage(command.message);
     if (!requestId) {
@@ -773,6 +768,15 @@ export class RelayHub {
     expectedPolicyRevision?: string,
     expectedPolicyGeneration?: string
   ): Promise<unknown> {
+    if (expectedPolicyGeneration) {
+      const current = this.connectors.get(connectorId);
+      if (!current
+          || current.socket !== socket
+          || current.generation !== expectedPolicyGeneration
+          || current.policy.isStopped) {
+        return Promise.reject(new RelayUnavailableError());
+      }
+    }
     if (this.pending.has(requestId)) {
       return Promise.reject(new ConnectorOperationError(
         "duplicate_request_id",
@@ -807,7 +811,9 @@ export class RelayHub {
         ));
       }, expectedType === "authorization_offer_response"
         ? OFFER_TIMEOUT_MS
-        : Math.min(OPERATION_TIMEOUT_MS, deadlineTimeout));
+        : expectedType === "policy_applied"
+          ? POLICY_ACK_TIMEOUT_MS
+          : Math.min(OPERATION_TIMEOUT_MS, deadlineTimeout));
       this.pending.set(requestId, {
         resolve,
         reject,
@@ -930,12 +936,6 @@ function isContractSetupCommand(message: unknown): boolean {
   return candidate.type === "authorization_activation_request"
     && Array.isArray(candidate.contract_setups)
     && candidate.contract_setups.length > 0;
-}
-
-function policyRevisionFromMessage(message: unknown): string | null {
-  if (typeof message !== "object" || message === null || Array.isArray(message)) return null;
-  const revision = (message as { revision?: unknown }).revision;
-  return typeof revision === "string" && revision.length > 0 ? revision : null;
 }
 
 function encryptedRequestFromMessage(message: unknown): EncryptedRelayEnvelope | undefined {

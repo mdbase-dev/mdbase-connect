@@ -335,18 +335,18 @@ secret: connector scope test
     cookie
   });
   const portalAuthorizationId = portalAuthorization.id;
-  const portalRequest = await request(
-    `/v1/authorization-requests/${portalAuthorizationId}`,
-    { cookie }
-  );
-  const portalOffer = portalRequest.body.collections?.find(
-    (candidate) => candidate.id === collection.id
-  );
-  if (!portalOffer?.offer_id || portalOffer.connector_name !== "MVP computer") {
-    throw new Error(
-      `The live connector did not offer its local collection to the portal: ${JSON.stringify(portalRequest.body)}`
+  const { portalRequest, portalOffer } = await poll(async () => {
+    const current = await request(
+      `/v1/authorization-requests/${portalAuthorizationId}`,
+      { cookie }
     );
-  }
+    const offer = current.body.collections?.find(
+      (candidate) => candidate.id === collection.id
+    );
+    return offer?.offer_id && offer.connector_name === "MVP computer"
+      ? { portalRequest: current, portalOffer: offer }
+      : null;
+  }, "the live connector did not offer its local collection to the portal");
   const portalBrowser = await chromium.launch({ headless: true });
   try {
     const portalContext = await portalBrowser.newContext();
