@@ -482,7 +482,7 @@ fn wire_revision_advance_alone_preserves_authority_permit() {
 
 #[test]
 fn stuck_admitted_durable_work_does_not_delay_snapshot_or_publish_receipt() {
-    let (_directory, state) = state_with_lease(200);
+    let (_directory, state) = state_with_lease(60_000);
     let old = state.capture_policy_revision().unwrap();
     state.admit_policy_revision(&old).unwrap();
     let expiry = state
@@ -511,7 +511,7 @@ fn stuck_admitted_durable_work_does_not_delay_snapshot_or_publish_receipt() {
 
 #[test]
 fn publication_winner_delays_successor_only_until_bounded_send_drops() {
-    let (_directory, state) = state_with_lease(200);
+    let (_directory, state) = state_with_lease(60_000);
     let now = Instant::now();
     let clock = state.manual_publication_clock(now);
     let deadline = now + Duration::from_secs(1);
