@@ -78,20 +78,33 @@ export async function deployDevelopmentEditor(
     throw new Error("Development editor deployments are restricted to lab and staging.");
   }
   const deployment = developmentDeployments[target];
+  const localLabMode = environment.MDBASE_LAB_LOCAL_MODE === "1";
+  if (environment.MDBASE_LAB_LOCAL_MODE !== undefined && !localLabMode) {
+    throw new Error("MDBASE_LAB_LOCAL_MODE must be 1 when supplied.");
+  }
   const exactLabRelease = environment.MDBASE_LAB_RELEASE_MODE?.trim() === releaseMode;
   if (environment.MDBASE_LAB_RELEASE_MODE && !exactLabRelease) {
     throw new Error(`MDBASE_LAB_RELEASE_MODE must be ${releaseMode}.`);
   }
+  if (localLabMode && environment.MDBASE_ENV?.trim() !== "lab") {
+    throw new Error("Local LAB mode requires explicit MDBASE_ENV=lab.");
+  }
+  if (localLabMode && exactLabRelease) {
+    throw new Error("Local LAB mode cannot be combined with exact LAB release mode.");
+  }
   if (exactLabRelease && target !== "lab") {
     throw new Error("Exact LAB release mode requires MDBASE_ENV=lab.");
   }
-  if (target === "lab" && !exactLabRelease) {
+  if (target === "lab" && !exactLabRelease && !localLabMode) {
     throw new Error(
-      "LAB deployment requires MDBASE_LAB_RELEASE_MODE=exact; unqualified working-tree deploys are disabled."
+      "LAB deployment requires MDBASE_LAB_RELEASE_MODE=exact or MDBASE_LAB_LOCAL_MODE=1."
     );
   }
-  rejectTargetOverrides(environment, target, deployment);
+  rejectTargetOverrides(environment, target, deployment, localLabMode);
 
+  if (localLabMode) {
+    return deployLocalLabEditor(environment, deployment, run, root);
+  }
   if (!exactLabRelease) {
     return deployStagingEditor(environment, deployment, run, root);
   }
@@ -185,6 +198,83 @@ export async function deployDevelopmentEditor(
   } finally {
     await reportReservation.close();
   }
+}
+
+async function deployLocalLabEditor(environment, deployment, run, root) {
+  const revision = environment.MDBASE_LAB_LOCAL_REVISION?.trim() ?? "";
+  if (!/^[0-9a-f]{40}$/u.test(revision)) {
+    throw new Error("MDBASE_LAB_LOCAL_REVISION must be a full lowercase 40-hex commit.");
+  }
+  if (environment.VITE_MDBASE_BUILD_REVISION?.trim() !== revision) {
+    throw new Error("VITE_MDBASE_BUILD_REVISION must equal MDBASE_LAB_LOCAL_REVISION.");
+  }
+  if (
+    environment.CLOUDFLARE_ACCOUNT_ID !== undefined
+    && environment.CLOUDFLARE_ACCOUNT_ID.trim() !== deployment.cloudflareAccountId
+  ) {
+    throw new Error("CLOUDFLARE_ACCOUNT_ID does not match the statically managed LAB account.");
+  }
+
+  const manifestPath = resolve(root, "apps/editor/public/.well-known/mdbase-app.json");
+  const previousManifest = await readFile(manifestPath);
+  let temporaryDirectory;
+  const deploymentEnvironment = localLabBuildEnvironment(environment, deployment, revision);
+  const wranglerCommandEnvironment = minimalEnvironment(environment, {
+    CLOUDFLARE_ACCOUNT_ID: deployment.cloudflareAccountId,
+    CLOUDFLARE_API_TOKEN: environment.CLOUDFLARE_API_TOKEN,
+    WRANGLER_SEND_METRICS: "false"
+  });
+  try {
+    await run("pnpm", ["install", "--frozen-lockfile"], deploymentEnvironment);
+    await run("pnpm", ["build:packages"], deploymentEnvironment);
+    await run("pnpm", ["--filter", "mdbase-editor", "build"], deploymentEnvironment);
+    await run("node", [
+      "apps/editor/scripts/verify-deployment-manifest.mjs",
+      "apps/editor/dist/.well-known/mdbase-app.json",
+      `${deployment.editorOrigin}/`,
+      deployment.connectOrigin
+    ], deploymentEnvironment);
+    temporaryDirectory = await mkdtemp(resolve(tmpdir(), "mdbase-wrangler-local-"));
+    await chmod(temporaryDirectory, 0o700);
+    const emptyEnvironmentPath = resolve(temporaryDirectory, "empty.env");
+    const emptyEnvironmentHandle = await open(emptyEnvironmentPath, "wx", 0o600);
+    await emptyEnvironmentHandle.close();
+    await run("pnpm", [
+      "exec",
+      "wrangler",
+      "pages",
+      "deploy",
+      "apps/editor/dist",
+      `--project-name=${deployment.project}`,
+      `--branch=${deployment.branch}`,
+      `--commit-hash=${revision}`,
+      "--commit-dirty=true",
+      `--env-file=${emptyEnvironmentPath}`
+    ], wranglerCommandEnvironment);
+    await run("node", [
+      "apps/editor/scripts/verify-deployment-manifest.mjs",
+      `${deployment.editorOrigin}/.well-known/mdbase-app.json`,
+      `${deployment.editorOrigin}/`,
+      deployment.connectOrigin
+    ], {
+      ...deploymentEnvironment,
+      MDBASE_MANIFEST_VERIFY_ATTEMPTS: "12",
+      MDBASE_MANIFEST_VERIFY_DELAY_MS: "5000"
+    });
+    await run("node", [
+      "apps/editor/scripts/verify-deployment-assets.mjs",
+      "apps/editor/dist/assets",
+      `${deployment.editorOrigin}/`
+    ], {
+      ...deploymentEnvironment,
+      MDBASE_ASSET_VERIFY_ATTEMPTS: "61",
+      MDBASE_ASSET_VERIFY_DELAY_MS: "5000"
+    });
+  } finally {
+    await writeFile(manifestPath, previousManifest);
+    if (temporaryDirectory) await rm(temporaryDirectory, { recursive: true, force: true });
+  }
+  console.log(`LAB editor deployed: ${deployment.editorOrigin}/`);
 }
 
 async function deployStagingEditor(environment, deployment, run, root) {
@@ -723,6 +813,18 @@ async function assertDirectoryIdentity(io, path, identity) {
   }
 }
 
+function localLabBuildEnvironment(environment, deployment, revision) {
+  return minimalEnvironment(environment, {
+    MDBASE_ENV: "lab",
+    VITE_MDBASE_ENV: "lab",
+    MDBASE_EDITOR_ORIGIN: deployment.editorOrigin,
+    MDBASE_EDITOR_BASE_PATH: "/",
+    MDBASE_CONNECT_URL: deployment.connectOrigin,
+    VITE_MDBASE_CONNECT_URL: deployment.connectOrigin,
+    VITE_MDBASE_BUILD_REVISION: revision
+  });
+}
+
 function exactBuildEnvironment(environment, deployment, commit) {
   return minimalEnvironment(environment, {
     MDBASE_ENV: "lab",
@@ -755,9 +857,10 @@ function minimalEnvironment(source, additions) {
   return result;
 }
 
-function rejectTargetOverrides(environment, target, deployment) {
+function rejectTargetOverrides(environment, target, deployment, localLabMode = false) {
   const forbidden = ["CLOUDFLARE_PAGES_PROJECT", "CLOUDFLARE_PAGES_BRANCH", "MDBASE_EDITOR_ORIGIN", "MDBASE_EDITOR_BASE_PATH"];
   if (target === "lab") forbidden.push("MDBASE_CONNECT_URL", "VITE_MDBASE_CONNECT_URL");
+  if (localLabMode) forbidden.push("VITE_MDBASE_ENV", "MDBASE_LAB_EXPECTED_COMMIT", "MDBASE_LAB_DEPLOYMENT_REPORT");
   const supplied = forbidden.filter((name) => environment[name] !== undefined);
   if (supplied.length > 0) throw new Error(`${target.toUpperCase()} deployment target overrides are forbidden: ${supplied.join(", ")}.`);
   if (!deployment.project || !deployment.branch || !deployment.editorOrigin || !deployment.connectOrigin) {
