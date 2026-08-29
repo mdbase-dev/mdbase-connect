@@ -50,7 +50,7 @@
   ],
   "dependencies": {
     "@mdbase-dev/connect-protocol": "workspace:*",
-    "@noble/hashes": "^2.2.0",
+    "@noble/hashes": "^2.3.0",
     "yaml": "^2.9.0"
   },
   "scripts": {
