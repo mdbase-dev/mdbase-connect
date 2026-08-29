@@ -400,6 +400,93 @@ test("post-parse verification failure retains crash-durable deployment identity"
   assert.equal((await stat(evidencePath)).mode & 0o777, 0o600);
 });
 
+test("local LAB mode accepts a dirty checkout and deploys only the fixed LAB target", async () => {
+  const fixtureRoot = await deployRootFixture();
+  const manifestPath = resolve(fixtureRoot, "apps/editor/public/.well-known/mdbase-app.json");
+  const calls = [];
+  const environment = {
+    HOME: "/operator/home",
+    PATH: process.env.PATH,
+    MDBASE_ENV: "lab",
+    MDBASE_LAB_LOCAL_MODE: "1",
+    MDBASE_LAB_LOCAL_REVISION: commit,
+    VITE_MDBASE_BUILD_REVISION: commit,
+    CLOUDFLARE_API_TOKEN: "local-test-token",
+    RENDER_API_KEY: "must-not-reach-builds",
+    VITE_UNEXPECTED_SECRET: "must-not-reach-builds"
+  };
+  await deployDevelopmentEditor(environment, async (command, args, commandEnvironment) => {
+    calls.push({ command, args, environment: commandEnvironment });
+    if (args.includes("mdbase-editor")) await writeFile(manifestPath, "generated-from-dirty-checkout\n");
+  }, {
+    root: fixtureRoot,
+    capture: async () => { throw new Error("local LAB must not inspect git, origin, GitHub, or CI"); },
+    reserveReport: async () => { throw new Error("local LAB must not reserve a qualification report"); }
+  });
+
+  assert.equal(await readFile(manifestPath, "utf8"), "original\n");
+  assert.deepEqual(calls.slice(0, 4).map(({ command, args }) => [command, ...args.slice(0, 2)]), [
+    ["pnpm", "install", "--frozen-lockfile"],
+    ["pnpm", "build:packages"],
+    ["pnpm", "--filter", "mdbase-editor"],
+    ["node", "apps/editor/scripts/verify-deployment-manifest.mjs", "apps/editor/dist/.well-known/mdbase-app.json"]
+  ]);
+  const deploy = calls.find(({ args }) => args.includes("wrangler"));
+  assert.ok(deploy);
+  assert.ok(deploy.args.includes("--project-name=mdbase-editor-lab"));
+  assert.ok(deploy.args.includes("--branch=candidate-b"));
+  assert.ok(deploy.args.includes(`--commit-hash=${commit}`));
+  assert.ok(deploy.args.includes("--commit-dirty=true"));
+  assert.ok(deploy.args.some((argument) => argument.startsWith("--env-file=/") && argument.endsWith("/empty.env")));
+  assert.equal(deploy.environment.CLOUDFLARE_ACCOUNT_ID, accountId);
+  assert.equal(deploy.environment.CLOUDFLARE_API_TOKEN, "local-test-token");
+  assert.equal(deploy.environment.RENDER_API_KEY, undefined);
+  assert.equal(deploy.environment.VITE_UNEXPECTED_SECRET, undefined);
+  const build = calls.find(({ args }) => args[0] === "build:packages");
+  assert.equal(build.environment.MDBASE_EDITOR_ORIGIN, "https://editor-lab.mdbase.dev");
+  assert.equal(build.environment.MDBASE_CONNECT_URL, "https://connect-lab.mdbase.dev");
+  assert.equal(build.environment.VITE_MDBASE_BUILD_REVISION, commit);
+  assert.equal(build.environment.CLOUDFLARE_API_TOKEN, undefined);
+  assert.equal(build.environment.RENDER_API_KEY, undefined);
+  assert.equal(build.environment.VITE_UNEXPECTED_SECRET, undefined);
+  assert.ok(calls.find(({ args }) => args.includes("https://editor-lab.mdbase.dev/.well-known/mdbase-app.json")));
+  assert.ok(calls.find(({ args }) => args.includes("apps/editor/scripts/verify-deployment-assets.mjs")));
+});
+
+test("local LAB mode rejects revision, release, account, environment, and target overrides before commands", async () => {
+  const base = {
+    MDBASE_ENV: "lab",
+    MDBASE_LAB_LOCAL_MODE: "1",
+    MDBASE_LAB_LOCAL_REVISION: commit,
+    VITE_MDBASE_BUILD_REVISION: commit
+  };
+  const cases = [
+    { ...base, MDBASE_LAB_LOCAL_REVISION: "short" },
+    { ...base, VITE_MDBASE_BUILD_REVISION: "f".repeat(40) },
+    { ...base, MDBASE_LAB_RELEASE_MODE: "exact" },
+    { ...base, MDBASE_ENV: "staging" },
+    { ...base, MDBASE_ENV: "production" },
+    { ...base, VITE_MDBASE_ENV: "staging" },
+    { ...base, MDBASE_EDITOR_ORIGIN: "https://editor-staging.mdbase.dev" },
+    { ...base, MDBASE_CONNECT_URL: "https://connect-staging.mdbase.dev" },
+    { ...base, CLOUDFLARE_PAGES_PROJECT: "mdbase-editor" },
+    { ...base, CLOUDFLARE_PAGES_BRANCH: "main" },
+    { ...base, CLOUDFLARE_ACCOUNT_ID: "f".repeat(32) },
+    { ...base, MDBASE_LAB_DEPLOYMENT_REPORT: "/tmp/not-used.json" },
+    { ...base, MDBASE_LAB_EXPECTED_COMMIT: commit },
+    { ...base, MDBASE_LAB_LOCAL_MODE: "true" },
+    { ...base, MDBASE_LAB_LOCAL_MODE: " 1 " },
+    { ...base, MDBASE_ENV: undefined }
+  ];
+  for (const environment of cases) {
+    let commands = 0;
+    await assert.rejects(deployDevelopmentEditor(environment, async () => { commands += 1; }, {
+      capture: async () => { commands += 1; }
+    }), /LAB|revision|account|overrides|restricted/iu);
+    assert.equal(commands, 0);
+  }
+});
+
 test("staging remains explicit, pinned, and outside LAB release mode", async () => {
   const calls = [];
   await deployDevelopmentEditor({ MDBASE_ENV: "staging" }, async (command, args, environment) => calls.push({ command, args, environment }));
