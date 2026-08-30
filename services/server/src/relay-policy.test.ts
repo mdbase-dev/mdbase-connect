@@ -106,6 +106,8 @@ describe("connector policy sequence", () => {
       expectedRevision: "fresh",
       connectorId,
       generation: "1",
+      mode: "lease_v1",
+      initial: true,
       isStillCurrent: () => true,
       resolve: vi.fn(),
       reject: staleReject
@@ -122,10 +124,25 @@ describe("connector policy sequence", () => {
       expectedRevision: "fresh",
       connectorId,
       generation: "2",
+      mode: "lease_v1",
+      initial: true,
       isStillCurrent: () => true,
       resolve,
       reject: vi.fn()
     });
     expect(resolve).toHaveBeenCalledOnce();
+    const adopted = await db.query<{
+      policy_lease_adopted_at: Date | null;
+      latest_policy_ack_mode: string | null;
+      latest_policy_ack_generation: string | number | null;
+    }>(
+      `SELECT policy_lease_adopted_at, latest_policy_ack_mode,
+              latest_policy_ack_generation
+       FROM connectors WHERE id = $1`,
+      [connectorId]
+    );
+    expect(adopted.rows[0]?.policy_lease_adopted_at).not.toBeNull();
+    expect(adopted.rows[0]?.latest_policy_ack_mode).toBe("lease_v1");
+    expect(Number(adopted.rows[0]?.latest_policy_ack_generation)).toBe(2);
   });
 });

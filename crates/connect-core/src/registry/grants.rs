@@ -1,7 +1,14 @@
 use super::*;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RemotePolicyAuthorityMode {
+    LeaseV1,
+    LegacyAckV0,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RemotePolicyAuthority {
+    pub mode: RemotePolicyAuthorityMode,
     pub revision: String,
     pub sequence: u64,
     pub connector_id: Option<Uuid>,
@@ -33,6 +40,12 @@ struct CurrentPolicySnapshot {
     sequence: u64,
     revision: String,
     connector_id: Option<String>,
+}
+
+enum PolicyApplyMode {
+    Local,
+    LegacyRemote,
+    LeaseRemote(Uuid),
 }
 
 fn validate_policy_snapshot(
@@ -81,7 +94,12 @@ fn validate_policy_snapshot(
             ));
         }
     }
-    if sequence < current.sequence || (sequence == current.sequence && revision != current.revision)
+    // Legacy beta snapshots and lease snapshots use independent sequence
+    // domains. The first authenticated lease pins the connector and starts its
+    // sequence comparison at that lease, regardless of the legacy counter.
+    if (current.connector_id.is_some() || connector_id.is_none())
+        && (sequence < current.sequence
+            || (sequence == current.sequence && revision != current.revision))
     {
         return Err(ConnectError::InvalidInput(
             "Stale or conflicting policy snapshot.".to_string(),
@@ -128,6 +146,34 @@ impl CollectionRegistry {
             lease_issued_at_ms..lease_expires_at_ms,
             grants,
             super::authority_store::current_time_ms(),
+        )
+    }
+
+    pub fn replace_legacy_remote_grants_at_revision(
+        &self,
+        revision: &str,
+        grants: &[GrantPolicy],
+    ) -> Result<(), ConnectError> {
+        let (sequence, connector_id) = self.authority.connection()?.query_row(
+            "SELECT sequence, connector_id FROM policy_state WHERE singleton = 1",
+            [],
+            |row| Ok((row.get::<_, u64>(0)?, row.get::<_, Option<String>>(1)?)),
+        )?;
+        if connector_id.is_some() {
+            return Err(ConnectError::InvalidInput(
+                "Legacy policy is forbidden after lease authority was pinned.".to_string(),
+            ));
+        }
+        let now = super::authority_store::current_time_ms();
+        self.replace_grants_at_revision_at_inner(
+            PolicyApplyMode::LegacyRemote,
+            revision,
+            sequence.checked_add(1).ok_or_else(|| {
+                ConnectError::InvalidInput("The local policy sequence is exhausted.".to_string())
+            })?,
+            now..now.saturating_add(60_000),
+            grants,
+            now,
         )
     }
 
@@ -193,6 +239,24 @@ impl CollectionRegistry {
         grants: &[GrantPolicy],
         now_ms: i64,
     ) -> Result<(), ConnectError> {
+        let mode = connector_id.map_or(PolicyApplyMode::Local, PolicyApplyMode::LeaseRemote);
+        self.replace_grants_at_revision_at_inner(mode, revision, sequence, lease_ms, grants, now_ms)
+    }
+
+    fn replace_grants_at_revision_at_inner(
+        &self,
+        mode: PolicyApplyMode,
+        revision: &str,
+        sequence: u64,
+        lease_ms: std::ops::Range<i64>,
+        grants: &[GrantPolicy],
+        now_ms: i64,
+    ) -> Result<(), ConnectError> {
+        let (connector_id, reject_pinned_legacy) = match mode {
+            PolicyApplyMode::Local => (None, false),
+            PolicyApplyMode::LegacyRemote => (None, true),
+            PolicyApplyMode::LeaseRemote(connector_id) => (Some(connector_id), false),
+        };
         let lease_expires_at_ms = lease_ms.end;
         let connector_id_string = connector_id.map(|value| value.to_string());
         let revision = revision.to_string();
@@ -220,6 +284,11 @@ impl CollectionRegistry {
                         })
                     },
                 )?;
+                if reject_pinned_legacy && current.connector_id.is_some() {
+                    return Err(ConnectError::InvalidInput(
+                        "Legacy policy is forbidden after lease authority was pinned.".to_string(),
+                    ));
+                }
                 validate_policy_snapshot(
                     connector_id,
                     &revision,
@@ -635,6 +704,26 @@ impl CollectionRegistry {
         self.remote_policy_is_fresh_at(super::authority_store::current_time_ms())
     }
 
+    /// Admission predicate. Legacy beta authority is intentionally unbounded,
+    /// but remains explicitly distinct from fresh lease protection.
+    pub fn remote_policy_is_usable(&self) -> Result<bool, ConnectError> {
+        let now_ms = super::authority_store::current_time_ms();
+        let (connector_id, expires_at_ms, observed_at_ms) =
+            self.authority.connection()?.query_row(
+                "SELECT connector_id, lease_expires_at_ms, observed_at_ms
+             FROM policy_state WHERE singleton = 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                },
+            )?;
+        Ok(connector_id.is_none() || expires_at_ms > now_ms.max(observed_at_ms))
+    }
+
     /// Reconstruct the authority digest from exact stored columns. Every
     /// GrantPolicy field is supplied explicitly; serde defaults are never used
     /// to infer absent database state.
@@ -660,6 +749,11 @@ impl CollectionRegistry {
             .as_deref()
             .map(parse_registry_uuid)
             .transpose()?;
+        let mode = if connector_id.is_some() {
+            RemotePolicyAuthorityMode::LeaseV1
+        } else {
+            RemotePolicyAuthorityMode::LegacyAckV0
+        };
         let authority_digest = connector_id
             .map(|connector_id| {
                 let mut statement = transaction.prepare(
@@ -721,17 +815,20 @@ impl CollectionRegistry {
                     .collect::<Result<Vec<_>, ConnectError>>()?;
                 canonical_policy_authority_digest(connector_id, &grants)
             })
-            .transpose()?;
+            .transpose()?
+            .or_else(|| (!revision.is_empty()).then(|| revision.clone()));
         transaction.commit()?;
         let now_ms = super::authority_store::current_time_ms();
         Ok(RemotePolicyAuthority {
+            mode: mode.clone(),
             revision,
             sequence,
             connector_id,
             authority_digest,
             lease_expires_at_ms,
             observed_at_ms,
-            fresh: lease_expires_at_ms > now_ms.max(observed_at_ms),
+            fresh: mode == RemotePolicyAuthorityMode::LeaseV1
+                && lease_expires_at_ms > now_ms.max(observed_at_ms),
         })
     }
 
@@ -855,63 +952,5 @@ pub(super) fn archive_grant_replay_material(
 }
 
 #[cfg(test)]
-mod canonical_fixture_tests {
-    use super::*;
-
-    #[test]
-    fn protocol_v1_fixture_round_trips_exact_grant_policy_and_digests() {
-        let fixture: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../../test-fixtures/protocol-v1-policy-canonical.json"
-        ))
-        .unwrap();
-        assert_eq!(fixture["protocol_version"], 1);
-        let wire_body = &fixture["normalized_wire_body"];
-        let mut grants: Vec<GrantPolicy> =
-            serde_json::from_value(wire_body["grants"].clone()).unwrap();
-        assert_eq!(serde_json::to_value(&grants).unwrap(), wire_body["grants"]);
-        grants.reverse();
-
-        let connector_id: Uuid = serde_json::from_value(wire_body["connector_id"].clone()).unwrap();
-        assert_eq!(
-            canonical_policy_authority_digest(connector_id, &grants).unwrap(),
-            fixture["authority_digest"].as_str().unwrap()
-        );
-        let mut normalized = grants;
-        normalized.sort_by_key(|grant| grant.id);
-        let reconstructed_wire = serde_json::json!({
-            "connector_id": connector_id,
-            "sequence": wire_body["sequence"],
-            "lease_issued_at_ms": wire_body["lease_issued_at_ms"],
-            "lease_expires_at_ms": wire_body["lease_expires_at_ms"],
-            "grants": &normalized,
-        });
-        let reconstructed_authority = serde_json::json!({
-            "connector_id": connector_id,
-            "grants": &normalized,
-        });
-        assert_eq!(reconstructed_authority, fixture["authority_body"]);
-        let canonical = String::from_utf8(serde_jcs::to_vec(&reconstructed_wire).unwrap()).unwrap();
-        let authority_canonical =
-            String::from_utf8(serde_jcs::to_vec(&reconstructed_authority).unwrap()).unwrap();
-        assert_eq!(
-            canonical,
-            fixture["normalized_wire_canonical"].as_str().unwrap()
-        );
-        assert_eq!(
-            authority_canonical,
-            fixture["authority_canonical"].as_str().unwrap()
-        );
-        assert_eq!(
-            format!("sha256:{:x}", Sha256::digest(canonical.as_bytes())),
-            fixture["revision"].as_str().unwrap()
-        );
-        assert_eq!(
-            fixture["revision"],
-            "sha256:ccfe7bb1eb75acbec1abe0ee2e8a0c13f1d2be3e2cb47aa30cf6ba6bc3d982ea"
-        );
-        assert_eq!(
-            fixture["authority_digest"],
-            "sha256:141ae510bcd2582cc075046327940a622d68a87355e1f11fb7358bf5fe0803fd"
-        );
-    }
-}
+#[path = "grants_policy_tests.rs"]
+mod policy_tests;

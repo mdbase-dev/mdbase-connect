@@ -41,7 +41,8 @@ impl AgentState {
         // Recheck the lease/revision cancellation immediately before the durable
         // boundary. Policy replacement cancels admitted remote work; the lease
         // deadline is also installed as the worker's cancellation deadline.
-        if cancellation.is_cancelled() || !self.registry.remote_policy_is_fresh().unwrap_or(false) {
+        if cancellation.is_cancelled() || !self.registry.remote_policy_is_usable().unwrap_or(false)
+        {
             return encrypted_problem_response(
                 keys,
                 metadata,

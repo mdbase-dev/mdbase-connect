@@ -824,6 +824,15 @@ test("relay request and response discriminators reject malformed wire messages",
     grants: []
   };
   assert.equal(validate(policy), true, JSON.stringify(validate.errors));
+  const {
+    connector_id: _connectorId,
+    sequence: _sequence,
+    lease_issued_at_ms: _leaseIssuedAt,
+    lease_expires_at_ms: _leaseExpiresAt,
+    ...legacyPolicy
+  } = policy;
+  assert.equal(validate(legacyPolicy), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ ...legacyPolicy, sequence: 2 }), false);
   assert.equal(validate({ ...policy, revision: "latest" }), false);
   assert.equal(validate({
     type: "policy_applied",

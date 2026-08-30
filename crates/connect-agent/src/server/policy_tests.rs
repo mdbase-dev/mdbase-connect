@@ -73,6 +73,30 @@ fn snapshot_at(connector_id: Uuid, sequence: u64, now: i64, lease_ms: i64) -> Po
     }
 }
 
+#[test]
+fn partial_lease_metadata_is_rejected_before_policy_mutation() {
+    let (_directory, state) = state();
+    let request_id = Uuid::new_v4();
+    let frame = RelayMessage::PolicySnapshot {
+        protocol_version: CONTROL_PROTOCOL_VERSION,
+        request_id,
+        revision: format!("sha256:{}", "0".repeat(64)),
+        connector_id: Some(Uuid::nil()),
+        sequence: None,
+        lease_issued_at_ms: None,
+        lease_expires_at_ms: None,
+        grants: vec![],
+    };
+    state.prepare_policy_update(1, &frame).unwrap();
+    assert!(state.capture_policy_revision().is_err());
+    let response = state.handle_relay_message(frame);
+    assert!(matches!(response, Some(RelayMessage::PolicyApplied {
+        request_id: observed, ok: false, ..
+    }) if observed == request_id));
+    assert!(!state.finish_policy_update(1, false));
+    assert!(state.capture_policy_revision().is_err());
+}
+
 fn bind_snapshot(snapshot: &mut PolicySnapshot) {
     let mut grants = snapshot.grants.clone();
     grants.sort_by_key(|grant| grant.id);
@@ -143,6 +167,196 @@ fn authenticated_grant_state() -> (tempfile::TempDir, Arc<AgentState>, Uuid) {
     let watcher = CollectionWatchService::start(registry.clone());
     let state = Arc::new(AgentState::new(registry, watcher, None));
     (directory, state, connector_id)
+}
+
+#[test]
+fn frozen_beta90_revision_binds_reverse_id_wire_order_before_storage_sort() {
+    let beta90: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../test-fixtures/beta90-policy-reverse-order.json"
+    ))
+    .unwrap();
+    let canonical: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../test-fixtures/protocol-v1-policy-canonical.json"
+    ))
+    .unwrap();
+    let mut grants: Vec<GrantPolicy> =
+        serde_json::from_value(canonical["normalized_wire_body"]["grants"].clone()).unwrap();
+    grants.truncate(2);
+    grants.reverse();
+    assert_eq!(
+        grants
+            .iter()
+            .map(|grant| grant.id.to_string())
+            .collect::<Vec<_>>(),
+        beta90["wire_grant_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|id| id.as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+    );
+    let revision = {
+        use sha2::Digest;
+        format!(
+            "sha256:{:x}",
+            sha2::Sha256::digest(serde_jcs::to_vec(&grants).unwrap())
+        )
+    };
+    assert_eq!(revision, beta90["revision"].as_str().unwrap());
+
+    let directory = tempdir().unwrap();
+    let registry = CollectionRegistry::open(directory.path()).unwrap();
+    let watcher = CollectionWatchService::start(registry.clone());
+    let state = AgentState::new(registry, watcher, None);
+    let response = apply_legacy_policy_snapshot(
+        &state,
+        CONTROL_PROTOCOL_VERSION,
+        Uuid::new_v4(),
+        revision,
+        grants.clone(),
+    );
+    assert!(matches!(
+        response,
+        RelayMessage::PolicyApplied {
+            error: Some(ControlError { ref code, .. }),
+            ..
+        } if code != "invalid_policy_revision"
+    ));
+
+    let mut sorted = grants;
+    sorted.sort_by_key(|grant| grant.id);
+    let sorted_revision = {
+        use sha2::Digest;
+        format!(
+            "sha256:{:x}",
+            sha2::Sha256::digest(serde_jcs::to_vec(&sorted).unwrap())
+        )
+    };
+    let rejected = apply_legacy_policy_snapshot(
+        &state,
+        CONTROL_PROTOCOL_VERSION,
+        Uuid::new_v4(),
+        sorted_revision,
+        sorted.into_iter().rev().collect(),
+    );
+    assert!(matches!(
+        rejected,
+        RelayMessage::PolicyApplied {
+            error: Some(ControlError { ref code, .. }),
+            ..
+        } if code == "invalid_policy_revision"
+    ));
+}
+
+#[test]
+fn queued_changed_policy_fences_admission_and_stale_publication_immediately() {
+    let (_directory, state, connector_id) = authenticated_grant_state();
+    let old = state.capture_policy_revision().unwrap();
+    state.admit_policy_revision(&old).unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+    let publication = state.acquire_publication_permit(&old, deadline).unwrap();
+    let cancellation = mdbase::OperationCancellation::new();
+    let registration = state.register_remote_operation(&cancellation);
+
+    let next = snapshot_for(connector_id, 2, 55_000);
+    let frame = RelayMessage::PolicySnapshot {
+        protocol_version: CONTROL_PROTOCOL_VERSION,
+        request_id: next.request_id,
+        revision: next.revision,
+        connector_id: Some(next.connector_id),
+        sequence: Some(next.sequence),
+        lease_issued_at_ms: Some(next.lease_issued_at_ms),
+        lease_expires_at_ms: Some(next.lease_expires_at_ms),
+        grants: next.grants,
+    };
+    state.prepare_policy_update(1, &frame).unwrap();
+
+    assert!(cancellation.is_cancelled());
+    assert!(state.capture_policy_revision().is_err());
+    assert!(state.admit_policy_revision(&old).is_err());
+    assert!(!state.publication_is_current(&publication));
+    assert!(state.acquire_publication_permit(&old, deadline).is_err());
+    state.unregister_remote_operation(registration);
+}
+
+#[test]
+fn only_newest_queued_changed_generation_can_clear_the_pending_fence() {
+    let (_directory, state, connector_id) = authenticated_grant_state();
+    let first = snapshot_for(connector_id, 2, 55_000);
+    let first_frame = RelayMessage::PolicySnapshot {
+        protocol_version: CONTROL_PROTOCOL_VERSION,
+        request_id: first.request_id,
+        revision: first.revision,
+        connector_id: Some(first.connector_id),
+        sequence: Some(first.sequence),
+        lease_issued_at_ms: Some(first.lease_issued_at_ms),
+        lease_expires_at_ms: Some(first.lease_expires_at_ms),
+        grants: first.grants,
+    };
+    state.prepare_policy_update(1, &first_frame).unwrap();
+
+    let (_, grant) = fixture_grant();
+    let mut second = snapshot_for(connector_id, 3, 55_000);
+    second.grants = vec![grant];
+    bind_snapshot(&mut second);
+    let second_frame = RelayMessage::PolicySnapshot {
+        protocol_version: CONTROL_PROTOCOL_VERSION,
+        request_id: second.request_id,
+        revision: second.revision,
+        connector_id: Some(second.connector_id),
+        sequence: Some(second.sequence),
+        lease_issued_at_ms: Some(second.lease_issued_at_ms),
+        lease_expires_at_ms: Some(second.lease_expires_at_ms),
+        grants: second.grants,
+    };
+    state.prepare_policy_update(2, &second_frame).unwrap();
+
+    let first_result = state.handle_relay_message(first_frame);
+    assert!(matches!(
+        first_result,
+        Some(RelayMessage::PolicyApplied { ok: true, .. })
+    ));
+    assert!(!state.finish_policy_update(1, true));
+    assert!(state.capture_policy_revision().is_err());
+
+    let second_result = state.handle_relay_message(second_frame);
+    assert!(matches!(
+        second_result,
+        Some(RelayMessage::PolicyApplied { ok: true, .. })
+    ));
+    assert!(state.finish_policy_update(2, true));
+    assert!(state.capture_policy_revision().is_ok());
+}
+
+#[test]
+fn queued_equivalent_lease_renewal_preserves_continuity() {
+    let (_directory, state, connector_id, _initial) = authenticated_state(55_000);
+    let old = state.capture_policy_revision().unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+    let publication = state.acquire_publication_permit(&old, deadline).unwrap();
+    let renewal = snapshot_for(connector_id, 2, 55_000);
+    let frame = RelayMessage::PolicySnapshot {
+        protocol_version: CONTROL_PROTOCOL_VERSION,
+        request_id: renewal.request_id,
+        revision: renewal.revision,
+        connector_id: Some(renewal.connector_id),
+        sequence: Some(renewal.sequence),
+        lease_issued_at_ms: Some(renewal.lease_issued_at_ms),
+        lease_expires_at_ms: Some(renewal.lease_expires_at_ms),
+        grants: renewal.grants,
+    };
+    state.prepare_policy_update(1, &frame).unwrap();
+    state.admit_policy_revision(&old).unwrap();
+    assert!(state.publication_is_current(&publication));
+    let applied = state.handle_relay_message(frame);
+    assert!(matches!(
+        applied,
+        Some(RelayMessage::PolicyApplied { ok: true, .. })
+    ));
+    assert!(state.finish_policy_update(1, true));
+    state.admit_policy_revision(&old).unwrap();
+    assert!(state.publication_is_current(&publication));
+    assert!(state.capture_policy_revision().is_ok());
 }
 
 #[test]

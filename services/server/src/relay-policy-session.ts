@@ -11,6 +11,7 @@ import {
 } from "./relay-errors.js";
 import {
   buildPolicySnapshot,
+  type PolicyMode,
   type PolicySnapshot
 } from "./relay-policy.js";
 
@@ -49,7 +50,8 @@ export interface PolicySessionHost {
   isActive(identity: PolicySessionIdentity): boolean;
   push(
     identity: PolicySessionIdentity,
-    isStillCurrent: () => boolean
+    isStillCurrent: () => boolean,
+    initial: boolean
   ): Promise<ExactPolicyAcknowledgement>;
   renewalFailed(): void;
 }
@@ -62,11 +64,13 @@ export class RelayPolicySession {
   private retryTimer?: NodeJS.Timeout;
   private rejectRetry?: (error: Error) => void;
   private stopped = false;
+  private acknowledged = false;
   private waiters: PolicyWaiter[] = [];
 
   constructor(
     readonly identity: PolicySessionIdentity,
-    private readonly host: PolicySessionHost
+    private readonly host: PolicySessionHost,
+    private readonly mode: PolicyMode = "lease_v1"
   ) {}
 
   get isStopped(): boolean {
@@ -124,7 +128,8 @@ export class RelayPolicySession {
       let ack: ExactPolicyAcknowledgement | undefined;
       let failure: Error | undefined;
       try {
-        ack = await this.pushWithRetry();
+        ack = await this.pushWithRetry(!this.acknowledged);
+        this.acknowledged = true;
       } catch (error) {
         failure = error instanceof Error ? error : new RelayUnavailableError();
       }
@@ -138,12 +143,13 @@ export class RelayPolicySession {
     }
   }
 
-  private async pushWithRetry(): Promise<ExactPolicyAcknowledgement> {
+  private async pushWithRetry(initial: boolean): Promise<ExactPolicyAcknowledgement> {
     for (let attempt = 1; attempt <= POLICY_MAX_ATTEMPTS; attempt += 1) {
       try {
         return await this.host.push(
           this.identity,
-          () => !this.stopped && this.host.isActive(this.identity)
+          () => !this.stopped && this.host.isActive(this.identity),
+          initial
         );
       } catch (error) {
         if (error instanceof StalePolicyAuthorityError
@@ -176,7 +182,9 @@ export class RelayPolicySession {
   }
 
   private scheduleRenewal(): void {
-    if (this.stopped || !this.host.isActive(this.identity)) return;
+    if (this.mode !== "lease_v1"
+        || this.stopped
+        || !this.host.isActive(this.identity)) return;
     this.renewalTimer = setTimeout(() => {
       this.renewalTimer = undefined;
       void (async () => {
@@ -205,7 +213,8 @@ export class ExactPolicyPublisher {
     private readonly db: DatabasePool,
     private readonly leaseMs: number,
     private readonly currentGeneration: (connectorId: string) => Promise<string | null>,
-    private readonly isOpen: () => boolean
+    private readonly isOpen: () => boolean,
+    private readonly mode: PolicyMode = "lease_v1"
   ) {}
 
   async push(
@@ -218,7 +227,8 @@ export class ExactPolicyPublisher {
       authority.connectorId,
       this.leaseMs,
       authority.generation,
-      () => this.isOpen() && authority.isStillCurrent()
+      () => this.isOpen() && authority.isStillCurrent(),
+      this.mode
     );
     if (!message || !await this.isCurrent(authority)) {
       throw new StalePolicyAuthorityError();

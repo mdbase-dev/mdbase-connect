@@ -29,10 +29,14 @@ pub enum RelayMessage {
         protocol_version: u32,
         request_id: Uuid,
         revision: String,
-        connector_id: Uuid,
-        sequence: u64,
-        lease_issued_at_ms: i64,
-        lease_expires_at_ms: i64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        connector_id: Option<Uuid>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sequence: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lease_issued_at_ms: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lease_expires_at_ms: Option<i64>,
         grants: Vec<GrantPolicy>,
     },
     PolicyApplied {
