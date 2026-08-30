@@ -35,6 +35,13 @@
     "crates/connect-hosted-storage-benchmark/src/main/legacy_query.rs": 1,
     "crates/connect-hosted-storage-benchmark/src/main/query.rs": 1
   },
+  "externalGuards": {
+    "directWireOnlyConstructors": 0,
+    "directCanonicalOutcomeStructs": 0,
+    "privateCanonicalResultFieldCalls": 0,
+    "legacyCrudFeatures": 0,
+    "semanticProjectionFormatVersion": 6
+  },
   "reviewBudgets": {
     "productionFiles": 663,
     "relativeImports": 1375,

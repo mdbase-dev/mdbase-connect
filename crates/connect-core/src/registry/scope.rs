@@ -218,10 +218,10 @@ pub(super) fn ensure_operation_in_scope(
 ) -> Result<(), ConnectError> {
     use mdbase::runtime::CanonicalOperationValue;
 
-    if !operation.valid {
+    if !operation.is_valid() {
         return Ok(());
     }
-    match &operation.value {
+    match operation.value() {
         CanonicalOperationValue::Read(Some(record))
         | CanonicalOperationValue::Create(Some(record))
         | CanonicalOperationValue::Update(Some(record)) => {
@@ -251,7 +251,7 @@ pub(super) fn operation_record(
     operation: &mdbase::runtime::CanonicalOperationOutcome,
 ) -> Option<&mdbase::api::RecordDocument> {
     use mdbase::runtime::CanonicalOperationValue;
-    match &operation.value {
+    match operation.value() {
         CanonicalOperationValue::Read(Some(record))
         | CanonicalOperationValue::Create(Some(record))
         | CanonicalOperationValue::Update(Some(record)) => Some(record),

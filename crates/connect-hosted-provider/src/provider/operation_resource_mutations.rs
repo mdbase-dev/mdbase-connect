@@ -94,7 +94,7 @@ impl HostedProvider {
         let result = serde_json::to_value(plan.operation.to_v03()).map_err(|error| {
             ApiError::internal(format!("Hosted operation could not serialize: {error}"))
         })?;
-        if !plan.operation.valid {
+        if !plan.operation.is_valid() {
             transaction.commit().await?;
             return Ok(result);
         }

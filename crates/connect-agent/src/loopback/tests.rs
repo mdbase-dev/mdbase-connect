@@ -549,6 +549,20 @@ async fn encrypted_full_collection_operations_bound_and_repair_invalid_records()
         .await;
     assert_eq!(repaired["result"]["valid"], true);
     assert_eq!(fs::read(&utf8_path).unwrap(), repaired_utf8);
+    let repaired_changes = fixture
+        .direct(&app, "changes", json!({ "after": baseline + 1 }), 9)
+        .await;
+    assert!(
+        repaired_changes["result"]["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| {
+                event["type"] == "mdbase.record.created"
+                    && event["payload"]["path"] == "invalid-utf8.md"
+            }),
+        "an update repair of a non-indexed record must retain its canonical create effect"
+    );
 
     let non_mapping_path = collection.join("non-mapping.md");
     let newer = b"---\ntitle: Newer external bytes\n---\nPreserve me\n";
@@ -563,7 +577,7 @@ async fn encrypted_full_collection_operations_bound_and_repair_invalid_records()
                 "document": "---\ntitle: Stale replacement\n---\nMust not apply\n",
                 "if_revision": revisions["non-mapping.md"]
             }),
-            9,
+            10,
         )
         .await;
     assert_eq!(stale["result"]["valid"], false);

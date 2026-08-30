@@ -60,9 +60,10 @@ impl CollectionExecutor {
     ) -> Result<Self, ConnectError> {
         let (runtime, provider, feed) = if coordinated {
             let runtime = Arc::new(FilesystemRuntime::open(root, Duration::from_millis(120))?);
-            let context = OperationContext::new(
+            let context = OperationContext::with_capture_limits(
                 &mdbase::OperationCancellation::new(),
                 mdbase::runtime::OperationDeadline::after(Duration::from_secs(30)),
+                local_capture_limits(),
             );
             let feed = runtime.open_change_feed(owner, &context)?;
             runtime.establish_change_feed_baseline(&feed, &context)?;
@@ -461,9 +462,10 @@ mod tests {
     use super::*;
 
     fn context(duration: Duration) -> OperationContext {
-        OperationContext::new(
+        OperationContext::with_capture_limits(
             &mdbase::OperationCancellation::new(),
             mdbase::runtime::OperationDeadline::after(duration),
+            local_capture_limits(),
         )
     }
 

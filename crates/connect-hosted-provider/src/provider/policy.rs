@@ -223,10 +223,10 @@ pub(super) fn ensure_canonical_read_visible(
     operation: &mdbase::runtime::CanonicalOperationOutcome,
     allowed_types: &[String],
 ) -> ApiResult<()> {
-    if allowed_types.is_empty() || !operation.valid {
+    if allowed_types.is_empty() || !operation.is_valid() {
         return Ok(());
     }
-    let visible = match &operation.value {
+    let visible = match operation.value() {
         mdbase::runtime::CanonicalOperationValue::Read(Some(record)) => record
             .types
             .iter()

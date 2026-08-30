@@ -209,7 +209,7 @@ impl HostedProvider {
             "definition mutation",
         )?;
         let envelope = plan.operation.to_v03();
-        if !plan.operation.valid {
+        if !plan.operation.is_valid() {
             return serde_json::to_value(envelope).map_err(|error| {
                 ApiError::internal(format!("Hosted definition could not serialize: {error}"))
             });

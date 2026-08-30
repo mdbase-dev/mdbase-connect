@@ -638,7 +638,7 @@ impl HostedProvider {
                     )
                     .await?;
                 let assessment_value = type_pack_assessment(&assessment)?;
-                if !assessment.valid || !assessment_value.applicable {
+                if !assessment.is_valid() || !assessment_value.applicable {
                     return Err(type_pack_provision_error(&assessment.to_v03()));
                 }
                 let expected_assessment_digest = assessment_value.assessment_digest.clone();
@@ -806,7 +806,7 @@ impl HostedProvider {
             }
         }
         let assessment_value = collection_setup_assessment(&assessment)?;
-        if !assessment.valid || !assessment_value.applicable {
+        if !assessment.is_valid() || !assessment_value.applicable {
             return Err(type_pack_provision_error(&assessment.to_v03()));
         }
         let applied = self
@@ -894,8 +894,8 @@ impl HostedProvider {
 fn type_pack_assessment(
     operation: &mdbase::runtime::CanonicalOperationOutcome,
 ) -> ApiResult<&mdbase::runtime::CanonicalTypePackValue> {
-    match &operation.value {
-        mdbase::runtime::CanonicalOperationValue::TypePack(Some(value)) => Ok(value),
+    match operation.value() {
+        mdbase::runtime::CanonicalOperationValue::AssessTypePack(Some(value)) => Ok(value),
         _ => Err(ApiError::internal(
             "Canonical type-pack assessment returned the wrong typed operation family.",
         )),
@@ -905,15 +905,15 @@ fn type_pack_assessment(
 fn collection_setup_assessment(
     operation: &mdbase::runtime::CanonicalOperationOutcome,
 ) -> ApiResult<&mdbase::v03::CollectionSetupAssessment> {
-    match &operation.value {
-        mdbase::runtime::CanonicalOperationValue::CollectionSetup(Some(value)) => {
-            match value.as_ref() {
-                mdbase::runtime::CanonicalCollectionSetupValue::Assessment(value) => Ok(value),
-                _ => Err(ApiError::internal(
-                    "Canonical collection-setup assessment returned the wrong typed operation family.",
-                )),
-            }
-        }
+    match operation.value() {
+        mdbase::runtime::CanonicalOperationValue::AssessCollectionSetup(Some(value)) => match value
+            .as_ref()
+        {
+            mdbase::runtime::CanonicalCollectionSetupValue::Assessment(value) => Ok(value),
+            _ => Err(ApiError::internal(
+                "Canonical collection-setup assessment returned the wrong typed operation family.",
+            )),
+        },
         _ => Err(ApiError::internal(
             "Canonical collection-setup assessment returned the wrong typed operation family.",
         )),

@@ -138,8 +138,8 @@ fn legacy_record_replay_never_uses_ambient_state_or_an_empty_success() {
 #[test]
 fn definition_decisions_match_closed_typed_fields() {
     let source = include_str!("operation_dispatch.rs");
-    assert!(source.contains("CanonicalOperationValue::TypePack(Some(value))"));
-    assert!(source.contains("CanonicalOperationValue::CollectionSetup(Some("));
+    assert!(source.contains("CanonicalOperationValue::AssessTypePack(Some(value))"));
+    assert!(source.contains("CanonicalOperationValue::AssessCollectionSetup(Some("));
     assert!(!source.contains("WireOnlyOperationValue::TypePack"));
     assert!(!source.contains("WireOnlyOperationValue::CollectionSetup"));
 }

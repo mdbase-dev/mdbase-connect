@@ -62,9 +62,10 @@ enum QueryCursorAction<'a> {
 pub(super) fn operation_context(
     cancellation: &mdbase::OperationCancellation,
 ) -> mdbase::runtime::OperationContext {
-    mdbase::runtime::OperationContext::new(
+    mdbase::runtime::OperationContext::with_capture_limits(
         cancellation,
-        mdbase::runtime::OperationDeadline::after(std::time::Duration::from_secs(24 * 60 * 60)),
+        mdbase::runtime::OperationDeadline::after(std::time::Duration::from_secs(30)),
+        local_capture_limits(),
     )
 }
 
@@ -142,17 +143,9 @@ pub(super) fn execute_runtime_read(
         QueryCursorAction::Release(cursor) => {
             executor.release_read(cursor, scope_binding, context)?;
             Ok(RuntimeExecution {
-                operation: mdbase::runtime::CanonicalOperationOutcome {
-                    valid: true,
-                    value: mdbase::runtime::CanonicalOperationValue::WireOnly(
-                        mdbase::runtime::WireOnlyOperationValue::Validation(json!({
-                            "released": true,
-                            "results": [],
-                            "meta": {"total_count": 0, "has_more": false}
-                        })),
-                    ),
-                    diagnostics: Vec::new(),
-                },
+                operation: mdbase::runtime::CanonicalOperationOutcome::cursor_release(
+                    mdbase::runtime::CursorReleaseOutcome { released: true },
+                ),
                 outcome: None,
             })
         }
@@ -189,7 +182,7 @@ fn read_page_operation(
     mut operation: mdbase::runtime::CanonicalOperationOutcome,
     next: Option<String>,
 ) -> mdbase::runtime::CanonicalOperationOutcome {
-    if let mdbase::runtime::CanonicalOperationValue::Query(Some(query)) = &mut operation.value {
+    if let Some(query) = operation.query_value_mut() {
         if let Some(meta) = query.meta.as_object_mut() {
             match next {
                 Some(cursor) => {
@@ -891,10 +884,28 @@ mod typed_boundary_tests {
     use super::*;
 
     #[test]
+    fn typed_cursor_release_serializes_to_the_exact_existing_connect_envelope() {
+        let operation = mdbase::runtime::CanonicalOperationOutcome::cursor_release(
+            mdbase::runtime::CursorReleaseOutcome { released: true },
+        );
+        assert_eq!(
+            operation_response_value(&operation).unwrap(),
+            json!({
+                "valid": true,
+                "result": {
+                    "released": true,
+                    "results": [],
+                    "meta": {"total_count": 0, "has_more": false}
+                },
+                "diagnostics": []
+            })
+        );
+    }
+
+    #[test]
     fn canonical_query_serializes_to_the_exact_existing_connect_envelope() {
-        let operation = mdbase::runtime::CanonicalOperationOutcome {
-            valid: true,
-            value: mdbase::runtime::CanonicalOperationValue::Query(Some(
+        let operation = mdbase::runtime::CanonicalOperationOutcome::try_completed(
+            mdbase::runtime::CanonicalOperationValue::Query(Some(
                 mdbase::runtime::CanonicalQueryValue {
                     records: vec![mdbase::api::ProjectedValue::new(json!({
                         "path": "tasks/one.md",
@@ -906,8 +917,9 @@ mod typed_boundary_tests {
                     embedded_diagnostics: Vec::new(),
                 },
             )),
-            diagnostics: Vec::new(),
-        };
+            Vec::new(),
+        )
+        .unwrap();
 
         assert_eq!(
             operation_response_value(&operation).unwrap(),
