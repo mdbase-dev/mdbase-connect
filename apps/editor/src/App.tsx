@@ -1790,26 +1790,28 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   const selectedType = description.types.find((type) => type.name === selectedTypeName);
   const hasListPane = surface !== "settings";
-  const collectionTrack = layout.collectionCollapsed ? 0 : layout.collectionWidth;
-  const listTrack = hasListPane && !layout.listCollapsed ? layout.listWidth : 0;
+  const preferredCollectionTrack = layout.collectionCollapsed ? 0 : layout.collectionWidth;
+  const preferredListTrack = hasListPane && !layout.listCollapsed ? layout.listWidth : 0;
   const editorMinimum = viewportWidth <= 1120 ? 320 : 380;
   const inspectorVisible = propertiesOpen || backlinksOpen;
   const inspectorResizeMax = Math.max(INSPECTOR_WIDTH.min, Math.min(
     INSPECTOR_WIDTH.max,
     viewportWidth > 1120
-      ? viewportWidth - collectionTrack - listTrack - editorMinimum
+      ? viewportWidth - preferredCollectionTrack - preferredListTrack - editorMinimum
       : viewportWidth - editorMinimum
   ));
   const inspectorTrack = Math.min(layout.inspectorWidth, inspectorResizeMax);
   const reservedInspectorWidth = inspectorVisible && viewportWidth > 1120 ? inspectorTrack : 0;
   const collectionResizeMax = Math.max(COLLECTION_WIDTH.min, Math.min(
     COLLECTION_WIDTH.max,
-    viewportWidth - listTrack - editorMinimum - reservedInspectorWidth
+    viewportWidth - preferredListTrack - editorMinimum - reservedInspectorWidth
   ));
   const listResizeMax = Math.max(LIST_WIDTH.min, Math.min(
     LIST_WIDTH.max,
-    viewportWidth - collectionTrack - editorMinimum - reservedInspectorWidth
+    viewportWidth - preferredCollectionTrack - editorMinimum - reservedInspectorWidth
   ));
+  const collectionTrack = Math.min(preferredCollectionTrack, collectionResizeMax);
+  const listTrack = Math.min(preferredListTrack, listResizeMax);
   const listName = surface === "types" ? "types" : "notes";
   const historyBackPath = noteHistoryState.paths[noteHistoryState.index - 1];
   const historyForwardPath = noteHistoryState.paths[noteHistoryState.index + 1];
@@ -2122,7 +2124,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       {!layout.collectionCollapsed && <PaneResizeHandle
         className="collection-resizer"
         label="Resize collections sidebar"
-        value={layout.collectionWidth}
+        value={collectionTrack}
         min={COLLECTION_WIDTH.min}
         max={collectionResizeMax}
         onChange={(collectionWidth) => setLayout((current) => ({ ...current, collectionWidth }))}
@@ -2132,7 +2134,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       {hasListPane && !layout.listCollapsed && <PaneResizeHandle
         className="list-resizer"
         label={`Resize ${listName} sidebar`}
-        value={layout.listWidth}
+        value={listTrack}
         min={LIST_WIDTH.min}
         max={listResizeMax}
         onChange={(listWidth) => setLayout((current) => ({ ...current, listWidth }))}
