@@ -7,12 +7,14 @@ struct MutationExecution<'a> {
     journal_lease: Option<&'a HostedMutationLease>,
     journal_result_is_public: bool,
     semantic: Option<(String, serde_json::Map<String, Value>)>,
-    semantic_result: Option<&'a mut Option<OperationResult>>,
+    semantic_operation: Option<&'a mut Option<mdbase::runtime::CanonicalOperationOutcome>>,
 }
 
 pub(super) struct ApplicationMutationResult {
     pub receipt: SyncMutationReceipt,
-    pub semantic_result: Option<OperationResult>,
+    pub semantic_operation: Option<mdbase::runtime::CanonicalOperationOutcome>,
+    /// Compatibility-only replay value from the existing durable journal.
+    pub replayed_semantic_result: Option<OperationResult>,
 }
 
 impl HostedProvider {
@@ -90,7 +92,7 @@ impl HostedProvider {
                         journal_lease: Some(&lease),
                         journal_result_is_public: true,
                         semantic: None,
-                        semantic_result: None,
+                        semantic_operation: None,
                     },
                 )
                 .await
@@ -128,11 +130,12 @@ impl HostedProvider {
             {
                 return Ok(ApplicationMutationResult {
                     receipt,
-                    semantic_result,
+                    semantic_operation: None,
+                    replayed_semantic_result: semantic_result,
                 });
             }
         }
-        let mut semantic_result = None;
+        let mut semantic_operation = None;
         let receipt = self
             .mutate_in_transaction(
                 transaction,
@@ -143,13 +146,14 @@ impl HostedProvider {
                     journal_lease,
                     journal_result_is_public: false,
                     semantic,
-                    semantic_result: Some(&mut semantic_result),
+                    semantic_operation: Some(&mut semantic_operation),
                 },
             )
             .await?;
         Ok(ApplicationMutationResult {
             receipt,
-            semantic_result,
+            semantic_operation,
+            replayed_semantic_result: None,
         })
     }
 
@@ -441,7 +445,7 @@ impl HostedProvider {
 
         let MutationExecution {
             semantic,
-            semantic_result,
+            semantic_operation,
             ..
         } = execution;
         let direct_sync = semantic.is_none();
@@ -533,8 +537,8 @@ impl HostedProvider {
                 .unwrap_or_default();
             (execution, before_records)
         };
-        if let Some(result) = semantic_result {
-            *result = Some(execution.envelope.clone());
+        if let Some(result) = semantic_operation {
+            *result = execution.operation.clone();
         }
         if !execution.envelope.valid {
             let (code, message) = operation_error(&execution.envelope);

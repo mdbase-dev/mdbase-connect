@@ -151,33 +151,61 @@ async fn execute_direct_semantic(
         })
         .collect();
     let plan = catalog
-        .plan_hosted_mutation(&mdbase::runtime::HostedMutationRequest {
+        .plan_hosted_mutation_typed(&mdbase::runtime::HostedMutationRequest {
             operation: operation.to_string(),
             primary_stable_id: primary_record_id.to_string(),
             input: Value::Object(input),
             records,
         })
         .map_err(hosted_mutation_semantic_error)?;
+    verify_hosted_record_change_set(&plan.change_set, &plan.changes)?;
     let mut changed = Vec::with_capacity(plan.changes.len());
     for change in plan.changes {
         let record_id = Uuid::parse_str(&change.stable_id).map_err(|_| {
             ApiError::internal("Canonical hosted mutation returned a non-UUID stable identity.")
         })?;
-        if let Some(record) = change.record {
-            let classified = classify_exact_sync_record(
-                Some(&catalog),
+        if let Some(record) = change.after {
+            let document = record.document.ok_or_else(|| {
+                ApiError::internal("Canonical hosted change omitted its exact resulting document.")
+            })?;
+            let revision = change
+                .change
+                .after_revision
+                .as_ref()
+                .map(ToString::to_string)
+                .ok_or_else(|| ApiError::internal("Canonical hosted change omitted its resulting revision."))?;
+            if record.path != change.change.path
+                || record.revision.to_string() != revision
+                || record.types.iter().map(String::as_str).collect::<Vec<_>>()
+                    != change.change.after_types.iter().collect::<Vec<_>>()
+                || record.file.size != document.len() as u64
+            {
+                return Err(ApiError::internal(
+                    "Canonical hosted typed document disagrees with its exact change evidence.",
+                ));
+            }
+            let frontmatter = record.frontmatter.as_object().cloned().ok_or_else(|| {
+                ApiError::internal("Canonical hosted typed document has non-object frontmatter.")
+            })?;
+            let exact = SyncRecord {
                 record_id,
-                &record.path,
-                &record.document,
-            )?;
-            changed.push((record_id, Some(classified), Some(record.document)));
+                path: record.path.to_string(),
+                revision,
+                frontmatter,
+                body: record.body,
+                types: record.types,
+                document: document.clone(),
+            };
+            changed.push((record_id, Some(exact), Some(document)));
         } else {
             changed.push((record_id, None, change.before_path));
         }
     }
+    let envelope = plan.operation.to_v03();
     Ok((
         crate::workspace::Execution {
-            envelope: plan.result,
+            operation: Some(plan.operation),
+            envelope,
             primary_record_id,
             changed,
         },
@@ -381,6 +409,7 @@ fn execute_direct_sync(
         }
     };
     Ok(crate::workspace::Execution {
+        operation: None,
         envelope: OperationResult {
             valid: true,
             result: json!({}),

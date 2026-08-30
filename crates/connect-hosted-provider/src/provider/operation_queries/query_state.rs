@@ -122,7 +122,7 @@ impl HostedProvider {
             _ => None,
         };
         let planning = catalog
-            .plan_hosted_canonical_view(
+            .plan_hosted_canonical_view_typed(
                 input,
                 &view_record,
                 explicit_context.as_ref(),
@@ -135,9 +135,9 @@ impl HostedProvider {
                 )
             })?;
         let plan = match planning {
-            mdbase::runtime::HostedCanonicalViewPlanning::Planned { plan } => *plan,
-            mdbase::runtime::HostedCanonicalViewPlanning::Invalid { result } => {
-                return Ok(Err(result));
+            mdbase::runtime::HostedCanonicalViewPlanningTyped::Planned { plan } => *plan,
+            mdbase::runtime::HostedCanonicalViewPlanningTyped::Invalid { operation } => {
+                return Ok(Err(operation.to_v03()));
             }
         };
         let exact_context = if plan.query.requirements.query_context {

@@ -900,7 +900,7 @@ mod typed_boundary_tests {
                         "path": "tasks/one.md",
                         "types": ["task"]
                     }))],
-                    total_count: 1,
+                    total_count: Some(1),
                     has_more: false,
                     meta: mdbase::api::QueryMetadata::new(json!({"source": "index"})),
                     embedded_diagnostics: Vec::new(),

@@ -231,7 +231,15 @@ impl HostedProvider {
                         None,
                     ),
                 };
-                let result = if operation == "query" {
+                let result = if operation == "read" {
+                    let typed = self
+                        .execute_direct_point_read_typed(collection_id, &scoped_input)
+                        .await?;
+                    if contract_scope.is_none() {
+                        ensure_canonical_read_visible(&typed, &replica.allowed_types)?;
+                    }
+                    typed.to_v03()
+                } else if operation == "query" {
                     self.execute_hosted_query(collection_id, replica, request_id, &scoped_input)
                         .await?
                 } else if operation == "execute_view" {
@@ -246,9 +254,7 @@ impl HostedProvider {
                     self.execute_read_operation(collection_id, operation, &scoped_input)
                         .await?
                 };
-                if contract_scope.is_none() && matches!(operation, "read" | "validate") {
-                    ensure_operation_result_visible(&result, &replica.allowed_types)?;
-                }
+
                 if let Some(scope) = &contract_scope {
                     self.project_contract_operation(scope, result, selector.as_ref())
                         .await
@@ -621,7 +627,7 @@ impl HostedProvider {
                     contract_setups: existing_setups.clone(),
                 };
                 let assessment = self
-                    .execute_read_operation(
+                    .execute_direct_definition_assessment_typed(
                         collection_id,
                         "assess_type_pack",
                         &serde_json::to_value(&assessment_input).map_err(|error| {
@@ -631,13 +637,11 @@ impl HostedProvider {
                         })?,
                     )
                     .await?;
-                if !assessment.valid || assessment.result["applicable"].as_bool() != Some(true) {
-                    return Err(type_pack_provision_error(&assessment));
+                let assessment_value = type_pack_assessment(&assessment)?;
+                if !assessment.valid || !assessment_value.applicable {
+                    return Err(type_pack_provision_error(&assessment.to_v03()));
                 }
-                let expected_assessment_digest = assessment.result["assessment_digest"]
-                    .as_str()
-                    .ok_or_else(|| ApiError::internal("Type-pack assessment returned no digest."))?
-                    .to_string();
+                let expected_assessment_digest = assessment_value.assessment_digest.clone();
                 let applied = self
                     .write_type_pack_apply_operation(
                         collection_id,
@@ -767,7 +771,7 @@ impl HostedProvider {
             type_pack_adoptions: BTreeMap::new(),
         };
         let mut assessment = self
-            .execute_read_operation(
+            .execute_direct_definition_assessment_typed(
                 collection_id,
                 "assess_collection_setup",
                 &serde_json::to_value(&setup).map_err(|error| {
@@ -777,13 +781,19 @@ impl HostedProvider {
                 })?,
             )
             .await?;
-        if assessment.result["applicable"].as_bool() != Some(true) {
+        if !collection_setup_assessment(&assessment)?.applicable {
+            let assessment_wire = serde_json::to_value(collection_setup_assessment(&assessment)?)
+                .map_err(|error| {
+                ApiError::internal(format!(
+                    "Collection setup assessment could not serialize: {error}"
+                ))
+            })?;
             let adoptions =
-                mdbase_connect_protocol::reviewable_type_pack_adoptions(&assessment.result);
+                mdbase_connect_protocol::reviewable_type_pack_adoptions(&assessment_wire);
             if !adoptions.is_empty() {
                 setup.type_pack_adoptions = adoptions;
                 assessment = self
-                    .execute_read_operation(
+                    .execute_direct_definition_assessment_typed(
                         collection_id,
                         "assess_collection_setup",
                         &serde_json::to_value(&setup).map_err(|error| {
@@ -795,25 +805,18 @@ impl HostedProvider {
                     .await?;
             }
         }
-        if !assessment.valid || assessment.result["applicable"].as_bool() != Some(true) {
-            return Err(type_pack_provision_error(&assessment));
+        let assessment_value = collection_setup_assessment(&assessment)?;
+        if !assessment.valid || !assessment_value.applicable {
+            return Err(type_pack_provision_error(&assessment.to_v03()));
         }
-        let required = |key: &str| {
-            assessment.result[key]
-                .as_str()
-                .map(str::to_string)
-                .ok_or_else(|| {
-                    ApiError::internal(format!("Collection setup assessment returned no {key}."))
-                })
-        };
         let applied = self
             .write_collection_setup_apply_operation(
                 collection_id,
                 &ApplyCollectionSetupInput {
                     setup,
-                    expected_assessment_digest: required("assessment_digest")?,
-                    expected_collection_revision: required("collection_revision")?,
-                    expected_provision_digest: required("provision_digest")?,
+                    expected_assessment_digest: assessment_value.assessment_digest.clone(),
+                    expected_collection_revision: assessment_value.collection_revision.clone(),
+                    expected_provision_digest: assessment_value.provision_digest.clone(),
                     allow_type_pack_downgrades: BTreeSet::new(),
                 },
                 None,
@@ -885,6 +888,35 @@ impl HostedProvider {
             row.get("resources_ciphertext"),
             &resources_aad(collection_id),
         )
+    }
+}
+
+fn type_pack_assessment(
+    operation: &mdbase::runtime::CanonicalOperationOutcome,
+) -> ApiResult<&mdbase::runtime::CanonicalTypePackValue> {
+    match &operation.value {
+        mdbase::runtime::CanonicalOperationValue::TypePack(Some(value)) => Ok(value),
+        _ => Err(ApiError::internal(
+            "Canonical type-pack assessment returned the wrong typed operation family.",
+        )),
+    }
+}
+
+fn collection_setup_assessment(
+    operation: &mdbase::runtime::CanonicalOperationOutcome,
+) -> ApiResult<&mdbase::v03::CollectionSetupAssessment> {
+    match &operation.value {
+        mdbase::runtime::CanonicalOperationValue::CollectionSetup(Some(value)) => {
+            match value.as_ref() {
+                mdbase::runtime::CanonicalCollectionSetupValue::Assessment(value) => Ok(value),
+                _ => Err(ApiError::internal(
+                    "Canonical collection-setup assessment returned the wrong typed operation family.",
+                )),
+            }
+        }
+        _ => Err(ApiError::internal(
+            "Canonical collection-setup assessment returned the wrong typed operation family.",
+        )),
     }
 }
 

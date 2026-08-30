@@ -71,7 +71,7 @@ impl HostedProvider {
             .collect::<Vec<_>>();
         let catalog = compile_point_catalog(resources.clone(), exact_documents)?;
         let plan = catalog
-            .plan_hosted_resource_mutation(operation, &input, &resource_documents)
+            .plan_hosted_resource_mutation_typed(operation, &input, &resource_documents)
             .map_err(|error| {
                 if error.code.contains("budget_exceeded") {
                     ApiError::quota(error.code, error.message)
@@ -82,18 +82,36 @@ impl HostedProvider {
                     ))
                 }
             })?;
-        let result = serde_json::to_value(&plan.result).map_err(|error| {
+        verify_canonical_change_set(
+            &plan.change_set,
+            plan.changes
+                .iter()
+                .cloned()
+                .map(mdbase::runtime::CanonicalChange::Resource)
+                .collect(),
+            "resource mutation",
+        )?;
+        let result = serde_json::to_value(plan.operation.to_v03()).map_err(|error| {
             ApiError::internal(format!("Hosted operation could not serialize: {error}"))
         })?;
-        if !plan.result.valid {
+        if !plan.operation.valid {
             transaction.commit().await?;
             return Ok(result);
         }
 
-        let head = number(collection.get::<i64, _>("head"), "collection head")?
-            .checked_add(1)
-            .ok_or_else(|| ApiError::internal("The hosted collection sequence is exhausted."))?;
-        let resource_revision = format!("hosted:1:{head}:resources");
+        let mut head = number(collection.get::<i64, _>("head"), "collection head")?;
+        if plan.changes.is_empty() {
+            return Err(ApiError::internal(
+                "mdbase-rs accepted a resource mutation without exact change evidence.",
+            ));
+        }
+        let resource_revision = format!(
+            "hosted:1:{}:resources",
+            head.checked_add(plan.changes.len() as u64)
+                .ok_or_else(|| ApiError::internal(
+                    "The hosted collection sequence is exhausted."
+                ))?
+        );
         resources.revision = resource_revision.clone();
         resources.types = plan
             .types
@@ -144,31 +162,48 @@ impl HostedProvider {
             .execute(&mut *transaction)
             .await?;
         }
-        let path = result_string(&plan.result.result, "path")?;
         let is_type = matches!(operation, "create_type" | "update_type");
-        let type_name = is_type
-            .then(|| result_string(&plan.result.result, "name").map(str::to_string))
-            .transpose()?;
-        let event_revision = plan
-            .result
-            .result
-            .get("revision")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("hosted:1:{head}:view-deleted"));
-        sqlx::query(
-            r#"INSERT INTO hosted_provider_resource_changes
-                 (collection_id, sequence, resource_kind, type_name, path, revision)
-               VALUES ($1, $2, $3, $4, $5, $6)"#,
-        )
-        .bind(collection_id)
-        .bind(to_i64(head, "resource change sequence")?)
-        .bind(if is_type { "type" } else { "view" })
-        .bind(type_name)
-        .bind(path)
-        .bind(event_revision)
-        .execute(&mut *transaction)
-        .await?;
+        for change in &plan.changes {
+            head = head.checked_add(1).ok_or_else(|| {
+                ApiError::internal("The hosted collection sequence is exhausted.")
+            })?;
+            let path = change.path.to_string();
+            let resource_kind = match change.kind {
+                mdbase::runtime::ResourceChangeKind::TypeDefinition => "type",
+                mdbase::runtime::ResourceChangeKind::ViewSource => "view",
+                mdbase::runtime::ResourceChangeKind::Configuration => "configuration",
+                mdbase::runtime::ResourceChangeKind::Contract => "contract",
+                mdbase::runtime::ResourceChangeKind::File => "file",
+                mdbase::runtime::ResourceChangeKind::Other => "other",
+            };
+            let type_name = (resource_kind == "type").then(|| {
+                path.rsplit('/')
+                    .next()
+                    .unwrap_or(&path)
+                    .strip_suffix(".md")
+                    .unwrap_or(&path)
+                    .to_string()
+            });
+            let event_revision = change
+                .after_revision
+                .as_ref()
+                .or(change.before_revision.as_ref())
+                .map(ToString::to_string)
+                .unwrap_or_else(|| "deleted".to_string());
+            sqlx::query(
+                r#"INSERT INTO hosted_provider_resource_changes
+                     (collection_id, sequence, resource_kind, type_name, path, revision)
+                   VALUES ($1, $2, $3, $4, $5, $6)"#,
+            )
+            .bind(collection_id)
+            .bind(to_i64(head, "resource change sequence")?)
+            .bind(resource_kind)
+            .bind(type_name)
+            .bind(path)
+            .bind(event_revision)
+            .execute(&mut *transaction)
+            .await?;
+        }
         // Every resource mutation advances `resource_revision`, and a generation
         // is current only while its `source_resource_revision` still matches.
         //

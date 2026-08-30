@@ -279,8 +279,9 @@ impl HostedProvider {
             semantic_operation,
             semantic_input,
             previous_path,
-            include_document,
+            include_document: _,
         } = prepared;
+        let legacy_replay_input = semantic_input.clone();
         let mutation_result = self
             .mutate_for(
                 context.collection_id,
@@ -292,71 +293,24 @@ impl HostedProvider {
             )
             .await?;
         let receipt = mutation_result.receipt;
-        let semantic_result = mutation_result.semantic_result;
+        // The live path keeps the canonical outcome typed until this single
+        // v0.3 compatibility edge. Durable journal replay remains wire-shaped
+        // for schema compatibility and is never used for semantic decisions.
+        let semantic_result = mutation_result
+            .semantic_operation
+            .as_ref()
+            .map(mdbase::runtime::CanonicalOperationOutcome::to_v03)
+            .or(mutation_result.replayed_semantic_result);
         let result = match receipt {
-            SyncMutationReceipt::Applied { record, .. }
-            | SyncMutationReceipt::PreviouslyApplied { record, .. } => {
-                if context.operation == "delete" {
-                    semantic_result.unwrap_or_else(|| OperationResult {
-                        valid: true,
-                        result: json!({
-                            "path": previous_path,
-                            "deleted": true,
-                        }),
-                        diagnostics: Vec::new(),
-                    })
+            SyncMutationReceipt::Applied { .. } | SyncMutationReceipt::PreviouslyApplied { .. } => {
+                if let Some(result) = semantic_result {
+                    result
                 } else {
-                    let record = record.ok_or_else(|| {
-                        ApiError::internal(
-                            "The hosted operation did not return its resulting record.",
-                        )
-                    })?;
-                    let mut document = self
-                        .execute_direct_point_read_by_id(
-                            context.collection_id,
-                            record.record_id,
-                            &json!({
-                                "path": record.path.clone(),
-                                "include_document": include_document,
-                            }),
-                        )
-                        .await?;
-                    if !document.valid {
-                        let diagnostic_code = document
-                            .diagnostics
-                            .first()
-                            .map(|diagnostic| diagnostic.code.as_str())
-                            .unwrap_or("unknown");
-                        tracing::warn!(
-                            target: "mdbase_connect::metrics",
-                            metric = "hosted_mutation_result_read_failed",
-                            diagnostic_code,
-                            "privacy-safe hosted provider diagnostic"
-                        );
-                        return Err(ApiError::internal(
-                            format!(
-                                "The hosted mutation succeeded but its record document could not be read ({diagnostic_code})."
-                            ),
-                        ));
-                    }
-                    let value = document.result.as_object_mut().ok_or_else(|| {
-                        ApiError::internal("mdbase-rs returned a non-object record document.")
-                    })?;
-                    if let Some(semantic) = semantic_result {
-                        merge_semantic_receipt_extras(context.operation, value, &semantic.result);
-                        document.diagnostics.extend(semantic.diagnostics);
-                    }
-                    if context.operation == "rename" {
-                        value.insert(
-                            "from".to_string(),
-                            Value::String(previous_path.unwrap_or_default()),
-                        );
-                        value.insert("to".to_string(), Value::String(record.path));
-                        value
-                            .entry("references_updated".to_string())
-                            .or_insert_with(|| Value::Array(Vec::new()));
-                    }
-                    document
+                    reconstruct_exact_legacy_record_result(
+                        context.operation,
+                        previous_path.as_deref(),
+                        &legacy_replay_input,
+                    )?
                 }
             }
             SyncMutationReceipt::Rejected { error, .. } => {
@@ -376,49 +330,79 @@ impl HostedProvider {
     }
 }
 
-fn merge_semantic_receipt_extras(
+/// Legacy journals have no mutation-time catalog digest. The only exact
+/// response reconstructible from their durable preparation and receipt is a
+/// delete for which backlink inspection was explicitly disabled. In that case
+/// the canonical response omits backlink diagnostics, as proven by the durable
+/// input rather than ambient collection state.
+fn reconstruct_exact_legacy_record_result(
     operation: &str,
-    persisted: &mut serde_json::Map<String, Value>,
-    semantic: &Value,
-) {
-    if operation == "rename" {
-        if let Some(references) = semantic.get("references_updated") {
-            persisted.insert("references_updated".to_string(), references.clone());
+    previous_path: Option<&str>,
+    input: &serde_json::Map<String, Value>,
+) -> ApiResult<OperationResult> {
+    if operation == "delete" && input.get("check_backlinks").and_then(Value::as_bool) == Some(false)
+    {
+        let path =
+            previous_path.filter(|path| input.get("path").and_then(Value::as_str) == Some(*path));
+        if let Some(path) = path {
+            return Ok(OperationResult {
+                valid: true,
+                result: json!({
+                    "path": path,
+                    "deleted": true,
+                }),
+                diagnostics: Vec::new(),
+            });
         }
     }
+    Err(ApiError::conflict(
+        "legacy_replay_evidence_missing",
+        "The durable mutation evidence cannot reconstruct the exact original operation response.",
+    ))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::merge_semantic_receipt_extras;
-    use serde_json::{json, Map, Value};
+    use super::*;
 
     #[test]
-    fn semantic_receipt_extras_cannot_replace_persisted_record_fields() {
-        let mut persisted = Map::from_iter([
-            ("revision".to_string(), json!("persisted-revision")),
-            (
-                "file".to_string(),
-                json!({"mtime": "persisted-mtime", "size": 42}),
-            ),
+    fn legacy_delete_replay_is_exact_only_when_backlinks_were_disabled() {
+        let input = serde_json::Map::from_iter([
+            ("path".to_string(), json!("notes/exact.md")),
+            ("check_backlinks".to_string(), json!(false)),
         ]);
-        let staged = json!({
-            "revision": "staged-revision",
-            "file": {"mtime": null, "size": 0},
-            "references_updated": [{"path": "notes/reference.md"}],
-        });
-
-        merge_semantic_receipt_extras("create", &mut persisted, &staged);
-        assert_eq!(persisted["revision"], "persisted-revision");
-        assert_eq!(persisted["file"]["mtime"], "persisted-mtime");
-        assert!(!persisted.contains_key("references_updated"));
-
-        merge_semantic_receipt_extras("rename", &mut persisted, &staged);
-        assert_eq!(persisted["revision"], "persisted-revision");
-        assert_eq!(persisted["file"]["size"], 42);
+        let exact =
+            reconstruct_exact_legacy_record_result("delete", Some("notes/exact.md"), &input)
+                .unwrap();
         assert_eq!(
-            persisted["references_updated"],
-            Value::Array(vec![json!({"path": "notes/reference.md"})])
+            exact.result,
+            json!({"path": "notes/exact.md", "deleted": true})
         );
+
+        for input in [
+            serde_json::Map::from_iter([
+                ("path".to_string(), json!("notes/exact.md")),
+                ("check_backlinks".to_string(), json!(true)),
+            ]),
+            serde_json::Map::from_iter([("path".to_string(), json!("notes/exact.md"))]),
+        ] {
+            let error =
+                reconstruct_exact_legacy_record_result("delete", Some("notes/exact.md"), &input)
+                    .unwrap_err();
+            assert_eq!(error.code, "legacy_replay_evidence_missing");
+        }
+    }
+
+    #[test]
+    fn legacy_record_writes_without_semantic_receipts_fail_closed() {
+        for operation in ["create", "update", "rename"] {
+            let error = reconstruct_exact_legacy_record_result(
+                operation,
+                Some("notes/old.md"),
+                &serde_json::Map::new(),
+            )
+            .unwrap_err();
+            assert_eq!(error.code, "legacy_replay_evidence_missing");
+        }
     }
 }
