@@ -153,6 +153,7 @@ export interface ManagementOverview {
     last_incompatible_at?: string | null;
     minimum_connector_version?: string | null;
     update_url?: string | null;
+    update_recommended?: boolean;
   }>;
   collections: Array<{
     id: string;

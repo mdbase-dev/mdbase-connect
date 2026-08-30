@@ -19,7 +19,9 @@ export class PolicySequenceExhaustedError extends Error {
   }
 }
 
-export interface PolicySnapshot {
+export type PolicyMode = "lease_v1" | "legacy_ack_v0";
+
+export interface LeasePolicySnapshot {
   type: "policy_snapshot";
   protocol_version: 1;
   request_id: string;
@@ -31,6 +33,17 @@ export interface PolicySnapshot {
   grants: Array<Record<string, unknown>>;
 }
 
+/** Frozen beta.90 shape. Do not add lease metadata: beta.90 ignores it. */
+export interface LegacyPolicySnapshot {
+  type: "policy_snapshot";
+  protocol_version: 1;
+  request_id: string;
+  revision: string;
+  grants: Array<Record<string, unknown>>;
+}
+
+export type PolicySnapshot = LeasePolicySnapshot | LegacyPolicySnapshot;
+
 export async function resolvePolicyAppliedAck(input: {
   db: DatabasePool;
   requestId: string;
@@ -38,6 +51,8 @@ export async function resolvePolicyAppliedAck(input: {
   expectedRevision?: string;
   connectorId?: string;
   generation?: string;
+  mode: PolicyMode;
+  initial: boolean;
   isStillCurrent(): boolean;
   resolve(): void;
   reject(error: Error): void;
@@ -65,8 +80,28 @@ export async function resolvePolicyAppliedAck(input: {
     ));
     return;
   }
-  if (message.ok) input.resolve();
-  else input.reject(new ConnectorOperationError(
+  if (message.ok) {
+    const observed = await input.db.query(
+      `UPDATE connectors
+       SET latest_policy_ack_mode = $3,
+           latest_policy_ack_generation = relay_generation,
+           latest_policy_ack_at = now(),
+           policy_lease_adopted_at = CASE
+             WHEN $3 = 'lease_v1' AND $4::boolean
+               THEN COALESCE(policy_lease_adopted_at, now())
+             ELSE policy_lease_adopted_at END
+       WHERE id = $1 AND relay_generation = $2::bigint`,
+      [connectorId, generation, input.mode, input.initial]
+    );
+    if (observed.rowCount !== 1 || !input.isStillCurrent()) {
+      input.reject(new ConnectorOperationError(
+        "stale_policy_acknowledgement",
+        "The connector session changed before policy acknowledgement."
+      ));
+      return;
+    }
+    input.resolve();
+  } else input.reject(new ConnectorOperationError(
     message.error?.code ?? "policy_apply_failed",
     message.error?.message ?? "The connector could not apply its policy."
   ));
@@ -131,7 +166,8 @@ export async function buildPolicySnapshot(
   connectorId: string,
   leaseMs: number,
   expectedRelayGeneration?: string,
-  isStillCurrent: () => boolean = () => true
+  isStillCurrent: () => boolean = () => true,
+  mode: PolicyMode = "lease_v1"
 ): Promise<PolicySnapshot | null> {
   const connection = await db.connect();
   try {
@@ -206,6 +242,15 @@ export async function buildPolicySnapshot(
       collection_id: grant.local_id
     }));
     await connection.query("COMMIT");
+    if (mode === "legacy_ack_v0") {
+      return {
+        type: "policy_snapshot",
+        protocol_version: CONTROL_PROTOCOL_VERSION,
+        request_id: randomUUID(),
+        revision: canonicalSha256(policyGrants),
+        grants: policyGrants
+      };
+    }
     const leaseExpiresAtMs = leaseIssuedAtMs + leaseMs;
     const policyBody = {
       connector_id: connectorId,

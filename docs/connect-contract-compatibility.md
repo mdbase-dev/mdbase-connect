@@ -80,3 +80,21 @@ The privacy-safe report aggregates only internal user counts, surface,
 protocol version, sample count, and first/last seen timestamps. It contains no
 application, collection, grant, request, operation, path, input, payload, or
 record content.
+
+## Policy freshness beta bridge
+
+`policy-freshness-lease-v1` is advertised but is not a beta baseline
+requirement. Beta.92 and the remaining betas negotiate `lease_v1` with capable
+connectors and otherwise send the frozen beta.90 grants-only snapshot as
+`legacy_ack_v0`. Legacy acknowledgements are compatibility observations, never
+lease evidence. Once a connector exactly acknowledges its initial current-
+generation lease, its server and local authorities are irreversibly lease-
+pinned and must not fall back to legacy.
+
+v0.1.0 stable is the planned breaking boundary, not a pre-announced automatic
+date. Enforcement requires all of these release gates: at least 30 days of
+observation; exact signed N and N-1 remote qualification; no active legacy
+sessions or unconfirmed legacy revocations; truthful update UX; and a tested
+lease-capable rollback. If any gate fails, enforcement slips. Rollback may
+restore a lease-capable release, but must never re-enable legacy for an adopted
+authority.

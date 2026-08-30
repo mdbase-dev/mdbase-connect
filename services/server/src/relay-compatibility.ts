@@ -114,7 +114,8 @@ export function relayCapabilityMismatch(
 
 export function rejectIncompatibleRelay(
   socket: WebSocket,
-  mismatch?: RelayContractMismatch
+  mismatch?: RelayContractMismatch,
+  minimumConnectorVersion: string = MINIMUM_CONNECTOR_VERSION
 ): void {
   if (socket.readyState !== 1) return;
   socket.send(JSON.stringify({
@@ -123,7 +124,7 @@ export function rejectIncompatibleRelay(
     code: mismatch?.code ?? "connector_upgrade_required",
     message: "This mdbase Connect version is no longer compatible. Update the desktop app and reconnect.",
     ...(mismatch ? { details: mismatch.details } : {}),
-    minimum_connector_version: MINIMUM_CONNECTOR_VERSION,
+    minimum_connector_version: minimumConnectorVersion,
     update_url: CONNECTOR_UPDATE_URL
   }), () => socket.close(INCOMPATIBLE_CLOSE_CODE, "Connector upgrade required"));
 }
