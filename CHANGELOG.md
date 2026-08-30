@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.1.0-beta.92
+
+Beta.92 restores relay compatibility with signed beta.90 connectors while
+preserving the stronger policy-freshness lease as an optional beta capability.
+
+- Relay policy negotiation now selects explicit `lease_v1` or frozen
+  `legacy_ack_v0` behavior; beta.90 receives its original policy wire shape and
+  acknowledgement revision without claiming bounded offline revocation.
+- Lease negotiation and acknowledged adoption are durable and monotonic, so a
+  concurrent, failed, or incomplete attach cannot reopen legacy admission after
+  a connector has crossed either boundary.
+- Initial and changed-policy acknowledgements fence routing and publication;
+  stale mutation responses surface an unknown outcome instead of publishing
+  through superseded authority.
+- Connector-side lease adoption remains sticky, partial lease metadata fails
+  closed, and websocket shutdown aborts the policy coordinator before it can
+  restore a disconnected session to `Connected`.
+- Account surfaces truthfully recommend updates for legacy acknowledgements and
+  retain beta.91 as the lease capability floor while the baseline connector
+  floor remains independent.
+- `policy-freshness-lease-v1` stays optional for every beta. Stable `v0.1.0` is
+  only the earliest possible enforcement boundary and remains subject to the
+  documented production-observation and rollback gates.
+
 ## 0.1.0-beta.91
 
 Beta.91 hardens collection ownership, filesystem convergence, and authorization
