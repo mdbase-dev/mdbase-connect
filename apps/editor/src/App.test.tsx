@@ -132,7 +132,9 @@ describe("mdbase editor", () => {
     render(<App gateway={new DemoCollectionGateway(12)} />);
 
     await screen.findByRole("heading", { name: "Writing" });
-    const row = screen.getByRole("option", { name: /^Garden notes 2/ }) as HTMLButtonElement;
+    const row = await screen.findByRole("option", {
+      name: /^Garden notes 2/
+    }) as HTMLButtonElement;
     const title = row.querySelector(".note-title")?.textContent;
     expect(title).toBeTruthy();
 
