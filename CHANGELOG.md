@@ -14,6 +14,9 @@ preserving the stronger policy-freshness lease as an optional beta capability.
 - Initial and changed-policy acknowledgements fence routing and publication;
   stale mutation responses surface an unknown outcome instead of publishing
   through superseded authority.
+- Advisory replacement broadcasts now use a bounded broker flush, so a stalled
+  broker acknowledgement cannot prevent the initial policy from reaching an
+  otherwise authenticated connector session.
 - Connector-side lease adoption remains sticky, partial lease metadata fails
   closed, and websocket shutdown aborts the policy coordinator before it can
   restore a disconnected session to `Connected`.
