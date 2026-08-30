@@ -20,9 +20,7 @@ import {
 } from "./relay-broker.js";
 import { ConnectorOperationError, RelayUnavailableError } from "./relay-errors.js";
 import { RelayFileBridge } from "./relay-file.js";
-import {
-  observeConnectorPolicyStage, resolvePolicyAppliedAck, type PolicyMode
-} from "./relay-policy.js";
+import { observeConnectorPolicyStage, resolvePolicyAppliedAck, type PolicyMode } from "./relay-policy.js";
 import {
   ExactPolicyPublisher, handlePolicyPushCommand, RelayPolicySession,
   requestPolicyPush, type ExactPolicyAcknowledgement
