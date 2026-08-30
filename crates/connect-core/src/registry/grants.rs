@@ -42,6 +42,12 @@ struct CurrentPolicySnapshot {
     connector_id: Option<String>,
 }
 
+enum PolicyApplyMode {
+    Local,
+    LegacyRemote,
+    LeaseRemote(Uuid),
+}
+
 fn validate_policy_snapshot(
     connector_id: Option<Uuid>,
     revision: &str,
@@ -160,7 +166,7 @@ impl CollectionRegistry {
         }
         let now = super::authority_store::current_time_ms();
         self.replace_grants_at_revision_at_inner(
-            None,
+            PolicyApplyMode::LegacyRemote,
             revision,
             sequence.checked_add(1).ok_or_else(|| {
                 ConnectError::InvalidInput("The local policy sequence is exhausted.".to_string())
@@ -168,7 +174,6 @@ impl CollectionRegistry {
             now..now.saturating_add(60_000),
             grants,
             now,
-            true,
         )
     }
 
@@ -234,27 +239,24 @@ impl CollectionRegistry {
         grants: &[GrantPolicy],
         now_ms: i64,
     ) -> Result<(), ConnectError> {
-        self.replace_grants_at_revision_at_inner(
-            connector_id,
-            revision,
-            sequence,
-            lease_ms,
-            grants,
-            now_ms,
-            false,
-        )
+        let mode = connector_id.map_or(PolicyApplyMode::Local, PolicyApplyMode::LeaseRemote);
+        self.replace_grants_at_revision_at_inner(mode, revision, sequence, lease_ms, grants, now_ms)
     }
 
     fn replace_grants_at_revision_at_inner(
         &self,
-        connector_id: Option<Uuid>,
+        mode: PolicyApplyMode,
         revision: &str,
         sequence: u64,
         lease_ms: std::ops::Range<i64>,
         grants: &[GrantPolicy],
         now_ms: i64,
-        reject_pinned_legacy: bool,
     ) -> Result<(), ConnectError> {
+        let (connector_id, reject_pinned_legacy) = match mode {
+            PolicyApplyMode::Local => (None, false),
+            PolicyApplyMode::LegacyRemote => (None, true),
+            PolicyApplyMode::LeaseRemote(connector_id) => (Some(connector_id), false),
+        };
         let lease_expires_at_ms = lease_ms.end;
         let connector_id_string = connector_id.map(|value| value.to_string());
         let revision = revision.to_string();
