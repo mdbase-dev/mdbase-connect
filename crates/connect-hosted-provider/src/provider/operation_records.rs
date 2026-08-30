@@ -24,16 +24,30 @@ impl HostedProvider {
             )
         })?;
         let mut transaction = self.pool.begin().await?;
-        let replica_collection: Option<Uuid> = sqlx::query_scalar(
-            "SELECT collection_id FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE",
+        let current_replica = sqlx::query(
+            "SELECT collection_id, scope_epoch FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE",
         )
         .bind(replica.id)
         .fetch_optional(&mut *transaction)
         .await?;
-        if replica_collection != Some(collection_id) {
+        let Some(current_replica) = current_replica else {
+            return Err(ApiError::forbidden(
+                "replica_scope_denied",
+                "The hosted replica is unavailable.",
+            ));
+        };
+        if current_replica.get::<Uuid, _>("collection_id") != collection_id {
             return Err(ApiError::forbidden(
                 "replica_scope_denied",
                 "Operation belongs to another hosted collection.",
+            ));
+        }
+        if number(current_replica.get::<i64, _>("scope_epoch"), "scope epoch")?
+            != replica.scope_epoch
+        {
+            return Err(ApiError::forbidden(
+                "scope_epoch_stale",
+                "Replica scope changed; retry with current authorization.",
             ));
         }
         let wrapped_data_key: Vec<u8> = sqlx::query_scalar(
@@ -81,28 +95,27 @@ impl HostedProvider {
                 .ok_or_else(|| {
                     ApiError::not_found("record_not_found", "The hosted record does not exist.")
                 })?;
-                let types = canonical_record_scope_types(
-                    &mut transaction,
-                    self,
-                    &data_key,
-                    collection_id,
-                    current.get("record_id"),
-                    number(current.get::<i64, _>("sequence"), "record sequence")?,
-                    current.get("revision"),
-                    current.get("payload_ciphertext"),
-                )
-                .await?;
-                if !replica.allowed_types.is_empty()
-                    && !types
+                if !replica.allowed_types.is_empty() {
+                    let types = canonical_record_scope_types(
+                        &mut transaction,
+                        self,
+                        &data_key,
+                        collection_id,
+                        current.get("record_id"),
+                        number(current.get::<i64, _>("sequence"), "record sequence")?,
+                        current.get("revision"),
+                        current.get("payload_ciphertext"),
+                    )
+                    .await?;
+                    if !types
                         .iter()
                         .any(|record_type| replica.allowed_types.contains(record_type))
-                {
-                    return Err(ApiError::forbidden(
-                        "scope_denied",
-                        "The requested record is outside this application's record scope.",
-                    ));
-                }
-                if !replica.allowed_types.is_empty() {
+                    {
+                        return Err(ApiError::forbidden(
+                            "scope_denied",
+                            "The requested record is outside this application's record scope.",
+                        ));
+                    }
                     if operation == "delete" {
                         operation_input.insert("check_backlinks".to_string(), Value::Bool(false));
                     } else if operation == "rename"
