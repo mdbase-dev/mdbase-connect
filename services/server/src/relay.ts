@@ -1,15 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type {
   ApplicationProvisions, ApplicationRequirements, AuthorizationActivationResponse,
-  AuthorizationOfferResponse, CollectionOperation, ConnectContractRequirements, ConnectContractSupport,
-  ConnectProblem, ContractSetupChoice, EncryptedRelayEnvelope,
-  EncryptedRelayOperationRequest, EncryptedRelayOperationResponse, GrantPolicy,
-  RelayFileFrame
+  AuthorizationOfferResponse, ConnectContractRequirements, ContractSetupChoice,
+  EncryptedRelayEnvelope, EncryptedRelayOperationRequest, EncryptedRelayOperationResponse,
+  GrantPolicy, RelayFileFrame
 } from "@mdbase-dev/connect-protocol";
 import {
   CONNECT_CONTRACT_SUPPORT, CONTRACT_SETUP_CAPABILITY, CONTROL_PROTOCOL_VERSION,
-  isConnectProblem, isMutatingOperation, MINIMUM_CONNECTOR_VERSION,
-  normalizeConnectProblem, OPERATION_TRANSPORT_PROTOCOL_VERSION,
+  isConnectProblem, MINIMUM_CONNECTOR_VERSION, normalizeConnectProblem,
+  OPERATION_TRANSPORT_PROTOCOL_VERSION,
   POLICY_FRESHNESS_LEASE_CAPABILITY,
   POLICY_FRESHNESS_LEASE_MINIMUM_CONNECTOR_VERSION,
   PROTOCOL_USAGE_REPORT_CAPABILITY, RELAY_CAPABILITIES
@@ -17,7 +16,7 @@ import {
 import type { DatabasePool } from "./db.js";
 import {
   LocalRelayBroker, RelayBrokerUnavailableError, type RelayBroker,
-  type RelayBrokerBinding, type RelayBrokerCommand, type RelayBrokerReply
+  type RelayBrokerCommand, type RelayBrokerReply
 } from "./relay-broker.js";
 import { ConnectorOperationError, RelayUnavailableError } from "./relay-errors.js";
 import { RelayFileBridge } from "./relay-file.js";
@@ -33,54 +32,27 @@ import {
   relayCapabilityMismatch, relayContractMismatch, type RelayHello
 } from "./relay-compatibility.js";
 import { grantIdFromMessage, hasPendingOperationCapacity } from "./relay-admission.js";
+import {
+  brokerError, brokerProblem, encryptedRequestFromMessage, expectedResponseType,
+  isContractSetupCommand, matchesEncryptedMetadata, relayExecutionTimeoutProblem,
+  relayMessageMayMutate, requestIdFromMessage, validProtocolUsageEntries
+} from "./relay-routing.js";
+import type {
+  ConnectorRelaySession as ConnectorSession,
+  PendingRelayRequest as PendingRequest
+} from "./relay-session.js";
 
 export { ConnectorOperationError, RelayUnavailableError } from "./relay-errors.js";
 export { connectorVersionAtLeast } from "./relay-compatibility.js";
+export { relayExecutionTimeoutProblem } from "./relay-routing.js";
 
 const OPERATION_TIMEOUT_MS = 30_000;
 const BROKER_OPERATION_TIMEOUT_MS = OPERATION_TIMEOUT_MS + 1_000;
 const OFFER_TIMEOUT_MS = 3_000;
 const POLICY_ACK_TIMEOUT_MS = 5_000;
 const BROKER_OFFER_TIMEOUT_MS = OFFER_TIMEOUT_MS + 1_000;
-// A connector may observe the server clock up to 5s ahead while its hard
-// local authority horizon must remain no more than 60s from local receipt.
-export const POLICY_LEASE_MS = 55_000;
-
-interface PendingRequest {
-  resolve(value: unknown): void;
-  reject(error: Error): void;
-  timer: NodeJS.Timeout;
-  socket: WebSocket;
-  connectorId?: string;
-  grantId?: string;
-  requestBytes?: number;
-  expectedEncrypted?: EncryptedRelayEnvelope;
-  expectedType?:
-    | "operation_response"
-    | "authorization_offer_response"
-    | "authorization_activation_response"
-    | "policy_applied";
-  expectedPolicyRevision?: string;
-  expectedPolicyConnectorId?: string;
-  expectedPolicyGeneration?: string;
-  expectedPolicyMode?: PolicyMode;
-  expectedPolicyInitial?: boolean;
-  mutationMayHaveExecuted: boolean;
-}
-
-interface ConnectorSession {
-  generation: string;
-  socket: WebSocket;
-  binding: RelayBrokerBinding;
-  capabilities: string[];
-  contractSupport: ConnectContractSupport;
-  lastUsageReportAt: number;
-  mode: PolicyMode;
-  ready: boolean;
-  changedPolicyRequested: number;
-  changedPolicySettled: number;
-  policy: RelayPolicySession;
-}
+// Keep a 5s clock-skew margin within the connector's 60s authority horizon.
+const POLICY_LEASE_MS = 55_000;
 
 export class RelayHub {
   private readonly connectors = new Map<string, ConnectorSession>();
@@ -1023,142 +995,4 @@ export class RelayHub {
     }
     this.files.rejectForSocket(socket, error);
   }
-}
-
-export function relayExecutionTimeoutProblem(
-  request: EncryptedRelayEnvelope | undefined,
-  requestId: string
-): ConnectProblem {
-  if (request && encryptedOperationMayMutate(request.operation)) {
-    return normalizeConnectProblem(
-      "operation_outcome_unknown",
-      "The durable mutation may have completed after its caller's deadline expired. Retry the same mutation identity to recover its result.",
-      {
-        operation_outcome: "unknown",
-        details: { request_id: requestId }
-      }
-    );
-  }
-  return normalizeConnectProblem(
-    "operation_cancelled",
-    "The connector operation exceeded its execution deadline.",
-    { operation_outcome: "not_sent" }
-  );
-}
-
-function encryptedOperationMayMutate(operation: EncryptedRelayEnvelope["operation"]): boolean {
-  return operation === "file_control"
-    || operation === "sync"
-    || isMutatingOperation(operation, {});
-}
-
-function validProtocolUsageEntries(
-  value: unknown
-): value is Array<{ axis: "operation_transport"; version: number; count: number }> {
-  return Array.isArray(value)
-    && value.length > 0
-    && value.length <= 4
-    && value.every((entry) => {
-      if (!entry || typeof entry !== "object") return false;
-      const candidate = entry as Record<string, unknown>;
-      return Object.keys(candidate).length === 3
-        && candidate.axis === "operation_transport"
-        && Number.isInteger(candidate.version)
-        && (candidate.version as number) > 0
-        && Number.isSafeInteger(candidate.count)
-        && (candidate.count as number) > 0
-        && (candidate.count as number) <= 100_000;
-    });
-}
-
-function requestIdFromMessage(message: unknown): string | null {
-  if (typeof message !== "object" || message === null || Array.isArray(message)) return null;
-  const requestId = (message as { request_id?: unknown }).request_id;
-  return typeof requestId === "string" && requestId.length > 0 ? requestId : null;
-}
-
-function isContractSetupCommand(message: unknown): boolean {
-  if (typeof message !== "object" || message === null || Array.isArray(message)) return false;
-  const candidate = message as { type?: unknown; contract_setups?: unknown };
-  return candidate.type === "authorization_activation_request"
-    && Array.isArray(candidate.contract_setups)
-    && candidate.contract_setups.length > 0;
-}
-
-function encryptedRequestFromMessage(message: unknown): EncryptedRelayEnvelope | undefined {
-  if (typeof message !== "object" || message === null || Array.isArray(message)) return undefined;
-  return (message as { type?: unknown }).type === "encrypted_operation_request"
-    ? message as EncryptedRelayEnvelope
-    : undefined;
-}
-
-function relayMessageMayMutate(message: unknown): boolean {
-  if (typeof message !== "object" || message === null || Array.isArray(message)) return false;
-  const candidate = message as {
-    type?: unknown;
-    operation?: unknown;
-    input?: unknown;
-  };
-  if (candidate.type === "encrypted_operation_request"
-      && typeof candidate.operation === "string") {
-    return encryptedOperationMayMutate(
-      candidate.operation as EncryptedRelayEnvelope["operation"]
-    );
-  }
-  return candidate.type === "operation_request"
-    && typeof candidate.operation === "string"
-    && isMutatingOperation(
-      candidate.operation as CollectionOperation,
-      candidate.input ?? {}
-    );
-}
-
-function expectedResponseType(message: unknown): PendingRequest["expectedType"] {
-  if (typeof message !== "object" || message === null || Array.isArray(message)) return undefined;
-  switch ((message as { type?: unknown }).type) {
-    case "operation_request":
-      return "operation_response";
-    case "authorization_offer_request":
-      return "authorization_offer_response";
-    case "authorization_activation_request":
-      return "authorization_activation_response";
-    case "policy_snapshot":
-      return "policy_applied";
-    default:
-      return undefined;
-  }
-}
-
-function brokerError(
-  kind: "unavailable" | "connector" | "internal",
-  code: string,
-  message: string
-): RelayBrokerReply {
-  if (kind === "connector") {
-    return brokerProblem(normalizeConnectProblem(code, message));
-  }
-  return { version: 1, ok: false, error: { kind, code, message } };
-}
-
-function brokerProblem(problem: ConnectProblem, details?: unknown): RelayBrokerReply {
-  const error = { kind: "connector" as const, problem, ...(details === undefined ? {} : { details }) };
-  return { version: 1, ok: false, error };
-}
-
-function matchesEncryptedMetadata(
-  response: Partial<EncryptedRelayOperationResponse>,
-  request: EncryptedRelayEnvelope
-): response is EncryptedRelayOperationResponse {
-  return response?.protocol_version === request.protocol_version
-    && response.suite === request.suite
-    && response.request_id === request.request_id
-    && response.grant_id === request.grant_id
-    && response.application_id === request.application_id
-    && response.connector_id === request.connector_id
-    && response.collection_id === request.collection_id
-    && response.operation === request.operation
-    && response.scope_epoch === request.scope_epoch
-    && response.key_id === request.key_id
-    && response.counter === request.counter
-    && typeof response.ciphertext === "string";
 }
