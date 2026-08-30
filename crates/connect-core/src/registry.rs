@@ -105,13 +105,16 @@ use operation_execution::{
 pub use receipts::AuthorityReceiptDiagnostics;
 use runtime_executor::CollectionExecutor;
 use runtime_operations::{
-    execute_runtime_read, execute_runtime_request, operation_context, require_runtime,
-    scope_binding,
+    execute_runtime_read, execute_runtime_request, operation_context, operation_response_value,
+    require_runtime, scope_binding, v03_operation_result,
 };
+#[cfg(test)]
+use runtime_operations::{set_scoped_preflight_hook, ScopedPreflightEvent};
 use scope::{
-    change_is_in_scope, contract_scope_error, ensure_no_new_out_of_scope_types,
-    ensure_result_in_scope, ensure_types_in_scope, required_string, required_uuid, result_types,
-    sync_resources,
+    authorize_scoped_mutation_preflight, change_is_in_scope, contract_scope_error,
+    ensure_no_new_out_of_scope_types, ensure_operation_in_scope, ensure_result_in_scope,
+    ensure_types_in_scope, operation_record, required_string, required_uuid, result_types,
+    sync_resources, validate_scoped_mutation_request,
 };
 
 #[derive(Debug, Error)]

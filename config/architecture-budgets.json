@@ -31,7 +31,6 @@
     "services/server": 126
   },
   "deadCodeReferencesByFile": {
-    "crates/connect-core/src/registry/runtime_operations.rs": 1,
     "crates/connect-hosted-provider/src/workspace.rs": 1,
     "crates/connect-hosted-storage-benchmark/src/main/legacy_query.rs": 1,
     "crates/connect-hosted-storage-benchmark/src/main/query.rs": 1
@@ -40,7 +39,7 @@
     "productionFiles": 663,
     "relativeImports": 1375,
     "workspacePackages": 24,
-    "rustPublicDeclarations": 3090,
+    "rustPublicDeclarations": 3098,
     "typeScriptExportDeclarations": 2292,
     "mdbaseCollectionReferences": 16,
     "typedCollectionReferences": 1

@@ -42,6 +42,24 @@ test("accepts small acyclic feature modules", async (t) => {
   assert.deepEqual(result.failures, []);
 });
 
+test("guards typed local runtime outcomes from OperationResult and record-pointer regressions", async (t) => {
+  const root = await fixture({
+    "crates/connect-core/Cargo.toml": '[package]\nname = "connect-core"\nversion = "0.0.0"\n',
+    "crates/connect-core/src/registry/runtime_operations.rs": [
+      "fn adapter(value: &Typed) { value.to_v03(); }",
+      "fn regression(value: &Value) { let _ = value.pointer(\"/result/frontmatter\"); }",
+      "fn nested(value: &Execution) { let _ = value.result.result; }"
+    ].join("\n"),
+    "crates/connect-core/src/registry/runtime_executor.rs": "fn executor() {}\n"
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const result = await evaluateArchitecture(root, strictBudget);
+
+  assert.ok(result.failures.some((failure) => failure.includes("record JSON-pointer inspection")));
+  assert.ok(result.failures.some((failure) => failure.includes("deprecated nested OperationResult access")));
+});
+
 test("rejects production files that exceed their explicit budget", async (t) => {
   const root = await fixture({
     "packages/example/src/large.ts": "one\ntwo\nthree\nfour\n"

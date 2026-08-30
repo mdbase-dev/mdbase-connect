@@ -66,7 +66,7 @@ impl CollectionRegistry {
                     execute_runtime_request(require_runtime(runtime)?, &request, None, &context)
                 })?;
                 synchronize()?;
-                Ok(serde_json::to_value(result.result)?)
+                operation_response_value(&result.operation)
             } else {
                 let execution = execute_runtime_read(
                     &executor,
@@ -75,7 +75,7 @@ impl CollectionRegistry {
                     &scope_binding(&GrantScope::full_collection())?,
                     &context,
                 )?;
-                serde_json::to_value(execution.result).map_err(ConnectError::from)
+                operation_response_value(&execution.operation)
             }
         } else {
             let provider = executor.provider();
@@ -319,10 +319,10 @@ impl CollectionRegistry {
         );
         let context = operation_context(&mdbase::OperationCancellation::new());
         let applied = executor.with_mutation(&context, |runtime| {
-            let result =
-                execute_runtime_request(require_runtime(runtime)?, &request, None, &context)?
-                    .result;
-            if !result.valid {
+            let execution =
+                execute_runtime_request(require_runtime(runtime)?, &request, None, &context)?;
+            let result = v03_operation_result(&execution.operation);
+            if !execution.operation.valid {
                 return Err(type_pack_setup_error(&result));
             }
             Ok(result.result)
