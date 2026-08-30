@@ -9,6 +9,48 @@ import type { DatabasePool } from "./db.js";
 import { ConnectorOperationError } from "./relay-errors.js";
 
 const MAX_POLICY_SEQUENCE = BigInt(Number.MAX_SAFE_INTEGER);
+const POLICY_STAGE_DELAY_MS = 2_000;
+
+export type ConnectorPolicyStage =
+  | "database_checkout"
+  | "transaction_begin"
+  | "connector_sequence_update"
+  | "grant_inventory"
+  | "transaction_commit"
+  | "generation_before"
+  | "snapshot_build"
+  | "generation_after_build"
+  | "generation_after_ack"
+  | "connector_lookup"
+  | "transaction_rollback"
+  | "policy_delivery_ack"
+  | "replacement_broadcast"
+  | "initial_policy";
+
+/** Privacy-safe timing discriminator for production-only policy stalls. */
+export async function observeConnectorPolicyStage<T>(
+  stage: ConnectorPolicyStage,
+  operation: () => Promise<T>
+): Promise<T> {
+  let delayed = false;
+  const timer = setTimeout(() => {
+    delayed = true;
+    console.warn("connector policy stage delayed", {
+      class: "delivery_unavailable",
+      stage
+    });
+  }, POLICY_STAGE_DELAY_MS);
+  try {
+    const result = await operation();
+    if (delayed) console.warn("connector policy delayed stage settled", { stage, outcome: "ok" });
+    return result;
+  } catch (error) {
+    if (delayed) console.warn("connector policy delayed stage settled", { stage, outcome: "error" });
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export class PolicySequenceExhaustedError extends Error {
   readonly code = "policy_sequence_exhausted";
@@ -169,18 +211,22 @@ export async function buildPolicySnapshot(
   isStillCurrent: () => boolean = () => true,
   mode: PolicyMode = "lease_v1"
 ): Promise<PolicySnapshot | null> {
-  const connection = await db.connect();
+  const connection = await observeConnectorPolicyStage("database_checkout", () => db.connect());
+  const rollback = () => observeConnectorPolicyStage(
+    "transaction_rollback", () => connection.query("ROLLBACK")
+  );
   try {
     if (!isStillCurrent()) return null;
-    await connection.query("BEGIN");
+    await observeConnectorPolicyStage("transaction_begin", () => connection.query("BEGIN"));
     if (!isStillCurrent()) {
-      await connection.query("ROLLBACK");
+      await rollback();
       return null;
     }
-    const active = await connection.query<{
-      policy_sequence: string | number;
-      database_now: Date | string;
-    }>(
+    const active = await observeConnectorPolicyStage("connector_sequence_update", () =>
+      connection.query<{
+        policy_sequence: string | number;
+        database_now: Date | string;
+      }>(
       `UPDATE connectors
        SET policy_sequence = policy_sequence + 1
        WHERE id = $1 AND revoked_at IS NULL
@@ -189,23 +235,24 @@ export async function buildPolicySnapshot(
          AND user_id IN (SELECT id FROM users WHERE suspended_at IS NULL)
        RETURNING policy_sequence, now() AS database_now`,
       [connectorId, MAX_POLICY_SEQUENCE.toString(), expectedRelayGeneration ?? null]
-    );
+    ));
     if (!active.rows[0]) {
-      const existing = await connection.query<{ policy_sequence: string | number }>(
+      const existing = await observeConnectorPolicyStage("connector_lookup", () =>
+        connection.query<{ policy_sequence: string | number }>(
         `SELECT policy_sequence FROM connectors
          WHERE id = $1 AND revoked_at IS NULL
            AND ($2::bigint IS NULL OR relay_generation = $2::bigint)
            AND user_id IN (SELECT id FROM users WHERE suspended_at IS NULL)`,
         [connectorId, expectedRelayGeneration ?? null]
-      );
-      await connection.query("ROLLBACK");
+      ));
+      await rollback();
       if (existing.rows[0]
           && BigInt(existing.rows[0].policy_sequence) >= MAX_POLICY_SEQUENCE) {
         throw new PolicySequenceExhaustedError();
       }
       return null;
     }
-    const grants = await connection.query<{
+    const grants = await observeConnectorPolicyStage("grant_inventory", () => connection.query<{
       id: string; application_id: string; application_name: string;
       application_distribution: "web" | "portable"; application_homepage: string;
       application_project_url: string | null; application_origin: string;
@@ -232,7 +279,7 @@ export async function buildPolicySnapshot(
          AND g.activated_at IS NOT NULL
        ORDER BY g.id`,
       [connectorId]
-    );
+    ));
     const sequenceValue = BigInt(active.rows[0].policy_sequence);
     if (sequenceValue > MAX_POLICY_SEQUENCE) throw new PolicySequenceExhaustedError();
     const sequence = Number(sequenceValue);
@@ -241,7 +288,7 @@ export async function buildPolicySnapshot(
       ...grant,
       collection_id: grant.local_id
     }));
-    await connection.query("COMMIT");
+    await observeConnectorPolicyStage("transaction_commit", () => connection.query("COMMIT"));
     if (mode === "legacy_ack_v0") {
       return {
         type: "policy_snapshot",
@@ -267,7 +314,7 @@ export async function buildPolicySnapshot(
       ...policyBody
     };
   } catch (error) {
-    await connection.query("ROLLBACK");
+    await rollback();
     throw error;
   } finally {
     connection.release();
