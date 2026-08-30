@@ -185,7 +185,10 @@ export class NatsRelayBroker implements RelayBroker {
   private available = true;
   private readonly framed: NatsFramedTransport;
 
-  private constructor(private readonly connection: NatsConnection) {
+  constructor(
+    private readonly connection: NatsConnection,
+    private readonly flushTimeoutMs = 1_000
+  ) {
     this.framed = new NatsFramedTransport(connection);
     void this.monitorConnection();
   }
@@ -301,7 +304,7 @@ export class NatsRelayBroker implements RelayBroker {
     this.assertAvailable();
     assertSubjectParts(connectorId, generation);
     this.connection.publish(replacementSubject(connectorId), encodeJson({ version: 1, generation }));
-    await this.connection.flush();
+    await withTimeout(this.connection.flush(), this.flushTimeoutMs);
   }
 
   async ready(): Promise<void> {

@@ -1,6 +1,8 @@
+import type { NatsConnection } from "nats";
 import { describe, expect, it, vi } from "vitest";
 import {
   LocalRelayBroker,
+  NatsRelayBroker,
   RelayBrokerUnavailableError,
   type RelayBrokerCommand
 } from "./relay-broker.js";
@@ -12,6 +14,22 @@ const policy: RelayBrokerCommand = {
   kind: "policy",
   message: POLICY_PUSH_SIGNAL
 };
+
+describe("NATS relay broker", () => {
+  it("bounds replacement publication flush before policy startup", async () => {
+    const connection = {
+      publish: vi.fn(),
+      flush: vi.fn(() => new Promise<void>(() => undefined)),
+      isClosed: vi.fn(() => false),
+      status: async function* () {}
+    } as unknown as NatsConnection;
+    const broker = new NatsRelayBroker(connection, 5);
+
+    await expect(broker.publishReplacement(connectorId, "1"))
+      .rejects.toBeInstanceOf(RelayBrokerUnavailableError);
+    expect(connection.publish).toHaveBeenCalledOnce();
+  });
+});
 
 describe("local relay broker", () => {
   it("routes only to the exact connector session generation", async () => {
