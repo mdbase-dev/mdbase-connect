@@ -26,6 +26,7 @@ function deferred<T = void>(): Deferred<T> {
 class PolicySocket extends EventEmitter {
   readyState = 1;
   readonly policies: PolicySnapshot[] = [];
+  readonly messages: Array<Record<string, unknown>> = [];
   readonly held: PolicySnapshot[] = [];
   hold = false;
   inFlight = 0;
@@ -34,6 +35,7 @@ class PolicySocket extends EventEmitter {
   send(raw: string, callback?: (error?: Error) => void): void {
     callback?.();
     const message = JSON.parse(raw) as PolicySnapshot;
+    this.messages.push(message as unknown as Record<string, unknown>);
     if (message.type !== "policy_snapshot") return;
     this.policies.push(message);
     this.inFlight += 1;
@@ -54,10 +56,23 @@ class PolicySocket extends EventEmitter {
     })), false);
   }
 
-  close(): void {
+  reject(message = this.held.shift()): void {
+    if (!message) throw new Error("No held policy to reject.");
+    this.inFlight -= 1;
+    this.emit("message", Buffer.from(JSON.stringify({
+      type: "policy_applied",
+      protocol_version: 1,
+      request_id: message.request_id,
+      revision: message.revision,
+      ok: false,
+      error: { code: "policy_apply_failed", message: "rejected" }
+    })), false);
+  }
+
+  close(code = 1000): void {
     if (this.readyState === 3) return;
     this.readyState = 3;
-    this.emit("close");
+    this.emit("close", code);
   }
 }
 
@@ -147,6 +162,20 @@ function delayOneConnect(db: DatabasePool): {
   return { db: wrapped, started: started.promise, release: () => release.resolve() };
 }
 
+function legacyHello() {
+  return Promise.resolve({
+    protocol_version: 1 as const,
+    connector_version: "0.1.0-beta.90",
+    capabilities: [
+      "application-authorization-v4",
+      "authorization-activation",
+      "encrypted-relay",
+      "policy-ack"
+    ],
+    contract_support: CONNECT_CONTRACT_SUPPORT
+  });
+}
+
 function hello() {
   return Promise.resolve({
     protocol_version: 1 as const,
@@ -193,6 +222,32 @@ async function settleAsync(): Promise<void> {
 }
 
 describe("exact-session policy renewal scheduler", () => {
+  it("reports whether an actual socket close follows session readiness", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const readyFixture = await fixture();
+    const readySocket = new PolicySocket();
+    await attach(readyFixture.relay, readyFixture.connectorId, readySocket);
+    readySocket.close(1000);
+    expect(info).toHaveBeenCalledWith("connector relay closed", {
+      close_class: "normal",
+      ready: true
+    });
+
+    const pendingFixture = await fixture();
+    const pendingSocket = new PolicySocket();
+    pendingSocket.hold = true;
+    const attaching = pendingFixture.relay.attach(
+      pendingFixture.connectorId, pendingSocket as unknown as WebSocket, hello()
+    );
+    await eventually(() => expect(pendingSocket.held).toHaveLength(1));
+    pendingSocket.close(4001);
+    await expect(attaching).rejects.toBeDefined();
+    expect(info).toHaveBeenCalledWith("connector relay closed", {
+      close_class: "replacement",
+      ready: false
+    });
+  });
+
   it("does not let a requested push overtake a delayed initial build", async () => {
     const base = await createDatabase("memory");
     databases.push(base);
@@ -284,6 +339,153 @@ describe("exact-session policy renewal scheduler", () => {
     });
     expect(socket.policies.map((policy) => policy.sequence)).toEqual([1, 2, 3]);
     expect(socket.maxInFlight).toBe(1);
+  });
+
+  it("keeps readiness fenced across interleaved local and broker pushes and closes on final failure", async () => {
+    const { owner, remote, connectorId } = await twoHubFixture();
+    const socket = new PolicySocket();
+    await attach(owner, connectorId, socket);
+    socket.hold = true;
+
+    const local = owner.pushPolicy(connectorId);
+    await eventually(() => expect(socket.held).toHaveLength(1));
+    const brokerPush = remote.pushPolicy(connectorId);
+    expect(owner.isConnected(connectorId)).toBe(false);
+    socket.ack();
+    await local;
+    expect(owner.isConnected(connectorId)).toBe(false);
+    await eventually(() => expect(socket.held).toHaveLength(1));
+    socket.reject();
+
+    await expect(brokerPush).rejects.toBeInstanceOf(Error);
+    await eventually(() => expect(socket.readyState).toBe(3));
+    expect(owner.isConnected(connectorId)).toBe(false);
+  });
+
+  it("classifies plaintext mutations as outcome unknown when policy fencing suppresses them", async () => {
+    const { relay, connectorId } = await fixture();
+    const socket = new PolicySocket();
+    await attach(relay, connectorId, socket);
+    const mutation = relay.route({
+      connectorId,
+      localCollectionId: randomUUID(),
+      requestId: randomUUID(),
+      grantId: randomUUID(),
+      applicationId: randomUUID(),
+      operation: "create",
+      operationInput: { type: "note", value: {} }
+    });
+    await eventually(() => expect(socket.messages.some((message) =>
+      message.type === "operation_request")).toBe(true));
+    socket.hold = true;
+    const push = relay.pushPolicy(connectorId);
+    await expect(mutation).rejects.toMatchObject({
+      code: "operation_outcome_unknown",
+      problem: { operation_outcome: "unknown" }
+    });
+    await eventually(() => expect(socket.held).toHaveLength(1));
+    socket.ack();
+    await push;
+  });
+
+  it("returns generic unavailable for a fenced plaintext read", async () => {
+    const { relay, connectorId } = await fixture();
+    const socket = new PolicySocket();
+    await attach(relay, connectorId, socket);
+    const read = relay.route({
+      connectorId,
+      localCollectionId: randomUUID(),
+      requestId: randomUUID(),
+      grantId: randomUUID(),
+      applicationId: randomUUID(),
+      operation: "query",
+      operationInput: {}
+    });
+    await eventually(() => expect(socket.messages.some((message) =>
+      message.type === "operation_request")).toBe(true));
+    socket.hold = true;
+    const push = relay.pushPolicy(connectorId);
+    await expect(read).rejects.toBeInstanceOf(Error);
+    await expect(read).rejects.not.toMatchObject({ code: "operation_outcome_unknown" });
+    await eventually(() => expect(socket.held).toHaveLength(1));
+    socket.ack();
+    await push;
+  });
+
+  it("does not periodically renew legacy policy but still sends event snapshots", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const { relay, connectorId } = await fixture();
+    const socket = new PolicySocket();
+    await relay.attach(connectorId, socket as unknown as WebSocket, legacyHello());
+    expect(socket.policies).toHaveLength(1);
+    vi.advanceTimersByTime(120_000);
+    await settleAsync();
+    expect(socket.policies).toHaveLength(1);
+    await relay.pushPolicy(connectorId);
+    expect(socket.policies).toHaveLength(2);
+  });
+
+  it("durably rejects a legacy attach between lease negotiation and acknowledgement", async () => {
+    const { db, owner, remote, connectorId } = await twoHubFixture();
+    const leaseSocket = new PolicySocket();
+    leaseSocket.hold = true;
+    const leaseAttach = owner.attach(
+      connectorId,
+      leaseSocket as unknown as WebSocket,
+      hello()
+    );
+    await eventually(() => expect(leaseSocket.held).toHaveLength(1));
+
+    const negotiated = await db.query<{
+      relay_generation: string | number;
+      policy_lease_negotiated_at: Date | null;
+      policy_lease_adopted_at: Date | null;
+    }>(
+      `SELECT relay_generation, policy_lease_negotiated_at, policy_lease_adopted_at
+       FROM connectors WHERE id = $1`,
+      [connectorId]
+    );
+    expect(Number(negotiated.rows[0]!.relay_generation)).toBe(1);
+    expect(negotiated.rows[0]!.policy_lease_negotiated_at).not.toBeNull();
+    expect(negotiated.rows[0]!.policy_lease_adopted_at).toBeNull();
+
+    const legacySocket = new PolicySocket();
+    await remote.attach(
+      connectorId,
+      legacySocket as unknown as WebSocket,
+      legacyHello()
+    );
+    expect(legacySocket.readyState).toBe(3);
+    expect(legacySocket.policies).toHaveLength(0);
+
+    const rejected = await db.query<{
+      relay_generation: string | number;
+      policy_lease_negotiated_at: Date | null;
+      policy_lease_adopted_at: Date | null;
+      latest_policy_mode: string | null;
+    }>(
+      `SELECT relay_generation, policy_lease_negotiated_at,
+              policy_lease_adopted_at, latest_policy_mode
+       FROM connectors WHERE id = $1`,
+      [connectorId]
+    );
+    expect(Number(rejected.rows[0]!.relay_generation)).toBe(1);
+    expect(rejected.rows[0]!.policy_lease_negotiated_at).not.toBeNull();
+    expect(rejected.rows[0]!.policy_lease_adopted_at).toBeNull();
+    expect(rejected.rows[0]!.latest_policy_mode).toBe("lease_v1");
+
+    leaseSocket.ack();
+    await leaseAttach;
+    const adopted = await db.query<{
+      policy_lease_negotiated_at: Date | null;
+      policy_lease_adopted_at: Date | null;
+    }>(
+      `SELECT policy_lease_negotiated_at, policy_lease_adopted_at
+       FROM connectors WHERE id = $1`,
+      [connectorId]
+    );
+    expect(adopted.rows[0]!.policy_lease_negotiated_at).not.toBeNull();
+    expect(adopted.rows[0]!.policy_lease_adopted_at).not.toBeNull();
   });
 
   it("rejects a remote request accepted by an owner that is then replaced", async () => {

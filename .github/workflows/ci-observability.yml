@@ -1,8 +1,8 @@
-name: Server CI timings
+name: CI timings
 
 on:
   workflow_run:
-    workflows: [Server CI]
+    workflows: [Server CI, Editor CI and release]
     types: [completed]
 
 permissions:
@@ -17,9 +17,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.event.workflow_run.id }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           SOURCE_EVENT: ${{ github.event.workflow_run.event }}
           CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          CREATED_AT: ${{ github.event.workflow_run.created_at }}
           STARTED_AT: ${{ github.event.workflow_run.run_started_at }}
           UPDATED_AT: ${{ github.event.workflow_run.updated_at }}
         run: |
@@ -27,38 +30,53 @@ jobs:
             "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" \
             >job-pages.json
           jq -n \
-            --arg run_id "$RUN_ID" --arg head_sha "$HEAD_SHA" \
+            --arg run_id "$RUN_ID" --arg workflow_name "$WORKFLOW_NAME" \
+            --arg run_attempt "$RUN_ATTEMPT" --arg head_sha "$HEAD_SHA" \
             --arg event "$SOURCE_EVENT" --arg conclusion "$CONCLUSION" \
-            --arg started_at "$STARTED_AT" --arg updated_at "$UPDATED_AT" \
-            --slurpfile pages job-pages.json '
+            --arg created_at "$CREATED_AT" --arg started_at "$STARTED_AT" \
+            --arg updated_at "$UPDATED_AT" --slurpfile pages job-pages.json '
               def seconds($start; $end):
-                if ($start == null or $end == null) then null
+                if ($start == null or $start == "" or $end == null or $end == "") then null
                 else (($end | fromdateiso8601) - ($start | fromdateiso8601)) end;
               ($pages | map(.[]?.jobs // []) | add) as $jobs
-              | {schema_version:1,run_id:($run_id|tonumber),head_sha:$head_sha,
-                  event:$event,conclusion:$conclusion,started_at:$started_at,
-                  completed_at:$updated_at,
-                  duration_seconds:seconds($started_at;$updated_at),
+              | [$jobs[] as $job | $job.steps[]?
+                  | select(.conclusion == "success")
+                  | try (.name | capture("^Cache marker: (?<cache>.+) (?<result>hit|miss)$")) catch null
+                  | select(. != null)
+                  | {job:$job.name,cache:.cache,hit:(.result == "hit")}] as $caches
+              | {schema_version:2,workflow_name:$workflow_name,
+                  run_id:($run_id|tonumber),run_attempt:($run_attempt|tonumber),
+                  rerun:(($run_attempt|tonumber) > 1),head_sha:$head_sha,
+                  event:$event,conclusion:$conclusion,created_at:$created_at,
+                  started_at:$started_at,completed_at:$updated_at,
+                  queue_seconds:seconds($created_at;$started_at),
+                  execution_seconds:seconds($started_at;$updated_at),
+                  caches:$caches,
+                  cache_summary:{hits:([$caches[]|select(.hit)]|length),
+                    misses:([$caches[]|select(.hit|not)]|length)},
                   jobs:[$jobs[] | {id,name,status,conclusion,run_attempt,
-                    started_at,completed_at,
+                    created_at,started_at,completed_at,
+                    wait_seconds:seconds(.created_at;.started_at),
                     duration_seconds:seconds(.started_at;.completed_at),
                     steps:[.steps[]? | {number,name,status,conclusion,
                       started_at,completed_at,
                       duration_seconds:seconds(.started_at;.completed_at)}]}]}
-            ' >server-ci-timings.json
+            ' >ci-timings.json
           {
-            echo '## Server CI timing report'
+            echo "## $WORKFLOW_NAME timing report"
             echo
-            echo '| Job | Result | Seconds | Attempt |'
-            echo '|---|---:|---:|---:|'
+            jq -r '"Run attempt: \(.run_attempt) · queue: \(.queue_seconds // "-")s · execution: \(.execution_seconds // "-")s · Playwright cache: \(.cache_summary.hits) hit / \(.cache_summary.misses) miss"' ci-timings.json
+            echo
+            echo '| Job | Result | Pre-start wait seconds | Run seconds | Attempt |'
+            echo '|---|---:|---:|---:|---:|'
             jq -r '.jobs | sort_by(-(.duration_seconds // 0))[]
-              | "| \(.name) | \(.conclusion // .status) | \(.duration_seconds // "-") | \(.run_attempt // 1) |"' \
-              server-ci-timings.json
+              | "| \(.name) | \(.conclusion // .status) | \(.wait_seconds // "-") | \(.duration_seconds // "-") | \(.run_attempt // 1) |"' \
+              ci-timings.json
           } >>"$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: server-ci-timings-${{ github.event.workflow_run.id }}
-          path: server-ci-timings.json
+          name: ci-timings-${{ github.event.workflow_run.id }}
+          path: ci-timings.json
           if-no-files-found: error
           retention-days: 90

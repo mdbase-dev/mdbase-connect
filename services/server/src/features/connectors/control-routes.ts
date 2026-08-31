@@ -24,11 +24,15 @@ export function registerConnectorControlRoutes(
       user_email: string;
     }>(
       `SELECT c.id AS connector_id, c.name AS connector_name,
-              u.name AS user_name,
-              COALESCE(i.email, '@' || i.login, u.email) AS user_email
+              COALESCE(u.name, '') AS user_name,
+              COALESCE(i.email, '@' || i.login, password_email.email, u.email, '') AS user_email
        FROM connectors c
        JOIN users u ON u.id = c.user_id
        LEFT JOIN external_identities i ON i.user_id = u.id
+       LEFT JOIN email_identities password_email
+         ON password_email.user_id = u.id
+        AND password_email.is_primary = true
+        AND password_email.retired_at IS NULL
        WHERE c.id = $1`,
       [connector.id]
     );

@@ -150,6 +150,21 @@ describe("ConnectApp", () => {
       .toHaveAttribute("href", "https://example.test/connect-update");
   });
 
+  it("recommends the lease-capable update without claiming legacy is incompatible", async () => {
+    overview.connectors[0].update_recommended = true;
+    overview.connectors[0].minimum_connector_version = "0.1.0-beta.91";
+    overview.connectors[0].update_url = "https://example.test/connect-update";
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+
+    await user.click(await screen.findByRole("link", { name: "Computers" }));
+    expect(screen.getByText("Online")).toBeInTheDocument();
+    expect(screen.queryByText("Update required")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", {
+      name: "Update recommended for current policy protection"
+    })).toHaveAttribute("href", "https://example.test/connect-update");
+  });
+
   it("pauses background refresh while the page is hidden and refreshes on return", async () => {
     const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
     vi.useFakeTimers();

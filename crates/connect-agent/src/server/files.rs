@@ -320,7 +320,7 @@ impl AgentState {
                 "The upload chunk could not be authenticated.",
             )
         })?;
-        if !self.registry.remote_policy_is_fresh()? {
+        if !self.registry.remote_policy_is_usable()? {
             return Err(ConnectError::AccessDenied(
                 "The remote application policy lease has expired.".to_string(),
             ));
@@ -364,7 +364,7 @@ impl AgentState {
                 "The local download session is inconsistent.",
             ));
         }
-        if !self.registry.remote_policy_is_fresh()? {
+        if !self.registry.remote_policy_is_usable()? {
             return Err(ConnectError::AccessDenied(
                 "The remote application policy lease has expired.".to_string(),
             ));
@@ -424,7 +424,7 @@ impl AgentState {
         action: FileAction,
         allow_either_write: bool,
     ) -> Result<mdbase_connect_protocol::GrantSummary, ConnectError> {
-        if !self.registry.remote_policy_is_fresh()? {
+        if !self.registry.remote_policy_is_usable()? {
             return Err(ConnectError::AccessDenied(
                 "The remote application policy lease has expired.".to_string(),
             ));

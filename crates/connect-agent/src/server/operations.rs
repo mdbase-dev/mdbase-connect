@@ -22,19 +22,39 @@ impl AgentState {
                 lease_expires_at_ms,
                 grants,
             } => {
-                let response = super::policy::apply_policy_snapshot(
-                    self,
-                    protocol_version,
-                    super::policy::PolicySnapshot {
+                let response = match (
+                    connector_id,
+                    sequence,
+                    lease_issued_at_ms,
+                    lease_expires_at_ms,
+                ) {
+                    (
+                        Some(connector_id),
+                        Some(sequence),
+                        Some(lease_issued_at_ms),
+                        Some(lease_expires_at_ms),
+                    ) => super::policy::apply_policy_snapshot(
+                        self,
+                        protocol_version,
+                        super::policy::PolicySnapshot {
+                            request_id,
+                            revision,
+                            connector_id,
+                            sequence,
+                            lease_issued_at_ms,
+                            lease_expires_at_ms,
+                            grants,
+                        },
+                    ),
+                    (None, None, None, None) => super::policy::apply_legacy_policy_snapshot(
+                        self,
+                        protocol_version,
                         request_id,
                         revision,
-                        connector_id,
-                        sequence,
-                        lease_issued_at_ms,
-                        lease_expires_at_ms,
                         grants,
-                    },
-                );
+                    ),
+                    _ => super::policy::reject_partial_policy_snapshot(request_id, revision),
+                };
                 Some(response)
             }
             RelayMessage::AuthorizationOfferRequest {
@@ -264,7 +284,7 @@ impl AgentState {
                 operation,
                 input,
             } => {
-                if !self.registry.remote_policy_is_fresh().unwrap_or(false) {
+                if !self.registry.remote_policy_is_usable().unwrap_or(false) {
                     return Some(RelayMessage::OperationResponse {
                         protocol_version,
                         request_id,
@@ -469,7 +489,7 @@ impl AgentState {
         cancellation: &mdbase::OperationCancellation,
         execution_state: &OperationExecutionState,
     ) -> RelayMessage {
-        if !self.registry.remote_policy_is_fresh().unwrap_or(false) {
+        if !self.registry.remote_policy_is_usable().unwrap_or(false) {
             return encrypted_rejection(envelope.protocol_version, envelope.request_id);
         }
         if !mdbase_connect_protocol::SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS

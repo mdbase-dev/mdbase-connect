@@ -16,6 +16,7 @@ pub(crate) struct PolicyRevisionGate(RwLock<PolicyAuthorityState>);
 struct PolicyAuthorityState {
     epoch: u64,
     digest: Option<String>,
+    pending_generation: Option<u64>,
     #[cfg(test)]
     manual_now_ms: Option<i64>,
 }
@@ -29,6 +30,7 @@ impl PolicyRevisionGate {
         Self(RwLock::new(PolicyAuthorityState {
             epoch: 1,
             digest,
+            pending_generation: None,
             #[cfg(test)]
             manual_now_ms: None,
         }))
@@ -190,6 +192,131 @@ impl AgentState {
         response
     }
 
+    /// Fence a prospective authority change synchronously on the websocket
+    /// reader, before the SQLite policy worker can be delayed. Equivalent
+    /// lease renewals preserve continuity and publication permits.
+    pub(crate) fn prepare_policy_update(
+        &self,
+        generation: u64,
+        message: &RelayMessage,
+    ) -> Result<(), ConnectError> {
+        let prospective = match message {
+            RelayMessage::PolicySnapshot {
+                revision,
+                connector_id: Some(connector_id),
+                sequence: Some(sequence),
+                lease_issued_at_ms: Some(lease_issued_at_ms),
+                lease_expires_at_ms: Some(lease_expires_at_ms),
+                grants,
+                ..
+            } => {
+                let mut normalized = grants.clone();
+                normalized.sort_by_key(|grant| grant.id);
+                let body = serde_json::json!({
+                    "connector_id": connector_id,
+                    "sequence": sequence,
+                    "lease_issued_at_ms": lease_issued_at_ms,
+                    "lease_expires_at_ms": lease_expires_at_ms,
+                    "grants": &normalized,
+                });
+                let bound_revision = serde_jcs::to_vec(&body).map(|body| {
+                    use sha2::Digest;
+                    format!("sha256:{:x}", sha2::Sha256::digest(body))
+                })?;
+                Some((
+                    *connector_id,
+                    mdbase_connect_core::canonical_policy_authority_digest(
+                        *connector_id,
+                        &normalized,
+                    )?,
+                    bound_revision == *revision,
+                ))
+            }
+            RelayMessage::PolicySnapshot { .. } => None,
+            _ => return Ok(()),
+        };
+        let current = self.registry.remote_policy_authority()?;
+        let already_pending = self
+            .policy_revision_gate
+            .0
+            .read()
+            .expect("policy gate poisoned")
+            .pending_generation
+            .is_some();
+        let equivalent_lease = !already_pending
+            && prospective.is_some_and(|(connector_id, ref digest, revision_is_bound)| {
+                revision_is_bound
+                    && current.mode == mdbase_connect_core::RemotePolicyAuthorityMode::LeaseV1
+                    && current.connector_id == Some(connector_id)
+                    && current.authority_digest.as_deref() == Some(digest.as_str())
+            });
+        if equivalent_lease {
+            return Ok(());
+        }
+
+        let mut publications = self
+            .publication_gate
+            .state
+            .lock()
+            .expect("publication gate poisoned");
+        let mut authority = self
+            .policy_revision_gate
+            .0
+            .write()
+            .expect("policy gate poisoned");
+        let next_epoch = authority.epoch.checked_add(1);
+        authority.pending_generation = Some(
+            authority
+                .pending_generation
+                .map_or(generation, |pending| pending.max(generation)),
+        );
+        publications.snapshot_pending = true;
+        if let Some(next_epoch) = next_epoch {
+            authority.epoch = next_epoch;
+        }
+        drop(authority);
+        drop(publications);
+        self.cancel_remote_operations();
+        next_epoch.map(|_| ()).ok_or_else(policy_changed)
+    }
+
+    pub(crate) fn policy_authority_ready(&self) -> bool {
+        self.policy_revision_gate
+            .0
+            .read()
+            .expect("policy gate poisoned")
+            .pending_generation
+            .is_none()
+    }
+
+    pub(crate) fn finish_policy_update(&self, generation: u64, applied: bool) -> bool {
+        if !applied {
+            return false;
+        }
+        let mut publications = self
+            .publication_gate
+            .state
+            .lock()
+            .expect("publication gate poisoned");
+        let mut authority = self
+            .policy_revision_gate
+            .0
+            .write()
+            .expect("policy gate poisoned");
+        if authority
+            .pending_generation
+            .is_some_and(|pending| pending > generation)
+        {
+            return false;
+        }
+        if authority.pending_generation == Some(generation) {
+            authority.pending_generation = None;
+            publications.snapshot_pending = false;
+            self.publication_gate.changed.notify_all();
+        }
+        authority.pending_generation.is_none()
+    }
+
     pub fn handle_relay_message(&self, message: RelayMessage) -> Option<RelayMessage> {
         self.handle_relay_message_cancellable(
             message,
@@ -215,6 +342,9 @@ impl AgentState {
             .0
             .write()
             .expect("policy gate poisoned");
+        if gate.pending_generation.is_some() {
+            return Err(policy_changed());
+        }
         let authority = self.registry.remote_policy_authority()?;
         if !authority_is_fresh(&gate, &authority) {
             return Err(policy_changed());
@@ -379,6 +509,9 @@ fn authority_is_fresh(
     _state: &PolicyAuthorityState,
     authority: &mdbase_connect_core::RemotePolicyAuthority,
 ) -> bool {
+    if authority.mode == mdbase_connect_core::RemotePolicyAuthorityMode::LegacyAckV0 {
+        return true;
+    }
     #[cfg(not(test))]
     {
         authority.fresh
@@ -398,7 +531,8 @@ fn authority_matches(
     epoch: u64,
 ) -> Result<bool, ConnectError> {
     let authority = registry.remote_policy_authority()?;
-    Ok(authority_is_fresh(state, &authority)
+    Ok(state.pending_generation.is_none()
+        && authority_is_fresh(state, &authority)
         && authority.authority_digest.as_deref() == Some(digest)
         && state.digest.as_deref() == Some(digest)
         && state.epoch == epoch)
@@ -543,7 +677,10 @@ pub(crate) fn apply_policy_snapshot(
         authority.epoch = next_epoch;
         authority.digest = current.authority_digest.clone();
     }
-    if sequence < current.sequence || (sequence == current.sequence && revision != current.revision)
+    let current_is_lease = current.connector_id.is_some();
+    if current_is_lease
+        && (sequence < current.sequence
+            || (sequence == current.sequence && revision != current.revision))
     {
         return rejected(
             request_id,
@@ -552,7 +689,7 @@ pub(crate) fn apply_policy_snapshot(
             "Stale or conflicting policy snapshot.".to_string(),
         );
     }
-    if sequence == current.sequence {
+    if current_is_lease && sequence == current.sequence {
         return RelayMessage::PolicyApplied {
             protocol_version: CONTROL_PROTOCOL_VERSION,
             request_id,
@@ -638,12 +775,117 @@ pub(crate) fn apply_policy_snapshot(
         authority.digest = Some(authority_digest);
     }
     state.cancel_remote_operations();
+    publications.snapshot_pending = authority.pending_generation.is_some();
     drop(authority);
-    publications.snapshot_pending = false;
     drop(publications);
     state.publication_gate.changed.notify_all();
 
     applied(request_id, revision, normalized_grants.len(), result)
+}
+
+pub(crate) fn reject_partial_policy_snapshot(request_id: Uuid, revision: String) -> RelayMessage {
+    rejected(
+        request_id,
+        revision,
+        "invalid_policy_snapshot",
+        "Policy freshness metadata must be either complete or absent.".to_string(),
+    )
+}
+
+pub(crate) fn apply_legacy_policy_snapshot(
+    state: &AgentState,
+    protocol_version: u32,
+    request_id: Uuid,
+    revision: String,
+    mut grants: Vec<GrantPolicy>,
+) -> RelayMessage {
+    if protocol_version != CONTROL_PROTOCOL_VERSION {
+        return rejected(
+            request_id,
+            revision,
+            "unsupported_protocol_version",
+            format!(
+                "Relay protocol {protocol_version} is unsupported; expected {}.",
+                CONTROL_PROTOCOL_VERSION
+            ),
+        );
+    }
+    // beta.90 bound the grants array exactly as received. Sorting before this
+    // check would accept a different transcript than the legacy peer signed.
+    let bound_revision = serde_jcs::to_vec(&grants)
+        .map(|body| {
+            use sha2::Digest;
+            format!("sha256:{:x}", sha2::Sha256::digest(body))
+        })
+        .unwrap_or_default();
+    if bound_revision != revision {
+        return rejected(
+            request_id,
+            revision,
+            "invalid_policy_revision",
+            "The legacy policy did not match its grants-only revision.".to_string(),
+        );
+    }
+    grants.sort_by_key(|grant| grant.id);
+    match state.registry.remote_policy_authority() {
+        Ok(authority) if authority.connector_id.is_some() => {
+            return rejected(
+                request_id,
+                revision,
+                "invalid_policy_snapshot",
+                "Legacy policy is forbidden after lease authority was pinned.".to_string(),
+            )
+        }
+        Err(error) => return rejected(request_id, revision, error.code(), error.to_string()),
+        _ => {}
+    }
+
+    let mut publications = state
+        .publication_gate
+        .state
+        .lock()
+        .expect("publication gate poisoned");
+    publications.snapshot_pending = true;
+    state.cancel_remote_operations();
+    loop {
+        let now = Instant::now();
+        publications.active.retain(|_, deadline| *deadline > now);
+        let Some(next) = publications.active.values().copied().min() else {
+            break;
+        };
+        let wait = next.saturating_duration_since(now);
+        let (guard, _) = state
+            .publication_gate
+            .changed
+            .wait_timeout(publications, wait)
+            .expect("publication gate poisoned");
+        publications = guard;
+    }
+    let mut authority = state
+        .policy_revision_gate
+        .0
+        .write()
+        .expect("policy gate poisoned");
+    let next_epoch = authority.epoch.checked_add(1);
+    let result = if next_epoch.is_some() {
+        state
+            .registry
+            .replace_legacy_remote_grants_at_revision(&revision, &grants)
+    } else {
+        Err(ConnectError::InvalidInput(
+            "The local policy continuity epoch is exhausted.".to_string(),
+        ))
+    };
+    if result.is_ok() {
+        authority.epoch = next_epoch.expect("epoch checked before replacement");
+        authority.digest = Some(revision.clone());
+    }
+    state.cancel_remote_operations();
+    publications.snapshot_pending = authority.pending_generation.is_some();
+    drop(authority);
+    drop(publications);
+    state.publication_gate.changed.notify_all();
+    applied(request_id, revision, grants.len(), result)
 }
 
 fn applied(
