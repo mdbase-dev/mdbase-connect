@@ -11,6 +11,7 @@ import {
 } from "./relay-errors.js";
 import {
   buildPolicySnapshot,
+  observeConnectorPolicyStage,
   type PolicyMode,
   type PolicySnapshot
 } from "./relay-policy.js";
@@ -221,20 +222,28 @@ export class ExactPolicyPublisher {
     authority: ExactPolicyAuthority,
     send: (message: PolicySnapshot) => Promise<unknown>
   ): Promise<ExactPolicyAcknowledgement> {
-    if (!await this.isCurrent(authority)) throw new StalePolicyAuthorityError();
-    const message = await buildPolicySnapshot(
+    if (!await observeConnectorPolicyStage("generation_before", () => this.isCurrent(authority))) {
+      throw new StalePolicyAuthorityError();
+    }
+    const message = await observeConnectorPolicyStage("snapshot_build", () => buildPolicySnapshot(
       this.db,
       authority.connectorId,
       this.leaseMs,
       authority.generation,
       () => this.isOpen() && authority.isStillCurrent(),
       this.mode
-    );
-    if (!message || !await this.isCurrent(authority)) {
+    ));
+    if (!message || !await observeConnectorPolicyStage(
+      "generation_after_build", () => this.isCurrent(authority)
+    )) {
       throw new StalePolicyAuthorityError();
     }
-    const settled = await send(message);
-    if (!await this.isCurrent(authority)) throw new StalePolicyAuthorityError();
+    const settled = await observeConnectorPolicyStage("policy_delivery_ack", () => send(message));
+    if (!await observeConnectorPolicyStage(
+      "generation_after_ack", () => this.isCurrent(authority)
+    )) {
+      throw new StalePolicyAuthorityError();
+    }
     return exactPolicyAcknowledgement(settled, message);
   }
 

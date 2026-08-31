@@ -20,7 +20,7 @@ import {
 } from "./relay-broker.js";
 import { ConnectorOperationError, RelayUnavailableError } from "./relay-errors.js";
 import { RelayFileBridge } from "./relay-file.js";
-import { resolvePolicyAppliedAck, type PolicyMode } from "./relay-policy.js";
+import { observeConnectorPolicyStage, resolvePolicyAppliedAck, type PolicyMode } from "./relay-policy.js";
 import {
   ExactPolicyPublisher, handlePolicyPushCommand, RelayPolicySession,
   requestPolicyPush, type ExactPolicyAcknowledgement
@@ -492,14 +492,15 @@ export class RelayHub {
     });
 
     try {
-      await this.broker.publishReplacement(connectorId, generation);
+      await observeConnectorPolicyStage("replacement_broadcast", () =>
+        this.broker.publishReplacement(connectorId, generation));
     } catch (error) {
       // The generation in PostgreSQL is the hard fence. Replacement broadcast
       // only accelerates closing a stale socket when the broker is available.
       if (!(error instanceof RelayBrokerUnavailableError)) throw error;
     }
     try {
-      await session.policy.start();
+      await observeConnectorPolicyStage("initial_policy", () => session.policy.start());
       if (this.connectors.get(connectorId) === session
           && session.generation === generation
           && session.socket === socket

@@ -6,6 +6,7 @@ import { canonicalJson, canonicalSha256 } from "./canonical-json.js";
 import {
   buildPolicySnapshot,
   normalizePolicyGrant,
+  observeConnectorPolicyStage,
   policyGrantCreatedAtIso,
   PolicySequenceExhaustedError,
   resolvePolicyAppliedAck
@@ -14,7 +15,38 @@ import type { DatabasePool } from "./database-types.js";
 
 const databases: DatabasePool[] = [];
 afterEach(async () => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   await Promise.all(databases.splice(0).map((db) => db.end()));
+});
+
+describe("connector policy stage diagnostics", () => {
+  it("reports only a delayed stage and its privacy-safe outcome", async () => {
+    vi.useFakeTimers();
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    let settle!: (value: string) => void;
+    const operation = new Promise<string>((resolve) => { settle = resolve; });
+    const observed = observeConnectorPolicyStage("snapshot_build", () => operation);
+
+    await vi.advanceTimersByTimeAsync(2_001);
+    expect(warning).toHaveBeenCalledWith("connector policy stage delayed", {
+      class: "delivery_unavailable",
+      stage: "snapshot_build"
+    });
+    settle("done");
+    await expect(observed).resolves.toBe("done");
+    expect(warning).toHaveBeenLastCalledWith("connector policy delayed stage settled", {
+      stage: "snapshot_build",
+      outcome: "ok"
+    });
+  });
+
+  it("does not log a stage that settles within the threshold", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await expect(observeConnectorPolicyStage("generation_before", async () => true))
+      .resolves.toBe(true);
+    expect(warning).not.toHaveBeenCalled();
+  });
 });
 
 describe("connector policy sequence", () => {
