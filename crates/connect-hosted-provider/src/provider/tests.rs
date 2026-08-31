@@ -548,11 +548,18 @@ fn portable_imports_are_canonicalized_by_rust_including_first_class_resources() 
     let contract_document = "---\nkind: mdbase.contract\ncontract_type: record\nid: example.task\nversion: 1.0.0\nrecord_schema:\n  dialect: json-schema-2020-12\n  ref: ../_schemas/task.json\n---\n";
     let schema_document =
         "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\"}\n";
+    let type_pack_lock = "kind: mdbase.type-pack-lock\nlock_version: 1\npacks: []\n";
+    let provision_lock = "kind: mdbase.provision-lock\nlock_version: 1\ncontributions: []\n";
     let record_document = "---\ntitle: One\n---\n\nBody\n";
     let opaque_document = "---\ntitle: [unterminated\n---\nOpaque body\n";
     let workspace = AuthorityWorkspace::materialize(
         [
             ("mdbase.yaml".to_string(), configuration.to_string()),
+            ("mdbase.lock.yaml".to_string(), type_pack_lock.to_string()),
+            (
+                "mdbase.provisions.yaml".to_string(),
+                provision_lock.to_string(),
+            ),
             (
                 "_contracts/task.md".to_string(),
                 contract_document.to_string(),
@@ -645,6 +652,13 @@ fn portable_imports_are_canonicalized_by_rust_including_first_class_resources() 
     assert_eq!(opaque.body, opaque_document);
     assert_eq!(opaque.document, opaque_document);
     assert_eq!(opaque.types, ["task"]);
+    for path in ["mdbase.lock.yaml", "mdbase.provisions.yaml"] {
+        assert!(manifest
+            .resources
+            .documents
+            .iter()
+            .any(|resource| resource.kind == "lock" && resource.path == path));
+    }
     assert!(manifest
         .resources
         .documents
