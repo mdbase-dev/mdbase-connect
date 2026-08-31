@@ -710,11 +710,15 @@ test("quick-opens notes with fuzzy keyboard search", async ({ page }) => {
 test("shows the matching note text in sidebar and quick-open search results", async ({ page }) => {
   await page.goto("?demo=12");
   const query = "Record 4 remains lightweight";
-  // The collection shell renders before its demo record page is installed.
-  // Wait for the exact searched record so initialization cannot clear a query
-  // typed against the empty shell on a slower runner.
-  await expect(page.getByRole("option", { name: /Reading list 4/ })).toBeVisible();
-  await page.getByRole("textbox", { name: "Search notes and files" }).fill(query);
+  // A visible title proves only that the structural page is installed. Search
+  // for it and wait for the non-progress result label so the content page is
+  // also hydrated before issuing the body-only query.
+  const sidebarSearch = page.getByRole("textbox", { name: "Search notes and files" });
+  await sidebarSearch.fill("Reading list 4");
+  await expect(page.locator(".list-header p")).toHaveText("1 found · relevance", {
+    timeout: 15_000,
+  });
+  await sidebarSearch.fill(query);
   const sidebarResult = page.getByRole("option", { name: /Reading list 4/ });
   await expect(sidebarResult.locator(".note-search-context")).toContainText(query, {
     timeout: 15_000,
