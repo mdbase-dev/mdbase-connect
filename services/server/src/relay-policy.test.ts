@@ -41,11 +41,25 @@ describe("connector policy stage diagnostics", () => {
     });
   });
 
-  it("does not log a stage that settles within the threshold", async () => {
+  it("does not log a successful stage that settles within the threshold", async () => {
     const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     await expect(observeConnectorPolicyStage("generation_before", async () => true))
       .resolves.toBe(true);
     expect(warning).not.toHaveBeenCalled();
+  });
+
+  it("reports a fast failure without exposing the error", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const failure = new Error("private provider detail");
+    await expect(observeConnectorPolicyStage("generation_before", async () => {
+      throw failure;
+    })).rejects.toBe(failure);
+    expect(warning).toHaveBeenCalledWith("connector policy stage failed", {
+      class: "delivery_unavailable",
+      stage: "generation_before",
+      outcome: "error"
+    });
+    expect(JSON.stringify(warning.mock.calls)).not.toContain(failure.message);
   });
 });
 

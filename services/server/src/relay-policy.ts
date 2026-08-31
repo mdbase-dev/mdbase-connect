@@ -45,7 +45,15 @@ export async function observeConnectorPolicyStage<T>(
     if (delayed) console.warn("connector policy delayed stage settled", { stage, outcome: "ok" });
     return result;
   } catch (error) {
-    if (delayed) console.warn("connector policy delayed stage settled", { stage, outcome: "error" });
+    if (delayed) {
+      console.warn("connector policy delayed stage settled", { stage, outcome: "error" });
+    } else {
+      console.warn("connector policy stage failed", {
+        class: "delivery_unavailable",
+        stage,
+        outcome: "error"
+      });
+    }
     throw error;
   } finally {
     clearTimeout(timer);
