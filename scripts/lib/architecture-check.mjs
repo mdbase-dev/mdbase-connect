@@ -316,6 +316,37 @@ export async function evaluateArchitecture(root, budgets) {
     }
   }
 
+  const localRuntimeFiles = [
+    "crates/connect-core/src/registry/runtime_operations.rs",
+    "crates/connect-core/src/registry/runtime_executor.rs"
+  ];
+  for (const file of localRuntimeFiles) {
+    const source = productionSources.get(file);
+    if (!source) continue;
+    const forbidden = [
+      [/\.result\.result\b/g, "deprecated nested OperationResult access"],
+      [/pointer\(["']\/result\/(?:frontmatter|types)["']\)/g, "record JSON-pointer inspection"],
+      [/serde_json::from_value[^\n]*(?:RecordDocument|CanonicalOperation)/g, "typed outcome recovery through JSON"]
+    ];
+    for (const [pattern, description] of forbidden) {
+      const count = matchCount(source, pattern);
+      if (count > 0) failures.push(`${file} has ${count} forbidden ${description} seam(s).`);
+    }
+    const operationResults = matchCount(source, /mdbase::v03::OperationResult/g);
+    const allowedBoundaryAdapters = file.endsWith("runtime_operations.rs") ? 1 : 0;
+    if (operationResults > allowedBoundaryAdapters) {
+      failures.push(`${file} has ${operationResults} internal OperationResult reference(s); only ${allowedBoundaryAdapters} boundary adapter reference(s) are allowed.`);
+    }
+  }
+  if (productionSources.has("crates/connect-core/src/registry/runtime_operations.rs")) {
+    const connectCoreToV03 = [...productionSources]
+      .filter(([file]) => file.startsWith("crates/connect-core/src/"))
+      .reduce((total, [, source]) => total + matchCount(source, /\.to_v03\(/g), 0);
+    if (connectCoreToV03 !== 1) {
+      failures.push(`connect-core must have exactly one v0.3 boundary adapter; found ${connectCoreToV03} to_v03 call(s).`);
+    }
+  }
+
   const reviewBudgets =
     budgets.reviewBudgets && typeof budgets.reviewBudgets === "object" && !Array.isArray(budgets.reviewBudgets)
       ? budgets.reviewBudgets

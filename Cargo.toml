@@ -38,7 +38,7 @@ futures-util = "0.3"
 hkdf = "0.12"
 hmac = "0.12"
 mdbase = { path = "../mdbase-rs" }
-mdbase-interop = { version = "0.1.0-rc.2", git = "https://github.com/mdbase-dev/mdbase-spec.git", rev = "362953e2644b07a7b61f92068a27ac6f917ee5c1" }
+mdbase-interop = { version = "0.1.0-rc.2", git = "https://github.com/mdbase-dev/mdbase-spec.git", rev = "5aa34fd14de2e0ae9e565425b724b306046b64ca" }
 mdbase-runtime = { path = "../mdbase-rs/crates/mdbase-runtime" }
 notify = "8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-webpki-roots-no-provider"] }

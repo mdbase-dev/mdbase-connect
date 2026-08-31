@@ -77,6 +77,188 @@ pub(super) fn contract_scope_error(error: ContractScopeError) -> ConnectError {
     ConnectError::AccessDenied(error.0)
 }
 
+pub(super) fn validate_scoped_mutation_request(
+    operation: &str,
+    input: &Value,
+) -> Result<(), ConnectError> {
+    let object = input.as_object().ok_or_else(|| {
+        ConnectError::InvalidInput("The scoped mutation input must be an object.".to_string())
+    })?;
+    let allowed: &[&str] = match operation {
+        "update" => &[
+            "path",
+            "patch",
+            "if_revision",
+            "include_document",
+            "dry_run",
+        ],
+        "delete" => &["path", "check_backlinks", "if_revision", "dry_run"],
+        "rename" => &[
+            "from",
+            "to",
+            "update_refs",
+            "if_revision",
+            "include_document",
+            "dry_run",
+            "last_known_mtime",
+        ],
+        _ => return Ok(()),
+    };
+    if let Some(field) = object
+        .keys()
+        .find(|field| !allowed.contains(&field.as_str()))
+    {
+        return Err(ConnectError::InvalidInput(format!(
+            "Scoped {operation} does not accept the '{field}' field."
+        )));
+    }
+    let path_fields: &[&str] = if operation == "rename" {
+        &["from", "to"]
+    } else {
+        &["path"]
+    };
+    for field in path_fields {
+        let value = required_string(input, field)?;
+        mdbase::api::CollectionPath::new(value).map_err(|error| {
+            ConnectError::InvalidInput(format!("The scoped mutation {field} is invalid: {error}"))
+        })?;
+    }
+    for field in [
+        "include_document",
+        "dry_run",
+        "check_backlinks",
+        "update_refs",
+    ] {
+        if object.get(field).is_some_and(|value| !value.is_boolean()) {
+            return Err(ConnectError::InvalidInput(format!(
+                "Scoped {operation} field '{field}' must be a boolean."
+            )));
+        }
+    }
+    if object
+        .get("last_known_mtime")
+        .is_some_and(|value| !value.is_u64())
+    {
+        return Err(ConnectError::InvalidInput(
+            "Scoped rename field 'last_known_mtime' must be an unsigned integer.".to_string(),
+        ));
+    }
+    if let Some(revision) = object.get("if_revision") {
+        serde_json::from_value::<mdbase::api::Revision>(revision.clone()).map_err(|error| {
+            ConnectError::InvalidInput(format!(
+                "The scoped mutation if_revision is invalid: {error}"
+            ))
+        })?;
+    }
+    Ok(())
+}
+
+pub(super) fn authorize_scoped_mutation_preflight(
+    collection: &Collection,
+    operation: &str,
+    input: &Value,
+    scope: &ContractScope,
+    selector: Option<&ContractSelector>,
+    current: &mdbase::api::RecordDocument,
+) -> Result<(), ConnectError> {
+    let allowed_types = &scope.allowed_types;
+    ensure_types_in_scope(&current.types, allowed_types)?;
+    let current_types = current
+        .types
+        .iter()
+        .map(|name| name.to_lowercase())
+        .collect::<BTreeSet<_>>();
+    match operation {
+        "update" => {
+            let path = required_string(input, "path")?;
+            let mut prospective = current.frontmatter.as_object().cloned().unwrap_or_default();
+            if let Some(fields) = input.get("patch").and_then(Value::as_object) {
+                for (field, value) in fields {
+                    if value.is_null() {
+                        prospective.remove(field);
+                    } else {
+                        prospective.insert(field.clone(), value.clone());
+                    }
+                }
+            }
+            let prospective_types =
+                collection.determine_types_for_path(&Value::Object(prospective), Some(path));
+            ensure_types_in_scope(&prospective_types, allowed_types)?;
+            ensure_no_new_out_of_scope_types(&prospective_types, &current_types, allowed_types)
+        }
+        "delete" => authorize_typed_record(scope, current, selector),
+        "rename" => {
+            authorize_typed_record(scope, current, selector)?;
+            let to = required_string(input, "to")?;
+            let prospective_types =
+                collection.determine_types_for_path(&current.frontmatter, Some(to));
+            ensure_types_in_scope(&prospective_types, allowed_types)?;
+            ensure_no_new_out_of_scope_types(&prospective_types, &current_types, allowed_types)
+        }
+        _ => Ok(()),
+    }
+}
+
+fn authorize_typed_record(
+    scope: &ContractScope,
+    record: &mdbase::api::RecordDocument,
+    selector: Option<&ContractSelector>,
+) -> Result<(), ConnectError> {
+    scope
+        .authorize_record_result(
+            &json!({"valid": true, "result": record, "diagnostics": []}),
+            selector,
+        )
+        .map_err(contract_scope_error)
+}
+
+pub(super) fn ensure_operation_in_scope(
+    operation: &mdbase::runtime::CanonicalOperationOutcome,
+    allowed_types: &BTreeSet<String>,
+) -> Result<(), ConnectError> {
+    use mdbase::runtime::CanonicalOperationValue;
+
+    if !operation.valid {
+        return Ok(());
+    }
+    match &operation.value {
+        CanonicalOperationValue::Read(Some(record))
+        | CanonicalOperationValue::Create(Some(record))
+        | CanonicalOperationValue::Update(Some(record)) => {
+            ensure_types_in_scope(&record.types, allowed_types)
+        }
+        CanonicalOperationValue::Query(Some(query)) => {
+            for row in &query.records {
+                let types = row
+                    .get("types")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect::<Vec<_>>();
+                ensure_types_in_scope(&types, allowed_types)?;
+            }
+            Ok(())
+        }
+        _ => Err(ConnectError::AccessDenied(
+            "The connector could not verify the record's type scope.".to_string(),
+        )),
+    }
+}
+
+pub(super) fn operation_record(
+    operation: &mdbase::runtime::CanonicalOperationOutcome,
+) -> Option<&mdbase::api::RecordDocument> {
+    use mdbase::runtime::CanonicalOperationValue;
+    match &operation.value {
+        CanonicalOperationValue::Read(Some(record))
+        | CanonicalOperationValue::Create(Some(record))
+        | CanonicalOperationValue::Update(Some(record)) => Some(record),
+        _ => None,
+    }
+}
+
 pub(super) fn ensure_result_in_scope(
     result: &Value,
     allowed_types: &BTreeSet<String>,

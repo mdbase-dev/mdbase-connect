@@ -351,7 +351,7 @@ impl HostedProvider {
             }
         }
         let result = catalog
-            .execute_hosted_validation(&plan, &context)
+            .execute_hosted_validation_typed(&plan, &context)
             .map_err(|error| {
                 if error.code.contains("budget_exceeded") {
                     validation_budget(&error.code, "canonical_context", 0, context.len() as u64)
@@ -375,7 +375,7 @@ impl HostedProvider {
             elapsed_ms = started.elapsed().as_millis() as u64,
             "privacy-safe hosted provider metric"
         );
-        Ok(result)
+        Ok(result.to_v03())
     }
 }
 

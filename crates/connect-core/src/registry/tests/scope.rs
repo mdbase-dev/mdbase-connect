@@ -1,5 +1,7 @@
 use super::*;
 
+static SCOPED_HOOK_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn describe_exposes_complete_portable_type_metadata_without_absolute_paths() {
     let state = tempdir().unwrap();
@@ -733,4 +735,200 @@ implements:
         registry.scoped_operation(collection.id, "query", &json!({}), &scope),
         Err(ConnectError::AccessDenied(message)) if message.contains("changed")
     ));
+}
+
+fn scoped_race_fixture() -> (
+    tempfile::TempDir,
+    tempfile::TempDir,
+    CollectionRegistry,
+    CollectionSummary,
+    GrantScope,
+) {
+    let state = tempdir().unwrap();
+    let parent = tempdir().unwrap();
+    let root = parent.path().join("scoped-race");
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let collection = registry.create(&root, Some("Scoped race"), "UTC").unwrap();
+    write_work_item_contract(&root);
+    fs::create_dir_all(root.join("_types")).unwrap();
+    fs::write(
+        root.join("_types/task.md"),
+        r#"---
+kind: mdbase.type
+name: task
+version: 1
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    additionalProperties: true
+    properties:
+      type: { const: task }
+      title: { type: string }
+implements:
+  - contract: example.work-item
+    version: 1.0.0
+    fields:
+      title: title
+---
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("_types/private.md"),
+        r#"---
+kind: mdbase.type
+name: private
+version: 1
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    additionalProperties: true
+    properties:
+      type: { const: private }
+---
+"#,
+    )
+    .unwrap();
+    synchronize_external_fixture(&registry, collection.id);
+    registry
+        .operation(
+            collection.id,
+            "create",
+            &json!({
+                "path": "records/one.md",
+                "type": "task",
+                "frontmatter": {"type": "task", "title": "Before"}
+            }),
+        )
+        .unwrap();
+    let scope = work_item_scope(&registry, collection.id);
+    (state, parent, registry, collection, scope)
+}
+
+#[test]
+fn scoped_preflight_and_commit_hold_one_mutation_gate_against_type_change() {
+    use std::sync::{mpsc, Arc, Condvar, Mutex};
+    use std::time::Duration;
+
+    let _hook_test = SCOPED_HOOK_TEST_LOCK.lock().unwrap();
+    let (_state, _parent, registry, collection, scope) = scoped_race_fixture();
+    let pause = Arc::new((Mutex::new(false), Condvar::new()));
+    let (authorized_tx, authorized_rx) = mpsc::channel();
+    let hook_pause = pause.clone();
+    set_scoped_preflight_hook(Some(Arc::new(move |event, path| {
+        if event == ScopedPreflightEvent::AfterAuthorization && path == "records/one.md" {
+            authorized_tx.send(()).unwrap();
+            let (lock, changed) = &*hook_pause;
+            let mut released = lock.lock().unwrap();
+            while !*released {
+                released = changed.wait(released).unwrap();
+            }
+        }
+    })));
+
+    let scoped_registry = registry.clone();
+    let scoped_scope = scope.clone();
+    let scoped = std::thread::spawn(move || {
+        scoped_registry.scoped_operation(
+            collection.id,
+            "update",
+            &json!({"path": "records/one.md", "patch": {"title": "Scoped"}}),
+            &scoped_scope,
+        )
+    });
+    authorized_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+
+    let writer_registry = registry.clone();
+    let (writer_started_tx, writer_started_rx) = mpsc::channel();
+    let (writer_done_tx, writer_done_rx) = mpsc::channel();
+    let writer = std::thread::spawn(move || {
+        writer_started_tx.send(()).unwrap();
+        let result = writer_registry.operation(
+            collection.id,
+            "update",
+            &json!({
+                "path": "records/one.md",
+                "patch": {"type": "private", "title": "Writer private"}
+            }),
+        );
+        writer_done_tx.send(()).unwrap();
+        result
+    });
+    writer_started_rx
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap();
+    assert!(matches!(
+        writer_done_rx.recv_timeout(Duration::from_millis(150)),
+        Err(mpsc::RecvTimeoutError::Timeout)
+    ));
+
+    let (lock, changed) = &*pause;
+    *lock.lock().unwrap() = true;
+    changed.notify_all();
+    let scoped_result = scoped.join().unwrap().unwrap();
+    let writer_result = writer.join().unwrap().unwrap();
+    set_scoped_preflight_hook(None);
+
+    assert_eq!(scoped_result["valid"], true);
+    assert_eq!(writer_result["valid"], true);
+    assert_ne!(
+        scoped_result["result"]["revision"],
+        writer_result["result"]["revision"]
+    );
+    let final_record = registry
+        .operation(collection.id, "read", &json!({"path": "records/one.md"}))
+        .unwrap();
+    assert_eq!(final_record["result"]["types"], json!(["private"]));
+    assert_eq!(scoped_result["result"]["frontmatter"]["title"], "Scoped");
+    assert_eq!(
+        final_record["result"]["frontmatter"]["title"],
+        "Writer private"
+    );
+}
+
+#[test]
+fn malformed_scoped_mutations_are_rejected_before_record_read() {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    let _hook_test = SCOPED_HOOK_TEST_LOCK.lock().unwrap();
+    let (_state, _parent, registry, collection, scope) = scoped_race_fixture();
+    let reads = Arc::new(AtomicUsize::new(0));
+    let observed = reads.clone();
+    set_scoped_preflight_hook(Some(Arc::new(move |event, _| {
+        if event == ScopedPreflightEvent::BeforeRecordRead {
+            observed.fetch_add(1, Ordering::SeqCst);
+        }
+    })));
+
+    for (operation, input) in [
+        ("update", json!({"patch": {"title": "missing path"}})),
+        (
+            "update",
+            json!({"path": "records/one.md", "patch": {"title": "x"}, "body": "forbidden"}),
+        ),
+        (
+            "update",
+            json!({"path": "records/one.md", "patch": {"title": "x"}, "dry_run": "yes"}),
+        ),
+        ("delete", json!({"path": 42})),
+        (
+            "rename",
+            json!({"from": "records/one.md", "to": "records/two.md", "update_refs": true}),
+        ),
+        (
+            "rename",
+            json!({"from": "records/one.md", "to": "records/two.md", "extra": true}),
+        ),
+    ] {
+        assert!(registry
+            .scoped_operation(collection.id, operation, &input, &scope)
+            .is_err());
+    }
+    set_scoped_preflight_hook(None);
+    assert_eq!(reads.load(Ordering::SeqCst), 0);
 }

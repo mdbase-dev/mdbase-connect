@@ -13,7 +13,7 @@ const WAIT_SLICE: Duration = Duration::from_millis(10);
 const MAX_EXTERNAL_READ_CURSORS: usize = 4_096;
 
 pub(super) struct CoordinatedReadPage {
-    pub result: mdbase::v03::OperationResult,
+    pub operation: mdbase::runtime::CanonicalOperationOutcome,
     pub next: Option<String>,
 }
 
@@ -183,7 +183,7 @@ impl CollectionExecutor {
             None => None,
         };
         Ok(CoordinatedReadPage {
-            result: page.outcome.result,
+            operation: page.outcome.operation,
             next,
         })
     }
@@ -261,7 +261,7 @@ impl CollectionExecutor {
             }
         };
         Ok(CoordinatedReadPage {
-            result: page.outcome.result,
+            operation: page.outcome.operation,
             next,
         })
     }

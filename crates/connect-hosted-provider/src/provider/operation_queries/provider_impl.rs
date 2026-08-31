@@ -804,8 +804,6 @@ impl HostedProvider {
             None
         };
         cleanup_base_query_invocations(&mut *transaction, collection_id, None).await?;
-        let serialized_diagnostics =
-            serde_json::to_value(&page.diagnostics).unwrap_or_else(|_| json!([]));
         let mut meta = json!({
             "has_more": has_more,
             "cursor": next_cursor,
@@ -830,15 +828,34 @@ impl HostedProvider {
                 meta.insert(key, value);
             }
         }
-        let result = OperationResult {
-            valid: true,
-            result: json!({
-                "results": page.results,
-                "meta": meta,
-                "diagnostics": serialized_diagnostics,
-            }),
-            diagnostics: page.diagnostics,
-        };
+        let typed_records = page
+            .results
+            .into_iter()
+            .enumerate()
+            .map(|(index, value)| mdbase::runtime::HostedNamedProjectedValue {
+                name: format!("hosted-row-{index}"),
+                value: mdbase::api::ProjectedValue::new(value),
+            })
+            .collect();
+        let typed_page = catalog
+            .finalize_hosted_query_page_typed(
+                &state.plan,
+                mdbase::runtime::HostedQueryPageInput {
+                    records: typed_records,
+                    total_count: final_total_count
+                        .map(usize::try_from)
+                        .transpose()
+                        .map_err(|_| ApiError::internal("Hosted query count is outside the supported range."))?,
+                    has_more,
+                    meta: mdbase::api::QueryMetadata::new(meta),
+                    cursor: None,
+                    diagnostics: page.diagnostics.into_iter().map(Into::into).collect(),
+                },
+            )
+            .map_err(|error| ApiError::internal(format!(
+                "Canonical hosted query page failed ({}): {}", error.code, error.message
+            )))?;
+        let result = typed_page.operation.to_v03();
         store_query_page_receipt(
             &mut transaction,
             &self.crypto,
@@ -861,7 +878,7 @@ impl HostedProvider {
             metric = "hosted_projection_query_page",
             snapshot_head = state.snapshot_head,
             candidate_rows = page.candidate_rows,
-            results = result.result["results"].as_array().map_or(0, |rows| rows.len()) as u64,
+            results = page_count,
             exact_documents = page.exact_documents,
             exact_ciphertext_bytes = page.exact_ciphertext_bytes,
             elapsed_ms = started.elapsed().as_millis() as u64,

@@ -9,12 +9,64 @@ use mdbase_connect_protocol::{
     SyncCollectionResources, SyncMutation, SyncMutationOperation, SyncMutationReceipt,
     SyncReplicaMode,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::Row;
 use support::FileLifecycleFixture;
 use test_postgres::DisposablePostgres;
 use uuid::Uuid;
+
+async fn replace_completed_effect_with_legacy_semantic_none(
+    fixture: &FileLifecycleFixture,
+    replica_id: Uuid,
+    request_id: Uuid,
+) {
+    let row = sqlx::query(
+        r#"SELECT journal.evidence_ciphertext, collection.wrapped_data_key
+           FROM hosted_provider_mutation_journal journal
+           JOIN hosted_provider_replicas replica ON replica.id = journal.replica_id
+           JOIN hosted_provider_collections collection ON collection.id = replica.collection_id
+           WHERE journal.replica_id = $1 AND journal.request_id = $2"#,
+    )
+    .bind(replica_id)
+    .bind(request_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let data_key = fixture
+        .crypto
+        .unwrap_data_key(row.get("wrapped_data_key"), fixture.collection_id)
+        .await
+        .unwrap();
+    let aad = format!("hosted-provider/sync-effect/v1/{replica_id}/{request_id}").into_bytes();
+    let mut effect: Value = fixture
+        .crypto
+        .decrypt_json(
+            &data_key,
+            &row.get::<Vec<u8>, _>("evidence_ciphertext"),
+            &aad,
+        )
+        .unwrap();
+    assert!(effect.get("semantic_result").is_some());
+    effect["semantic_result"] = Value::Null;
+    let ciphertext = fixture
+        .crypto
+        .encrypt_json(&data_key, &effect, &aad)
+        .unwrap();
+    sqlx::query(
+        r#"UPDATE hosted_provider_mutation_journal
+           SET state = 'applied', evidence_ciphertext = $3, evidence_kind = 'sync_effect',
+               final_receipt_ciphertext = NULL, receipt_digest = NULL, completed_at = NULL,
+               lease_expires_at = now() - interval '1 second'
+           WHERE replica_id = $1 AND request_id = $2"#,
+    )
+    .bind(replica_id)
+    .bind(request_id)
+    .bind(ciphertext)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+}
 
 #[tokio::test]
 #[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
@@ -827,4 +879,236 @@ async fn hosted_operation_mutations_replay_exactly_after_provider_recreation() {
         .await
         .unwrap();
     assert_eq!(renamed["valid"], false, "rename dry-run creates no target");
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn legacy_record_effect_replay_is_exact_or_fails_closed_without_ambient_hydration() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let database_url = database.url().to_string();
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let replica_id = Uuid::now_v7();
+    let token = format!("legacy-effect-{}-{}", Uuid::new_v4(), Uuid::new_v4());
+    fixture
+        .provider
+        .register_replica(
+            fixture.collection_id,
+            RegisterReplica {
+                replica_id,
+                name: "Legacy effect replay application".to_string(),
+                purpose: ReplicaPurpose::Application,
+                mode: SyncReplicaMode::ReadWrite,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
+                allowed_operations: ["create", "update", "delete", "read"]
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect(),
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: vec![2],
+                file_capability: None,
+                allowed_origin: None,
+                proof_public_key: None,
+                grant_id: Some(Uuid::new_v4()),
+                application_declaration_id: None,
+                application_declaration_digest: None,
+                token: token.clone(),
+                token_ttl_seconds: Some(3600),
+            },
+        )
+        .await
+        .unwrap();
+
+    // Exact legacy case: the durable input proves backlink diagnostics were
+    // disabled, so their canonical omission is reconstructible byte-for-byte.
+    fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "create",
+            Uuid::now_v7(),
+            json!({"path": "legacy/exact-delete.md", "frontmatter": {"title": "Exact"}}),
+            None,
+        )
+        .await
+        .unwrap();
+    let exact_request = Uuid::now_v7();
+    let exact_input = json!({"path": "legacy/exact-delete.md", "check_backlinks": false});
+    let exact_first = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "delete",
+            exact_request,
+            exact_input.clone(),
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(exact_first["result"].get("broken_links").is_none());
+    replace_completed_effect_with_legacy_semantic_none(&fixture, replica_id, exact_request).await;
+    let exact_replay = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "delete",
+            exact_request,
+            exact_input,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(exact_replay, exact_first);
+
+    // Backlink-aware delete receipts do not durably contain the exact
+    // broken_links response and must not replay a fabricated success.
+    for (path, body) in [
+        ("legacy/backlink-target.md", "Target.\n"),
+        ("legacy/backlink-source.md", "See [[backlink-target]].\n"),
+    ] {
+        fixture
+            .provider
+            .operation(
+                fixture.collection_id,
+                &token,
+                "create",
+                Uuid::now_v7(),
+                json!({"path": path, "frontmatter": {"title": path}, "body": body}),
+                None,
+            )
+            .await
+            .unwrap();
+    }
+    let backlink_request = Uuid::now_v7();
+    let backlink_input = json!({"path": "legacy/backlink-target.md", "check_backlinks": true});
+    let backlink_first = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "delete",
+            backlink_request,
+            backlink_input.clone(),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_ne!(backlink_first["result"]["broken_links"], json!([]));
+    replace_completed_effect_with_legacy_semantic_none(&fixture, replica_id, backlink_request)
+        .await;
+    let backlink_error = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "delete",
+            backlink_request,
+            backlink_input.clone(),
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(backlink_error.code, "legacy_replay_evidence_missing");
+    let deterministic = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "delete",
+            backlink_request,
+            backlink_input,
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(deterministic.code, "legacy_replay_evidence_missing");
+
+    // A catalog/default change cannot legitimize reconstructing a create from
+    // an unchanged current row.
+    let create_request = Uuid::now_v7();
+    let create_input = json!({
+        "path": "legacy/catalog-stable.md",
+        "frontmatter": {"title": "Catalog stable"},
+        "include_document": true
+    });
+    fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "create",
+            create_request,
+            create_input.clone(),
+            None,
+        )
+        .await
+        .unwrap();
+    replace_completed_effect_with_legacy_semantic_none(&fixture, replica_id, create_request).await;
+    fixture
+        .enable_obsidian_base_pattern("changed-defaults/**/*.base")
+        .await;
+    let create_error = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "create",
+            create_request,
+            create_input,
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(create_error.code, "legacy_replay_evidence_missing");
+
+    // Replacing the committed row after an update also cannot supply missing
+    // mutation-time fields, metadata, diagnostics, or catalog revision.
+    let update_request = Uuid::now_v7();
+    let update_input = json!({
+        "path": "legacy/catalog-stable.md",
+        "patch": {"title": "Original update"},
+        "include_document": true
+    });
+    fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "update",
+            update_request,
+            update_input.clone(),
+            None,
+        )
+        .await
+        .unwrap();
+    replace_completed_effect_with_legacy_semantic_none(&fixture, replica_id, update_request).await;
+    fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "update",
+            Uuid::now_v7(),
+            json!({"path": "legacy/catalog-stable.md", "patch": {"title": "Replacement"}}),
+            None,
+        )
+        .await
+        .unwrap();
+    let replacement_error = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "update",
+            update_request,
+            update_input,
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(replacement_error.code, "legacy_replay_evidence_missing");
 }

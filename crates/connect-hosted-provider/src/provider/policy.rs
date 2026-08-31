@@ -159,14 +159,6 @@ pub(super) fn scope_error(error: impl std::fmt::Display) -> ApiError {
     ApiError::forbidden("scope_denied", error.to_string())
 }
 
-pub(super) fn result_string<'a>(value: &'a Value, field: &str) -> ApiResult<&'a str> {
-    value.get(field).and_then(Value::as_str).ok_or_else(|| {
-        ApiError::internal(format!(
-            "The hosted collection operation omitted its {field} result."
-        ))
-    })
-}
-
 pub(super) fn scope_read_input(
     operation: &str,
     input: Value,
@@ -227,29 +219,31 @@ pub(super) fn query_crosses_record_boundary(value: &Value) -> bool {
     }
 }
 
-pub(super) fn ensure_operation_result_visible(
-    result: &OperationResult,
+pub(super) fn ensure_canonical_read_visible(
+    operation: &mdbase::runtime::CanonicalOperationOutcome,
     allowed_types: &[String],
 ) -> ApiResult<()> {
-    if allowed_types.is_empty() || !result.valid {
+    if allowed_types.is_empty() || !operation.valid {
         return Ok(());
     }
-    let visible = result
-        .result
-        .get("types")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .any(|record_type| allowed_types.iter().any(|allowed| allowed == record_type));
-    if visible {
-        Ok(())
-    } else {
-        Err(ApiError::forbidden(
+    let visible = match &operation.value {
+        mdbase::runtime::CanonicalOperationValue::Read(Some(record)) => record
+            .types
+            .iter()
+            .any(|record_type| allowed_types.contains(record_type)),
+        mdbase::runtime::CanonicalOperationValue::Read(None) => true,
+        _ => {
+            return Err(ApiError::internal(
+                "Canonical read scope check received another operation family.",
+            ));
+        }
+    };
+    visible.then_some(()).ok_or_else(|| {
+        ApiError::forbidden(
             "scope_denied",
             "The requested record is outside this application's record scope.",
-        ))
-    }
+        )
+    })
 }
 
 pub(super) fn application_change(

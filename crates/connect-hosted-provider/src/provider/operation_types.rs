@@ -10,102 +10,6 @@ enum DefinitionMutation<'a> {
     CollectionSetup(&'a ApplyCollectionSetupInput),
 }
 
-fn definition_changed_resources(
-    envelope: &OperationResult,
-    mutation: &DefinitionMutation<'_>,
-) -> ApiResult<Vec<Value>> {
-    let mut changed = Vec::new();
-    match mutation {
-        DefinitionMutation::TypePack(_) => {
-            append_type_pack_changes(&mut changed, &envelope.result)?
-        }
-        DefinitionMutation::CollectionSetup(_) => {
-            let assessment = envelope.result.get("assessment").ok_or_else(|| {
-                ApiError::internal("Collection setup returned no applied assessment.")
-            })?;
-            if assessment
-                .get("configuration")
-                .and_then(Value::as_array)
-                .is_some_and(|entries| {
-                    entries
-                        .iter()
-                        .any(|entry| entry.get("action").and_then(Value::as_str) == Some("add"))
-                })
-            {
-                changed.push(json!({
-                    "target": "mdbase.yaml",
-                    "kind": "configuration",
-                    "action": "update"
-                }));
-            }
-            if assessment.get("status").and_then(Value::as_str) == Some("provision")
-                && envelope
-                    .result
-                    .pointer("/receipt/configuration")
-                    .and_then(Value::as_array)
-                    .is_some_and(|entries| !entries.is_empty())
-            {
-                changed.push(json!({
-                    "target": "mdbase.provisions.yaml",
-                    "kind": "lock",
-                    "action": "update"
-                }));
-            }
-            for pack in assessment
-                .get("type_packs")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-            {
-                append_type_pack_changes(&mut changed, pack)?;
-            }
-        }
-    }
-    let mut unique = BTreeMap::new();
-    for resource in changed {
-        let target = resource
-            .get("target")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ApiError::internal("Definition setup returned an invalid target."))?;
-        unique.insert(target.to_string(), resource);
-    }
-    Ok(unique.into_values().collect())
-}
-
-fn append_type_pack_changes(changed: &mut Vec<Value>, plan: &Value) -> ApiResult<()> {
-    let resources = plan
-        .get("resources")
-        .and_then(Value::as_array)
-        .ok_or_else(|| ApiError::internal("Contract setup returned no resource plan."))?;
-    changed.extend(resources.iter().filter(changed_resource).cloned());
-    changed.extend(
-        plan.pointer("/contract_setups/resources")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter(changed_resource)
-            .cloned(),
-    );
-    if let Some(lock) = plan.get("lock").and_then(Value::as_object) {
-        if matches!(
-            lock.get("action").and_then(Value::as_str),
-            Some("create" | "update")
-        ) {
-            let mut lock = lock.clone();
-            lock.insert("kind".to_string(), Value::String("lock".to_string()));
-            changed.push(Value::Object(lock));
-        }
-    }
-    Ok(())
-}
-
-fn changed_resource(resource: &&Value) -> bool {
-    matches!(
-        resource.get("action").and_then(Value::as_str),
-        Some("create" | "update" | "replace" | "delete")
-    )
-}
-
 impl HostedProvider {
     pub(super) async fn write_type_pack_apply_operation(
         &self,
@@ -260,7 +164,7 @@ impl HostedProvider {
                         .map(engine_contract_setup)
                         .collect(),
                 };
-                catalog.plan_hosted_definition_operation(
+                catalog.plan_hosted_definition_operation_typed(
                     HostedDefinitionOperation::ApplyTypePack {
                         provision: &provision,
                         options: &options,
@@ -276,7 +180,7 @@ impl HostedProvider {
                     expected_provision_digest: input.expected_provision_digest.clone(),
                     allow_type_pack_downgrades: input.allow_type_pack_downgrades.clone(),
                 };
-                catalog.plan_hosted_definition_operation(
+                catalog.plan_hosted_definition_operation_typed(
                     HostedDefinitionOperation::ApplyCollectionSetup {
                         setup: &setup,
                         options: &options,
@@ -295,20 +199,27 @@ impl HostedProvider {
                 ))
             }
         })?;
-        let envelope = plan.result;
-        if !envelope.valid {
+        verify_canonical_change_set(
+            &plan.change_set,
+            plan.changes
+                .iter()
+                .cloned()
+                .map(mdbase::runtime::CanonicalChange::Resource)
+                .collect(),
+            "definition mutation",
+        )?;
+        let envelope = plan.operation.to_v03();
+        if !plan.operation.valid {
             return serde_json::to_value(envelope).map_err(|error| {
                 ApiError::internal(format!("Hosted definition could not serialize: {error}"))
             });
         }
-        let changed_resources = definition_changed_resources(&envelope, &input)?;
+        let changed_resources = plan.changes;
         let documents = plan.documents.into_iter().collect::<BTreeMap<_, _>>();
         if changed_resources.iter().any(|resource| {
-            resource.get("kind").and_then(Value::as_str) != Some("lock")
-                && resource
-                    .get("target")
-                    .and_then(Value::as_str)
-                    .and_then(|target| documents.get(target))
+            resource.after_revision.is_some()
+                && documents
+                    .get(&resource.path.to_string())
                     .is_some_and(|document| document.len() as u64 > max_document_bytes)
         }) {
             return Err(ApiError::bad_request(
@@ -323,43 +234,57 @@ impl HostedProvider {
         }
 
         for resource in changed_resources {
-            let target = resource
-                .get("target")
-                .and_then(Value::as_str)
-                .ok_or_else(|| ApiError::internal("Contract setup returned an invalid target."))?;
-            let kind = resource
-                .get("kind")
-                .and_then(Value::as_str)
-                .ok_or_else(|| {
-                    ApiError::internal("Contract setup returned an invalid resource kind.")
-                })?;
-            let action = resource
-                .get("action")
-                .and_then(Value::as_str)
-                .ok_or_else(|| ApiError::internal("Contract setup returned an invalid action."))?;
+            let target = resource.path.to_string();
+            let kind = match resource.kind {
+                mdbase::runtime::ResourceChangeKind::Configuration => "configuration",
+                mdbase::runtime::ResourceChangeKind::TypeDefinition => "type",
+                mdbase::runtime::ResourceChangeKind::Contract => "contract",
+                mdbase::runtime::ResourceChangeKind::ViewSource => "view",
+                mdbase::runtime::ResourceChangeKind::File => {
+                    if matches!(
+                        target.as_str(),
+                        "mdbase.lock.yaml" | "mdbase.provisions.yaml"
+                    ) {
+                        "lock"
+                    } else {
+                        "schema"
+                    }
+                }
+                mdbase::runtime::ResourceChangeKind::Other => "other",
+            };
             head = head.checked_add(1).ok_or_else(|| {
                 ApiError::internal("The hosted collection sequence is exhausted.")
             })?;
-            let revision = if action == "delete" {
+            let revision = if resource.after_revision.is_none() {
                 sqlx::query(
                     "DELETE FROM hosted_provider_resources WHERE collection_id = $1 AND path = $2",
                 )
                 .bind(collection_id)
-                .bind(target)
+                .bind(&target)
                 .execute(&mut **transaction)
                 .await?;
-                "deleted".to_string()
+                resource
+                    .before_revision
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| "deleted".to_string())
             } else {
-                let document = documents.get(target).ok_or_else(|| {
+                let document = documents.get(&target).ok_or_else(|| {
                     ApiError::internal(format!(
                         "Canonical definition plan omitted changed resource '{target}'."
                     ))
                 })?;
-                let revision = format!("sha256:{:x}", Sha256::digest(document.as_bytes()));
+                let revision = resource
+                    .after_revision
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .ok_or_else(|| {
+                        ApiError::internal("Canonical resource change omitted its revision.")
+                    })?;
                 let ciphertext = self.crypto.encrypt_bytes(
                     data_key,
                     document.as_bytes(),
-                    &resource_document_aad(collection_id, target),
+                    &resource_document_aad(collection_id, &target),
                 )?;
                 sqlx::query(
                     r#"INSERT INTO hosted_provider_resources
@@ -372,7 +297,7 @@ impl HostedProvider {
                          updated_at = now()"#,
                 )
                 .bind(collection_id)
-                .bind(target)
+                .bind(&target)
                 .bind(kind)
                 .bind(&revision)
                 .bind(ciphertext)
@@ -380,14 +305,15 @@ impl HostedProvider {
                 .await?;
                 revision
             };
-            let type_name = if kind == "type" {
+            let type_name = (kind == "type").then(|| {
                 target
                     .rsplit('/')
                     .next()
-                    .and_then(|file| file.strip_suffix(".md"))
-            } else {
-                None
-            };
+                    .unwrap_or(&target)
+                    .strip_suffix(".md")
+                    .unwrap_or(&target)
+                    .to_string()
+            });
             if kind != "lock" {
                 sqlx::query(
                     r#"INSERT INTO hosted_provider_resource_changes
@@ -398,7 +324,7 @@ impl HostedProvider {
                 .bind(to_i64(head, "resource change sequence")?)
                 .bind(kind)
                 .bind(type_name)
-                .bind(target)
+                .bind(&target)
                 .bind(&revision)
                 .execute(&mut **transaction)
                 .await?;

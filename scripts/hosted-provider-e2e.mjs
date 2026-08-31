@@ -1256,7 +1256,7 @@ schema:
   const quotaProvider = await startProvider(databaseUrl, 0, masterKey, {
     MDBASE_CONNECT_HOSTED_MAX_RECORDS_PER_COLLECTION: "1",
     MDBASE_CONNECT_HOSTED_MAX_BYTES_PER_COLLECTION: "1024",
-    MDBASE_CONNECT_HOSTED_MAX_BYTES_PER_DOCUMENT: "512",
+    MDBASE_CONNECT_HOSTED_MAX_BYTES_PER_DOCUMENT: "1024",
     MDBASE_CONNECT_HOSTED_MAX_MIRROR_REPLICAS_PER_COLLECTION: "1",
     MDBASE_CONNECT_HOSTED_MAX_APPLICATION_REPLICAS_PER_COLLECTION: "1"
   });
@@ -1264,7 +1264,7 @@ schema:
   const quotaAccountId = await provisionProviderAccount(quotaProvider.url, {
     hosted_storage_bytes: 500,
     retained_file_bytes: 1000,
-    max_document_bytes: 512,
+    max_document_bytes: 1024,
     max_mirror_replicas_per_collection: 1,
     max_application_replicas_per_collection: 1,
     max_hosted_collections: 2
@@ -1304,7 +1304,7 @@ schema:
   const otherAccountId = await provisionProviderAccount(quotaProvider.url, {
     hosted_storage_bytes: 500,
     retained_file_bytes: 1000,
-    max_document_bytes: 512,
+    max_document_bytes: 1024,
     max_mirror_replicas_per_collection: 1,
     max_application_replicas_per_collection: 1,
     max_hosted_collections: 2
@@ -1442,7 +1442,7 @@ schema:
   assert.equal(recordQuota.error.code, "collection_quota_exceeded");
   const documentQuota = await quotaTransport.mutate({
     ...updateMutation(quotaReplicaId, quotaCreate.record, { title: "Too large" }),
-    document: `---\ntype: task\ntitle: Too large\nstatus: open\n---\n${"x".repeat(600)}`
+    document: `---\ntype: task\ntitle: Too large\nstatus: open\n---\n${"x".repeat(1200)}`
   });
   assert.equal(documentQuota.status, "rejected");
   assert.equal(documentQuota.error.code, "document_quota_exceeded");

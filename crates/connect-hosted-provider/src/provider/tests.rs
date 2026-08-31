@@ -1,6 +1,149 @@
 use super::operation_dispatch::ensure_collection_setup_declaration_binding;
 use super::operation_input::validate_hosted_operation_input;
 use super::*;
+
+#[test]
+fn canonical_change_verifier_rejects_resource_descriptor_mismatch() {
+    let expected = mdbase::runtime::ResourceChange {
+        kind: mdbase::runtime::ResourceChangeKind::TypeDefinition,
+        path: mdbase::api::CollectionPath::new("_types/task.md").unwrap(),
+        before_revision: Some(mdbase::api::Revision::parse("sha256:before").unwrap()),
+        after_revision: Some(mdbase::api::Revision::parse("sha256:after").unwrap()),
+    };
+    let mut mismatched = expected.clone();
+    mismatched.kind = mdbase::runtime::ResourceChangeKind::ViewSource;
+    let actual = mdbase::runtime::ChangeSet::Exact(
+        mdbase::runtime::ChangeBatch::new(vec![mdbase::runtime::CanonicalChange::Resource(
+            mismatched,
+        )])
+        .unwrap(),
+    );
+    assert!(verify_canonical_change_set(
+        &actual,
+        vec![mdbase::runtime::CanonicalChange::Resource(expected)],
+        "test resource",
+    )
+    .is_err());
+}
+
+#[test]
+fn canonical_change_verifier_rejects_record_descriptor_mismatch() {
+    let expected = mdbase::runtime::RecordChange {
+        kind: mdbase::runtime::RecordChangeKind::Renamed,
+        path: mdbase::api::CollectionPath::new("tasks/new.md").unwrap(),
+        from: Some(mdbase::api::CollectionPath::new("tasks/old.md").unwrap()),
+        before_revision: Some(mdbase::api::Revision::parse("sha256:before").unwrap()),
+        after_revision: Some(mdbase::api::Revision::parse("sha256:after").unwrap()),
+        before_types: mdbase::runtime::CanonicalTypeSet::new(["task".to_string()]),
+        after_types: mdbase::runtime::CanonicalTypeSet::new(["task".to_string()]),
+        changed_fields: mdbase::runtime::CanonicalFieldChangeSet::new(Vec::<String>::new())
+            .unwrap(),
+        body_changed: false,
+    };
+    let mut mismatched = expected.clone();
+    mismatched.from = Some(mdbase::api::CollectionPath::new("tasks/wrong.md").unwrap());
+    let actual = mdbase::runtime::ChangeSet::Exact(
+        mdbase::runtime::ChangeBatch::new(vec![mdbase::runtime::CanonicalChange::Record(
+            mismatched,
+        )])
+        .unwrap(),
+    );
+    assert!(verify_canonical_change_set(
+        &actual,
+        vec![mdbase::runtime::CanonicalChange::Record(expected)],
+        "test record",
+    )
+    .is_err());
+}
+
+#[test]
+fn hosted_semantic_paths_use_only_typed_runtime_seams() {
+    const SOURCES: &[(&str, &str)] = &[
+        ("mutations", include_str!("mutations.rs")),
+        (
+            "direct_execution",
+            include_str!("mutations/direct_execution.rs"),
+        ),
+        ("operation_dispatch", include_str!("operation_dispatch.rs")),
+        ("operation_records", include_str!("operation_records.rs")),
+        ("operation_reads", include_str!("operation_reads.rs")),
+        (
+            "operation_resource_mutations",
+            include_str!("operation_resource_mutations.rs"),
+        ),
+        ("operation_types", include_str!("operation_types.rs")),
+        (
+            "operation_validation",
+            include_str!("operation_validation.rs"),
+        ),
+        ("policy", include_str!("policy.rs")),
+        (
+            "query_provider",
+            include_str!("operation_queries/provider_impl.rs"),
+        ),
+        (
+            "query_state",
+            include_str!("operation_queries/query_state.rs"),
+        ),
+    ];
+    const LEGACY_SEAMS: &[&str] = &[
+        ".plan_hosted_mutation(",
+        ".execute_hosted_resource_read(",
+        ".plan_hosted_resource_mutation(",
+        ".plan_hosted_definition_operation(",
+        ".execute_hosted_validation(",
+        ".plan_hosted_canonical_view(",
+        ".finalize_hosted_query_page(",
+    ];
+    const RESULT_INFERENCE: &[&str] = &[
+        ".result.pointer(",
+        ".result.get(",
+        ".result[",
+        "&assessment.result",
+    ];
+
+    for (name, source) in SOURCES {
+        for forbidden in LEGACY_SEAMS.iter().chain(RESULT_INFERENCE) {
+            assert!(
+                !source.contains(forbidden),
+                "hosted semantic source {name} contains forbidden pattern {forbidden}"
+            );
+        }
+    }
+}
+
+#[test]
+fn typed_hosted_changes_are_not_reclassified_after_planning() {
+    let source = include_str!("mutations/direct_execution.rs");
+    let post_plan = source
+        .split_once(".plan_hosted_mutation_typed")
+        .expect("direct execution uses the typed planner")
+        .1
+        .split_once("fn hosted_mutation_context_record_budget")
+        .expect("direct execution helper boundary")
+        .0;
+    assert!(!post_plan.contains("classify_exact_sync_record"));
+}
+
+#[test]
+fn legacy_record_replay_never_uses_ambient_state_or_an_empty_success() {
+    let source = include_str!("operation_records.rs");
+    assert!(!source.contains("json!({})"));
+    assert!(!source.contains("hydrate_legacy"));
+    assert!(!source.contains("load_direct_record"));
+    assert!(!source.contains("compile_point_catalog"));
+    assert!(source.contains("legacy_replay_evidence_missing"));
+}
+
+#[test]
+fn definition_decisions_match_closed_typed_fields() {
+    let source = include_str!("operation_dispatch.rs");
+    assert!(source.contains("CanonicalOperationValue::TypePack(Some(value))"));
+    assert!(source.contains("CanonicalOperationValue::CollectionSetup(Some("));
+    assert!(!source.contains("WireOnlyOperationValue::TypePack"));
+    assert!(!source.contains("WireOnlyOperationValue::CollectionSetup"));
+}
+
 use mdbase_connect_protocol::CollectionFileDescriptor;
 use serde_json::Map;
 

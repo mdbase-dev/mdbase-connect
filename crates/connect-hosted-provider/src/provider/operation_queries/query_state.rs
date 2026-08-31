@@ -12,7 +12,7 @@ impl HostedProvider {
     ) -> ApiResult<HostedQueryState> {
         let (generation_id, catalog_revision, projection_format_version, semantic_engine_version) =
             base_query_binding(collection, catalog);
-        let plan = match catalog.compile_hosted_query(input) {
+        let plan = match compile_provider_hosted_query(catalog, input) {
             Ok(plan) => plan,
             Err(error) => {
                 return Err(ApiError::bad_request(error.code, error.message));
@@ -121,25 +121,37 @@ impl HostedProvider {
             }
             _ => None,
         };
-        let planning = catalog
-            .plan_hosted_canonical_view(
-                input,
-                &view_record,
-                explicit_context.as_ref(),
-                &replica.allowed_types,
-            )
-            .map_err(|error| {
-                ApiError::bad_request(
-                    error.code,
-                    format!("Canonical saved-view planning failed: {}", error.message),
+        let plan_view = |planning_input: &Value| {
+            catalog
+                .plan_hosted_canonical_view_typed(
+                    planning_input,
+                    &view_record,
+                    explicit_context.as_ref(),
+                    &replica.allowed_types,
                 )
-            })?;
-        let plan = match planning {
-            mdbase::runtime::HostedCanonicalViewPlanning::Planned { plan } => *plan,
-            mdbase::runtime::HostedCanonicalViewPlanning::Invalid { result } => {
-                return Ok(Err(result));
+                .map_err(|error| {
+                    ApiError::bad_request(
+                        error.code,
+                        format!("Canonical saved-view planning failed: {}", error.message),
+                    )
+                })
+        };
+        let mut plan = match plan_view(input)? {
+            mdbase::runtime::HostedCanonicalViewPlanningTyped::Planned { plan } => *plan,
+            mdbase::runtime::HostedCanonicalViewPlanningTyped::Invalid { operation } => {
+                return Ok(Err(operation.to_v03()));
             }
         };
+        if plan.query.page_size < plan.query.budgets.max_page_size {
+            let mut planning_input = input.clone();
+            planning_input["limit"] = json!(plan.query.budgets.max_page_size);
+            plan = match plan_view(&planning_input)? {
+                mdbase::runtime::HostedCanonicalViewPlanningTyped::Planned { plan } => *plan,
+                mdbase::runtime::HostedCanonicalViewPlanningTyped::Invalid { operation } => {
+                    return Ok(Err(operation.to_v03()));
+                }
+            };
+        }
         let exact_context = if plan.query.requirements.query_context {
             match plan.context_path.as_deref() {
                 None => None,
@@ -282,8 +294,7 @@ impl HostedProvider {
         if !base_plan.allowed_types.is_empty() {
             candidate_input["types"] = json!(base_plan.allowed_types);
         }
-        let plan = catalog
-            .compile_hosted_query(&candidate_input)
+        let plan = compile_provider_hosted_query(catalog, &candidate_input)
             .map_err(|error| ApiError::bad_request(error.code, error.message))?;
         let mut result_meta = serde_json::Map::new();
         result_meta.insert(
@@ -568,4 +579,17 @@ impl HostedProvider {
         state.execution_proof = Some(execution_proof);
         Ok(state)
     }
+}
+
+fn compile_provider_hosted_query(
+    catalog: &mdbase::runtime::CompiledCatalog,
+    input: &Value,
+) -> Result<mdbase::runtime::HostedQueryPlan, mdbase::runtime::CatalogError> {
+    let initial = catalog.compile_hosted_query(input)?;
+    if initial.page_size >= initial.budgets.max_page_size {
+        return Ok(initial);
+    }
+    let mut planning_input = input.clone();
+    planning_input["limit"] = json!(initial.budgets.max_page_size);
+    catalog.compile_hosted_query(&planning_input)
 }

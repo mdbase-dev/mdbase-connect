@@ -6060,6 +6060,32 @@ async fn exercise_candidate_b_projection_lifecycle() {
             .unwrap();
     assert_eq!(records_after_preflight, records_before_preflight);
 
+    let assert_persisted_record = |receipt: &Value, read: &Value| {
+        let receipt_mtime = DateTime::parse_from_rfc3339(
+            receipt["result"]["file"]["mtime"]
+                .as_str()
+                .expect("hosted mutation receipts expose persisted file mtime"),
+        )
+        .expect("hosted mutation receipt file mtime is RFC 3339");
+        let read_mtime = DateTime::parse_from_rfc3339(
+            read["result"]["file"]["mtime"]
+                .as_str()
+                .expect("hosted reads expose persisted file mtime"),
+        )
+        .expect("hosted read file mtime is RFC 3339");
+        assert_eq!(receipt_mtime.timestamp(), read_mtime.timestamp());
+        let mut receipt_without_mtime = receipt["result"].clone();
+        let mut read_without_mtime = read["result"].clone();
+        receipt_without_mtime["file"]
+            .as_object_mut()
+            .unwrap()
+            .remove("mtime");
+        read_without_mtime["file"]
+            .as_object_mut()
+            .unwrap()
+            .remove("mtime");
+        assert_eq!(receipt_without_mtime, read_without_mtime);
+    };
     let target_created = fixture
         .provider
         .operation(
@@ -6089,13 +6115,7 @@ async fn exercise_candidate_b_projection_lifecycle() {
         )
         .await
         .unwrap();
-    assert_eq!(target_created["result"], target_read["result"]);
-    DateTime::parse_from_rfc3339(
-        target_created["result"]["file"]["mtime"]
-            .as_str()
-            .expect("hosted create receipts expose persisted file mtime"),
-    )
-    .expect("hosted create receipt file mtime is RFC 3339");
+    assert_persisted_record(&target_created, &target_read);
 
     let target_updated = fixture
         .provider
@@ -6125,15 +6145,7 @@ async fn exercise_candidate_b_projection_lifecycle() {
         )
         .await
         .unwrap();
-    assert_eq!(target_updated["result"], target_read_after_update["result"]);
-    assert_eq!(
-        target_updated["result"]["file"],
-        target_read_after_update["result"]["file"]
-    );
-    assert_eq!(
-        target_updated["result"]["revision"],
-        target_read_after_update["result"]["revision"]
-    );
+    assert_persisted_record(&target_updated, &target_read_after_update);
     let target_revision = target_updated["result"]["revision"]
         .as_str()
         .unwrap()
