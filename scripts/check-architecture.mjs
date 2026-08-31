@@ -10,6 +10,8 @@ if (result.failures.length > 0) {
   console.log(
     `Architecture check passed: ${result.productionFileCount} production files, ` +
     `${result.relativeImportCount} relative imports, ` +
-    `${result.workspacePackageCount} workspace packages.`
+    `${result.workspacePackageCount} workspace packages; ` +
+    `${result.rustPublicDeclarationCount} Rust public declarations, ` +
+    `${result.typeScriptExportDeclarationCount} TypeScript export declarations.`
   );
 }
