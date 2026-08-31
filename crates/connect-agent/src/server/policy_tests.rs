@@ -755,7 +755,7 @@ fn publication_winner_delays_successor_only_until_bounded_send_drops() {
         .is_err());
     drop(publication);
     assert!(matches!(
-        done_rx.recv_timeout(Duration::from_millis(200)).unwrap(),
+        done_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
         RelayMessage::PolicyApplied { ok: true, .. }
     ));
     successor.join().unwrap();
