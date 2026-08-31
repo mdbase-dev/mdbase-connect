@@ -69,10 +69,10 @@ class PolicySocket extends EventEmitter {
     })), false);
   }
 
-  close(): void {
+  close(code = 1000): void {
     if (this.readyState === 3) return;
     this.readyState = 3;
-    this.emit("close");
+    this.emit("close", code);
   }
 }
 
@@ -222,6 +222,32 @@ async function settleAsync(): Promise<void> {
 }
 
 describe("exact-session policy renewal scheduler", () => {
+  it("reports whether an actual socket close follows session readiness", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const readyFixture = await fixture();
+    const readySocket = new PolicySocket();
+    await attach(readyFixture.relay, readyFixture.connectorId, readySocket);
+    readySocket.close(1000);
+    expect(info).toHaveBeenCalledWith("connector relay closed", {
+      close_class: "normal",
+      ready: true
+    });
+
+    const pendingFixture = await fixture();
+    const pendingSocket = new PolicySocket();
+    pendingSocket.hold = true;
+    const attaching = pendingFixture.relay.attach(
+      pendingFixture.connectorId, pendingSocket as unknown as WebSocket, hello()
+    );
+    await eventually(() => expect(pendingSocket.held).toHaveLength(1));
+    pendingSocket.close(4001);
+    await expect(attaching).rejects.toBeDefined();
+    expect(info).toHaveBeenCalledWith("connector relay closed", {
+      close_class: "replacement",
+      ready: false
+    });
+  });
+
   it("does not let a requested push overtake a delayed initial build", async () => {
     const base = await createDatabase("memory");
     databases.push(base);
