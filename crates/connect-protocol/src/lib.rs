@@ -55,12 +55,13 @@ pub const CONTRACT_SETUP_CAPABILITY: &str = "contract-setup-v1";
 pub const FILE_RELAY_CAPABILITY: &str = "file-relay-v1";
 pub const PROTOCOL_USAGE_REPORT_CAPABILITY: &str = "protocol-usage-report-v1";
 pub const POLICY_FRESHNESS_LEASE_CAPABILITY: &str = "policy-freshness-lease-v1";
+pub const POLICY_FRESHNESS_LEASE_MINIMUM_CONNECTOR_VERSION: &str = "0.1.0-beta.91";
+/// Beta baseline requirements. Advertised capabilities may be optional bridges.
 pub const RELAY_REQUIRED_CAPABILITIES: &[&str] = &[
     "application-authorization-v4",
     "authorization-activation",
     "encrypted-relay",
     "policy-ack",
-    POLICY_FRESHNESS_LEASE_CAPABILITY,
 ];
 pub const RELAY_CAPABILITIES: &[&str] = &[
     "application-authorization-v4",

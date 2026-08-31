@@ -4,6 +4,7 @@ import WebSocket from "ws";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
+import { canonicalSha256 } from "./canonical-json.js";
 import { pkceChallenge } from "./security.js";
 import {
   createTestApplicationIdentity,
@@ -211,6 +212,8 @@ describe("live connector-mediated authorization", () => {
     });
     await once(socket, "open");
     await policyReady;
+    expect(relay.isConnected(connector.connector.id)).toBe(false);
+    await expect.poll(() => relay.isConnected(connector.connector.id)).toBe(true);
     await expect(relay.route({
       connectorId: connector.connector.id,
       localCollectionId,
@@ -225,10 +228,6 @@ describe("live connector-mediated authorization", () => {
     )!;
     expect(Number(snapshot.lease_expires_at_ms)
       - Number(snapshot.lease_issued_at_ms)).toBe(55_000);
-    policyAck = "wrong_revision";
-    await expect(relay.pushPolicy(connector.connector.id))
-      .rejects.toThrow("different policy revision");
-    policyAck = "exact";
     await expect(relay.pushPolicy(connector.connector.id)).resolves.toBeUndefined();
 
     const firstRequestId = await createAuthorizationRequest(
@@ -687,9 +686,15 @@ describe("live connector-mediated authorization", () => {
       payload: { name: "Compatibility computer" }
     })).json();
 
+    const packageVersionConnector = (await app.inject({
+      method: "POST",
+      url: "/v1/connectors",
+      headers: { cookie },
+      payload: { name: "Package-version computer" }
+    })).json();
     const updatedSocket = new WebSocket(
       `${address.replace(/^http/, "ws")}/v1/relay`,
-      { headers: { authorization: `Bearer ${compatibleConnector.token}` } }
+      { headers: { authorization: `Bearer ${packageVersionConnector.token}` } }
     );
     await once(updatedSocket, "open");
     const policy = waitForSocketMessage(updatedSocket, "policy_snapshot");
@@ -717,7 +722,7 @@ describe("live connector-mediated authorization", () => {
       incompatibility_code: string | null;
     }>(
       "SELECT connector_version, incompatibility_code FROM connectors WHERE id = $1",
-      [compatibleConnector.connector.id]
+      [packageVersionConnector.connector.id]
     );
     expect(recovered.rows[0]).toEqual({
       connector_version: "0.1.0-beta.55",
@@ -735,13 +740,12 @@ describe("live connector-mediated authorization", () => {
     beta56Socket.send(JSON.stringify({
       type: "relay_hello",
       protocol_version: 1,
-      connector_version: "0.1.0-beta.56",
+      connector_version: "0.1.0-beta.90",
       capabilities: [
         "application-authorization-v4",
         "authorization-activation",
         "encrypted-relay",
-        "policy-ack",
-        "policy-freshness-lease-v1"
+        "policy-ack"
       ],
       contract_support: {
         operation_transport: [3],
@@ -750,7 +754,31 @@ describe("live connector-mediated authorization", () => {
         durable_mutation: [1]
       }
     }));
-    expect((await beta56Policy).type).toBe("policy_snapshot");
+    const legacyPolicy = await beta56Policy;
+    expect(Object.keys(legacyPolicy).sort()).toEqual([
+      "grants", "protocol_version", "request_id", "revision", "type"
+    ]);
+    expect(legacyPolicy.revision).toBe(canonicalSha256(legacyPolicy.grants));
+    beta56Socket.send(JSON.stringify({
+      type: "policy_applied",
+      protocol_version: 1,
+      request_id: legacyPolicy.request_id,
+      revision: legacyPolicy.revision,
+      ok: true
+    }));
+    await expect.poll(async () => (await app.inject({
+      method: "GET", url: "/v1/me", headers: { cookie }
+    })).json().connectors.find((value: { id: string }) =>
+      value.id === compatibleConnector.connector.id)?.update_recommended).toBe(true);
+    const legacyOverview = (await app.inject({
+      method: "GET", url: "/v1/me", headers: { cookie }
+    })).json().connectors.find((value: { id: string }) =>
+      value.id === compatibleConnector.connector.id);
+    expect(legacyOverview).toMatchObject({
+      compatibility: "compatible",
+      minimum_connector_version: "0.1.0-beta.91",
+      update_recommended: true
+    });
     beta56Socket.close();
     await once(beta56Socket, "close");
 
@@ -775,7 +803,19 @@ describe("live connector-mediated authorization", () => {
       ],
       contract_support: CONNECT_CONTRACT_SUPPORT
     }));
-    expect((await beta57Policy).type).toBe("policy_snapshot");
+    const leasePolicy = await beta57Policy;
+    expect(leasePolicy.type).toBe("policy_snapshot");
+    beta57Socket.send(JSON.stringify({
+      type: "policy_applied",
+      protocol_version: 1,
+      request_id: leasePolicy.request_id,
+      revision: leasePolicy.revision,
+      ok: true
+    }));
+    await expect.poll(async () => (await db.query<{ adopted: Date | null }>(
+      "SELECT policy_lease_adopted_at AS adopted FROM connectors WHERE id = $1",
+      [compatibleConnector.connector.id]
+    )).rows[0]?.adopted).not.toBeNull();
     beta57Socket.send(JSON.stringify({
       type: "protocol_usage_report",
       protocol_version: 1,
@@ -810,6 +850,58 @@ describe("live connector-mediated authorization", () => {
     );
     expect(Number(rateLimited.rows[0].sample_count)).toBe(2);
     beta57Socket.close();
+    await once(beta57Socket, "close");
+
+    await db.query(
+      "UPDATE connectors SET last_seen_at = '2020-01-01T00:00:00.000Z' WHERE id = $1",
+      [compatibleConnector.connector.id]
+    );
+    const rejectedLegacy = new WebSocket(
+      `${address.replace(/^http/, "ws")}/v1/relay`,
+      { headers: { authorization: `Bearer ${compatibleConnector.token}` } }
+    );
+    await once(rejectedLegacy, "open");
+    const incompatibleMessage = once(rejectedLegacy, "message");
+    const incompatibleClose = once(rejectedLegacy, "close");
+    rejectedLegacy.send(JSON.stringify({
+      type: "relay_hello",
+      protocol_version: 1,
+      connector_version: "0.1.0-beta.90",
+      capabilities: [
+        "application-authorization-v4",
+        "authorization-activation",
+        "encrypted-relay",
+        "policy-ack"
+      ],
+      contract_support: CONNECT_CONTRACT_SUPPORT
+    }));
+    const [incompatibleRaw] = await incompatibleMessage;
+    expect(JSON.parse(incompatibleRaw.toString())).toMatchObject({
+      type: "relay_incompatible",
+      code: "capability_contract_incompatible",
+      minimum_connector_version: "0.1.0-beta.91"
+    });
+    await incompatibleClose;
+    const rejectedOverview = (await app.inject({
+      method: "GET", url: "/v1/me", headers: { cookie }
+    })).json().connectors.find((value: { id: string }) =>
+      value.id === compatibleConnector.connector.id);
+    expect(rejectedOverview).toMatchObject({
+      connector_version: "0.1.0-beta.90",
+      compatibility: "upgrade_required",
+      minimum_connector_version: "0.1.0-beta.91",
+      update_recommended: false
+    });
+    const rejectedRow = await db.query<{
+      last_seen_at: Date;
+      policy_lease_adopted_at: Date | null;
+    }>(
+      "SELECT last_seen_at, policy_lease_adopted_at FROM connectors WHERE id = $1",
+      [compatibleConnector.connector.id]
+    );
+    expect(new Date(rejectedRow.rows[0]!.last_seen_at).toISOString())
+      .toBe("2020-01-01T00:00:00.000Z");
+    expect(rejectedRow.rows[0]!.policy_lease_adopted_at).not.toBeNull();
   });
 });
 

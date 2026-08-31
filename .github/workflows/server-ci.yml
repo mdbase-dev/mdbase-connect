@@ -66,6 +66,7 @@ jobs:
     needs: classify
     if: needs.classify.outputs.run_full == 'true'
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -107,6 +108,7 @@ jobs:
     needs: classify
     if: needs.classify.outputs.run_full == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: mdbase-connect
@@ -159,6 +161,7 @@ jobs:
     needs: classify
     if: needs.classify.outputs.run_full == 'true' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
@@ -186,22 +189,31 @@ jobs:
       # Cache the browser so most runs never contact a mirror at all, and keep
       # the timeout so a cache miss on a slow day fails fast instead of
       # silently consuming an hour.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore Playwright cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: needs.classify.outputs.run_full == 'true'
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: "Cache marker: playwright hit"
+        if: needs.classify.outputs.run_full == 'true' && steps.playwright-cache.outputs.cache-hit == 'true'
+        run: echo 'Playwright cache hit.'
+      - name: "Cache marker: playwright miss"
+        if: needs.classify.outputs.run_full == 'true' && steps.playwright-cache.outputs.cache-hit != 'true'
+        run: echo 'Playwright cache miss.'
       # The system dependencies are font packages that the runner image
       # already carries; only a cache miss needs them refreshed. A miss must be
       # able to finish even on a slow mirror, or the cache never populates and
       # every run pays the same cost -- so this path gets a wider budget than
       # the cached path. It is still bounded: the 2026-08-19 hang ran 75
       # minutes unbounded.
-      - if: needs.classify.outputs.run_full == 'true' && steps.playwright-cache.outputs.cache-hit != 'true'
+      - name: Install Chromium (cache miss)
+        if: needs.classify.outputs.run_full == 'true' && steps.playwright-cache.outputs.cache-hit != 'true'
         run: pnpm exec playwright install --with-deps chromium
         timeout-minutes: 30
-      - if: needs.classify.outputs.run_full == 'true' && steps.playwright-cache.outputs.cache-hit == 'true'
+      - name: Install Chromium (cache hit)
+        if: needs.classify.outputs.run_full == 'true' && steps.playwright-cache.outputs.cache-hit == 'true'
         run: pnpm exec playwright install chromium
         timeout-minutes: 5
       - if: needs.classify.outputs.run_full == 'true'
@@ -232,6 +244,7 @@ jobs:
     needs: classify
     if: needs.classify.outputs.run_full == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -243,27 +256,12 @@ jobs:
           MDBASE_CONNECT_E2E_BUILD=0
           node test/system/run.mjs --suite container --no-prepare
 
-  server-container:
-    needs: [classify, server-container-full]
-    if: always()
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Preserve the required check during migration
-        env:
-          RUN_FULL: ${{ needs.classify.outputs.run_full }}
-          FULL_RESULT: ${{ needs.server-container-full.result }}
-        run: |
-          if [[ "$RUN_FULL" == true ]]; then
-            [[ "$FULL_RESULT" == success ]]
-          else
-            echo 'Container qualification is deferred to the full merge lane.'
-          fi
-
   previous-release-upgrade:
     name: Previous release upgrade and OAuth
     needs: classify
     if: needs.classify.outputs.run_full == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:17-alpine
@@ -291,6 +289,7 @@ jobs:
     needs: classify
     if: needs.classify.outputs.run_full == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:18-alpine
@@ -313,10 +312,82 @@ jobs:
       - name: Exercise the previous-provider recovery contract
         run: test/upgrade/provider-from-previous
 
-  hosted-provider-full:
+  hosted-provider-rust:
+    name: Hosted provider Rust workspace
     needs: classify
     if: needs.classify.outputs.run_full == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: mdbase-connect
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: mdbase-connect
+      - id: mdbase_revision
+        run: echo "revision=$(tr -d '\r\n' < deploy/docker/mdbase-rs-revision)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: callumalpass/mdbase-rs
+          ref: ${{ steps.mdbase_revision.outputs.revision }}
+          path: mdbase-rs
+      - run: >-
+          rustup toolchain install 1.94.0
+          --profile minimal
+          --component rustfmt
+          --component clippy
+      - run: rustup override set 1.94.0
+      - run: cp deploy/docker/Cargo.lock.hosted-provider Cargo.lock
+      - name: Restore Rust dependency cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: |
+            mdbase-connect -> target
+          key: hosted-provider-${{ steps.mdbase_revision.outputs.revision }}
+          cache-on-failure: true
+      - run: cargo fmt --all --check
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - run: cargo test --locked --workspace
+        env:
+          MDBASE_CONNECT_ENV: test
+          MDBASE_CONNECT_SECRET_BACKEND: insecure-test-file
+      - run: cargo build --locked --workspace
+
+  hosted-provider-system:
+    name: System suite (${{ matrix.shard }})
+    needs: classify
+    if: needs.classify.outputs.run_full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: local-relay
+            suites: local,relay
+            browser: true
+            timeout: 55
+          - shard: sync
+            suites: sync
+            browser: false
+            timeout: 35
+          - shard: provider
+            suites: provider
+            browser: true
+            timeout: 55
+          - shard: files
+            suites: files
+            browser: false
+            timeout: 35
+          - shard: files-adversarial
+            suites: files-adversarial
+            browser: false
+            timeout: 35
+          - shard: desktop
+            suites: desktop
+            browser: true
+            timeout: 60
     defaults:
       run:
         working-directory: mdbase-connect
@@ -339,11 +410,7 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: mdbase-connect/pnpm-lock.yaml
-      - run: >-
-          rustup toolchain install 1.94.0
-          --profile minimal
-          --component rustfmt
-          --component clippy
+      - run: rustup toolchain install 1.94.0 --profile minimal
       - run: rustup override set 1.94.0
       - run: cp deploy/docker/Cargo.lock.hosted-provider Cargo.lock
       - name: Restore Rust dependency cache
@@ -351,72 +418,37 @@ jobs:
         with:
           workspaces: |
             mdbase-connect -> target
-          key: hosted-provider-${{ steps.mdbase_revision.outputs.revision }}
+          key: hosted-provider-system-${{ matrix.shard }}-${{ steps.mdbase_revision.outputs.revision }}
           cache-on-failure: true
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - run: cargo fmt --all --check
-      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      # Compile and test every Rust crate against the exact SDK revision used
-      # by the production provider image. This keeps path-only developer
-      # dependencies from making a clean checkout unreproducible.
-      - run: cargo test --locked --workspace
-        env:
-          MDBASE_CONNECT_ENV: test
-          MDBASE_CONNECT_SECRET_BACKEND: insecure-test-file
       - run: cargo build --locked --workspace
-      # The local system suite launches Chromium even though the standalone
-      # browser-storage and accessibility checks run in the parallel Node job.
-      # `--with-deps` pulls system packages from distribution mirrors. On
-      # 2026-08-19 azure.archive.ubuntu.com served 21 MB of font packages at
-      # under 50 KB/s, hanging the step for 75 minutes before it was bounded.
-      #
-      # Cache the browser so most runs never contact a mirror at all, and keep
-      # the timeout so a cache miss on a slow day fails fast instead of
-      # silently consuming an hour.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore Playwright cache
+        if: matrix.browser
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-      # The system dependencies are font packages that the runner image
-      # already carries; only a cache miss needs them refreshed. A miss must be
-      # able to finish even on a slow mirror, or the cache never populates and
-      # every run pays the same cost -- so this path gets a wider budget than
-      # the cached path. It is still bounded: the 2026-08-19 hang ran 75
-      # minutes unbounded.
-      - if: steps.playwright-cache.outputs.cache-hit != 'true'
+          key: playwright-${{ runner.os }}-${{ hashFiles('mdbase-connect/pnpm-lock.yaml') }}
+      - name: "Cache marker: playwright hit"
+        if: matrix.browser && steps.playwright-cache.outputs.cache-hit == 'true'
+        run: echo 'Playwright cache hit.'
+      - name: "Cache marker: playwright miss"
+        if: matrix.browser && steps.playwright-cache.outputs.cache-hit != 'true'
+        run: echo 'Playwright cache miss.'
+      - name: Install Chromium (cache miss)
+        if: matrix.browser && steps.playwright-cache.outputs.cache-hit != 'true'
         run: pnpm exec playwright install --with-deps chromium
         timeout-minutes: 30
-      - if: steps.playwright-cache.outputs.cache-hit == 'true'
+      - name: Install Chromium (cache hit)
+        if: matrix.browser && steps.playwright-cache.outputs.cache-hit == 'true'
         run: pnpm exec playwright install chromium
         timeout-minutes: 5
-      # Exercise the local connector/browser request path in normal CI as well
-      # as the durable hosted-provider path below.
-      - run: node test/system/run.mjs --suite local --no-prepare
-      - run: node test/system/run.mjs --suite relay --no-prepare
-      - run: node test/system/run.mjs --suite provider --no-prepare
-      - run: node test/system/run.mjs --suite files-adversarial --no-prepare
-      # Electron runs natively with an isolated profile while the control
-      # plane uses the same packaged Docker boundary as production.
-      - run: node test/system/run.mjs --suite desktop --no-prepare
-        timeout-minutes: 20
-
-  hosted-provider:
-    needs: [classify, hosted-provider-full]
-    if: always()
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Preserve the required check during migration
+      - name: Run ${{ matrix.shard }} system suites
+        run: node test/system/run.mjs --suite "${{ matrix.suites }}" --no-prepare
         env:
-          RUN_FULL: ${{ needs.classify.outputs.run_full }}
-          FULL_RESULT: ${{ needs.hosted-provider-full.result }}
-        run: |
-          if [[ "$RUN_FULL" == true ]]; then
-            [[ "$FULL_RESULT" == success ]]
-          else
-            echo 'Rust and system qualification is deferred to the full merge lane.'
-          fi
+          MDBASE_CONNECT_ENV: test
+          MDBASE_CONNECT_SECRET_BACKEND: insecure-test-file
 
   qualification:
     name: Qualification
@@ -426,12 +458,11 @@ jobs:
       - windows-filesystem
       - runtime-testbed
       - node
-      - server-container
       - server-container-full
       - previous-release-upgrade
       - previous-provider-upgrade
-      - hosted-provider
-      - hosted-provider-full
+      - hosted-provider-rust
+      - hosted-provider-system
     runs-on: ubuntu-24.04
     steps:
       - name: Require the selected qualification lane
@@ -444,11 +475,13 @@ jobs:
           CONTAINER: ${{ needs.server-container-full.result }}
           SERVER_UPGRADE: ${{ needs.previous-release-upgrade.result }}
           PROVIDER_UPGRADE: ${{ needs.previous-provider-upgrade.result }}
-          PROVIDER: ${{ needs.hosted-provider-full.result }}
+          PROVIDER_RUST: ${{ needs.hosted-provider-rust.result }}
+          PROVIDER_SYSTEM: ${{ needs.hosted-provider-system.result }}
         run: |
           if [[ "$RUN_FULL" == true ]]; then
             for result in "$WINDOWS" "$RUNTIME" "$NODE" "$CONTAINER" \
-              "$SERVER_UPGRADE" "$PROVIDER_UPGRADE" "$PROVIDER"
+              "$SERVER_UPGRADE" "$PROVIDER_UPGRADE" "$PROVIDER_RUST" \
+              "$PROVIDER_SYSTEM"
             do
               [[ $result == success ]]
             done

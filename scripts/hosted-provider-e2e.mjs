@@ -3386,6 +3386,17 @@ async function localAuthorityImportE2E(
     body: snapshot.manifest
   });
   assert.equal(rejected.status, 401);
+  const unsupportedManifest = structuredClone(snapshot.manifest);
+  unsupportedManifest.resources.documents.find(
+    (resource) => resource.kind === "lock"
+  ).kind = "unsupported";
+  const rejectedKind = await absoluteRequest(begun.body.import.manifest_url, {
+    method: "PUT",
+    token: begun.body.import.access_token,
+    body: unsupportedManifest
+  });
+  assert.equal(rejectedKind.status, 400, JSON.stringify(rejectedKind.body));
+  assert.equal(rejectedKind.body.error.code, "invalid_authority_import_manifest");
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const manifest = await absoluteRequest(begun.body.import.manifest_url, {
       method: "PUT",
@@ -3510,6 +3521,14 @@ async function localAuthorityImportE2E(
   assert.ok(importedResources.some(
     (resource) => resource.kind === "view" && resource.path === "views/imported.base"
   ));
+  for (const expected of snapshot.manifest.resources.documents.filter(
+    (resource) => resource.kind === "lock"
+  )) {
+    assert.deepEqual(
+      importedResources.find((resource) => resource.path === expected.path),
+      expected
+    );
+  }
   const importedFilePage = await importedTransport.fileSnapshot(importedSession.snapshot_id);
   assert.equal(importedFilePage.files.length, snapshot.files.length);
   const importedFile = importedFilePage.files[0];
@@ -3759,6 +3778,8 @@ function localAuthoritySnapshot(collectionId, recordCount) {
   ].join("\n");
   const typeDocument = "---\nkind: mdbase.type\nname: task\nversion: 1\nmatch:\n  path_glob: notes/**/*.md\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    properties:\n      title: { type: string }\n---\n";
   const viewDocument = "views: []\n";
+  const typePackLock = "kind: mdbase.type-pack-lock\nlock_version: 1\npacks: []\n";
+  const provisionLock = "kind: mdbase.provision-lock\nlock_version: 1\ncontributions: []\n";
   const resources = [
     {
       path: "mdbase.yaml",
@@ -3771,6 +3792,18 @@ function localAuthoritySnapshot(collectionId, recordCount) {
       kind: "type",
       revision: `sha256:${sha256Hex(typeDocument)}`,
       document: typeDocument
+    },
+    {
+      path: "mdbase.lock.yaml",
+      kind: "lock",
+      revision: `sha256:${sha256Hex(typePackLock)}`,
+      document: typePackLock
+    },
+    {
+      path: "mdbase.provisions.yaml",
+      kind: "lock",
+      revision: `sha256:${sha256Hex(provisionLock)}`,
+      document: provisionLock
     },
     {
       path: "views/imported.base",

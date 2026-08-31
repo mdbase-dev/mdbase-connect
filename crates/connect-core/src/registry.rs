@@ -86,7 +86,9 @@ use authority_store::{AuthorityStore, AuthorityWritePriority};
 pub use encrypted_requests::{
     encrypted_request_fingerprint, EncryptedReplayClass, EncryptedRequestClaim,
 };
-pub use grants::{canonical_policy_authority_digest, RemotePolicyAuthority};
+pub use grants::{
+    canonical_policy_authority_digest, RemotePolicyAuthority, RemotePolicyAuthorityMode,
+};
 use identity::{
     assert_local_authority_folder, clear_collection_identity, collection_display_name,
     ensure_collection_id, normalized_optional, read_collection_id, read_collection_metadata,

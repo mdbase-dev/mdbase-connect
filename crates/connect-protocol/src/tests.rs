@@ -659,10 +659,10 @@ fn rust_relay_messages_match_the_canonical_wire_schema() {
             protocol_version: CONTROL_PROTOCOL_VERSION,
             request_id: ids[0],
             revision: format!("sha256:{}", "0".repeat(64)),
-            connector_id: ids[2],
-            sequence: 1,
-            lease_issued_at_ms: 1_700_000_000_000,
-            lease_expires_at_ms: 1_700_000_060_000,
+            connector_id: Some(ids[2]),
+            sequence: Some(1),
+            lease_issued_at_ms: Some(1_700_000_000_000),
+            lease_expires_at_ms: Some(1_700_000_060_000),
             grants: vec![GrantPolicy {
                 id: ids[1],
                 application_id: ids[3],
@@ -703,6 +703,40 @@ fn rust_relay_messages_match_the_canonical_wire_schema() {
 }
 
 #[test]
+fn policy_snapshot_accepts_frozen_legacy_shape_and_exposes_partial_metadata() {
+    let request_id = Uuid::parse_str("01911111-1111-7111-8111-111111111111").unwrap();
+    let legacy = serde_json::json!({
+        "type": "policy_snapshot",
+        "protocol_version": 1,
+        "request_id": request_id,
+        "revision": format!("sha256:{}", "0".repeat(64)),
+        "grants": []
+    });
+    let parsed: RelayMessage = serde_json::from_value(legacy.clone()).unwrap();
+    assert_eq!(serde_json::to_value(parsed).unwrap(), legacy);
+
+    let partial: RelayMessage = serde_json::from_value(serde_json::json!({
+        "type": "policy_snapshot",
+        "protocol_version": 1,
+        "request_id": request_id,
+        "revision": format!("sha256:{}", "0".repeat(64)),
+        "connector_id": "01922222-2222-7222-8222-222222222222",
+        "grants": []
+    }))
+    .unwrap();
+    assert!(matches!(
+        partial,
+        RelayMessage::PolicySnapshot {
+            connector_id: Some(_),
+            sequence: None,
+            lease_issued_at_ms: None,
+            lease_expires_at_ms: None,
+            ..
+        }
+    ));
+}
+
+#[test]
 fn portable_policy_keeps_v1_and_the_exact_opaque_origin() {
     let ids = [
         Uuid::parse_str("01911111-1111-7111-8111-111111111111").unwrap(),
@@ -715,10 +749,10 @@ fn portable_policy_keeps_v1_and_the_exact_opaque_origin() {
         protocol_version: CONTROL_PROTOCOL_VERSION,
         request_id: ids[3],
         revision: format!("sha256:{}", "0".repeat(64)),
-        connector_id: ids[2],
-        sequence: 1,
-        lease_issued_at_ms: 1_700_000_000_000,
-        lease_expires_at_ms: 1_700_000_060_000,
+        connector_id: Some(ids[2]),
+        sequence: Some(1),
+        lease_issued_at_ms: Some(1_700_000_000_000),
+        lease_expires_at_ms: Some(1_700_000_060_000),
         grants: vec![GrantPolicy {
             id: ids[0],
             application_id: ids[1],

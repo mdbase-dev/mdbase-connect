@@ -5,8 +5,12 @@ mod support;
 mod test_postgres;
 
 use mdbase_connect_hosted_provider::{RegisterReplica, ReplicaPurpose};
-use mdbase_connect_protocol::SyncReplicaMode;
+use mdbase_connect_protocol::{
+    SyncCollectionResources, SyncMutation, SyncMutationOperation, SyncMutationReceipt,
+    SyncReplicaMode,
+};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use sqlx::Row;
 use support::FileLifecycleFixture;
 use test_postgres::DisposablePostgres;
@@ -260,6 +264,379 @@ async fn hosted_request_path_rejects_protocol_discriminators_before_authorizatio
             after.get::<i64, _>("resources"),
         ),
         baseline,
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn full_collection_updates_skip_unneeded_type_classification() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let database_url = database.url().to_string();
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let writer_token = format!("malformed-link-writer-{}", Uuid::new_v4());
+    fixture
+        .provider
+        .register_replica(
+            fixture.collection_id,
+            RegisterReplica {
+                replica_id: Uuid::now_v7(),
+                name: "Malformed link fixture writer".to_string(),
+                purpose: ReplicaPurpose::Application,
+                mode: SyncReplicaMode::ReadWrite,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
+                allowed_operations: ["assess_type_pack", "apply_type_pack", "create", "update"]
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect(),
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: Vec::new(),
+                file_capability: None,
+                allowed_origin: None,
+                proof_public_key: None,
+                grant_id: Some(Uuid::now_v7()),
+                application_declaration_id: None,
+                application_declaration_digest: None,
+                token: writer_token.clone(),
+                token_ttl_seconds: Some(3600),
+            },
+        )
+        .await
+        .unwrap();
+
+    let contract_document = r#"---
+kind: mdbase.contract
+contract_type: record
+id: test.malformed-link-task
+version: 1.0.0
+record_schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    properties:
+      title: {type: string}
+      status: {type: string, enum: [task]}
+      project: {type: string}
+---
+"#;
+    let type_document = r#"---
+kind: mdbase.type
+name: malformed_link_task
+version: 1
+match:
+  path_glob: 'tasks/*.md'
+  where:
+    status: task
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    properties:
+      title: {type: string}
+      status: {type: string, enum: [task]}
+      project: {type: string}
+implements:
+  - contract: test.malformed-link-task
+    version: 1.0.0
+    fields:
+      title: title
+      status: status
+      project: project
+---
+"#;
+    let contract_digest = format!("sha256:{:x}", Sha256::digest(contract_document.as_bytes()));
+    let type_digest = format!("sha256:{:x}", Sha256::digest(type_document.as_bytes()));
+    let pack = json!({
+        "provision": {
+            "manifest": {
+                "kind": "mdbase.type-pack",
+                "id": "test.malformed-link-task",
+                "version": "1.0.0",
+                "resources": [
+                    {
+                        "kind": "contract",
+                        "mode": "managed",
+                        "source": "contracts/task.md",
+                        "target": "_contracts/malformed-link-task.md",
+                        "digest": contract_digest
+                    },
+                    {
+                        "kind": "type",
+                        "mode": "managed",
+                        "source": "types/task.md",
+                        "target": "_types/malformed_link_task.md",
+                        "digest": type_digest
+                    }
+                ]
+            },
+            "resources": [
+                {"source": "contracts/task.md", "document": contract_document},
+                {"source": "types/task.md", "document": type_document}
+            ],
+            "provides": [{
+                "id": "test.malformed-link-task",
+                "version": "1.0.0",
+                "digest": contract_digest
+            }]
+        },
+        "installed_by": "test.malformed-link-task",
+        "adopt_resources": {},
+        "preserve_seed_targets": [],
+        "target_overrides": {},
+        "contract_setups": []
+    });
+    let assessment = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &writer_token,
+            "assess_type_pack",
+            Uuid::now_v7(),
+            pack.clone(),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(assessment["valid"], true, "{assessment}");
+    let mut apply = pack;
+    apply["expected_assessment_digest"] = assessment["result"]["assessment_digest"].clone();
+    apply["allow_downgrade"] = json!(false);
+    let applied = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &writer_token,
+            "apply_type_pack",
+            Uuid::now_v7(),
+            apply,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(applied["valid"], true, "{applied}");
+
+    let resources_row = sqlx::query(
+        "SELECT wrapped_data_key, resources_ciphertext FROM hosted_provider_collections WHERE id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let data_key = fixture
+        .crypto
+        .unwrap_data_key(resources_row.get("wrapped_data_key"), fixture.collection_id)
+        .await
+        .unwrap();
+    let resources: SyncCollectionResources = fixture
+        .crypto
+        .decrypt_json(
+            &data_key,
+            resources_row.get("resources_ciphertext"),
+            &serde_json::to_vec(&("resources", fixture.collection_id)).unwrap(),
+        )
+        .unwrap();
+    let contract = resources
+        .contracts
+        .into_iter()
+        .find(|contract| contract.id == "test.malformed-link-task")
+        .expect("installed contract is present in collection resources");
+    let scoped_token = format!("malformed-link-scoped-{}", Uuid::new_v4());
+    fixture
+        .provider
+        .register_replica(
+            fixture.collection_id,
+            RegisterReplica {
+                replica_id: Uuid::now_v7(),
+                name: "Malformed link scoped application".to_string(),
+                purpose: ReplicaPurpose::Application,
+                mode: SyncReplicaMode::ReadWrite,
+                allowed_types: vec!["malformed_link_task".to_string()],
+                contract_scope: vec![contract],
+                full_collection: false,
+                allowed_operations: vec!["create".to_string(), "update".to_string()],
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: Vec::new(),
+                file_capability: None,
+                allowed_origin: None,
+                proof_public_key: None,
+                grant_id: Some(Uuid::now_v7()),
+                application_declaration_id: None,
+                application_declaration_digest: None,
+                token: scoped_token.clone(),
+                token_ttl_seconds: Some(3600),
+            },
+        )
+        .await
+        .unwrap();
+
+    for (index, malformed) in ["[[]]", "[[Plan"].into_iter().enumerate() {
+        let path = format!("tasks/malformed-{index}.md");
+        let created = fixture
+            .provider
+            .operation(
+                fixture.collection_id,
+                &writer_token,
+                "create",
+                Uuid::now_v7(),
+                json!({
+                    "path": path,
+                    "type": "malformed_link_task",
+                    "frontmatter": {"title": "Repairable", "status": "task", "project": "[[Plan]]"}
+                }),
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(created["valid"], true, "{created}");
+
+        let malformed_update = fixture
+            .provider
+            .operation(
+                fixture.collection_id,
+                &writer_token,
+                "update",
+                Uuid::now_v7(),
+                json!({"path": path, "patch": {"project": malformed}}),
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(malformed_update["valid"], true, "{malformed_update}");
+
+        let scoped_repair = fixture
+            .provider
+            .operation(
+                fixture.collection_id,
+                &scoped_token,
+                "update",
+                Uuid::now_v7(),
+                json!({"path": path, "patch": {"project": "[[Plan]]"}}),
+                None,
+            )
+            .await
+            .expect_err("type-scoped repair remains fail-closed");
+        assert_eq!(
+            scoped_repair.code, "scope_classification_unavailable",
+            "{scoped_repair:?}"
+        );
+
+        let repaired = fixture
+            .provider
+            .operation(
+                fixture.collection_id,
+                &writer_token,
+                "update",
+                Uuid::now_v7(),
+                json!({"path": path, "patch": {"project": "[[Plan]]"}}),
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(repaired["valid"], true, "{repaired}");
+    }
+
+    let atomic_path = "tasks/atomic.md";
+    fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &scoped_token,
+            "create",
+            Uuid::now_v7(),
+            json!({
+                "path": atomic_path,
+                "type": "malformed_link_task",
+                "frontmatter": {"title": "Atomic", "status": "task", "project": "[[Plan]]"}
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    let rejected = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &scoped_token,
+            "update",
+            Uuid::now_v7(),
+            json!({"path": atomic_path, "patch": {"status": "outside-scope"}}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(rejected["valid"], false, "{rejected}");
+    assert!(
+        rejected["diagnostics"]
+            .as_array()
+            .is_some_and(|items| !items.is_empty()),
+        "{rejected}"
+    );
+    let writable_after_rejection = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &scoped_token,
+            "update",
+            Uuid::now_v7(),
+            json!({"path": atomic_path, "patch": {"title": "Still writable"}}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        writable_after_rejection["valid"], true,
+        "{writable_after_rejection}"
+    );
+
+    let unavailable_path = "tasks/unavailable.md";
+    let mirror = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1 AND purpose = 'mirror'",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let unavailable = fixture
+        .provider
+        .mutate(
+            fixture.collection_id,
+            &fixture.token,
+            SyncMutation {
+                mutation_id: Uuid::now_v7(),
+                replica_id: mirror.get("id"),
+                scope_epoch: u64::try_from(mirror.get::<i64, _>("scope_epoch")).unwrap(),
+                operation: SyncMutationOperation::Put,
+                record_id: Uuid::now_v7(),
+                base_revision: None,
+                path: Some(unavailable_path.to_string()),
+                document: Some("---\ntitle: [\n---\nUnparseable frontmatter.\n".to_string()),
+                created_at: chrono::Utc::now().to_rfc3339(),
+                causal_predecessor: None,
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(matches!(unavailable, SyncMutationReceipt::Applied { .. }));
+    let denied = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &scoped_token,
+            "update",
+            Uuid::now_v7(),
+            json!({"path": unavailable_path, "patch": {"title": "Denied"}}),
+            None,
+        )
+        .await
+        .expect_err("unavailable type evidence remains fail-closed");
+    assert!(
+        matches!(
+            denied.code.as_str(),
+            "scope_classification_unavailable" | "scope_denied"
+        ),
+        "{denied:?}"
     );
 }
 

@@ -33,7 +33,7 @@ impl HostedProvider {
                 || resource.document.len() as u64 > self.limits.max_bytes_per_document
                 || !matches!(
                     resource.kind.as_str(),
-                    "configuration" | "contract" | "schema" | "type" | "view"
+                    "configuration" | "lock" | "contract" | "schema" | "type" | "view"
                 )
             {
                 return Err(ApiError::bad_request(

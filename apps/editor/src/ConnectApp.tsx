@@ -498,12 +498,14 @@ function Computers({ data, busy, perform }: {
       <SectionTitle title="Connected computers" count={data.connectors.length} />
       {data.connectors.map((connector) => {
         const upgradeRequired = connector.compatibility === "upgrade_required";
+        const updateRecommended = connector.update_recommended === true;
         const online = !upgradeRequired && isConnectorOnline(connector.last_seen_at);
         const collections = data.collections.filter((collection) => collection.connector_id === connector.id);
         return <div className="connect-row" key={connector.id}>
           <div><strong>{connector.name}</strong><small>{collections.length} {collections.length === 1 ? "collection" : "collections"} · {connector.last_seen_at ? `Seen ${relativeTime(connector.last_seen_at)}` : "Not connected yet"}</small></div>
           <span className={`connect-status ${online ? "online" : "idle"}`}><i />{upgradeRequired ? "Update required" : online ? "Online" : "Offline"}</span>
           {upgradeRequired && <a href={connector.update_url ?? desktopReleaseUrl} target="_blank" rel="noreferrer">Install {connector.minimum_connector_version ? `version ${connector.minimum_connector_version} or later` : "the latest release"}</a>}
+          {!upgradeRequired && updateRecommended && <a href={connector.update_url ?? desktopReleaseUrl} target="_blank" rel="noreferrer">Update recommended for current policy protection</a>}
           <div className="connect-row-actions"><InlineRename value={connector.name} inputLabel={`Rename ${connector.name}`} busy={busy.has(`computer-${connector.id}`)} onSubmit={(name) => perform(`computer-${connector.id}`, (options) => management.renameConnector(connector.id, name, options))} /><ConfirmAction className="danger" label="Revoke" question={`Revoke ${connector.name} and the application grants routed through it?`} confirmLabel="Revoke computer" busy={busy.has(`computer-${connector.id}`)} onConfirm={() => void perform(`computer-${connector.id}`, (options) => management.revokeConnector(connector.id, options))} /></div>
         </div>;
       })}

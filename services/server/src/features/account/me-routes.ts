@@ -43,6 +43,7 @@ interface AccountConnectorRow {
   incompatibility_code: string | null;
   minimum_connector_version: string | null;
   connector_update_url: string | null;
+  latest_policy_ack_mode: "lease_v1" | "legacy_ack_v0" | null;
 }
 
 export function registerAccountOverviewRoute(
@@ -69,7 +70,7 @@ export function registerAccountOverviewRoute(
       `SELECT c.id, c.name, c.last_seen_at, c.created_at,
               c.connector_version, c.last_incompatible_at,
               c.incompatibility_code, c.minimum_connector_version,
-              c.connector_update_url
+              c.connector_update_url, c.latest_policy_ack_mode
        FROM connectors c
        WHERE c.user_id = $1 AND c.revoked_at IS NULL
        ORDER BY c.created_at`,
@@ -269,7 +270,8 @@ export function registerAccountOverviewRoute(
             : "unknown" as const,
         last_incompatible_at: connector.last_incompatible_at,
         minimum_connector_version: connector.minimum_connector_version,
-        update_url: connector.connector_update_url
+        update_url: connector.connector_update_url,
+        update_recommended: connector.latest_policy_ack_mode === "legacy_ack_v0"
       })),
       collections: await Promise.all(collections.rows.map(async (collection) => {
         const access = await resolveLocalCollectionAccess(

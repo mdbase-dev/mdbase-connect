@@ -32,14 +32,15 @@ export const CONTRACT_SETUP_CAPABILITY = "contract-setup-v1" as const;
 export const FILE_RELAY_CAPABILITY = "file-relay-v1" as const;
 export const PROTOCOL_USAGE_REPORT_CAPABILITY = "protocol-usage-report-v1" as const;
 export const POLICY_FRESHNESS_LEASE_CAPABILITY = "policy-freshness-lease-v1" as const;
+/** Advertised beta capabilities are intentionally broader than the beta baseline. */
 export const RELAY_REQUIRED_CAPABILITIES = [
   "application-authorization-v4",
   "authorization-activation",
   "encrypted-relay",
-  "policy-ack",
-  POLICY_FRESHNESS_LEASE_CAPABILITY
+  "policy-ack"
 ] as const;
 export const MINIMUM_CONNECTOR_VERSION = "0.1.0-beta.33" as const;
+export const POLICY_FRESHNESS_LEASE_MINIMUM_CONNECTOR_VERSION = "0.1.0-beta.91" as const;
 export const HOSTED_PROVIDER_REQUIRED_CAPABILITIES = [
   "durable-mutation-journal-v1",
   "durable-file-lifecycle-v1"
@@ -53,6 +54,7 @@ export const HOSTED_PROVIDER_CAPABILITIES = [
 ] as const;
 export const RELAY_CAPABILITIES = [
   ...RELAY_REQUIRED_CAPABILITIES,
+  POLICY_FRESHNESS_LEASE_CAPABILITY,
   "application-authorization-v5",
   CONTRACT_SETUP_CAPABILITY,
   FILE_RELAY_CAPABILITY,

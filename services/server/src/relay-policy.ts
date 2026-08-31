@@ -9,6 +9,65 @@ import type { DatabasePool } from "./db.js";
 import { ConnectorOperationError } from "./relay-errors.js";
 
 const MAX_POLICY_SEQUENCE = BigInt(Number.MAX_SAFE_INTEGER);
+const POLICY_STAGE_DELAY_MS = 2_000;
+
+export type ConnectorPolicyStage =
+  | "database_checkout"
+  | "transaction_begin"
+  | "connector_sequence_update"
+  | "grant_inventory"
+  | "transaction_commit"
+  | "generation_before"
+  | "snapshot_build"
+  | "generation_after_build"
+  | "generation_after_ack"
+  | "connector_lookup"
+  | "transaction_rollback"
+  | "policy_delivery_ack"
+  | "replacement_broadcast"
+  | "initial_policy";
+
+/** Privacy-safe timing discriminator for production-only policy stalls. */
+export async function observeConnectorPolicyStage<T>(
+  stage: ConnectorPolicyStage,
+  operation: () => Promise<T>
+): Promise<T> {
+  let delayed = false;
+  const timer = setTimeout(() => {
+    delayed = true;
+    console.warn("connector policy stage delayed", {
+      class: "delivery_unavailable",
+      stage
+    });
+  }, POLICY_STAGE_DELAY_MS);
+  try {
+    const result = await operation();
+    if (delayed) console.warn("connector policy delayed stage settled", { stage, outcome: "ok" });
+    return result;
+  } catch (error) {
+    if (delayed) {
+      console.warn("connector policy delayed stage settled", { stage, outcome: "error" });
+    } else {
+      console.warn("connector policy stage failed", {
+        class: "delivery_unavailable",
+        stage,
+        outcome: "error"
+      });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export function reportConnectorRelayClose(code: number, ready: boolean): void {
+  const closeClass = code === 4001
+    ? "replacement"
+    : code === 1000 || code === 1001
+      ? "normal"
+      : "non_normal";
+  console.info("connector relay closed", { close_class: closeClass, ready });
+}
 
 export class PolicySequenceExhaustedError extends Error {
   readonly code = "policy_sequence_exhausted";
@@ -19,7 +78,9 @@ export class PolicySequenceExhaustedError extends Error {
   }
 }
 
-export interface PolicySnapshot {
+export type PolicyMode = "lease_v1" | "legacy_ack_v0";
+
+export interface LeasePolicySnapshot {
   type: "policy_snapshot";
   protocol_version: 1;
   request_id: string;
@@ -31,6 +92,17 @@ export interface PolicySnapshot {
   grants: Array<Record<string, unknown>>;
 }
 
+/** Frozen beta.90 shape. Do not add lease metadata: beta.90 ignores it. */
+export interface LegacyPolicySnapshot {
+  type: "policy_snapshot";
+  protocol_version: 1;
+  request_id: string;
+  revision: string;
+  grants: Array<Record<string, unknown>>;
+}
+
+export type PolicySnapshot = LeasePolicySnapshot | LegacyPolicySnapshot;
+
 export async function resolvePolicyAppliedAck(input: {
   db: DatabasePool;
   requestId: string;
@@ -38,6 +110,8 @@ export async function resolvePolicyAppliedAck(input: {
   expectedRevision?: string;
   connectorId?: string;
   generation?: string;
+  mode: PolicyMode;
+  initial: boolean;
   isStillCurrent(): boolean;
   resolve(): void;
   reject(error: Error): void;
@@ -65,8 +139,28 @@ export async function resolvePolicyAppliedAck(input: {
     ));
     return;
   }
-  if (message.ok) input.resolve();
-  else input.reject(new ConnectorOperationError(
+  if (message.ok) {
+    const observed = await input.db.query(
+      `UPDATE connectors
+       SET latest_policy_ack_mode = $3,
+           latest_policy_ack_generation = relay_generation,
+           latest_policy_ack_at = now(),
+           policy_lease_adopted_at = CASE
+             WHEN $3 = 'lease_v1' AND $4::boolean
+               THEN COALESCE(policy_lease_adopted_at, now())
+             ELSE policy_lease_adopted_at END
+       WHERE id = $1 AND relay_generation = $2::bigint`,
+      [connectorId, generation, input.mode, input.initial]
+    );
+    if (observed.rowCount !== 1 || !input.isStillCurrent()) {
+      input.reject(new ConnectorOperationError(
+        "stale_policy_acknowledgement",
+        "The connector session changed before policy acknowledgement."
+      ));
+      return;
+    }
+    input.resolve();
+  } else input.reject(new ConnectorOperationError(
     message.error?.code ?? "policy_apply_failed",
     message.error?.message ?? "The connector could not apply its policy."
   ));
@@ -131,20 +225,25 @@ export async function buildPolicySnapshot(
   connectorId: string,
   leaseMs: number,
   expectedRelayGeneration?: string,
-  isStillCurrent: () => boolean = () => true
+  isStillCurrent: () => boolean = () => true,
+  mode: PolicyMode = "lease_v1"
 ): Promise<PolicySnapshot | null> {
-  const connection = await db.connect();
+  const connection = await observeConnectorPolicyStage("database_checkout", () => db.connect());
+  const rollback = () => observeConnectorPolicyStage(
+    "transaction_rollback", () => connection.query("ROLLBACK")
+  );
   try {
     if (!isStillCurrent()) return null;
-    await connection.query("BEGIN");
+    await observeConnectorPolicyStage("transaction_begin", () => connection.query("BEGIN"));
     if (!isStillCurrent()) {
-      await connection.query("ROLLBACK");
+      await rollback();
       return null;
     }
-    const active = await connection.query<{
-      policy_sequence: string | number;
-      database_now: Date | string;
-    }>(
+    const active = await observeConnectorPolicyStage("connector_sequence_update", () =>
+      connection.query<{
+        policy_sequence: string | number;
+        database_now: Date | string;
+      }>(
       `UPDATE connectors
        SET policy_sequence = policy_sequence + 1
        WHERE id = $1 AND revoked_at IS NULL
@@ -153,23 +252,24 @@ export async function buildPolicySnapshot(
          AND user_id IN (SELECT id FROM users WHERE suspended_at IS NULL)
        RETURNING policy_sequence, now() AS database_now`,
       [connectorId, MAX_POLICY_SEQUENCE.toString(), expectedRelayGeneration ?? null]
-    );
+    ));
     if (!active.rows[0]) {
-      const existing = await connection.query<{ policy_sequence: string | number }>(
+      const existing = await observeConnectorPolicyStage("connector_lookup", () =>
+        connection.query<{ policy_sequence: string | number }>(
         `SELECT policy_sequence FROM connectors
          WHERE id = $1 AND revoked_at IS NULL
            AND ($2::bigint IS NULL OR relay_generation = $2::bigint)
            AND user_id IN (SELECT id FROM users WHERE suspended_at IS NULL)`,
         [connectorId, expectedRelayGeneration ?? null]
-      );
-      await connection.query("ROLLBACK");
+      ));
+      await rollback();
       if (existing.rows[0]
           && BigInt(existing.rows[0].policy_sequence) >= MAX_POLICY_SEQUENCE) {
         throw new PolicySequenceExhaustedError();
       }
       return null;
     }
-    const grants = await connection.query<{
+    const grants = await observeConnectorPolicyStage("grant_inventory", () => connection.query<{
       id: string; application_id: string; application_name: string;
       application_distribution: "web" | "portable"; application_homepage: string;
       application_project_url: string | null; application_origin: string;
@@ -196,7 +296,7 @@ export async function buildPolicySnapshot(
          AND g.activated_at IS NOT NULL
        ORDER BY g.id`,
       [connectorId]
-    );
+    ));
     const sequenceValue = BigInt(active.rows[0].policy_sequence);
     if (sequenceValue > MAX_POLICY_SEQUENCE) throw new PolicySequenceExhaustedError();
     const sequence = Number(sequenceValue);
@@ -205,7 +305,16 @@ export async function buildPolicySnapshot(
       ...grant,
       collection_id: grant.local_id
     }));
-    await connection.query("COMMIT");
+    await observeConnectorPolicyStage("transaction_commit", () => connection.query("COMMIT"));
+    if (mode === "legacy_ack_v0") {
+      return {
+        type: "policy_snapshot",
+        protocol_version: CONTROL_PROTOCOL_VERSION,
+        request_id: randomUUID(),
+        revision: canonicalSha256(policyGrants),
+        grants: policyGrants
+      };
+    }
     const leaseExpiresAtMs = leaseIssuedAtMs + leaseMs;
     const policyBody = {
       connector_id: connectorId,
@@ -222,7 +331,7 @@ export async function buildPolicySnapshot(
       ...policyBody
     };
   } catch (error) {
-    await connection.query("ROLLBACK");
+    await rollback();
     throw error;
   } finally {
     connection.release();
