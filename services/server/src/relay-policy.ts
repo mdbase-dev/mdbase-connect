@@ -60,6 +60,15 @@ export async function observeConnectorPolicyStage<T>(
   }
 }
 
+export function reportConnectorRelayClose(code: number, ready: boolean): void {
+  const closeClass = code === 4001
+    ? "replacement"
+    : code === 1000 || code === 1001
+      ? "normal"
+      : "non_normal";
+  console.info("connector relay closed", { close_class: closeClass, ready });
+}
+
 export class PolicySequenceExhaustedError extends Error {
   readonly code = "policy_sequence_exhausted";
 

@@ -9,6 +9,7 @@ import {
   observeConnectorPolicyStage,
   policyGrantCreatedAtIso,
   PolicySequenceExhaustedError,
+  reportConnectorRelayClose,
   resolvePolicyAppliedAck
 } from "./relay-policy.js";
 import type { DatabasePool } from "./database-types.js";
@@ -60,6 +61,22 @@ describe("connector policy stage diagnostics", () => {
       outcome: "error"
     });
     expect(JSON.stringify(warning.mock.calls)).not.toContain(failure.message);
+  });
+
+  it.each([
+    [4001, "replacement", true],
+    [4003, "non_normal", false],
+    [1000, "normal", true],
+    [1001, "normal", false],
+    [1006, "non_normal", true]
+  ])("classifies relay close code %i without attributing peer details", (code, closeClass, ready) => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    reportConnectorRelayClose(code, ready);
+    expect(info).toHaveBeenCalledWith("connector relay closed", {
+      close_class: closeClass,
+      ready
+    });
+    expect(JSON.stringify(info.mock.calls)).not.toContain(String(code));
   });
 });
 

@@ -20,7 +20,7 @@ import {
 } from "./relay-broker.js";
 import { ConnectorOperationError, RelayUnavailableError } from "./relay-errors.js";
 import { RelayFileBridge } from "./relay-file.js";
-import { observeConnectorPolicyStage, resolvePolicyAppliedAck, type PolicyMode } from "./relay-policy.js";
+import { observeConnectorPolicyStage, reportConnectorRelayClose, resolvePolicyAppliedAck, type PolicyMode } from "./relay-policy.js";
 import {
   ExactPolicyPublisher, handlePolicyPushCommand, RelayPolicySession,
   requestPolicyPush, type ExactPolicyAcknowledgement
@@ -483,7 +483,8 @@ export class RelayHub {
       capabilities: [...RELAY_CAPABILITIES],
       contract_support: CONNECT_CONTRACT_SUPPORT
     }));
-    socket.once("close", () => {
+    socket.once("close", (code) => {
+      reportConnectorRelayClose(code, session.ready);
       const current = this.connectors.get(connectorId);
       if (current === session) this.connectors.delete(connectorId);
       session.policy.stop(new RelayUnavailableError());
