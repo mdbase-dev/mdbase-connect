@@ -275,9 +275,17 @@ impl HostedProvider {
                 ));
             }
         }
+        let candidate_page_size = if input.get("limit").is_none() {
+            base_plan
+                .suggested_page_size
+                .unwrap_or(query_page_size(input)?)
+        } else {
+            query_page_size(input)?
+        };
         let mut candidate_input = json!({
             "select": ["path"],
             "pagination": "cursor",
+            "limit": candidate_page_size,
         });
         if !base_plan.allowed_types.is_empty() {
             candidate_input["types"] = json!(base_plan.allowed_types);
