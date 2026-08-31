@@ -31,6 +31,14 @@ struct FileResponse {
     deadline: tokio::time::Instant,
 }
 
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 pub async fn run(server_url: String, connector_token: String, state: Arc<AgentState>) {
     crate::ensure_tls_crypto_provider();
     let client = Client::new();
@@ -110,10 +118,10 @@ async fn connect_once(
         tokio::sync::mpsc::channel::<EncodedOperationResponse>(8);
     let (file_responses, mut file_response_rx) = tokio::sync::mpsc::channel::<FileResponse>(8);
     let (policy_jobs, mut policy_job_rx) = tokio::sync::mpsc::channel::<(u64, RelayMessage)>(8);
-    let (policy_applied, policy_applied_rx) = tokio::sync::watch::channel((0_u64, true));
+    let (policy_applied, policy_applied_rx) = tokio::sync::watch::channel((0_u64, false));
     let policy_state = state.clone();
     let policy_responses = responses.clone();
-    tokio::spawn(async move {
+    let _policy_worker = AbortOnDrop(tokio::spawn(async move {
         while let Some((generation, message)) = policy_job_rx.recv().await {
             let state = policy_state.clone();
             let mut usable = false;
@@ -125,13 +133,19 @@ async fn connect_once(
                 Ok(None) => {}
                 Err(error) => tracing::warn!(%error, generation, "relay policy task failed"),
             }
-            policy_applied.send_replace((generation, usable));
+            let ready = policy_state.finish_policy_update(generation, usable);
+            if usable && ready {
+                policy_state.set_connection_state(AgentConnectionState::Connected);
+            }
+            policy_applied.send_replace((generation, usable && ready));
         }
-    });
+    }));
     let mut received_policy_generation = 0_u64;
     let control_slots = Arc::new(tokio::sync::Semaphore::new(2));
-    state.set_connection_state(AgentConnectionState::Connected);
-    tracing::info!(server = server_url, "connected to cloud relay");
+    tracing::info!(
+        server = server_url,
+        "connected to cloud relay; awaiting initial policy"
+    );
     let sync_period = Duration::from_secs(15);
     let mut sync_interval =
         tokio::time::interval_at(tokio::time::Instant::now() + sync_period, sync_period);
@@ -148,9 +162,12 @@ async fn connect_once(
                             // A dedicated single consumer preserves snapshot order without
                             // blocking websocket pings or reads on SQLite. Every subsequent
                             // operation captures this generation and waits for its commit.
-                            received_policy_generation = received_policy_generation
-                                .checked_add(1)
-                                .ok_or("relay policy generation overflow")?;
+                            received_policy_generation =
+                                state.next_policy_update_generation()?;
+                            state.prepare_policy_update(
+                                received_policy_generation,
+                                &relay_message,
+                            )?;
                             policy_jobs
                                 .try_send((received_policy_generation, relay_message))
                                 .map_err(|_| "relay policy queue is full")?;
@@ -661,7 +678,8 @@ mod tests {
 
     #[tokio::test]
     async fn policy_barrier_orders_generations_and_fails_closed() {
-        let (sender, receiver) = tokio::sync::watch::channel((0_u64, true));
+        let (sender, receiver) = tokio::sync::watch::channel((0_u64, false));
+        assert!(!wait_for_policy(receiver.clone(), 0).await.unwrap());
         let waiting = tokio::spawn(wait_for_policy(receiver.clone(), 2));
         sender.send_replace((1, true));
         tokio::task::yield_now().await;
@@ -672,6 +690,32 @@ mod tests {
         let failed = tokio::spawn(wait_for_policy(receiver, 3));
         sender.send_replace((3, false));
         assert!(!failed.await.unwrap().unwrap());
+    }
+
+    #[tokio::test]
+    async fn dropping_policy_worker_guard_prevents_connected_after_blocking_apply() {
+        let connected = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let worker_connected = connected.clone();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
+        let guard = AbortOnDrop(tokio::spawn(async move {
+            tokio::task::spawn_blocking(move || {
+                let _ = started_tx.send(());
+                release_rx.recv().unwrap();
+                let _ = finished_tx.send(());
+            })
+            .await
+            .unwrap();
+            worker_connected.store(true, std::sync::atomic::Ordering::Release);
+        }));
+
+        started_rx.await.unwrap();
+        drop(guard);
+        release_tx.send(()).unwrap();
+        finished_rx.await.unwrap();
+        tokio::task::yield_now().await;
+        assert!(!connected.load(std::sync::atomic::Ordering::Acquire));
     }
 
     #[test]

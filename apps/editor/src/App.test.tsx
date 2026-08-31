@@ -30,6 +30,37 @@ vi.mock("@tanstack/react-virtual", () => ({
 }));
 
 describe("mdbase editor", () => {
+  it("clamps a widened notes sidebar when an inspector reduces the available space", async () => {
+    vi.stubGlobal("innerWidth", 1_150);
+    localStorage.setItem("mdbase-editor:layout", JSON.stringify({
+      collectionWidth: 176,
+      listWidth: 520,
+      inspectorWidth: 340,
+      collectionCollapsed: false,
+      listCollapsed: false
+    }));
+    const gateway = new DemoCollectionGateway(12);
+    const describe = gateway.describe.bind(gateway);
+    gateway.describe = async () => ({
+      ...await describe(),
+      displayName: "A collection title that is far too long to fit in the notes sidebar"
+    });
+    const user = userEvent.setup();
+    const { container } = render(<App gateway={gateway} />);
+
+    await screen.findByRole("heading", { name: "A collection title that is far too long to fit in the notes sidebar" });
+    await screen.findByRole("textbox", { name: "Note body" });
+    expect(container.querySelector<HTMLElement>(".app-shell")?.style.getPropertyValue("--list-track")).toBe("520px");
+
+    await user.click(screen.getByRole("button", { name: "Note properties" }));
+    await waitFor(() => expect(container.querySelector<HTMLElement>(".app-shell")?.style.getPropertyValue("--list-track")).toBe("314px"));
+    const resizeHandle = screen.getByRole("separator", { name: "Resize notes sidebar" });
+    expect(resizeHandle).toHaveAttribute("aria-valuenow", "314");
+    resizeHandle.focus();
+    await user.keyboard("{ArrowLeft}");
+    expect(container.querySelector<HTMLElement>(".app-shell")?.style.getPropertyValue("--list-track")).toBe("306px");
+  });
+
   it("collapses, restores, and resizes both navigation sidebars", async () => {
     const user = userEvent.setup();
     render(<App gateway={new DemoCollectionGateway(12)} />);
@@ -132,7 +163,9 @@ describe("mdbase editor", () => {
     render(<App gateway={new DemoCollectionGateway(12)} />);
 
     await screen.findByRole("heading", { name: "Writing" });
-    const row = screen.getByRole("option", { name: /^Garden notes 2/ }) as HTMLButtonElement;
+    const row = await screen.findByRole("option", {
+      name: /^Garden notes 2/
+    }) as HTMLButtonElement;
     const title = row.querySelector(".note-title")?.textContent;
     expect(title).toBeTruthy();
 

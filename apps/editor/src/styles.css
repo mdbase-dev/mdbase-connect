@@ -1379,7 +1379,9 @@ select:focus-visible {
 .type-list-pane {
   grid-column: 2;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto minmax(0, 1fr);
+  overflow: hidden;
   border-right: 1px solid var(--line);
 }
 
@@ -1626,7 +1628,6 @@ select:focus-visible {
 
 .note-list-controls .search-field {
   min-width: 0;
-  width: 100%;
   margin: 0;
 }
 

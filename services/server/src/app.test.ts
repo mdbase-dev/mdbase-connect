@@ -78,6 +78,52 @@ describe("mdbase connect server", () => {
     }
   });
 
+  it("keeps beta connector account snapshots decodable for password identities", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      publicUrl: "http://connect.test"
+    });
+    resources.push(() => app.close());
+
+    const session = await app.inject({
+      method: "POST",
+      url: "/v1/dev/session",
+      payload: { name: "Acceptance user", email: "acceptance@example.com" }
+    });
+    const setCookie = session.headers["set-cookie"]!;
+    const cookie = (Array.isArray(setCookie) ? setCookie[0] : setCookie).split(";")[0];
+    await db.query(
+      `INSERT INTO email_identities
+         (id, user_id, email, normalized_email, verified_at, is_primary)
+       SELECT $1, id, $2, $2, now(), true FROM users WHERE email = $2`,
+      [randomUUID(), "acceptance@example.com"]
+    );
+    await db.query("UPDATE users SET email = NULL WHERE email = $1", ["acceptance@example.com"]);
+
+    const connector = await app.inject({
+      method: "POST",
+      url: "/v1/connectors",
+      headers: { cookie },
+      payload: { name: "Acceptance computer" }
+    });
+    expect(connector.statusCode).toBe(201);
+    const control = await app.inject({
+      method: "GET",
+      url: "/v1/connectors/control",
+      headers: { authorization: `Bearer ${connector.json().token}` }
+    });
+
+    expect(control.statusCode).toBe(200);
+    expect(control.json().account).toMatchObject({
+      connector_name: "Acceptance computer",
+      user_name: "Acceptance user",
+      user_email: "acceptance@example.com"
+    });
+  });
+
   it("publishes the runtime editor handoff without baking it into the portal", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
@@ -147,7 +193,7 @@ describe("mdbase connect server", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       status: "ready",
       provider: {
-        version: "0.1.0-beta.91",
+        version: "0.1.0-beta.92",
         capabilities: [
           ...HOSTED_PROVIDER_REQUIRED_CAPABILITIES,
           HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY

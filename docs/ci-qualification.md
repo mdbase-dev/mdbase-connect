@@ -11,7 +11,12 @@ trust boundary.
 - Pull requests labelled `ci:full` run the complete cross-platform, Rust,
   browser, container, upgrade, and system qualification. Isolated staging
   publication requires this label and verifies the full artifact.
-- Merge-queue commits always run the complete qualification.
+- Merge-queue commits always run the complete qualification. Hosted-provider
+  Rust qualification and every registered system suite run as parallel jobs
+  rather than one serial critical path. `container` retains its packaged-image
+  job; `local,relay`, `sync`, `provider`, `files`, `files-adversarial`, and
+  `desktop` are explicit matrix shards. A contract test prevents new suites
+  from silently falling outside full CI.
 - A push to `main` reuses a successful merge-queue qualification only when its
   head SHA is exactly the same. If GitHub has no such completed run, all full
   jobs run again.
@@ -33,22 +38,16 @@ them with its qualification. A tag workflow verifies the exact successful
 jobs verify the same qualification, then perform only the platform-specific
 build, signing, and package verification that cannot be promoted portably.
 
-## Required-check transition
+## Required check and observability
 
-Enable merge queue for `main`, add `Server CI / Qualification` as required, and
-remove the old matrix job names in the same branch-protection update. Keeping an
-old job required after it becomes intentionally skipped will strand pull
-requests in an expected-check state. Do not change branch protection before the
-workflow commit is present on the default branch.
+Branch protection requires only `Server CI / Qualification`. Heavy jobs may be
+skipped on ordinary pull requests without leaving obsolete compatibility
+contexts pending. The aggregate check still requires every cross-platform,
+container, upgrade, Rust, and system shard on `ci:full` and merge-group runs.
 
-During this transition, the existing required `node`, `server-container`, and
-`hosted-provider` contexts remain present. `node` carries fast PR feedback; the
-other two are compatibility wrappers that require their real heavy job in a
-full lane and explicitly defer it in an ordinary PR lane. Remove those wrappers
-only after branch protection requires `Qualification` instead.
-
-`Server CI timings` makes one paginated jobs request after each completed run,
-uploads machine-readable job and step durations, and writes a longest-first job
-table to the workflow summary. Use this evidence before merging jobs or adding
-retries; a retry should address a classified transient failure, not conceal a
-deterministic one.
+`CI timings` observes both Server CI and Editor CI. It makes one bounded,
+paginated jobs request per completed run and retains machine-readable workflow
+attempt, runner-queue, execution, job pre-start wait, step, and Playwright
+cache-hit data. Use this
+evidence before merging jobs or adding retries; a retry should address a
+classified transient failure, not conceal a deterministic one.

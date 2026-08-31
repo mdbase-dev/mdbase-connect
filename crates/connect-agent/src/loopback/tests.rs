@@ -5,7 +5,7 @@ use mdbase_connect_core::{CollectionRegistry, ConnectError, MutationClaim, Mutat
 use mdbase_connect_protocol::crypto::{RelayBinding, RelayDirection, RelayIdentity, RelayMetadata};
 use mdbase_connect_protocol::{
     mutation_fingerprint, EncryptedRelayEnvelope, FileAction, FileCapability, FileCapabilityKind,
-    FileScope, GrantEncryption, GrantPolicy, GrantScope, RelayMessage,
+    FileScope, GrantEncryption, GrantPolicy, GrantScope, RelayMessage, CONTROL_PROTOCOL_VERSION,
     OPERATION_TRANSPORT_PROTOCOL_VERSION, RELAY_ENCRYPTION_SUITE,
 };
 use std::fs;
@@ -194,6 +194,64 @@ async fn opaque_file_origin_requires_an_exact_encrypted_portable_grant() {
     let described = fixture.direct(&app, "describe", json!({}), 1).await;
     assert_eq!(described["ok"], true);
     assert_eq!(described["result"]["display_name"], "Direct notes");
+
+    let root = fixture.root.clone();
+    drop(app);
+    drop(fixture);
+    remove_fixture_after_watchers_close(&root);
+}
+
+#[tokio::test]
+async fn queued_changed_policy_immediately_fences_valid_operation_and_file_origins() {
+    let fixture = fixture();
+    let app = router(fixture.agent.clone(), 28_485);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    let connector_id = fixture.encryption.connector_id;
+    let grants = Vec::<GrantPolicy>::new();
+    let body = json!({
+        "connector_id": connector_id,
+        "sequence": 2,
+        "lease_issued_at_ms": now,
+        "lease_expires_at_ms": now + 55_000,
+        "grants": &grants,
+    });
+    use sha2::Digest;
+    let frame = RelayMessage::PolicySnapshot {
+        protocol_version: CONTROL_PROTOCOL_VERSION,
+        request_id: Uuid::new_v4(),
+        revision: format!(
+            "sha256:{:x}",
+            sha2::Sha256::digest(serde_jcs::to_vec(&body).unwrap())
+        ),
+        connector_id: Some(connector_id),
+        sequence: Some(2),
+        lease_issued_at_ms: Some(now),
+        lease_expires_at_ms: Some(now + 55_000),
+        grants,
+    };
+    fixture.agent.prepare_policy_update(1, &frame).unwrap();
+    assert!(!fixture.agent.origin_allowed(&fixture.origin));
+
+    for (path, operation, counter) in [
+        ("/v1/operations", "describe", 1),
+        ("/v1/files/control", "file_control", 2),
+    ] {
+        let message = fixture.encrypted_request(operation, json!({}), counter);
+        let response = app
+            .clone()
+            .oneshot(request(
+                Method::POST,
+                path,
+                &fixture.origin,
+                Some(&serde_json::to_string(&message).unwrap()),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
 
     let root = fixture.root.clone();
     drop(app);

@@ -89,6 +89,7 @@ pub struct AgentState {
     admission: crate::admission::AdmissionScheduler,
     policy_revision_gate: policy::PolicyRevisionGate,
     publication_gate: Arc<policy::PublicationGate>,
+    policy_update_generation: std::sync::atomic::AtomicU64,
     remote_operations:
         std::sync::Mutex<std::collections::HashMap<uuid::Uuid, mdbase::OperationCancellation>>,
 }
@@ -147,6 +148,7 @@ impl AgentState {
             admission: crate::admission::AdmissionScheduler::default(),
             policy_revision_gate,
             publication_gate: Arc::new(policy::PublicationGate::default()),
+            policy_update_generation: std::sync::atomic::AtomicU64::new(0),
             remote_operations: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
@@ -167,6 +169,21 @@ impl AgentState {
 
     pub fn relay_public_key(&self) -> String {
         self.relay_identity.public_key()
+    }
+
+    pub(crate) fn next_policy_update_generation(&self) -> Result<u64, ConnectError> {
+        self.policy_update_generation
+            .fetch_update(
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
+                |current| current.checked_add(1),
+            )
+            .map(|previous| previous + 1)
+            .map_err(|_| {
+                ConnectError::InvalidInput(
+                    "The local policy update generation is exhausted.".to_string(),
+                )
+            })
     }
 
     pub(crate) fn remote_policy_execution_deadline(
@@ -304,7 +321,8 @@ impl AgentState {
     }
 
     pub fn origin_allowed(&self, origin: &str) -> bool {
-        !origin.is_empty()
+        self.policy_authority_ready()
+            && !origin.is_empty()
             && (self.registry.list_grants().is_ok_and(|grants| {
                 grants.iter().any(|grant| {
                     grant.application_origin.as_deref() == Some(origin)

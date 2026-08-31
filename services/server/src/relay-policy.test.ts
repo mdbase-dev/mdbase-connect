@@ -6,15 +6,78 @@ import { canonicalJson, canonicalSha256 } from "./canonical-json.js";
 import {
   buildPolicySnapshot,
   normalizePolicyGrant,
+  observeConnectorPolicyStage,
   policyGrantCreatedAtIso,
   PolicySequenceExhaustedError,
+  reportConnectorRelayClose,
   resolvePolicyAppliedAck
 } from "./relay-policy.js";
 import type { DatabasePool } from "./database-types.js";
 
 const databases: DatabasePool[] = [];
 afterEach(async () => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   await Promise.all(databases.splice(0).map((db) => db.end()));
+});
+
+describe("connector policy stage diagnostics", () => {
+  it("reports only a delayed stage and its privacy-safe outcome", async () => {
+    vi.useFakeTimers();
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    let settle!: (value: string) => void;
+    const operation = new Promise<string>((resolve) => { settle = resolve; });
+    const observed = observeConnectorPolicyStage("snapshot_build", () => operation);
+
+    await vi.advanceTimersByTimeAsync(2_001);
+    expect(warning).toHaveBeenCalledWith("connector policy stage delayed", {
+      class: "delivery_unavailable",
+      stage: "snapshot_build"
+    });
+    settle("done");
+    await expect(observed).resolves.toBe("done");
+    expect(warning).toHaveBeenLastCalledWith("connector policy delayed stage settled", {
+      stage: "snapshot_build",
+      outcome: "ok"
+    });
+  });
+
+  it("does not log a successful stage that settles within the threshold", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await expect(observeConnectorPolicyStage("generation_before", async () => true))
+      .resolves.toBe(true);
+    expect(warning).not.toHaveBeenCalled();
+  });
+
+  it("reports a fast failure without exposing the error", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const failure = new Error("private provider detail");
+    await expect(observeConnectorPolicyStage("generation_before", async () => {
+      throw failure;
+    })).rejects.toBe(failure);
+    expect(warning).toHaveBeenCalledWith("connector policy stage failed", {
+      class: "delivery_unavailable",
+      stage: "generation_before",
+      outcome: "error"
+    });
+    expect(JSON.stringify(warning.mock.calls)).not.toContain(failure.message);
+  });
+
+  it.each([
+    [4001, "replacement", true],
+    [4003, "non_normal", false],
+    [1000, "normal", true],
+    [1001, "normal", false],
+    [1006, "non_normal", true]
+  ])("classifies relay close code %i without attributing peer details", (code, closeClass, ready) => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    reportConnectorRelayClose(code, ready);
+    expect(info).toHaveBeenCalledWith("connector relay closed", {
+      close_class: closeClass,
+      ready
+    });
+    expect(JSON.stringify(info.mock.calls)).not.toContain(String(code));
+  });
 });
 
 describe("connector policy sequence", () => {
@@ -106,6 +169,8 @@ describe("connector policy sequence", () => {
       expectedRevision: "fresh",
       connectorId,
       generation: "1",
+      mode: "lease_v1",
+      initial: true,
       isStillCurrent: () => true,
       resolve: vi.fn(),
       reject: staleReject
@@ -122,10 +187,25 @@ describe("connector policy sequence", () => {
       expectedRevision: "fresh",
       connectorId,
       generation: "2",
+      mode: "lease_v1",
+      initial: true,
       isStillCurrent: () => true,
       resolve,
       reject: vi.fn()
     });
     expect(resolve).toHaveBeenCalledOnce();
+    const adopted = await db.query<{
+      policy_lease_adopted_at: Date | null;
+      latest_policy_ack_mode: string | null;
+      latest_policy_ack_generation: string | number | null;
+    }>(
+      `SELECT policy_lease_adopted_at, latest_policy_ack_mode,
+              latest_policy_ack_generation
+       FROM connectors WHERE id = $1`,
+      [connectorId]
+    );
+    expect(adopted.rows[0]?.policy_lease_adopted_at).not.toBeNull();
+    expect(adopted.rows[0]?.latest_policy_ack_mode).toBe("lease_v1");
+    expect(Number(adopted.rows[0]?.latest_policy_ack_generation)).toBe(2);
   });
 });
