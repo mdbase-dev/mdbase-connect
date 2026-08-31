@@ -92,7 +92,7 @@ jobs:
           rustup toolchain install 1.94.0 --profile minimal
           rustup override set 1.94.0
       - name: Restore Rust dependency cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: |
             mdbase-connect -> target
@@ -135,7 +135,7 @@ jobs:
       - run: rustup toolchain install 1.94.0 --profile minimal
       - run: rustup override set 1.94.0
       - name: Restore Rust dependency cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: |
             mdbase-connect -> target
@@ -164,7 +164,7 @@ jobs:
     timeout-minutes: 55
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: 11.15.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -340,7 +340,7 @@ jobs:
       - run: rustup override set 1.94.0
       - run: cp deploy/docker/Cargo.lock.hosted-provider Cargo.lock
       - name: Restore Rust dependency cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: |
             mdbase-connect -> target
@@ -402,7 +402,7 @@ jobs:
           repository: callumalpass/mdbase-rs
           ref: ${{ steps.mdbase_revision.outputs.revision }}
           path: mdbase-rs
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: 11.15.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -414,7 +414,7 @@ jobs:
       - run: rustup override set 1.94.0
       - run: cp deploy/docker/Cargo.lock.hosted-provider Cargo.lock
       - name: Restore Rust dependency cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: |
             mdbase-connect -> target
