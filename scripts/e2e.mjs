@@ -271,6 +271,15 @@ secret: connector scope test
 
   await onboardingPage.goto(`${serverUrl}/authorize/${authorizationId}`);
   await onboardingPage.getByText(collection.display_name, { exact: true }).waitFor();
+  const onboardingCollectionChoice = onboardingPage.locator(
+    `.collection-choice-list input[value="${collection.id}"]`
+  );
+  if (await onboardingCollectionChoice.isVisible()) {
+    await onboardingCollectionChoice.check();
+    await onboardingPage
+      .getByRole("button", { name: "Review access", exact: true })
+      .click();
+  }
   await onboardingPage.getByRole("button", { name: "Allow MVP Workout App" }).click();
   const callback = await finishSignedWebAuthorization(initialAuthorization);
   await onboardingContext.close();
