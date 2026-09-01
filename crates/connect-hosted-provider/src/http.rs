@@ -914,10 +914,17 @@ async fn operation(
         ApiError::bad_request("invalid_json", "The hosted operation body is invalid.")
     })?;
     let recovery_only = mdbase_connect_protocol::is_mutating_operation(&operation, &request.input);
-    let admission = if recovery_only {
-        state.provider.acquire_runtime_admission().await?
+    // Cursor release changes bounded query-runtime metadata only. Keep cleanup
+    // available while reads are suspended or a cutover lease expires; the
+    // provider still authorizes the request and binds the cursor to the exact
+    // collection, replica, scope epoch, and query kind before deletion.
+    let cursor_release = !recovery_only && request.input.get("release_cursor").is_some();
+    let admission = if cursor_release {
+        None
+    } else if recovery_only {
+        Some(state.provider.acquire_runtime_admission().await?)
     } else {
-        state.provider.acquire_runtime_read_admission().await?
+        Some(state.provider.acquire_runtime_read_admission().await?)
     };
     let authorization = if recovery_only {
         state
@@ -975,7 +982,9 @@ async fn operation(
             "Hosted operation response could not serialize: {error}"
         ))
     })?;
-    admission.commit().await?;
+    if let Some(admission) = admission {
+        admission.commit().await?;
+    }
     Ok(Json(response))
 }
 

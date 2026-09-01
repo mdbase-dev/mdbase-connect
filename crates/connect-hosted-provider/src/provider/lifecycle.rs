@@ -24,6 +24,18 @@ impl HostedProvider {
         .await
     }
 
+    /// Connect without running startup migrations for an independent semantic
+    /// read-back under runtime read admission. The candidate service or fixed
+    /// cutover command must already have applied and verified the exact ledger.
+    pub async fn connect_for_verification(
+        database_url: &str,
+        crypto: ProviderCrypto,
+        limits: ProviderLimits,
+        blob_store: Arc<dyn BlobStore>,
+    ) -> ApiResult<Self> {
+        Self::connect_internal(database_url, crypto, limits, blob_store, None, false, None).await
+    }
+
     /// Connect after a cutover operator has applied the reviewed migration
     /// ledger on the exact PostgreSQL session that owns the global cutover
     /// lock. This deliberately cannot migrate on a second pooled session.

@@ -320,6 +320,7 @@ async fn run(arguments: Arguments) -> ApiResult<Envelope> {
         }
     }
     let cutover_connection = cutover_budget.is_some();
+    let verification_connection = matches!(&arguments.command, Command::Verify(_));
     let provider_future = async {
         if cutover_connection {
             HostedProvider::connect_pre_migrated(
@@ -336,6 +337,14 @@ async fn run(arguments: Arguments) -> ApiResult<Envelope> {
                     .command
                     .cutover_owner_token()
                     .expect("cutover connection has an owner"),
+            )
+            .await
+        } else if verification_connection {
+            HostedProvider::connect_for_verification(
+                &database_url,
+                crypto,
+                ProviderLimits::default(),
+                Arc::new(ProjectionOnlyBlobStore),
             )
             .await
         } else {
