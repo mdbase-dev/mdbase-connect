@@ -279,7 +279,7 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
     assert!(resume.contains("GET DIAGNOSTICS affected_rows = ROW_COUNT"));
     assert!(resume.contains("affected_rows <> 1"));
     assert!(provisional.contains("admission_lease_expires_at"));
-    assert!(provisional.contains("lease_seconds < 30 OR lease_seconds > 600"));
+    assert!(provisional.contains("lease_seconds < 30 OR lease_seconds > 3600"));
     assert!(provisional.contains("admission_owner_expires_at >"));
     assert!(finalize.contains("admission_lease_expires_at > clock_timestamp()"));
     assert!(finalize.contains("admission_fence_token = NULL"));

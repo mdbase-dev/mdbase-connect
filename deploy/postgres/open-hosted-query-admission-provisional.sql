@@ -12,9 +12,9 @@ DECLARE
   requested_token uuid := current_setting('mdbase.admission_fence_token')::uuid;
   lease_seconds integer := current_setting('mdbase.admission_lease_seconds')::integer;
 BEGIN
-  IF lease_seconds < 30 OR lease_seconds > 600 THEN
+  IF lease_seconds < 30 OR lease_seconds > 3600 THEN
     RAISE EXCEPTION
-      'hosted_admission_provisional_open_failed: lease must be between 30 and 600 seconds';
+      'hosted_admission_provisional_open_failed: lease must be between 30 and 3600 seconds';
   END IF;
   UPDATE hosted_provider_runtime_control
   SET query_admission_suspended = false,
