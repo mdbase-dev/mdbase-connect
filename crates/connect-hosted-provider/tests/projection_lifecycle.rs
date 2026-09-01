@@ -4314,7 +4314,7 @@ async fn candidate_b_projection_digest_binds_and_refreshes_the_temporal_end() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
-async fn candidate_b_rollback_fence_drains_inflight_queries_and_allows_cursor_release() {
+async fn runtime_admission_separates_cutover_reads_from_fenced_writes() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
     let fixture = FileLifecycleFixture::new(&database_url).await;
@@ -4422,8 +4422,45 @@ async fn candidate_b_rollback_fence_drains_inflight_queries_and_allows_cursor_re
                suspension_reason = NULL,
                admission_fence_token = '11111111-1111-4111-8111-111111111111',
                admission_fence_kind = 'cutover',
-               admission_lease_expires_at = clock_timestamp() - interval '1 second',
+               admission_lease_expires_at = clock_timestamp() + interval '1 hour',
                admission_owner_expires_at = clock_timestamp() + interval '1 hour',
+               updated_at = now()
+           WHERE singleton = true"#,
+    )
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    fixture
+        .provider
+        .acquire_runtime_read_admission()
+        .await
+        .unwrap()
+        .commit()
+        .await
+        .unwrap();
+    let fenced_write = fixture
+        .provider
+        .acquire_runtime_admission()
+        .await
+        .unwrap_err();
+    assert_eq!(fenced_write.code, "hosted_query_admission_suspended");
+    let cutover_read = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &application_token,
+            "query",
+            Uuid::new_v4(),
+            json!({"limit": 1}),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(cutover_read["valid"], true);
+
+    sqlx::query(
+        r#"UPDATE hosted_provider_runtime_control
+           SET admission_lease_expires_at = clock_timestamp() - interval '1 second',
                updated_at = now()
            WHERE singleton = true"#,
     )

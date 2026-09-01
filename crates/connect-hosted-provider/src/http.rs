@@ -319,10 +319,9 @@ pub fn app(state: AppState) -> Router {
         )
         .layer(DefaultBodyLimit::max(MAX_IMPORT_BODY_BYTES))
         .route_layer(middleware::from_fn(require_bearer_request));
-    let admitted = Router::new()
+    let write_admitted = Router::new()
         .merge(internal)
         .merge(sync)
-        .merge(operations)
         .merge(files)
         .merge(imports)
         .route_layer(middleware::from_fn_with_state(
@@ -331,7 +330,8 @@ pub fn app(state: AppState) -> Router {
         ));
     Router::new()
         .merge(diagnostic_routes(state.clone()))
-        .merge(admitted)
+        .merge(write_admitted)
+        .merge(operations)
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(cors)
         .layer(PropagateRequestIdLayer::new(request_id_header.clone()))
@@ -914,6 +914,11 @@ async fn operation(
         ApiError::bad_request("invalid_json", "The hosted operation body is invalid.")
     })?;
     let recovery_only = mdbase_connect_protocol::is_mutating_operation(&operation, &request.input);
+    let admission = if recovery_only {
+        state.provider.acquire_runtime_admission().await?
+    } else {
+        state.provider.acquire_runtime_read_admission().await?
+    };
     let authorization = if recovery_only {
         state
             .provider
@@ -958,20 +963,20 @@ async fn operation(
         .provider
         .record_operation_protocol_usage(collection_id, request.protocol_version)
         .await?;
-    Ok(Json(
-        serde_json::to_value(OperationResponse {
-            protocol_version: request.protocol_version,
-            request_id: request.request_id,
-            ok: true,
-            result: Some(result),
-            problem: None,
-        })
-        .map_err(|error| {
-            ApiError::internal(format!(
-                "Hosted operation response could not serialize: {error}"
-            ))
-        })?,
-    ))
+    let response = serde_json::to_value(OperationResponse {
+        protocol_version: request.protocol_version,
+        request_id: request.request_id,
+        ok: true,
+        result: Some(result),
+        problem: None,
+    })
+    .map_err(|error| {
+        ApiError::internal(format!(
+            "Hosted operation response could not serialize: {error}"
+        ))
+    })?;
+    admission.commit().await?;
+    Ok(Json(response))
 }
 
 #[cfg(test)]

@@ -21,6 +21,8 @@ authorization and strengthens release compatibility gates.
   projection normalization, runtime diagnostics compare persisted projections
   with the running engine, and release tooling blocks undeclared projection
   format or semantic-engine transitions.
+- A live projection-cutover lease admits semantic queries while canonical,
+  synchronization, file, import, and provider-control writes remain fenced.
 
 ## 0.1.0-beta.93
 
