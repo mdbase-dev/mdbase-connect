@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+feature_graph=$(mktemp)
+trap 'rm -f "$feature_graph"' EXIT
+
+cd "$root"
+cargo tree --locked --workspace -e features >"$feature_graph"
+
+if grep -Fq 'mdbase feature "legacy-collection-mutation"' "$feature_graph"; then
+  echo 'error: the resolved Connect workspace enables forbidden mdbase feature legacy-collection-mutation' >&2
+  grep -F 'mdbase feature "legacy-collection-mutation"' "$feature_graph" >&2
+  exit 1
+fi
+
+echo 'Resolved Connect workspace feature graph contains no legacy-collection-mutation.'

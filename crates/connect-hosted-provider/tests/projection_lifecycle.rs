@@ -173,7 +173,7 @@ async fn empty_unindexed_collections_return_a_valid_empty_query_result() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
-async fn stale_projection_bindings_use_canonical_exact_fallback_for_projection_exact_queries() {
+async fn v5_projection_rows_are_stale_and_use_canonical_exact_fallback() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
     let fixture = FileLifecycleFixture::new(&database_url).await;
@@ -194,10 +194,32 @@ async fn stale_projection_bindings_use_canonical_exact_fallback_for_projection_e
         "---\ntitle: Stale binding\n---\nCanonical encrypted body.\n",
     )
     .await;
-    complete_generation(&fixture).await;
+    let v6_generation = complete_generation(&fixture).await;
+    sqlx::query(
+        r#"UPDATE hosted_provider_record_projections
+           SET projection_format_version = 5,
+               semantic_projection = jsonb_set(semantic_projection, '{format_version}', '5')
+           WHERE collection_id = $1 AND valid_to_sequence IS NULL"#,
+    )
+    .bind(fixture.collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"UPDATE hosted_provider_projection_generations
+           SET projection_format_version = 5
+           WHERE collection_id = $1 AND generation_id = (
+             SELECT active_projection_generation_id
+             FROM hosted_provider_collections WHERE id = $1
+           )"#,
+    )
+    .bind(fixture.collection_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
     sqlx::query(
         r#"UPDATE hosted_provider_collections
-           SET active_projection_head = active_projection_head - 1
+           SET active_projection_format_version = 5
            WHERE id = $1"#,
     )
     .bind(fixture.collection_id)
@@ -213,7 +235,12 @@ async fn stale_projection_bindings_use_canonical_exact_fallback_for_projection_e
             &application_token,
             "query",
             Uuid::new_v4(),
-            json!({"limit": 10, "order_by": [{"field": "file.path"}]}),
+            json!({
+                "where": "file.path == 'notes/stale-binding.md'",
+                "include_body": true,
+                "limit": 10,
+                "order_by": [{"field": "file.path"}]
+            }),
             None,
         )
         .await
@@ -225,6 +252,97 @@ async fn stale_projection_bindings_use_canonical_exact_fallback_for_projection_e
         result["result"]["results"][0]["path"],
         "notes/stale-binding.md"
     );
+    assert_eq!(
+        result["result"]["results"][0]["body"],
+        "Canonical encrypted body.\n"
+    );
+
+    let rebuilt_generation = complete_generation(&fixture).await;
+    assert_ne!(rebuilt_generation, v6_generation);
+    let rebuilt_versions: (i32, i32, i32) = sqlx::query_as(
+        r#"SELECT collection.active_projection_format_version,
+                  generation.projection_format_version,
+                  projection.projection_format_version
+           FROM hosted_provider_collections collection
+           JOIN hosted_provider_projection_generations generation
+             ON generation.collection_id = collection.id
+            AND generation.generation_id = collection.active_projection_generation_id
+           JOIN hosted_provider_record_projections projection
+             ON projection.collection_id = collection.id
+            AND projection.generation_id = generation.generation_id
+            AND projection.valid_to_sequence IS NULL
+           WHERE collection.id = $1"#,
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(rebuilt_versions, (6, 6, 6));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn hosted_v6_resolution_evidence_matches_local_reason_semantics() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let replica_id = replica.get("id");
+    let scope_epoch = u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap();
+    put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        Uuid::now_v7(),
+        None,
+        "notes/target.md",
+        "---\ntitle: Target\n---\n",
+    )
+    .await;
+    let source_id = Uuid::now_v7();
+    put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        source_id,
+        None,
+        "notes/source.md",
+        "A local-compatible [[target]] relationship.\n",
+    )
+    .await;
+    complete_generation(&fixture).await;
+
+    let projection: Value = sqlx::query_scalar(
+        r#"SELECT semantic_projection
+           FROM hosted_provider_record_projections
+           WHERE collection_id = $1 AND record_id = $2
+             AND generation_id = (
+               SELECT active_projection_generation_id
+               FROM hosted_provider_collections WHERE id = $1
+             ) AND valid_to_sequence IS NULL"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(source_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        projection["format_version"],
+        mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION
+    );
+    let occurrence = &projection["structure"]["occurrences"][0];
+    assert_eq!(occurrence["reason"], "only_candidate");
+    assert_eq!(occurrence["candidate_count"], 1);
+    assert!(occurrence["candidate_digest"].as_str().is_some());
+    assert!(occurrence["selected_lookup"].is_object());
+    assert!(occurrence["alternatives"].is_null());
+    assert!(occurrence["alternative_candidates"].is_null());
 }
 
 #[cfg(feature = "test-hooks")]
@@ -6073,7 +6191,7 @@ async fn exercise_candidate_b_projection_lifecycle() {
                 .expect("hosted reads expose persisted file mtime"),
         )
         .expect("hosted read file mtime is RFC 3339");
-        assert_eq!(receipt_mtime.timestamp(), read_mtime.timestamp());
+        assert_eq!(receipt_mtime, read_mtime);
         let mut receipt_without_mtime = receipt["result"].clone();
         let mut read_without_mtime = read["result"].clone();
         receipt_without_mtime["file"]
@@ -9546,7 +9664,10 @@ async fn candidate_b_persisted_body_relationships_exclude_label_prose() {
     .fetch_one(&fixture.pool)
     .await
     .unwrap();
-    assert_eq!(row.get::<i32, _>("projection_format_version"), 5);
+    assert_eq!(
+        row.get::<i32, _>("projection_format_version"),
+        i32::try_from(mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION).unwrap()
+    );
     let projection = row.get::<String, _>("projection");
     for secret in [
         "wikilink-label-secret",

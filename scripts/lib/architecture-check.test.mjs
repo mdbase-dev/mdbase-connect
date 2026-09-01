@@ -266,6 +266,44 @@ test("requires every reviewed-surface baseline", async (t) => {
   assert.deepEqual(result.failures, ["reviewBudgets.relativeImports is required."]);
 });
 
+test("guards the mdbase manifest boundary and compile-time projection version assertion", async (t) => {
+  const providerGuard = [
+    "const CONNECT_SEMANTIC_PROJECTION_FORMAT_VERSION: u32 = 6;",
+    "const _: () = assert!(mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION == CONNECT_SEMANTIC_PROJECTION_FORMAT_VERSION);"
+  ].join("\n");
+  const root = await fixture({
+    "Cargo.toml": "[workspace.dependencies]\nmdbase = { path = '../mdbase-rs', default-features = false }\n",
+    "crates/connect-hosted-provider/Cargo.toml": "[package]\nname = 'provider'\nversion = '0.0.0'\n",
+    "crates/connect-hosted-provider/src/provider.rs": providerGuard
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const budgets = {
+    ...strictBudget,
+    externalGuards: {
+      directWireOnlyConstructors: 0,
+      directCanonicalOutcomeStructs: 0,
+      privateCanonicalResultFieldCalls: 0,
+      legacyCrudFeatures: 0,
+      semanticProjectionFormatVersion: 6
+    }
+  };
+
+  assert.deepEqual((await evaluateArchitecture(root, budgets)).failures, []);
+
+  await writeFile(
+    path.join(root, "Cargo.toml"),
+    "[workspace.dependencies]\nmdbase = { path = '../mdbase-rs', features = ['legacy-collection-mutation'] }\n"
+  );
+  await writeFile(
+    path.join(root, "crates/connect-hosted-provider/src/provider.rs"),
+    providerGuard.replace("= 6", "= 5")
+  );
+  const rejected = await evaluateArchitecture(root, budgets);
+  assert.ok(rejected.failures.some((failure) => failure.includes("legacyCrudFeatures is 1")));
+  assert.ok(rejected.failures.some((failure) => failure.includes("default-features = false")));
+  assert.ok(rejected.failures.some((failure) => failure.includes("compile-assert upstream")));
+});
+
 test("inventories empty Rust workspace crates", async (t) => {
   const root = await fixture({
     "crates/empty/Cargo.toml": "[package]\nname = 'empty'\nversion = '0.0.0'\n"

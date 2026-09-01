@@ -230,11 +230,17 @@ impl CollectionRegistry {
             ));
         }
 
-        let context = mdbase::runtime::OperationContext::new(
+        let context = mdbase::runtime::OperationContext::with_capture_limits(
             &mdbase::OperationCancellation::new(),
             mdbase::runtime::OperationDeadline::after(std::time::Duration::from_secs(30)),
+            local_capture_limits(),
         );
-        provider.reset_runtime_support_for_fork(&context)?;
+        // A collection that has never opened a coordinated runtime has no
+        // runtime support to carry across the fork. Once support exists, let
+        // mdbase recover and clear it atomically before changing identity.
+        if path.join(".mdbase/transactions").is_dir() {
+            provider.reset_runtime_support_for_fork(&context)?;
+        }
 
         let independent_id = Uuid::new_v4();
         write_collection_id(&path, independent_id)?;

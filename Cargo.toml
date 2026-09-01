@@ -37,7 +37,7 @@ directories = "6"
 futures-util = "0.3"
 hkdf = "0.12"
 hmac = "0.12"
-mdbase = { path = "../mdbase-rs" }
+mdbase = { path = "../mdbase-rs", default-features = false }
 mdbase-interop = { version = "0.1.0-rc.2", git = "https://github.com/mdbase-dev/mdbase-spec.git", rev = "5aa34fd14de2e0ae9e565425b724b306046b64ca" }
 mdbase-runtime = { path = "../mdbase-rs/crates/mdbase-runtime" }
 notify = "8"

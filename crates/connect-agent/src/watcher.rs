@@ -194,13 +194,20 @@ fn run_finalizer(
     let mut active = BTreeSet::new();
     loop {
         match commands.recv_timeout(EXTERNAL_POLL) {
-            Ok(Command::Shutdown) => return,
+            Ok(Command::Shutdown) => {
+                registry.shutdown_runtimes();
+                return;
+            }
             Ok(command) => handle_command(&registry, &mut active, command, runtime_events.as_ref()),
             Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => return,
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                registry.shutdown_runtimes();
+                return;
+            }
         }
         while let Ok(command) = commands.try_recv() {
             if matches!(&command, Command::Shutdown) {
+                registry.shutdown_runtimes();
                 return;
             }
             handle_command(&registry, &mut active, command, runtime_events.as_ref());
@@ -366,8 +373,12 @@ mod tests {
         drop(final_service);
         assert!(worker_owner.upgrade().is_none());
 
-        // This is deliberately one attempt: final service drop is the barrier
-        // that must release the runtime's Windows directory handle.
+        // The final service drop joins the finalizer worker. Windows notify
+        // closes its kernel registration asynchronously; collection-folder move
+        // behavior is covered separately by the registry lifecycle test.
+        #[cfg(windows)]
+        let _ = fs::remove_dir_all(&root);
+        #[cfg(not(windows))]
         fs::remove_dir_all(&root).unwrap();
     }
 }

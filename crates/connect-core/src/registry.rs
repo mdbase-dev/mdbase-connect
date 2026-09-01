@@ -59,6 +59,21 @@ const CONNECT_COLLECTION_ID: &str = "collection_id";
 const MIRROR_MARKER_DIRECTORY: &str = ".mdbase";
 const MIRROR_MARKER_FILE: &str = "connect-role.json";
 
+/// Connect-owned local authority capture policy. The entry and retained-byte
+/// ceilings align with Connect's 100k-record / 4 GiB admitted authority shape;
+/// individual exact documents retain mdbase's 64 MiB ceiling, while resource
+/// discovery is separately capped at 10k entries.
+fn local_capture_limits() -> mdbase::runtime::CaptureLimits {
+    mdbase::runtime::CaptureLimits::builder()
+        .max_entries(100_000)
+        .max_file_bytes(64 * 1024 * 1024)
+        .max_aggregate_bytes(4 * 1024 * 1024 * 1024)
+        .max_depth(128)
+        .max_resource_entries(10_000)
+        .max_retained_bytes(4 * 1024 * 1024 * 1024)
+        .build()
+}
+
 mod agent_state;
 mod authority;
 mod authority_store;

@@ -410,7 +410,11 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: mdbase-connect/pnpm-lock.yaml
-      - run: rustup toolchain install 1.94.0 --profile minimal
+      - run: >-
+          rustup toolchain install 1.94.0
+          --profile minimal
+          --component rustfmt
+          --component clippy
       - run: rustup override set 1.94.0
       - run: cp deploy/docker/Cargo.lock.hosted-provider Cargo.lock
       - name: Restore Rust dependency cache
@@ -422,6 +426,16 @@ jobs:
           cache-on-failure: true
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      - run: cargo fmt --all --check
+      - run: pnpm check:cargo-features
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      # Compile and test every Rust crate against the exact SDK revision used
+      # by the production provider image. This keeps path-only developer
+      # dependencies from making a clean checkout unreproducible.
+      - run: cargo test --locked --workspace
+        env:
+          MDBASE_CONNECT_ENV: test
+          MDBASE_CONNECT_SECRET_BACKEND: insecure-test-file
       - run: cargo build --locked --workspace
       - name: Restore Playwright cache
         if: matrix.browser
