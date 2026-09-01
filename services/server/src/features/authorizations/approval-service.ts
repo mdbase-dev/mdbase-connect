@@ -814,7 +814,14 @@ export async function approveHostedAuthorization(
          WHERE replica_id = $1 AND completed_at IS NULL`,
         [obsolete.hosted_replica_id]
       );
-      if (!cleanup.rows[0]) {
+      if (cleanup.rows[0]) {
+        await connection.query(
+          `UPDATE provider_revocation_jobs
+           SET grant_id = COALESCE(grant_id, $2)
+           WHERE id = $1`,
+          [cleanup.rows[0].id, obsolete.id]
+        );
+      } else {
         await connection.query(
           `INSERT INTO provider_revocation_jobs
              (id, replica_id, grant_id, collection_id, reason)

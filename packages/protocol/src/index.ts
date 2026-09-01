@@ -224,7 +224,11 @@ export interface ApplicationRequirements {
   configuration?: ConfigurationRequirement[];
   /** Versioned semantic intent compiled by Connect into exact operations. */
   capabilities?: ApplicationCapabilityRequirements;
-  /** Access boundary requested after compatibility and provisioning checks. */
+  /**
+   * Collection boundary request. New declarations must explicitly use
+   * `full_collection`; omitted and `contract` remain parseable only for legacy
+   * diagnosis and reauthorization.
+   */
   access?: "contract" | "full_collection";
   /** Restrict authorization to durable provider-backed collections. */
   collection_kind?: "hosted";
@@ -240,11 +244,12 @@ export interface ApplicationProvisions {
 
 export interface GrantScope {
   /**
-   * Exact contract definitions and sorted implementation sets approved by the
-   * user. Digests make the scope fail closed if either the interface or any
-   * provider changes after approval.
+   * Legacy semantic scope payload retained for wire/storage compatibility.
+   * Canonical application grants use an empty array; contracts remain available
+   * through collection resources and operation-level semantic selectors.
    */
   contracts: CollectionContractDescriptor[];
+  /** New authority must be `full_collection`; `contract` is legacy-only. */
   access: "contract" | "full_collection";
 }
 
@@ -592,10 +597,11 @@ export interface RelayPolicySnapshot {
   protocol_version: 1;
   request_id: string;
   revision: string;
-  connector_id: string;
-  sequence: number;
-  lease_issued_at_ms: number;
-  lease_expires_at_ms: number;
+  /** Lease fields are absent on legacy N-1 grants-only snapshots. */
+  connector_id?: string;
+  sequence?: number;
+  lease_issued_at_ms?: number;
+  lease_expires_at_ms?: number;
   grants: GrantPolicy[];
 }
 

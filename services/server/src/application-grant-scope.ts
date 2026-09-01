@@ -9,7 +9,11 @@ export function isCanonicalCollectionGrantScope(
 ): value is GrantScope {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const scope = value as { access?: unknown; contracts?: unknown };
-  return scope.access === "full_collection"
+  const keys = Object.keys(scope).sort();
+  return keys.length === 2
+    && keys[0] === "access"
+    && keys[1] === "contracts"
+    && scope.access === "full_collection"
     && Array.isArray(scope.contracts)
     && scope.contracts.length === 0;
 }

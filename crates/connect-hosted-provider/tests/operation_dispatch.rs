@@ -4,17 +4,69 @@ mod support;
 #[path = "support/test_postgres.rs"]
 mod test_postgres;
 
-use mdbase_connect_hosted_provider::{RegisterReplica, ReplicaPurpose};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use chrono::Utc;
+use mdbase_connect_hosted_provider::{app, AppState, RegisterReplica, ReplicaPurpose};
 use mdbase_connect_protocol::{
-    SyncCollectionResources, SyncMutation, SyncMutationOperation, SyncMutationReceipt,
-    SyncReplicaMode,
+    ListFilesRequest, ListFilesRequestKind, SyncMutation, SyncMutationOperation,
+    SyncMutationReceipt, SyncReplicaMode, AUTHORITY_PROOF_DOMAIN, AUTHORITY_PROOF_NONCE_HEADER,
+    AUTHORITY_PROOF_SIGNATURE_HEADER, AUTHORITY_PROOF_TIMESTAMP_HEADER, AUTHORITY_PROOF_VERSION,
+    AUTHORITY_PROOF_VERSION_HEADER, FILE_PROTOCOL_VERSION,
 };
+use p256::ecdsa::{signature::Signer, Signature, SigningKey};
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, ORIGIN};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::Row;
 use support::FileLifecycleFixture;
 use test_postgres::DisposablePostgres;
 use uuid::Uuid;
+
+fn signed_application_headers(
+    signing_key: &SigningKey,
+    token: &str,
+    method: &str,
+    target: &str,
+    body: &[u8],
+) -> HeaderMap {
+    let timestamp = Utc::now().timestamp();
+    let nonce = Uuid::new_v4();
+    let message = [
+        AUTHORITY_PROOF_DOMAIN.to_string(),
+        AUTHORITY_PROOF_VERSION.to_string(),
+        method.to_uppercase(),
+        target.to_string(),
+        URL_SAFE_NO_PAD.encode(Sha256::digest(body)),
+        URL_SAFE_NO_PAD.encode(Sha256::digest(token.as_bytes())),
+        timestamp.to_string(),
+        nonce.to_string(),
+    ]
+    .join("\n");
+    let signature: Signature = signing_key.sign(message.as_bytes());
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        AUTHORIZATION,
+        HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
+    );
+    headers.insert(ORIGIN, HeaderValue::from_static("https://tasks.example"));
+    headers.insert(
+        AUTHORITY_PROOF_VERSION_HEADER,
+        HeaderValue::from_str(&AUTHORITY_PROOF_VERSION.to_string()).unwrap(),
+    );
+    headers.insert(
+        AUTHORITY_PROOF_TIMESTAMP_HEADER,
+        HeaderValue::from_str(&timestamp.to_string()).unwrap(),
+    );
+    headers.insert(
+        AUTHORITY_PROOF_NONCE_HEADER,
+        HeaderValue::from_str(&nonce.to_string()).unwrap(),
+    );
+    headers.insert(
+        AUTHORITY_PROOF_SIGNATURE_HEADER,
+        HeaderValue::from_str(&URL_SAFE_NO_PAD.encode(signature.to_bytes())).unwrap(),
+    );
+    headers
+}
 
 async fn replace_completed_effect_with_legacy_semantic_none(
     fixture: &FileLifecycleFixture,
@@ -66,6 +118,250 @@ async fn replace_completed_effect_with_legacy_semantic_none(
     .execute(&fixture.pool)
     .await
     .unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn retired_application_credentials_replay_only_exact_terminal_mutations() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let database_url = database.url().to_string();
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let replica_id = Uuid::now_v7();
+    let token = format!("retired-application-{}-{}", Uuid::new_v4(), Uuid::new_v4());
+    let signing_key = SigningKey::random(&mut rand_core::OsRng);
+    let public_key = URL_SAFE_NO_PAD.encode(
+        signing_key
+            .verifying_key()
+            .to_encoded_point(false)
+            .as_bytes(),
+    );
+    fixture
+        .provider
+        .register_replica(
+            fixture.collection_id,
+            RegisterReplica {
+                replica_id,
+                name: "Retired application replay".to_string(),
+                purpose: ReplicaPurpose::Application,
+                mode: SyncReplicaMode::ReadWrite,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
+                allowed_operations: vec!["changes".to_string(), "create".to_string()],
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: vec![2],
+                file_capability: None,
+                allowed_origin: Some("https://tasks.example".to_string()),
+                proof_public_key: Some(public_key),
+                grant_id: Some(Uuid::new_v4()),
+                application_declaration_id: None,
+                application_declaration_digest: None,
+                token: token.clone(),
+                token_ttl_seconds: Some(3600),
+            },
+        )
+        .await
+        .expect("canonical application replica is registered");
+
+    let request_id = Uuid::now_v7();
+    let input = json!({"path": "retired/exact.md", "frontmatter": {"title": "Exact"}});
+    let receipt = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "create",
+            request_id,
+            input.clone(),
+            Some("https://tasks.example"),
+        )
+        .await
+        .expect("terminal mutation is recorded before retirement");
+
+    let mut transaction = fixture.pool.begin().await.unwrap();
+    sqlx::query(
+        "UPDATE hosted_provider_replicas \
+         SET full_collection = false, allowed_types = ARRAY['task']::text[] \
+         WHERE id = $1",
+    )
+    .bind(replica_id)
+    .execute(&mut *transaction)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_retired_replay_credentials
+             (replica_id, token_hash, allowed_origin, proof_public_key, expires_at)
+           SELECT id, token_hash, allowed_origin, proof_public_key, now() + interval '365 days'
+           FROM hosted_provider_replicas WHERE id = $1"#,
+    )
+    .bind(replica_id)
+    .execute(&mut *transaction)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE hosted_provider_replicas SET revoked_at = now() WHERE id = $1")
+        .bind(replica_id)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    transaction.commit().await.unwrap();
+
+    let live_authorization = fixture
+        .provider
+        .authorize_request(
+            fixture.collection_id,
+            &token,
+            Some("https://tasks.example"),
+            None,
+        )
+        .await
+        .expect_err("retired credentials cannot authorize live requests");
+    assert_eq!(live_authorization.code, "invalid_replica_token");
+
+    for error in [
+        fixture
+            .provider
+            .open_session(fixture.collection_id, &token, Some("https://tasks.example"))
+            .await
+            .unwrap_err(),
+        fixture
+            .provider
+            .snapshot(
+                fixture.collection_id,
+                &token,
+                Uuid::new_v4(),
+                None,
+                Some("https://tasks.example"),
+            )
+            .await
+            .unwrap_err(),
+        fixture
+            .provider
+            .changes(
+                fixture.collection_id,
+                &token,
+                0,
+                1,
+                Some("https://tasks.example"),
+            )
+            .await
+            .unwrap_err(),
+        fixture
+            .provider
+            .list_files(
+                fixture.collection_id,
+                &token,
+                ListFilesRequest {
+                    protocol_version: FILE_PROTOCOL_VERSION,
+                    message_type: ListFilesRequestKind::ListFiles,
+                    folder: None,
+                    after: None,
+                    limit: Some(1),
+                },
+                Some("https://tasks.example"),
+            )
+            .await
+            .unwrap_err(),
+    ] {
+        assert_eq!(error.code, "invalid_replica_token", "{error:?}");
+    }
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let state = AppState::new(fixture.provider.clone(), &"internal-test-token-".repeat(2)).unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app(state)).await.unwrap() });
+    let target = format!(
+        "/v1/authorities/{}/operations/create",
+        fixture.collection_id
+    );
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let client = reqwest::Client::new();
+
+    let denied_body = serde_json::to_vec(&json!({
+        "protocol_version": 3,
+        "request_id": Uuid::now_v7(),
+        "input": {"path": "retired/new.md", "frontmatter": {"title": "Denied"}}
+    }))
+    .unwrap();
+    let denied = client
+        .post(format!("http://{address}{target}"))
+        .headers(signed_application_headers(
+            &signing_key,
+            &token,
+            "POST",
+            &target,
+            &denied_body,
+        ))
+        .header("content-type", "application/json")
+        .body(denied_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let denied_problem: Value = denied.json().await.unwrap();
+    assert_eq!(denied_problem["error"]["code"], "invalid_replica_token");
+    let usage_after_denial: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM hosted_provider_protocol_usage")
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        usage_after_denial, 0,
+        "rejected retired replay creates no protocol usage state"
+    );
+
+    let replay_body = serde_json::to_vec(&json!({
+        "protocol_version": 3,
+        "request_id": request_id,
+        "input": input
+    }))
+    .unwrap();
+    let replay = client
+        .post(format!("http://{address}{target}"))
+        .headers(signed_application_headers(
+            &signing_key,
+            &token,
+            "POST",
+            &target,
+            &replay_body,
+        ))
+        .header("content-type", "application/json")
+        .body(replay_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(replay.status(), reqwest::StatusCode::OK);
+    let replay: Value = replay.json().await.unwrap();
+    assert_eq!(replay["result"], receipt);
+    let usage_after_replay: i64 =
+        sqlx::query_scalar("SELECT sum(sample_count) FROM hosted_provider_protocol_usage")
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    assert_eq!(usage_after_replay, 1, "only exact replay records usage");
+    server.abort();
+
+    let proof_nonce_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_request_proofs WHERE replica_id = $1",
+    )
+    .bind(replica_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        proof_nonce_count, 0,
+        "retired authorization persists no nonce"
+    );
+    let journal_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_mutation_journal WHERE replica_id = $1",
+    )
+    .bind(replica_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        journal_count, 1,
+        "rejected live work creates no journal state"
+    );
 }
 
 #[tokio::test]
@@ -416,44 +712,19 @@ implements:
         .unwrap();
     assert_eq!(applied["valid"], true, "{applied}");
 
-    let resources_row = sqlx::query(
-        "SELECT wrapped_data_key, resources_ciphertext FROM hosted_provider_collections WHERE id = $1",
-    )
-    .bind(fixture.collection_id)
-    .fetch_one(&fixture.pool)
-    .await
-    .unwrap();
-    let data_key = fixture
-        .crypto
-        .unwrap_data_key(resources_row.get("wrapped_data_key"), fixture.collection_id)
-        .await
-        .unwrap();
-    let resources: SyncCollectionResources = fixture
-        .crypto
-        .decrypt_json(
-            &data_key,
-            resources_row.get("resources_ciphertext"),
-            &serde_json::to_vec(&("resources", fixture.collection_id)).unwrap(),
-        )
-        .unwrap();
-    let contract = resources
-        .contracts
-        .into_iter()
-        .find(|contract| contract.id == "test.malformed-link-task")
-        .expect("installed contract is present in collection resources");
-    let scoped_token = format!("malformed-link-scoped-{}", Uuid::new_v4());
+    let scoped_token = format!("malformed-link-collection-{}", Uuid::new_v4());
     fixture
         .provider
         .register_replica(
             fixture.collection_id,
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
-                name: "Malformed link scoped application".to_string(),
+                name: "Malformed link collection application".to_string(),
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadWrite,
-                allowed_types: vec!["malformed_link_task".to_string()],
-                contract_scope: vec![contract],
-                full_collection: false,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
                 allowed_operations: vec!["create".to_string(), "update".to_string()],
                 operation_transport_protocol: Some(3),
                 operation_transport_recovery_protocols: Vec::new(),
@@ -504,28 +775,11 @@ implements:
             .unwrap();
         assert_eq!(malformed_update["valid"], true, "{malformed_update}");
 
-        let scoped_repair = fixture
-            .provider
-            .operation(
-                fixture.collection_id,
-                &scoped_token,
-                "update",
-                Uuid::now_v7(),
-                json!({"path": path, "patch": {"project": "[[Plan]]"}}),
-                None,
-            )
-            .await
-            .expect_err("type-scoped repair remains fail-closed");
-        assert_eq!(
-            scoped_repair.code, "scope_classification_unavailable",
-            "{scoped_repair:?}"
-        );
-
         let repaired = fixture
             .provider
             .operation(
                 fixture.collection_id,
-                &writer_token,
+                &scoped_token,
                 "update",
                 Uuid::now_v7(),
                 json!({"path": path, "patch": {"project": "[[Plan]]"}}),
@@ -630,14 +884,13 @@ implements:
             None,
         )
         .await
-        .expect_err("unavailable type evidence remains fail-closed");
-    assert!(
-        matches!(
-            denied.code.as_str(),
-            "scope_classification_unavailable" | "scope_denied"
-        ),
-        "{denied:?}"
-    );
+        .unwrap();
+    assert_eq!(denied["valid"], false, "{denied}");
+    assert!(denied["diagnostics"].as_array().is_some_and(|items| {
+        items
+            .iter()
+            .any(|item| item["code"] == "invalid_frontmatter")
+    }));
 }
 
 #[tokio::test]

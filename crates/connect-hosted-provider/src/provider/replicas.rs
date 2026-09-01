@@ -296,6 +296,41 @@ impl HostedProvider {
         request_origin: Option<&str>,
         proof: Option<&AuthorityRequestProof>,
     ) -> ApiResult<AuthorizedRequest> {
+        self.authorize_request_with_retired_replay(
+            collection_id,
+            token,
+            request_origin,
+            proof,
+            false,
+        )
+        .await
+    }
+
+    pub async fn authorize_replay_request(
+        &self,
+        collection_id: Uuid,
+        token: &str,
+        request_origin: Option<&str>,
+        proof: Option<&AuthorityRequestProof>,
+    ) -> ApiResult<AuthorizedRequest> {
+        self.authorize_request_with_retired_replay(
+            collection_id,
+            token,
+            request_origin,
+            proof,
+            true,
+        )
+        .await
+    }
+
+    async fn authorize_request_with_retired_replay(
+        &self,
+        collection_id: Uuid,
+        token: &str,
+        request_origin: Option<&str>,
+        proof: Option<&AuthorityRequestProof>,
+        allow_retired_replay: bool,
+    ) -> ApiResult<AuthorizedRequest> {
         // Originless mirror traffic is authenticated again inside the requested
         // operation. Avoid a duplicate database round trip for that hot path.
         // Application capabilities with an allowed origin still fail closed in
@@ -344,6 +379,12 @@ impl HostedProvider {
             .await?;
             (replica_from_row(retired)?, true)
         };
+        if retired_credential && !allow_retired_replay {
+            return Err(ApiError::unauthorized(
+                "invalid_replica_token",
+                "Replica credential is invalid, expired, or revoked.",
+            ));
+        }
         match replica.purpose {
             ReplicaPurpose::Mirror => {
                 if request_origin.is_some() || proof.is_some() {
@@ -366,27 +407,29 @@ impl HostedProvider {
                         )
                     })?;
                     verify_hosted_request_proof(public_key, token, proof)?;
-                    let inserted = sqlx::query(
-                        r#"INSERT INTO hosted_provider_request_proofs (replica_id, nonce)
-                           VALUES ($1, $2)
-                           ON CONFLICT (replica_id, nonce) DO NOTHING
-                           RETURNING nonce"#,
-                    )
-                    .bind(replica.id)
-                    .bind(proof.nonce)
-                    .fetch_optional(&mut *transaction)
-                    .await?;
-                    if inserted.is_none() {
-                        return Err(ApiError::unauthorized(
-                            "authority_proof_replayed",
-                            "The authority request proof has already been used.",
-                        ));
+                    if !retired_credential {
+                        let inserted = sqlx::query(
+                            r#"INSERT INTO hosted_provider_request_proofs (replica_id, nonce)
+                               VALUES ($1, $2)
+                               ON CONFLICT (replica_id, nonce) DO NOTHING
+                               RETURNING nonce"#,
+                        )
+                        .bind(replica.id)
+                        .bind(proof.nonce)
+                        .fetch_optional(&mut *transaction)
+                        .await?;
+                        if inserted.is_none() {
+                            return Err(ApiError::unauthorized(
+                                "authority_proof_replayed",
+                                "The authority request proof has already been used.",
+                            ));
+                        }
+                        sqlx::query(
+                            "DELETE FROM hosted_provider_request_proofs WHERE created_at < now() - interval '10 minutes'",
+                        )
+                        .execute(&mut *transaction)
+                        .await?;
                     }
-                    sqlx::query(
-                        "DELETE FROM hosted_provider_request_proofs WHERE created_at < now() - interval '10 minutes'",
-                    )
-                    .execute(&mut *transaction)
-                    .await?;
                 }
             }
         }

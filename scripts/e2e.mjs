@@ -491,7 +491,7 @@ implements:
         homepage: manifest.origin,
         redirect_uris: [manifest.redirectUri],
         requirements: {
-          access: "contract",
+          access: "full_collection",
           contracts: [{
             id: "planning.item",
             version: "1.0.0",

@@ -1037,8 +1037,9 @@ schema:
         purpose: "application",
         operation_transport_protocol: OPERATION_TRANSPORT_PROTOCOL_VERSION,
         mode: "read_write",
-        allowed_types: ["task"],
-        contract_scope: notificationContracts,
+        allowed_types: [],
+        contract_scope: [],
+        full_collection: true,
         allowed_operations: ["list_timers", "reconcile_timers"],
         grant_id: notificationGrantId,
         token: timerToken
@@ -1066,7 +1067,7 @@ schema:
           "list_timers",
           "reconcile_timers"
         ]),
-        scope: { contracts: notificationContracts, access: "contract" },
+        scope: { contracts: [], access: "full_collection" },
         notification_criteria: [
           {
             id: "task.created",

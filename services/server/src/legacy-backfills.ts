@@ -56,25 +56,35 @@ export async function retireLegacyContractScopedGrants(
 ): Promise<number> {
   await db.query("BEGIN");
   try {
-    const grants = await db.query<{
+    type LegacyGrant = {
       id: string;
       hosted_collection_id: string | null;
       hosted_replica_id: string | null;
-    }>(
+    };
+    const scopedGrants = await db.query<LegacyGrant>(
       `SELECT g.id, g.hosted_collection_id, g.hosted_replica_id
        FROM grants g
-       LEFT JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
        WHERE g.revoked_at IS NULL
          AND g.activated_at IS NOT NULL
-         AND (
-           COALESCE(g.scope->>'access', '') <> 'full_collection'
-           OR COALESCE(g.scope->'contracts', 'null'::jsonb) <> '[]'::jsonb
-           OR COALESCE(replica.allowed_types, '[]'::jsonb) <> '[]'::jsonb
-         )
+         AND g.scope <> '{"access":"full_collection","contracts":[]}'::jsonb
        ORDER BY g.id
        FOR UPDATE`
     );
-    for (const grant of grants.rows) {
+    const scopedReplicas = await db.query<LegacyGrant>(
+      `SELECT g.id, g.hosted_collection_id, g.hosted_replica_id
+       FROM grants g
+       JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
+       WHERE g.revoked_at IS NULL
+         AND g.activated_at IS NOT NULL
+         AND COALESCE(replica.allowed_types, '[]'::jsonb) <> '[]'::jsonb
+       ORDER BY g.id
+       FOR UPDATE`
+    );
+    const grants = new Map<string, LegacyGrant>();
+    for (const grant of [...scopedGrants.rows, ...scopedReplicas.rows]) {
+      grants.set(grant.id, grant);
+    }
+    for (const grant of grants.values()) {
       if (grant.hosted_collection_id && grant.hosted_replica_id) {
         await db.query(
           `UPDATE hosted_replicas
@@ -132,7 +142,7 @@ export async function retireLegacyContractScopedGrants(
       }
     }
     await db.query("COMMIT");
-    return grants.rows.length;
+    return grants.size;
   } catch (error) {
     await db.query("ROLLBACK");
     throw error;

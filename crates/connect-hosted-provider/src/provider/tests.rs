@@ -468,6 +468,25 @@ fn concurrent_index_migrations_have_bounded_retry_cleanup() {
 }
 
 #[test]
+fn collection_authorization_migration_retires_scoped_provider_authority() {
+    let migration =
+        include_str!("../../migrations/0038_collection_level_application_authorization.sql");
+    let archive = migration
+        .find("INSERT INTO hosted_provider_retired_replay_credentials")
+        .unwrap();
+    let notifications = migration
+        .find("DELETE FROM hosted_provider_notification_grants")
+        .unwrap();
+    let revoke = migration.find("UPDATE hosted_provider_replicas").unwrap();
+    assert!(archive < notifications && notifications < revoke);
+    assert!(migration.contains("full_collection = false"));
+    assert!(migration.contains("cardinality(allowed_types) <> 0"));
+    assert!(migration.contains("contract_scope <> '[]'::jsonb"));
+    assert!(migration
+        .contains("IS DISTINCT FROM '{\"access\":\"full_collection\",\"contracts\":[]}'::jsonb"));
+}
+
+#[test]
 fn legacy_receipt_cutover_migration_is_page_bounded() {
     let migration = include_str!("mutation_journal_migration.rs");
     assert!(migration.contains("limit.clamp(1, 100)"));
