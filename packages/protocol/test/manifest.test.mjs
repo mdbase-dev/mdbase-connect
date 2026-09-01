@@ -135,16 +135,22 @@ test("portable declarations validate without inventing a web origin", () => {
     id: "dev.example.portable",
     name: "Portable app",
     project_url: "https://portable.example/project",
-    icon: "https://portable.example/icon.png"
+    icon: "https://portable.example/icon.png",
+    requirements: { access: "full_collection", contracts: [] }
   }), { valid: true, issues: [] });
 
   const parsed = parseAppManifest({
     manifest_version: 1,
     distribution: "portable",
     id: "dev.example.portable",
-    name: "Portable app"
+    name: "Portable app",
+    requirements: { access: "full_collection", contracts: [] }
   });
-  assert.deepEqual(parsed.requirements, { contracts: [], configuration: [] });
+  assert.deepEqual(parsed.requirements, {
+    access: "full_collection",
+    contracts: [],
+    configuration: []
+  });
   assert.deepEqual(parsed.provisions, { type_packs: [], configuration: [] });
   assert.deepEqual(parsed.notifications, { criteria: [] });
 });
