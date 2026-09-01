@@ -13,20 +13,20 @@
   },
   "dependencies": {
     "@fastify/cors": "^11.3.0",
-    "@fastify/formbody": "^8.0.2",
-    "@fastify/helmet": "^13.1.0",
-    "@fastify/rate-limit": "^11.1.0",
+    "@fastify/formbody": "^9.0.0",
+    "@fastify/helmet": "^13.1.1",
+    "@fastify/rate-limit": "^11.2.0",
     "@mdbase-dev/connect": "workspace:*",
     "@mdbase-dev/connect-protocol": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "fastify": "^5.10.0",
-    "pg": "^8.22.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "fastify": "^5.12.1",
+    "pg": "^8.23.0",
     "pg-mem": "^3.0.14",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "@types/pg": "^8.20.0",
+    "@types/pg": "^8.23.1",
     "tsx": "^4.23.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
