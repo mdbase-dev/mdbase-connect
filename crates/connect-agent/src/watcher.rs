@@ -373,17 +373,27 @@ mod tests {
         drop(final_service);
         assert!(worker_owner.upgrade().is_none());
 
-        // The final service drop is the lifecycle barrier. The Windows notify
-        // backend closes its native registration asynchronously after unwatch,
-        // so allow that already-requested teardown to finish before asserting.
-        for attempt in 0..400 {
-            match fs::remove_dir_all(&root) {
-                Ok(()) => break,
-                Err(error) if attempt == 399 => {
-                    panic!("remove fixture after watcher shutdown: {error}")
+        // The final service drop is the lifecycle barrier. On Windows prove
+        // the watched collection handle was released by moving that directory;
+        // unrelated registry database handles are outside this service's owner.
+        #[cfg(windows)]
+        {
+            let collection = root.join("collection");
+            let moved = root.join("moved");
+            for attempt in 0..400 {
+                match fs::rename(&collection, &moved) {
+                    Ok(()) => {
+                        let _ = fs::remove_dir_all(&root);
+                        break;
+                    }
+                    Err(error) if attempt == 399 => {
+                        panic!("move collection after watcher shutdown: {error}")
+                    }
+                    Err(_) => std::thread::sleep(Duration::from_millis(25)),
                 }
-                Err(_) => std::thread::sleep(Duration::from_millis(25)),
             }
         }
+        #[cfg(not(windows))]
+        fs::remove_dir_all(&root).unwrap();
     }
 }
