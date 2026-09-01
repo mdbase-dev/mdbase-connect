@@ -50,7 +50,7 @@ mod files;
 mod projections;
 
 use accounts::account_routes;
-use authentication::{bearer, is_query_cursor_release, request_origin, request_proof};
+use authentication::{bearer, request_origin, request_proof};
 use authority_import_files::{
     commit_authority_import_file_upload, open_authority_import_file_upload,
     prepare_authority_import_file_part,
@@ -914,9 +914,9 @@ async fn operation(
         ApiError::bad_request("invalid_json", "The hosted operation body is invalid.")
     })?;
     let recovery_only = mdbase_connect_protocol::is_mutating_operation(&operation, &request.input);
-    // Cursor release changes bounded query metadata only; keep authorized,
-    // identity-bound cleanup available while semantic reads are suspended.
-    let cursor_release = is_query_cursor_release(&operation, &request.input, recovery_only);
+    let cursor_release = !recovery_only
+        && matches!(operation.as_str(), "query" | "execute_view")
+        && HostedProvider::is_valid_query_cursor_release(&request.input);
     let admission = if cursor_release {
         None
     } else if recovery_only {

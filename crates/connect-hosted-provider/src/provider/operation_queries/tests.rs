@@ -7,6 +7,15 @@ mod tests {
         let id = Uuid::new_v4();
         let token = encode_query_cursor(id);
         assert_eq!(decode_query_cursor(&token).unwrap(), id);
+        assert!(HostedProvider::is_valid_query_cursor_release(&json!({
+            "release_cursor": token.clone()
+        })));
+        assert!(!HostedProvider::is_valid_query_cursor_release(&json!({
+            "release_cursor": null
+        })));
+        assert!(!HostedProvider::is_valid_query_cursor_release(&json!({
+            "release_cursor": token.clone() + "="
+        })));
         assert_eq!(
             decode_query_cursor(&(token + "=")).unwrap_err().code,
             "invalid_query_cursor"

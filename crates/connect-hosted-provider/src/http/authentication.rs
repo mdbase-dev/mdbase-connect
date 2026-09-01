@@ -3,7 +3,6 @@ use mdbase_connect_protocol::{
     AUTHORITY_PROOF_NONCE_HEADER, AUTHORITY_PROOF_SIGNATURE_HEADER,
     AUTHORITY_PROOF_TIMESTAMP_HEADER, AUTHORITY_PROOF_VERSION_HEADER,
 };
-use serde_json::Value;
 use uuid::Uuid;
 
 use crate::{
@@ -83,12 +82,6 @@ fn header_text<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
         .and_then(|value| value.to_str().ok())
 }
 
-pub(super) fn is_query_cursor_release(operation: &str, input: &Value, mutating: bool) -> bool {
-    !mutating
-        && matches!(operation, "query" | "execute_view")
-        && input.get("release_cursor").is_some()
-}
-
 pub(super) fn bearer(headers: &HeaderMap) -> ApiResult<&str> {
     headers
         .get(AUTHORIZATION)
@@ -98,20 +91,4 @@ pub(super) fn bearer(headers: &HeaderMap) -> ApiResult<&str> {
         .ok_or_else(|| {
             ApiError::unauthorized("missing_bearer_token", "A bearer credential is required.")
         })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn cursor_release_exemption_is_closed_to_query_operations() {
-        let release = json!({"release_cursor": "opaque"});
-        assert!(is_query_cursor_release("query", &release, false));
-        assert!(is_query_cursor_release("execute_view", &release, false));
-        assert!(!is_query_cursor_release("describe", &release, false));
-        assert!(!is_query_cursor_release("query", &release, true));
-        assert!(!is_query_cursor_release("query", &json!({}), false));
-    }
 }
