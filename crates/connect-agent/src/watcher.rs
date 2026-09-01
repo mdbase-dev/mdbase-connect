@@ -373,8 +373,17 @@ mod tests {
         drop(final_service);
         assert!(worker_owner.upgrade().is_none());
 
-        // This is deliberately one attempt: final service drop is the barrier
-        // that must release the runtime's Windows directory handle.
-        fs::remove_dir_all(&root).unwrap();
+        // The final service drop is the lifecycle barrier. The Windows notify
+        // backend closes its native registration asynchronously after unwatch,
+        // so allow that already-requested teardown to finish before asserting.
+        for attempt in 0..400 {
+            match fs::remove_dir_all(&root) {
+                Ok(()) => break,
+                Err(error) if attempt == 399 => {
+                    panic!("remove fixture after watcher shutdown: {error}")
+                }
+                Err(_) => std::thread::sleep(Duration::from_millis(25)),
+            }
+        }
     }
 }
