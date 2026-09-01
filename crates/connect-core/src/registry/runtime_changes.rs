@@ -358,10 +358,7 @@ fn merge_payload(mut left: Value, right: Value) -> Value {
 fn runtime_context(
     cancellation: &mdbase::OperationCancellation,
 ) -> mdbase::runtime::OperationContext {
-    mdbase::runtime::OperationContext::new(
-        cancellation,
-        mdbase::runtime::OperationDeadline::after(Duration::from_secs(24 * 60 * 60)),
-    )
+    operation_context(cancellation)
 }
 
 #[cfg(test)]

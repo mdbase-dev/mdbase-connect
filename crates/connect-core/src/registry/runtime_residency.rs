@@ -75,6 +75,45 @@ impl CollectionRegistry {
         Ok(())
     }
 
+    /// Release every resident runtime after bounded background index work drains.
+    ///
+    /// Daemon shutdown uses this as a lifecycle barrier before collection folders
+    /// may be moved or removed on Windows.
+    pub fn shutdown_runtimes(&self) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            let running = self
+                .file_warmups
+                .lock()
+                .map(|warmups| {
+                    warmups
+                        .values()
+                        .any(|state| matches!(state, FileWarmupState::Running))
+                })
+                .unwrap_or(false);
+            if !running || std::time::Instant::now() >= deadline {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let roots = if let Ok(mut executors) = self.executors.lock() {
+            let roots = executors
+                .values()
+                .map(|executor| executor.provider().root().to_path_buf())
+                .collect::<Vec<_>>();
+            executors.clear();
+            roots
+        } else {
+            Vec::new()
+        };
+        #[cfg(windows)]
+        for root in roots {
+            wait_for_windows_delete_share(&root);
+        }
+        #[cfg(not(windows))]
+        drop(roots);
+    }
+
     /// Snapshot the bounded set of collection runtimes already held in memory.
     pub fn resident_collection_ids(&self) -> Result<Vec<Uuid>, ConnectError> {
         let executors = self
@@ -186,6 +225,48 @@ impl CollectionRegistry {
         )?;
         Ok(())
     }
+}
+
+#[cfg(windows)]
+fn wait_for_windows_delete_share(root: &Path) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !windows_tree_is_delete_shared(root) && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+#[cfg(windows)]
+fn windows_tree_is_delete_shared(root: &Path) -> bool {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        DELETE, FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    };
+
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(path) = pending.pop() {
+        let handle = std::fs::OpenOptions::new()
+            .access_mode(DELETE)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(&path);
+        match handle {
+            Ok(file) => drop(file),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => return false,
+        }
+        if std::fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_dir()) {
+            let entries = match std::fs::read_dir(&path) {
+                Ok(entries) => entries,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(_) => return false,
+            };
+            for entry in entries {
+                let Ok(entry) = entry else { return false };
+                pending.push(entry.path());
+            }
+        }
+    }
+    true
 }
 
 fn trim_idle_executors(

@@ -322,7 +322,7 @@ impl CollectionRegistry {
             let execution =
                 execute_runtime_request(require_runtime(runtime)?, &request, None, &context)?;
             let result = v03_operation_result(&execution.operation);
-            if !execution.operation.valid {
+            if !execution.operation.is_valid() {
                 return Err(type_pack_setup_error(&result));
             }
             Ok(result.result)

@@ -347,6 +347,90 @@ export async function evaluateArchitecture(root, budgets) {
     }
   }
 
+  if (budgets.externalGuards !== undefined) {
+    const externalGuards = budgets.externalGuards ?? {};
+    const guardedRust = [...productionSources]
+      .filter(([file]) => file.endsWith(".rs"))
+      .map(([, source]) => source)
+      .join("\n");
+    const guardedCounts = {
+      directWireOnlyConstructors: matchCount(
+        guardedRust,
+        /\b(?:CanonicalOperationValue::WireOnly|WireOnlyOperationValue::)\b/g
+      ),
+      directCanonicalOutcomeStructs: matchCount(
+        guardedRust,
+        /\bCanonicalOperationOutcome\s*\{\s*(?:valid|value|diagnostics)\s*:/g
+      ),
+      privateCanonicalResultFieldCalls: matchCount(
+        guardedRust,
+        /\boperation\.(?:valid|value|diagnostics)\b(?!\s*\()/g
+      )
+    };
+    for (const [name, count] of Object.entries(guardedCounts)) {
+      const maximum = externalGuards[name];
+      if (!Number.isSafeInteger(maximum) || maximum < 0) {
+        failures.push(`externalGuards.${name} must be a non-negative integer.`);
+      } else if (count > maximum) {
+        failures.push(`${name} is ${count}; its external guard is ${maximum}.`);
+      }
+    }
+
+    const cargoManifestPaths = [
+      "Cargo.toml",
+      ...[...workspaceInventory.packagePaths]
+        .filter((packagePath) => packagePath.startsWith("crates/"))
+        .map((packagePath) => `${packagePath}/Cargo.toml`)
+    ];
+    const cargoSources = [];
+    for (const manifest of cargoManifestPaths) {
+      try {
+        cargoSources.push([manifest, await readFile(path.join(root, manifest), "utf8")]);
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
+    }
+    const legacyCrudFeatures = cargoSources.reduce(
+      (total, [, source]) => total + matchCount(
+        source,
+        /\bfeatures\s*=\s*\[[^\]]*["']legacy-collection-mutation["'][^\]]*\]/gs
+      ),
+      0
+    );
+    if (legacyCrudFeatures !== (externalGuards.legacyCrudFeatures ?? -1)) {
+      failures.push(
+        `legacyCrudFeatures is ${legacyCrudFeatures}; expected ${externalGuards.legacyCrudFeatures}.`
+      );
+    }
+    for (const [manifest, source] of cargoSources) {
+      for (const dependency of source.matchAll(/^\s*mdbase\s*=\s*\{([^}]*)\}/gm)) {
+        const options = dependency[1];
+        if (!/\bworkspace\s*=\s*true\b/.test(options) &&
+            !/\bdefault-features\s*=\s*false\b/.test(options)) {
+          failures.push(`${manifest} mdbase dependency must set default-features = false.`);
+        }
+      }
+    }
+
+    const projectionFormat = externalGuards.semanticProjectionFormatVersion;
+    if (!Number.isSafeInteger(projectionFormat) || projectionFormat < 1) {
+      failures.push("externalGuards.semanticProjectionFormatVersion must be a positive integer.");
+    } else {
+      const hostedProvider = productionSources.get(
+        "crates/connect-hosted-provider/src/provider.rs"
+      ) ?? "";
+      const configuredFormat = new RegExp(
+        `const\\s+CONNECT_SEMANTIC_PROJECTION_FORMAT_VERSION\\s*:\\s*u32\\s*=\\s*${projectionFormat}\\s*;`
+      );
+      const compileAssertion = /const\s+_\s*:\s*\(\)\s*=\s*assert!\(\s*mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION\s*==\s*CONNECT_SEMANTIC_PROJECTION_FORMAT_VERSION\s*\)\s*;/s;
+      if (!configuredFormat.test(hostedProvider) || !compileAssertion.test(hostedProvider)) {
+        failures.push(
+          `hosted provider must compile-assert upstream semantic projection format ${projectionFormat}.`
+        );
+      }
+    }
+  }
+
   const reviewBudgets =
     budgets.reviewBudgets && typeof budgets.reviewBudgets === "object" && !Array.isArray(budgets.reviewBudgets)
       ? budgets.reviewBudgets

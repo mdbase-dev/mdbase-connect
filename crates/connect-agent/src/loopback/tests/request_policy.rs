@@ -90,5 +90,5 @@ async fn preflight_pause_tampering_and_revocation_fail_closed() {
     drop(app);
     drop(fixture);
     assert!(agent.upgrade().is_none());
-    fs::remove_dir_all(&root).unwrap();
+    remove_fixture_after_watchers_close(&root);
 }

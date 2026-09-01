@@ -136,22 +136,30 @@ export function parseRollbackArgs(args) {
 }
 
 export async function resolveCloudOpsCommand({ root, run, environment }) {
-  const commonDirectory = (await run("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
-    cwd: root,
-    env: environment,
-    capture: true
-  })).trim();
-  if (!commonDirectory.startsWith("/") || commonDirectory.length < 3) {
-    throw new Error("Cannot derive the canonical mdbase projects directory from Git.");
+  let expectedRoot;
+  if (environment.MDBASE_CLOUD_OPS_CHECKOUT !== undefined) {
+    if (!environment.MDBASE_CLOUD_OPS_CHECKOUT.startsWith("/")) {
+      throw new Error("MDBASE_CLOUD_OPS_CHECKOUT must be an absolute path.");
+    }
+    expectedRoot = environment.MDBASE_CLOUD_OPS_CHECKOUT;
+  } else {
+    const commonDirectory = (await run("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
+      cwd: root,
+      env: environment,
+      capture: true
+    })).trim();
+    if (!commonDirectory.startsWith("/") || commonDirectory.length < 3) {
+      throw new Error("Cannot derive the canonical mdbase projects directory from Git.");
+    }
+    expectedRoot = resolve(commonDirectory, "..", "..", "mdbase-cloud-ops");
   }
-  const expectedRoot = resolve(commonDirectory, "..", "..", "mdbase-cloud-ops");
   let canonicalRoot;
   try {
     canonicalRoot = await realpath(expectedRoot);
   } catch {
     throw new Error(`Canonical sibling mdbase-cloud-ops checkout is unavailable at ${expectedRoot}.`);
   }
-  if (canonicalRoot !== expectedRoot) throw new Error("Canonical mdbase-cloud-ops checkout must not be reached through a symlink.");
+  if (canonicalRoot !== expectedRoot) throw new Error("Selected mdbase-cloud-ops checkout must be canonical and must not be reached through a symlink or relative segment.");
   const topLevel = (await run("git", ["rev-parse", "--show-toplevel"], {
     cwd: canonicalRoot,
     env: environment,

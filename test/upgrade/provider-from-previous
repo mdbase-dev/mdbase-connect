@@ -27,7 +27,6 @@ UPGRADE_MUTATION_ID=66666666-6666-4666-8666-666666666666
 UPGRADE_NEXT_MUTATION_ID=88888888-8888-4888-8888-888888888888
 UPGRADE_RECORD_ID=77777777-7777-4777-8777-777777777777
 UPGRADE_REPLICA_TOKEN=previous-provider-upgrade-replica-token
-CUTOVER_OWNER_TOKEN=99999999-9999-4999-8999-999999999991
 UPGRADE_DATABASE_PORT=${UPGRADE_DATABASE_PORT:-5432}
 UPGRADE_PROVIDER_PORT=${UPGRADE_PROVIDER_PORT:-8790}
 UPGRADE_PROVIDER_URL="http://127.0.0.1:$UPGRADE_PROVIDER_PORT"
@@ -35,29 +34,18 @@ export PROVIDER_INTERNAL_TOKEN PROVIDER_MASTER_KEY
 export MDBASE_CONNECT_R2_ENDPOINT MDBASE_CONNECT_R2_BUCKET
 export MDBASE_CONNECT_R2_ACCESS_KEY_ID MDBASE_CONNECT_R2_SECRET_ACCESS_KEY
 export MDBASE_CONNECT_ALLOW_INSECURE_R2
-upgrade_require DATABASE_URL MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE
+upgrade_require \
+  DATABASE_URL \
+  MDBASE_CONNECT_PREVIOUS_RELEASE \
+  MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT \
+  MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE
+upgrade_verify_previous_release "$repo_root"
 
 r2_pid=
-terminate_cutover_lock_holder() {
-  docker run --rm --network host \
-    --env PGPASSWORD=previous-provider-upgrade \
-    postgres:18-alpine \
-    psql --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT" \
-      --username mdbase --dbname mdbase_provider_upgrade \
-      --set ON_ERROR_STOP=1 \
-      --command "SELECT pg_terminate_backend(pid)
-                 FROM pg_stat_activity
-                 WHERE application_name = 'mdbase-provider-cutover-lock-holder'
-                   AND pid <> pg_backend_pid()" \
-    >/dev/null 2>&1 || true
-}
-
 cleanup() {
-  terminate_cutover_lock_holder
   for container in \
     mdbase-provider-previous \
     mdbase-provider-previous-migration \
-    mdbase-provider-cutover-lock \
     mdbase-provider-upgrade-candidate
   do
     docker logs "$container" >/dev/null 2>&1 || true
@@ -93,6 +81,27 @@ start_previous_provider() {
   fi
 }
 
+provider_json() {
+  local method=$1
+  local path=$2
+  local body=$3
+  local token=${4:-$PROVIDER_INTERNAL_TOKEN}
+  curl --fail-with-body --silent --show-error \
+    --request "$method" \
+    --header 'content-type: application/json' \
+    --header "authorization: Bearer $token" \
+    --data "$body" \
+    "$UPGRADE_PROVIDER_URL$path"
+}
+
+provider_get() {
+  local path=$1
+  local token=${2:-$PROVIDER_INTERNAL_TOKEN}
+  curl --fail-with-body --silent --show-error \
+    --header "authorization: Bearer $token" \
+    "$UPGRADE_PROVIDER_URL$path"
+}
+
 start_candidate_provider() {
   docker run --detach --name mdbase-provider-upgrade-candidate \
     --network host \
@@ -107,8 +116,20 @@ start_candidate_provider() {
     --env MDBASE_CONNECT_ALLOW_INSECURE_R2 \
     --env PORT="$UPGRADE_PROVIDER_PORT" \
     "$CANDIDATE_IMAGE" >/dev/null
+}
 
-  local recovered=false
+wait_candidate_provider() {
+  for _ in {1..30}; do
+    if curl --silent --output /dev/null "$UPGRADE_PROVIDER_URL/ready"; then
+      return 0
+    fi
+    sleep 1
+  done
+  printf 'Candidate provider did not begin serving HTTP.\n' >&2
+  return 1
+}
+
+wait_candidate_recovery() {
   local readiness=
   for _ in {1..30}; do
     readiness=$(curl --silent "$UPGRADE_PROVIDER_URL/ready" || true)
@@ -116,31 +137,16 @@ start_candidate_provider() {
       .status == "ready" and
       .notifications.configured == true and
       .notifications.recovery == "ok" and
-      .notifications.consecutive_failures == 0
+      .notifications.consecutive_failures == 0 and
+      .projections.degraded_collections == 0
     ' <<<"$readiness" >/dev/null; then
-      recovered=true
-      break
+      return 0
     fi
     sleep 2
   done
-  if ! $recovered; then
-    docker logs mdbase-provider-upgrade-candidate
-    printf 'Candidate provider did not recover upgraded notification state.\n' >&2
-    return 1
-  fi
-}
-
-provider_json() {
-  local method=$1
-  local path=$2
-  local body=$3
-  local token=${4:-$PROVIDER_INTERNAL_TOKEN}
-  curl --fail-with-body --silent --show-error \
-    --request "$method" \
-    --header 'content-type: application/json' \
-    --header "authorization: Bearer $token" \
-    --data "$body" \
-    "$UPGRADE_PROVIDER_URL$path"
+  docker logs mdbase-provider-upgrade-candidate
+  printf 'Candidate provider did not recover notification and projection readiness.\n' >&2
+  return 1
 }
 
 seed_previous_sync_receipt() {
@@ -159,7 +165,7 @@ previous_mutation_body() {
     --arg mutation_id "$UPGRADE_MUTATION_ID" \
     --arg replica_id "$UPGRADE_REPLICA_ID" \
     --arg record_id "$UPGRADE_RECORD_ID" \
-    --arg document $'---\ntitle: Preserved beta receipt\n---\n\nExact beta69 bytes.\n' \
+    --arg document $'---\ntitle: Preserved predecessor receipt\n---\n\nExact predecessor bytes.\n' \
     '{mutation_id:$mutation_id,replica_id:$replica_id,scope_epoch:1,operation:"put",record_id:$record_id,path:"upgrade/receipt.md",document:$document,created_at:"2026-08-04T00:00:00Z"}'
 }
 
@@ -446,9 +452,8 @@ if ! upgrade_wait_http http://127.0.0.1:9000 'S3 readiness stub' 30 1; then
 fi
 
 upgrade_phase 'creating the previous provider schema'
-if [[ ${SKIP_PREVIOUS_IMAGE_PULL:-false} != true ]]; then
-  docker pull "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE"
-fi
+docker pull "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE"
+upgrade_verify_previous_image "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE"
 start_previous_provider mdbase-provider-previous false
 
 upgrade_phase 'seeding an encrypted previous-release sync receipt'
@@ -470,11 +475,11 @@ docker run --rm --interactive --network host \
 upgrade_phase 'reopening persisted state with the previous release'
 start_previous_provider mdbase-provider-previous-migration
 previous_contract=$(query_notification_contract)
-printf 'Previous release notification contract: %s\n' "$previous_contract"
+printf 'Previous release (%s at %s) notification contract: %s\n' \
+  "$MDBASE_CONNECT_PREVIOUS_RELEASE" \
+  "$MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT" \
+  "$previous_contract"
 [[ $previous_contract == "mdbase.runtime.timer.fired|1.0.0" ]]
-canonical_inventory_before=$(query_canonical_authority_inventory)
-printf 'Previous release canonical authority inventory: sha256:%s\n' \
-  "$canonical_inventory_before"
 canonical_application_authority_before=$(query_canonical_application_authority_inventory)
 printf 'Previous release canonical application authority: sha256:%s\n' \
   "$canonical_application_authority_before"
@@ -483,125 +488,71 @@ printf 'Previous release legacy collection authorization state: %s\n' \
   "$legacy_collection_authorization_before"
 [[ $legacy_collection_authorization_before == "1|0|1|1" ]]
 
-upgrade_phase 'indexing the complete preserved authority with the bounded cutover operator'
-docker run --detach --name mdbase-provider-cutover-lock --network host \
-  --env PGPASSWORD=previous-provider-upgrade \
-  --env PGAPPNAME=mdbase-provider-cutover-lock-holder \
-  postgres:18-alpine \
-  psql --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT" \
-    --username mdbase --dbname mdbase_provider_upgrade \
-    --set ON_ERROR_STOP=1 \
-    --command "SELECT pg_advisory_lock(hashtextextended('mdbase-candidate-b-cutover-v1', 0)); SELECT pg_sleep(30)" \
-  >/dev/null
-for _ in {1..30}; do
-  lock_count=$(docker run --rm --network host \
-    --env PGPASSWORD=previous-provider-upgrade \
-    postgres:18-alpine \
-    psql --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT" \
-      --username mdbase --dbname mdbase_provider_upgrade \
-      --tuples-only --no-align \
-      --command "SELECT count(*)
-                 FROM pg_locks
-                 JOIN pg_stat_activity USING (pid)
-                 WHERE locktype = 'advisory'
-                   AND granted
-                   AND application_name = 'mdbase-provider-cutover-lock-holder'" |
-    tr -d '[:space:]')
-  [[ $lock_count != 0 ]] && break
-  sleep 1
-done
-[[ ${lock_count:-0} != 0 ]]
-if lock_result=$(run_projection_indexer cutover \
-  --owner-token 99999999-9999-4999-8999-999999999990 \
-  --max-seconds 30)
-then
-  printf 'Projection cutover unexpectedly ignored the global PostgreSQL lock.\n' >&2
+upgrade_phase 'writing predecessor-created persisted state before projection rebuild'
+start_candidate_provider
+wait_candidate_provider
+if ! exact_receipt=$(provider_json POST \
+  "/v1/authorities/$UPGRADE_COLLECTION_ID/sync/mutations" \
+  "$(exact_mutation_body "$previous_revision")" "$UPGRADE_REPLICA_TOKEN"); then
+  printf 'Candidate pre-rebuild mutation failed: %s\n' "$exact_receipt" >&2
   exit 1
 fi
+printf 'Candidate pre-rebuild mutation receipt: %s\n' "$exact_receipt"
 jq -e '
-  .ok == false and
-  .command == "cutover" and
-  .result.outcome == "projection_cutover_lock_unavailable" and
-  .result.phase == "global_lock"
-' <<<"$lock_result" >/dev/null
-terminate_cutover_lock_holder
-upgrade_remove_container mdbase-provider-cutover-lock
+  .status == "applied" and
+  .record.path == "upgrade/receipt.md" and
+  .record.document == "---\ntitle: Exact beta receipt\n---\n\nExact bytes.\n"
+' <<<"$exact_receipt" >/dev/null
+snapshot_session=$(provider_json POST \
+  "/v1/authorities/$UPGRADE_COLLECTION_ID/sync/sessions" '' \
+  "$UPGRADE_REPLICA_TOKEN")
+snapshot_id=$(jq -er '.snapshot_id' <<<"$snapshot_session")
+pre_rebuild_snapshot=$(provider_get \
+  "/v1/authorities/$UPGRADE_COLLECTION_ID/sync/snapshot?snapshot_id=$snapshot_id" \
+  "$UPGRADE_REPLICA_TOKEN")
+jq -e --arg record_id "$UPGRADE_RECORD_ID" '
+  [.records[] | select(
+    .record_id == $record_id and
+    .path == "upgrade/receipt.md" and
+    .document == "---\ntitle: Exact beta receipt\n---\n\nExact bytes.\n"
+  )] | length == 1
+' <<<"$pre_rebuild_snapshot" >/dev/null
+upgrade_remove_container mdbase-provider-upgrade-candidate
 
-if bounded_result=$(run_projection_indexer cutover \
-  --owner-token "$CUTOVER_OWNER_TOKEN" \
-  --page-limit 1 \
-  --batches-per-collection 1 \
-  --max-collections 10 \
-  --max-batches 1 \
-  --max-pages 10 \
-  --max-seconds 120)
-then
-  printf 'Projection cutover unexpectedly completed inside the one-batch test budget.\n' >&2
-  exit 1
-fi
-jq -e '
-  .ok == false and
-  .command == "cutover" and
-  .result.outcome == "projection_cutover_batch_budget_exceeded" and
-  .result.complete_inventory == false and
-  .result.collections_verified == 0 and
-  .result.batches_advanced == 1 and
-  .result.blocked_collection_id == "33333333-3333-4333-8333-333333333333"
-' <<<"$bounded_result" >/dev/null
-verify_result=$(run_projection_indexer cutover \
-  --owner-token "$CUTOVER_OWNER_TOKEN" \
-  --page-limit 1 \
-  --batches-per-collection 16 \
-  --max-collections 10 \
-  --max-batches 160 \
-  --max-pages 10 \
-  --max-seconds 120)
-jq -e '
-  .ok == true and
-  .command == "cutover" and
-  .result.outcome == "complete" and
-  .result.complete_inventory == true and
-  .result.pages_visited == 1 and
-  .result.collections_verified == 1 and
-  .result.batches_advanced > 0 and
-  .result.blocked_collection_id == null
-' <<<"$verify_result" >/dev/null
-canonical_inventory_after_index=$(query_canonical_authority_inventory)
-printf 'Indexed candidate canonical authority inventory: sha256:%s\n' \
-  "$canonical_inventory_after_index"
-[[ $canonical_inventory_after_index == "$canonical_inventory_before" ]]
-canonical_application_authority_after_index=$(query_canonical_application_authority_inventory)
-[[ $canonical_application_authority_after_index == "$canonical_application_authority_before" ]]
+canonical_inventory_before=$(query_canonical_authority_inventory)
+printf 'Pre-verify candidate canonical authority inventory: sha256:%s\n' \
+  "$canonical_inventory_before"
+canonical_application_authority_after_migration=$(query_canonical_application_authority_inventory)
+[[ $canonical_application_authority_after_migration == "$canonical_application_authority_before" ]]
 collection_authorization_state=$(query_collection_authorization_state)
 printf 'Migrated collection authorization state: %s\n' "$collection_authorization_state"
 [[ $collection_authorization_state == "1|1|0|1|1" ]]
 
+upgrade_phase 'verifying the write-through projection without normalization'
+post_write_verify=$(run_projection_indexer verify --limit 100)
+jq -e '
+  .ok == true and
+  .command == "verify" and
+  (.result.collections | length) == 1 and
+  .result.collections[0].verified == true
+' <<<"$post_write_verify" >/dev/null
+canonical_inventory_after_verify=$(query_canonical_authority_inventory)
+printf 'Verified candidate canonical authority inventory: sha256:%s\n' \
+  "$canonical_inventory_after_verify"
+[[ $canonical_inventory_after_verify == "$canonical_inventory_before" ]]
+
 upgrade_phase 'requiring candidate recovery readiness'
 start_candidate_provider
+wait_candidate_recovery
 
-upgrade_phase 'finalizing candidate admission after recovery readiness'
-for admission_step in \
-  'open-hosted-query-admission-provisional.sql:lease_seconds=180' \
-  'finalize-hosted-query-admission.sql:'
-do
-  admission_file=${admission_step%%:*}
-  admission_variable=${admission_step#*:}
-  admission_arguments=(
-    --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT"
-    --username mdbase --dbname mdbase_provider_upgrade
-    --set ON_ERROR_STOP=1 --set "fence_token=$CUTOVER_OWNER_TOKEN"
-  )
-  if [[ -n $admission_variable ]]; then
-    admission_arguments+=(--set "$admission_variable")
-  fi
-  docker run --rm --network host \
-    --env PGPASSWORD=previous-provider-upgrade \
-    --volume "$repo_root/deploy/postgres:/candidate-postgres:ro" \
-    postgres:18-alpine \
-    psql "${admission_arguments[@]}" \
-    --file "/candidate-postgres/$admission_file" \
-    >/dev/null
-done
+upgrade_phase 'verifying projections after final provider restart'
+final_verify=$(run_projection_indexer verify --limit 100)
+jq -e '
+  .ok == true and
+  .command == "verify" and
+  (.result.collections | length) == 1 and
+  .result.collections[0].verified == true
+' <<<"$final_verify" >/dev/null
 
 contract=$(query_notification_contract true)
 printf 'Recovered notification contract: %s\n' "$contract"
@@ -624,39 +575,8 @@ canonical_application_authority_after_recovery=$(query_canonical_application_aut
 upgrade_phase 'restarting the candidate to prove authorization migration idempotence'
 upgrade_remove_container mdbase-provider-upgrade-candidate
 start_candidate_provider
+wait_candidate_recovery
 [[ $(query_canonical_application_authority_inventory) == "$canonical_application_authority_before" ]]
 [[ $(query_collection_authorization_state) == "1|1|0|1|1" ]]
 
-if ! replayed_receipt=$(provider_json POST \
-  "/v1/authorities/$UPGRADE_COLLECTION_ID/sync/mutations" \
-  "$(previous_mutation_body)" "$UPGRADE_REPLICA_TOKEN"); then
-  printf 'Beta69 receipt replay failed: %s\n' "$replayed_receipt" >&2
-  exit 1
-fi
-printf 'Replayed beta69 receipt: %s\n' "$replayed_receipt"
-jq -e '
-  .status == "applied" and
-  .record.path == "upgrade/receipt.md" and
-  .record.document == "---\ntitle: Preserved beta receipt\n---\n\nExact beta69 bytes.\n"
-' <<<"$replayed_receipt" >/dev/null
-canonical_inventory_after_replay=$(query_canonical_authority_inventory)
-printf 'Replayed candidate canonical authority inventory: sha256:%s\n' \
-  "$canonical_inventory_after_replay"
-[[ $canonical_inventory_after_replay == "$canonical_inventory_before" ]]
-
-if ! exact_receipt=$(provider_json POST \
-  "/v1/authorities/$UPGRADE_COLLECTION_ID/sync/mutations" \
-  "$(exact_mutation_body "$previous_revision")" "$UPGRADE_REPLICA_TOKEN"); then
-  printf 'Candidate exact mutation failed: %s\n' "$exact_receipt" >&2
-  exit 1
-fi
-printf 'Candidate exact mutation receipt: %s\n' "$exact_receipt"
-jq -e '
-  .status == "applied" and
-  .record.path == "upgrade/receipt.md" and
-  .record.document == "---\ntitle: Exact beta receipt\n---\n\nExact bytes.\n"
-' <<<"$exact_receipt" >/dev/null
-post_write_verify=$(run_projection_indexer verify --limit 100)
-jq -e '.ok == true and .result.collections[0].verified == true' \
-  <<<"$post_write_verify" >/dev/null
-printf 'Previous provider notification recovery path passed.\n'
+printf 'Immediate-predecessor persisted-state upgrade path passed.\n'

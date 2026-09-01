@@ -92,6 +92,37 @@ test("default ops discovery derives and validates the canonical sibling checkout
   }
 });
 
+test("an explicit canonical ops worktree is validated without falling back to the sibling checkout", async () => {
+  const projects = await mkdtemp(resolve(tmpdir(), "mdbase-explicit-ops-"));
+  const connectRoot = resolve(projects, "mdbase-connect");
+  const ops = resolve(projects, "ops-worktree");
+  const command = resolve(ops, "bin/deploy-local-lab");
+  await mkdir(connectRoot, { recursive: true });
+  await mkdir(resolve(ops, "bin"), { recursive: true });
+  await writeFile(command, "#!/bin/sh\n", { mode: 0o700 });
+  await chmod(command, 0o700);
+  try {
+    const run = async (_command, args, options) => {
+      assert(!args.includes("--git-common-dir"));
+      if (args.includes("--show-toplevel")) { assert.equal(options.cwd, ops); return `${ops}\n`; }
+      if (args[0] === "remote") return "https://github.com/mdbase-dev/mdbase-cloud-ops.git\n";
+      throw new Error(`unexpected explicit discovery command: ${args.join(" ")}`);
+    };
+    assert.equal(await resolveCloudOpsCommand({
+      root: connectRoot,
+      run,
+      environment: { MDBASE_CLOUD_OPS_CHECKOUT: ops }
+    }), command);
+    await assert.rejects(resolveCloudOpsCommand({
+      root: connectRoot,
+      run,
+      environment: { MDBASE_CLOUD_OPS_CHECKOUT: "relative/ops" }
+    }), /absolute path/u);
+  } finally {
+    await rm(projects, { recursive: true, force: true });
+  }
+});
+
 test("rollback delegates directly to the fixed local LAB command", async () => {
   const calls = [];
   const state = "/private/state.json";

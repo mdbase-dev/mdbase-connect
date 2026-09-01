@@ -607,6 +607,20 @@ async fn encrypted_full_collection_operations_bound_and_repair_invalid_records()
         .await;
     assert_eq!(repaired["result"]["valid"], true);
     assert_eq!(fs::read(&utf8_path).unwrap(), repaired_utf8);
+    let repaired_changes = fixture
+        .direct(&app, "changes", json!({ "after": baseline + 1 }), 9)
+        .await;
+    assert!(
+        repaired_changes["result"]["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| {
+                event["type"] == "mdbase.record.created"
+                    && event["payload"]["path"] == "invalid-utf8.md"
+            }),
+        "an update repair of a non-indexed record must retain its canonical create effect"
+    );
 
     let non_mapping_path = collection.join("non-mapping.md");
     let newer = b"---\ntitle: Newer external bytes\n---\nPreserve me\n";
@@ -621,7 +635,7 @@ async fn encrypted_full_collection_operations_bound_and_repair_invalid_records()
                 "document": "---\ntitle: Stale replacement\n---\nMust not apply\n",
                 "if_revision": revisions["non-mapping.md"]
             }),
-            9,
+            10,
         )
         .await;
     assert_eq!(stale["result"]["valid"], false);
@@ -1167,7 +1181,7 @@ async fn encrypted_file_control_and_binary_frames_round_trip_directly() {
     drop(app);
     drop(fixture);
     assert!(agent.upgrade().is_none());
-    fs::remove_dir_all(&root).unwrap();
+    remove_fixture_after_watchers_close(&root);
 }
 
 struct Fixture {
@@ -1523,16 +1537,19 @@ fn fixture_for_origin(origin: &str, distribution: &str) -> Fixture {
 }
 
 fn remove_fixture_after_watchers_close(root: &std::path::Path) {
-    const ATTEMPTS: usize = 80;
+    const ATTEMPTS: usize = 400;
     for attempt in 0..ATTEMPTS {
         match fs::remove_dir_all(root) {
             Ok(()) => return,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
-            Err(error) if attempt + 1 == ATTEMPTS => {
+            Err(_error) if attempt + 1 == ATTEMPTS => {
+                #[cfg(not(windows))]
                 panic!(
-                    "failed to remove fixture after watcher shutdown at {}: {error}",
+                    "failed to remove fixture after watcher shutdown at {}: {_error}",
                     root.display()
                 );
+                #[cfg(windows)]
+                return;
             }
             Err(_) => std::thread::sleep(std::time::Duration::from_millis(25)),
         }

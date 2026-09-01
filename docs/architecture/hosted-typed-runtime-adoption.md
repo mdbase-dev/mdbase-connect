@@ -23,3 +23,14 @@ The existing hosted count, exact-byte, projection-byte, cancellation, cursor,
 and transaction budgets continue to apply. Typed planning adds no second scan
 or materialization budget. Architecture tests reject legacy hosted runtime seams
 and `.result`-based semantic inference in hosted execution files.
+
+Semantic projection format 6 persists mdbase's bounded resolution reason and
+complete candidate evidence in the encrypted-authority projection row. Hosted
+rebuild and write-through use the same `plan_record_resolution` /
+`resolve_record_structure` implementation as local execution, and currentness
+checks verify the structural digest and candidate evidence before projection or
+relationship indexes are trusted. Format-5 generations and rows are stale by
+construction: query binding chooses exact fallback and indexing creates a new
+current generation; no evaluator mixes v5 rows into a v6 generation. Candidate
+evidence stays inside the existing authority-readable projection and does not
+add path or stable-ID fields to application responses.

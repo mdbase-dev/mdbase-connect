@@ -1,6 +1,6 @@
 {
   "name": "mdbase-connect",
-  "version": "0.1.0-beta.92",
+  "version": "0.1.0-beta.93",
   "private": true,
   "packageManager": "pnpm@11.15.1",
   "engines": {
@@ -10,6 +10,7 @@
     "build": "pnpm -r build",
     "build:packages": "pnpm --filter \"./packages/**\" -r --if-present build",
     "check:architecture": "node scripts/check-architecture.mjs",
+    "check:cargo-features": "scripts/check-cargo-features",
     "check:npm-bootstrap": "node scripts/check-npm-package-bootstrap.mjs",
     "check:release-readiness": "node scripts/check-release-readiness.mjs",
     "check:release-components": "node scripts/release-components.mjs --check",
