@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.1.0-beta.93
+
+Beta.93 consolidates collection semantics behind typed, capability-bound
+runtime APIs and completes cross-platform authority safety.
+
+- Local and hosted reads, queries, mutations, batches, and runtime receipts now
+  share canonical typed outcomes while preserving exact v0.3 wire behavior and
+  durable replay.
+- Collection snapshots are fallible and deterministic; merged-spec resolution
+  uses one Unicode-aware, target-filtered ranking contract with bounded
+  selection evidence.
+- Every post-open filesystem operation, watcher rescan, cache decision, and
+  publication remains bound to the acquired collection authority instead of
+  reacquiring an ambient display path.
+- Capture, cancellation, journal recovery, and compatibility seams are bounded,
+  checked, authenticated, and covered by enforceable retirement inventories.
+- Unix and Windows publication is capability-relative and atomic. Windows uses
+  destination-replacing handle-relative rename, delete-sharing readers, and
+  bounded sharing-denial retries without a remove-then-rename fallback.
+- Hosted mutation receipts and exact journal replay report the authoritative
+  persisted database mtime rather than temporary staging metadata.
+
 ## 0.1.0-beta.92
 
 Beta.92 restores relay compatibility with signed beta.90 connectors while
