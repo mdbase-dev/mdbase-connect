@@ -1,9 +1,12 @@
 impl HostedProvider {
     pub(crate) fn is_valid_query_cursor_release(input: &Value) -> bool {
-        input
-            .get("release_cursor")
-            .and_then(Value::as_str)
-            .is_some_and(|cursor| decode_query_cursor(cursor).is_ok())
+        input.as_object().is_some_and(|object| {
+            object.len() == 1
+                && object
+                    .get("release_cursor")
+                    .and_then(Value::as_str)
+                    .is_some_and(|cursor| decode_query_cursor(cursor).is_ok())
+        })
     }
 
     pub(super) async fn execute_hosted_query(
