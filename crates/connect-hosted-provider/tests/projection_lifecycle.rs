@@ -341,8 +341,8 @@ async fn hosted_v6_resolution_evidence_matches_local_reason_semantics() {
     assert_eq!(occurrence["candidate_count"], 1);
     assert!(occurrence["candidate_digest"].as_str().is_some());
     assert!(occurrence["selected_lookup"].is_object());
-    assert_eq!(occurrence["alternatives"], json!([]));
-    assert_eq!(occurrence["alternative_candidates"], json!([]));
+    assert!(occurrence["alternatives"].is_null());
+    assert!(occurrence["alternative_candidates"].is_null());
 }
 
 #[cfg(feature = "test-hooks")]

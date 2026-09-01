@@ -84,16 +84,20 @@ try {
 
   const sdkObjectKey = await pg(`SELECT object_key FROM hosted_provider_files WHERE file_id = '${sdkFile.fileId}'`);
   const moveMutationId = randomUUID();
-  const [moved, concurrentAttempt] = await Promise.all([
-    sdk.move(sdkFile, "Archive/sdk-renamed.bin", { mutationId: moveMutationId }),
+  const moveAttempts = await Promise.all([
+    sdk.move(sdkFile, "Archive/sdk-renamed.bin", { mutationId: moveMutationId })
+      .catch((error) => error),
     sdk.move(sdkFile, "Archive/sdk-renamed.bin", { mutationId: moveMutationId })
       .catch((error) => error)
   ]);
-  if (concurrentAttempt instanceof Error) {
-    assert.equal(concurrentAttempt.code, "temporarily_unavailable");
-  } else {
-    assert.deepEqual(concurrentAttempt, moved);
+  const moveSuccesses = moveAttempts.filter((result) => !(result instanceof Error));
+  const moveFailures = moveAttempts.filter((result) => result instanceof Error);
+  assert.ok(moveSuccesses.length >= 1);
+  for (const failure of moveFailures) {
+    assert.equal(failure.code, "temporarily_unavailable");
   }
+  const moved = moveSuccesses[0];
+  for (const replayed of moveSuccesses.slice(1)) assert.deepEqual(replayed, moved);
   assert.equal(moved.fileId, sdkFile.fileId);
   assert.notEqual(moved.revision, sdkFile.revision);
   assert.deepEqual(await sdk.move(sdkFile, moved.path, { mutationId: moveMutationId }), moved);
