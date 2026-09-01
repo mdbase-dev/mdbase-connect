@@ -1724,7 +1724,7 @@ schema:
   assert.ok(emptyCookie);
   const inlineManifest = await openManifestServer({
     name: "Workout Inline E2E",
-    requirements: { contracts: [typeProvision.provides[0]] },
+    requirements: { access: "full_collection", contracts: [typeProvision.provides[0]] },
     provisions: { type_packs: [typeProvision] }
   });
   try {

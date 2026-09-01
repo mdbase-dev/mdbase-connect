@@ -165,7 +165,13 @@ try {
 
   // This is the authorization assertion, not a readiness probe. In particular,
   // never retry this request if its live bearer credential is rejected.
-  const crossA = await operation(urlB, fixture, "read", { path: "first.md" });
+  const crossA = await operationWhenConnectorReady(
+    urlB,
+    fixture,
+    "read",
+    { path: "first.md" },
+    "Instance B did not observe the connector socket on A"
+  );
   if (crossA.status !== 200 || crossA.body.result?.owner !== "instance-a") {
     const diagnostics = await authorizationDiagnosticsForInstances([
       { name: "instance-a", db: databaseA },
@@ -242,7 +248,13 @@ try {
   const [closeCode] = await closedA;
   assert(closeCode === 4001, `Older cross-instance connector closed with ${closeCode}, not 4001`);
 
-  const crossB = await operation(urlA, fixture, "query", { limit: 5 });
+  const crossB = await operationWhenConnectorReady(
+    urlA,
+    fixture,
+    "query",
+    { limit: 5 },
+    "Instance A did not observe the replacement connector socket on B"
+  );
   assert(crossB.status === 200 && crossB.body.result?.owner === "instance-b",
     `Instance A did not route through the replacement socket on B: ${JSON.stringify(crossB)}`);
 
@@ -909,6 +921,22 @@ function opaqueFileFrame({ fixture, encryption, transferId, direction, plaintext
     },
     payload: new Uint8Array(plaintextLength + 16)
   });
+}
+
+async function operationWhenConnectorReady(
+  serverUrl,
+  fixture,
+  operationName,
+  input,
+  message
+) {
+  return poll(async () => {
+    const result = await operation(serverUrl, fixture, operationName, input);
+    if (result.status === 503 && result.body.error?.code === "connector_offline") {
+      return null;
+    }
+    return result;
+  }, message, 100, 50);
 }
 
 async function operation(serverUrl, fixture, operationName, input) {

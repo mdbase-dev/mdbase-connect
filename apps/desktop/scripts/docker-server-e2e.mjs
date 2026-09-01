@@ -220,6 +220,12 @@ try {
     .getByRole("heading", { name: "Docker fixture consumer" })
     .waitFor();
   await portalPage
+    .locator(`.collection-choice-list input[value="${collection.id}"]`)
+    .check();
+  await portalPage
+    .getByRole("button", { name: "Review access", exact: true })
+    .click();
+  await portalPage
     .locator(".selected-collection-summary")
     .filter({ hasText: "Docker fixture" })
     .waitFor({ state: "attached", timeout: 15_000 });

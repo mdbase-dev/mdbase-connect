@@ -288,8 +288,10 @@ secret: connector scope test
       code_verifier: verifier
     }
   });
-  if (token.body.scope?.contracts?.[0]?.id !== "workout.record" || !token.body.refresh_token) {
-    throw new Error(`Authorization did not return contract scope and refresh token: ${JSON.stringify(token.body)}`);
+  if (token.body.scope?.access !== "full_collection"
+      || token.body.scope?.contracts?.length !== 0
+      || !token.body.refresh_token) {
+    throw new Error(`Authorization did not return collection scope and refresh token: ${JSON.stringify(token.body)}`);
   }
   if (token.body.encryption?.protocol_version !== 1
       || token.body.encryption?.application_agreement_public_key !== applicationKey.agreementPublicKey
@@ -628,9 +630,9 @@ implements:
       || !updatedWorkoutType.includes("contract: workout.record")
       || await fileExists(join(collectionPath, "_types", "planning_item.md"))
       || !await fileExists(join(collectionPath, "_contracts", "planning.item.md"))
-      || setupToken.body.scope?.contracts?.[0]?.id !== "planning.item"
-      || setupToken.body.scope?.contracts?.[0]?.implementations?.[0]?.type_name !== "workout") {
-    throw new Error(`Existing-type setup did not produce the exact active scope: ${JSON.stringify({
+      || setupToken.body.scope?.access !== "full_collection"
+      || setupToken.body.scope?.contracts?.length !== 0) {
+    throw new Error(`Existing-type setup did not produce exact collection authority: ${JSON.stringify({
       scope: setupToken.body.scope,
       updatedWorkoutType
     })}`);
@@ -645,10 +647,9 @@ implements:
   const setupQueryBody = await setupQuery.json();
   const setupResult = setupQueryBody.result?.result?.results?.[0];
   if (setupQuery.status !== 200
-      || setupResult?.contract?.id !== "planning.item"
-      || setupResult?.frontmatter?.title === undefined) {
+      || setupResult?.effective_frontmatter?.title === undefined) {
     throw new Error(
-      `The activated mapped contract could not query existing records: ${JSON.stringify(setupQueryBody)}`
+      `The activated collection authority could not query existing records: ${JSON.stringify(setupQueryBody)}`
     );
   }
   await cliJson(["access", "revoke", setupToken.body.grant_id]);
@@ -908,9 +909,9 @@ implements:
       throw new Error("Browser SDK did not discover the direct connector");
     }
     const sdkQuery = requireConnectSuccess(await connection.query({ limit: 1_100 }));
-    if (sdkQuery.results.length !== 1_000 || connection.route !== "direct") {
+    if (sdkQuery.results.length !== 1_001 || connection.route !== "direct") {
       throw new Error(
-        "Browser SDK did not complete the 1,000-record query directly: " +
+        "Browser SDK did not complete the full-collection query directly: " +
         JSON.stringify({
           records: sdkQuery.results.length,
           route: connection.route
@@ -1188,11 +1189,13 @@ implements:
 
   const descriptionResponse = await rawOperation(collection.id, "describe", accessToken, {});
   const descriptionBody = await descriptionResponse.json();
+  const describedWorkoutType = descriptionBody.result?.types?.find(
+    (type) => type.name === "workout"
+  );
   if (descriptionResponse.status !== 200
       || descriptionBody.result?.protocol_version !== 1
-      || descriptionBody.result?.contracts?.[0]?.id !== "workout.record"
-      || descriptionBody.result?.types?.length !== 1
-      || descriptionBody.result?.types?.[0]?.schema?.properties?.title?.type !== "string") {
+      || !descriptionBody.result?.contracts?.some((contract) => contract.id === "workout.record")
+      || describedWorkoutType?.schema?.properties?.title?.type !== "string") {
     throw new Error(`Unexpected collection description: ${JSON.stringify(descriptionBody)}`);
   }
   const changeCursor = descriptionBody.result.change_cursor;
@@ -1309,14 +1312,15 @@ implements:
     path: "private.md"
   });
   const privateBody = await privateRead.json();
-  if (privateRead.status !== 403 || privateBody.error?.code !== "access_denied") {
-    throw new Error(`Contract scope exposed a private record: ${JSON.stringify(privateBody)}`);
+  if (privateRead.status !== 200
+      || privateBody.result?.result?.frontmatter?.secret !== "connector scope test") {
+    throw new Error(`Collection authority could not read a private record: ${JSON.stringify(privateBody)}`);
   }
   const scopedQuery = await rawOperation(collection.id, "query", accessToken, {});
   const scopedQueryBody = await scopedQuery.json();
   if (scopedQuery.status !== 200
-      || scopedQueryBody.result?.result?.results?.some((record) => record.path === "private.md")) {
-    throw new Error(`Contract scope did not constrain query results: ${JSON.stringify(scopedQueryBody)}`);
+      || !scopedQueryBody.result?.result?.results?.some((record) => record.path === "private.md")) {
+    throw new Error(`Collection authority did not include the private record in query results: ${JSON.stringify(scopedQueryBody)}`);
   }
 
   await cliJson(["access", "pause", "true"]);
@@ -1674,7 +1678,8 @@ async function openManifestServer() {
       id: "workout.record",
       version: "1.0.0",
       digest: "sha256:ca1752bbf69314cc712c97ae25ca510dad0230a65653b664f405468c2cefbe16"
-    }]
+    }],
+    "full_collection"
   );
   const browser = await openApplicationServer("Browser direct E2E", [], "full_collection");
   return {

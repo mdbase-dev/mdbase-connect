@@ -4874,7 +4874,7 @@ async fn candidate_b_query_receipts_evict_the_oldest_per_replica_window_entry() 
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
-async fn candidate_b_corrupt_projection_envelopes_fall_back_for_scoped_authorization() {
+async fn candidate_b_corrupt_projection_envelopes_fall_back_for_collection_authorization() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
     let fixture = FileLifecycleFixture::new(&database_url).await;
@@ -5107,12 +5107,12 @@ schema:
             fixture.collection_id,
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
-                name: "Candidate B integrity scoped reader".to_string(),
+                name: "Candidate B integrity collection reader".to_string(),
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadOnly,
-                allowed_types: vec!["public_note".to_string()],
-                contract_scope: resources.contracts,
-                full_collection: false,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
                 allowed_operations: vec!["query".to_string()],
                 operation_transport_protocol: Some(3),
                 operation_transport_recovery_protocols: Vec::new(),
@@ -5129,7 +5129,7 @@ schema:
         .await
         .unwrap();
 
-    assert_scoped_public_query(&fixture, &reader_token).await;
+    assert_full_collection_query(&fixture, &reader_token).await;
     sqlx::query(
         r#"WITH originals AS MATERIALIZED (
              SELECT record_id, semantic_projection
@@ -5178,8 +5178,8 @@ schema:
 
     // Both widening (secret labelled public) and narrowing (public labelled
     // secret), plus path/frontmatter cross-record substitution, resolve from
-    // exact authority. The scoped caller sees only the canonical public record.
-    assert_scoped_public_query(&fixture, &reader_token).await;
+    // exact authority. Collection authority sees both canonical exact records.
+    assert_full_collection_query(&fixture, &reader_token).await;
 
     let head: i64 =
         sqlx::query_scalar("SELECT head FROM hosted_provider_collections WHERE id = $1")
@@ -5220,7 +5220,7 @@ schema:
     assert_eq!(details["observed"], 10_001);
 }
 
-async fn assert_scoped_public_query(fixture: &FileLifecycleFixture, token: &str) {
+async fn assert_full_collection_query(fixture: &FileLifecycleFixture, token: &str) {
     let result = fixture
         .provider
         .operation(
@@ -5228,17 +5228,22 @@ async fn assert_scoped_public_query(fixture: &FileLifecycleFixture, token: &str)
             token,
             "query",
             Uuid::new_v4(),
-            json!({"limit": 10}),
+            json!({"limit": 10, "order_by": [{"field": "file.path"}]}),
             None,
         )
         .await
         .unwrap();
     assert_eq!(result["valid"], true);
-    assert_eq!(result["result"]["meta"]["total_count"], 1);
+    assert_eq!(result["result"]["meta"]["total_count"], 2);
     assert_eq!(result["result"]["results"][0]["path"], "public/note.md");
     assert_eq!(
         result["result"]["results"][0]["effective_frontmatter"]["title"],
         "Public exact"
+    );
+    assert_eq!(result["result"]["results"][1]["path"], "secret/note.md");
+    assert_eq!(
+        result["result"]["results"][1]["effective_frontmatter"]["title"],
+        "Secret exact"
     );
 }
 
