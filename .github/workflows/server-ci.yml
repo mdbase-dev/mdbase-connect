@@ -410,7 +410,11 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: mdbase-connect/pnpm-lock.yaml
-      - run: rustup toolchain install 1.94.0 --profile minimal
+      - run: >-
+          rustup toolchain install 1.94.0
+          --profile minimal
+          --component rustfmt
+          --component clippy
       - run: rustup override set 1.94.0
       - run: cp deploy/docker/Cargo.lock.hosted-provider Cargo.lock
       - name: Restore Rust dependency cache
