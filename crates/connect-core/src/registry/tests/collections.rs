@@ -276,7 +276,19 @@ fn collection_identity_survives_a_folder_move() {
     // exercise the same identity/path repair contract without relying on Unix
     // rename semantics.
     #[cfg(windows)]
-    drop(registry);
+    {
+        drop(registry);
+        for attempt in 0..=100 {
+            match fs::rename(&original, &moved) {
+                Ok(()) => break,
+                Err(error) if error.raw_os_error() == Some(32) && attempt < 100 => {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+                Err(error) => panic!("move collection after shutdown: {error}"),
+            }
+        }
+    }
+    #[cfg(not(windows))]
     fs::rename(&original, &moved).unwrap();
     #[cfg(windows)]
     let registry = CollectionRegistry::open(state.path()).unwrap();
