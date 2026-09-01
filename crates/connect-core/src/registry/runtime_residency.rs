@@ -229,31 +229,44 @@ impl CollectionRegistry {
 
 #[cfg(windows)]
 fn wait_for_windows_delete_share(root: &Path) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !windows_tree_is_delete_shared(root) && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+#[cfg(windows)]
+fn windows_tree_is_delete_shared(root: &Path) -> bool {
     use std::os::windows::fs::OpenOptionsExt;
-    use windows_sys::Win32::Foundation::GENERIC_READ;
     use windows_sys::Win32::Storage::FileSystem::{
         DELETE, FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
     };
 
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    loop {
-        let opened = std::fs::OpenOptions::new()
-            .access_mode(GENERIC_READ | DELETE)
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(path) = pending.pop() {
+        let handle = std::fs::OpenOptions::new()
+            .access_mode(DELETE)
             .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
             .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
-            .open(root);
-        match opened {
-            Ok(file) => {
-                drop(file);
-                return;
+            .open(&path);
+        match handle {
+            Ok(file) => drop(file),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => return false,
+        }
+        if std::fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_dir()) {
+            let entries = match std::fs::read_dir(&path) {
+                Ok(entries) => entries,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(_) => return false,
+            };
+            for entry in entries {
+                let Ok(entry) = entry else { return false };
+                pending.push(entry.path());
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
-            Err(_) if std::time::Instant::now() < deadline => {
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
-            Err(_) => return,
         }
     }
+    true
 }
 
 fn trim_idle_executors(

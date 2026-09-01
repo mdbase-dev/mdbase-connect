@@ -1181,7 +1181,7 @@ async fn encrypted_file_control_and_binary_frames_round_trip_directly() {
     drop(app);
     drop(fixture);
     assert!(agent.upgrade().is_none());
-    fs::remove_dir_all(&root).unwrap();
+    remove_fixture_after_watchers_close(&root);
 }
 
 struct Fixture {
