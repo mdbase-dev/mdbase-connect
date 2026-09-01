@@ -79,6 +79,36 @@ test("semantic capabilities and provision ownership share one canonical validato
   );
 });
 
+test("legacy contract-scoped declarations are rejected rather than widened", () => {
+  const scoped = manifest();
+  scoped.requirements.access = "contract";
+  const result = validateAppManifest(scoped);
+  assert.equal(result.valid, false);
+  assert.ok(result.issues.some((issue) =>
+    issue.path === "/requirements/access"
+    && ["const", "collectionAccess"].includes(issue.keyword)
+  ));
+  assert.throws(
+    () => parseAppManifest(scoped),
+    (error) => error instanceof AppManifestValidationError
+      && error.message.includes("/requirements/access")
+  );
+
+  const omitted = manifest();
+  delete omitted.requirements.access;
+  const omittedResult = validateAppManifest(omitted);
+  assert.equal(omittedResult.valid, false);
+  assert.ok(omittedResult.issues.some((issue) =>
+    issue.path === "/requirements/access"
+    && ["required", "collectionAccess"].includes(issue.keyword)
+  ));
+  assert.throws(
+    () => parseAppManifest(omitted),
+    (error) => error instanceof AppManifestValidationError
+      && error.message.includes("/requirements/access")
+  );
+});
+
 test("generic editors may apply user-selected packs without bundling one", () => {
   const editor = manifest();
   editor.provisions.type_packs = [];

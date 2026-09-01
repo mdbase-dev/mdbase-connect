@@ -30,7 +30,11 @@ Revoking access disables Connect-issued credentials immediately; hosted access
 is shown as `Revoking` until the data authority confirms the same boundary,
 then as `Revoked`. An account-management session
 may list and administer collections, but it never grants the editor access to
-their contents; each collection still receives its own application grant.
+their contents; each collection still receives its own application grant. The
+collection is the minimum data-authorization boundary: an authorized
+application may access every record in that collection, limited by its explicit
+action and file capabilities. Portable contracts describe compatibility and
+semantics, not a subset of records hidden behind the grant.
 
 For a local-authority collection, the browser SDK should use the connector's
 same-computer loopback service when the user has allowed local-network access,

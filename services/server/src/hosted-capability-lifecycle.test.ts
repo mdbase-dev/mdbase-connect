@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabasePool } from "./db.js";
 import { HostedProviderResponseError } from "./hosted-provider.js";
+import { retireLegacyContractScopedGrants } from "./legacy-backfills.js";
 import {
   hostedGrantRevocationStatus,
   hostedReplicaRevocationStatus,
@@ -159,6 +160,35 @@ describe("hosted capability lifecycle", () => {
     );
     expect(job.rows[0].state).toBe("completed");
     expect(job.rows[0].completed_at).toBeTruthy();
+    expect(await hostedGrantRevocationStatus(
+      fixture.db,
+      fixture.userId,
+      fixture.grantId
+    )).toBe("revoked");
+  });
+
+  it("retires legacy scoped replicas and their notification authority", async () => {
+    const fixture = await capabilityFixture();
+    await fixture.db.query(
+      `UPDATE grants
+       SET scope = '{"access":"contract","contracts":[]}'::jsonb
+       WHERE id = $1`,
+      [fixture.grantId]
+    );
+
+    expect(await retireLegacyContractScopedGrants(fixture.db)).toBe(1);
+    const provider = {
+      revokeReplica: vi.fn(async () => undefined),
+      revokeNotificationGrant: vi.fn(async () => undefined)
+    };
+    const worker = new ProviderRevocationWorker(fixture.db, provider as never);
+
+    expect(await worker.drain()).toBe(1);
+    expect(provider.revokeReplica).toHaveBeenCalledWith(fixture.replicaId);
+    expect(provider.revokeNotificationGrant).toHaveBeenCalledWith(
+      fixture.collectionId,
+      fixture.grantId
+    );
     expect(await hostedGrantRevocationStatus(
       fixture.db,
       fixture.userId,

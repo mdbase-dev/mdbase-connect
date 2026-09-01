@@ -294,6 +294,7 @@ export async function buildPolicySnapshot(
        JOIN applications a ON a.id = g.application_id
        WHERE c.connector_id = $1 AND g.revoked_at IS NULL
          AND g.activated_at IS NOT NULL
+         AND g.scope->>'access' = 'full_collection'
        ORDER BY g.id`,
       [connectorId]
     ));

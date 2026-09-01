@@ -664,6 +664,45 @@ schema:
         contract_setups: Vec::new(),
         grant: Box::new(grant.clone()),
     };
+    let mut legacy_scoped = activation_request();
+    if let RelayMessage::AuthorizationActivationRequest {
+        requirements,
+        grant,
+        ..
+    } = &mut legacy_scoped
+    {
+        requirements.access = Some(ApplicationAccess::Contract);
+        grant.scope = GrantScope {
+            access: ApplicationAccess::Contract,
+            contracts: Vec::new(),
+        };
+    }
+    let rejected = state.handle_relay_message(legacy_scoped).unwrap();
+    assert!(matches!(
+        rejected,
+        RelayMessage::AuthorizationActivationResponse {
+            ok: false,
+            error: Some(ControlError { ref message, .. }),
+            ..
+        } if message.contains("not widened")
+    ));
+    assert!(registry.list_grants().unwrap().is_empty());
+
+    let mut omitted_access = activation_request();
+    if let RelayMessage::AuthorizationActivationRequest { requirements, .. } = &mut omitted_access {
+        requirements.access = None;
+    }
+    let rejected = state.handle_relay_message(omitted_access).unwrap();
+    assert!(matches!(
+        rejected,
+        RelayMessage::AuthorizationActivationResponse {
+            ok: false,
+            error: Some(ControlError { ref message, .. }),
+            ..
+        } if message.contains("not widened")
+    ));
+    assert!(registry.list_grants().unwrap().is_empty());
+
     let activation = state.handle_relay_message(activation_request()).unwrap();
     assert!(matches!(
         activation,

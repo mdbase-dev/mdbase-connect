@@ -1320,7 +1320,7 @@ fn file_capabilities_are_independent_scoped_and_mode_checked() {
         mode: SyncReplicaMode::ReadOnly,
         allowed_types: Vec::new(),
         contract_scope: Vec::new(),
-        full_collection: false,
+        full_collection: true,
         allowed_operations: Vec::new(),
         operation_transport_protocol: Some(3),
         operation_transport_recovery_protocols: vec![2],
@@ -1347,7 +1347,7 @@ fn file_capabilities_are_independent_scoped_and_mode_checked() {
         mode: capability.mode,
         allowed_types: Vec::new(),
         contract_scope: Vec::new(),
-        full_collection: false,
+        full_collection: true,
         allowed_operations: Vec::new(),
         operation_transport_protocol: capability.operation_transport_protocol,
         operation_transport_recovery_protocols: capability

@@ -7,6 +7,7 @@ import { HostedProviderClient } from "./hosted-provider.js";
 import { createRelayBroker } from "./relay-broker.js";
 import { WebPushTransport } from "./web-push.js";
 import { FcmTransport } from "./fcm.js";
+import { retireLegacyContractScopedGrants } from "./legacy-backfills.js";
 import { SignedWebhookTransport } from "./webhook.js";
 import { ResendEmailTransport } from "./email.js";
 
@@ -17,6 +18,17 @@ const db = process.env.NODE_ENV === "production"
   : await createDatabase();
 if (process.env.NODE_ENV === "production") {
   await assertControlPlaneMigrationsCurrent(db);
+  const connection = await db.connect();
+  try {
+    const retired = await retireLegacyContractScopedGrants(connection);
+    if (retired > 0) {
+      console.info(JSON.stringify({
+        authorization_migration: { legacyContractScopedGrantsRetired: retired }
+      }));
+    }
+  } finally {
+    connection.release();
+  }
 }
 const relayBroker = await createRelayBroker(runtime.relayBroker);
 const portalDist = process.env.PORTAL_DIST ?? resolve(import.meta.dirname, "../../../apps/portal/dist");

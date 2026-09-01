@@ -286,6 +286,7 @@ test("v1 application manifests carry a stable reverse-domain id", () => {
       "dev.mdbase.tasks://auth/mdbase/callback"
     ],
     requirements: {
+      access: "full_collection",
       contracts: [{ id: "example.work-item", version: "1.0.0", digest: EXACT_DIGEST }]
     },
     notifications: {
@@ -306,6 +307,7 @@ test("v1 portable manifests explicitly avoid web origin claims", () => {
     name: "Portable Workouts",
     project_url: "https://workouts.example/source",
     requirements: {
+      access: "full_collection",
       contracts: [{ id: "workout.record", version: "1.0.0", digest: EXACT_DIGEST }]
     }
   };
@@ -329,6 +331,7 @@ test("application manifests request files independently from record contracts", 
     id: "dev.mdbase.assets",
     name: "Asset Browser",
     requirements: {
+      access: "full_collection",
       contracts: [],
       files: {
         actions: ["list", "read"],

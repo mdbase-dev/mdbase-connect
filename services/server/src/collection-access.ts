@@ -1,7 +1,6 @@
 import {
   COLLECTION_OPERATIONS,
-  type CollectionOperation,
-  type GrantScope
+  type CollectionOperation
 } from "@mdbase-dev/connect-protocol";
 import type { DatabaseQueryable } from "./db.js";
 import {
@@ -35,7 +34,6 @@ export interface CollectionAccessContext {
   policyRevision: number;
   actions: ReadonlySet<CollectionAction>;
   operationCeiling: ReadonlySet<CollectionOperation>;
-  scopeCeiling: GrantScope;
 }
 
 export interface CollectionAccessView {
@@ -119,8 +117,7 @@ export function ownerAccess(
     policyId: null,
     policyRevision: collection.authorityEpoch,
     actions: OWNER_ACTIONS,
-    operationCeiling: OWNER_OPERATIONS,
-    scopeCeiling: { access: "full_collection", contracts: [] }
+    operationCeiling: OWNER_OPERATIONS
   };
 }
 

@@ -179,13 +179,10 @@ pub(super) fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<
                 ));
             }
             if input.allowed_operations.is_empty() {
-                if input.full_collection
-                    || !input.allowed_types.is_empty()
-                    || !input.contract_scope.is_empty()
-                {
+                if !input.allowed_types.is_empty() || !input.contract_scope.is_empty() {
                     return Err(ApiError::bad_request(
                         "invalid_application_scope",
-                        "File-only capabilities cannot carry record scope.",
+                        "File-only capabilities cannot carry type-derived record scope.",
                     ));
                 }
             } else {

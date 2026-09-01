@@ -516,14 +516,21 @@ function validateCapabilityRequirements(value: unknown): ManifestValidationIssue
   const manifest = asObject(value);
   const requirements = asObject(manifest.requirements);
   const capabilities = asObject(requirements.capabilities);
-  if (Object.keys(capabilities).length === 0) return [];
+  const issues: ManifestValidationIssue[] = [];
+  if (requirements.access !== "full_collection") {
+    issues.push(issue(
+      "/requirements/access",
+      "collectionAccess",
+      "must explicitly request full_collection; legacy or omitted access is not widened"
+    ));
+  }
+  if (Object.keys(capabilities).length === 0) return issues;
   const required = Array.isArray(capabilities.required)
     ? capabilities.required.map(String)
     : [];
   const optional = Array.isArray(capabilities.optional)
     ? capabilities.optional.map(String)
     : [];
-  const issues: ManifestValidationIssue[] = [];
   const overlap = optional.find((capability) => required.includes(capability));
   if (overlap) {
     issues.push(issue(
@@ -534,18 +541,6 @@ function validateCapabilityRequirements(value: unknown): ManifestValidationIssue
   }
   const declared = new Set([...required, ...optional]);
   const provisions = asObject(manifest.provisions);
-  if (
-    Array.isArray(requirements.contracts)
-    && requirements.contracts.length > 0
-    && requirements.access !== "full_collection"
-    && !required.includes("definitions.contracts.current")
-  ) {
-    issues.push(issue(
-      "/requirements/capabilities/required",
-      "contractCapability",
-      "must require definitions.contracts.current for contract-scoped requirements"
-    ));
-  }
   if (declared.has("definitions.type-pack.apply")) {
     if (requirements.access !== "full_collection") {
       issues.push(issue(

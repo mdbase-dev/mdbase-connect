@@ -735,6 +735,7 @@ describe("mdbase connect server", () => {
     });
     expect(discovered.statusCode).toBe(200);
     expect(discovered.json().application.requirements).toEqual({
+      access: "full_collection",
       configuration: [],
       contracts: [{
         id: "workout.record",
@@ -830,12 +831,8 @@ describe("mdbase connect server", () => {
       "SELECT id, scope, revoked_at FROM grants WHERE id IN ($1, $2) ORDER BY id",
       [legacyCompatibleGrantId, legacyIncompatibleGrantId]
     );
-    expect(reconciled.rows.find((grant) => grant.id === legacyCompatibleGrantId)).toEqual(
-      expect.objectContaining({
-        scope: { access: "contract", contracts: [contractDescriptor()] },
-        revoked_at: null
-      })
-    );
+    expect(reconciled.rows.find((grant) => grant.id === legacyCompatibleGrantId)?.revoked_at)
+      .not.toBeNull();
     expect(reconciled.rows.find((grant) => grant.id === legacyIncompatibleGrantId)?.revoked_at)
       .not.toBeNull();
     await db.query("DELETE FROM grants WHERE id IN ($1, $2)", [
@@ -867,7 +864,7 @@ describe("mdbase connect server", () => {
     expect(legacyGrant.statusCode).toBe(409);
     expect(legacyGrant.json().error.code).toBe("application_authorization_required");
 
-    const overbroadAuthorization = await postWebAuthorization(app, {
+    const capabilityOnlyAuthorization = await postWebAuthorization(app, {
         applicationId,
         applicationManifestDigest,
         redirectUri: manifestServer.redirectUri,
@@ -875,8 +872,7 @@ describe("mdbase connect server", () => {
         state: "overbroad",
         operations: ["list_views", "execute_view"]
     });
-    expect(overbroadAuthorization.statusCode).toBe(400);
-    expect(overbroadAuthorization.json().error.message).toContain("full collection access");
+    expect(capabilityOnlyAuthorization.statusCode).toBe(200);
 
     const verifier = "local-connector-verifier-that-is-long-enough-00001";
     const state = "test-state";
@@ -928,6 +924,7 @@ describe("mdbase connect server", () => {
     expect(localControl.json().pending_authorizations[0].application_name).toBe("Workout Tracker");
     expect(localControl.json().pending_authorizations[0].collection_id).toBe(localCollectionId);
     expect(localControl.json().pending_authorizations[0].requirements).toEqual({
+      access: "full_collection",
       configuration: [],
       contracts: [{
         id: "workout.record",
@@ -2653,6 +2650,7 @@ async function startWebAuthorization(
 
 function applicationManifestFixture(
   requirements: ApplicationRequirements = {
+    access: "full_collection",
     contracts: [{
       id: "workout.record",
       version: "1.0.0",

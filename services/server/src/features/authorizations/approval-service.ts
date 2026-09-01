@@ -229,7 +229,6 @@ export async function approvePortalAuthorization(
       applicationOperationCeiling:
         pending.requested_operations as CollectionOperation[],
       requirements: pending.requirements,
-      availableContracts: selected.contracts,
       access: grantAccess
     });
     const operations = plan.operations;
@@ -372,7 +371,6 @@ export async function approvePortalAuthorization(
       requestedOperations: grant!.operations,
       applicationOperationCeiling: grant!.operations,
       requirements,
-      availableContracts: activation.contracts,
       access: grantAccess!
     }).scope;
     await finalize.query(
@@ -736,7 +734,6 @@ export async function approveHostedAuthorization(
       applicationOperationCeiling:
         pending.requested_operations as CollectionOperation[],
       requirements: pending.requirements,
-      availableContracts: availableDescriptors,
       access: input.access
     });
     const scope = plan.scope;
