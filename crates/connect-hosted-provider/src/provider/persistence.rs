@@ -31,6 +31,21 @@ pub(super) async fn verify_database_key(
         .map_err(DatabaseKeyError::Invalid)
 }
 
+pub(super) async fn verify_stored_database_key_for_startup(
+    pool: &PgPool,
+    crypto: &ProviderCrypto,
+) -> Result<(), DatabaseKeyError> {
+    let key_check: Vec<u8> =
+        sqlx::query_scalar("SELECT key_check FROM hosted_provider_metadata WHERE singleton = true")
+            .fetch_one(pool)
+            .await
+            .map_err(DatabaseKeyError::Database)?;
+    crypto
+        .verify_key_check(&key_check)
+        .await
+        .map_err(DatabaseKeyError::Invalid)
+}
+
 pub(super) async fn verify_stored_database_key(
     pool: &PgPool,
     crypto: &ProviderCrypto,

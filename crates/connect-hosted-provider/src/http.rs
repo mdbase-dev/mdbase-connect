@@ -50,7 +50,7 @@ mod files;
 mod projections;
 
 use accounts::account_routes;
-use authentication::{bearer, request_origin, request_proof};
+use authentication::{bearer, is_query_cursor_release, request_origin, request_proof};
 use authority_import_files::{
     commit_authority_import_file_upload, open_authority_import_file_upload,
     prepare_authority_import_file_part,
@@ -319,10 +319,9 @@ pub fn app(state: AppState) -> Router {
         )
         .layer(DefaultBodyLimit::max(MAX_IMPORT_BODY_BYTES))
         .route_layer(middleware::from_fn(require_bearer_request));
-    let admitted = Router::new()
+    let write_admitted = Router::new()
         .merge(internal)
         .merge(sync)
-        .merge(operations)
         .merge(files)
         .merge(imports)
         .route_layer(middleware::from_fn_with_state(
@@ -331,7 +330,8 @@ pub fn app(state: AppState) -> Router {
         ));
     Router::new()
         .merge(diagnostic_routes(state.clone()))
-        .merge(admitted)
+        .merge(write_admitted)
+        .merge(operations)
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(cors)
         .layer(PropagateRequestIdLayer::new(request_id_header.clone()))
@@ -914,6 +914,16 @@ async fn operation(
         ApiError::bad_request("invalid_json", "The hosted operation body is invalid.")
     })?;
     let recovery_only = mdbase_connect_protocol::is_mutating_operation(&operation, &request.input);
+    // Cursor release changes bounded query metadata only; keep authorized,
+    // identity-bound cleanup available while semantic reads are suspended.
+    let cursor_release = is_query_cursor_release(&operation, &request.input, recovery_only);
+    let admission = if cursor_release {
+        None
+    } else if recovery_only {
+        Some(state.provider.acquire_runtime_admission().await?)
+    } else {
+        Some(state.provider.acquire_runtime_read_admission().await?)
+    };
     let authorization = if recovery_only {
         state
             .provider
@@ -958,20 +968,22 @@ async fn operation(
         .provider
         .record_operation_protocol_usage(collection_id, request.protocol_version)
         .await?;
-    Ok(Json(
-        serde_json::to_value(OperationResponse {
-            protocol_version: request.protocol_version,
-            request_id: request.request_id,
-            ok: true,
-            result: Some(result),
-            problem: None,
-        })
-        .map_err(|error| {
-            ApiError::internal(format!(
-                "Hosted operation response could not serialize: {error}"
-            ))
-        })?,
-    ))
+    let response = serde_json::to_value(OperationResponse {
+        protocol_version: request.protocol_version,
+        request_id: request.request_id,
+        ok: true,
+        result: Some(result),
+        problem: None,
+    })
+    .map_err(|error| {
+        ApiError::internal(format!(
+            "Hosted operation response could not serialize: {error}"
+        ))
+    })?;
+    if let Some(admission) = admission {
+        admission.commit().await?;
+    }
+    Ok(Json(response))
 }
 
 #[cfg(test)]

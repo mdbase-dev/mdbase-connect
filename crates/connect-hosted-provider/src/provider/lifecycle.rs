@@ -24,6 +24,18 @@ impl HostedProvider {
         .await
     }
 
+    /// Connect without running startup migrations for an independent semantic
+    /// read-back under runtime read admission. The candidate service or fixed
+    /// cutover command must already have applied and verified the exact ledger.
+    pub async fn connect_for_verification(
+        database_url: &str,
+        crypto: ProviderCrypto,
+        limits: ProviderLimits,
+        blob_store: Arc<dyn BlobStore>,
+    ) -> ApiResult<Self> {
+        Self::connect_internal(database_url, crypto, limits, blob_store, None, false, None).await
+    }
+
     /// Connect after a cutover operator has applied the reviewed migration
     /// ledger on the exact PostgreSQL session that owns the global cutover
     /// lock. This deliberately cannot migrate on a second pooled session.
@@ -57,6 +69,7 @@ impl HostedProvider {
         run_migrations: bool,
         cutover_connection: Option<(Duration, Uuid)>,
     ) -> ApiResult<Self> {
+        let initialize_database_key = run_migrations || cutover_connection.is_some();
         let started = Instant::now();
         let mut retry_delay = Duration::from_millis(100);
         loop {
@@ -69,7 +82,11 @@ impl HostedProvider {
                 } else {
                     Ok(())
                 } {
-                    Ok(()) => match verify_database_key(&pool, &crypto).await {
+                    Ok(()) => match if initialize_database_key {
+                        verify_database_key(&pool, &crypto).await
+                    } else {
+                        verify_stored_database_key_for_startup(&pool, &crypto).await
+                    } {
                         Ok(()) => {
                             let query_pool = hosted_query_pool_options()
                                 .connect_lazy(database_url)
