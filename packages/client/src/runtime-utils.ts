@@ -317,7 +317,7 @@ export function parseGrantScope(value: unknown): GrantScope | null {
 
 /** Only this scope authorizes application data access. */
 export function isCanonicalGrantScope(scope: GrantScope): boolean {
-  return scope.access === "full_collection";
+  return scope.access === "full_collection" && scope.contracts.length === 0;
 }
 
 export function stripTrailingSlash(value: string): string {

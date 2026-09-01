@@ -36,6 +36,13 @@ describe("canonical collection grant scope", () => {
     );
   });
 
+  it("rejects contradictory full_collection scope with retained contract limits", () => {
+    expect(isCanonicalGrantScope({
+      access: "full_collection",
+      contracts: [{} as never]
+    })).toBe(false);
+  });
+
   it("accepts the N-1 full_collection wire spelling", () => {
     expect(parseToken("full_collection").scope).toEqual({
       access: "full_collection",

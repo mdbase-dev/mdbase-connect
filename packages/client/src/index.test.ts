@@ -2360,7 +2360,7 @@ describe("application sessions", () => {
       family_identity: "bundle:dev.mdbase.tasks",
       manifest_digest: "ab".repeat(32),
       name: "Tasks",
-      requirements: { contracts: [] }
+      requirements: { contracts: [], access: "full_collection" }
     }));
     vi.spyOn(manager, "manifest").mockResolvedValue(connectSuccess({
       manifest_version: 1,
@@ -2370,6 +2370,7 @@ describe("application sessions", () => {
       redirect_uris: ["https://tasks.example/auth/mdbase/callback"],
       requirements: {
         contracts: [],
+        access: "full_collection",
         capabilities: { contract_version: 1, required: ["records.query"] }
       }
     }));
@@ -3477,8 +3478,8 @@ describe("authorization renewal", () => {
       collectionName: "Worklog",
       operations: ["query"],
       scope: {
-        contracts: [WORK_ITEM_CONTRACT],
-        access: "contract",
+        contracts: [],
+        access: "full_collection",
       },
       expiresAt: Date.now() + 60_000,
       refreshExpiresAt: Date.now() + 120_000,
@@ -3612,8 +3613,8 @@ describe("authorization renewal", () => {
       collectionName: "Worklog",
       operations: ["query", "create", "update", "delete"],
       scope: {
-        contracts: [WORK_ITEM_CONTRACT],
-        access: "contract",
+        contracts: [],
+        access: "full_collection",
       },
       expiresAt: Date.now() + 60_000,
       refreshExpiresAt: Date.now() + 120_000,
@@ -3675,8 +3676,8 @@ describe("authorization renewal", () => {
       collectionName: "Worklog",
       operations: ["query"],
       scope: {
-        contracts: [WORK_ITEM_CONTRACT],
-        access: "contract",
+        contracts: [],
+        access: "full_collection",
       },
       expiresAt: Date.now() - 1,
       refreshExpiresAt: Date.now() + 60_000
@@ -3690,8 +3691,8 @@ describe("authorization renewal", () => {
         collection_id: "00000000-0000-0000-0000-000000000002",
         operations: ["query"],
         scope: {
-          contracts: [WORK_ITEM_CONTRACT],
-          access: "contract",
+          contracts: [],
+          access: "full_collection",
         }
       }), { status: 200, headers: { "content-type": "application/json" } }))
       .mockImplementationOnce(async (_request, init) => {
@@ -3736,8 +3737,8 @@ describe("authorization renewal", () => {
       collectionName: "Worklog",
       operations: ["query"],
       scope: {
-        contracts: [WORK_ITEM_CONTRACT],
-        access: "contract",
+        contracts: [],
+        access: "full_collection",
       },
       refreshExpiresAt: Date.now() + 60_000
     };
@@ -3801,7 +3802,7 @@ describe("authorization renewal", () => {
       collectionId: TEST_COLLECTION_ID,
       collectionName: "Worklog",
       operations: ["query"],
-      scope: { contracts: [WORK_ITEM_CONTRACT], access: "contract" },
+      scope: { contracts: [], access: "full_collection" },
       expiresAt: Date.now() - 1,
       refreshExpiresAt: Date.now() + 60_000
     }));
@@ -5379,7 +5380,7 @@ function hostedConnection(operations: Array<"query" | "create">) {
     collectionId: TEST_COLLECTION_ID,
     collectionName: "Worklog",
     operations,
-    scope: { contracts: [WORK_ITEM_CONTRACT], access: "contract" },
+    scope: { contracts: [], access: "full_collection" },
     expiresAt: Date.now() + 60_000,
     refreshExpiresAt: Date.now() + 120_000,
     authority: {

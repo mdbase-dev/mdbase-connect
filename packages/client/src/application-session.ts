@@ -940,7 +940,8 @@ function accessRequirementSatisfied(
   connection: MdbaseConnectionInfo
 ): boolean {
   return manifest.requirements?.access === "full_collection"
-    && connection.scope.access === "full_collection";
+    && connection.scope.access === "full_collection"
+    && connection.scope.contracts.length === 0;
 }
 
 function declarationIdFromFamilyIdentity(familyIdentity: string): string {
