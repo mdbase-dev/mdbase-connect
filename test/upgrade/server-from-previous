@@ -11,7 +11,12 @@ source "$repo_root/.github/previous-release.env"
 CANDIDATE_IMAGE=${CANDIDATE_IMAGE:-mdbase-connect-server:upgrade-candidate}
 UPGRADE_SERVER_PORT=${UPGRADE_SERVER_PORT:-8787}
 UPGRADE_SERVER_URL="http://127.0.0.1:$UPGRADE_SERVER_PORT"
-upgrade_require DATABASE_URL MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE
+upgrade_require \
+  DATABASE_URL \
+  MDBASE_CONNECT_PREVIOUS_RELEASE \
+  MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT \
+  MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE
+upgrade_verify_previous_release "$repo_root"
 
 cleanup() {
   docker logs mdbase-connect-upgrade-candidate >/dev/null 2>&1 || true
@@ -27,6 +32,7 @@ docker build \
 
 upgrade_phase 'creating the previous release schema'
 docker pull "$MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE"
+upgrade_verify_previous_image "$MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE"
 docker run --rm --network host \
   --env DATABASE_URL \
   "$MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE" \

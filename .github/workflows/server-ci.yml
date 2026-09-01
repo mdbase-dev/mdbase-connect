@@ -279,13 +279,14 @@ jobs:
     env:
       DATABASE_URL: postgres://mdbase:previous-release-upgrade@127.0.0.1:5432/mdbase_connect_upgrade
       CANDIDATE_IMAGE: mdbase-connect-server:upgrade-candidate
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Exercise the previous-server upgrade contract
         run: test/upgrade/server-from-previous
 
   previous-provider-upgrade:
-    name: Previous provider notification recovery
+    name: Immediate-predecessor provider persisted-state upgrade
     needs: classify
     if: needs.classify.outputs.run_full == 'true'
     runs-on: ubuntu-24.04
@@ -307,9 +308,10 @@ jobs:
     env:
       DATABASE_URL: postgres://mdbase:previous-provider-upgrade@127.0.0.1:5432/mdbase_provider_upgrade
       CANDIDATE_IMAGE: mdbase-connect-hosted-provider:upgrade-candidate
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Exercise the previous-provider recovery contract
+      - name: Exercise immediate-predecessor persisted-state recovery
         run: test/upgrade/provider-from-previous
 
   hosted-provider-rust:

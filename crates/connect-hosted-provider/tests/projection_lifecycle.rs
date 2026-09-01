@@ -2074,6 +2074,88 @@ async fn diagnostics_attribute_unready_collections_to_a_cause() {
     // causes rather than on absolute counts.
     let unready_before = readiness.unready;
     let stale_before = readiness.resource_revision_stale;
+    let format_mismatch_before = readiness.format_version_mismatch;
+    let engine_mismatch_before = readiness.engine_version_mismatch;
+
+    // A predecessor can leave a perfectly consistent collection/generation
+    // binding that is nevertheless stale for this running binary. Diagnostics
+    // must compare persisted identity with the runtime, not only both stored
+    // halves with each other.
+    let stale_format =
+        i32::try_from(mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION).unwrap() + 1;
+    let stale_engine = "diagnostics-stale-semantic-engine";
+    sqlx::query(
+        r#"UPDATE hosted_provider_projection_generations
+           SET projection_format_version = $2, semantic_engine_version = $3
+           WHERE collection_id = $1
+             AND generation_id = (
+               SELECT active_projection_generation_id
+               FROM hosted_provider_collections WHERE id = $1
+             )"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(stale_format)
+    .bind(stale_engine)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"UPDATE hosted_provider_collections
+           SET active_projection_format_version = $2,
+               active_semantic_engine_version = $3
+           WHERE id = $1"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(stale_format)
+    .bind(stale_engine)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+
+    let stale_runtime = fixture.provider.hosted_diagnostics().await;
+    let readiness = match &stale_runtime.projection_readiness {
+        DiagnosticSection::Ok { value } => *value,
+        DiagnosticSection::Unavailable { reason } => {
+            panic!("projection readiness unavailable: {reason}")
+        }
+    };
+    assert_eq!(readiness.unready, unready_before + 1);
+    assert_eq!(
+        readiness.format_version_mismatch,
+        format_mismatch_before + 1
+    );
+    assert_eq!(
+        readiness.engine_version_mismatch,
+        engine_mismatch_before + 1
+    );
+
+    sqlx::query(
+        r#"UPDATE hosted_provider_projection_generations
+           SET projection_format_version = $2, semantic_engine_version = $3
+           WHERE collection_id = $1
+             AND generation_id = (
+               SELECT active_projection_generation_id
+               FROM hosted_provider_collections WHERE id = $1
+             )"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(i32::try_from(mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION).unwrap())
+    .bind(mdbase::VERSION)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"UPDATE hosted_provider_collections
+           SET active_projection_format_version = $2,
+               active_semantic_engine_version = $3
+           WHERE id = $1"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(i32::try_from(mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION).unwrap())
+    .bind(mdbase::VERSION)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
 
     // Strand the binding the way a view mutation did on 2026-08-18: advance the
     // collection's resource revision while the generation keeps the old one.
