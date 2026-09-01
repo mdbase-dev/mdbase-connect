@@ -5,10 +5,17 @@ INSERT INTO hosted_provider_retired_replay_credentials (
   replica_id, token_hash, allowed_origin, proof_public_key, expires_at
 )
 SELECT id, token_hash, allowed_origin, proof_public_key,
-       now() + interval '365 days'
+       LEAST(token_expires_at, now() + interval '365 days')
 FROM hosted_provider_replicas
 WHERE purpose = 'application'
   AND revoked_at IS NULL
+  AND token_expires_at > now()
+  AND EXISTS (
+    SELECT 1
+    FROM hosted_provider_mutation_journal journal
+    WHERE journal.replica_id = hosted_provider_replicas.id
+      AND journal.state = 'completed'
+  )
   AND (
     full_collection = false
     OR cardinality(allowed_types) <> 0

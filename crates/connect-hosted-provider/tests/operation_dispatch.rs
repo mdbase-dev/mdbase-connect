@@ -178,32 +178,92 @@ async fn retired_application_credentials_replay_only_exact_terminal_mutations() 
         .await
         .expect("terminal mutation is recorded before retirement");
 
-    let mut transaction = fixture.pool.begin().await.unwrap();
-    sqlx::query(
-        "UPDATE hosted_provider_replicas \
-         SET full_collection = false, allowed_types = ARRAY['task']::text[] \
-         WHERE id = $1",
-    )
-    .bind(replica_id)
-    .execute(&mut *transaction)
-    .await
-    .unwrap();
-    sqlx::query(
-        r#"INSERT INTO hosted_provider_retired_replay_credentials
-             (replica_id, token_hash, allowed_origin, proof_public_key, expires_at)
-           SELECT id, token_hash, allowed_origin, proof_public_key, now() + interval '365 days'
-           FROM hosted_provider_replicas WHERE id = $1"#,
-    )
-    .bind(replica_id)
-    .execute(&mut *transaction)
-    .await
-    .unwrap();
-    sqlx::query("UPDATE hosted_provider_replicas SET revoked_at = now() WHERE id = $1")
-        .bind(replica_id)
-        .execute(&mut *transaction)
+    let expired_replica_id = Uuid::now_v7();
+    let expired_token = format!("expired-application-{}-{}", Uuid::new_v4(), Uuid::new_v4());
+    fixture
+        .provider
+        .register_replica(
+            fixture.collection_id,
+            RegisterReplica {
+                replica_id: expired_replica_id,
+                name: "Expired application replay".to_string(),
+                purpose: ReplicaPurpose::Application,
+                mode: SyncReplicaMode::ReadWrite,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
+                allowed_operations: vec!["create".to_string()],
+                operation_transport_protocol: Some(3),
+                operation_transport_recovery_protocols: vec![2],
+                file_capability: None,
+                allowed_origin: Some("https://tasks.example".to_string()),
+                proof_public_key: Some(
+                    URL_SAFE_NO_PAD.encode(
+                        signing_key
+                            .verifying_key()
+                            .to_encoded_point(false)
+                            .as_bytes(),
+                    ),
+                ),
+                grant_id: Some(Uuid::new_v4()),
+                application_declaration_id: None,
+                application_declaration_digest: None,
+                token: expired_token.clone(),
+                token_ttl_seconds: Some(3600),
+            },
+        )
         .await
-        .unwrap();
-    transaction.commit().await.unwrap();
+        .expect("soon-expired application replica is registered");
+    let expired_request_id = Uuid::now_v7();
+    let expired_input = json!({
+        "path": "retired/expired.md",
+        "frontmatter": {"title": "Expired"}
+    });
+    fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &expired_token,
+            "create",
+            expired_request_id,
+            expired_input.clone(),
+            Some("https://tasks.example"),
+        )
+        .await
+        .expect("terminal mutation is recorded before the scoped token expires");
+
+    sqlx::query(
+        r#"UPDATE hosted_provider_replicas
+           SET full_collection = false, allowed_types = ARRAY['task']::text[]
+           WHERE id = $1"#,
+    )
+    .bind(replica_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"UPDATE hosted_provider_replicas
+           SET full_collection = false, token_expires_at = now() - interval '1 second'
+           WHERE id = $1"#,
+    )
+    .bind(expired_replica_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../migrations/0038_collection_level_application_authorization.sql"
+    ))
+    .execute(&fixture.pool)
+    .await
+    .expect("migration 38 retires scoped credentials");
+    let expired_archives: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_retired_replay_credentials WHERE replica_id = $1",
+    )
+    .bind(expired_replica_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(expired_archives, 0, "expired scoped token is not archived");
 
     let live_authorization = fixture
         .provider
@@ -309,6 +369,45 @@ async fn retired_application_credentials_replay_only_exact_terminal_mutations() 
         "rejected retired replay creates no protocol usage state"
     );
 
+    let expired_replay_body = serde_json::to_vec(&json!({
+        "protocol_version": 3,
+        "request_id": expired_request_id,
+        "input": expired_input
+    }))
+    .unwrap();
+    let expired_replay = client
+        .post(format!("http://{address}{target}"))
+        .bearer_auth(&expired_token)
+        .header("content-type", "application/json")
+        .body(expired_replay_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(expired_replay.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let expired_problem: Value = expired_replay.json().await.unwrap();
+    assert_eq!(expired_problem["error"]["code"], "invalid_replica_token");
+
+    let conflict_body = serde_json::to_vec(&json!({
+        "protocol_version": 3,
+        "request_id": request_id,
+        "input": {"path": "retired/different.md", "frontmatter": {"title": "Different"}}
+    }))
+    .unwrap();
+    let conflict = client
+        .post(format!("http://{address}{target}"))
+        .bearer_auth(&token)
+        .header("content-type", "application/json")
+        .body(conflict_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(conflict.status(), reqwest::StatusCode::CONFLICT);
+    let conflict_problem: Value = conflict.json().await.unwrap();
+    assert_eq!(
+        conflict_problem["error"]["code"],
+        "mutation_request_conflict"
+    );
+
     let replay_body = serde_json::to_vec(&json!({
         "protocol_version": 3,
         "request_id": request_id,
@@ -317,13 +416,7 @@ async fn retired_application_credentials_replay_only_exact_terminal_mutations() 
     .unwrap();
     let replay = client
         .post(format!("http://{address}{target}"))
-        .headers(signed_application_headers(
-            &signing_key,
-            &token,
-            "POST",
-            &target,
-            &replay_body,
-        ))
+        .bearer_auth(&token)
         .header("content-type", "application/json")
         .body(replay_body)
         .send()
@@ -332,11 +425,12 @@ async fn retired_application_credentials_replay_only_exact_terminal_mutations() 
     assert_eq!(replay.status(), reqwest::StatusCode::OK);
     let replay: Value = replay.json().await.unwrap();
     assert_eq!(replay["result"], receipt);
-    let usage_after_replay: i64 =
-        sqlx::query_scalar("SELECT sum(sample_count) FROM hosted_provider_protocol_usage")
-            .fetch_one(&fixture.pool)
-            .await
-            .unwrap();
+    let usage_after_replay: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(sum(sample_count), 0)::bigint FROM hosted_provider_protocol_usage",
+    )
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
     assert_eq!(usage_after_replay, 1, "only exact replay records usage");
     server.abort();
 

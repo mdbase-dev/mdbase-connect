@@ -152,11 +152,19 @@ export interface ApplicationNotifications {
  * `id` is stable presentation metadata rather than proof of a publisher. Each
  * exact declaration is independently identified and authorized by Connect.
  */
+export type CanonicalApplicationRequirements = Omit<
+  ApplicationRequirements,
+  "access" | "contracts"
+> & {
+  access: "full_collection";
+  contracts: [];
+};
+
 interface MdbaseAppManifestBase {
   manifest_version: 1;
   id: string;
   name: string;
-  requirements?: ApplicationRequirements;
+  requirements: CanonicalApplicationRequirements;
   provisions?: ApplicationProvisions;
   notifications?: ApplicationNotifications;
 }

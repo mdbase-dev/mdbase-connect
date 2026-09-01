@@ -112,6 +112,36 @@ test("previous-provider fixture preserves the notification contract", async () =
   assert.match(fixture, /"authorization_binding":5/);
   assert.match(fixture, /mdbase\.runtime\.timer\.fired/);
   assert.match(fixture, /"version":"1\.0\.0"/);
+  assert.match(fixture, /full-collection-false application/);
+  assert.match(fixture, /allowed-types application/);
+  assert.match(fixture, /contract-scope application/);
+  assert.match(
+    fixture,
+    /ARRAY\[\]::text\[\],[\s\S]*?'\[\]'::jsonb,[\s\S]*?false,[\s\S]*?ae970fb3/
+  );
+  assert.match(
+    fixture,
+    /ARRAY\['task'\]::text\[\],[\s\S]*?'\[\]'::jsonb,[\s\S]*?true,[\s\S]*?50b6d796/
+  );
+  assert.match(
+    fixture,
+    /"contract_type":"record"[\s\S]*?'::jsonb,[\s\S]*?true,[\s\S]*?b4792a76/
+  );
+});
+
+test("provider upgrade proves bounded retired replay without canonical writes", async () => {
+  const program = await readFile(
+    resolve(repoRoot, "test/upgrade/provider-from-previous"),
+    "utf8"
+  );
+  assert.match(program, /predecessor_application_receipt=\$\(provider_application_operation/);
+  assert.match(program, /replayed_application_receipt == "\$predecessor_application_receipt"/);
+  assert.match(program, /query_canonical_authority_inventory/);
+  assert.match(program, /changed_status == 409/);
+  assert.match(program, /mutation_request_conflict/);
+  assert.match(program, /new_status == 401/);
+  assert.match(program, /invalid_replica_token/);
+  assert.match(program, /retired\.expires_at = LEAST\(/);
 });
 
 test("S3 readiness fixture serves a scoped empty bucket listing", async (context) => {

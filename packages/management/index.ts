@@ -174,6 +174,8 @@ export interface ManagementOverview {
     created_at: string;
     revoked_at: string | null;
     revocation_status: "active" | "revoking" | "revoked";
+    reauthorization_required_at: string | null;
+    reauthorization_reason: string | null;
     collection_id: string;
     collection_name: string;
     collection_kind: "local" | "hosted";

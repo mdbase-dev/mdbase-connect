@@ -302,8 +302,19 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
         assert!(!preflight.contains(&format!("DELETE FROM {canonical}")));
     }
     assert!(final_preflight.contains("REPEATABLE READ READ ONLY"));
-    assert!(final_preflight.contains("expected exact successful final ledger 1-37"));
+    assert!(final_preflight.contains("(('37', '37'), ('37', '38'))"));
+    assert!(final_preflight.contains("observed_endpoint NOT IN"));
+    assert!(final_preflight.contains("generate_series(1, observed_endpoint)"));
+    assert!(final_preflight.contains("migration_count <> observed_endpoint"));
+    assert!(final_preflight.contains(
+        "f26fc3ac983bf10bee1488a9653462e5f021332cf426b900e59317c525f73d25b5960c3a8451d12edfe7ef3dca219e08"
+    ));
+    assert!(final_preflight.contains("expected.version <= observed_endpoint"));
     assert!(final_preflight.contains("migration checksum mismatch at version(s)"));
+    assert!(final_preflight.contains("hosted_provider_retired_replay_credentials"));
+    assert!(final_preflight.contains("active_noncanonical_application_replicas"));
+    assert!(final_preflight.contains("purpose = 'application'"));
+    assert!(final_preflight.contains("revoked_at IS NULL"));
     assert!(final_preflight.contains("required final relation/index objects are absent"));
     assert!(final_preflight.contains("differ from the exact contract"));
     assert!(final_preflight.contains("pg_get_triggerdef"));
@@ -326,6 +337,7 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
     );
     assert!(!final_preflight.contains("DELETE FROM"));
     assert!(!final_preflight.contains("UPDATE hosted_provider_"));
+    assert!(!final_preflight.contains("INSERT INTO"));
     assert!(cutover_preflight.contains("\\set fence_kind cutover"));
     assert!(cutover_preflight.contains("\\ir preflight-hosted-provider-final-rollback.sql"));
     assert!(cutover_preflight.contains("generation.status IS DISTINCT FROM 'complete'"));
@@ -482,6 +494,9 @@ fn collection_authorization_migration_retires_scoped_provider_authority() {
     assert!(migration.contains("full_collection = false"));
     assert!(migration.contains("cardinality(allowed_types) <> 0"));
     assert!(migration.contains("contract_scope <> '[]'::jsonb"));
+    assert!(migration.contains("token_expires_at > now()"));
+    assert!(migration.contains("journal.state = 'completed'"));
+    assert!(migration.contains("LEAST(token_expires_at, now() + interval '365 days')"));
     assert!(migration
         .contains("IS DISTINCT FROM '{\"access\":\"full_collection\",\"contracts\":[]}'::jsonb"));
 }

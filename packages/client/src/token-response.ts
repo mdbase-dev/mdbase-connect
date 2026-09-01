@@ -40,7 +40,7 @@ export function storedTokenFromResponse({
   }
   if (!isCanonicalGrantScope(scope)) {
     throw connectError(
-      "invalid_token_response",
+      "legacy_scope_reauthorization_required",
       "Authorization returned a legacy contract-scoped grant. Reauthorize for the entire collection."
     );
   }

@@ -111,7 +111,6 @@ export function parseAppManifest(
   return {
     ...manifest,
     requirements: {
-      contracts: [],
       configuration: [],
       ...manifest.requirements
     },

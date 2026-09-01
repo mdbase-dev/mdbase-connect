@@ -25,6 +25,8 @@ import { collectionCompatibility } from "./compatibility";
 import { configurationSetupSummary } from "./application-setup";
 import {
   clearAuthorizationReview,
+  disambiguatedCollectionLocations,
+  initialAuthorizationSelection,
   saveAuthorizationReview,
   storedAuthorizationReview
 } from "./authorization-review-state";
@@ -503,16 +505,15 @@ export function ApprovalForm({
     [visibleChoices]
   );
   const savedReview = useMemo(() => storedAuthorizationReview(request.id), [request.id]);
-  const savedCollectionId = savedReview?.collectionId
-    && compatible.some((choice) => choice.collection.id === savedReview.collectionId)
-      ? savedReview.collectionId
-      : "";
-  const initialCollectionId = savedCollectionId
-    || (compatible.length === 1 ? compatible[0].collection.id : "");
-  const [collectionId, setCollectionId] = useState(initialCollectionId);
-  const [reviewing, setReviewing] = useState(
-    savedCollectionId ? savedReview?.reviewing === true : compatible.length === 1
+  const initialSelection = initialAuthorizationSelection(
+    compatible.map((choice) => choice.collection.id),
+    savedReview
   );
+  const [collectionId, setCollectionId] = useState(initialSelection.collectionId);
+  const [collectionConfirmed, setCollectionConfirmed] = useState(
+    Boolean(initialSelection.collectionId)
+  );
+  const [reviewing, setReviewing] = useState(initialSelection.reviewing);
   const [operations, setOperations] = useState(() => new Set(
     savedReview?.operations
       ? savedReview.operations.filter((operation) => request.requested_operations.includes(operation))
@@ -573,20 +574,21 @@ export function ApprovalForm({
   ];
 
   useEffect(() => {
-    if (!compatible.some((choice) => choice.collection.id === collectionId)) {
-      const onlyCollectionId = compatible.length === 1 ? compatible[0].collection.id : "";
-      setCollectionId(onlyCollectionId);
-      setReviewing(Boolean(onlyCollectionId));
+    if (collectionId && !compatible.some((choice) => choice.collection.id === collectionId)) {
+      setCollectionId("");
+      setCollectionConfirmed(false);
+      setReviewing(false);
     }
   }, [collectionId, compatible]);
 
   useEffect(() => {
     saveAuthorizationReview(request.id, {
       collectionId,
+      collectionConfirmed,
       operations: [...operations],
       reviewing
     });
-  }, [collectionId, operations, request.id, reviewing]);
+  }, [collectionConfirmed, collectionId, operations, request.id, reviewing]);
 
   useEffect(() => {
     setSetupChoices(Object.fromEntries(setupContracts.map((contract) => [
@@ -699,6 +701,7 @@ export function ApprovalForm({
       setCreatedCollections((current) => [...current, collection]);
       onCollectionCreated(collection);
       setCollectionId(collection.id);
+      setCollectionConfirmed(true);
       setReviewing(true);
       setCollectionName("");
       setCreatingHosted(false);
@@ -755,7 +758,10 @@ export function ApprovalForm({
                     value={collection.id}
                     checked={collection.id === collectionId}
                     disabled={submitting !== null}
-                    onChange={() => setCollectionId(collection.id)}
+                    onChange={() => {
+                      setCollectionId(collection.id);
+                      setCollectionConfirmed(true);
+                    }}
                   />
                   <span>
                     <strong>{collection.display_name}</strong>
@@ -850,7 +856,7 @@ export function ApprovalForm({
           </details>}
           <footer className="collection-step-actions">
             <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? "Denying…" : "Deny"}</button>
-            <button className="button primary" type="button" disabled={submitting !== null || !collectionId} onClick={() => setReviewing(true)}>Review access</button>
+            <button className="button primary" type="button" disabled={submitting !== null || !collectionId || !collectionConfirmed} onClick={() => setReviewing(true)}>Review access</button>
           </footer>
           </>}
         </div>
@@ -928,7 +934,7 @@ export function ApprovalForm({
         </div>
         <div className="approval-actions">
           <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? "Denying…" : "Deny"}</button>
-          <button className="button primary" type="button" disabled={submitting !== null || !collectionId || (selectedPermissionCount === 0 && !request.requirements.files) || !setupReady} onClick={() => void decide("approved")}>{submitting === "approved" ? (hasSetup ? "Setting up and allowing…" : "Approving…") : hasSetup ? `Set up and allow ${request.application_name}` : `Allow ${request.application_name}`}</button>
+          <button className="button primary" type="button" disabled={submitting !== null || !collectionId || !collectionConfirmed || (selectedPermissionCount === 0 && !request.requirements.files) || !setupReady} onClick={() => void decide("approved")}>{submitting === "approved" ? (hasSetup ? "Setting up and allowing…" : "Approving…") : hasSetup ? `Set up and allow ${request.application_name}` : `Allow ${request.application_name}`}</button>
         </div>
       </footer>}
     </div>
@@ -951,49 +957,4 @@ function authorizationNeedsSetup(
           && contract.digest === required.digest
       ) && Boolean(provisionedContract(required, request.provisions.type_packs))
     );
-}
-
-function disambiguatedCollectionLocations(
-  collections: AvailableCollection[]
-): Map<string, string> {
-  const groups = new Map<string, AvailableCollection[]>();
-  for (const collection of collections) {
-    const key = [
-      collection.display_name.normalize("NFKC").toLocaleLowerCase(),
-      collection.connector_name.normalize("NFKC").toLocaleLowerCase()
-    ].join("\u0000");
-    const group = groups.get(key) ?? [];
-    group.push(collection);
-    groups.set(key, group);
-  }
-
-  const labels = new Map<string, string>();
-  for (const group of groups.values()) {
-    for (const collection of group) {
-      labels.set(
-        collection.id,
-        group.length === 1
-          ? collection.connector_name
-          : `${collection.connector_name} · ID …${uniqueIdSuffix(
-              collection.id,
-              group.map((candidate) => candidate.id)
-            )}`
-      );
-    }
-  }
-  return labels;
-}
-
-function uniqueIdSuffix(id: string, candidates: string[]): string {
-  let length = Math.min(8, id.length);
-  while (
-    length < id.length &&
-    candidates.some(
-      (candidate) =>
-        candidate !== id && candidate.slice(-length) === id.slice(-length)
-    )
-  ) {
-    length += 1;
-  }
-  return id.slice(-length);
 }

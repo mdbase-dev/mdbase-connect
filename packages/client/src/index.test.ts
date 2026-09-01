@@ -2581,6 +2581,124 @@ describe("application sessions", () => {
     });
   });
 
+  it("retains selection and reports typed reauthorization when a legacy stored scope is retired", async () => {
+    const browser = installBrowser(`https://tasks.example/?collection=${TEST_COLLECTION_ID}`);
+    const serverUrl = "https://connect.example";
+    const manifest = "https://tasks.example/manifest.json";
+    const storage = new MemoryStorage();
+    const tokenKey = storedTokenKey(serverUrl, manifest, TEST_COLLECTION_ID);
+    storage.setItem(tokenKey, JSON.stringify({
+      version: 1,
+      accessToken: "legacy-token",
+      refreshToken: "legacy-refresh",
+      clientId: "00000000-0000-0000-0000-000000000001",
+      collectionId: TEST_COLLECTION_ID,
+      collectionName: "Legacy collection",
+      operations: ["describe", "query"],
+      scope: { contracts: [], access: "contract" },
+      expiresAt: Date.now() + 60_000,
+      refreshExpiresAt: Date.now() + 120_000,
+      savedAt: Date.now()
+    }));
+    storage.setItem(
+      `mdbase-connect:${serverUrl}:${manifest}:connections`,
+      storedConnectionIndex([TEST_COLLECTION_ID])
+    );
+    const manager = new MdbaseConnect({
+      serverUrl,
+      manifest,
+      redirectUri: "https://tasks.example/callback",
+      relayEncryption: "disabled",
+      storage
+    });
+    const session = new MdbaseSession(manager, { selection: new MdbaseBrowserSelection() });
+
+    await session.start();
+
+    expect(session.getSnapshot()).toMatchObject({
+      status: "unavailable",
+      collectionId: TEST_COLLECTION_ID,
+      reason: "legacy_scope_reauthorization_required"
+    });
+    expect(storage.getItem(tokenKey)).toBeNull();
+    expect(new URL(browser.href()).searchParams.get("collection")).toBe(TEST_COLLECTION_ID);
+  });
+
+  it("retires mixed legacy token responses without classifying storage as corrupt", () => {
+    const serverUrl = "https://connect.example";
+    const manifest = "https://tasks.example/manifest.json";
+    const storage = new MemoryStorage();
+    const internals = new MdbaseConnectInternals({
+      serverUrl, manifest, redirectUri: "https://tasks.example/callback",
+      relayEncryption: "disabled", storage
+    });
+    internals.storeTokenResponse({
+      access_token: "canonical", expires_in: 900, collection_id: TEST_COLLECTION_ID,
+      collection_name: "Collection", operations: ["query"],
+      scope: { contracts: [], access: "full_collection" }
+    }, "client");
+
+    expect(() => internals.storeTokenResponse({
+      access_token: "mixed-legacy", expires_in: 900, collection_id: TEST_COLLECTION_ID,
+      collection_name: "Collection", operations: ["query"],
+      scope: { contracts: [], access: "contract" }
+    }, "client")).toThrow(expect.objectContaining({
+      code: "legacy_scope_reauthorization_required",
+      recovery: "reauthorize"
+    }));
+    expect(storage.getItem(internals.tokenKey(TEST_COLLECTION_ID))).toBeNull();
+    expect(internals.unavailableReason(TEST_COLLECTION_ID))
+      .toBe("legacy_scope_reauthorization_required");
+
+    expect(() => internals.storeTokenResponse({
+      access_token: "fresh", expires_in: 900, collection_id: TEST_COLLECTION_ID,
+      collection_name: "Collection", operations: ["query"],
+      scope: { contracts: [], access: "full_collection" }
+    }, "client")).not.toThrow();
+    expect(internals.connection(TEST_COLLECTION_ID)?.collectionId).toBe(TEST_COLLECTION_ID);
+  });
+
+  it("authorizes the retained legacy collection successfully after a fresh canonical grant", async () => {
+    installBrowser(`https://tasks.example/?collection=${TEST_COLLECTION_ID}`);
+    const serverUrl = "https://connect.example";
+    const manifest = "https://tasks.example/manifest.json";
+    const storage = new MemoryStorage();
+    const tokenKey = storedTokenKey(serverUrl, manifest, TEST_COLLECTION_ID);
+    storage.setItem(tokenKey, JSON.stringify({
+      version: 1, accessToken: "legacy", clientId: "client", collectionId: TEST_COLLECTION_ID,
+      collectionName: "Legacy collection", operations: ["query"],
+      scope: { contracts: [], access: "contract" }, expiresAt: Date.now() + 60_000,
+      savedAt: Date.now()
+    }));
+    storage.setItem(`mdbase-connect:${serverUrl}:${manifest}:connections`, storedConnectionIndex([TEST_COLLECTION_ID]));
+    const manager = new MdbaseConnect({
+      serverUrl, manifest, redirectUri: "https://tasks.example/callback",
+      relayEncryption: "disabled", storage
+    });
+    const session = new MdbaseSession(manager, { operations: ["query"], selection: new MdbaseBrowserSelection() });
+    await session.start();
+    const authorize = vi.spyOn(manager, "authorize").mockImplementationOnce(async (options) => {
+      storage.setItem(tokenKey, JSON.stringify({
+        version: 1, accessToken: "fresh", clientId: "client", collectionId: TEST_COLLECTION_ID,
+        collectionName: "Recovered collection", operations: ["query"],
+        scope: { contracts: [], access: "full_collection" }, expiresAt: Date.now() + 60_000,
+        savedAt: Date.now()
+      }));
+      storage.setItem(`mdbase-connect:${serverUrl}:${manifest}:connections`, storedConnectionIndex([TEST_COLLECTION_ID]));
+      const connection = manager.connection(TEST_COLLECTION_ID);
+      if (!connection) throw new Error("Expected recovered connection.");
+      return connectSuccess({ kind: "connected", connection });
+    });
+
+    const recovered = await session.authorize({ collectionId: TEST_COLLECTION_ID });
+
+    expect(recovered).toMatchObject({ ok: true, value: { kind: "connected" } });
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({
+      target: { kind: "collection", collectionId: TEST_COLLECTION_ID }
+    }));
+    expect(session.getSnapshot()).toMatchObject({ status: "ready", collectionId: TEST_COLLECTION_ID });
+  });
+
   it("invalidates a pre-final relay grant before reading obsolete key fields", async () => {
     installBrowser(`https://tasks.example/?collection=${TEST_COLLECTION_ID}`);
     const serverUrl = "https://connect.example";

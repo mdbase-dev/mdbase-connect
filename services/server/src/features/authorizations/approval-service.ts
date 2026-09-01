@@ -10,8 +10,7 @@ import type {
   ContractRequirement,
   ContractSetupChoice,
   GrantEncryption,
-  GrantPolicy,
-  GrantScope
+  GrantPolicy
 } from "@mdbase-dev/connect-protocol";
 import {
   GRANT_ENCRYPTION_PROTOCOL_VERSION,
@@ -27,7 +26,10 @@ import {
 import type { DatabasePool } from "../../db.js";
 import { contractRequirements } from "../../hosted.js";
 import { HostedProviderClient } from "../../hosted-provider.js";
-import { hostedReplicaCollectionOperations } from "../../hosted-replica-policy.js";
+import {
+  hostedReplicaCollectionOperations,
+  retainedReplicaPolicy
+} from "../../hosted-replica-policy.js";
 import { planCollectionGrant } from "../../grant-planner.js";
 import { RelayHub } from "../../relay.js";
 import { randomToken } from "../../security.js";
@@ -575,6 +577,8 @@ export async function approveHostedAuthorization(
   let replicaId: string | null = null;
   let newReplicaId: string | null = null;
   let notificationGrantId: string | null = null;
+  let retainedReplicaUpdated = false;
+  let compensateRetainedReplica: (() => Promise<void>) | null = null;
   try {
     await connection.query("BEGIN");
     const authorization = await connection.query<{
@@ -753,30 +757,12 @@ export async function approveHostedAuthorization(
         : undefined;
     const applicationInstallationId =
       pending.application_authorization.binding.application_installation_id;
-    const existing = await connection.query<{
-      id: string;
-      hosted_replica_id: string;
-      application_installation_id: string | null;
-      scope: GrantScope;
-      allowed_types: string[];
-    }>(
-      `SELECT g.id, g.hosted_replica_id, g.application_installation_id,
-              g.scope, replica.allowed_types
-       FROM grants g
-       JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
-       WHERE g.user_id = $1 AND g.application_id = $2
-         AND g.hosted_collection_id = $3 AND g.revoked_at IS NULL
-         AND g.hosted_replica_id IS NOT NULL
-         AND (g.application_installation_id = $4 OR g.application_installation_id IS NULL)
-       ORDER BY (g.application_installation_id = $4) DESC, g.created_at ASC
-       FOR UPDATE`,
-      [
-        input.userId,
-        pending.application_id,
-        input.collectionId,
-        applicationInstallationId
-      ]
-    );
+    const existing = await retainedReplicaPolicy.loadCandidates(connection, {
+      userId: input.userId,
+      applicationId: pending.application_id,
+      collectionId: input.collectionId,
+      applicationInstallationId
+    });
     const retained = existing.rows.find((candidate) =>
       isCanonicalCollectionGrantScope(candidate.scope)
       && candidate.allowed_types.length === 0
@@ -857,6 +843,12 @@ export async function approveHostedAuthorization(
       applicationDeclarationDigest: `sha256:${pending.application_manifest_digest}`
     };
     if (retained) {
+      compensateRetainedReplica = retainedReplicaPolicy.compensation(
+        provider,
+        replicaId,
+        retained
+      );
+      retainedReplicaUpdated = true;
       await provider.updateApplicationReplica(replicaId, replicaPolicy);
       await connection.query(
         `UPDATE hosted_replicas
@@ -955,13 +947,14 @@ export async function approveHostedAuthorization(
     await connection.query("COMMIT");
     return true;
   } catch (error) {
-    await connection.query("ROLLBACK");
+    await connection.query("ROLLBACK").catch(() => undefined);
     if (notificationGrantId) {
       await provider
         .revokeNotificationGrant(input.collectionId, notificationGrantId)
         .catch(() => undefined);
     }
     if (newReplicaId) await provider.revokeReplica(newReplicaId).catch(() => undefined);
+    if (retainedReplicaUpdated) await compensateRetainedReplica?.();
     throw error;
   } finally {
     connection.release();

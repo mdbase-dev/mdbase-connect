@@ -205,7 +205,14 @@ export function ConnectApp() {
   if (!data) return <ConnectLoading error={refreshError} />;
 
   const activeView = selectedCollection || !isCollectionView(view) ? view : "collections";
-  const activeGrants = data.grants.filter((grant) => grant.revocation_status !== "revoked");
+  const freshlyAuthorized = new Set(data.grants
+    .filter((grant) => grant.revocation_status === "active"
+      && grant.scope.access === "full_collection"
+      && grant.scope.contracts.length === 0)
+    .map((grant) => `${grant.application_id}\0${grant.collection_id}`));
+  const activeGrants = data.grants.filter((grant) => grant.revocation_status !== "revoked"
+    || (typeof grant.reauthorization_required_at === "string"
+      && !freshlyAuthorized.has(`${grant.application_id}\0${grant.collection_id}`)));
   const applications = groupApplicationAccess(activeGrants);
   const feedbackEndpoint = configuredFeedbackEndpoint();
   const feedbackApplicationOrigins = [...new Set((selectedCollection

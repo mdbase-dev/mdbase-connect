@@ -220,18 +220,12 @@ impl HostedProvider {
             };
         let credential_hash = token_hash(token);
         let replica_id: Option<Uuid> = sqlx::query_scalar(
-            r#"SELECT replica.id
-               FROM hosted_provider_replicas replica
+            r#"SELECT retired.replica_id
+               FROM hosted_provider_retired_replay_credentials retired
+               JOIN hosted_provider_replicas replica ON replica.id = retired.replica_id
                WHERE replica.collection_id = $1 AND replica.purpose = 'application'
-                 AND (
-                   replica.token_hash = $2
-                   OR EXISTS (
-                     SELECT 1 FROM hosted_provider_retired_replay_credentials retired
-                     WHERE retired.replica_id = replica.id
-                       AND retired.token_hash = $2 AND retired.expires_at > now()
-                   )
-                 )
-               ORDER BY (replica.token_hash = $2) DESC
+                 AND retired.token_hash = $2 AND retired.expires_at > now()
+               ORDER BY retired.retired_at DESC
                LIMIT 1"#,
         )
         .bind(collection_id)

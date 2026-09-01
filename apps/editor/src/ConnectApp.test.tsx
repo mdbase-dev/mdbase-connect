@@ -281,7 +281,9 @@ describe("ConnectApp", () => {
     }];
     overview.grants = [{
       id: "grant", operations: ["read", "update"], scope: { contracts: [], access: "full_collection" },
-      created_at: now, revoked_at: null, revocation_status: "active", collection_id: "collection", collection_name: "Garden notes",
+      created_at: now, revoked_at: null, revocation_status: "active",
+      reauthorization_required_at: null, reauthorization_reason: null,
+      collection_id: "collection", collection_name: "Garden notes",
       collection_kind: "local", application_id: "reading-list", application_name: "Reading list",
       distribution: "web", homepage: "https://reading.example", project_url: null,
       application_origin: "https://reading.example", icon: null
@@ -295,27 +297,41 @@ describe("ConnectApp", () => {
     expect(screen.getByRole("link", { name: "App access" })).not.toHaveTextContent("1");
   });
 
-  it("labels canonical grants as entire-collection and legacy scope as revoked reauthorization evidence", async () => {
+  it("shows real revoked migration evidence until fresh collection authorization replaces it", async () => {
     const now = new Date().toISOString();
-    overview.grants = ["full", "legacy"].map((id, index) => ({
-      id, operations: ["read"],
-      scope: { contracts: [], access: index === 0 ? "full_collection" as const : "contract" as const },
-      created_at: now, revoked_at: null, revocation_status: "active" as const,
-      collection_id: "collection", collection_name: index === 0 ? "Garden notes" : "Old notes",
+    const legacy = {
+      id: "legacy", operations: ["read"],
+      scope: { contracts: [], access: "contract" as const },
+      created_at: now, revoked_at: now, revocation_status: "revoked" as const,
+      reauthorization_required_at: now, reauthorization_reason: "collection_level_authorization",
+      collection_id: "collection", collection_name: "Garden notes",
       collection_kind: "local" as const, application_id: "reading-list", application_name: "Reading list",
       distribution: "web" as const, homepage: "https://reading.example", project_url: null,
       application_origin: "https://reading.example", icon: null
-    }));
+    };
+    overview.grants = [legacy];
     const user = userEvent.setup();
     render(<ConnectApp />);
 
     await screen.findByRole("heading", { name: "Garden notes" });
     await user.click(screen.getByRole("link", { name: /Applications/ }));
 
-    expect(await screen.findByText("Entire collection")).toBeInTheDocument();
-    expect(screen.getByText("Legacy scoped access is revoked. Reauthorize this application for the entire collection.")).toBeInTheDocument();
+    expect(await screen.findByText("Legacy scoped access is revoked. Reauthorize this application for the entire collection.")).toBeInTheDocument();
     expect(screen.getByText("Reauthorization required")).toBeInTheDocument();
-    expect(screen.queryByText(/contract types/)).not.toBeInTheDocument();
+
+    overview.grants = [legacy, {
+      ...legacy,
+      id: "fresh",
+      scope: { contracts: [], access: "full_collection" },
+      revoked_at: null,
+      revocation_status: "active",
+      reauthorization_required_at: null,
+      reauthorization_reason: null
+    }];
+    fireEvent(document, new Event("visibilitychange"));
+
+    await waitFor(() => expect(screen.queryByText("Reauthorization required")).not.toBeInTheDocument());
+    expect(screen.getByText("Entire collection")).toBeInTheDocument();
   });
 
   it("keeps provider-pending revocations visible without claiming success", async () => {
@@ -323,7 +339,8 @@ describe("ConnectApp", () => {
       id: "grant", operations: ["read"],
       scope: { contracts: [], access: "full_collection" },
       created_at: new Date().toISOString(), revoked_at: new Date().toISOString(),
-      revocation_status: "revoking", collection_id: "collection",
+      revocation_status: "revoking", reauthorization_required_at: null,
+      reauthorization_reason: null, collection_id: "collection",
       collection_name: "Garden notes", collection_kind: "hosted",
       application_id: "app", application_name: "Photo catalog",
       distribution: "web", homepage: "https://photos.example",
@@ -349,6 +366,8 @@ describe("ConnectApp", () => {
       created_at: now,
       revoked_at: null,
       revocation_status: "active" as const,
+      reauthorization_required_at: null,
+      reauthorization_reason: null,
       collection_id: index === 0 ? "collection" : "collection-two",
       collection_name: index === 0 ? "Garden notes" : "Research notes",
       collection_kind: "local" as const,
@@ -615,6 +634,8 @@ function applicationGrants(): ManagementOverview["grants"] {
     created_at: now,
     revoked_at: null,
     revocation_status: "active" as const,
+    reauthorization_required_at: null,
+    reauthorization_reason: null,
     collection_id: index === 0 ? "collection" : "collection-two",
     collection_name: index === 0 ? "Garden notes" : "Research notes",
     collection_kind: "local" as const,

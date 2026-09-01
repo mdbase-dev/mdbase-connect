@@ -669,7 +669,7 @@ schema:
         mode: "read_write",
         allowed_types: [],
         contract_scope: [],
-        full_collection: false,
+        full_collection: true,
         allowed_operations: [],
         file_capability: {
           kind: "files",
@@ -874,15 +874,15 @@ schema:
   );
   assert.equal(revokedTokenNewWrite.status, 401, JSON.stringify(revokedTokenNewWrite.body));
 
-  const contractReplicaToken = `contract-${crypto.randomUUID()}-${crypto.randomUUID()}`;
-  await internalRequest(
+  const rejectedLegacyContractReplica = await rawRequest(
     provider.url,
     `/internal/v1/collections/${provisionCollectionId}/replicas`,
     {
       method: "POST",
+      token: internalToken,
       body: {
         replica_id: crypto.randomUUID(),
-        name: "Contract projection reader",
+        name: "Rejected legacy contract projection",
         purpose: "application",
         operation_transport_protocol: OPERATION_TRANSPORT_PROTOCOL_VERSION,
         mode: "read_write",
@@ -891,58 +891,23 @@ schema:
         full_collection: false,
         allowed_operations: ["read", "query", "create", "update"],
         grant_id: crypto.randomUUID(),
-        token: contractReplicaToken
+        token: `legacy-contract-${crypto.randomUUID()}-${crypto.randomUUID()}`
       }
     }
   );
-  const projectedQuery = await rawRequest(
-    provider.url,
-    `/v1/authorities/${provisionCollectionId}/operations/query`,
-    { method: "POST", token: contractReplicaToken, body: {} }
+  assert.equal(
+    rejectedLegacyContractReplica.status,
+    400,
+    JSON.stringify(rejectedLegacyContractReplica.body)
   );
-  assert.equal(projectedQuery.status, 200, JSON.stringify(projectedQuery.body));
-  assert.ok(
-    Array.isArray(projectedQuery.body.result?.result?.results),
-    JSON.stringify(projectedQuery.body)
+  assert.equal(
+    rejectedLegacyContractReplica.body.error.code,
+    "invalid_application_scope"
   );
-  const projectedRecords = projectedQuery.body.result.result.results;
-  assert.deepEqual(
-    projectedRecords.map(({ frontmatter }) => frontmatter.title).sort(),
-    ["Visible training", "Visible workout"]
+  assert.match(
+    rejectedLegacyContractReplica.body.error.message,
+    /canonical full collection/
   );
-  for (const record of projectedRecords) {
-    assert.equal(record.body, undefined);
-    assert.equal(record.frontmatter.secret, undefined);
-    assert.equal(record.contract.id, "workout.record");
-  }
-  const ambiguousCreate = await rawRequest(
-    provider.url,
-    `/v1/authorities/${provisionCollectionId}/operations/create`,
-    {
-      method: "POST",
-      token: contractReplicaToken,
-      body: {
-        path: "ambiguous.md",
-        frontmatter: { title: "Ambiguous", status: "open" }
-      }
-    }
-  );
-  assert.equal(ambiguousCreate.status, 403);
-  const selectedCreate = await rawRequest(
-    provider.url,
-    `/v1/authorities/${provisionCollectionId}/operations/create`,
-    {
-      method: "POST",
-      token: contractReplicaToken,
-      body: {
-        path: "selected.md",
-        contract: { id: "workout.record", version: "1.0.0", type: "training" },
-        frontmatter: { title: "Selected provider", status: "open" }
-      }
-    }
-  );
-  assert.equal(selectedCreate.status, 200, JSON.stringify(selectedCreate.body));
-  assert.equal(selectedCreate.body.result.result.frontmatter.title, "Selected provider");
   try {
     await internalRequest(provider.url, `/internal/v1/collections/${provisionCollectionId}`, {
       method: "DELETE"
@@ -1614,7 +1579,7 @@ schema:
   });
   const collectionId = created.collection.id;
   assert.equal(created.collection.sync_url, authoritySyncUrl(provider.url, collectionId));
-  const workItemTypes = await provisionTypes(
+  await provisionTypes(
     provider.url,
     collectionId,
     [WORK_ITEM_PROVISION]
@@ -2800,9 +2765,9 @@ schema:
         operation_transport_protocol: OPERATION_TRANSPORT_PROTOCOL_VERSION,
         grant_id: crypto.randomUUID(),
         mode: "read_only",
-        allowed_types: ["task"],
-        contract_scope: workItemTypes.contracts,
-        full_collection: false,
+        allowed_types: [],
+        contract_scope: [],
+        full_collection: true,
         allowed_operations: ["read", "query"],
         token: benchmarkToken,
         token_ttl_seconds: 600

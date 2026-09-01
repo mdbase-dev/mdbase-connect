@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { MdbaseConnectError } from "./errors.js";
 import { isCanonicalGrantScope, parseGrantScope } from "./runtime-utils.js";
 import { storedTokenFromResponse } from "./token-response.js";
 
@@ -34,6 +35,16 @@ describe("canonical collection grant scope", () => {
     expect(() => parseToken("contract")).toThrow(
       "legacy contract-scoped grant. Reauthorize for the entire collection"
     );
+    try {
+      parseToken("contract");
+      throw new Error("Expected legacy scope rejection.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(MdbaseConnectError);
+      expect(error).toMatchObject({
+        code: "legacy_scope_reauthorization_required",
+        recovery: "reauthorize"
+      });
+    }
   });
 
   it("rejects contradictory full_collection scope with retained contract limits", () => {
