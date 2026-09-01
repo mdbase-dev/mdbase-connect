@@ -461,6 +461,11 @@ async fn run(arguments: Arguments) -> ApiResult<Envelope> {
             )
         }
         Command::Verify(page) => {
+            // An independent post-cutover verification is also the live
+            // semantic read-back gate. It must use the same admission class as
+            // hosted queries so a provisional lease cannot accidentally admit
+            // canonical writes while verification runs.
+            let admission = provider.acquire_runtime_read_admission().await?;
             let plan = provider
                 .projection_index_plan(page.after, page.limit)
                 .await?;
@@ -474,6 +479,7 @@ async fn run(arguments: Arguments) -> ApiResult<Envelope> {
             }
             let page_verified = verifications.iter().all(|result| result.verified);
             let ok = plan.migration_ledger_valid && plan.schema_valid && page_verified;
+            admission.commit().await?;
             (
                 ok,
                 "verify",
