@@ -49,7 +49,6 @@ import {
   message,
   plural,
   relativeTime,
-  scopeDescription,
   type Route
 } from "./view-model";
 import "./styles.css";
@@ -612,9 +611,12 @@ function GrantEditor({ grant, busy, onAct, onNotice }: { grant: GrantSummary; bu
   if (grant.revocation_status === "revoking") {
     return <article className="grant-review"><div className="grant-identity"><p className="eyebrow">Hosted by mdbase</p><h3>{grant.collection_name}</h3><small>Access is disabled here. Waiting for the hosted authority to confirm revocation.</small></div><strong>Revoking…</strong></article>;
   }
+  if (grant.scope.access !== "full_collection") {
+    return <article className="grant-review"><div className="grant-identity"><p className="eyebrow">{authority}</p><h3>{grant.collection_name}</h3><small>Legacy scoped access is revoked. Reauthorize this application for the entire collection.</small></div><strong>Reauthorization required</strong></article>;
+  }
   return (
     <article className="grant-review">
-      <div className="grant-identity"><p className="eyebrow">{authority}</p><h3>{grant.collection_name}</h3><code>{grant.application_distribution === "portable" ? "Downloaded file · encrypted access" : host(grant.application_origin || grant.application_homepage)}</code><small>Connected {relativeTime(grant.created_at)}</small>{grant.scope.contracts.length > 0 && <small>{scopeDescription(grant.scope.contracts)}</small>}</div>
+      <div className="grant-identity"><p className="eyebrow">{authority}</p><h3>{grant.collection_name}</h3><code>{grant.application_distribution === "portable" ? "Downloaded file · encrypted access" : host(grant.application_origin || grant.application_homepage)}</code><small>Connected {relativeTime(grant.created_at)}</small><small>Entire collection</small></div>
       <div className="request-decision">
         <section className="request-section">
           <div><strong>Permissions</strong><small>You can remove previously approved actions here. An application must request any additional access separately.</small></div>

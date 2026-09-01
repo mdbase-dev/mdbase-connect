@@ -10,6 +10,7 @@ const manifest: MdbaseAppManifest = {
   homepage: "https://capability.example/",
   redirect_uris: ["https://capability.example/callback"],
   requirements: {
+    access: "full_collection",
     contracts: [],
     capabilities: {
       contract_version: 1,
@@ -61,7 +62,7 @@ describe("effectiveCapabilities", () => {
     });
   });
 
-  it("still requires exact contract approval for contract-scoped grants", () => {
+  it("requires reauthorization for legacy contract-scoped grants", () => {
     const contractManifest: MdbaseAppManifest = {
       ...manifest,
       requirements: {
@@ -88,7 +89,8 @@ describe("effectiveCapabilities", () => {
 
     expect(capabilities.requiredAvailable).toBe(false);
     expect(capabilities.values["definitions.contracts.current"]).toMatchObject({
-      state: "requires_authorization"
+      state: "requires_authorization",
+      reason: expect.stringContaining("reauthorized for the entire collection")
     });
   });
 

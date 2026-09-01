@@ -349,8 +349,8 @@ connection through `onConnectionChange()`. A subsequent
 `requestOperations()` call therefore starts authorization instead of trusting
 the stale cached capability list.
 
-Applications with full collection access can also register and maintain type
-definitions. Type source is returned with a revision token so updates cannot
+Applications can register and maintain type definitions when their
+collection-wide grant includes the corresponding operations. Type source is returned with a revision token so updates cannot
 silently overwrite a definition changed by another application:
 
 ```ts
@@ -379,7 +379,8 @@ if (!updatedType.ok) renderProblem(updatedType.problem);
 ```
 
 Request `read_type`, `create_type`, and `update_type` during authorization.
-Contract-scoped applications cannot manage collection-wide type definitions.
+A legacy contract-scoped grant is inactive and must be reauthorized; contracts
+themselves never confer type-management permission.
 
 To install a complete catalog pack without exposing its individual collection
 paths, request `assess_type_pack` and `apply_type_pack`, fetch and verify the
@@ -501,6 +502,7 @@ export const manifest = {
   homepage: "https://worklog.example",
   redirect_uris: ["https://worklog.example/auth/mdbase/callback"],
   requirements: {
+    access: "full_collection",
     contracts: workItemPack.provides
   },
   provisions: {
@@ -513,10 +515,11 @@ Set `collection_kind` to `hosted` when the application needs a durable
 provider-backed collection and the offline sync transport returned by
 `sync()`. Connect then offers and accepts collections with replication capability.
 
-Access defaults to the record types supplied by `requirements.contracts`.
-Set `access` to `full_collection` when the application needs collection-level
-features such as saved views. Required contracts still determine compatibility
-and are provisioned during approval.
+Every SDK manifest must explicitly set `requirements.access` to the N-1 wire
+spelling `full_collection`. An active grant covers the entire selected
+collection; omission and legacy `contract` scope never satisfy application
+access and require reauthorization. Required contracts remain separate
+compatibility, setup, validation, and semantic-adapter evidence.
 
 `listViews()` returns each named view's selected result properties in display
 order. Property descriptors retain source labels for projected and computed
@@ -524,7 +527,7 @@ values. `executeView()` returns their values on each result row.
 
 Provisioning is part of the approval flow. The connector validates and
 installs each missing type pack transactionally, verifies its exact contracts
-and implementations, and creates the scoped grant afterward. The application
+and implementations, and creates the collection grant afterward. The application
 is not granted collection-wide type-management access.
 
 The SDK returns typed outcomes, carries successful mdbase diagnostics alongside

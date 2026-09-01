@@ -1,5 +1,6 @@
 import type { StoredToken } from "./internal-types.js";
 import {
+  isCanonicalGrantScope,
   parseGrantScope,
   parseStored,
   validFileCapability,
@@ -53,7 +54,8 @@ export function readStoredToken({
       && (typeof token.refreshExpiresAt !== "number" || !Number.isFinite(token.refreshExpiresAt))
     )
   ) return reject(token.keyHandle);
-  if (!parseGrantScope(token.scope)) return reject(token.keyHandle);
+  const scope = parseGrantScope(token.scope);
+  if (!scope || !isCanonicalGrantScope(scope)) return reject(token.keyHandle);
   if (token.fileCapability && !validFileCapability(token.fileCapability)) {
     return reject(token.keyHandle);
   }

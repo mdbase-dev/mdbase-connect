@@ -253,9 +253,8 @@ export function RequestIdentity({ request, large = false }: { request: PendingAu
         {request.distribution !== "portable" && (
           <small className="request-guidance">Only continue if you recognize this exact site. An approved application can use the selected data until you revoke it.</small>
         )}
-        {request.requirements.access === "full_collection" ? (
-          <small className="request-scope">Requests access to all record types in the selected collection.</small>
-        ) : request.requirements.contracts.length > 0 && (
+        <small className="request-scope">Requests access to the entire selected collection.</small>
+        {request.requirements.contracts.length > 0 && (
           <small className="request-scope">{scopeDescription(request.requirements.contracts)}</small>
         )}
         {request.requirements.collection_kind === "hosted" && (

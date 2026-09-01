@@ -2,6 +2,7 @@ import { validateGrantEncryption } from "./crypto.js";
 import { connectError } from "./errors.js";
 import type { StoredToken } from "./internal-types.js";
 import {
+  isCanonicalGrantScope,
   parseGrantScope,
   validAuthorityTokenResponse,
   validFileCapability
@@ -35,6 +36,12 @@ export function storedTokenFromResponse({
     throw connectError(
       "invalid_token_response",
       "Authorization returned no valid collection scope."
+    );
+  }
+  if (!isCanonicalGrantScope(scope)) {
+    throw connectError(
+      "invalid_token_response",
+      "Authorization returned a legacy contract-scoped grant. Reauthorize for the entire collection."
     );
   }
   if (body.authority && !validAuthorityTokenResponse(body.authority, collectionId)) {

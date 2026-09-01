@@ -295,6 +295,29 @@ describe("ConnectApp", () => {
     expect(screen.getByRole("link", { name: "App access" })).not.toHaveTextContent("1");
   });
 
+  it("labels canonical grants as entire-collection and legacy scope as revoked reauthorization evidence", async () => {
+    const now = new Date().toISOString();
+    overview.grants = ["full", "legacy"].map((id, index) => ({
+      id, operations: ["read"],
+      scope: { contracts: [], access: index === 0 ? "full_collection" as const : "contract" as const },
+      created_at: now, revoked_at: null, revocation_status: "active" as const,
+      collection_id: "collection", collection_name: index === 0 ? "Garden notes" : "Old notes",
+      collection_kind: "local" as const, application_id: "reading-list", application_name: "Reading list",
+      distribution: "web" as const, homepage: "https://reading.example", project_url: null,
+      application_origin: "https://reading.example", icon: null
+    }));
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+
+    await screen.findByRole("heading", { name: "Garden notes" });
+    await user.click(screen.getByRole("link", { name: /Applications/ }));
+
+    expect(await screen.findByText("Entire collection")).toBeInTheDocument();
+    expect(screen.getByText("Legacy scoped access is revoked. Reauthorize this application for the entire collection.")).toBeInTheDocument();
+    expect(screen.getByText("Reauthorization required")).toBeInTheDocument();
+    expect(screen.queryByText(/contract types/)).not.toBeInTheDocument();
+  });
+
   it("keeps provider-pending revocations visible without claiming success", async () => {
     overview.grants = [{
       id: "grant", operations: ["read"],
