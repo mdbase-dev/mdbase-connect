@@ -449,7 +449,7 @@ impl HostedProvider {
             ..
         } = execution;
         let direct_sync = semantic.is_none();
-        let (execution, before_records) = if let Some((operation, input)) = semantic {
+        let (mut execution, before_records) = if let Some((operation, input)) = semantic {
             execute_direct_semantic(
                 &mut transaction,
                 self,
@@ -537,9 +537,6 @@ impl HostedProvider {
                 .unwrap_or_default();
             (execution, before_records)
         };
-        if let Some(result) = semantic_operation {
-            *result = execution.operation.clone();
-        }
         if !execution.envelope.valid {
             let (code, message) = operation_error(&execution.envelope);
             return store_rejection(
@@ -640,6 +637,7 @@ impl HostedProvider {
             false
         };
         let mut primary = None;
+        let mut primary_persisted_mtime = None;
         let mut projection_changes = Vec::with_capacity(execution.changed.len());
         for (record_id, after, document) in execution.changed {
             head = head.checked_add(1).ok_or_else(|| {
@@ -658,13 +656,12 @@ impl HostedProvider {
                     record,
                 )
                 .await?;
+                let persisted_mtime = modified_at.to_rfc3339_opts(SecondsFormat::Micros, true);
                 if record_id == execution.primary_record_id {
                     primary = Some(record.clone());
+                    primary_persisted_mtime = Some(persisted_mtime.clone());
                 }
-                (
-                    record.revision.clone(),
-                    Some(modified_at.to_rfc3339_opts(SecondsFormat::Micros, true)),
-                )
+                (record.revision.clone(), Some(persisted_mtime))
             } else {
                 let before = before.as_ref().ok_or_else(|| {
                     ApiError::internal("The hosted write set deleted an unknown record.")
@@ -755,6 +752,20 @@ impl HostedProvider {
                     ));
                 }
             }
+        }
+        if let Some(operation) = execution.operation.as_mut() {
+            if let Some(persisted_mtime) = primary_persisted_mtime {
+                let record = operation.record_mutation_value_mut().ok_or_else(|| {
+                    ApiError::internal(
+                        "The hosted record mutation outcome omitted its primary record.",
+                    )
+                })?;
+                record.file.mtime = persisted_mtime;
+                execution.envelope = operation.to_v03();
+            }
+        }
+        if let Some(result) = semantic_operation {
+            *result = execution.operation.clone();
         }
         self.maintain_active_projection_changes(
             &mut transaction,

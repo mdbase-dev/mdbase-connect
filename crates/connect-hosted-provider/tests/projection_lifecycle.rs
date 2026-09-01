@@ -6191,7 +6191,7 @@ async fn exercise_candidate_b_projection_lifecycle() {
                 .expect("hosted reads expose persisted file mtime"),
         )
         .expect("hosted read file mtime is RFC 3339");
-        assert_eq!(receipt_mtime.timestamp(), read_mtime.timestamp());
+        assert_eq!(receipt_mtime, read_mtime);
         let mut receipt_without_mtime = receipt["result"].clone();
         let mut read_without_mtime = read["result"].clone();
         receipt_without_mtime["file"]
