@@ -301,7 +301,9 @@ fn policy_ingestion_and_persisted_grants_reject_noncanonical_scope() {
     let state = tempdir().unwrap();
     let registry = CollectionRegistry::open(state.path()).unwrap();
     let canonical = signed_test_grant(&registry, vec!["query".to_string()]);
-    registry.replace_grants(std::slice::from_ref(&canonical)).unwrap();
+    registry
+        .replace_grants(std::slice::from_ref(&canonical))
+        .unwrap();
 
     let legacy_scope = unavailable_contract_scope();
     let encoded_scope = serde_json::to_string(&legacy_scope).unwrap();
