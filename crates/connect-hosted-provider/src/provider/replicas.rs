@@ -320,8 +320,8 @@ impl HostedProvider {
         .bind(token_hash(token))
         .fetch_optional(&mut *transaction)
         .await?;
-        let replica = if row.is_some() {
-            replica_from_row(row)?
+        let (replica, retired_credential) = if row.is_some() {
+            (replica_from_row(row)?, false)
         } else {
             let retired = sqlx::query(
                 r#"SELECT replica.id, replica.purpose, replica.mode,
@@ -342,7 +342,7 @@ impl HostedProvider {
             .bind(token_hash(token))
             .fetch_optional(&mut *transaction)
             .await?;
-            replica_from_row(retired)?
+            (replica_from_row(retired)?, true)
         };
         match replica.purpose {
             ReplicaPurpose::Mirror => {
@@ -354,7 +354,9 @@ impl HostedProvider {
                 }
             }
             ReplicaPurpose::Application => {
-                ensure_canonical_application_replica(&replica)?;
+                if !retired_credential {
+                    ensure_canonical_application_replica(&replica)?;
+                }
                 authorize_application_origin(&replica, request_origin)?;
                 if let Some(public_key) = replica.proof_public_key.as_deref() {
                     let proof = proof.ok_or_else(|| {

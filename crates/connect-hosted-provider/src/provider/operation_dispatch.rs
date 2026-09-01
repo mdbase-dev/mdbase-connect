@@ -449,32 +449,11 @@ impl HostedProvider {
         replica: &Replica,
         portable_selector: bool,
     ) -> ApiResult<Option<ContractScope>> {
-        if replica.full_collection {
-            if !portable_selector {
-                return Ok(None);
-            }
-            return ContractScope::new(self.collection_resources(collection_id).await?.contracts)
-                .map(Some)
-                .map_err(scope_error);
+        ensure_canonical_application_replica(replica)?;
+        if !portable_selector {
+            return Ok(None);
         }
-        let current = self.collection_resources(collection_id).await?.contracts;
-        for pinned in &replica.contract_scope {
-            let matching = current.iter().find(|contract| {
-                contract.id == pinned.id
-                    && contract.version == pinned.version
-                    && contract.digest == pinned.digest
-            });
-            if matching != Some(pinned) {
-                return Err(ApiError::forbidden(
-                    "contract_scope_changed",
-                    format!(
-                        "The approved provider set for {} version {} has changed.",
-                        pinned.id, pinned.version
-                    ),
-                ));
-            }
-        }
-        ContractScope::new(replica.contract_scope.clone())
+        ContractScope::new(self.collection_resources(collection_id).await?.contracts)
             .map(Some)
             .map_err(scope_error)
     }
