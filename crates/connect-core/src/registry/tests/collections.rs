@@ -277,6 +277,7 @@ fn collection_identity_survives_a_folder_move() {
     // rename semantics.
     #[cfg(windows)]
     {
+        registry.shutdown_runtimes();
         drop(registry);
         for attempt in 0..=100 {
             match fs::rename(&original, &moved) {

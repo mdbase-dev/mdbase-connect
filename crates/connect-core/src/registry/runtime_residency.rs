@@ -75,6 +75,45 @@ impl CollectionRegistry {
         Ok(())
     }
 
+    /// Release every resident runtime after bounded background index work drains.
+    ///
+    /// Daemon shutdown uses this as a lifecycle barrier before collection folders
+    /// may be moved or removed on Windows.
+    pub fn shutdown_runtimes(&self) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            let running = self
+                .file_warmups
+                .lock()
+                .map(|warmups| {
+                    warmups
+                        .values()
+                        .any(|state| matches!(state, FileWarmupState::Running))
+                })
+                .unwrap_or(false);
+            if !running || std::time::Instant::now() >= deadline {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let roots = if let Ok(mut executors) = self.executors.lock() {
+            let roots = executors
+                .values()
+                .map(|executor| executor.provider().root().to_path_buf())
+                .collect::<Vec<_>>();
+            executors.clear();
+            roots
+        } else {
+            Vec::new()
+        };
+        #[cfg(windows)]
+        for root in roots {
+            wait_for_windows_delete_share(&root);
+        }
+        #[cfg(not(windows))]
+        drop(roots);
+    }
+
     /// Snapshot the bounded set of collection runtimes already held in memory.
     pub fn resident_collection_ids(&self) -> Result<Vec<Uuid>, ConnectError> {
         let executors = self
@@ -185,6 +224,35 @@ impl CollectionRegistry {
             [format!("runtime_feed_owner:{id}")],
         )?;
         Ok(())
+    }
+}
+
+#[cfg(windows)]
+fn wait_for_windows_delete_share(root: &Path) {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Foundation::GENERIC_READ;
+    use windows_sys::Win32::Storage::FileSystem::{
+        DELETE, FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    };
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let opened = std::fs::OpenOptions::new()
+            .access_mode(GENERIC_READ | DELETE)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(root);
+        match opened {
+            Ok(file) => {
+                drop(file);
+                return;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+            Err(_) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            Err(_) => return,
+        }
     }
 }
 

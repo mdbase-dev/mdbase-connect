@@ -194,13 +194,20 @@ fn run_finalizer(
     let mut active = BTreeSet::new();
     loop {
         match commands.recv_timeout(EXTERNAL_POLL) {
-            Ok(Command::Shutdown) => return,
+            Ok(Command::Shutdown) => {
+                registry.shutdown_runtimes();
+                return;
+            }
             Ok(command) => handle_command(&registry, &mut active, command, runtime_events.as_ref()),
             Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => return,
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                registry.shutdown_runtimes();
+                return;
+            }
         }
         while let Ok(command) = commands.try_recv() {
             if matches!(&command, Command::Shutdown) {
+                registry.shutdown_runtimes();
                 return;
             }
             handle_command(&registry, &mut active, command, runtime_events.as_ref());
