@@ -2181,10 +2181,6 @@ describe("mdbase connect server", () => {
     );
     expect(provisioned.rows[0].allowed_types).toEqual([]);
 
-    await db.query("UPDATE hosted_replicas SET allowed_types = $2::jsonb WHERE id = $1", [
-      provisioned.rows[0].id,
-      JSON.stringify(["task"])
-    ]);
     vi.mocked(hostedProvider.updateApplicationReplica).mockClear();
     const rediscovered = await app.inject({
       method: "POST",
@@ -2194,23 +2190,7 @@ describe("mdbase connect server", () => {
     expect(rediscovered.statusCode).toBe(200);
     await (app as typeof app & { drainApplicationReconciliation(): Promise<void> })
       .drainApplicationReconciliation();
-    expect(hostedProvider.updateApplicationReplica).toHaveBeenCalledWith(
-      provisioned.rows[0].id,
-      expect.objectContaining({
-        allowedTypes: [],
-        fullCollection: true,
-        allowedOperations: ["describe", "query", "create", "update"],
-        allowedOrigin: "http://localhost:4173",
-        proofPublicKey: expect.any(String),
-        applicationDeclarationId: manifestServer.manifest.id,
-        applicationDeclarationDigest: `sha256:${applicationManifestDigest}`
-      })
-    );
-    const reconciled = await db.query<{ allowed_types: string[] }>(
-      "SELECT allowed_types FROM hosted_replicas WHERE id = $1",
-      [provisioned.rows[0].id]
-    );
-    expect(reconciled.rows[0].allowed_types).toEqual([]);
+    expect(hostedProvider.updateApplicationReplica).not.toHaveBeenCalled();
 
     const activeControl = await app.inject({
       method: "GET",

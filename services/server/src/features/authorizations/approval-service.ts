@@ -10,13 +10,15 @@ import type {
   ContractRequirement,
   ContractSetupChoice,
   GrantEncryption,
-  GrantPolicy
+  GrantPolicy,
+  GrantScope
 } from "@mdbase-dev/connect-protocol";
 import {
   GRANT_ENCRYPTION_PROTOCOL_VERSION,
   isSupportedOperationTransport,
   RELAY_ENCRYPTION_SUITE
 } from "@mdbase-dev/connect-protocol";
+import { isCanonicalCollectionGrantScope } from "../../application-grant-scope.js";
 import {
   requireCollectionAction,
   resolveLocalCollectionAccess,
@@ -32,7 +34,6 @@ import { randomToken } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import {
-  allowedTypesForRequirements,
   assertOperationsAllowedByApplication,
   assertCollectionSupportsOperations,
   contractsSatisfy,
@@ -737,10 +738,7 @@ export async function approveHostedAuthorization(
       access: input.access
     });
     const scope = plan.scope;
-    const allowedTypes = allowedTypesForRequirements(
-      availableDescriptors,
-      pending.requirements
-    );
+    const allowedTypes: string[] = [];
     const operations = plan.operations;
     const applicationOrigin = pending.flow === "device_code"
       ? pending.device_origin ?? "null"
@@ -759,14 +757,18 @@ export async function approveHostedAuthorization(
       id: string;
       hosted_replica_id: string;
       application_installation_id: string | null;
+      scope: GrantScope;
+      allowed_types: string[];
     }>(
-      `SELECT id, hosted_replica_id, application_installation_id
-       FROM grants
-       WHERE user_id = $1 AND application_id = $2
-         AND hosted_collection_id = $3 AND revoked_at IS NULL
-         AND hosted_replica_id IS NOT NULL
-         AND (application_installation_id = $4 OR application_installation_id IS NULL)
-       ORDER BY (application_installation_id = $4) DESC, created_at ASC
+      `SELECT g.id, g.hosted_replica_id, g.application_installation_id,
+              g.scope, replica.allowed_types
+       FROM grants g
+       JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
+       WHERE g.user_id = $1 AND g.application_id = $2
+         AND g.hosted_collection_id = $3 AND g.revoked_at IS NULL
+         AND g.hosted_replica_id IS NOT NULL
+         AND (g.application_installation_id = $4 OR g.application_installation_id IS NULL)
+       ORDER BY (g.application_installation_id = $4) DESC, g.created_at ASC
        FOR UPDATE`,
       [
         input.userId,
@@ -775,28 +777,64 @@ export async function approveHostedAuthorization(
         applicationInstallationId
       ]
     );
-    const retained = existing.rows[0];
+    const retained = existing.rows.find((candidate) =>
+      isCanonicalCollectionGrantScope(candidate.scope)
+      && candidate.allowed_types.length === 0
+    );
     const grantId = retained?.id ?? randomUUID();
     replicaId = retained?.hosted_replica_id ?? randomUUID();
 
-    for (const duplicate of existing.rows.slice(1)) {
-      await provider.revokeReplica(duplicate.hosted_replica_id);
+    for (const obsolete of existing.rows.filter((candidate) =>
+      candidate.id !== retained?.id
+    )) {
       await connection.query(
-        "UPDATE hosted_replicas SET revoked_at = now() WHERE id = $1",
-        [duplicate.hosted_replica_id]
+        `UPDATE hosted_replicas
+         SET revoked_at = COALESCE(revoked_at, now()), token_hash = NULL
+         WHERE id = $1`,
+        [obsolete.hosted_replica_id]
       );
       await connection.query(
-        "UPDATE grants SET revoked_at = now() WHERE id = $1",
-        [duplicate.id]
+        `UPDATE grants
+         SET revoked_at = COALESCE(revoked_at, now()),
+             reauthorization_required_at = COALESCE(reauthorization_required_at, now()),
+             reauthorization_reason = 'collection_level_authorization'
+         WHERE id = $1`,
+        [obsolete.id]
       );
+      await connection.query(
+        "UPDATE access_tokens SET revoked_at = COALESCE(revoked_at, now()) WHERE grant_id = $1",
+        [obsolete.id]
+      );
+      await connection.query(
+        "UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, now()) WHERE grant_id = $1",
+        [obsolete.id]
+      );
+      const cleanup = await connection.query(
+        `SELECT id FROM provider_revocation_jobs
+         WHERE replica_id = $1 AND completed_at IS NULL`,
+        [obsolete.hosted_replica_id]
+      );
+      if (!cleanup.rows[0]) {
+        await connection.query(
+          `INSERT INTO provider_revocation_jobs
+             (id, replica_id, grant_id, collection_id, reason)
+           VALUES ($1, $2, $3, $4, 'collection_level_authorization')`,
+          [
+            randomUUID(),
+            obsolete.hosted_replica_id,
+            obsolete.id,
+            input.collectionId
+          ]
+        );
+      }
     }
 
     const replicaPolicy = {
       grantId,
       mode: plan.replicaMode,
       allowedTypes,
-      contractScope: scope.access === "contract" ? scope.contracts : [],
-      fullCollection: scope.access === "full_collection",
+      contractScope: [],
+      fullCollection: true,
       allowedOperations: hostedReplicaCollectionOperations(operations),
       operationTransportProtocol:
         pending.application_authorization.binding.contracts.operation_transport,

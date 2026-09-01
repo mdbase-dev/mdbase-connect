@@ -1,3 +1,4 @@
+import { collectionGrantScope } from "./application-grant-scope.js";
 import type {
   ApplicationRequirements,
   CollectionOperation,
@@ -59,7 +60,7 @@ export function planCollectionGrant(input: {
     );
   }
 
-  const scope: GrantScope = { access: "full_collection", contracts: [] };
+  const scope: GrantScope = collectionGrantScope();
   const fileCapability = fileCapabilityForRequirements(input.requirements);
   return {
     operations,

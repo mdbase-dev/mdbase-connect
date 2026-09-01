@@ -295,6 +295,7 @@ export async function buildPolicySnapshot(
        WHERE c.connector_id = $1 AND g.revoked_at IS NULL
          AND g.activated_at IS NOT NULL
          AND g.scope->>'access' = 'full_collection'
+         AND g.scope->'contracts' = '[]'::jsonb
        ORDER BY g.id`,
       [connectorId]
     ));

@@ -22,7 +22,6 @@ import {
   rotateGrantEncryption,
   scopeForRequirements
 } from "./policy.js";
-import { createOrUpdateGrant } from "./service.js";
 
 const operationSchema = z.enum(COLLECTION_OPERATIONS);
 

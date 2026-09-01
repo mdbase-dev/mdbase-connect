@@ -11,6 +11,7 @@ import type {
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { verifyApplicationAuthorization } from "../../application-authorization.js";
+import { isCanonicalCollectionGrantScope } from "../../application-grant-scope.js";
 import {
   accessView,
   COLLECTION_OPERATIONS,
@@ -24,8 +25,7 @@ import {
 } from "../../collection-catalog.js";
 import {
   contractRequirements,
-  effectiveHostedContractDescriptors,
-  typesForContracts
+  effectiveHostedContractDescriptors
 } from "../../hosted.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
 import { hostedReplicaCollectionOperations } from "../../hosted-replica-policy.js";
@@ -55,7 +55,6 @@ import {
   rotateGrantEncryption
 } from "../grants/policy.js";
 import { declarationIdFromFamilyIdentity } from "../applications/identity.js";
-import { createOrUpdateGrant } from "../grants/service.js";
 import { liveAuthorizationCollections } from "./local-collections.js";
 import {
   approveHostedAuthorization,
@@ -305,8 +304,7 @@ export function registerAuthorizationRoutes(
       encryption: GrantEncryption | null;
       scope: GrantScope;
       requirements: ApplicationRequirements;
-      template: string | null;
-      hosted_contracts: CollectionContractDescriptor[] | null;
+      allowed_types: string[] | null;
       file_capability: FileCapability | null;
       application_origin: string;
       proof_public_key: string;
@@ -320,17 +318,26 @@ export function registerAuthorizationRoutes(
               a.family_identity AS application_family_identity,
               a.manifest_digest AS application_manifest_digest,
               col.connector_id,
-              g.hosted_replica_id, hosted.template, hosted.contracts AS hosted_contracts
+              g.hosted_replica_id, replica.allowed_types
        FROM grants g
        JOIN applications a ON a.id = g.application_id
        LEFT JOIN collections col ON col.id = g.collection_id
-       LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
+       LEFT JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
        WHERE g.id = $1 AND g.user_id = $2 AND g.revoked_at IS NULL
          AND g.activated_at IS NOT NULL`,
       [grantId, user.id]
     );
     const current = active.rows[0];
     if (!current) return reply.code(404).send(apiError("grant_not_found", "Active grant not found."));
+    if (
+      !isCanonicalCollectionGrantScope(current.scope)
+      || (current.hosted_replica_id && (current.allowed_types?.length ?? 0) > 0)
+    ) {
+      return reply.code(409).send(apiError(
+        "application_reauthorization_required",
+        "Legacy scoped access must be revoked and explicitly reauthorized for the collection."
+      ));
+    }
     const operations = [...new Set(input.operations)];
     if (operations.some((operation) => !current.operations.includes(operation))) {
       return reply.code(409).send(apiError(
@@ -348,12 +355,9 @@ export function registerAuthorizationRoutes(
       await options.hostedProvider.updateApplicationReplica(current.hosted_replica_id, {
         grantId,
         mode: write ? "read_write" : "read_only",
-        allowedTypes: typesForContracts(
-          effectiveHostedContractDescriptors(current.hosted_contracts, current.template!),
-          current.scope.contracts
-        ),
-        contractScope: current.scope.access === "contract" ? current.scope.contracts : [],
-        fullCollection: current.scope.access === "full_collection",
+        allowedTypes: [],
+        contractScope: [],
+        fullCollection: true,
         allowedOperations: hostedReplicaCollectionOperations(operations),
         operationTransportProtocol:
           current.application_authorization.binding.contracts.operation_transport,

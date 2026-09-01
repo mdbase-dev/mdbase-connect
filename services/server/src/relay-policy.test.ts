@@ -121,6 +121,49 @@ describe("connector policy sequence", () => {
       .toBe("2026-08-29T00:51:04.895Z");
   });
 
+  it("omits every noncanonical legacy scope from connector policy", async () => {
+    const db = await createDatabase("memory");
+    databases.push(db);
+    const userId = randomUUID();
+    const connectorId = randomUUID();
+    const collectionId = randomUUID();
+    const applicationId = randomUUID();
+    await db.query(
+      "INSERT INTO users (id, email, name) VALUES ($1, 'legacy-policy@example.com', 'Policy')",
+      [userId]
+    );
+    await db.query(
+      `INSERT INTO connectors (id, user_id, name, token_hash)
+       VALUES ($1, $2, 'Laptop', 'hash')`,
+      [connectorId, userId]
+    );
+    await db.query(
+      `INSERT INTO collections
+         (id, user_id, connector_id, local_id, display_name, spec_version)
+       VALUES ($1, $2, $3, $4, 'Notes', '0.3.0')`,
+      [collectionId, userId, connectorId, randomUUID()]
+    );
+    await db.query(
+      `INSERT INTO applications
+         (id, canonical_identity, name, homepage, redirect_uris)
+       VALUES ($1, $2, 'Legacy', 'https://legacy.example', '[]'::jsonb)`,
+      [applicationId, `test:${applicationId}`]
+    );
+    await db.query(
+      `INSERT INTO grants
+         (id, user_id, application_id, collection_id, operations, scope,
+          reauthorization_required_at)
+       VALUES
+         ($1, $3, $4, $5, '["read"]'::jsonb,
+          '{"access":"contract","contracts":[]}'::jsonb, now()),
+         ($2, $3, $4, $5, '["read"]'::jsonb,
+          '{"access":"full_collection","contracts":[{"id":"legacy","version":"1.0.0","digest":"sha256:${"0".repeat(64)}"}]}'::jsonb, now())`,
+      [randomUUID(), randomUUID(), userId, applicationId, collectionId]
+    );
+
+    expect((await buildPolicySnapshot(db, connectorId, 60_000))?.grants).toEqual([]);
+  });
+
   it("atomically emits MAX_SAFE_INTEGER once then fails terminally without precision loss", async () => {
     const db = await createDatabase("memory");
     databases.push(db);

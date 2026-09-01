@@ -152,7 +152,7 @@ describe("hosted notification grant synchronization", () => {
     }
   });
 
-  it("quarantines a confirmed missing replica without blocking registration", async () => {
+  it("retires a legacy scoped replica without attempting to widen it", async () => {
     const fixture = await reconciliationFixture(1);
     try {
       await fixture.db.query(
@@ -162,13 +162,7 @@ describe("hosted notification grant synchronization", () => {
       );
       const provider = {
         upsertNotificationGrant: vi.fn(async () => undefined),
-        updateApplicationReplica: vi.fn(async () => {
-          throw new HostedProviderResponseError(
-            404,
-            "replica_not_found",
-            "Active application capability not found."
-          );
-        })
+        updateApplicationReplica: vi.fn(async () => undefined)
       } as unknown as HostedProviderClient;
 
       await expect(reconcileApplicationGrants(
@@ -182,9 +176,11 @@ describe("hosted notification grant synchronization", () => {
         [fixture.grantIds[0]]
       );
       expect(grant.rows[0].revoked_at).toBeTruthy();
+      expect(provider.upsertNotificationGrant).not.toHaveBeenCalled();
+      expect(provider.updateApplicationReplica).not.toHaveBeenCalled();
       expect((await fixture.db.query(
         "SELECT reason FROM provider_revocation_jobs"
-      )).rows).toEqual([{ reason: "hosted_resource_missing" }]);
+      )).rows).toEqual([{ reason: "collection_level_authorization" }]);
     } finally {
       await fixture.db.end();
     }

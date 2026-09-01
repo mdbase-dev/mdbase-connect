@@ -16,6 +16,7 @@ import type {
   GrantScope,
   TypePackProvision
 } from "@mdbase-dev/connect-protocol";
+import { collectionGrantScope } from "../../application-grant-scope.js";
 import type { DatabasePool } from "../../database-types.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { requiresPortableProfile } from "../../collection-operation-policy.js";
@@ -24,7 +25,7 @@ export function scopeForRequirements(
   _requirements: ApplicationRequirements | null | undefined,
   _available: CollectionContractDescriptor[] = []
 ): GrantScope {
-  return { access: "full_collection", contracts: [] };
+  return collectionGrantScope();
 }
 
 export function collectionSupportsOperations(

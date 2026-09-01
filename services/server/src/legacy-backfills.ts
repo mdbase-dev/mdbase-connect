@@ -61,15 +61,17 @@ export async function retireLegacyContractScopedGrants(
       hosted_collection_id: string | null;
       hosted_replica_id: string | null;
     }>(
-      `SELECT id, hosted_collection_id, hosted_replica_id
-       FROM grants
-       WHERE revoked_at IS NULL
-         AND activated_at IS NOT NULL
+      `SELECT g.id, g.hosted_collection_id, g.hosted_replica_id
+       FROM grants g
+       LEFT JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
+       WHERE g.revoked_at IS NULL
+         AND g.activated_at IS NOT NULL
          AND (
-           COALESCE(scope->>'access', '') <> 'full_collection'
-           OR COALESCE(scope->'contracts', 'null'::jsonb) <> '[]'::jsonb
+           COALESCE(g.scope->>'access', '') <> 'full_collection'
+           OR COALESCE(g.scope->'contracts', 'null'::jsonb) <> '[]'::jsonb
+           OR COALESCE(replica.allowed_types, '[]'::jsonb) <> '[]'::jsonb
          )
-       ORDER BY id
+       ORDER BY g.id
        FOR UPDATE`
     );
     for (const grant of grants.rows) {

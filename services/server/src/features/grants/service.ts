@@ -1,16 +1,17 @@
-import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type {
   ApplicationNotifications,
   ApplicationRequirements,
   CollectionContractDescriptor,
-  ContractRequirement,
   FileCapability,
-  GrantEncryption,
   GrantSummary,
   GrantScope,
   NotificationCriterion
 } from "@mdbase-dev/connect-protocol";
+import {
+  collectionGrantScope,
+  isCanonicalCollectionGrantScope
+} from "../../application-grant-scope.js";
 import type { DatabasePool, DatabaseQueryable } from "../../db.js";
 import { parsePersistedApplicationAuthorization } from "../../application-authorization.js";
 import {
@@ -23,78 +24,15 @@ import {
   HostedProviderResponseError
 } from "../../hosted-provider.js";
 import { fileCapabilityForRequirements } from "../../grant-planner.js";
-import { hostedReplicaCollectionOperations } from "../../hosted-replica-policy.js";
 import { RelayHub } from "../../relay.js";
 import { audit } from "../../platform/audit-events.js";
 import {
-  allowedTypesForRequirements,
   collectionSupportsOperations,
   contractsSatisfy,
   operationsAllowedByRequirements,
   requiredContractsForRequirements,
-  requiresHostedCollection,
-  rotateGrantEncryption,
-  scopeForRequirements
+  requiresHostedCollection
 } from "./policy.js";
-
-export async function createOrUpdateGrant(
-  db: DatabasePool,
-  input: {
-    userId: string;
-    applicationId: string;
-    collectionId: string;
-    operations: string[];
-    scope: GrantScope;
-    fileCapability?: FileCapability;
-    applicationOrigin: string;
-    notificationCriteria: NotificationCriterion[];
-  }
-): Promise<{ id: string; operations: string[]; scope: GrantScope }> {
-  const operations = [...new Set(input.operations)];
-  const existing = await db.query<{ id: string; encryption: GrantEncryption | null }>(
-    `SELECT id, encryption FROM grants WHERE user_id = $1 AND application_id = $2
-     AND collection_id = $3 AND revoked_at IS NULL AND activated_at IS NOT NULL
-     ORDER BY created_at DESC LIMIT 1`,
-    [input.userId, input.applicationId, input.collectionId]
-  );
-  const grant = existing.rows[0]
-    ? await db.query<{ id: string; operations: string[]; scope: GrantScope }>(
-        `UPDATE grants SET operations = $2::jsonb, scope = $3::jsonb,
-                           file_capability = $4::jsonb, application_origin = $5,
-                           notification_criteria = $6::jsonb
-         WHERE id = $1 RETURNING id, operations, scope`,
-        [
-          existing.rows[0].id,
-          JSON.stringify(operations),
-          JSON.stringify(input.scope),
-          input.fileCapability ? JSON.stringify(input.fileCapability) : null,
-          input.applicationOrigin,
-          JSON.stringify(input.notificationCriteria)
-        ]
-      )
-    : await db.query<{ id: string; operations: string[]; scope: GrantScope }>(
-        `INSERT INTO grants
-           (id, user_id, application_id, collection_id, operations, scope,
-            file_capability, application_origin, notification_criteria)
-         VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9::jsonb)
-         RETURNING id, operations, scope`,
-        [
-          randomUUID(),
-          input.userId,
-          input.applicationId,
-          input.collectionId,
-          JSON.stringify(operations),
-          JSON.stringify(input.scope),
-          input.fileCapability ? JSON.stringify(input.fileCapability) : null,
-          input.applicationOrigin,
-          JSON.stringify(input.notificationCriteria)
-        ]
-      );
-  if (existing.rows[0]?.encryption) {
-    await rotateGrantEncryption(db, existing.rows[0].id);
-  }
-  return grant.rows[0];
-}
 
 export async function syncHostedNotificationGrant(
   db: DatabaseQueryable,
@@ -139,6 +77,10 @@ export async function syncHostedNotificationGrant(
   );
   const row = result.rows[0];
   if (!row) return;
+  if (!isCanonicalCollectionGrantScope(row.scope)) {
+    await provider.revokeNotificationGrant(row.collection_id, row.id);
+    return;
+  }
   if (row.notification_criteria.length === 0) {
     await provider.revokeNotificationGrant(row.collection_id, row.id);
     return;
@@ -202,16 +144,12 @@ export async function reconcileApplicationGrants(
     scope: GrantScope;
     notification_criteria: NotificationCriterion[];
     file_capability: FileCapability | null;
-    application_origin: string;
-    proof_public_key: string;
-    application_authorization: import("@mdbase-dev/connect-protocol").ApplicationAuthorizationProof;
   }>(
     `SELECT g.id, g.user_id, col.connector_id, g.hosted_collection_id, g.hosted_replica_id,
             g.operations, col.contracts AS local_contracts, col.spec_version,
             hosted.contracts AS hosted_contracts, hosted.template,
             replica.allowed_types, g.scope, g.notification_criteria,
-            g.file_capability, g.application_origin, g.proof_public_key,
-            g.application_authorization
+            g.file_capability
      FROM grants g
      LEFT JOIN collections col ON col.id = g.collection_id
      LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
@@ -223,6 +161,21 @@ export async function reconcileApplicationGrants(
   );
   const changedConnectors = new Set<string>();
   for (const grant of grants.rows) {
+    if (
+      !isCanonicalCollectionGrantScope(grant.scope)
+      || (grant.hosted_replica_id && (grant.allowed_types?.length ?? 0) > 0)
+    ) {
+      await retireGrantForReauthorization(
+        db,
+        grant,
+        "collection_level_authorization"
+      );
+      await audit(db, grant.user_id, "grant.revoked_legacy_scope", grant.id, {
+        application_id: application.id
+      });
+      if (grant.connector_id) changedConnectors.add(grant.connector_id);
+      continue;
+    }
     const retainedCriteria = grant.notification_criteria.filter((authorized) =>
       application.notifications.criteria.some((declared) =>
         isDeepStrictEqual(authorized, declared)
@@ -277,10 +230,7 @@ export async function reconcileApplicationGrants(
       ? hostedDescriptors
       : grant.local_contracts ?? [];
     const availableContracts = contractRequirements(availableDescriptors);
-    const desiredScope = scopeForRequirements(
-      application.requirements,
-      availableDescriptors
-    );
+    const desiredScope = collectionGrantScope();
     const desiredFileCapability = fileCapabilityForRequirements(application.requirements);
     const fileCapabilityMatches = isDeepStrictEqual(
       grant.file_capability,
@@ -288,142 +238,71 @@ export async function reconcileApplicationGrants(
     );
     const collectionKindCompatible = !requiresHostedCollection(application.requirements)
       || grant.template !== null;
-    const collectionCompatible = collectionKindCompatible
+    const collectionCompatible = application.requirements.access === "full_collection"
+      && collectionKindCompatible
       && contractsSatisfy(availableContracts, requiredContracts)
       && (grant.template !== null
         || (grant.spec_version !== null
           && collectionSupportsOperations(grant.spec_version, grant.operations)))
       && operationsAllowedByRequirements(grant.operations, application.requirements);
-    const scopeMatches = scopesEqual(grant.scope, desiredScope);
-    const desiredAllowedTypes = grant.template
-      ? allowedTypesForRequirements(hostedDescriptors, application.requirements)
-      : [];
-    const replicaScopeMatches = !grant.hosted_replica_id
-      || sameStrings(grant.allowed_types ?? [], desiredAllowedTypes);
-    if (
-      scopeMatches
-      && collectionCompatible
-      && replicaScopeMatches
-      && fileCapabilityMatches
-    ) continue;
-    const mayNarrow = desiredScope.contracts.length > 0
-      && (grant.scope.contracts.length === 0
-        || isContractSubset(desiredScope.contracts, grant.scope.contracts));
-    if ((scopeMatches || mayNarrow) && collectionCompatible && fileCapabilityMatches) {
-      if (grant.hosted_replica_id) {
-        grant.application_authorization = parsePersistedApplicationAuthorization(
-          grant.application_authorization
-        );
-        if (!hostedProvider) {
-          throw new Error("Hosted provider unavailable during grant reconciliation.");
-        }
-        const write = grant.operations.some((operation) =>
-          [
-            "create",
-            "update",
-            "delete",
-            "rename",
-            "create_type",
-            "update_type",
-            "apply_type_pack",
-            "apply_collection_setup",
-            "create_view_source",
-            "update_view_source",
-            "delete_view_source",
-            "put_timer",
-            "cancel_timer",
-            "reconcile_timers"
-          ].includes(operation)
-        ) || desiredFileCapability?.actions.some((action) =>
-          ["add", "replace", "move", "delete"].includes(action)
-        ) === true;
-        try {
-          await hostedProvider.updateApplicationReplica(grant.hosted_replica_id, {
-            grantId: grant.id,
-            mode: write ? "read_write" : "read_only",
-            allowedTypes: desiredAllowedTypes,
-            contractScope: desiredScope.access === "contract" ? desiredScope.contracts : [],
-            fullCollection: application.requirements.access === "full_collection",
-            allowedOperations: hostedReplicaCollectionOperations(grant.operations),
-            operationTransportProtocol:
-              grant.application_authorization.binding.contracts.operation_transport,
-            operationTransportRecoveryProtocols:
-              grant.application_authorization.binding.contracts
-                .operation_transport_recovery ?? [],
-            fileCapability: desiredFileCapability,
-            allowedOrigin: grant.application_origin,
-            proofPublicKey: grant.proof_public_key,
-            applicationDeclarationId:
-              grant.application_authorization.binding.application_declaration_id,
-            applicationDeclarationDigest:
-              `sha256:${grant.application_authorization.binding.application_manifest_digest}`
-          });
-        } catch (error) {
-          const missingCode = missingHostedResourceCode(error);
-          if (!missingCode) throw error;
-          await quarantineMissingHostedGrant(db, {
-            userId: grant.user_id,
-            grantId: grant.id,
-            collectionId: grant.hosted_collection_id,
-            applicationId: application.id,
-            providerErrorCode: missingCode
-          });
-          if (grant.connector_id) changedConnectors.add(grant.connector_id);
-          continue;
-        }
-        await db.query(
-          "UPDATE hosted_replicas SET allowed_types = $2::jsonb, mode = $3 WHERE id = $1",
-          [
-            grant.hosted_replica_id,
-            JSON.stringify(desiredAllowedTypes),
-            write ? "read_write" : "read_only"
-          ]
-        );
-      }
-      await db.query("UPDATE grants SET scope = $2::jsonb WHERE id = $1", [
-        grant.id,
-        JSON.stringify(desiredScope)
-      ]);
-      await rotateGrantEncryption(db, grant.id);
-      await audit(db, grant.user_id, "grant.scope_reconciled", grant.id, {
-        application_id: application.id,
-        scope: desiredScope
-      });
-    } else {
-      if (grant.hosted_replica_id) {
-        const queued = await queueHostedGrantRevocation(
-          db,
-          grant.user_id,
-          grant.id,
-          "application_manifest_change"
-        );
-        if (!queued) {
-          throw new Error(
-            "Active hosted grant disappeared during manifest reconciliation."
-          );
-        }
-      } else {
-        await db.query("UPDATE grants SET revoked_at = now() WHERE id = $1", [grant.id]);
-        await db.query(
-          "UPDATE access_tokens SET revoked_at = now() WHERE grant_id = $1",
-          [grant.id]
-        );
-        await db.query(
-          "UPDATE refresh_tokens SET revoked_at = now() WHERE grant_id = $1",
-          [grant.id]
-        );
-      }
-      await audit(db, grant.user_id, "grant.revoked_after_manifest_change", grant.id, {
-        application_id: application.id,
-        previous_scope: grant.scope,
-        required_scope: desiredScope
-      });
-    }
+    if (collectionCompatible && fileCapabilityMatches) continue;
+    await retireGrantForReauthorization(db, grant, "application_manifest_change");
+    await audit(db, grant.user_id, "grant.revoked_after_manifest_change", grant.id, {
+      application_id: application.id,
+      previous_scope: grant.scope,
+      required_scope: desiredScope
+    });
     if (grant.connector_id) changedConnectors.add(grant.connector_id);
   }
   for (const connectorId of changedConnectors) {
     await relay.pushPolicy(connectorId);
   }
+}
+
+async function retireGrantForReauthorization(
+  db: DatabasePool,
+  grant: {
+    id: string;
+    user_id: string;
+    hosted_replica_id: string | null;
+  },
+  reason: string
+): Promise<void> {
+  if (grant.hosted_replica_id) {
+    const queued = await queueHostedGrantRevocation(
+      db,
+      grant.user_id,
+      grant.id,
+      reason
+    );
+    if (!queued) {
+      throw new Error("Active hosted grant disappeared during retirement.");
+    }
+    await db.query(
+      `UPDATE grants
+       SET reauthorization_required_at = COALESCE(reauthorization_required_at, now()),
+           reauthorization_reason = $2
+       WHERE id = $1`,
+      [grant.id, reason]
+    );
+    return;
+  }
+  await db.query(
+    `UPDATE grants
+     SET revoked_at = COALESCE(revoked_at, now()),
+         reauthorization_required_at = COALESCE(reauthorization_required_at, now()),
+         reauthorization_reason = $2
+     WHERE id = $1`,
+    [grant.id, reason]
+  );
+  await db.query(
+    "UPDATE access_tokens SET revoked_at = COALESCE(revoked_at, now()) WHERE grant_id = $1",
+    [grant.id]
+  );
+  await db.query(
+    "UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, now()) WHERE grant_id = $1",
+    [grant.id]
+  );
 }
 
 function missingHostedResourceCode(error: unknown): string | null {
@@ -471,27 +350,3 @@ async function quarantineMissingHostedGrant(
   );
 }
 
-function scopesEqual(left: GrantScope, right: GrantScope): boolean {
-  return left.access === right.access
-    && isContractSubset(left.contracts, right.contracts)
-    && isContractSubset(right.contracts, left.contracts);
-}
-
-function isContractSubset(
-  subset: ContractRequirement[],
-  superset: ContractRequirement[]
-): boolean {
-  const available = new Set(
-    superset.map((contract) => `${contract.id}@${contract.version}`)
-  );
-  return subset.every((contract) =>
-    available.has(`${contract.id}@${contract.version}`)
-  );
-}
-
-function sameStrings(left: string[], right: string[]): boolean {
-  const leftValues = new Set(left);
-  const rightValues = new Set(right);
-  return leftValues.size === rightValues.size
-    && [...leftValues].every((value) => rightValues.has(value));
-}
