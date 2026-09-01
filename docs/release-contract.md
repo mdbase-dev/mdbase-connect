@@ -49,3 +49,27 @@ registry digest.
 Schema versions are monotonic. Readers fail closed on unknown versions and
 unknown, missing, duplicated, mutable, wrong-platform, or wrong-repository
 components.
+
+## Local LAB experiments
+
+`pnpm deploy:lab --confirm LAB` builds the current checkout, pushes immutable
+LAB-only images, and delegates mutation and rollback state to the adjacent
+private `mdbase-cloud-ops` checkout. The resulting state is disposable and
+cannot authorize promotion.
+
+When testing unreleased ops changes from a worktree, select that checkout
+explicitly with an absolute canonical path:
+
+```sh
+MDBASE_CLOUD_OPS_CHECKOUT=/absolute/path/to/mdbase-cloud-ops \
+  pnpm deploy:lab --confirm LAB
+```
+
+The command still verifies the checkout's Git top level, private repository
+origin, and fixed executable. Omit the variable for ordinary use. Roll back with
+the exact state path printed by deployment:
+
+```sh
+MDBASE_CLOUD_OPS_CHECKOUT=/absolute/path/to/mdbase-cloud-ops \
+  pnpm deploy:lab --rollback /absolute/path/to/state.json --confirm LAB
+```
