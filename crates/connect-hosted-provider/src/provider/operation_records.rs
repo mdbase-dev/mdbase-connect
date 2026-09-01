@@ -1,5 +1,4 @@
 use super::mutation_journal::HostedMutationLease;
-use super::projections::canonical_record_scope_types;
 use super::*;
 
 enum RecordOperationPreparation<'a> {
@@ -95,38 +94,6 @@ impl HostedProvider {
                 .ok_or_else(|| {
                     ApiError::not_found("record_not_found", "The hosted record does not exist.")
                 })?;
-                if !replica.allowed_types.is_empty() {
-                    let types = canonical_record_scope_types(
-                        &mut transaction,
-                        self,
-                        &data_key,
-                        collection_id,
-                        current.get("record_id"),
-                        number(current.get::<i64, _>("sequence"), "record sequence")?,
-                        current.get("revision"),
-                        current.get("payload_ciphertext"),
-                    )
-                    .await?;
-                    if !types
-                        .iter()
-                        .any(|record_type| replica.allowed_types.contains(record_type))
-                    {
-                        return Err(ApiError::forbidden(
-                            "scope_denied",
-                            "The requested record is outside this application's record scope.",
-                        ));
-                    }
-                    if operation == "delete" {
-                        operation_input.insert("check_backlinks".to_string(), Value::Bool(false));
-                    } else if operation == "rename"
-                        && operation_input.get("update_refs").and_then(Value::as_bool) == Some(true)
-                    {
-                        return Err(ApiError::forbidden(
-                            "scope_denied",
-                            "Reference updates can affect records outside this application's scope.",
-                        ));
-                    }
-                }
                 let current_revision: String = current.get("revision");
                 let requested_revision = operation_input
                     .get("if_revision")
@@ -255,7 +222,6 @@ impl HostedProvider {
                 &prepared.mutation,
                 &prepared.semantic_operation,
                 prepared.semantic_input,
-                &replica.allowed_types,
             )
             .await?;
         serde_json::to_value(result).map_err(|error| {

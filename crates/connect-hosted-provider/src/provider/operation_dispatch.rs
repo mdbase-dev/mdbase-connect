@@ -189,12 +189,6 @@ impl HostedProvider {
                 .timer_operation(collection_id, grant_id, operation, input)
                 .await;
         }
-        if is_full_collection_operation(operation) && !replica.full_collection {
-            return Err(ApiError::forbidden(
-                "scope_denied",
-                "This operation requires full collection access.",
-            ));
-        }
         match operation {
             "describe" => self.describe_operation(collection_id, replica).await,
             "changes" => self.changes_operation(collection_id, replica, &input).await,
@@ -226,18 +220,12 @@ impl HostedProvider {
                 let (scoped_input, selector) = match (&contract_scope, operation) {
                     (Some(scope), "query") => scope.query_input(&input).map_err(scope_error)?,
                     (Some(scope), "read") => scope.read_input(&input).map_err(scope_error)?,
-                    _ => (
-                        scope_read_input(operation, input, &replica.allowed_types)?,
-                        None,
-                    ),
+                    _ => (input, None),
                 };
                 let result = if operation == "read" {
                     let typed = self
                         .execute_direct_point_read_typed(collection_id, &scoped_input)
                         .await?;
-                    if contract_scope.is_none() {
-                        ensure_canonical_read_visible(&typed, &replica.allowed_types)?;
-                    }
                     typed.to_v03()
                 } else if operation == "query" {
                     self.execute_hosted_query(collection_id, replica, request_id, &scoped_input)

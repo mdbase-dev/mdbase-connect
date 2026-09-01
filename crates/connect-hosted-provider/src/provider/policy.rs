@@ -1,9 +1,24 @@
 use super::*;
+pub(super) fn ensure_canonical_application_replica(replica: &Replica) -> ApiResult<()> {
+    if replica.purpose == ReplicaPurpose::Application
+        && (!replica.full_collection
+            || !replica.allowed_types.is_empty()
+            || !replica.contract_scope.is_empty())
+    {
+        return Err(ApiError::forbidden(
+            "application_reauthorization_required",
+            "This legacy scoped application capability must be revoked and reauthorized.",
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn authorize_application_operation(
     replica: &Replica,
     operation: &str,
     request_origin: Option<&str>,
 ) -> ApiResult<()> {
+    ensure_canonical_application_replica(replica)?;
     if operation == "batch" {
         return Err(ApiError::bad_request(
             "unsupported_operation",
@@ -42,12 +57,7 @@ pub(super) fn authorize_sync_access(
     required_operation: &str,
     request_origin: Option<&str>,
 ) -> ApiResult<()> {
-    if replica.purpose == ReplicaPurpose::Application && !replica.full_collection {
-        return Err(ApiError::forbidden(
-            "scope_denied",
-            "Contract-scoped replicas are unavailable because the sync document format contains whole records. Use projected collection operations or request explicit full-collection access.",
-        ));
-    }
+    ensure_canonical_application_replica(replica)?;
     match replica.purpose {
         ReplicaPurpose::Application => {
             authorize_application_operation(replica, required_operation, request_origin)
@@ -89,6 +99,7 @@ pub(super) fn authorize_file_access(
             Ok(())
         }
         ReplicaPurpose::Application => {
+            ensure_canonical_application_replica(replica)?;
             authorize_application_origin(replica, request_origin)?;
             let capability = replica.file_capability.as_ref().ok_or_else(|| {
                 insufficient_access(
@@ -157,93 +168,6 @@ fn file_action_name(action: FileAction) -> &'static str {
 
 pub(super) fn scope_error(error: impl std::fmt::Display) -> ApiError {
     ApiError::forbidden("scope_denied", error.to_string())
-}
-
-pub(super) fn scope_read_input(
-    operation: &str,
-    input: Value,
-    allowed_types: &[String],
-) -> ApiResult<Value> {
-    if operation != "query" || allowed_types.is_empty() {
-        return Ok(input);
-    }
-    let mut scoped = input.as_object().cloned().ok_or_else(|| {
-        ApiError::forbidden("scope_denied", "Scoped query input must be an object.")
-    })?;
-    if query_crosses_record_boundary(&Value::Object(scoped.clone())) {
-        return Err(ApiError::forbidden(
-            "scope_denied",
-            "Cross-record traversal is unavailable to a scoped application.",
-        ));
-    }
-    if let Some(requested) = scoped.get("types") {
-        let requested = requested.as_array().ok_or_else(|| {
-            ApiError::forbidden("scope_denied", "Scoped query types must be a list.")
-        })?;
-        if requested.is_empty() {
-            scoped.insert(
-                "types".to_string(),
-                Value::Array(allowed_types.iter().cloned().map(Value::String).collect()),
-            );
-        } else if requested.iter().any(|value| {
-            value
-                .as_str()
-                .is_none_or(|name| !allowed_types.iter().any(|allowed| allowed == name))
-        }) {
-            return Err(ApiError::forbidden(
-                "scope_denied",
-                "The query requests a record type outside this application's scope.",
-            ));
-        }
-    } else {
-        scoped.insert(
-            "types".to_string(),
-            Value::Array(allowed_types.iter().cloned().map(Value::String).collect()),
-        );
-    }
-    Ok(Value::Object(scoped))
-}
-
-pub(super) fn query_crosses_record_boundary(value: &Value) -> bool {
-    match value {
-        Value::String(source) => {
-            let compact = source
-                .chars()
-                .filter(|character| !character.is_whitespace())
-                .collect::<String>();
-            compact.contains(".asFile") || compact.contains(".backlinks")
-        }
-        Value::Array(values) => values.iter().any(query_crosses_record_boundary),
-        Value::Object(values) => values.values().any(query_crosses_record_boundary),
-        _ => false,
-    }
-}
-
-pub(super) fn ensure_canonical_read_visible(
-    operation: &mdbase::runtime::CanonicalOperationOutcome,
-    allowed_types: &[String],
-) -> ApiResult<()> {
-    if allowed_types.is_empty() || !operation.valid {
-        return Ok(());
-    }
-    let visible = match &operation.value {
-        mdbase::runtime::CanonicalOperationValue::Read(Some(record)) => record
-            .types
-            .iter()
-            .any(|record_type| allowed_types.contains(record_type)),
-        mdbase::runtime::CanonicalOperationValue::Read(None) => true,
-        _ => {
-            return Err(ApiError::internal(
-                "Canonical read scope check received another operation family.",
-            ));
-        }
-    };
-    visible.then_some(()).ok_or_else(|| {
-        ApiError::forbidden(
-            "scope_denied",
-            "The requested record is outside this application's record scope.",
-        )
-    })
 }
 
 pub(super) fn application_change(

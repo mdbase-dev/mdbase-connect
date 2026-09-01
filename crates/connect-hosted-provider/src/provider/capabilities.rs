@@ -178,20 +178,14 @@ pub(super) fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<
                     "Application capabilities require a grant.",
                 ));
             }
-            if input.allowed_operations.is_empty() {
-                if !input.allowed_types.is_empty() || !input.contract_scope.is_empty() {
-                    return Err(ApiError::bad_request(
-                        "invalid_application_scope",
-                        "File-only capabilities cannot carry type-derived record scope.",
-                    ));
-                }
-            } else {
-                validate_collection_scope(
-                    input.full_collection,
-                    &input.allowed_types,
-                    &input.contract_scope,
-                    &input.allowed_operations,
-                )?;
+            if !input.full_collection
+                || !input.allowed_types.is_empty()
+                || !input.contract_scope.is_empty()
+            {
+                return Err(ApiError::bad_request(
+                    "invalid_application_scope",
+                    "Application capabilities must authorize the canonical full collection; revoke and reauthorize legacy scoped capabilities.",
+                ));
             }
             if input.proof_public_key.is_some() && input.allowed_origin.is_none() {
                 return Err(ApiError::bad_request(
@@ -341,75 +335,6 @@ pub(super) fn validate_file_capability(
 
 fn valid_capability_folder(folder: &str) -> bool {
     folder.len() <= 1024 && validate_hosted_file_path(&format!("{folder}/placeholder.bin")).is_ok()
-}
-
-pub(super) fn validate_collection_scope(
-    full_collection: bool,
-    allowed_types: &[String],
-    contract_scope: &[CollectionContractDescriptor],
-    operations: &[String],
-) -> ApiResult<()> {
-    if full_collection != allowed_types.is_empty() {
-        return Err(ApiError::bad_request(
-            "invalid_application_scope",
-            "Full collection access requires no type restrictions; contract access requires at least one allowed type.",
-        ));
-    }
-    if full_collection && !contract_scope.is_empty() {
-        return Err(ApiError::bad_request(
-            "invalid_application_scope",
-            "Full collection access must not carry a contract projection.",
-        ));
-    }
-    if !full_collection {
-        let expected_types = contract_scope
-            .iter()
-            .flat_map(|contract| contract.implementations.iter())
-            .map(|implementation| implementation.type_name.as_str())
-            .collect::<BTreeSet<_>>();
-        let actual_types = allowed_types
-            .iter()
-            .map(String::as_str)
-            .collect::<BTreeSet<_>>();
-        if contract_scope.is_empty() || expected_types != actual_types {
-            return Err(ApiError::bad_request(
-                "invalid_application_scope",
-                "Contract access requires exact approved contract descriptors whose provider union matches allowed_types.",
-            ));
-        }
-    }
-    if !full_collection
-        && operations
-            .iter()
-            .any(|operation| is_full_collection_operation(operation))
-    {
-        return Err(ApiError::bad_request(
-            "invalid_application_scope",
-            "Saved views, collection-wide validation, and type definitions require full collection access.",
-        ));
-    }
-    Ok(())
-}
-
-pub(super) fn is_full_collection_operation(operation: &str) -> bool {
-    matches!(
-        operation,
-        "changes"
-            | "validate"
-            | "read_type"
-            | "create_type"
-            | "update_type"
-            | "assess_type_pack"
-            | "apply_type_pack"
-            | "assess_collection_setup"
-            | "apply_collection_setup"
-            | "list_views"
-            | "execute_view"
-            | "read_view_source"
-            | "create_view_source"
-            | "update_view_source"
-            | "delete_view_source"
-    )
 }
 
 pub(super) fn validate_operations(operations: &[String], mode: SyncReplicaMode) -> ApiResult<()> {

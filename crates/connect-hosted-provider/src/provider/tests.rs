@@ -995,67 +995,70 @@ fn application_capabilities_bind_operations_mode_and_origin() {
             .code,
         "invalid_application_capability"
     );
-    let mut contract_capability = capability.clone();
-    contract_capability.full_collection = false;
+    let mut type_scoped_capability = capability.clone();
+    type_scoped_capability.allowed_types = vec!["task".to_string()];
     assert_eq!(
-        validate_replica_capability(&contract_capability)
+        validate_replica_capability(&type_scoped_capability)
             .unwrap_err()
             .code,
         "invalid_application_scope"
     );
-    contract_capability.allowed_types = vec!["task".to_string()];
-    contract_capability.allowed_operations = vec!["query".to_string()];
-    contract_capability.contract_scope = vec![CollectionContractDescriptor {
+    let mut contract_scoped_capability = capability.clone();
+    contract_scoped_capability.contract_scope = vec![CollectionContractDescriptor {
         contract_type: "record".to_string(),
         id: "example.task".to_string(),
         version: "1.0.0".to_string(),
         digest: format!("sha256:{}", "0".repeat(64)),
         schema: json!({"type": "object"}),
         binding_schema: None,
-        implementations: vec![
-            mdbase_connect_protocol::CollectionContractImplementationDescriptor {
-                type_name: "task".to_string(),
-                type_version: 1,
-                type_path: Some("_types/task.md".to_string()),
-                digest: format!("sha256:{}", "1".repeat(64)),
-                fields: BTreeMap::from([("title".to_string(), "summary".to_string())]),
-                binding: None,
-            },
-        ],
+        implementations: Vec::new(),
     }];
-    validate_replica_capability(&contract_capability).unwrap();
-    let mut contract_changes = contract_capability.clone();
-    contract_changes
-        .allowed_operations
-        .push("changes".to_string());
     assert_eq!(
-        validate_replica_capability(&contract_changes)
+        validate_replica_capability(&contract_scoped_capability)
             .unwrap_err()
             .code,
         "invalid_application_scope"
     );
-    let contract_replica = Replica {
-        id: contract_capability.replica_id,
-        purpose: contract_capability.purpose,
-        mode: contract_capability.mode,
-        allowed_types: contract_capability.allowed_types,
-        contract_scope: contract_capability.contract_scope,
-        full_collection: contract_capability.full_collection,
-        allowed_operations: contract_capability.allowed_operations,
-        operation_transport_protocol: contract_capability.operation_transport_protocol,
-        operation_transport_recovery_protocols: contract_capability
+    let mut legacy_capability = contract_scoped_capability;
+    legacy_capability.full_collection = false;
+    legacy_capability.allowed_types = vec!["task".to_string()];
+    legacy_capability.contract_scope = vec![CollectionContractDescriptor {
+        contract_type: "record".to_string(),
+        id: "example.task".to_string(),
+        version: "1.0.0".to_string(),
+        digest: format!("sha256:{}", "0".repeat(64)),
+        schema: json!({"type": "object"}),
+        binding_schema: None,
+        implementations: Vec::new(),
+    }];
+    assert_eq!(
+        validate_replica_capability(&legacy_capability)
+            .unwrap_err()
+            .code,
+        "invalid_application_scope"
+    );
+    let legacy_replica = Replica {
+        id: legacy_capability.replica_id,
+        purpose: legacy_capability.purpose,
+        mode: legacy_capability.mode,
+        allowed_types: legacy_capability.allowed_types,
+        contract_scope: legacy_capability.contract_scope,
+        full_collection: legacy_capability.full_collection,
+        allowed_operations: legacy_capability.allowed_operations,
+        operation_transport_protocol: legacy_capability.operation_transport_protocol,
+        operation_transport_recovery_protocols: legacy_capability
             .operation_transport_recovery_protocols,
-        file_capability: contract_capability.file_capability,
-        allowed_origin: contract_capability.allowed_origin,
-        proof_public_key: contract_capability.proof_public_key,
-        grant_id: contract_capability.grant_id,
+        file_capability: legacy_capability.file_capability,
+        allowed_origin: legacy_capability.allowed_origin,
+        proof_public_key: legacy_capability.proof_public_key,
+        grant_id: legacy_capability.grant_id,
         scope_epoch: 1,
     };
     assert_eq!(
-        authorize_sync_access(&contract_replica, "query", Some("https://tasks.example"))
+        ensure_canonical_application_replica(&legacy_replica)
             .unwrap_err()
             .code,
-        "scope_denied"
+        "application_reauthorization_required"
     );
     let replica = Replica {
         id: capability.replica_id,
@@ -1341,6 +1344,14 @@ fn file_capabilities_are_independent_scoped_and_mode_checked() {
         token_ttl_seconds: Some(3600),
     };
     validate_replica_capability(&capability).unwrap();
+    let mut legacy_file_only = capability.clone();
+    legacy_file_only.full_collection = false;
+    assert_eq!(
+        validate_replica_capability(&legacy_file_only)
+            .unwrap_err()
+            .code,
+        "invalid_application_scope"
+    );
     let replica = Replica {
         id: capability.replica_id,
         purpose: capability.purpose,

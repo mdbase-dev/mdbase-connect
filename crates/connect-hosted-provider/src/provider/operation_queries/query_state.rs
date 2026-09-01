@@ -5,7 +5,7 @@ impl HostedProvider {
         transaction: &mut Transaction<'_, Postgres>,
         collection_id: Uuid,
         collection: &PgRow,
-        replica: &Replica,
+        _replica: &Replica,
         input: &Value,
         catalog: &mdbase::runtime::CompiledCatalog,
         data_key: &[u8; 32],
@@ -24,9 +24,6 @@ impl HostedProvider {
         } else {
             None
         };
-        if let Some(context) = exact_context.as_ref() {
-            enforce_context_scope(catalog, context, &replica.allowed_types)?;
-        }
         enforce_exact_context_budget(&plan, exact_context.as_ref())?;
         let request_digest = plan.canonical_query_digest.clone();
         let (scan_budget_records, scan_budget_ciphertext_bytes) = hosted_query_scan_budgets();
@@ -45,7 +42,7 @@ impl HostedProvider {
             projection_format_version,
             semantic_engine_version,
             plan,
-            allowed_types: replica.allowed_types.clone(),
+            allowed_types: Vec::new(),
             last_order_values: Vec::new(),
             last_path: None,
             last_record_id: None,
@@ -70,7 +67,7 @@ impl HostedProvider {
         transaction: &mut Transaction<'_, Postgres>,
         collection_id: Uuid,
         collection: &PgRow,
-        replica: &Replica,
+        _replica: &Replica,
         input: &Value,
         catalog: &mdbase::runtime::CompiledCatalog,
         resource_documents: &[(String, String)],
@@ -127,7 +124,7 @@ impl HostedProvider {
                     planning_input,
                     &view_record,
                     explicit_context.as_ref(),
-                    &replica.allowed_types,
+                    &[],
                 )
                 .map_err(|error| {
                     ApiError::bad_request(
@@ -192,7 +189,7 @@ impl HostedProvider {
             projection_format_version,
             semantic_engine_version,
             plan: plan.query,
-            allowed_types: replica.allowed_types.clone(),
+            allowed_types: Vec::new(),
             last_order_values: Vec::new(),
             last_path: None,
             last_record_id: None,
@@ -217,7 +214,7 @@ impl HostedProvider {
         transaction: &mut Transaction<'_, Postgres>,
         collection_id: Uuid,
         collection: &PgRow,
-        replica: &Replica,
+        _replica: &Replica,
         input: &Value,
         catalog: &mdbase::runtime::CompiledCatalog,
         resource_documents: &[(String, String)],
@@ -242,7 +239,7 @@ impl HostedProvider {
             file_mtime: None,
         };
         let planning = catalog
-            .plan_hosted_obsidian_base(input, &view_record, &replica.allowed_types)
+            .plan_hosted_obsidian_base(input, &view_record, &[])
             .map_err(|error| {
                 ApiError::bad_request(
                     error.code,
@@ -272,21 +269,6 @@ impl HostedProvider {
             }
             _ => None,
         };
-        if let Some(context) = &base_context {
-            if !replica.allowed_types.is_empty()
-                && !context.facts.types.iter().any(|actual| {
-                    replica
-                        .allowed_types
-                        .iter()
-                        .any(|allowed| allowed.eq_ignore_ascii_case(actual))
-                })
-            {
-                return Err(ApiError::forbidden(
-                    "scope_denied",
-                    "The Obsidian Base context is outside this application's record scope.",
-                ));
-            }
-        }
         let mut candidate_input = json!({
             "select": ["path"],
             "pagination": "cursor",
@@ -325,7 +307,7 @@ impl HostedProvider {
             projection_format_version,
             semantic_engine_version,
             plan,
-            allowed_types: replica.allowed_types.clone(),
+            allowed_types: Vec::new(),
             last_order_values: Vec::new(),
             last_path: None,
             last_record_id: None,
@@ -558,7 +540,7 @@ impl HostedProvider {
             )? as u32,
             semantic_engine_version: row.get("semantic_engine_version"),
             plan,
-            allowed_types: replica.allowed_types.clone(),
+            allowed_types: Vec::new(),
             last_order_values: order_values,
             last_path: Some(last_path),
             last_record_id: row.get("last_record_id"),

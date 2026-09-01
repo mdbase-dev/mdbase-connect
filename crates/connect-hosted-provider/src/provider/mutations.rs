@@ -163,7 +163,6 @@ impl HostedProvider {
         mutation: &SyncMutation,
         operation: &str,
         input: serde_json::Map<String, Value>,
-        allowed_types: &[String],
     ) -> ApiResult<OperationResult> {
         let mut transaction = self.pool.begin().await?;
         let collection = sqlx::query(
@@ -194,7 +193,7 @@ impl HostedProvider {
         )
         .await?
         .map(|(record, _, _)| record);
-        let (execution, before_records) = execute_direct_semantic(
+        let (execution, _before_records) = execute_direct_semantic(
             &mut transaction,
             self,
             &data_key,
@@ -206,21 +205,6 @@ impl HostedProvider {
             current,
         )
         .await?;
-        for (record_id, after, _) in &execution.changed {
-            let before = before_records.get(record_id);
-            if before.is_some_and(|record| !visible(record, allowed_types))
-                || after
-                    .as_ref()
-                    .is_some_and(|record| !visible(record, allowed_types))
-            {
-                return Ok(invalid_operation_result(
-                    "scope_denied",
-                    "The mutation would change a record outside the replica scope.",
-                    None,
-                    None,
-                ));
-            }
-        }
         Ok(execution.envelope)
     }
 
@@ -403,7 +387,10 @@ impl HostedProvider {
                 )
                 .await;
             };
-            if !semantic_requested && !visible(current, &replica.allowed_types) {
+            if replica.purpose == ReplicaPurpose::Mirror
+                && !semantic_requested
+                && !visible(current, &replica.allowed_types)
+            {
                 return store_rejection(
                     transaction,
                     &self.crypto,
@@ -560,10 +547,11 @@ impl HostedProvider {
         }
         for (record_id, after, _) in &execution.changed {
             let before = before_records.get(record_id);
-            if before.is_some_and(|record| !visible(record, &replica.allowed_types))
-                || after
-                    .as_ref()
-                    .is_some_and(|record| !visible(record, &replica.allowed_types))
+            if replica.purpose == ReplicaPurpose::Mirror
+                && (before.is_some_and(|record| !visible(record, &replica.allowed_types))
+                    || after
+                        .as_ref()
+                        .is_some_and(|record| !visible(record, &replica.allowed_types)))
             {
                 return store_rejection(
                     transaction,
