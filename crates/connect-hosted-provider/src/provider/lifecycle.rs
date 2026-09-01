@@ -69,6 +69,7 @@ impl HostedProvider {
         run_migrations: bool,
         cutover_connection: Option<(Duration, Uuid)>,
     ) -> ApiResult<Self> {
+        let initialize_database_key = run_migrations || cutover_connection.is_some();
         let started = Instant::now();
         let mut retry_delay = Duration::from_millis(100);
         loop {
@@ -81,7 +82,11 @@ impl HostedProvider {
                 } else {
                     Ok(())
                 } {
-                    Ok(()) => match verify_database_key(&pool, &crypto).await {
+                    Ok(()) => match if initialize_database_key {
+                        verify_database_key(&pool, &crypto).await
+                    } else {
+                        verify_stored_database_key_for_startup(&pool, &crypto).await
+                    } {
                         Ok(()) => {
                             let query_pool = hosted_query_pool_options()
                                 .connect_lazy(database_url)

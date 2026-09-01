@@ -900,6 +900,12 @@ async fn collection_type_candidates(
     Ok(Json(json!({ "types": types })))
 }
 
+fn is_query_cursor_release(operation: &str, input: &Value, mutating: bool) -> bool {
+    !mutating
+        && matches!(operation, "query" | "execute_view")
+        && input.get("release_cursor").is_some()
+}
+
 async fn operation(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -918,7 +924,7 @@ async fn operation(
     // available while reads are suspended or a cutover lease expires; the
     // provider still authorizes the request and binds the cursor to the exact
     // collection, replica, scope epoch, and query kind before deletion.
-    let cursor_release = !recovery_only && request.input.get("release_cursor").is_some();
+    let cursor_release = is_query_cursor_release(&operation, &request.input, recovery_only);
     let admission = if cursor_release {
         None
     } else if recovery_only {
@@ -991,6 +997,16 @@ async fn operation(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cursor_release_exemption_is_closed_to_query_operations() {
+        let release = json!({"release_cursor": "opaque"});
+        assert!(is_query_cursor_release("query", &release, false));
+        assert!(is_query_cursor_release("execute_view", &release, false));
+        assert!(!is_query_cursor_release("describe", &release, false));
+        assert!(!is_query_cursor_release("query", &release, true));
+        assert!(!is_query_cursor_release("query", &json!({}), false));
+    }
 
     #[test]
     fn internal_credentials_are_checked_by_digest() {
