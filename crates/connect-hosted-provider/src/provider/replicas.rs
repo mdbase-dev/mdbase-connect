@@ -302,6 +302,7 @@ impl HostedProvider {
             request_origin,
             proof,
             false,
+            true,
         )
         .await
     }
@@ -319,6 +320,25 @@ impl HostedProvider {
             request_origin,
             proof,
             true,
+            true,
+        )
+        .await
+    }
+
+    pub(crate) async fn authorize_cursor_release_request(
+        &self,
+        collection_id: Uuid,
+        token: &str,
+        request_origin: Option<&str>,
+        proof: Option<&AuthorityRequestProof>,
+    ) -> ApiResult<AuthorizedRequest> {
+        self.authorize_request_with_retired_replay(
+            collection_id,
+            token,
+            request_origin,
+            proof,
+            false,
+            false,
         )
         .await
     }
@@ -330,6 +350,7 @@ impl HostedProvider {
         request_origin: Option<&str>,
         proof: Option<&AuthorityRequestProof>,
         allow_retired_replay: bool,
+        consume_proof_nonce: bool,
     ) -> ApiResult<AuthorizedRequest> {
         // Originless mirror traffic is authenticated again inside the requested
         // operation. Avoid a duplicate database round trip for that hot path.
@@ -407,7 +428,7 @@ impl HostedProvider {
                         )
                     })?;
                     verify_hosted_request_proof(public_key, token, proof)?;
-                    if !retired_credential {
+                    if !retired_credential && consume_proof_nonce {
                         let inserted = sqlx::query(
                             r#"INSERT INTO hosted_provider_request_proofs (replica_id, nonce)
                                VALUES ($1, $2)

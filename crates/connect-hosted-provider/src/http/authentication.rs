@@ -7,8 +7,32 @@ use uuid::Uuid;
 
 use crate::{
     error::{ApiError, ApiResult},
-    provider::AuthorityRequestProof,
+    provider::{AuthorityRequestProof, AuthorizedRequest, HostedProvider},
 };
+
+pub(super) async fn authorize_operation(
+    provider: &HostedProvider,
+    collection_id: Uuid,
+    token: &str,
+    origin: Option<&str>,
+    proof: Option<&AuthorityRequestProof>,
+    recovery_only: bool,
+    cursor_release: bool,
+) -> ApiResult<AuthorizedRequest> {
+    if cursor_release {
+        provider
+            .authorize_cursor_release_request(collection_id, token, origin, proof)
+            .await
+    } else if recovery_only {
+        provider
+            .authorize_replay_request(collection_id, token, origin, proof)
+            .await
+    } else {
+        provider
+            .authorize_request(collection_id, token, origin, proof)
+            .await
+    }
+}
 
 pub(super) fn request_origin(headers: &HeaderMap) -> Option<&str> {
     headers
