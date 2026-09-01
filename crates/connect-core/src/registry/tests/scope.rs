@@ -1,7 +1,5 @@
 use super::*;
 
-static SCOPED_HOOK_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 #[test]
 fn describe_exposes_complete_portable_type_metadata_without_absolute_paths() {
     let state = tempdir().unwrap();
@@ -103,8 +101,12 @@ implements:
     assert!(!serialized.contains("not-for-apps"));
 }
 
-#[test]
-fn contract_scope_confines_description_queries_records_and_changes() {
+fn mixed_collection() -> (
+    tempfile::TempDir,
+    tempfile::TempDir,
+    CollectionRegistry,
+    CollectionSummary,
+) {
     let state = tempdir().unwrap();
     let collection_parent = tempdir().unwrap();
     let root = collection_parent.path().join("mixed");
@@ -157,10 +159,8 @@ schema:
         ("tasks/one.md", "task", "title", "Visible"),
         ("private/one.md", "private", "secret", "Hidden"),
     ] {
-        let mut frontmatter = json!({ "type": type_name, field: value });
-        if type_name == "task" {
-            frontmatter["unmapped_secret"] = json!("must never cross the grant");
-        }
+        let mut frontmatter = json!({"type": type_name});
+        frontmatter[field] = json!(value);
         let created = registry
             .operation(
                 collection.id,
@@ -169,214 +169,42 @@ schema:
                     "path": path,
                     "type": type_name,
                     "frontmatter": frontmatter,
-                    "body": "private body"
+                    "body": "whole collection body"
                 }),
             )
             .unwrap();
         assert_eq!(created["valid"], true, "{created}");
     }
-    let scope = work_item_scope(&registry, collection.id);
+    (state, collection_parent, registry, collection)
+}
 
-    let empty_contract_scope = GrantScope {
-        contracts: vec![],
-        access: mdbase_connect_protocol::ApplicationAccess::Contract,
-    };
-    assert!(matches!(
-        registry.scoped_operation(
-            collection.id,
-            "query",
-            &json!({}),
-            &empty_contract_scope
-        ),
-        Err(ConnectError::AccessDenied(message)) if message.contains("at least one")
-    ));
-    let full_scope = GrantScope::full_collection();
-    let full_query = registry
-        .scoped_operation(collection.id, "query", &json!({}), &full_scope)
-        .unwrap();
-    assert_eq!(full_query["result"]["results"].as_array().unwrap().len(), 2);
-    let portable_full_query = registry
-        .scoped_operation(
-            collection.id,
-            "query",
-            &json!({
-                "contract": {
-                    "id": "example.work-item",
-                    "version": "1.0.0"
-                }
-            }),
-            &full_scope,
-        )
-        .unwrap();
-    assert_eq!(
-        portable_full_query["result"]["results"]
-            .as_array()
-            .unwrap()
-            .len(),
-        1
-    );
-    assert_eq!(
-        portable_full_query["result"]["results"][0]["frontmatter"],
-        json!({ "title": "Visible" })
-    );
-    assert_eq!(
-        portable_full_query["result"]["results"][0]["contract"]["id"],
-        "example.work-item"
-    );
+#[test]
+fn canonical_scope_exposes_all_records_types_changes_and_raw_mutations() {
+    let (_state, collection_parent, registry, collection) = mixed_collection();
+    let scope = GrantScope::full_collection();
 
-    assert!(registry
-        .is_compatible(
-            collection.id,
-            &ApplicationRequirements {
-                contracts: scope
-                    .contracts
-                    .iter()
-                    .map(|contract| ContractRequirement {
-                        id: contract.id.clone(),
-                        version: contract.version.clone(),
-                        digest: contract.digest.clone(),
-                    })
-                    .collect(),
-                ..Default::default()
-            }
-        )
-        .unwrap());
     let description = registry
         .scoped_operation(collection.id, "describe", &json!({}), &scope)
         .unwrap();
-    assert_eq!(description["types"].as_array().unwrap().len(), 1);
-    assert_eq!(description["types"][0]["name"], "task");
+    assert_eq!(description["types"].as_array().unwrap().len(), 2);
 
     let query = registry
         .scoped_operation(collection.id, "query", &json!({}), &scope)
         .unwrap();
-    assert_eq!(query["result"]["results"].as_array().unwrap().len(), 1);
-    assert_eq!(query["result"]["results"][0]["path"], "tasks/one.md");
-    assert_eq!(
-        query["result"]["results"][0]["frontmatter"],
-        json!({ "title": "Visible" })
-    );
-    assert_eq!(
-        query["result"]["results"][0]["contract"]["id"],
-        "example.work-item"
-    );
-    assert!(query["result"]["results"][0].get("body").is_none());
-    assert!(query["result"]["results"][0]["frontmatter"]
-        .get("unmapped_secret")
-        .is_none());
-    let read = registry
+    assert_eq!(query["result"]["results"].as_array().unwrap().len(), 2);
+    let private = registry
         .scoped_operation(
             collection.id,
             "read",
-            &json!({ "path": "tasks/one.md" }),
+            &json!({"path": "private/one.md"}),
             &scope,
         )
         .unwrap();
-    assert_eq!(read["result"]["frontmatter"], json!({ "title": "Visible" }));
-    assert!(read["result"].get("body").is_none());
-    assert!(matches!(
-        registry.scoped_operation(
-            collection.id,
-            "read",
-            &json!({ "path": "private/one.md" }),
-            &scope
-        ),
-        Err(ConnectError::AccessDenied(_))
-    ));
-    assert!(matches!(
-        registry.scoped_operation(collection.id, "list_views", &json!({}), &scope),
-        Err(ConnectError::AccessDenied(_))
-    ));
-    assert!(matches!(
-        registry.scoped_operation(
-            collection.id,
-            "execute_view",
-            &json!({ "path": "views/tasks.md", "view": "all" }),
-            &scope
-        ),
-        Err(ConnectError::AccessDenied(_))
-    ));
-    assert!(matches!(
-        registry.scoped_operation(
-            collection.id,
-            "query",
-            &json!({ "types": ["private"] }),
-            &scope
-        ),
-        Err(ConnectError::AccessDenied(_))
-    ));
-    assert!(matches!(
-        registry.scoped_operation(
-            collection.id,
-            "query",
-            &json!({ "where": "related.asFile().secret == 'Hidden'" }),
-            &scope
-        ),
-        Err(ConnectError::AccessDenied(_))
-    ));
+    assert_eq!(private["result"]["frontmatter"]["secret"], "Hidden");
+    assert_eq!(private["result"]["body"], "whole collection body\n");
 
-    assert!(matches!(
-        registry.scoped_operation(
-            collection.id,
-            "create",
-            &json!({
-                "path": "private/forged.md",
-                "type": "task",
-                "frontmatter": { "type": "private", "secret": "Forged" }
-            }),
-            &scope
-        ),
-        Err(ConnectError::AccessDenied(_))
-    ));
-    assert!(!root.join("private/forged.md").exists());
-
-    assert!(matches!(
-        registry.scoped_operation(
-            collection.id,
-            "update",
-            &json!({ "path": "tasks/one.md", "patch": { "type": "private" } }),
-            &scope
-        ),
-        Err(ConnectError::AccessDenied(_))
-    ));
-    let unchanged = registry
-        .operation(collection.id, "read", &json!({ "path": "tasks/one.md" }))
-        .unwrap();
-    assert_eq!(unchanged["result"]["frontmatter"]["type"], "task");
-    assert!(matches!(
-        registry.scoped_operation(
-            collection.id,
-            "update",
-            &json!({
-                "path": "tasks/one.md",
-                "document": "---\ntype: private\nsecret: Forged from source\n---\n"
-            }),
-            &scope
-        ),
-        Err(ConnectError::AccessDenied(_))
-    ));
-    let unchanged = registry
-        .operation(collection.id, "read", &json!({ "path": "tasks/one.md" }))
-        .unwrap();
-    assert_eq!(unchanged["result"]["frontmatter"]["type"], "task");
-    assert!(matches!(
-        registry.scoped_operation(
-            collection.id,
-            "update",
-            &json!({
-                "path": "tasks/one.md",
-                "patch": { "types": ["task", "private"] }
-            }),
-            &scope
-        ),
-        Err(ConnectError::AccessDenied(_))
-    ));
-
-    let change_cursor = registry.changes(collection.id, &json!({})).unwrap().cursor;
-    for (path, type_name) in [
-        ("tasks/changed.md", "task"),
-        ("private/changed.md", "private"),
-    ] {
+    let cursor = registry.changes(collection.id, &json!({})).unwrap().cursor;
+    for (path, type_name) in [("tasks/two.md", "task"), ("private/two.md", "private")] {
         registry
             .append_change(
                 collection.id,
@@ -384,551 +212,128 @@ schema:
                     event_type: "mdbase.record.created".to_string(),
                     sequence: 1,
                     occurred_at: "2026-07-20T12:00:00.000Z".to_string(),
-                    payload: json!({ "path": path, "types": [type_name] }),
+                    payload: json!({"path": path, "types": [type_name]}),
                 },
             )
             .unwrap();
     }
-    registry
-        .append_change(
-            collection.id,
-            &mdbase::watch::WatchEvent {
-                event_type: "mdbase.record.modified".to_string(),
-                sequence: 2,
-                occurred_at: "2026-07-20T12:00:01.000Z".to_string(),
-                payload: json!({
-                    "path": "tasks/no-longer-a-task.md",
-                    "previous_types": ["task"],
-                    "types": ["private"]
-                }),
-            },
-        )
-        .unwrap();
     let changes = registry
-        .scoped_operation(
-            collection.id,
-            "changes",
-            &json!({ "after": change_cursor }),
-            &scope,
-        )
+        .scoped_operation(collection.id, "changes", &json!({"after": cursor}), &scope)
         .unwrap();
     assert_eq!(changes["events"].as_array().unwrap().len(), 2);
-    assert_eq!(changes["events"][0]["payload"]["path"], "tasks/changed.md");
-}
-
-#[test]
-fn contract_scoped_cursor_query_pages_every_record_and_releases_its_snapshot() {
-    let state = tempdir().unwrap();
-    let collection_parent = tempdir().unwrap();
-    let root = collection_parent.path().join("contract-cursor-pages");
-    let registry = CollectionRegistry::open(state.path()).unwrap();
-    let collection = registry
-        .create(&root, Some("Contract cursor pages"), "UTC")
-        .unwrap();
-    write_work_item_contract(&root);
-    fs::write(
-        root.join("_types/task.md"),
-        r#"---
-kind: mdbase.type
-name: task
-version: 1
-schema:
-  dialect: json-schema-2020-12
-  value:
-    type: object
-    additionalProperties: true
-    properties:
-      title: { type: string }
-implements:
-  - contract: example.work-item
-    version: 1.0.0
-    fields:
-      title: title
----
-"#,
-    )
-    .unwrap();
-    fs::write(
-        root.join("_types/private.md"),
-        r#"---
-kind: mdbase.type
-name: private
-version: 1
-schema:
-  dialect: json-schema-2020-12
-  value:
-    type: object
-    additionalProperties: true
-    properties:
-      secret: { type: string }
----
-"#,
-    )
-    .unwrap();
-    synchronize_external_fixture(&registry, collection.id);
-
-    for index in 0..5 {
-        registry
-            .operation(
-                collection.id,
-                "create",
-                &json!({
-                    "path": format!("tasks/{index}.md"),
-                    "type": "task",
-                    "frontmatter": { "title": format!("Task {index}") }
-                }),
-            )
-            .unwrap();
-    }
-    for index in 0..2 {
-        registry
-            .operation(
-                collection.id,
-                "create",
-                &json!({
-                    "path": format!("private/{index}.md"),
-                    "type": "private",
-                    "frontmatter": { "secret": format!("Secret {index}") }
-                }),
-            )
-            .unwrap();
-    }
-
-    let scope = work_item_scope(&registry, collection.id);
-    let contract = json!({
-        "id": "example.work-item",
-        "version": "1.0.0"
-    });
-    let mut cursor = None;
-    let mut cursor_to_release = None;
-    let mut paths = std::collections::BTreeSet::new();
-    let mut page_count = 0;
-
-    loop {
-        let mut input = json!({
-            "contract": contract,
-            "frontmatter_mode": "effective",
-            "limit": 2
-        });
-        if let Some(cursor) = cursor.as_ref() {
-            input["cursor"] = json!(cursor);
-        } else {
-            input["offset"] = json!(0);
-            input["pagination"] = json!("cursor");
-        }
-
-        let page = registry
-            .scoped_operation(collection.id, "query", &input, &scope)
-            .unwrap();
-        let rows = page["result"]["results"].as_array().unwrap();
-        assert!(!rows.is_empty());
-        assert_eq!(page["result"]["meta"]["total_count"], 5);
-        for row in rows {
-            assert_eq!(row["types"], json!(["task"]));
-            assert!(row["path"].as_str().unwrap().starts_with("tasks/"));
-            assert!(row["frontmatter"].get("title").is_some());
-            assert!(paths.insert(row["path"].as_str().unwrap().to_string()));
-        }
-        page_count += 1;
-
-        let Some(next) = page["result"]["meta"]["cursor"].as_str() else {
-            break;
-        };
-        cursor_to_release = Some(next.to_string());
-        cursor = Some(next.to_string());
-    }
-
-    assert_eq!(page_count, 3);
-    assert_eq!(
-        paths,
-        (0..5)
-            .map(|index| format!("tasks/{index}.md"))
-            .collect::<std::collections::BTreeSet<_>>()
-    );
-    assert_eq!(
-        registry
-            .runtime_residency_diagnostics()
-            .unwrap()
-            .active_read_snapshots,
-        1
-    );
-
-    registry
-        .scoped_operation(
-            collection.id,
-            "query",
-            &json!({ "release_cursor": cursor_to_release.unwrap() }),
-            &scope,
-        )
-        .unwrap();
-    assert_eq!(
-        registry
-            .runtime_residency_diagnostics()
-            .unwrap()
-            .active_read_snapshots,
-        0
-    );
-}
-
-#[test]
-fn contract_scope_unions_pinned_providers_and_rejects_provider_drift() {
-    let state = tempdir().unwrap();
-    let collection_parent = tempdir().unwrap();
-    let root = collection_parent.path().join("multiple-providers");
-    let registry = CollectionRegistry::open(state.path()).unwrap();
-    let collection = registry
-        .create(&root, Some("Multiple providers"), "UTC")
-        .unwrap();
-    write_work_item_contract(&root);
-
-    for (name, title_field) in [("task", "title"), ("action", "summary")] {
-        fs::write(
-            root.join(format!("_types/{name}.md")),
-            format!(
-                r#"---
-kind: mdbase.type
-name: {name}
-version: 1
-schema:
-  dialect: json-schema-2020-12
-  value:
-    type: object
-    additionalProperties: true
-    properties:
-      {title_field}: {{ type: string }}
-implements:
-  - contract: example.work-item
-    version: 1.0.0
-    fields:
-      title: {title_field}
----
-"#
-            ),
-        )
-        .unwrap();
-    }
-    synchronize_external_fixture(&registry, collection.id);
-    for (path, type_name, field) in [
-        ("tasks/one.md", "task", "title"),
-        ("actions/one.md", "action", "summary"),
-    ] {
-        let created = registry
-            .operation(
-                collection.id,
-                "create",
-                &json!({
-                    "path": path,
-                    "type": type_name,
-                    "frontmatter": { field: "Visible" }
-                }),
-            )
-            .unwrap();
-        assert_eq!(created["valid"], true, "{created}");
-    }
-
-    let scope = work_item_scope(&registry, collection.id);
-    assert_eq!(
-        scope.contracts[0]
-            .implementations
-            .iter()
-            .map(|implementation| implementation.type_name.as_str())
-            .collect::<Vec<_>>(),
-        ["action", "task"]
-    );
-    let query = registry
-        .scoped_operation(collection.id, "query", &json!({}), &scope)
-        .unwrap();
-    assert_eq!(query["result"]["results"].as_array().unwrap().len(), 2);
-    assert_eq!(
-        query["result"]["results"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|row| row["frontmatter"]["title"].as_str().unwrap())
-            .collect::<Vec<_>>(),
-        ["Visible", "Visible"]
-    );
 
     let created = registry
         .scoped_operation(
             collection.id,
             "create",
             &json!({
-                "path": "actions/two.md",
-                "type": "action",
-                "contract": {
-                    "id": "example.work-item",
-                    "version": "1.0.0",
-                    "type": "action"
-                },
-                "frontmatter": { "title": "Created through the contract" }
+                "path": "private/raw.md",
+                "type": "private",
+                "frontmatter": {"type": "private", "secret": "Raw"},
+                "body": "raw body"
             }),
             &scope,
         )
         .unwrap();
-    assert_eq!(
-        created["result"]["frontmatter"],
-        json!({ "title": "Created through the contract" })
-    );
-    let raw = registry
-        .operation(collection.id, "read", &json!({ "path": "actions/two.md" }))
-        .unwrap();
-    assert_eq!(
-        raw["result"]["frontmatter"]["summary"],
-        "Created through the contract"
-    );
-    assert!(raw["result"]["frontmatter"].get("title").is_none());
+    assert_eq!(created["valid"], true, "{created}");
+    assert!(collection_parent
+        .path()
+        .join("mixed/private/raw.md")
+        .exists());
+}
 
-    let updated = registry
+#[test]
+fn operation_contract_selector_keeps_semantic_filtering_and_projection() {
+    let (_state, _collection_parent, registry, collection) = mixed_collection();
+    let result = registry
         .scoped_operation(
             collection.id,
-            "update",
+            "query",
             &json!({
-                "path": "actions/two.md",
-                "contract": {
-                    "id": "example.work-item",
-                    "version": "1.0.0",
-                    "type": "action"
-                },
-                "patch": { "title": "Updated through the contract" }
+                "contract": {"id": "example.work-item", "version": "1.0.0"}
             }),
-            &scope,
+            &GrantScope::full_collection(),
         )
         .unwrap();
-    assert_eq!(
-        updated["result"]["frontmatter"]["title"],
-        "Updated through the contract"
-    );
-    let raw = registry
-        .operation(collection.id, "read", &json!({ "path": "actions/two.md" }))
-        .unwrap();
-    assert_eq!(
-        raw["result"]["frontmatter"]["summary"],
-        "Updated through the contract"
-    );
-
-    fs::write(
-        root.join("_types/todo.md"),
-        r#"---
-kind: mdbase.type
-name: todo
-version: 1
-schema:
-  dialect: json-schema-2020-12
-  value:
-    type: object
-    additionalProperties: true
-    properties:
-      label: { type: string }
-implements:
-  - contract: example.work-item
-    version: 1.0.0
-    fields:
-      title: label
----
-"#,
-    )
-    .unwrap();
-    synchronize_external_fixture(&registry, collection.id);
-
-    assert!(matches!(
-        registry.scoped_operation(collection.id, "query", &json!({}), &scope),
-        Err(ConnectError::AccessDenied(message)) if message.contains("changed")
-    ));
-}
-
-fn scoped_race_fixture() -> (
-    tempfile::TempDir,
-    tempfile::TempDir,
-    CollectionRegistry,
-    CollectionSummary,
-    GrantScope,
-) {
-    let state = tempdir().unwrap();
-    let parent = tempdir().unwrap();
-    let root = parent.path().join("scoped-race");
-    let registry = CollectionRegistry::open(state.path()).unwrap();
-    let collection = registry.create(&root, Some("Scoped race"), "UTC").unwrap();
-    write_work_item_contract(&root);
-    fs::create_dir_all(root.join("_types")).unwrap();
-    fs::write(
-        root.join("_types/task.md"),
-        r#"---
-kind: mdbase.type
-name: task
-version: 1
-schema:
-  dialect: json-schema-2020-12
-  value:
-    type: object
-    additionalProperties: true
-    properties:
-      type: { const: task }
-      title: { type: string }
-implements:
-  - contract: example.work-item
-    version: 1.0.0
-    fields:
-      title: title
----
-"#,
-    )
-    .unwrap();
-    fs::write(
-        root.join("_types/private.md"),
-        r#"---
-kind: mdbase.type
-name: private
-version: 1
-schema:
-  dialect: json-schema-2020-12
-  value:
-    type: object
-    additionalProperties: true
-    properties:
-      type: { const: private }
----
-"#,
-    )
-    .unwrap();
-    synchronize_external_fixture(&registry, collection.id);
-    registry
-        .operation(
-            collection.id,
-            "create",
-            &json!({
-                "path": "records/one.md",
-                "type": "task",
-                "frontmatter": {"type": "task", "title": "Before"}
-            }),
-        )
-        .unwrap();
-    let scope = work_item_scope(&registry, collection.id);
-    (state, parent, registry, collection, scope)
+    let rows = result["result"]["results"].as_array().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["path"], "tasks/one.md");
+    assert_eq!(rows[0]["frontmatter"], json!({"title": "Visible"}));
+    assert_eq!(rows[0]["contract"]["id"], "example.work-item");
+    assert!(rows[0].get("body").is_none());
 }
 
 #[test]
-fn scoped_preflight_and_commit_hold_one_mutation_gate_against_type_change() {
-    use std::sync::{mpsc, Arc, Condvar, Mutex};
-    use std::time::Duration;
+fn noncanonical_legacy_scopes_are_rejected_without_execution() {
+    let (_state, collection_parent, registry, collection) = mixed_collection();
+    let contract_scope = work_item_scope(&registry, collection.id);
+    let mut full_with_contracts = contract_scope.clone();
+    full_with_contracts.access = mdbase_connect_protocol::ApplicationAccess::FullCollection;
 
-    let _hook_test = SCOPED_HOOK_TEST_LOCK.lock().unwrap();
-    let (_state, _parent, registry, collection, scope) = scoped_race_fixture();
-    let pause = Arc::new((Mutex::new(false), Condvar::new()));
-    let (authorized_tx, authorized_rx) = mpsc::channel();
-    let hook_pause = pause.clone();
-    set_scoped_preflight_hook(Some(Arc::new(move |event, path| {
-        if event == ScopedPreflightEvent::AfterAuthorization && path == "records/one.md" {
-            authorized_tx.send(()).unwrap();
-            let (lock, changed) = &*hook_pause;
-            let mut released = lock.lock().unwrap();
-            while !*released {
-                released = changed.wait(released).unwrap();
-            }
+    for scope in [&contract_scope, &full_with_contracts] {
+        for (operation, input) in [
+            ("describe", json!({})),
+            ("query", json!({})),
+            ("changes", json!({})),
+            (
+                "create",
+                json!({
+                    "path": "private/must-not-exist.md",
+                    "type": "private",
+                    "frontmatter": {"type": "private", "secret": "No"}
+                }),
+            ),
+        ] {
+            assert!(matches!(
+                registry.scoped_operation(collection.id, operation, &input, scope),
+                Err(ConnectError::AccessDenied(message)) if message.contains("canonical full-collection")
+            ));
         }
-    })));
-
-    let scoped_registry = registry.clone();
-    let scoped_scope = scope.clone();
-    let scoped = std::thread::spawn(move || {
-        scoped_registry.scoped_operation(
-            collection.id,
-            "update",
-            &json!({"path": "records/one.md", "patch": {"title": "Scoped"}}),
-            &scoped_scope,
-        )
-    });
-    authorized_rx.recv_timeout(Duration::from_secs(2)).unwrap();
-
-    let writer_registry = registry.clone();
-    let (writer_started_tx, writer_started_rx) = mpsc::channel();
-    let (writer_done_tx, writer_done_rx) = mpsc::channel();
-    let writer = std::thread::spawn(move || {
-        writer_started_tx.send(()).unwrap();
-        let result = writer_registry.operation(
-            collection.id,
-            "update",
-            &json!({
-                "path": "records/one.md",
-                "patch": {"type": "private", "title": "Writer private"}
-            }),
-        );
-        writer_done_tx.send(()).unwrap();
-        result
-    });
-    writer_started_rx
-        .recv_timeout(Duration::from_secs(2))
-        .unwrap();
-    assert!(matches!(
-        writer_done_rx.recv_timeout(Duration::from_millis(150)),
-        Err(mpsc::RecvTimeoutError::Timeout)
-    ));
-
-    let (lock, changed) = &*pause;
-    *lock.lock().unwrap() = true;
-    changed.notify_all();
-    let scoped_result = scoped.join().unwrap().unwrap();
-    let writer_result = writer.join().unwrap().unwrap();
-    set_scoped_preflight_hook(None);
-
-    assert_eq!(scoped_result["valid"], true);
-    assert_eq!(writer_result["valid"], true);
-    assert_ne!(
-        scoped_result["result"]["revision"],
-        writer_result["result"]["revision"]
-    );
-    let final_record = registry
-        .operation(collection.id, "read", &json!({"path": "records/one.md"}))
-        .unwrap();
-    assert_eq!(final_record["result"]["types"], json!(["private"]));
-    assert_eq!(scoped_result["result"]["frontmatter"]["title"], "Scoped");
-    assert_eq!(
-        final_record["result"]["frontmatter"]["title"],
-        "Writer private"
-    );
-}
-
-#[test]
-fn malformed_scoped_mutations_are_rejected_before_record_read() {
-    use std::sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    };
-
-    let _hook_test = SCOPED_HOOK_TEST_LOCK.lock().unwrap();
-    let (_state, _parent, registry, collection, scope) = scoped_race_fixture();
-    let reads = Arc::new(AtomicUsize::new(0));
-    let observed = reads.clone();
-    set_scoped_preflight_hook(Some(Arc::new(move |event, _| {
-        if event == ScopedPreflightEvent::BeforeRecordRead {
-            observed.fetch_add(1, Ordering::SeqCst);
-        }
-    })));
-
-    for (operation, input) in [
-        ("update", json!({"patch": {"title": "missing path"}})),
-        (
-            "update",
-            json!({"path": "records/one.md", "patch": {"title": "x"}, "body": "forbidden"}),
-        ),
-        (
-            "update",
-            json!({"path": "records/one.md", "patch": {"title": "x"}, "dry_run": "yes"}),
-        ),
-        ("delete", json!({"path": 42})),
-        (
-            "rename",
-            json!({"from": "records/one.md", "to": "records/two.md", "update_refs": true}),
-        ),
-        (
-            "rename",
-            json!({"from": "records/one.md", "to": "records/two.md", "extra": true}),
-        ),
-    ] {
-        assert!(registry
-            .scoped_operation(collection.id, operation, &input, &scope)
-            .is_err());
     }
-    set_scoped_preflight_hook(None);
-    assert_eq!(reads.load(Ordering::SeqCst), 0);
+    assert!(!collection_parent
+        .path()
+        .join("mixed/private/must-not-exist.md")
+        .exists());
+}
+
+#[test]
+fn policy_ingestion_and_persisted_grants_reject_noncanonical_scope() {
+    let state = tempdir().unwrap();
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let canonical = signed_test_grant(&registry, vec!["query".to_string()]);
+    registry.replace_grants(&[canonical.clone()]).unwrap();
+
+    let legacy_scope = unavailable_contract_scope();
+    let encoded_scope = serde_json::to_string(&legacy_scope).unwrap();
+    let grant_id = canonical.id.to_string();
+    registry
+        .authority
+        .write(AuthorityWritePriority::Control, move |connection| {
+            connection.execute(
+                "UPDATE grants SET scope = ?1 WHERE id = ?2",
+                params![encoded_scope, grant_id],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    assert!(matches!(
+        registry.list_grants(),
+        Err(ConnectError::AccessDenied(message)) if message.contains("canonical full-collection")
+    ));
+
+    let second_state = tempdir().unwrap();
+    let second_registry = CollectionRegistry::open(second_state.path()).unwrap();
+    let mut grant = signed_test_grant(&second_registry, vec!["query".to_string()]);
+    grant.scope = legacy_scope;
+    assert!(matches!(
+        second_registry.replace_grants(&[grant.clone()]),
+        Err(ConnectError::InvalidInput(message)) if message.contains("full_collection")
+    ));
+
+    grant.scope.access = mdbase_connect_protocol::ApplicationAccess::FullCollection;
+    assert!(matches!(
+        second_registry.replace_grants(&[grant]),
+        Err(ConnectError::InvalidInput(message)) if message.contains("empty contract set")
+    ));
+    assert!(second_registry.list_grants().unwrap().is_empty());
 }

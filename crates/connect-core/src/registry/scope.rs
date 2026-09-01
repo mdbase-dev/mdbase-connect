@@ -1,4 +1,16 @@
 use super::*;
+
+pub(super) fn validate_application_scope(scope: &GrantScope) -> Result<(), ConnectError> {
+    if scope.access != mdbase_connect_protocol::ApplicationAccess::FullCollection
+        || !scope.contracts.is_empty()
+    {
+        return Err(ConnectError::AccessDenied(
+            "The application grant is not a canonical full-collection grant.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn required_string<'a>(input: &'a Value, key: &str) -> Result<&'a str, ConnectError> {
     input.get(key).and_then(Value::as_str).ok_or_else(|| {
         ConnectError::AccessDenied(format!("Scoped operation requires a valid '{key}' value."))
@@ -324,52 +336,4 @@ pub(super) fn ensure_no_new_out_of_scope_types(
         ));
     }
     Ok(())
-}
-
-pub(super) fn change_is_in_scope(
-    event: &CollectionChange,
-    allowed_types: &BTreeSet<String>,
-    collection: Option<&Collection>,
-) -> bool {
-    if event.event_type == "mdbase.config.changed" {
-        return true;
-    }
-    if event.event_type == "mdbase.type.changed" {
-        return event
-            .payload
-            .get("path")
-            .and_then(Value::as_str)
-            .and_then(|path| Path::new(path).file_stem())
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| allowed_types.contains(&name.to_lowercase()));
-    }
-    let types = ["types", "previous_types"]
-        .into_iter()
-        .filter_map(|key| event.payload.get(key).and_then(Value::as_array))
-        .flatten()
-        .filter_map(Value::as_str)
-        .collect::<Vec<_>>();
-    if !types.is_empty() {
-        return types
-            .iter()
-            .any(|type_name| allowed_types.contains(&type_name.to_lowercase()));
-    }
-    let current_path = match event.event_type.as_str() {
-        "mdbase.record.created" | "mdbase.record.modified" => {
-            event.payload.get("path").and_then(Value::as_str)
-        }
-        "mdbase.record.renamed" => event.payload.get("to").and_then(Value::as_str),
-        _ => None,
-    };
-    let (Some(collection), Some(path)) = (collection, current_path) else {
-        return false;
-    };
-    collection
-        .read(&json!({ "path": path }))
-        .get("types")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .any(|type_name| allowed_types.contains(&type_name.to_lowercase()))
 }

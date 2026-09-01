@@ -25,33 +25,6 @@ struct ScopedRuntimePlan {
     ensure_result_scope: bool,
 }
 
-#[cfg(test)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum ScopedPreflightEvent {
-    BeforeRecordRead,
-    AfterAuthorization,
-}
-
-#[cfg(test)]
-type ScopedPreflightHook = Arc<dyn Fn(ScopedPreflightEvent, &str) + Send + Sync>;
-
-#[cfg(test)]
-static SCOPED_PREFLIGHT_HOOK: std::sync::Mutex<Option<ScopedPreflightHook>> =
-    std::sync::Mutex::new(None);
-
-#[cfg(test)]
-pub(super) fn set_scoped_preflight_hook(hook: Option<ScopedPreflightHook>) {
-    *SCOPED_PREFLIGHT_HOOK.lock().unwrap() = hook;
-}
-
-#[cfg(test)]
-fn scoped_preflight_event(event: ScopedPreflightEvent, path: &str) {
-    let hook = SCOPED_PREFLIGHT_HOOK.lock().unwrap().clone();
-    if let Some(hook) = hook {
-        hook(event, path);
-    }
-}
-
 enum QueryCursorAction<'a> {
     Ordinary,
     Open,
@@ -332,6 +305,7 @@ impl CollectionRegistry {
         cancellation: &mdbase::OperationCancellation,
         claim: Option<&mdbase::runtime::HostClaimId>,
     ) -> Result<Value, ConnectError> {
+        validate_application_scope(scope)?;
         let context = operation_context(cancellation);
         let provider = executor.provider();
         let sync_store = crate::LocalSyncStore::for_registry(self);
@@ -345,7 +319,6 @@ impl CollectionRegistry {
                         collection,
                         operation,
                         input,
-                        scope,
                         cancellation,
                     )
                 })
@@ -355,7 +328,7 @@ impl CollectionRegistry {
         // Mapping, selector/path checks, and control-field authorization happen
         // before a record read or acquisition of the mutation gate.
         let mut plan = provider.with_collection_read(|collection| {
-            self.scoped_runtime_plan(registered, collection, operation, input, scope)
+            self.scoped_runtime_plan(registered, collection, operation, input)
         })?;
         let serialized_scoped_preflight =
             plan.projection.is_some() && matches!(operation, "update" | "delete" | "rename");
@@ -376,8 +349,6 @@ impl CollectionRegistry {
                         "rename" => required_string(&plan.request.input, "from")?,
                         _ => unreachable!(),
                     };
-                    #[cfg(test)]
-                    scoped_preflight_event(ScopedPreflightEvent::BeforeRecordRead, path);
                     let preflight = runtime.execute_typed_with_context(
                         &runtime_operation_request("read", &json!({"path": path}))?,
                         &context,
@@ -397,8 +368,6 @@ impl CollectionRegistry {
                             current,
                         )
                     })?;
-                    #[cfg(test)]
-                    scoped_preflight_event(ScopedPreflightEvent::AfterAuthorization, path);
                     bind_preflight_revision(&mut plan.request, &current.revision)?;
                 }
                 let execution =
@@ -446,6 +415,7 @@ impl CollectionRegistry {
         claim: &mdbase::runtime::HostClaimId,
         cancellation: &mdbase::OperationCancellation,
     ) -> Result<Value, ConnectError> {
+        validate_application_scope(scope)?;
         let registered = self.get(id)?;
         if !registered.enabled {
             return Err(ConnectError::AccessDenied(
@@ -566,11 +536,9 @@ impl CollectionRegistry {
         collection: &Collection,
         operation: &str,
         input: &Value,
-        scope: &GrantScope,
     ) -> Result<ScopedRuntimePlan, ConnectError> {
-        let Some(resolved_scope) = self.resolve_operation_contract_scope_loaded(
-            registered, collection, scope, operation, input,
-        )?
+        let Some(resolved_scope) =
+            self.resolve_operation_contract_scope_loaded(registered, collection, operation, input)?
         else {
             return Ok(ScopedRuntimePlan {
                 request: runtime_operation_request(operation, input)?,
@@ -601,8 +569,7 @@ impl CollectionRegistry {
                     .cloned()
                     .unwrap_or_else(|| json!({}));
                 let path = input.get("path").and_then(Value::as_str);
-                let mut prospective_types =
-                    collection.determine_types_for_path(&frontmatter, path);
+                let mut prospective_types = collection.determine_types_for_path(&frontmatter, path);
                 if let Some(requested_type) = input.get("type").and_then(Value::as_str) {
                     prospective_types.push(requested_type.to_lowercase());
                 }
@@ -648,41 +615,6 @@ impl CollectionRegistry {
                 }
                 (input, selector, false)
             }
-            "list_views"
-            | "execute_view"
-            | "read_view_source"
-            | "create_view_source"
-            | "update_view_source"
-            | "delete_view_source" => {
-                return Err(ConnectError::AccessDenied(
-                    "Saved views require full collection access because their source may select any record type."
-                        .to_string(),
-                ))
-            }
-            "validate" => {
-                return Err(ConnectError::AccessDenied(
-                    "Collection-wide validation is unavailable to a contract-scoped application."
-                        .to_string(),
-                ))
-            }
-            "batch" => {
-                return Err(ConnectError::AccessDenied(
-                    "Batch operations require full collection access.".to_string(),
-                ))
-            }
-            "list_types"
-            | "read_type"
-            | "create_type"
-            | "update_type"
-            | "assess_type_pack"
-            | "apply_type_pack"
-            | "assess_collection_setup"
-            | "apply_collection_setup" => {
-                return Err(ConnectError::AccessDenied(
-                    "Collection schemas can only be managed by an application with full collection access."
-                        .to_string(),
-                ))
-            }
             other => return Err(ConnectError::UnsupportedOperation(other.to_string())),
         };
         validate_scoped_mutation_request(operation, &runtime_input)?;
@@ -723,12 +655,7 @@ impl CollectionRegistry {
         cancellation
             .check()
             .map_err(|_| ConnectError::OperationCancelled)?;
-        if scope.access == mdbase_connect_protocol::ApplicationAccess::Contract {
-            return Err(ConnectError::AccessDenied(
-                "Contract-scoped replicas are not available because the sync document format contains whole records. Use projected read/query/create/update operations, or request explicit full-collection access."
-                    .to_string(),
-            ));
-        }
+        validate_application_scope(scope)?;
         let registered = self.get(id)?;
         if !registered.enabled {
             return Err(ConnectError::AccessDenied(
@@ -813,9 +740,10 @@ impl CollectionRegistry {
                 .check()
                 .map_err(|_| ConnectError::OperationCancelled)?;
             store.assert_authority_available(id)?;
-            replica.allowed_types = self
-                .resolve_scope_types_loaded(&registered, collection, scope)?
-                .unwrap_or_default();
+            // Canonical application grants expose the whole collection. Keep the
+            // replica field for wire/state compatibility, but never derive it
+            // from legacy grant contracts.
+            replica.allowed_types.clear();
             let snapshot = collection.snapshot()?;
             cancellation
                 .check()

@@ -780,7 +780,7 @@ implements:
         .as_str()
         .expect("create result has a revision")
         .to_string();
-    let scope = work_item_scope(&registry, collection.id);
+    let scope = GrantScope::full_collection();
     let barrier = Arc::new(Barrier::new(3));
 
     let writers = ["First", "Second"].map(|title| {
