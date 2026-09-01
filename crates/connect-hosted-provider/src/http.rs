@@ -50,7 +50,7 @@ mod files;
 mod projections;
 
 use accounts::account_routes;
-use authentication::{bearer, request_origin, request_proof};
+use authentication::{bearer, is_query_cursor_release, request_origin, request_proof};
 use authority_import_files::{
     commit_authority_import_file_upload, open_authority_import_file_upload,
     prepare_authority_import_file_part,
@@ -900,12 +900,6 @@ async fn collection_type_candidates(
     Ok(Json(json!({ "types": types })))
 }
 
-fn is_query_cursor_release(operation: &str, input: &Value, mutating: bool) -> bool {
-    !mutating
-        && matches!(operation, "query" | "execute_view")
-        && input.get("release_cursor").is_some()
-}
-
 async fn operation(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -920,10 +914,8 @@ async fn operation(
         ApiError::bad_request("invalid_json", "The hosted operation body is invalid.")
     })?;
     let recovery_only = mdbase_connect_protocol::is_mutating_operation(&operation, &request.input);
-    // Cursor release changes bounded query-runtime metadata only. Keep cleanup
-    // available while reads are suspended or a cutover lease expires; the
-    // provider still authorizes the request and binds the cursor to the exact
-    // collection, replica, scope epoch, and query kind before deletion.
+    // Cursor release changes bounded query metadata only; keep authorized,
+    // identity-bound cleanup available while semantic reads are suspended.
     let cursor_release = is_query_cursor_release(&operation, &request.input, recovery_only);
     let admission = if cursor_release {
         None
@@ -997,16 +989,6 @@ async fn operation(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn cursor_release_exemption_is_closed_to_query_operations() {
-        let release = json!({"release_cursor": "opaque"});
-        assert!(is_query_cursor_release("query", &release, false));
-        assert!(is_query_cursor_release("execute_view", &release, false));
-        assert!(!is_query_cursor_release("describe", &release, false));
-        assert!(!is_query_cursor_release("query", &release, true));
-        assert!(!is_query_cursor_release("query", &json!({}), false));
-    }
 
     #[test]
     fn internal_credentials_are_checked_by_digest() {
