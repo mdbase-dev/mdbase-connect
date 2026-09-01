@@ -2912,7 +2912,7 @@ dependencies = [
 [[package]]
 name = "mdbase-interop"
 version = "0.1.0-rc.2"
-source = "git+https://github.com/mdbase-dev/mdbase-spec.git?rev=362953e2644b07a7b61f92068a27ac6f917ee5c1#362953e2644b07a7b61f92068a27ac6f917ee5c1"
+source = "git+https://github.com/mdbase-dev/mdbase-spec.git?rev=5aa34fd14de2e0ae9e565425b724b306046b64ca#5aa34fd14de2e0ae9e565425b724b306046b64ca"
 dependencies = [
  "hex",
  "jsonschema",

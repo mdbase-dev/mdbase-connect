@@ -241,7 +241,10 @@ impl HostedProvider {
                 mdbase::runtime::ResourceChangeKind::Contract => "contract",
                 mdbase::runtime::ResourceChangeKind::ViewSource => "view",
                 mdbase::runtime::ResourceChangeKind::File => {
-                    if target == "mdbase.provisions.yaml" {
+                    if matches!(
+                        target.as_str(),
+                        "mdbase.lock.yaml" | "mdbase.provisions.yaml"
+                    ) {
                         "lock"
                     } else {
                         "schema"

@@ -156,7 +156,7 @@ impl HostedProvider {
             )
             .bind(collection_id)
             .bind(&resource.path)
-            .bind(hosted_resource_kind(resource.kind))
+            .bind(hosted_resource_kind(&resource.path, resource.kind))
             .bind(&resource.revision)
             .bind(document_ciphertext)
             .execute(&mut *transaction)
@@ -337,7 +337,10 @@ pub(super) fn hosted_contract_descriptor(
     }
 }
 
-fn hosted_resource_kind(kind: mdbase::runtime::HostedResourceKind) -> &'static str {
+fn hosted_resource_kind(path: &str, kind: mdbase::runtime::HostedResourceKind) -> &'static str {
+    if matches!(path, "mdbase.lock.yaml" | "mdbase.provisions.yaml") {
+        return "lock";
+    }
     match kind {
         mdbase::runtime::HostedResourceKind::Configuration => "configuration",
         mdbase::runtime::HostedResourceKind::Lock => "lock",
