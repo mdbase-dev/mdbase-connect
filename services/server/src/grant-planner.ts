@@ -1,16 +1,13 @@
+import { collectionGrantScope } from "./application-grant-scope.js";
 import type {
   ApplicationRequirements,
-  CollectionContractDescriptor,
   CollectionOperation,
   FileCapability,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
 import { FILE_PROTOCOL_VERSION } from "@mdbase-dev/connect-protocol";
 import type { CollectionAccessContext } from "./collection-access.js";
-import {
-  requiresFullCollectionAccess,
-  requiresWriteReplica
-} from "./collection-operation-policy.js";
+import { requiresWriteReplica } from "./collection-operation-policy.js";
 
 const WRITE_FILE_ACTIONS = new Set(["add", "replace", "move", "delete"]);
 
@@ -31,7 +28,6 @@ export function planCollectionGrant(input: {
   requestedOperations: readonly CollectionOperation[];
   applicationOperationCeiling: readonly CollectionOperation[];
   requirements: ApplicationRequirements;
-  availableContracts: readonly CollectionContractDescriptor[];
   access: CollectionAccessContext;
 }): GrantPlan {
   const operations = [...new Set(input.requestedOperations)];
@@ -58,29 +54,13 @@ export function planCollectionGrant(input: {
       "The approving user may not grant one or more requested operations."
     );
   }
-  if (
-    operations.length > 0
-    && input.requirements.access !== "full_collection"
-    && input.requirements.contracts.length === 0
-  ) {
+  if (input.requirements.access !== "full_collection") {
     throw new GrantPlanningError(
-      "Contract-scoped application manifests must declare at least one required contract; use full_collection for collection-wide access."
-    );
-  }
-  if (
-    input.requirements.access !== "full_collection"
-    && operations.some(requiresFullCollectionAccess)
-  ) {
-    throw new GrantPlanningError(
-      "Saved views, collection-wide validation, and type definitions require the application manifest to request full collection access."
+      "Applications must explicitly request full collection access; legacy or omitted access is not widened."
     );
   }
 
-  const applicationScope = scopeForRequirements(
-    input.requirements,
-    input.availableContracts
-  );
-  const scope = intersectScope(applicationScope, input.access.scopeCeiling);
+  const scope: GrantScope = collectionGrantScope();
   const fileCapability = fileCapabilityForRequirements(input.requirements);
   return {
     operations,
@@ -104,50 +84,6 @@ export function fileCapabilityForRequirements(
         scope: structuredClone(requirements.files.scope)
       }
     : undefined;
-}
-
-function scopeForRequirements(
-  requirements: ApplicationRequirements,
-  available: readonly CollectionContractDescriptor[]
-): GrantScope {
-  if (requirements.access === "full_collection") {
-    return { access: "full_collection", contracts: [] };
-  }
-  const required = new Set(
-    requirements.contracts.map(({ id, version }) => `${id}@${version}`)
-  );
-  return {
-    access: "contract",
-    contracts: available.filter(({ id, version }) =>
-      required.has(`${id}@${version}`)
-    )
-  };
-}
-
-function intersectScope(application: GrantScope, user: GrantScope): GrantScope {
-  if (user.access === "full_collection") return application;
-  if (application.access === "full_collection") {
-    throw new GrantPlanningError(
-      "The approving user may not grant full-collection access."
-    );
-  }
-  const allowed = new Set(user.contracts.map(contractKey));
-  if (application.contracts.some((contract) => !allowed.has(contractKey(contract)))) {
-    throw new GrantPlanningError(
-      "The approving user may not grant one or more required contracts."
-    );
-  }
-  return application;
-}
-
-function contractKey(contract: CollectionContractDescriptor): string {
-  const implementations = contract.implementations
-    .map(({ type_name, type_version, digest }) =>
-      `${type_name}@${type_version}:${digest}`
-    )
-    .sort()
-    .join(",");
-  return `${contract.id}@${contract.version}:${contract.digest}:${implementations}`;
 }
 
 export class GrantPlanningError extends Error {

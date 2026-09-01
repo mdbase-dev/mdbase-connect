@@ -111,13 +111,13 @@
     "requirements": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["contracts"],
+      "required": ["access", "contracts"],
       "properties": {
         "capabilities": { "$ref": "#/$defs/capabilityRequirements" },
         "access": {
-        "enum": ["contract", "full_collection"],
-        "description": "Access boundary requested after compatibility and provisioning checks."
-      },
+          "const": "full_collection",
+          "description": "Compatibility declaration for collection-level application authorization."
+        },
       "collection_kind": {
           "const": "hosted",
           "description": "Require a durable provider-backed collection with direct sync support."

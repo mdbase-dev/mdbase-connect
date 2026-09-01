@@ -1,23 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type {
-  CollectionContractDescriptor,
-  CollectionOperation,
-  GrantScope
-} from "@mdbase-dev/connect-protocol";
+import type { CollectionOperation } from "@mdbase-dev/connect-protocol";
 import { operationsForApplicationCapabilities } from "@mdbase-dev/connect-protocol";
 import {
   ownerAccess,
   type CollectionAccessContext
 } from "./collection-access.js";
 import { planCollectionGrant } from "./grant-planner.js";
-
-const contract: CollectionContractDescriptor = {
-  id: "example.tasks",
-  version: "1.0.0",
-  digest: `sha256:${"a".repeat(64)}`,
-  schema: {},
-  implementations: []
-};
 
 const owner = ownerAccess({
   collectionId: "collection",
@@ -44,7 +32,6 @@ describe("planCollectionGrant", () => {
         access: "full_collection",
         capabilities
       },
-      availableContracts: [],
       access: owner
     });
 
@@ -55,42 +42,46 @@ describe("planCollectionGrant", () => {
     });
   });
 
-  it("intersects application, request, and human access ceilings", () => {
+  it("uses collection authority while retaining contracts as compatibility requirements", () => {
     const result = planCollectionGrant({
       requestedOperations: ["read", "update"],
       applicationOperationCeiling: ["read", "query", "update"],
       requirements: {
-        contracts: [{ id: contract.id, version: contract.version, digest: contract.digest }]
+        access: "full_collection",
+        contracts: [{
+          id: "example.tasks",
+          version: "1.0.0",
+          digest: `sha256:${"a".repeat(64)}`
+        }]
       },
-      availableContracts: [contract],
       access: owner
     });
 
     expect(result).toEqual({
       operations: ["read", "update"],
-      scope: { access: "contract", contracts: [contract] },
+      scope: { access: "full_collection", contracts: [] },
       replicaMode: "read_write"
     });
   });
 
-  it("plans file-only access independently from record scope", () => {
+  it("plans file-only access independently from collection record authority", () => {
     const result = planCollectionGrant({
       requestedOperations: [],
       applicationOperationCeiling: [],
       requirements: {
+        access: "full_collection",
         contracts: [],
         files: {
           actions: ["list", "read", "add"],
           scope: { kind: "selected_folders", folders: ["Assets"] }
         }
       },
-      availableContracts: [],
       access: owner
     });
 
     expect(result).toEqual({
       operations: [],
-      scope: { access: "contract", contracts: [] },
+      scope: { access: "full_collection", contracts: [] },
       replicaMode: "read_write",
       fileCapability: {
         kind: "files",
@@ -101,12 +92,29 @@ describe("planCollectionGrant", () => {
     });
   });
 
+  it("rejects legacy contract-scoped authorization instead of widening it", () => {
+    expect(() => planCollectionGrant({
+      requestedOperations: ["read"],
+      applicationOperationCeiling: ["read"],
+      requirements: { contracts: [], access: "contract" },
+      access: owner
+    })).toThrow("not widened");
+  });
+
+  it("rejects omitted access instead of defaulting to collection authority", () => {
+    expect(() => planCollectionGrant({
+      requestedOperations: ["read"],
+      applicationOperationCeiling: ["read"],
+      requirements: { contracts: [] },
+      access: owner
+    })).toThrow("not widened");
+  });
+
   it("rejects an operation the application did not request", () => {
     expect(() => planCollectionGrant({
       requestedOperations: ["delete"],
       applicationOperationCeiling: ["read"],
       requirements: { contracts: [], access: "full_collection" },
-      availableContracts: [],
       access: owner
     })).toThrow("must be requested");
   });
@@ -116,64 +124,18 @@ describe("planCollectionGrant", () => {
       requestedOperations: ["update"],
       applicationOperationCeiling: ["update"],
       requirements: { contracts: [], access: "full_collection" },
-      availableContracts: [],
-      access: restricted(owner, ["read"], owner.scopeCeiling)
+      access: restricted(owner, ["read"])
     })).toThrow("approving user");
-  });
-
-  it("rejects full-collection access from a contract-scoped member", () => {
-    expect(() => planCollectionGrant({
-      requestedOperations: ["read"],
-      applicationOperationCeiling: ["read"],
-      requirements: { contracts: [], access: "full_collection" },
-      availableContracts: [contract],
-      access: restricted(owner, ["read"], {
-        access: "contract",
-        contracts: [contract]
-      })
-    })).toThrow("full-collection");
-  });
-
-  it("rejects required contracts outside a member's scope", () => {
-    expect(() => planCollectionGrant({
-      requestedOperations: ["read"],
-      applicationOperationCeiling: ["read"],
-      requirements: {
-        contracts: [{ id: contract.id, version: contract.version, digest: contract.digest }]
-      },
-      availableContracts: [contract],
-      access: restricted(owner, ["read"], {
-        access: "contract",
-        contracts: []
-      })
-    })).toThrow("required contracts");
-  });
-
-  it("does not treat a drifted contract digest as the same delegated scope", () => {
-    expect(() => planCollectionGrant({
-      requestedOperations: ["read"],
-      applicationOperationCeiling: ["read"],
-      requirements: {
-        contracts: [{ id: contract.id, version: contract.version, digest: contract.digest }]
-      },
-      availableContracts: [contract],
-      access: restricted(owner, ["read"], {
-        access: "contract",
-        contracts: [{ ...contract, digest: `sha256:${"b".repeat(64)}` }]
-      })
-    })).toThrow("required contracts");
   });
 });
 
 function restricted(
   source: CollectionAccessContext,
-  operations: CollectionOperation[],
-  scopeCeiling: GrantScope
+  operations: CollectionOperation[]
 ): CollectionAccessContext {
   return {
     ...source,
     relationship: "member",
-    operationCeiling: new Set(operations),
-    scopeCeiling
+    operationCeiling: new Set(operations)
   };
 }

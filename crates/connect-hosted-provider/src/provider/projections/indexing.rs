@@ -1,5 +1,5 @@
 const PRODUCTION_MIGRATION_BASELINE: u64 = 34;
-const FINAL_PROJECTION_MIGRATION: u64 = 37;
+const FINAL_HOSTED_MIGRATION: u64 = 38;
 const MAX_INDEX_INVENTORY_PAGE: u32 = 1_000;
 const MAX_DERIVED_VERIFICATION_PAGE: i64 = 16;
 
@@ -15,7 +15,7 @@ impl HostedProvider {
                       min(version) AS minimum_version,
                       max(version) AS maximum_version,
                       bool_and(success) AS all_successful,
-                      count(*) FILTER (WHERE version BETWEEN 35 AND 37)::bigint
+                      count(*) FILTER (WHERE version BETWEEN 35 AND 38)::bigint
                         AS final_migration_count
                FROM _sqlx_migrations"#,
         )
@@ -35,12 +35,12 @@ impl HostedProvider {
                 .is_some_and(|checksum| checksum.as_slice() == migration.checksum.as_ref())
         });
         let migration_ledger_valid = ledger.get::<i64, _>("migration_count")
-            == FINAL_PROJECTION_MIGRATION as i64
+            == FINAL_HOSTED_MIGRATION as i64
             && ledger.get::<Option<i64>, _>("minimum_version") == Some(1)
             && ledger.get::<Option<i64>, _>("maximum_version")
-                == Some(FINAL_PROJECTION_MIGRATION as i64)
+                == Some(FINAL_HOSTED_MIGRATION as i64)
             && ledger.get::<Option<bool>, _>("all_successful") == Some(true)
-            && ledger.get::<i64, _>("final_migration_count") == 3
+            && ledger.get::<i64, _>("final_migration_count") == 4
             && migration_checksums_valid;
         let schema_valid: bool = sqlx::query_scalar(
             r#"SELECT to_regclass('public.hosted_provider_projection_generations') IS NOT NULL
@@ -220,7 +220,7 @@ impl HostedProvider {
             .flatten();
         Ok(HostedProjectionIndexPlan {
             migration_baseline: PRODUCTION_MIGRATION_BASELINE,
-            migration_target: FINAL_PROJECTION_MIGRATION,
+            migration_target: FINAL_HOSTED_MIGRATION,
             migration_ledger_valid,
             schema_valid,
             collections,

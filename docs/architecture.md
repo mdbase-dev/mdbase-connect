@@ -91,14 +91,14 @@ not infer identity from a mutable name or filesystem location.
 All user-to-collection decisions pass through the collection catalog and
 access-policy modules. The current resolver emits only owner access. Its
 context already carries relationship, policy revision, product actions,
-operation ceiling, and contract/full-collection scope ceiling, so adding
-membership later is confined to those repository and policy boundaries.
+operation ceiling, and collection-authorization ceiling, so adding membership
+later is confined to those repository and policy boundaries.
 Collection responses include an access summary and explicit authority
 metadata rather than asking clients to infer permissions from ownership.
 
 Application capabilities are computed by a pure grant planner. It intersects
 the operations selected by the user, the application's request and manifest,
-and the user's current operation and scope ceilings. Provisioning is a
+and the user's current operation and collection-authorization ceilings. Provisioning is a
 separate `schema.manage` action. Token renewal re-resolves access, which makes
 membership removal fail closed without rewriting OAuth.
 
@@ -165,17 +165,13 @@ how a provider constructs its revision token. The public TypeScript SDK unwraps
 valid envelopes into typed `ConnectOutcome` values and converts invalid
 envelopes into recovery-oriented problems while preserving their diagnostics.
 
-An application manifest may require exact data-contract versions. These
-requirements determine collection compatibility and provisioning. Access is
-contract-scoped by default: the connector pins the exact contract plus every
-approved implementation, unions those provider types, and exposes normalized
-contract views for queries, direct record access, mutations, and change
-delivery. Applications that need collection-level
-features such as saved views may declare `requirements.access` as
-`full_collection`; their contract requirements continue to govern compatibility
-and setup. Query type filters are constrained locally for contract-scoped
-grants; direct paths are checked against matched record types; and updates and
-renames are checked against their prospective type membership before writing.
+An application manifest must explicitly declare `requirements.access` as the
+N-1 wire spelling `full_collection`. An active grant authorizes the entire
+selected collection; operation and file capabilities remain independently
+bounded. Exact data-contract requirements determine compatibility,
+provisioning, validation, and adapter semantics, but never record visibility.
+The legacy `contract` spelling is parsed only to diagnose and retire old grants;
+it cannot satisfy application access and requires explicit reauthorization.
 
 An application manifest may pair required contracts with portable type packs.
 A collection is then either ready, provisionable, or incompatible. During
@@ -245,13 +241,11 @@ policy.
 ## Contracts
 
 An `mdbase.contract` is a versioned, digest-addressed JSON Schema artifact.
-Its explicit `contract_type` is `record`, `event`, or `action`. Connect's
-collection-operation grants use record contracts: a type opts in through
-`implements`, which maps stable contract fields to concrete fields. Several
-types may implement the same record contract; reads and queries union those
-implementations and return one normalized view. If a record has more than one
-approved view, the application supplies the exact `{ id, version, type }`
-selector.
+Its explicit `contract_type` is `record`, `event`, or `action`. A type opts in
+through `implements`, which maps stable contract fields to concrete fields.
+Several types may implement the same record contract, allowing application
+adapters to project normalized semantic views. That projection is application
+behavior and compatibility evidence, not an authorization filter.
 
 Event sources and action providers are executable application declarations,
 not type implementations. They use the mdbase event/action interoperability
@@ -261,10 +255,9 @@ authority routing, journals, and offline delivery without defining another
 event/action vocabulary. Installing or validating any contract grants no
 authority.
 
-Contract-scoped applications never receive the raw Markdown body or unmapped
-frontmatter. Writes accept normalized contract fields and the authority maps
-them back through the selected implementation. Full-record access is a
-separate, explicitly approved capability.
+Applications may choose to expose only normalized contract fields in their own
+domain APIs, but that semantic projection does not narrow the collection grant.
+Stronger data separation requires a separate collection.
 
 Application adapters implement their behavior through generic mdbase
 operations. Revision-sensitive changes read the latest revision and submit a
@@ -293,8 +286,9 @@ Connect canonicalizes the manifest and identifies that exact content by its
 SHA-256 digest; the reverse-domain application ID and other
 presentation fields are explicitly not publisher authentication. Authorization
 uses short-lived codes and PKCE; browser and native applications have no client
-secret. The user approves concrete operations and the declaration-derived
-record scope for one named collection.
+secret. The user approves concrete operations and access to one entire named
+collection. Required contracts are reviewed separately as compatibility and
+setup requirements.
 
 Downloaded HTML applications use the v1 portable distribution profile described
 in [portable-apps.md](portable-apps.md). They make no web-origin claim and use a
@@ -304,7 +298,7 @@ Their browser origin is the exact opaque value `null`, tokens and non-extractabl
 keys are memory-only by default. A local connector requires a matching
 encrypted grant for every operation. A hosted provider instead receives a
 short-lived capability bound to the exact grant, collection, operation set,
-record scope, expiry, opaque `null` origin, and application signing public key. Every
+collection authorization, expiry, opaque `null` origin, and application signing public key. Every
 hosted request and refresh carries a replay-protected ECDSA proof over its
 method, target, body, credential, timestamp, and nonce. The SDK exposes the same
 connection API for both routes.

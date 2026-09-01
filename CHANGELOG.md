@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.1.0-beta.94
+
+Beta.94 replaces type-scoped application grants with explicit collection-level
+authorization and strengthens release compatibility gates.
+
+- Applications request and receive one canonical full-collection scope while
+  operation, file, origin, proof-of-possession, and collection boundaries remain
+  independently enforced.
+- Existing scoped grants, tokens, hosted replicas, and notification authority
+  retire fail closed and surface an actionable reauthorization outcome rather
+  than being silently widened or reported as corrupt state.
+- Local and hosted execution reject legacy scope at every admission boundary;
+  exact terminal hosted mutation replay remains available only to still-valid
+  retired credentials and cannot authorize changed or new work.
+- Authorization approval compensates retained provider policy changes if the
+  control-plane transaction fails, revoking the replica when restoration cannot
+  be proved.
+- Immediate-predecessor persisted-state CI attempts a candidate write before
+  projection normalization, runtime diagnostics compare persisted projections
+  with the running engine, and release tooling blocks undeclared projection
+  format or semantic-engine transitions.
+
 ## 0.1.0-beta.93
 
 Beta.93 consolidates collection semantics behind typed, capability-bound

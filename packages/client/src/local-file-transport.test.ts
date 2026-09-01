@@ -362,7 +362,7 @@ async function transportFixture(
     collectionId: ids.collection,
     collectionName: "Local files",
     operations: [],
-    scope: { access: "full_collection" },
+    scope: { access: "full_collection", contracts: [] },
     expiresAt: Date.now() + 60_000,
     refreshToken: "refresh",
     refreshExpiresAt: Date.now() + 3_600_000,

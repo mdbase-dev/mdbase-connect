@@ -144,8 +144,10 @@ fn fixture_grant() -> (Uuid, GrantPolicy) {
     let wire = &fixture["normalized_wire_body"];
     let connector_id: Uuid = serde_json::from_value(wire["connector_id"].clone()).unwrap();
     let grants: Vec<GrantPolicy> = serde_json::from_value(wire["grants"].clone()).unwrap();
-    let grant = grants.into_iter().nth(1).unwrap();
+    let mut grant = grants.into_iter().nth(1).unwrap();
     grant.validate_application_security().unwrap();
+    grant.scope.access = mdbase_connect_protocol::ApplicationAccess::FullCollection;
+    grant.scope.contracts.clear();
     (connector_id, grant)
 }
 

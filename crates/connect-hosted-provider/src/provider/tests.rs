@@ -302,8 +302,19 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
         assert!(!preflight.contains(&format!("DELETE FROM {canonical}")));
     }
     assert!(final_preflight.contains("REPEATABLE READ READ ONLY"));
-    assert!(final_preflight.contains("expected exact successful final ledger 1-37"));
+    assert!(final_preflight.contains("(('37', '37'), ('37', '38'))"));
+    assert!(final_preflight.contains("observed_endpoint NOT IN"));
+    assert!(final_preflight.contains("generate_series(1, observed_endpoint)"));
+    assert!(final_preflight.contains("migration_count <> observed_endpoint"));
+    assert!(final_preflight.contains(
+        "f26fc3ac983bf10bee1488a9653462e5f021332cf426b900e59317c525f73d25b5960c3a8451d12edfe7ef3dca219e08"
+    ));
+    assert!(final_preflight.contains("expected.version <= observed_endpoint"));
     assert!(final_preflight.contains("migration checksum mismatch at version(s)"));
+    assert!(final_preflight.contains("hosted_provider_retired_replay_credentials"));
+    assert!(final_preflight.contains("active_noncanonical_application_replicas"));
+    assert!(final_preflight.contains("purpose = 'application'"));
+    assert!(final_preflight.contains("revoked_at IS NULL"));
     assert!(final_preflight.contains("required final relation/index objects are absent"));
     assert!(final_preflight.contains("differ from the exact contract"));
     assert!(final_preflight.contains("pg_get_triggerdef"));
@@ -326,6 +337,7 @@ fn beta69_rollback_preparation_is_fenced_and_preserves_canonical_tables() {
     );
     assert!(!final_preflight.contains("DELETE FROM"));
     assert!(!final_preflight.contains("UPDATE hosted_provider_"));
+    assert!(!final_preflight.contains("INSERT INTO"));
     assert!(cutover_preflight.contains("\\set fence_kind cutover"));
     assert!(cutover_preflight.contains("\\ir preflight-hosted-provider-final-rollback.sql"));
     assert!(cutover_preflight.contains("generation.status IS DISTINCT FROM 'complete'"));
@@ -465,6 +477,28 @@ fn concurrent_index_migrations_have_bounded_retry_cleanup() {
     assert!(lifecycle.contains("run_hosted_cutover_migrations"));
     assert!(lifecycle.contains("pg_get_indexdef"));
     assert!(lifecycle.contains("DROP INDEX CONCURRENTLY IF EXISTS"));
+}
+
+#[test]
+fn collection_authorization_migration_retires_scoped_provider_authority() {
+    let migration =
+        include_str!("../../migrations/0038_collection_level_application_authorization.sql");
+    let archive = migration
+        .find("INSERT INTO hosted_provider_retired_replay_credentials")
+        .unwrap();
+    let notifications = migration
+        .find("DELETE FROM hosted_provider_notification_grants")
+        .unwrap();
+    let revoke = migration.find("UPDATE hosted_provider_replicas").unwrap();
+    assert!(archive < notifications && notifications < revoke);
+    assert!(migration.contains("full_collection = false"));
+    assert!(migration.contains("cardinality(allowed_types) <> 0"));
+    assert!(migration.contains("contract_scope <> '[]'::jsonb"));
+    assert!(migration.contains("token_expires_at > now()"));
+    assert!(migration.contains("journal.state = 'completed'"));
+    assert!(migration.contains("LEAST(token_expires_at, now() + interval '365 days')"));
+    assert!(migration
+        .contains("IS DISTINCT FROM '{\"access\":\"full_collection\",\"contracts\":[]}'::jsonb"));
 }
 
 #[test]
@@ -995,67 +1029,70 @@ fn application_capabilities_bind_operations_mode_and_origin() {
             .code,
         "invalid_application_capability"
     );
-    let mut contract_capability = capability.clone();
-    contract_capability.full_collection = false;
+    let mut type_scoped_capability = capability.clone();
+    type_scoped_capability.allowed_types = vec!["task".to_string()];
     assert_eq!(
-        validate_replica_capability(&contract_capability)
+        validate_replica_capability(&type_scoped_capability)
             .unwrap_err()
             .code,
         "invalid_application_scope"
     );
-    contract_capability.allowed_types = vec!["task".to_string()];
-    contract_capability.allowed_operations = vec!["query".to_string()];
-    contract_capability.contract_scope = vec![CollectionContractDescriptor {
+    let mut contract_scoped_capability = capability.clone();
+    contract_scoped_capability.contract_scope = vec![CollectionContractDescriptor {
         contract_type: "record".to_string(),
         id: "example.task".to_string(),
         version: "1.0.0".to_string(),
         digest: format!("sha256:{}", "0".repeat(64)),
         schema: json!({"type": "object"}),
         binding_schema: None,
-        implementations: vec![
-            mdbase_connect_protocol::CollectionContractImplementationDescriptor {
-                type_name: "task".to_string(),
-                type_version: 1,
-                type_path: Some("_types/task.md".to_string()),
-                digest: format!("sha256:{}", "1".repeat(64)),
-                fields: BTreeMap::from([("title".to_string(), "summary".to_string())]),
-                binding: None,
-            },
-        ],
+        implementations: Vec::new(),
     }];
-    validate_replica_capability(&contract_capability).unwrap();
-    let mut contract_changes = contract_capability.clone();
-    contract_changes
-        .allowed_operations
-        .push("changes".to_string());
     assert_eq!(
-        validate_replica_capability(&contract_changes)
+        validate_replica_capability(&contract_scoped_capability)
             .unwrap_err()
             .code,
         "invalid_application_scope"
     );
-    let contract_replica = Replica {
-        id: contract_capability.replica_id,
-        purpose: contract_capability.purpose,
-        mode: contract_capability.mode,
-        allowed_types: contract_capability.allowed_types,
-        contract_scope: contract_capability.contract_scope,
-        full_collection: contract_capability.full_collection,
-        allowed_operations: contract_capability.allowed_operations,
-        operation_transport_protocol: contract_capability.operation_transport_protocol,
-        operation_transport_recovery_protocols: contract_capability
+    let mut legacy_capability = contract_scoped_capability;
+    legacy_capability.full_collection = false;
+    legacy_capability.allowed_types = vec!["task".to_string()];
+    legacy_capability.contract_scope = vec![CollectionContractDescriptor {
+        contract_type: "record".to_string(),
+        id: "example.task".to_string(),
+        version: "1.0.0".to_string(),
+        digest: format!("sha256:{}", "0".repeat(64)),
+        schema: json!({"type": "object"}),
+        binding_schema: None,
+        implementations: Vec::new(),
+    }];
+    assert_eq!(
+        validate_replica_capability(&legacy_capability)
+            .unwrap_err()
+            .code,
+        "invalid_application_scope"
+    );
+    let legacy_replica = Replica {
+        id: legacy_capability.replica_id,
+        purpose: legacy_capability.purpose,
+        mode: legacy_capability.mode,
+        allowed_types: legacy_capability.allowed_types,
+        contract_scope: legacy_capability.contract_scope,
+        full_collection: legacy_capability.full_collection,
+        allowed_operations: legacy_capability.allowed_operations,
+        operation_transport_protocol: legacy_capability.operation_transport_protocol,
+        operation_transport_recovery_protocols: legacy_capability
             .operation_transport_recovery_protocols,
-        file_capability: contract_capability.file_capability,
-        allowed_origin: contract_capability.allowed_origin,
-        proof_public_key: contract_capability.proof_public_key,
-        grant_id: contract_capability.grant_id,
+        file_capability: legacy_capability.file_capability,
+        allowed_origin: legacy_capability.allowed_origin,
+        proof_public_key: legacy_capability.proof_public_key,
+        grant_id: legacy_capability.grant_id,
         scope_epoch: 1,
     };
     assert_eq!(
-        authorize_sync_access(&contract_replica, "query", Some("https://tasks.example"))
+        ensure_canonical_application_replica(&legacy_replica)
             .unwrap_err()
             .code,
-        "scope_denied"
+        "application_reauthorization_required"
     );
     let replica = Replica {
         id: capability.replica_id,
@@ -1320,7 +1357,7 @@ fn file_capabilities_are_independent_scoped_and_mode_checked() {
         mode: SyncReplicaMode::ReadOnly,
         allowed_types: Vec::new(),
         contract_scope: Vec::new(),
-        full_collection: false,
+        full_collection: true,
         allowed_operations: Vec::new(),
         operation_transport_protocol: Some(3),
         operation_transport_recovery_protocols: vec![2],
@@ -1341,13 +1378,21 @@ fn file_capabilities_are_independent_scoped_and_mode_checked() {
         token_ttl_seconds: Some(3600),
     };
     validate_replica_capability(&capability).unwrap();
+    let mut legacy_file_only = capability.clone();
+    legacy_file_only.full_collection = false;
+    assert_eq!(
+        validate_replica_capability(&legacy_file_only)
+            .unwrap_err()
+            .code,
+        "invalid_application_scope"
+    );
     let replica = Replica {
         id: capability.replica_id,
         purpose: capability.purpose,
         mode: capability.mode,
         allowed_types: Vec::new(),
         contract_scope: Vec::new(),
-        full_collection: false,
+        full_collection: true,
         allowed_operations: Vec::new(),
         operation_transport_protocol: capability.operation_transport_protocol,
         operation_transport_recovery_protocols: capability

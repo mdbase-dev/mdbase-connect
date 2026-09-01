@@ -43,6 +43,115 @@ async fn candidate_b_beta69_cutover_preflight_fixture() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires a clean MDBASE_PROJECTION_DATABASE_URL disposable PostgreSQL database"]
+async fn collection_authorization_migration_does_not_resurrect_expired_tokens() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+    let mut predecessor = sqlx::migrate!("./migrations");
+    predecessor
+        .migrations
+        .to_mut()
+        .retain(|migration| migration.version <= 37);
+    predecessor.run(&pool).await.unwrap();
+
+    let collection_id = Uuid::now_v7();
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_collections
+             (id, template, spec_version, max_records, max_content_bytes,
+              max_document_bytes, max_mirror_replicas, max_application_replicas,
+              resource_revision, wrapped_data_key, resources_ciphertext, timezone)
+           VALUES ($1, 'mdbase', '0.3.0', 100, 1048576, 65536, 5, 5,
+                   'migration-test', decode('00', 'hex'), decode('00', 'hex'), 'UTC')"#,
+    )
+    .bind(collection_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let expired_id = Uuid::now_v7();
+    let near_expiry_id = Uuid::now_v7();
+    let near_expiry = DateTime::<Utc>::from_timestamp_micros(
+        (Utc::now() + chrono::Duration::minutes(10)).timestamp_micros(),
+    )
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_replicas
+             (id, collection_id, name, purpose, mode, allowed_types, contract_scope,
+              full_collection, token_hash, token_expires_at)
+           VALUES
+             ($1, $3, 'expired scoped application', 'application', 'read_write',
+              ARRAY[]::text[], '[]'::jsonb, false, decode('01', 'hex'),
+              now() - interval '1 second'),
+             ($2, $3, 'near-expiry scoped application', 'application', 'read_write',
+              ARRAY[]::text[], '[]'::jsonb, false, decode('02', 'hex'), $4)"#,
+    )
+    .bind(expired_id)
+    .bind(near_expiry_id)
+    .bind(collection_id)
+    .bind(near_expiry)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_mutation_journal
+             (replica_id, request_id, operation_kind, input_schema_version,
+              input_digest, state, process_epoch, lease_owner, lease_expires_at,
+              fencing_generation, final_receipt_ciphertext, receipt_digest,
+              completed_at)
+           VALUES
+             ($1, $3, 'create', 1, decode('00', 'hex'), 'completed', $4, $5,
+              now(), 1, decode('01', 'hex'), decode('02', 'hex'), now()),
+             ($2, $3, 'create', 1, decode('00', 'hex'), 'completed', $4, $5,
+              now(), 1, decode('01', 'hex'), decode('02', 'hex'), now())"#,
+    )
+    .bind(expired_id)
+    .bind(near_expiry_id)
+    .bind(Uuid::now_v7())
+    .bind(Uuid::now_v7())
+    .bind(Uuid::now_v7())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+
+    let expired_archives: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_retired_replay_credentials WHERE replica_id = $1",
+    )
+    .bind(expired_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        expired_archives, 0,
+        "an expired token must never be archived"
+    );
+
+    let archived_near_expiry: DateTime<Utc> = sqlx::query_scalar(
+        "SELECT expires_at FROM hosted_provider_retired_replay_credentials WHERE replica_id = $1",
+    )
+    .bind(near_expiry_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        archived_near_expiry, near_expiry,
+        "retirement must not extend a still-valid near-expiry token"
+    );
+
+    let revoked: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_replicas WHERE id = ANY($1) AND revoked_at IS NOT NULL",
+    )
+    .bind(vec![expired_id, near_expiry_id])
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(revoked, 2, "both invalid scoped replicas remain retired");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires a clean MDBASE_PROJECTION_DATABASE_URL disposable PostgreSQL database"]
 async fn candidate_b_consolidated_migrations_upgrade_the_beta69_schema() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
@@ -73,7 +182,7 @@ async fn candidate_b_consolidated_migrations_upgrade_the_beta69_schema() {
             .fetch_all(&pool)
             .await
             .unwrap();
-    assert_eq!(final_versions, (1_i64..=37).collect::<Vec<_>>());
+    assert_eq!(final_versions, (1_i64..=38).collect::<Vec<_>>());
     let runtime_columns: Vec<String> = sqlx::query_scalar(
         r#"SELECT column_name
            FROM information_schema.columns
@@ -4765,7 +4874,7 @@ async fn candidate_b_query_receipts_evict_the_oldest_per_replica_window_entry() 
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
-async fn candidate_b_corrupt_projection_envelopes_fall_back_for_scoped_authorization() {
+async fn candidate_b_corrupt_projection_envelopes_fall_back_for_collection_authorization() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
     let fixture = FileLifecycleFixture::new(&database_url).await;
@@ -4998,12 +5107,12 @@ schema:
             fixture.collection_id,
             RegisterReplica {
                 replica_id: Uuid::now_v7(),
-                name: "Candidate B integrity scoped reader".to_string(),
+                name: "Candidate B integrity collection reader".to_string(),
                 purpose: ReplicaPurpose::Application,
                 mode: SyncReplicaMode::ReadOnly,
-                allowed_types: vec!["public_note".to_string()],
-                contract_scope: resources.contracts,
-                full_collection: false,
+                allowed_types: Vec::new(),
+                contract_scope: Vec::new(),
+                full_collection: true,
                 allowed_operations: vec!["query".to_string()],
                 operation_transport_protocol: Some(3),
                 operation_transport_recovery_protocols: Vec::new(),
@@ -5020,7 +5129,7 @@ schema:
         .await
         .unwrap();
 
-    assert_scoped_public_query(&fixture, &reader_token).await;
+    assert_full_collection_query(&fixture, &reader_token).await;
     sqlx::query(
         r#"WITH originals AS MATERIALIZED (
              SELECT record_id, semantic_projection
@@ -5069,8 +5178,8 @@ schema:
 
     // Both widening (secret labelled public) and narrowing (public labelled
     // secret), plus path/frontmatter cross-record substitution, resolve from
-    // exact authority. The scoped caller sees only the canonical public record.
-    assert_scoped_public_query(&fixture, &reader_token).await;
+    // exact authority. Collection authority sees both canonical exact records.
+    assert_full_collection_query(&fixture, &reader_token).await;
 
     let head: i64 =
         sqlx::query_scalar("SELECT head FROM hosted_provider_collections WHERE id = $1")
@@ -5111,7 +5220,7 @@ schema:
     assert_eq!(details["observed"], 10_001);
 }
 
-async fn assert_scoped_public_query(fixture: &FileLifecycleFixture, token: &str) {
+async fn assert_full_collection_query(fixture: &FileLifecycleFixture, token: &str) {
     let result = fixture
         .provider
         .operation(
@@ -5119,17 +5228,22 @@ async fn assert_scoped_public_query(fixture: &FileLifecycleFixture, token: &str)
             token,
             "query",
             Uuid::new_v4(),
-            json!({"limit": 10}),
+            json!({"limit": 10, "order_by": [{"field": "file.path"}]}),
             None,
         )
         .await
         .unwrap();
     assert_eq!(result["valid"], true);
-    assert_eq!(result["result"]["meta"]["total_count"], 1);
+    assert_eq!(result["result"]["meta"]["total_count"], 2);
     assert_eq!(result["result"]["results"][0]["path"], "public/note.md");
     assert_eq!(
         result["result"]["results"][0]["effective_frontmatter"]["title"],
         "Public exact"
+    );
+    assert_eq!(result["result"]["results"][1]["path"], "secret/note.md");
+    assert_eq!(
+        result["result"]["results"][1]["effective_frontmatter"]["title"],
+        "Secret exact"
     );
 }
 

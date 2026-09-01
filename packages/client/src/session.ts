@@ -75,7 +75,8 @@ interface CallbackCompletion<Frontmatter extends JsonObject> {
 export type MdbaseUnavailableReason =
   | "not_authorized"
   | "authorization_lost"
-  | "invalid_stored_grant";
+  | "invalid_stored_grant"
+  | "legacy_scope_reauthorization_required";
 
 export type MdbaseSessionSnapshot<Frontmatter extends JsonObject = JsonObject> =
   | { status: "not_started"; connections: MdbaseConnectionInfo[] }

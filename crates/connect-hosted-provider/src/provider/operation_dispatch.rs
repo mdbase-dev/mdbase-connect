@@ -189,12 +189,6 @@ impl HostedProvider {
                 .timer_operation(collection_id, grant_id, operation, input)
                 .await;
         }
-        if is_full_collection_operation(operation) && !replica.full_collection {
-            return Err(ApiError::forbidden(
-                "scope_denied",
-                "This operation requires full collection access.",
-            ));
-        }
         match operation {
             "describe" => self.describe_operation(collection_id, replica).await,
             "changes" => self.changes_operation(collection_id, replica, &input).await,
@@ -226,18 +220,12 @@ impl HostedProvider {
                 let (scoped_input, selector) = match (&contract_scope, operation) {
                     (Some(scope), "query") => scope.query_input(&input).map_err(scope_error)?,
                     (Some(scope), "read") => scope.read_input(&input).map_err(scope_error)?,
-                    _ => (
-                        scope_read_input(operation, input, &replica.allowed_types)?,
-                        None,
-                    ),
+                    _ => (input, None),
                 };
                 let result = if operation == "read" {
                     let typed = self
                         .execute_direct_point_read_typed(collection_id, &scoped_input)
                         .await?;
-                    if contract_scope.is_none() {
-                        ensure_canonical_read_visible(&typed, &replica.allowed_types)?;
-                    }
                     typed.to_v03()
                 } else if operation == "query" {
                     self.execute_hosted_query(collection_id, replica, request_id, &scoped_input)
@@ -461,32 +449,11 @@ impl HostedProvider {
         replica: &Replica,
         portable_selector: bool,
     ) -> ApiResult<Option<ContractScope>> {
-        if replica.full_collection {
-            if !portable_selector {
-                return Ok(None);
-            }
-            return ContractScope::new(self.collection_resources(collection_id).await?.contracts)
-                .map(Some)
-                .map_err(scope_error);
+        ensure_canonical_application_replica(replica)?;
+        if !portable_selector {
+            return Ok(None);
         }
-        let current = self.collection_resources(collection_id).await?.contracts;
-        for pinned in &replica.contract_scope {
-            let matching = current.iter().find(|contract| {
-                contract.id == pinned.id
-                    && contract.version == pinned.version
-                    && contract.digest == pinned.digest
-            });
-            if matching != Some(pinned) {
-                return Err(ApiError::forbidden(
-                    "contract_scope_changed",
-                    format!(
-                        "The approved provider set for {} version {} has changed.",
-                        pinned.id, pinned.version
-                    ),
-                ));
-            }
-        }
-        ContractScope::new(replica.contract_scope.clone())
+        ContractScope::new(self.collection_resources(collection_id).await?.contracts)
             .map(Some)
             .map_err(scope_error)
     }

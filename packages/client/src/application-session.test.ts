@@ -43,6 +43,7 @@ function manifest(overrides: Partial<MdbaseAppManifest> = {}): MdbaseAppManifest
     homepage: "https://session.example/",
     redirect_uris: ["https://session.example/callback"],
     requirements: {
+      access: "full_collection",
       contracts: [],
       capabilities: {
         contract_version: 1,
@@ -289,6 +290,7 @@ describe("MdbaseApplicationSession", () => {
   it("aborts and fences collection setup apply without masking an unknown mutation outcome", async () => {
     const declaration = manifest({
       requirements: {
+        access: "full_collection",
         contracts: [],
         capabilities: {
           contract_version: 1,
@@ -420,6 +422,7 @@ describe("MdbaseApplicationSession", () => {
     vi.useFakeTimers();
     const declaration = manifest({
       requirements: {
+        access: "full_collection",
         contracts: [],
         capabilities: {
           contract_version: 1,
@@ -540,6 +543,7 @@ describe("MdbaseApplicationSession", () => {
   it("classifies an authority declaration mismatch as authorization required rather than blocked", async () => {
     const declaration = manifest({
       requirements: {
+        access: "full_collection",
         contracts: [],
         capabilities: {
           contract_version: 1,
@@ -568,6 +572,7 @@ describe("MdbaseApplicationSession", () => {
   it("reviews setup drift after explicit selected reauthorization succeeds", async () => {
     const declaration = manifest({
       requirements: {
+        access: "full_collection",
         contracts: [],
         capabilities: {
           contract_version: 1,
@@ -670,7 +675,7 @@ describe("MdbaseApplicationSession", () => {
     });
   });
 
-  it("accepts a contract-scoped grant for a contract-scoped application", async () => {
+  it("rejects a legacy contract-scoped application manifest", async () => {
     const declaration = manifest({
       requirements: {
         contracts: [],
@@ -688,7 +693,29 @@ describe("MdbaseApplicationSession", () => {
 
     const started = await session.start();
 
-    expect(started.ok && started.value.status).toBe("ready");
+    expect(started).toMatchObject({
+      ok: false,
+      problem: { code: "invalid_application_manifest" }
+    });
+  });
+
+  it("rejects a manifest that omits explicit collection access", async () => {
+    const declaration = manifest();
+    delete declaration.requirements!.access;
+    const fixture = connectFixture(declaration);
+    const session = new MdbaseApplicationSession(fixture.facade as never, {
+      selection: new MdbaseMemorySelection()
+    });
+
+    const started = await session.start();
+
+    expect(started).toMatchObject({
+      ok: false,
+      problem: {
+        code: "invalid_application_manifest",
+        details: { issues: [{ path: "/requirements/access" }] }
+      }
+    });
   });
 
   it("carries request options through ensureCapabilities authorization", async () => {
@@ -744,6 +771,7 @@ describe("MdbaseApplicationSession", () => {
     };
     const declaration = manifest({
       requirements: {
+        access: "full_collection",
         contracts: [],
         capabilities: {
           contract_version: 1,
@@ -836,6 +864,7 @@ describe("MdbaseApplicationSession", () => {
     };
     const declaration = manifest({
       requirements: {
+        access: "full_collection",
         contracts: [],
         capabilities: {
           contract_version: 1,

@@ -725,6 +725,171 @@ describe("database migrations", () => {
       .toBe(MDBASE_TIMER_FIRED_CONTRACT.digest);
   });
 
+  it("revokes legacy scoped grants without changing collection grants", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const userId = randomUUID();
+    const applicationId = randomUUID();
+    const collectionId = randomUUID();
+    const scopedReplicaId = randomUUID();
+    const collectionReplicaId = randomUUID();
+    const scopedGrantId = randomUUID();
+    const collectionGrantId = randomUUID();
+
+    await db.query(
+      "INSERT INTO users (id, email, name) VALUES ($1, $2, 'Owner')",
+      [userId, `${userId}@example.com`]
+    );
+    await db.query(
+      `INSERT INTO applications
+         (id, canonical_identity, name, homepage, redirect_uris)
+       VALUES ($1, $2, 'Tasks', 'https://tasks.example', '[]'::jsonb)`,
+      [applicationId, `https://tasks.example/${applicationId}`]
+    );
+    await db.query(
+      `INSERT INTO hosted_collections (id, user_id, display_name, template)
+       VALUES ($1, $2, 'Tasks', 'mdbase')`,
+      [collectionId, userId]
+    );
+    await db.query(
+      `INSERT INTO hosted_replicas
+         (id, collection_id, name, purpose, mode, token_hash, authorized_user_id)
+       VALUES
+         ($1, $3, 'Scoped application', 'application', 'read_only', 'scoped-token', $4),
+         ($2, $3, 'Collection application', 'application', 'read_only', 'collection-token', $4)`,
+      [scopedReplicaId, collectionReplicaId, collectionId, userId]
+    );
+    await db.query(
+      `INSERT INTO grants
+         (id, user_id, application_id, hosted_collection_id, hosted_replica_id,
+          operations, scope)
+       VALUES
+         ($1, $3, $4, $5, $6, '["read"]'::jsonb,
+          '{"access":"contract","contracts":[]}'::jsonb),
+         ($2, $3, $4, $5, $7, '["read"]'::jsonb,
+          '{"access":"full_collection","contracts":[]}'::jsonb)`,
+      [
+        scopedGrantId,
+        collectionGrantId,
+        userId,
+        applicationId,
+        collectionId,
+        scopedReplicaId,
+        collectionReplicaId
+      ]
+    );
+    await db.query(
+      `INSERT INTO access_tokens (id, token_hash, grant_id, expires_at)
+       VALUES
+         ($1, 'scoped-access', $3, now() + interval '1 hour'),
+         ($2, 'collection-access', $4, now() + interval '1 hour')`,
+      [randomUUID(), randomUUID(), scopedGrantId, collectionGrantId]
+    );
+    await db.query(
+      `INSERT INTO refresh_tokens (id, token_hash, grant_id, expires_at)
+       VALUES
+         ($1, 'scoped-refresh', $3, now() + interval '30 days'),
+         ($2, 'collection-refresh', $4, now() + interval '30 days')`,
+      [randomUUID(), randomUUID(), scopedGrantId, collectionGrantId]
+    );
+    const migrationCandidates = await db.query(
+      `SELECT g.id
+       FROM grants g
+       JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
+       WHERE g.revoked_at IS NULL
+         AND g.activated_at IS NOT NULL
+         AND g.scope->>'access' = 'contract'
+         AND replica.revoked_at IS NULL`
+    );
+    expect(migrationCandidates.rows).toHaveLength(1);
+
+    expect(await runControlPlaneMigrations(db)).toEqual({
+      legacyContractScopedGrantsRetired: 1
+    });
+    expect(await runControlPlaneMigrations(db)).toEqual({
+      legacyContractScopedGrantsRetired: 0
+    });
+
+    const scopedGrant = await db.query<{
+      revoked_at: Date | null;
+      reauthorization_reason: string | null;
+    }>(
+      "SELECT revoked_at, reauthorization_reason FROM grants WHERE id = $1",
+      [scopedGrantId]
+    );
+    const collectionGrant = await db.query<{ revoked_at: Date | null }>(
+      "SELECT revoked_at FROM grants WHERE id = $1",
+      [collectionGrantId]
+    );
+    expect(scopedGrant.rows[0]).toMatchObject({
+      revoked_at: expect.any(Date),
+      reauthorization_reason: "collection_level_authorization"
+    });
+    expect(collectionGrant.rows[0]?.revoked_at).toBeNull();
+
+    for (const [grantId, revoked] of [
+      [scopedGrantId, true],
+      [collectionGrantId, false]
+    ] as const) {
+      const access = await db.query<{ revoked_at: Date | null }>(
+        "SELECT revoked_at FROM access_tokens WHERE grant_id = $1",
+        [grantId]
+      );
+      const refresh = await db.query<{ revoked_at: Date | null }>(
+        "SELECT revoked_at FROM refresh_tokens WHERE grant_id = $1",
+        [grantId]
+      );
+      if (revoked) {
+        expect(access.rows[0]?.revoked_at).not.toBeNull();
+        expect(refresh.rows[0]?.revoked_at).not.toBeNull();
+      } else {
+        expect(access.rows[0]?.revoked_at).toBeNull();
+        expect(refresh.rows[0]?.revoked_at).toBeNull();
+      }
+    }
+
+    expect((await db.query(
+      "SELECT id FROM provider_revocation_jobs WHERE replica_id = $1",
+      [scopedReplicaId]
+    )).rows).toHaveLength(1);
+
+    const scopedReplica = await db.query<{
+      token_hash: string | null;
+      revoked_at: Date | null;
+    }>(
+      "SELECT token_hash, revoked_at FROM hosted_replicas WHERE id = $1",
+      [scopedReplicaId]
+    );
+    const collectionReplica = await db.query<{
+      token_hash: string | null;
+      revoked_at: Date | null;
+    }>(
+      "SELECT token_hash, revoked_at FROM hosted_replicas WHERE id = $1",
+      [collectionReplicaId]
+    );
+    expect(scopedReplica.rows[0]).toMatchObject({
+      token_hash: null,
+      revoked_at: expect.any(Date)
+    });
+    expect(collectionReplica.rows[0]).toMatchObject({
+      token_hash: "collection-token",
+      revoked_at: null
+    });
+
+    const jobs = await db.query<{
+      grant_id: string | null;
+      replica_id: string;
+      reason: string;
+    }>(
+      "SELECT grant_id, replica_id, reason FROM provider_revocation_jobs"
+    );
+    expect(jobs.rows).toEqual([{
+      grant_id: scopedGrantId,
+      replica_id: scopedReplicaId,
+      reason: "collection_level_authorization"
+    }]);
+  });
+
   it("fails closed when an application starts before pre-deploy migration", async () => {
     const db = await openDatabase("memory");
     resources.push(() => db.end());

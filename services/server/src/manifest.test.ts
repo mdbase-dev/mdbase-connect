@@ -55,6 +55,7 @@ describe("portable application manifests", () => {
       id: "dev.mdbase.assets",
       name: "Asset Browser",
       requirements: {
+        access: "full_collection",
         contracts: [],
         capabilities: {
           contract_version: 1,
@@ -86,7 +87,7 @@ describe("portable application manifests", () => {
       distribution: "portable",
       id: "dev.mdbase.assets",
       name: "Asset Browser",
-      requirements: { contracts: [], files }
+      requirements: { access: "full_collection", contracts: [], files }
     })).toThrow(ApplicationManifestError);
   });
 
@@ -99,6 +100,7 @@ describe("portable application manifests", () => {
       project_url: "https://workouts.example/source",
       icon: "https://workouts.example/icon.svg",
       requirements: {
+        access: "full_collection",
         contracts: [{
           id: "workout.record",
           version: "1.0.0",
@@ -145,6 +147,7 @@ describe("portable application manifests", () => {
     expect(registerApplicationManifest({
       ...base,
       requirements: {
+        access: "full_collection",
         contracts: [],
         collection_kind: "hosted"
       }

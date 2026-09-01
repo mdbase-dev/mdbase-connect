@@ -282,6 +282,7 @@ export function parseStored<T>(value: string | null): T | null {
   try { return JSON.parse(value) as T; } catch { return null; }
 }
 
+/** Parse both canonical and N-1 grant shapes so callers can diagnose legacy grants. */
 export function parseGrantScope(value: unknown): GrantScope | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const scope = value as Partial<GrantScope>;
@@ -312,6 +313,11 @@ export function parseGrantScope(value: unknown): GrantScope | null {
     )
   )) return null;
   return scope as GrantScope;
+}
+
+/** Only this scope authorizes application data access. */
+export function isCanonicalGrantScope(scope: GrantScope): boolean {
+  return scope.access === "full_collection" && scope.contracts.length === 0;
 }
 
 export function stripTrailingSlash(value: string): string {

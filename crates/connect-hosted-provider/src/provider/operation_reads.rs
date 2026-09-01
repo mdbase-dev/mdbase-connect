@@ -30,7 +30,6 @@ impl HostedProvider {
             row.get("resources_ciphertext"),
             &resources_aad(collection_id),
         )?;
-        let resources = scoped_resources(resources, &replica.allowed_types);
         let description = CollectionDescription {
             protocol_version: CONTROL_PROTOCOL_VERSION,
             collection_id,
@@ -50,7 +49,7 @@ impl HostedProvider {
     pub(super) async fn changes_operation(
         &self,
         collection_id: Uuid,
-        replica: &Replica,
+        _replica: &Replica,
         input: &Value,
     ) -> ApiResult<Value> {
         let collection = sqlx::query(
@@ -108,13 +107,10 @@ impl HostedProvider {
             r#"SELECT sequence, before_ciphertext, after_ciphertext, created_at::text AS occurred_at
                FROM hosted_provider_changes
                WHERE collection_id = $1 AND sequence > $2
-                 AND (cardinality($3::text[]) = 0
-                      OR before_types && $3::text[] OR after_types && $3::text[])
-               ORDER BY sequence LIMIT $4"#,
+               ORDER BY sequence LIMIT $3"#,
         )
         .bind(collection_id)
         .bind(to_i64(after, "change cursor")?)
-        .bind(&replica.allowed_types)
         .bind(to_i64(limit + 1, "change page limit")?)
         .fetch_all(&self.pool)
         .await?;
@@ -122,12 +118,10 @@ impl HostedProvider {
             r#"SELECT sequence, resource_kind, type_name, path, revision, created_at::text AS occurred_at
                FROM hosted_provider_resource_changes
                WHERE collection_id = $1 AND sequence > $2
-                 AND (cardinality($3::text[]) = 0 OR type_name = ANY($3::text[]))
-               ORDER BY sequence LIMIT $4"#,
+               ORDER BY sequence LIMIT $3"#,
         )
         .bind(collection_id)
         .bind(to_i64(after, "change cursor")?)
-        .bind(&replica.allowed_types)
         .bind(to_i64(limit + 1, "change page limit")?)
         .fetch_all(&self.pool)
         .await?;
@@ -151,15 +145,6 @@ impl HostedProvider {
                 row.get("after_ciphertext"),
                 &change_record_aad(collection_id, sequence, "after"),
             )?;
-            if !before
-                .as_ref()
-                .is_some_and(|record| visible(record, &replica.allowed_types))
-                && !after_record
-                    .as_ref()
-                    .is_some_and(|record| visible(record, &replica.allowed_types))
-            {
-                continue;
-            }
             let (event_type, payload) = application_change(before.as_ref(), after_record.as_ref());
             events.push(CollectionChange {
                 cursor: sequence,

@@ -457,6 +457,12 @@ a second scheduler and not a reason to copy large change vectors into Connect.
 
 ### Connect persistence, scope, and privacy
 
+> **Superseded in part by [ADR 0012](0012-collection-level-application-authorization.md).**
+> The contract-scoped runtime authorization, current-grant scope projection, and
+> scoped notification behavior described in this subsection are no longer the
+> application authorization model. Application data authority is collection-wide;
+> the persistence, feed, cursor, recovery, and privacy rules below remain applicable.
+
 Provider metadata is private authority support state. The Connect cutover migration
 is additive and preserves every existing application cursor:
 

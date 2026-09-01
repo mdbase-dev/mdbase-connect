@@ -428,6 +428,7 @@ impl CollectionRegistry {
         cancellation
             .check()
             .map_err(|_| ConnectError::OperationCancelled)?;
+        validate_application_scope(scope)?;
         let registered = self.get(id)?;
         if !registered.enabled {
             return Err(ConnectError::AccessDenied(
@@ -456,14 +457,7 @@ impl CollectionRegistry {
         let provider = executor.provider();
         let execute = |collection: &Collection| {
             sync_store.assert_authority_available(id)?;
-            self.scoped_operation_loaded(
-                &registered,
-                collection,
-                operation,
-                input,
-                scope,
-                cancellation,
-            )
+            self.scoped_operation_loaded(&registered, collection, operation, input, cancellation)
         };
         if operation == "batch" || is_mutating_operation(operation, input) {
             let result = executor.with_mutation(&context, |_| {
@@ -486,12 +480,10 @@ impl CollectionRegistry {
         collection: &Collection,
         operation: &str,
         input: &Value,
-        scope: &GrantScope,
         cancellation: &mdbase::OperationCancellation,
     ) -> Result<Value, ConnectError> {
-        let Some(resolved_scope) = self.resolve_operation_contract_scope_loaded(
-            registered, collection, scope, operation, input,
-        )?
+        let Some(resolved_scope) =
+            self.resolve_operation_contract_scope_loaded(registered, collection, operation, input)?
         else {
             return match operation {
                 "describe" => serde_json::to_value(self.describe_loaded(registered, collection)?)
@@ -510,26 +502,6 @@ impl CollectionRegistry {
         let allowed_types = &resolved_scope.allowed_types;
 
         match operation {
-            "describe" => {
-                let mut description = self.describe_loaded(registered, collection)?;
-                description
-                    .types
-                    .retain(|type_definition| allowed_types.contains(&type_definition.name));
-                description.contracts.retain(|contract| {
-                    scope.contracts.iter().any(|pinned| {
-                        pinned.id == contract.id
-                            && pinned.version == contract.version
-                            && pinned.digest == contract.digest
-                    })
-                });
-                serde_json::to_value(description).map_err(ConnectError::from)
-            }
-            "changes" => {
-                let mut page = self.changes(registered.id, input)?;
-                page.events
-                    .retain(|event| change_is_in_scope(event, allowed_types, Some(collection)));
-                serde_json::to_value(page).map_err(ConnectError::from)
-            }
             "query" => {
                 let (input, selector) = resolved_scope
                     .query_input(input)
@@ -545,15 +517,6 @@ impl CollectionRegistry {
                     .project_result(result, selector.as_ref())
                     .map_err(contract_scope_error)
             }
-            "list_views"
-            | "execute_view"
-            | "read_view_source"
-            | "create_view_source"
-            | "update_view_source"
-            | "delete_view_source" => Err(ConnectError::AccessDenied(
-                "Saved views require full collection access because their source may select any record type."
-                    .to_string(),
-            )),
             "read" => {
                 let (input, selector) = resolved_scope
                     .read_input(input)
@@ -724,43 +687,14 @@ impl CollectionRegistry {
                     .project_result(result, selector.as_ref())
                     .map_err(contract_scope_error)
             }
-            "validate" => Err(ConnectError::AccessDenied(
-                "Collection-wide validation is unavailable to a contract-scoped application."
-                    .to_string(),
-            )),
-            "batch" => Err(ConnectError::AccessDenied(
-                "Batch operations require full collection access.".to_string(),
-            )),
-            "list_types"
-            | "read_type"
-            | "create_type"
-            | "update_type"
-            | "apply_type_pack" => Err(
-                ConnectError::AccessDenied(
-                    "Collection schemas can only be managed by an application with full collection access."
-                        .to_string(),
-                ),
-            ),
             other => Err(ConnectError::UnsupportedOperation(other.to_string())),
         }
-    }
-
-    pub(super) fn resolve_scope_types_loaded(
-        &self,
-        registered: &CollectionSummary,
-        collection: &Collection,
-        scope: &GrantScope,
-    ) -> Result<Option<BTreeSet<String>>, ConnectError> {
-        Ok(self
-            .resolve_contract_scope_loaded(registered, collection, scope)?
-            .map(|scope| scope.allowed_types))
     }
 
     pub(super) fn resolve_operation_contract_scope_loaded(
         &self,
         registered: &CollectionSummary,
         collection: &Collection,
-        scope: &GrantScope,
         operation: &str,
         input: &Value,
     ) -> Result<Option<ContractScope>, ConnectError> {
@@ -768,57 +702,12 @@ impl CollectionRegistry {
             operation,
             "query" | "read" | "create" | "update" | "delete" | "rename"
         ) && input.get("contract").is_some();
-        if scope.access == mdbase_connect_protocol::ApplicationAccess::FullCollection {
-            if !portable_selector {
-                return Ok(None);
-            }
-            let contracts = self.describe_loaded(registered, collection)?.contracts;
-            return ContractScope::new(contracts)
-                .map(Some)
-                .map_err(contract_scope_error);
-        }
-        self.resolve_contract_scope_loaded(registered, collection, scope)
-    }
-
-    fn resolve_contract_scope_loaded(
-        &self,
-        registered: &CollectionSummary,
-        collection: &Collection,
-        scope: &GrantScope,
-    ) -> Result<Option<ContractScope>, ConnectError> {
-        if scope.access == mdbase_connect_protocol::ApplicationAccess::FullCollection {
+        if !portable_selector {
             return Ok(None);
         }
-        if scope.contracts.is_empty() {
-            return Err(ConnectError::AccessDenied(
-                "Contract-scoped grants must declare at least one required contract.".to_string(),
-            ));
-        }
-        let description = self.describe_loaded(registered, collection)?;
-        let mut allowed_types = BTreeSet::new();
-        for pinned in &scope.contracts {
-            let Some(current) = description.contracts.iter().find(|contract| {
-                contract.id == pinned.id
-                    && contract.version == pinned.version
-                    && contract.digest == pinned.digest
-            }) else {
-                return Err(ConnectError::AccessDenied(format!(
-                    "The collection no longer provides {} version {}.",
-                    pinned.id, pinned.version
-                )));
-            };
-            if current != pinned {
-                return Err(ConnectError::AccessDenied(format!(
-                    "The approved provider set for {} version {} has changed.",
-                    pinned.id, pinned.version
-                )));
-            }
-            for implementation in &current.implementations {
-                allowed_types.insert(implementation.type_name.to_lowercase());
-            }
-        }
-        let resolved = ContractScope::new(scope.contracts.clone()).map_err(contract_scope_error)?;
-        debug_assert_eq!(resolved.allowed_types, allowed_types);
-        Ok(Some(resolved))
+        let contracts = self.describe_loaded(registered, collection)?.contracts;
+        ContractScope::new(contracts)
+            .map(Some)
+            .map_err(contract_scope_error)
     }
 }

@@ -4,8 +4,16 @@ import {
   capturePortalBootstrapSecrets,
   message,
   returnTarget,
+  scopeDescription,
   signInUrl
 } from "./src/portal-model.ts";
+
+test("describes contracts as compatibility and setup rather than access scope", () => {
+  assert.equal(
+    scopeDescription([{ id: "example.work", version: "1.0.0", digest: `sha256:${"a".repeat(64)}` }]),
+    "Compatibility and setup require example.work v1.0.0."
+  );
+});
 
 test("captures one-time auth fragments before rendering and removes them from history", () => {
   const replacements = [];

@@ -143,11 +143,11 @@ impl AgentState {
                             "The proposed grant names a different collection.".to_string(),
                         ));
                     }
-                    if grant.scope.access
-                        != requirements.access.unwrap_or(ApplicationAccess::Contract)
+                    if requirements.access != Some(ApplicationAccess::FullCollection)
+                        || grant.scope.access != ApplicationAccess::FullCollection
                     {
                         return Err(ConnectError::AccessDenied(
-                            "The proposed grant scope does not match the application request."
+                            "Applications must explicitly request full collection access; legacy or omitted access is not widened."
                                 .to_string(),
                         ));
                     }
@@ -223,22 +223,7 @@ impl AgentState {
                         )));
                     }
                     let contracts = final_description.contracts;
-                    grant.scope.contracts =
-                        if grant.scope.access == ApplicationAccess::FullCollection {
-                            Vec::new()
-                        } else {
-                            contracts
-                                .iter()
-                                .filter(|available| {
-                                    requirements.contracts.iter().any(|required| {
-                                        available.id == required.id
-                                            && available.version == required.version
-                                            && available.digest == required.digest
-                                    })
-                                })
-                                .cloned()
-                                .collect()
-                        };
+                    grant.scope.contracts = Vec::new();
                     self.registry.upsert_grant(&grant)?;
                     Ok((contracts, setup_assessment, provision_receipt))
                 })();

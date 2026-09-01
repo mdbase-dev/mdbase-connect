@@ -159,6 +159,7 @@ export function registerAccountOverviewRoute(
     }
     const grants = await options.db.query(
       `SELECT g.id, g.operations, g.scope, g.file_capability, g.created_at, g.revoked_at,
+              g.reauthorization_required_at, g.reauthorization_reason,
               CASE
                 WHEN g.revoked_at IS NULL THEN 'active'
                 WHEN g.id IN (

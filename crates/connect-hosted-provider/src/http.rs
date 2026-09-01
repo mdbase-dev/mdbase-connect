@@ -913,11 +913,18 @@ async fn operation(
     let request = serde_json::from_slice::<OperationRequest>(&body).map_err(|_| {
         ApiError::bad_request("invalid_json", "The hosted operation body is invalid.")
     })?;
-    let authorization = state
-        .provider
-        .authorize_request(collection_id, token, origin, proof.as_ref())
-        .await?;
     let recovery_only = mdbase_connect_protocol::is_mutating_operation(&operation, &request.input);
+    let authorization = if recovery_only {
+        state
+            .provider
+            .authorize_replay_request(collection_id, token, origin, proof.as_ref())
+            .await?
+    } else {
+        state
+            .provider
+            .authorize_request(collection_id, token, origin, proof.as_ref())
+            .await?
+    };
     if !authorization.permits_operation_transport(request.protocol_version, recovery_only) {
         return Err(ApiError::bad_request(
             "transport_protocol_incompatible",
@@ -934,10 +941,6 @@ async fn operation(
             "operation": operation,
         })));
     }
-    state
-        .provider
-        .record_operation_protocol_usage(collection_id, request.protocol_version)
-        .await?;
     let result = state
         .provider
         .operation(
@@ -948,6 +951,12 @@ async fn operation(
             request.input,
             origin,
         )
+        .await?;
+    // A retired credential reaches this point only after exact terminal replay.
+    // Do not let a rejected replay attempt create protocol-observation state.
+    state
+        .provider
+        .record_operation_protocol_usage(collection_id, request.protocol_version)
         .await?;
     Ok(Json(
         serde_json::to_value(OperationResponse {

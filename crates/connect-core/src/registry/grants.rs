@@ -508,7 +508,7 @@ impl CollectionRegistry {
                 collection_id: parse_registry_uuid(&collection_id)?,
                 collection_name,
                 operations: serde_json::from_str(&operations)?,
-                scope: serde_json::from_str(&scope)?,
+                scope: parse_application_scope(&scope)?,
                 notification_criteria: serde_json::from_str(&notification_criteria)?,
                 created_at,
                 encryption: encryption
@@ -667,7 +667,7 @@ impl CollectionRegistry {
                 collection_id: parse_registry_uuid(&collection_id)?,
                 collection_name,
                 operations: serde_json::from_str(&operations)?,
-                scope: serde_json::from_str(&scope)?,
+                scope: parse_application_scope(&scope)?,
                 notification_criteria: serde_json::from_str(&notification_criteria)?,
                 created_at,
                 encryption: Some(serde_json::from_str(&encryption)?),
@@ -793,7 +793,7 @@ impl CollectionRegistry {
                             application_id: parse_registry_uuid(&row.1)?,
                             collection_id: parse_registry_uuid(&row.2)?,
                             operations: serde_json::from_str(&row.3)?,
-                            scope: serde_json::from_str(&row.4)?,
+                            scope: parse_application_scope(&row.4)?,
                             application_name: row.5,
                             application_distribution: row.6,
                             application_homepage: row.7,
@@ -911,7 +911,20 @@ impl CollectionRegistry {
     }
 }
 
+fn parse_application_scope(encoded: &str) -> Result<GrantScope, ConnectError> {
+    let scope = serde_json::from_str(encoded)?;
+    validate_application_scope(&scope)?;
+    Ok(scope)
+}
+
 fn validate_grant_application_authorization(grant: &GrantPolicy) -> Result<(), ConnectError> {
+    if grant.scope.access != mdbase_connect_protocol::ApplicationAccess::FullCollection
+        || !grant.scope.contracts.is_empty()
+    {
+        return Err(invalid_grant_security(
+            "application grants must use full_collection access with an empty contract set",
+        ));
+    }
     grant.validate_application_security().map_err(|error| {
         invalid_grant_security(format!(
             "grant does not match its application proof: {error}"

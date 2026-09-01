@@ -8,8 +8,10 @@ import {
   type ApplicationCapabilityId
 } from "@mdbase-dev/connect-protocol";
 import {
+  allowedTypesForRequirements,
   assertOperationsAllowedByApplication,
-  operationsAllowedByRequirements
+  operationsAllowedByRequirements,
+  scopeForRequirements
 } from "./policy.js";
 
 describe("application capability policy", () => {
@@ -29,15 +31,47 @@ describe("application capability policy", () => {
     expect(operationsAllowedByRequirements(["apply_type_pack"], requirements)).toBe(false);
   });
 
-  it("retains the access ceiling after semantic compilation", () => {
+  it("does not use contract requirements as an operation ceiling", () => {
     expect(operationsAllowedByRequirements(["read_type"], {
       ...requirements,
-      access: "contract",
+      contracts: [{
+        id: "example.tasks",
+        version: "1.0.0",
+        digest: `sha256:${"a".repeat(64)}`
+      }],
       capabilities: {
         contract_version: 1,
         required: ["definitions.read"]
       }
-    })).toBe(false);
+    })).toBe(true);
+  });
+
+  it("derives collection authority independently from required contracts", () => {
+    const contractRequirements = {
+      contracts: [{
+        id: "example.tasks",
+        version: "1.0.0",
+        digest: `sha256:${"a".repeat(64)}`
+      }],
+      access: "contract" as const
+    };
+    const descriptors = [{
+      ...contractRequirements.contracts[0]!,
+      contract_type: "record" as const,
+      schema: {},
+      implementations: [{
+        type_name: "task",
+        type_version: 1,
+        digest: `sha256:${"b".repeat(64)}`,
+        fields: {}
+      }]
+    }];
+
+    expect(scopeForRequirements(contractRequirements, descriptors)).toEqual({
+      access: "full_collection",
+      contracts: []
+    });
+    expect(allowedTypesForRequirements(descriptors, contractRequirements)).toEqual([]);
   });
 
   it("fails closed when persisted grants contain a non-protocol operation", () => {

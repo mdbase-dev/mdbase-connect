@@ -87,7 +87,8 @@ async fn open_file_upload(
     body: Bytes,
 ) -> ApiResult<Json<FileTransferSession>> {
     let token =
-        authorize_file_request(&state, &headers, Method::POST, &uri, collection_id, &body).await?;
+        authorize_file_replay_request(&state, &headers, Method::POST, &uri, collection_id, &body)
+            .await?;
     let origin = request_origin(&headers);
     let request = file_json::<OpenFileUploadRequest>(&body)?;
     let journal_request = request.clone();
@@ -134,7 +135,8 @@ async fn commit_file_upload(
     body: Bytes,
 ) -> ApiResult<Json<CommitFileUploadReceipt>> {
     let token =
-        authorize_file_request(&state, &headers, Method::POST, &uri, collection_id, &body).await?;
+        authorize_file_replay_request(&state, &headers, Method::POST, &uri, collection_id, &body)
+            .await?;
     let origin = request_origin(&headers);
     let request = file_json::<CommitFileUploadRequest>(&body)?;
     require_matching_transfer(transfer_id, request.transfer_id)?;
@@ -260,7 +262,7 @@ async fn abort_file_transfer(
     let proof = request_proof(&headers, Method::DELETE, &uri, &[])?;
     state
         .provider
-        .authorize_request(collection_id, token, origin, proof.as_ref())
+        .authorize_replay_request(collection_id, token, origin, proof.as_ref())
         .await?;
     let request = AbortFileTransferRequest {
         protocol_version: mdbase_connect_protocol::FILE_PROTOCOL_VERSION,
@@ -291,7 +293,8 @@ async fn move_file(
     body: Bytes,
 ) -> ApiResult<Json<MoveFileReceipt>> {
     let token =
-        authorize_file_request(&state, &headers, Method::POST, &uri, collection_id, &body).await?;
+        authorize_file_replay_request(&state, &headers, Method::POST, &uri, collection_id, &body)
+            .await?;
     let origin = request_origin(&headers);
     let request = file_json::<MoveFileRequest>(&body)?;
     require_matching_file(file_id, request.file_id)?;
@@ -319,7 +322,8 @@ async fn delete_file(
     body: Bytes,
 ) -> ApiResult<Json<DeleteFileReceipt>> {
     let token =
-        authorize_file_request(&state, &headers, Method::POST, &uri, collection_id, &body).await?;
+        authorize_file_replay_request(&state, &headers, Method::POST, &uri, collection_id, &body)
+            .await?;
     let origin = request_origin(&headers);
     let request = file_json::<DeleteFileRequest>(&body)?;
     require_matching_file(file_id, request.file_id)?;
@@ -347,13 +351,61 @@ async fn authorize_file_request<'a>(
     collection_id: Uuid,
     body: &[u8],
 ) -> ApiResult<&'a str> {
+    authorize_file_request_with_retired_replay(
+        state,
+        headers,
+        method,
+        uri,
+        collection_id,
+        body,
+        false,
+    )
+    .await
+}
+
+async fn authorize_file_replay_request<'a>(
+    state: &AppState,
+    headers: &'a HeaderMap,
+    method: Method,
+    uri: &Uri,
+    collection_id: Uuid,
+    body: &[u8],
+) -> ApiResult<&'a str> {
+    authorize_file_request_with_retired_replay(
+        state,
+        headers,
+        method,
+        uri,
+        collection_id,
+        body,
+        true,
+    )
+    .await
+}
+
+async fn authorize_file_request_with_retired_replay<'a>(
+    state: &AppState,
+    headers: &'a HeaderMap,
+    method: Method,
+    uri: &Uri,
+    collection_id: Uuid,
+    body: &[u8],
+    allow_retired_replay: bool,
+) -> ApiResult<&'a str> {
     let token = bearer(headers)?;
     let origin = request_origin(headers);
     let proof = request_proof(headers, method, uri, body)?;
-    state
-        .provider
-        .authorize_request(collection_id, token, origin, proof.as_ref())
-        .await?;
+    if allow_retired_replay {
+        state
+            .provider
+            .authorize_replay_request(collection_id, token, origin, proof.as_ref())
+            .await?;
+    } else {
+        state
+            .provider
+            .authorize_request(collection_id, token, origin, proof.as_ref())
+            .await?;
+    }
     Ok(token)
 }
 

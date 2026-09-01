@@ -205,7 +205,14 @@ export function ConnectApp() {
   if (!data) return <ConnectLoading error={refreshError} />;
 
   const activeView = selectedCollection || !isCollectionView(view) ? view : "collections";
-  const activeGrants = data.grants.filter((grant) => grant.revocation_status !== "revoked");
+  const freshlyAuthorized = new Set(data.grants
+    .filter((grant) => grant.revocation_status === "active"
+      && grant.scope.access === "full_collection"
+      && grant.scope.contracts.length === 0)
+    .map((grant) => `${grant.application_id}\0${grant.collection_id}`));
+  const activeGrants = data.grants.filter((grant) => grant.revocation_status !== "revoked"
+    || (typeof grant.reauthorization_required_at === "string"
+      && !freshlyAuthorized.has(`${grant.application_id}\0${grant.collection_id}`)));
   const applications = groupApplicationAccess(activeGrants);
   const feedbackEndpoint = configuredFeedbackEndpoint();
   const feedbackApplicationOrigins = [...new Set((selectedCollection
@@ -470,6 +477,9 @@ function GrantEditor({ grant, busy, perform }: {
   if (grant.revocation_status === "revoking") {
     return <div className="connect-grant connect-row"><span><strong>{grant.collection_name}</strong><small>Local access is disabled. Waiting for the hosted authority to confirm revocation.</small></span><b>Revoking…</b></div>;
   }
+  if (grant.scope.access !== "full_collection" || grant.scope.contracts.length > 0) {
+    return <div className="connect-grant connect-row"><span><strong>{grant.collection_name}</strong><small>Legacy scoped access is revoked. Reauthorize this application for the entire collection.</small></span><b>Reauthorization required</b></div>;
+  }
   const ordered = [...allOperations.filter((operation) => grant.operations.includes(operation)), ...grant.operations.filter((operation) => !allOperations.includes(operation))];
   const [operations, setOperations] = useState(() => new Set(grant.operations));
   useEffect(() => setOperations(new Set(grant.operations)), [grant.operations]);
@@ -482,7 +492,7 @@ function GrantEditor({ grant, busy, perform }: {
         if (next.has(operation)) next.delete(operation); else next.add(operation);
         return next;
       })} /><span>{authorizationOperationLabel(operation)}</span></label>)}</div>
-      <div className="connect-grant-meta"><span>Scope</span><strong>{grant.scope.access === "full_collection" ? "Full collection" : `${grant.scope.contracts.length} contract types`}</strong><span>Origin</span><strong>{grant.application_origin}</strong></div>
+      <div className="connect-grant-meta"><span>Scope</span><strong>Entire collection</strong><span>Origin</span><strong>{grant.application_origin}</strong></div>
       <div className="connect-row-actions"><button className="connect-primary-action" disabled={!changed || operations.size === 0 || busy.has(`grant-${grant.id}`)} onClick={() => void perform(`grant-${grant.id}`, (options) => management.updateGrant(grant.id, ordered.filter((operation) => operations.has(operation)), options))}>Save narrower access</button><ConfirmAction className="danger" label="Revoke" question={`Revoke access to ${grant.collection_name}?`} confirmLabel="Revoke" busy={busy.has(`grant-${grant.id}`)} onConfirm={() => void perform(`grant-${grant.id}`, (options) => management.revokeGrant(grant.id, options))} /></div>
     </div>
   </details>;

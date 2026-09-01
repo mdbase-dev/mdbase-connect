@@ -22,6 +22,9 @@ A portable application bundles its declaration inline:
 }
 ```
 
+`requirements.access` must explicitly use the N-1 wire spelling
+`full_collection`; omission and the legacy `contract` value do not authorize
+access. Required contracts remain separate compatibility and setup evidence.
 `distribution: "portable"` replaces `homepage` and `redirect_uris`.
 `project_url` is optional presentation metadata. It must be HTTPS, but it is not
 publisher verification or evidence that the local file came from that site.
@@ -53,8 +56,8 @@ The SDK uses OAuth device authorization with PKCE:
    bound to the opaque application origin `null`. A local grant must also
    contain the application agreement public key, operation transport v3, and
    grant encryption profile v1;
-   a hosted grant instead contains a scoped provider capability bound to the
-   application signing public key.
+   a hosted grant instead contains a collection-bound provider capability bound
+   to the application signing public key.
 
 Device codes expire after ten minutes, are stored only as hashes by the control
 plane, are rate limited, and can be consumed once. Polling faster than the
@@ -69,7 +72,7 @@ and ciphertext.
 
 For a hosted collection, the SDK sends operations directly to the hosted data
 provider. Its short-lived bearer capability selects one replica, collection,
-grant, operation set, record scope, and expiry. Every request additionally
+grant, operation set, entire collection, and expiry. Every request additionally
 carries an ECDSA proof from the approved signing key over the method, target, body,
 credential, timestamp, and a one-use nonce. The provider requires the exact
 `Origin: null`, verifies the signature, and persists the nonce before serving

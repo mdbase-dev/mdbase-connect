@@ -282,7 +282,23 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     if (!registration.ok) return this.startFailure(registration.problem, generation);
     const manifest = await this.connect.manifest(options);
     if (!manifest.ok) return this.startFailure(manifest.problem, generation);
-    const capabilities = manifest.value.requirements?.capabilities;
+    if (manifest.value.requirements?.access !== "full_collection") {
+      return this.startFailure(connectProblem(
+        "invalid_application_manifest",
+        "Application sessions require explicit full_collection access.",
+        {
+          details: {
+            issues: [{
+              path: "/requirements/access",
+              keyword: "const",
+              message: "must be full_collection",
+              params: { allowedValue: "full_collection" }
+            }]
+          }
+        }
+      ), generation);
+    }
+    const capabilities = manifest.value.requirements.capabilities;
     if (!capabilities) {
       return this.startFailure(connectProblem(
         "invalid_application_manifest",
@@ -923,8 +939,9 @@ function accessRequirementSatisfied(
   manifest: MdbaseAppManifest,
   connection: MdbaseConnectionInfo
 ): boolean {
-  return manifest.requirements?.access !== "full_collection"
-    || connection.scope.access === "full_collection";
+  return manifest.requirements?.access === "full_collection"
+    && connection.scope.access === "full_collection"
+    && connection.scope.contracts.length === 0;
 }
 
 function declarationIdFromFamilyIdentity(familyIdentity: string): string {

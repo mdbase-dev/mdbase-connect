@@ -17,6 +17,7 @@ import {
   isSupportedOperationTransport,
   RELAY_ENCRYPTION_SUITE
 } from "@mdbase-dev/connect-protocol";
+import { isCanonicalCollectionGrantScope } from "../../application-grant-scope.js";
 import {
   requireCollectionAction,
   resolveLocalCollectionAccess,
@@ -25,14 +26,16 @@ import {
 import type { DatabasePool } from "../../db.js";
 import { contractRequirements } from "../../hosted.js";
 import { HostedProviderClient } from "../../hosted-provider.js";
-import { hostedReplicaCollectionOperations } from "../../hosted-replica-policy.js";
+import {
+  hostedReplicaCollectionOperations,
+  retainedReplicaPolicy
+} from "../../hosted-replica-policy.js";
 import { planCollectionGrant } from "../../grant-planner.js";
 import { RelayHub } from "../../relay.js";
 import { randomToken } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import {
-  allowedTypesForRequirements,
   assertOperationsAllowedByApplication,
   assertCollectionSupportsOperations,
   contractsSatisfy,
@@ -229,7 +232,6 @@ export async function approvePortalAuthorization(
       applicationOperationCeiling:
         pending.requested_operations as CollectionOperation[],
       requirements: pending.requirements,
-      availableContracts: selected.contracts,
       access: grantAccess
     });
     const operations = plan.operations;
@@ -372,7 +374,6 @@ export async function approvePortalAuthorization(
       requestedOperations: grant!.operations,
       applicationOperationCeiling: grant!.operations,
       requirements,
-      availableContracts: activation.contracts,
       access: grantAccess!
     }).scope;
     await finalize.query(
@@ -576,6 +577,8 @@ export async function approveHostedAuthorization(
   let replicaId: string | null = null;
   let newReplicaId: string | null = null;
   let notificationGrantId: string | null = null;
+  let retainedReplicaUpdated = false;
+  let compensateRetainedReplica: (() => Promise<void>) | null = null;
   try {
     await connection.query("BEGIN");
     const authorization = await connection.query<{
@@ -736,14 +739,10 @@ export async function approveHostedAuthorization(
       applicationOperationCeiling:
         pending.requested_operations as CollectionOperation[],
       requirements: pending.requirements,
-      availableContracts: availableDescriptors,
       access: input.access
     });
     const scope = plan.scope;
-    const allowedTypes = allowedTypesForRequirements(
-      availableDescriptors,
-      pending.requirements
-    );
+    const allowedTypes: string[] = [];
     const operations = plan.operations;
     const applicationOrigin = pending.flow === "device_code"
       ? pending.device_origin ?? "null"
@@ -758,48 +757,77 @@ export async function approveHostedAuthorization(
         : undefined;
     const applicationInstallationId =
       pending.application_authorization.binding.application_installation_id;
-    const existing = await connection.query<{
-      id: string;
-      hosted_replica_id: string;
-      application_installation_id: string | null;
-    }>(
-      `SELECT id, hosted_replica_id, application_installation_id
-       FROM grants
-       WHERE user_id = $1 AND application_id = $2
-         AND hosted_collection_id = $3 AND revoked_at IS NULL
-         AND hosted_replica_id IS NOT NULL
-         AND (application_installation_id = $4 OR application_installation_id IS NULL)
-       ORDER BY (application_installation_id = $4) DESC, created_at ASC
-       FOR UPDATE`,
-      [
-        input.userId,
-        pending.application_id,
-        input.collectionId,
-        applicationInstallationId
-      ]
+    const existing = await retainedReplicaPolicy.loadCandidates(connection, {
+      userId: input.userId,
+      applicationId: pending.application_id,
+      collectionId: input.collectionId,
+      applicationInstallationId
+    });
+    const retained = existing.rows.find((candidate) =>
+      isCanonicalCollectionGrantScope(candidate.scope)
+      && candidate.allowed_types.length === 0
     );
-    const retained = existing.rows[0];
     const grantId = retained?.id ?? randomUUID();
     replicaId = retained?.hosted_replica_id ?? randomUUID();
 
-    for (const duplicate of existing.rows.slice(1)) {
-      await provider.revokeReplica(duplicate.hosted_replica_id);
+    for (const obsolete of existing.rows.filter((candidate) =>
+      candidate.id !== retained?.id
+    )) {
       await connection.query(
-        "UPDATE hosted_replicas SET revoked_at = now() WHERE id = $1",
-        [duplicate.hosted_replica_id]
+        `UPDATE hosted_replicas
+         SET revoked_at = COALESCE(revoked_at, now()), token_hash = NULL
+         WHERE id = $1`,
+        [obsolete.hosted_replica_id]
       );
       await connection.query(
-        "UPDATE grants SET revoked_at = now() WHERE id = $1",
-        [duplicate.id]
+        `UPDATE grants
+         SET revoked_at = COALESCE(revoked_at, now()),
+             reauthorization_required_at = COALESCE(reauthorization_required_at, now()),
+             reauthorization_reason = 'collection_level_authorization'
+         WHERE id = $1`,
+        [obsolete.id]
       );
+      await connection.query(
+        "UPDATE access_tokens SET revoked_at = COALESCE(revoked_at, now()) WHERE grant_id = $1",
+        [obsolete.id]
+      );
+      await connection.query(
+        "UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, now()) WHERE grant_id = $1",
+        [obsolete.id]
+      );
+      const cleanup = await connection.query(
+        `SELECT id FROM provider_revocation_jobs
+         WHERE replica_id = $1 AND completed_at IS NULL`,
+        [obsolete.hosted_replica_id]
+      );
+      if (cleanup.rows[0]) {
+        await connection.query(
+          `UPDATE provider_revocation_jobs
+           SET grant_id = COALESCE(grant_id, $2)
+           WHERE id = $1`,
+          [cleanup.rows[0].id, obsolete.id]
+        );
+      } else {
+        await connection.query(
+          `INSERT INTO provider_revocation_jobs
+             (id, replica_id, grant_id, collection_id, reason)
+           VALUES ($1, $2, $3, $4, 'collection_level_authorization')`,
+          [
+            randomUUID(),
+            obsolete.hosted_replica_id,
+            obsolete.id,
+            input.collectionId
+          ]
+        );
+      }
     }
 
     const replicaPolicy = {
       grantId,
       mode: plan.replicaMode,
       allowedTypes,
-      contractScope: scope.access === "contract" ? scope.contracts : [],
-      fullCollection: scope.access === "full_collection",
+      contractScope: [],
+      fullCollection: true,
       allowedOperations: hostedReplicaCollectionOperations(operations),
       operationTransportProtocol:
         pending.application_authorization.binding.contracts.operation_transport,
@@ -815,6 +843,12 @@ export async function approveHostedAuthorization(
       applicationDeclarationDigest: `sha256:${pending.application_manifest_digest}`
     };
     if (retained) {
+      compensateRetainedReplica = retainedReplicaPolicy.compensation(
+        provider,
+        replicaId,
+        retained
+      );
+      retainedReplicaUpdated = true;
       await provider.updateApplicationReplica(replicaId, replicaPolicy);
       await connection.query(
         `UPDATE hosted_replicas
@@ -913,13 +947,14 @@ export async function approveHostedAuthorization(
     await connection.query("COMMIT");
     return true;
   } catch (error) {
-    await connection.query("ROLLBACK");
+    await connection.query("ROLLBACK").catch(() => undefined);
     if (notificationGrantId) {
       await provider
         .revokeNotificationGrant(input.collectionId, notificationGrantId)
         .catch(() => undefined);
     }
     if (newReplicaId) await provider.revokeReplica(newReplicaId).catch(() => undefined);
+    if (retainedReplicaUpdated) await compensateRetainedReplica?.();
     throw error;
   } finally {
     connection.release();

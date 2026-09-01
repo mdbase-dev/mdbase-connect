@@ -263,11 +263,16 @@ impl HostedProvider {
             ));
         }
         let mut transaction = self.pool.begin().await?;
+        reject_legacy_application_replica(&mut transaction, replica_id).await?;
         archive_application_replay_credential(&mut transaction, replica_id).await?;
         let result = sqlx::query(
             r#"UPDATE hosted_provider_replicas
                SET token_hash = $2, token_expires_at = now() + ($3 * interval '1 second')
-               WHERE id = $1 AND revoked_at IS NULL"#,
+               WHERE id = $1 AND revoked_at IS NULL
+                 AND (purpose <> 'application'
+                      OR (full_collection = true
+                          AND cardinality(allowed_types) = 0
+                          AND contract_scope = '[]'::jsonb))"#,
         )
         .bind(replica_id)
         .bind(token_hash(token))
@@ -290,6 +295,41 @@ impl HostedProvider {
         token: &str,
         request_origin: Option<&str>,
         proof: Option<&AuthorityRequestProof>,
+    ) -> ApiResult<AuthorizedRequest> {
+        self.authorize_request_with_retired_replay(
+            collection_id,
+            token,
+            request_origin,
+            proof,
+            false,
+        )
+        .await
+    }
+
+    pub async fn authorize_replay_request(
+        &self,
+        collection_id: Uuid,
+        token: &str,
+        request_origin: Option<&str>,
+        proof: Option<&AuthorityRequestProof>,
+    ) -> ApiResult<AuthorizedRequest> {
+        self.authorize_request_with_retired_replay(
+            collection_id,
+            token,
+            request_origin,
+            proof,
+            true,
+        )
+        .await
+    }
+
+    async fn authorize_request_with_retired_replay(
+        &self,
+        collection_id: Uuid,
+        token: &str,
+        request_origin: Option<&str>,
+        proof: Option<&AuthorityRequestProof>,
+        allow_retired_replay: bool,
     ) -> ApiResult<AuthorizedRequest> {
         // Originless mirror traffic is authenticated again inside the requested
         // operation. Avoid a duplicate database round trip for that hot path.
@@ -315,8 +355,8 @@ impl HostedProvider {
         .bind(token_hash(token))
         .fetch_optional(&mut *transaction)
         .await?;
-        let replica = if row.is_some() {
-            replica_from_row(row)?
+        let (replica, retired_credential) = if row.is_some() {
+            (replica_from_row(row)?, false)
         } else {
             let retired = sqlx::query(
                 r#"SELECT replica.id, replica.purpose, replica.mode,
@@ -337,8 +377,14 @@ impl HostedProvider {
             .bind(token_hash(token))
             .fetch_optional(&mut *transaction)
             .await?;
-            replica_from_row(retired)?
+            (replica_from_row(retired)?, true)
         };
+        if retired_credential && !allow_retired_replay {
+            return Err(ApiError::unauthorized(
+                "invalid_replica_token",
+                "Replica credential is invalid, expired, or revoked.",
+            ));
+        }
         match replica.purpose {
             ReplicaPurpose::Mirror => {
                 if request_origin.is_some() || proof.is_some() {
@@ -349,6 +395,9 @@ impl HostedProvider {
                 }
             }
             ReplicaPurpose::Application => {
+                if !retired_credential {
+                    ensure_canonical_application_replica(&replica)?;
+                }
                 authorize_application_origin(&replica, request_origin)?;
                 if let Some(public_key) = replica.proof_public_key.as_deref() {
                     let proof = proof.ok_or_else(|| {
@@ -358,27 +407,29 @@ impl HostedProvider {
                         )
                     })?;
                     verify_hosted_request_proof(public_key, token, proof)?;
-                    let inserted = sqlx::query(
-                        r#"INSERT INTO hosted_provider_request_proofs (replica_id, nonce)
-                           VALUES ($1, $2)
-                           ON CONFLICT (replica_id, nonce) DO NOTHING
-                           RETURNING nonce"#,
-                    )
-                    .bind(replica.id)
-                    .bind(proof.nonce)
-                    .fetch_optional(&mut *transaction)
-                    .await?;
-                    if inserted.is_none() {
-                        return Err(ApiError::unauthorized(
-                            "authority_proof_replayed",
-                            "The authority request proof has already been used.",
-                        ));
+                    if !retired_credential {
+                        let inserted = sqlx::query(
+                            r#"INSERT INTO hosted_provider_request_proofs (replica_id, nonce)
+                               VALUES ($1, $2)
+                               ON CONFLICT (replica_id, nonce) DO NOTHING
+                               RETURNING nonce"#,
+                        )
+                        .bind(replica.id)
+                        .bind(proof.nonce)
+                        .fetch_optional(&mut *transaction)
+                        .await?;
+                        if inserted.is_none() {
+                            return Err(ApiError::unauthorized(
+                                "authority_proof_replayed",
+                                "The authority request proof has already been used.",
+                            ));
+                        }
+                        sqlx::query(
+                            "DELETE FROM hosted_provider_request_proofs WHERE created_at < now() - interval '10 minutes'",
+                        )
+                        .execute(&mut *transaction)
+                        .await?;
                     }
-                    sqlx::query(
-                        "DELETE FROM hosted_provider_request_proofs WHERE created_at < now() - interval '10 minutes'",
-                    )
-                    .execute(&mut *transaction)
-                    .await?;
                 }
             }
         }
@@ -435,6 +486,7 @@ impl HostedProvider {
                 ApiError::internal(format!("File capability could not be serialized: {error}"))
             })?;
         let mut transaction = self.pool.begin().await?;
+        reject_legacy_application_replica(&mut transaction, replica_id).await?;
         archive_application_replay_credential(&mut transaction, replica_id).await?;
         let result = sqlx::query(
             r#"UPDATE hosted_provider_replicas
@@ -466,7 +518,10 @@ impl HostedProvider {
                    proof_public_key = $12,
                    application_declaration_id = $13,
                    application_declaration_digest = $14
-               WHERE id = $1 AND purpose = 'application' AND revoked_at IS NULL"#,
+               WHERE id = $1 AND purpose = 'application' AND revoked_at IS NULL
+                 AND full_collection = true
+                 AND cardinality(allowed_types) = 0
+                 AND contract_scope = '[]'::jsonb"#,
         )
         .bind(replica_id)
         .bind(replica_mode(input.mode))
@@ -531,7 +586,9 @@ impl HostedProvider {
         .bind(replica_purpose(purpose))
         .fetch_optional(&self.pool)
         .await?;
-        replica_from_row(row)
+        let replica = replica_from_row(row)?;
+        ensure_canonical_application_replica(&replica)?;
+        Ok(replica)
     }
 
     pub(super) async fn authenticate_for_sync(
@@ -556,6 +613,30 @@ impl HostedProvider {
         authorize_sync_access(&replica, required_operation, request_origin)?;
         Ok(replica)
     }
+}
+
+async fn reject_legacy_application_replica(
+    transaction: &mut Transaction<'_, Postgres>,
+    replica_id: Uuid,
+) -> ApiResult<()> {
+    let legacy: Option<Uuid> = sqlx::query_scalar(
+        r#"SELECT id FROM hosted_provider_replicas
+           WHERE id = $1 AND purpose = 'application' AND revoked_at IS NULL
+             AND (full_collection = false
+                  OR cardinality(allowed_types) <> 0
+                  OR contract_scope <> '[]'::jsonb)
+           FOR UPDATE"#,
+    )
+    .bind(replica_id)
+    .fetch_optional(&mut **transaction)
+    .await?;
+    if legacy.is_some() {
+        return Err(ApiError::forbidden(
+            "application_reauthorization_required",
+            "This legacy scoped application capability must be revoked and reauthorized.",
+        ));
+    }
+    Ok(())
 }
 
 async fn archive_application_replay_credential(

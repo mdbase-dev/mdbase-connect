@@ -4,6 +4,7 @@ import type {
   GrantEncryption,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
+import { isCanonicalCollectionGrantScope } from "../../application-grant-scope.js";
 import {
   requireCollectionAction,
   resolveHostedCollectionAccess,
@@ -57,6 +58,7 @@ export async function issueApplicationTokens(
     file_capability: FileCapability | null;
     proof_public_key: string | null;
     application_origin: string;
+    allowed_types: string[] | null;
   }>(
     `SELECT g.user_id,
             COALESCE(col.local_id, g.hosted_collection_id) AS collection_id,
@@ -64,7 +66,7 @@ export async function issueApplicationTokens(
             COALESCE(col.display_name, hosted.display_name) AS collection_name,
             g.hosted_collection_id, g.hosted_replica_id, hosted.provider_url,
             g.operations, g.scope, g.encryption, g.file_capability,
-            g.proof_public_key,
+            g.proof_public_key, replica.allowed_types,
             CASE WHEN g.application_origin = '' THEN app.homepage
                  ELSE g.application_origin END AS application_origin
      FROM grants g
@@ -80,6 +82,15 @@ export async function issueApplicationTokens(
     [grantId]
   );
   if (!grant.rows[0]) throw new RequestValidationError("The application grant is no longer active.");
+  if (
+    !isCanonicalCollectionGrantScope(grant.rows[0].scope)
+    || (grant.rows[0].hosted_replica_id
+      && (grant.rows[0].allowed_types?.length ?? 0) > 0)
+  ) {
+    throw new RequestValidationError(
+      "Legacy scoped access must be explicitly reauthorized for the collection."
+    );
+  }
   if (grant.rows[0].hosted_collection_id) {
     requireCollectionAction(
       await resolveHostedCollectionAccess(

@@ -44,7 +44,7 @@ import {
   MemoryGrantKeyStore,
   type GrantKeyStore
 } from "./crypto.js";
-import { connectError, serverConnectError } from "./errors.js";
+import { MdbaseConnectError, connectError, serverConnectError } from "./errors.js";
 import {
   DEFAULT_OPERATIONS,
   type Application,
@@ -864,16 +864,25 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       this.pendingMutationKey(collectionId), previous, keyHandle,
       this.grantKeyLeases.handles(collectionId),
       this.grantKeyLeases.retainAutomaticallyRetiredKeys);
-    const token = storedTokenFromResponse({
-      body,
-      clientId,
-      keyHandle,
-      previous,
-      retiredKeyHandles: retirement.retained,
-      defaultApplicationOrigin: this.defaultApplicationOrigin(),
-      pinConnectorIdentity: (connectorId, publicKey) =>
-        this.pinConnectorIdentity(connectorId, publicKey)
-    });
+    let token: StoredToken;
+    try {
+      token = storedTokenFromResponse({
+        body,
+        clientId,
+        keyHandle,
+        previous,
+        retiredKeyHandles: retirement.retained,
+        defaultApplicationOrigin: this.defaultApplicationOrigin(),
+        pinConnectorIdentity: (connectorId, publicKey) =>
+          this.pinConnectorIdentity(connectorId, publicKey)
+      });
+    } catch (error) {
+      if (error instanceof MdbaseConnectError
+          && error.code === "legacy_scope_reauthorization_required") {
+        this.removeToken(collectionId, keyHandle, error.code);
+      }
+      throw error;
+    }
     this.storage.setItem(this.tokenKey(collectionId), JSON.stringify(token));
     for (const handle of retirement.disposable) this.deleteGrantKeyWhenUnused(collectionId, handle);
     addConnectionId(this.storage, this.storagePrefix(), collectionId);

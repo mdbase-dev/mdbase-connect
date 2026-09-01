@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   EMAIL_NORMALIZATION_VERSION,
   normalizeEmailAddress
@@ -47,6 +48,104 @@ export async function backfillExternalIdentityEmails(
         EMAIL_NORMALIZATION_VERSION
       ]
     );
+  }
+}
+
+export async function retireLegacyContractScopedGrants(
+  db: DatabaseQueryable
+): Promise<number> {
+  await db.query("BEGIN");
+  try {
+    type LegacyGrant = {
+      id: string;
+      hosted_collection_id: string | null;
+      hosted_replica_id: string | null;
+    };
+    const scopedGrants = await db.query<LegacyGrant>(
+      `SELECT g.id, g.hosted_collection_id, g.hosted_replica_id
+       FROM grants g
+       WHERE g.revoked_at IS NULL
+         AND g.activated_at IS NOT NULL
+         AND g.scope <> '{"access":"full_collection","contracts":[]}'::jsonb
+       ORDER BY g.id
+       FOR UPDATE`
+    );
+    const scopedReplicas = await db.query<LegacyGrant>(
+      `SELECT g.id, g.hosted_collection_id, g.hosted_replica_id
+       FROM grants g
+       JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
+       WHERE g.revoked_at IS NULL
+         AND g.activated_at IS NOT NULL
+         AND COALESCE(replica.allowed_types, '[]'::jsonb) <> '[]'::jsonb
+       ORDER BY g.id
+       FOR UPDATE`
+    );
+    const grants = new Map<string, LegacyGrant>();
+    for (const grant of [...scopedGrants.rows, ...scopedReplicas.rows]) {
+      grants.set(grant.id, grant);
+    }
+    for (const grant of grants.values()) {
+      if (grant.hosted_collection_id && grant.hosted_replica_id) {
+        await db.query(
+          `UPDATE hosted_replicas
+           SET revoked_at = COALESCE(revoked_at, now()), token_hash = NULL
+           WHERE id = $1`,
+          [grant.hosted_replica_id]
+        );
+      }
+      await db.query(
+        `UPDATE access_tokens
+         SET revoked_at = COALESCE(revoked_at, now())
+         WHERE grant_id = $1`,
+        [grant.id]
+      );
+      await db.query(
+        `UPDATE refresh_tokens
+         SET revoked_at = COALESCE(revoked_at, now())
+         WHERE grant_id = $1`,
+        [grant.id]
+      );
+      await db.query(
+        `UPDATE grants
+         SET revoked_at = COALESCE(revoked_at, now()),
+             reauthorization_required_at = COALESCE(reauthorization_required_at, now()),
+             reauthorization_reason = 'collection_level_authorization'
+         WHERE id = $1`,
+        [grant.id]
+      );
+      if (grant.hosted_collection_id && grant.hosted_replica_id) {
+        const existing = await db.query<{ id: string }>(
+          `SELECT id FROM provider_revocation_jobs
+           WHERE replica_id = $1 AND completed_at IS NULL`,
+          [grant.hosted_replica_id]
+        );
+        if (existing.rows[0]) {
+          await db.query(
+            `UPDATE provider_revocation_jobs
+             SET grant_id = COALESCE(grant_id, $2)
+             WHERE id = $1`,
+            [existing.rows[0].id, grant.id]
+          );
+        } else {
+          await db.query(
+            `INSERT INTO provider_revocation_jobs
+               (id, replica_id, grant_id, collection_id, reason)
+             VALUES ($1, $2, $3, $4, 'collection_level_authorization')`,
+            [
+              randomUUID(),
+              grant.hosted_replica_id,
+              grant.id,
+              grant.hosted_collection_id
+            ]
+          );
+        }
+      }
+    }
+    await db.query("COMMIT");
+    return grants.size;
+  } catch (error) {
+    await db.query("ROLLBACK");
+    throw error;
   }
 }
 

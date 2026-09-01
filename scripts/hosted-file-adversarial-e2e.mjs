@@ -65,12 +65,32 @@ try {
       `postgres://mdbase:${password}@127.0.0.1:${port}/${migrationDatabase}`
   });
   await proveFinalAdmissionAndRollbackGates(migrationDatabase);
+  const collectionAuthorizationMigrationDatabase =
+    "mdbase_collection_authorization_migration";
+  await execute(
+    "docker",
+    [
+      "exec", container, "createdb", "-U", "mdbase",
+      collectionAuthorizationMigrationDatabase
+    ],
+    { cwd: root }
+  );
+  await run("cargo", [
+    "test", "-p", "mdbase-connect-hosted-provider",
+    "--test", "projection_lifecycle",
+    "collection_authorization_migration_does_not_resurrect_expired_tokens",
+    "--", "--ignored", "--nocapture"
+  ], {
+    MDBASE_PROJECTION_DATABASE_URL:
+      `postgres://mdbase:${password}@127.0.0.1:${port}/${collectionAuthorizationMigrationDatabase}`
+  });
   await run("cargo", [
     "test", "-p", "mdbase-connect-hosted-provider",
     "--test", "projection_lifecycle", "--", "--ignored", "--nocapture",
     "--test-threads=1",
     "--skip", "candidate_b_beta69_cutover_preflight_fixture",
     "--skip", "candidate_b_consolidated_migrations_upgrade_the_beta69_schema",
+    "--skip", "collection_authorization_migration_does_not_resurrect_expired_tokens",
     "--skip", "candidate_b_projection_lifecycle_is_snapshot_safe_and_write_through",
     "--skip", "candidate_b_recovery_does_not_supersede_a_concurrent_explicit_generation_start",
     "--skip", "candidate_b_scalar_cursor_uses_canonical_collation_in_an_icu_database",
@@ -159,6 +179,10 @@ async function waitForPostgres() {
 async function proveFinalAdmissionAndRollbackGates(database) {
   const token = "12345678-1234-4234-8234-123456789abc";
   const wrongToken = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const rollbackPair = {
+    predecessor_migration: "37",
+    candidate_migration: "38"
+  };
   const scripts = {
     suspend: "deploy/postgres/suspend-hosted-query-admission.sql",
     resume: "deploy/postgres/resume-hosted-query-admission.sql",
@@ -203,7 +227,10 @@ async function proveFinalAdmissionAndRollbackGates(database) {
     fence_kind: "rollback",
     owner_lease_seconds: "7200"
   });
-  await psqlFile(database, "finalPreflight", { fence_token: token });
+  await psqlFile(database, "finalPreflight", {
+    ...rollbackPair,
+    fence_token: token
+  });
   await expectPsqlFailure(
     database,
     "resume",
@@ -221,7 +248,7 @@ async function proveFinalAdmissionAndRollbackGates(database) {
   await expectPsqlFailure(
     database,
     "finalPreflight",
-    { fence_token: token },
+    { ...rollbackPair, fence_token: token },
     "the final preflight accepted a disabled integrity trigger"
   );
   await psql(database,
@@ -231,7 +258,7 @@ async function proveFinalAdmissionAndRollbackGates(database) {
   await expectPsqlFailure(
     database,
     "finalPreflight",
-    { fence_token: token },
+    { ...rollbackPair, fence_token: token },
     "the final preflight accepted an unexpected derived-state trigger"
   );
   await psql(database,
@@ -241,7 +268,7 @@ async function proveFinalAdmissionAndRollbackGates(database) {
   await expectPsqlFailure(
     database,
     "finalPreflight",
-    { fence_token: token },
+    { ...rollbackPair, fence_token: token },
     "the final preflight accepted an altered integrity function body"
   );
   await psql(database,
@@ -251,7 +278,7 @@ async function proveFinalAdmissionAndRollbackGates(database) {
   await expectPsqlFailure(
     database,
     "finalPreflight",
-    { fence_token: token },
+    { ...rollbackPair, fence_token: token },
     "the final preflight accepted a renamed binding constraint"
   );
   await psql(database,
@@ -261,7 +288,7 @@ async function proveFinalAdmissionAndRollbackGates(database) {
   await expectPsqlFailure(
     database,
     "finalPreflight",
-    { fence_token: token },
+    { ...rollbackPair, fence_token: token },
     "the final preflight accepted a renamed admission-fence constraint"
   );
   await psql(database,
@@ -272,11 +299,16 @@ async function proveFinalAdmissionAndRollbackGates(database) {
     fence_kind: "cutover",
     owner_lease_seconds: "7200"
   });
-  await psqlFile(database, "finalCutover", { fence_token: token });
   await expectPsqlFailure(
     database,
     "finalCutover",
-    { fence_token: wrongToken },
+    { ...rollbackPair, fence_token: token },
+    "the retired Candidate B cutover accepted the migration 38 ledger"
+  );
+  await expectPsqlFailure(
+    database,
+    "finalCutover",
+    { ...rollbackPair, fence_token: wrongToken },
     "the final cutover preflight accepted a stale fence token"
   );
   await psqlFile(database, "resume", { fence_token: token, fence_kind: "cutover" });
@@ -285,7 +317,12 @@ async function proveFinalAdmissionAndRollbackGates(database) {
     fence_kind: "rollback",
     owner_lease_seconds: "7200"
   });
-  await psqlFile(database, "beta69Rollback", { fence_token: token });
+  await expectPsqlFailure(
+    database,
+    "beta69Rollback",
+    { fence_token: token },
+    "the retired beta69 rollback accepted the migration 38 ledger"
+  );
   await psqlFile(database, "resume", { fence_token: token, fence_kind: "rollback" });
 }
 

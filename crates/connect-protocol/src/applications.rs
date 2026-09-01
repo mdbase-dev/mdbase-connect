@@ -88,6 +88,11 @@ pub struct ApplicationCapabilityRequirements {
     pub optional: Vec<String>,
 }
 
+/// Application access spelling retained across the N-1 wire boundary.
+///
+/// New declarations and grants must use [`ApplicationAccess::FullCollection`].
+/// `Contract` remains parseable only so legacy authority can be diagnosed and
+/// retired without silently widening it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ApplicationAccess {

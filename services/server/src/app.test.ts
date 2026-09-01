@@ -193,7 +193,7 @@ describe("mdbase connect server", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       status: "ready",
       provider: {
-        version: "0.1.0-beta.93",
+        version: "0.1.0-beta.94",
         capabilities: [
           ...HOSTED_PROVIDER_REQUIRED_CAPABILITIES,
           HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY
@@ -735,6 +735,7 @@ describe("mdbase connect server", () => {
     });
     expect(discovered.statusCode).toBe(200);
     expect(discovered.json().application.requirements).toEqual({
+      access: "full_collection",
       configuration: [],
       contracts: [{
         id: "workout.record",
@@ -830,12 +831,8 @@ describe("mdbase connect server", () => {
       "SELECT id, scope, revoked_at FROM grants WHERE id IN ($1, $2) ORDER BY id",
       [legacyCompatibleGrantId, legacyIncompatibleGrantId]
     );
-    expect(reconciled.rows.find((grant) => grant.id === legacyCompatibleGrantId)).toEqual(
-      expect.objectContaining({
-        scope: { access: "contract", contracts: [contractDescriptor()] },
-        revoked_at: null
-      })
-    );
+    expect(reconciled.rows.find((grant) => grant.id === legacyCompatibleGrantId)?.revoked_at)
+      .not.toBeNull();
     expect(reconciled.rows.find((grant) => grant.id === legacyIncompatibleGrantId)?.revoked_at)
       .not.toBeNull();
     await db.query("DELETE FROM grants WHERE id IN ($1, $2)", [
@@ -867,7 +864,7 @@ describe("mdbase connect server", () => {
     expect(legacyGrant.statusCode).toBe(409);
     expect(legacyGrant.json().error.code).toBe("application_authorization_required");
 
-    const overbroadAuthorization = await postWebAuthorization(app, {
+    const capabilityOnlyAuthorization = await postWebAuthorization(app, {
         applicationId,
         applicationManifestDigest,
         redirectUri: manifestServer.redirectUri,
@@ -875,8 +872,7 @@ describe("mdbase connect server", () => {
         state: "overbroad",
         operations: ["list_views", "execute_view"]
     });
-    expect(overbroadAuthorization.statusCode).toBe(400);
-    expect(overbroadAuthorization.json().error.message).toContain("full collection access");
+    expect(capabilityOnlyAuthorization.statusCode).toBe(200);
 
     const verifier = "local-connector-verifier-that-is-long-enough-00001";
     const state = "test-state";
@@ -928,6 +924,7 @@ describe("mdbase connect server", () => {
     expect(localControl.json().pending_authorizations[0].application_name).toBe("Workout Tracker");
     expect(localControl.json().pending_authorizations[0].collection_id).toBe(localCollectionId);
     expect(localControl.json().pending_authorizations[0].requirements).toEqual({
+      access: "full_collection",
       configuration: [],
       contracts: [{
         id: "workout.record",
@@ -2184,10 +2181,6 @@ describe("mdbase connect server", () => {
     );
     expect(provisioned.rows[0].allowed_types).toEqual([]);
 
-    await db.query("UPDATE hosted_replicas SET allowed_types = $2::jsonb WHERE id = $1", [
-      provisioned.rows[0].id,
-      JSON.stringify(["task"])
-    ]);
     vi.mocked(hostedProvider.updateApplicationReplica).mockClear();
     const rediscovered = await app.inject({
       method: "POST",
@@ -2197,23 +2190,7 @@ describe("mdbase connect server", () => {
     expect(rediscovered.statusCode).toBe(200);
     await (app as typeof app & { drainApplicationReconciliation(): Promise<void> })
       .drainApplicationReconciliation();
-    expect(hostedProvider.updateApplicationReplica).toHaveBeenCalledWith(
-      provisioned.rows[0].id,
-      expect.objectContaining({
-        allowedTypes: [],
-        fullCollection: true,
-        allowedOperations: ["describe", "query", "create", "update"],
-        allowedOrigin: "http://localhost:4173",
-        proofPublicKey: expect.any(String),
-        applicationDeclarationId: manifestServer.manifest.id,
-        applicationDeclarationDigest: `sha256:${applicationManifestDigest}`
-      })
-    );
-    const reconciled = await db.query<{ allowed_types: string[] }>(
-      "SELECT allowed_types FROM hosted_replicas WHERE id = $1",
-      [provisioned.rows[0].id]
-    );
-    expect(reconciled.rows[0].allowed_types).toEqual([]);
+    expect(hostedProvider.updateApplicationReplica).not.toHaveBeenCalled();
 
     const activeControl = await app.inject({
       method: "GET",
@@ -2653,6 +2630,7 @@ async function startWebAuthorization(
 
 function applicationManifestFixture(
   requirements: ApplicationRequirements = {
+    access: "full_collection",
     contracts: [{
       id: "workout.record",
       version: "1.0.0",

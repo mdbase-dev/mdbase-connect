@@ -89,6 +89,10 @@ impl HostedNotificationRuntime {
                     "Hosted notification grant {grant_id} does not match its stored identity."
                 )));
             }
+            if !is_canonical_application_grant(&grant) {
+                tracing::warn!(%grant_id, %collection_id, "ignoring retired scoped notification grant");
+                continue;
+            }
             grants_by_collection
                 .entry(collection_id)
                 .or_default()
@@ -111,6 +115,7 @@ impl HostedNotificationRuntime {
                 "The notification grant belongs to another collection.",
             ));
         }
+        ensure_canonical_application_grant(&grant)?;
         compose_catalog(std::slice::from_ref(&grant), collection_id).map_err(|error| {
             ApiError::bad_request("notification_runtime_invalid", error.to_string())
         })?;
@@ -164,6 +169,7 @@ impl HostedNotificationRuntime {
             serde_json::from_value::<GrantSummary>(value)
                 .map_err(|error| ApiError::internal(error.to_string()))
         })?;
+        ensure_canonical_application_grant(&grant)?;
         let catalog =
             compose_catalog(std::slice::from_ref(&grant), collection_id).map_err(runtime_error)?;
         let runtime = self.runtime(collection_id).await?;
@@ -375,6 +381,11 @@ impl HostedNotificationRuntime {
         .map(|value| {
             serde_json::from_value(value).map_err(|error| ApiError::internal(error.to_string()))
         })
+        .filter_map(|result| match result {
+            Ok(grant) if is_canonical_application_grant(&grant) => Some(Ok(grant)),
+            Ok(_) => None,
+            Err(error) => Some(Err(error)),
+        })
         .collect()
     }
 
@@ -524,6 +535,12 @@ impl DispatchAuthorizer for HostedNotificationAuthorizer {
                 "The hosted notification grant is invalid.",
             );
         };
+        if !is_canonical_application_grant(&grant) {
+            return denied(
+                "notification_grant_revoked",
+                "The hosted notification grant is no longer active.",
+            );
+        }
         let expected_source = source_uri(self.collection_id);
         if request.event.get("source").and_then(Value::as_str) != Some(expected_source.as_str()) {
             return denied(
@@ -581,6 +598,26 @@ fn compose_catalog(
         },
         source_uri(collection_id),
     )
+}
+
+fn is_canonical_application_grant(grant: &GrantSummary) -> bool {
+    is_canonical_application_scope(&grant.scope)
+}
+
+fn is_canonical_application_scope(scope: &mdbase_connect_protocol::GrantScope) -> bool {
+    scope.access == mdbase_connect_protocol::ApplicationAccess::FullCollection
+        && scope.contracts.is_empty()
+}
+
+fn ensure_canonical_application_grant(grant: &GrantSummary) -> ApiResult<()> {
+    if is_canonical_application_grant(grant) {
+        Ok(())
+    } else {
+        Err(ApiError::forbidden(
+            "notification_grant_reauthorization_required",
+            "The legacy scoped notification grant must be reauthorized.",
+        ))
+    }
 }
 
 fn runtime_identity(collection_id: Uuid) -> ImplementationIdentity {
@@ -641,7 +678,19 @@ fn retry_delay_seconds(attempt: i32) -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use super::retry_delay_seconds;
+    use super::{is_canonical_application_scope, retry_delay_seconds};
+    use mdbase_connect_protocol::{ApplicationAccess, GrantScope};
+
+    #[test]
+    fn notification_authority_requires_canonical_collection_scope() {
+        assert!(is_canonical_application_scope(
+            &GrantScope::full_collection()
+        ));
+        assert!(!is_canonical_application_scope(&GrantScope {
+            access: ApplicationAccess::Contract,
+            contracts: Vec::new(),
+        }));
+    }
 
     #[test]
     fn notification_source_retries_back_off_and_cap() {

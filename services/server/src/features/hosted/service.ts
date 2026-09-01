@@ -7,6 +7,7 @@ import type {
   GrantScope
 } from "@mdbase-dev/connect-protocol";
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { isCanonicalCollectionGrantScope } from "../../application-grant-scope.js";
 import {
   accessView,
   requireCollectionAction,
@@ -26,8 +27,7 @@ import {
   effectiveHostedContractDescriptors,
   hostedContractDescriptors,
   type HostedAuthorityRegistry,
-  type HostedTemplate,
-  typesForContracts
+  type HostedTemplate
 } from "../../hosted.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
 import { reconcileHostedAccount } from "../../entitlements.js";
@@ -573,8 +573,7 @@ export async function narrowHostedGrantForUser(
     operations: string[];
     scope: GrantScope;
     requirements: ApplicationRequirements;
-    template: HostedTemplate;
-    hosted_contracts: CollectionContractDescriptor[];
+    allowed_types: string[];
     file_capability: FileCapability | null;
     application_origin: string;
     proof_public_key: string;
@@ -587,17 +586,25 @@ export async function narrowHostedGrantForUser(
             a.requirements,
             a.family_identity AS application_family_identity,
             a.manifest_digest AS application_manifest_digest,
-            h.template,
-            h.contracts AS hosted_contracts
+            replica.allowed_types
      FROM grants g
      JOIN applications a ON a.id = g.application_id
      JOIN hosted_collections h ON h.id = g.hosted_collection_id
+     JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
      WHERE g.id = $1 AND g.user_id = $2 AND g.revoked_at IS NULL
        AND g.activated_at IS NOT NULL`,
     [grantId, userId]
   );
   const current = active.rows[0];
   if (!current) return null;
+  if (
+    !isCanonicalCollectionGrantScope(current.scope)
+    || current.allowed_types.length > 0
+  ) {
+    throw new RequestValidationError(
+      "Legacy scoped access must be explicitly reauthorized for the collection."
+    );
+  }
   const operations = [...new Set(requestedOperations)];
   if (
     operations.some(
@@ -637,17 +644,9 @@ export async function narrowHostedGrantForUser(
     {
       grantId,
       mode: write ? "read_write" : "read_only",
-      allowedTypes: typesForContracts(
-        effectiveHostedContractDescriptors(
-          current.hosted_contracts,
-          current.template
-        ),
-        current.scope.contracts
-      ),
-      contractScope: current.scope.access === "contract"
-        ? current.scope.contracts
-        : [],
-      fullCollection: current.scope.access === "full_collection",
+      allowedTypes: [],
+      contractScope: [],
+      fullCollection: true,
       allowedOperations: hostedReplicaCollectionOperations(operations),
       operationTransportProtocol:
         current.application_authorization.binding.contracts.operation_transport,

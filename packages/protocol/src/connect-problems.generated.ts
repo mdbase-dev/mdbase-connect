@@ -69,6 +69,7 @@ export const CONNECT_PROBLEM_CATALOG = {
   "invalid_read_cursor": { category: "validation", recovery: "fix_request" },
   "invalid_request": { category: "validation", recovery: "fix_request" },
   "invalid_token_response": { category: "integrity", recovery: "contact_support" },
+  "legacy_scope_reauthorization_required": { category: "authorization", recovery: "reauthorize" },
   "managed_fcm_not_declared": { category: "compatibility", recovery: "fix_request" },
   "manifest_load_failed": { category: "availability", recovery: "retry" },
   "manifest_required": { category: "validation", recovery: "fix_request" },
@@ -253,6 +254,7 @@ export interface ConnectProblemDetailsByCode {
   "invalid_read_cursor": undefined;
   "invalid_request": undefined;
   "invalid_token_response": undefined;
+  "legacy_scope_reauthorization_required": undefined;
   "managed_fcm_not_declared": undefined;
   "manifest_load_failed": undefined;
   "manifest_required": undefined;
@@ -715,6 +717,12 @@ export interface ConnectProblemByCode {
     code: "invalid_token_response";
     category: "integrity";
     recovery: "contact_support";
+    details?: never;
+  };
+  "legacy_scope_reauthorization_required": ConnectProblemBase & {
+    code: "legacy_scope_reauthorization_required";
+    category: "authorization";
+    recovery: "reauthorize";
     details?: never;
   };
   "managed_fcm_not_declared": ConnectProblemBase & {

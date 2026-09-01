@@ -79,6 +79,36 @@ test("semantic capabilities and provision ownership share one canonical validato
   );
 });
 
+test("legacy contract-scoped declarations are rejected rather than widened", () => {
+  const scoped = manifest();
+  scoped.requirements.access = "contract";
+  const result = validateAppManifest(scoped);
+  assert.equal(result.valid, false);
+  assert.ok(result.issues.some((issue) =>
+    issue.path === "/requirements/access"
+    && ["const", "collectionAccess"].includes(issue.keyword)
+  ));
+  assert.throws(
+    () => parseAppManifest(scoped),
+    (error) => error instanceof AppManifestValidationError
+      && error.message.includes("/requirements/access")
+  );
+
+  const omitted = manifest();
+  delete omitted.requirements.access;
+  const omittedResult = validateAppManifest(omitted);
+  assert.equal(omittedResult.valid, false);
+  assert.ok(omittedResult.issues.some((issue) =>
+    issue.path === "/requirements/access"
+    && ["required", "collectionAccess"].includes(issue.keyword)
+  ));
+  assert.throws(
+    () => parseAppManifest(omitted),
+    (error) => error instanceof AppManifestValidationError
+      && error.message.includes("/requirements/access")
+  );
+});
+
 test("generic editors may apply user-selected packs without bundling one", () => {
   const editor = manifest();
   editor.provisions.type_packs = [];
@@ -105,16 +135,22 @@ test("portable declarations validate without inventing a web origin", () => {
     id: "dev.example.portable",
     name: "Portable app",
     project_url: "https://portable.example/project",
-    icon: "https://portable.example/icon.png"
+    icon: "https://portable.example/icon.png",
+    requirements: { access: "full_collection", contracts: [] }
   }), { valid: true, issues: [] });
 
   const parsed = parseAppManifest({
     manifest_version: 1,
     distribution: "portable",
     id: "dev.example.portable",
-    name: "Portable app"
+    name: "Portable app",
+    requirements: { access: "full_collection", contracts: [] }
   });
-  assert.deepEqual(parsed.requirements, { contracts: [], configuration: [] });
+  assert.deepEqual(parsed.requirements, {
+    access: "full_collection",
+    contracts: [],
+    configuration: []
+  });
   assert.deepEqual(parsed.provisions, { type_packs: [], configuration: [] });
   assert.deepEqual(parsed.notifications, { criteria: [] });
 });
