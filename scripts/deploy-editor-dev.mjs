@@ -948,6 +948,7 @@ async function spawnCommand(command, args, { cwd, env, capture }) {
   return capture ? Buffer.concat(stdout).toString("utf8") : undefined;
 }
 
+// Keep direct dispatch after every module-scoped runtime dependency is initialized.
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   await deployDevelopmentEditor(process.env);
 }
