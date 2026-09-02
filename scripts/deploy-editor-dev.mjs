@@ -334,7 +334,7 @@ async function deployStagingEditor(environment, deployment, run, root) {
   console.log(`STAGING editor deployed: ${deployment.editorOrigin}/`);
 }
 
-export async function qualifyExactLabRelease(environment, capture, root = repoRoot) {
+export async function qualifyExactLabRelease(environment, capture = captureCommand, root = repoRoot) {
   const expected = environment.MDBASE_LAB_EXPECTED_COMMIT?.trim() ?? "";
   if (!/^[0-9a-f]{40}$/u.test(expected)) {
     throw new Error("MDBASE_LAB_EXPECTED_COMMIT must be a full lowercase 40-hex commit.");
@@ -939,7 +939,7 @@ async function spawnCommand(command, args, { cwd, env, capture }) {
   }
   const exitCode = await new Promise((resolveExit, rejectExit) => {
     child.once("error", rejectExit);
-    child.once("exit", (code, signal) => {
+    child.once("close", (code, signal) => {
       if (signal) rejectExit(new Error(`${command} was stopped by ${signal}.`));
       else resolveExit(code);
     });
