@@ -94,6 +94,15 @@ function successfulGitCapture(command, args) {
   throw new Error(`Unexpected git command ${args.join(" ")}`);
 }
 
+test("CLI dispatch runs only after report filesystem initialization", async () => {
+  const source = await readFile(resolve(root, "scripts/deploy-editor-dev.mjs"), "utf8");
+  const initialization = source.indexOf("const reportFileSystem =");
+  const dispatch = source.indexOf("if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1])");
+  assert.ok(initialization >= 0);
+  assert.ok(dispatch > initialization);
+  assert.equal(source.indexOf("if (process.argv[1]", dispatch + 1), -1);
+});
+
 test("pinned Wrangler CLI exposes the expected Pages contract and no JSON flag", () => {
   const version = spawnSync("pnpm", ["exec", "wrangler", "--version"], { cwd: root, encoding: "utf8" });
   assert.equal(version.status, 0, version.stderr);
