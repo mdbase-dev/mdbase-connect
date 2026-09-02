@@ -567,6 +567,38 @@ test("exact verifier checks immutable and canonical bytes, revision, headers, an
   assert.deepEqual(result.control_files.map(({ path }) => path), ["_headers", "_redirects"]);
 });
 
+test("exact verifier rejects missing, duplicated, omitted, reordered, or non-normalized origin roles", async () => {
+  const fixture = await deploymentFixture();
+  for (const origins of [
+    [],
+    [deploymentUrl],
+    [deploymentUrl, deploymentUrl],
+    [deploymentUrl, "https://other.example"],
+    ["https://editor-lab.mdbase.dev", deploymentUrl],
+    [deploymentUrl, "https://editor-lab.mdbase.dev/"]
+  ]) {
+    await assert.rejects(verifyExactDeployment({
+      ...fixture.options,
+      origins,
+      fetchImplementation: fixture.fetch([])
+    }), /origins|origin must be a normalized HTTPS origin/u);
+  }
+});
+
+test("exact verifier requires distinct exact immutable and canonical asset cache policies", async () => {
+  for (const options of [
+    { immutableAssetCacheControl: "public, max-age=14400, must-revalidate" },
+    { canonicalAssetCacheControl: "public, max-age=0, must-revalidate" },
+    { canonicalAssetCacheControl: "public, max-age=14400" }
+  ]) {
+    const fixture = await deploymentFixture(options);
+    await assert.rejects(verifyExactDeployment({
+      ...fixture.options,
+      fetchImplementation: fixture.fetch([])
+    }), /asset cache policy is not exact/u);
+  }
+});
+
 test("exact verifier rejects unconfigured implicit HTML routes", async () => {
   const fixture = await deploymentFixture();
   await writeFile(resolve(fixture.options.directory, "about.html"), "<!doctype html>\n");
@@ -705,7 +737,14 @@ function reportIo(directory, beforeLink = async () => undefined) {
   return { io, directorySyncs: () => syncCount, syncEvents: () => syncEvents };
 }
 
-async function deploymentFixture({ immutableStalePath = null, canonicalStaleAttempts = 0, redirectEscape = false, missingHeader = null } = {}) {
+async function deploymentFixture({
+  immutableStalePath = null,
+  canonicalStaleAttempts = 0,
+  redirectEscape = false,
+  missingHeader = null,
+  immutableAssetCacheControl = "public, max-age=0, must-revalidate",
+  canonicalAssetCacheControl = "public, max-age=14400, must-revalidate"
+} = {}) {
   const directory = await mkdtemp(resolve(tmpdir(), "mdbase-editor-dist-"));
   const canonicalOrigin = "https://editor-lab.mdbase.dev";
   const connectOrigin = "https://connect-lab.mdbase.dev";
@@ -759,7 +798,11 @@ async function deploymentFixture({ immutableStalePath = null, canonicalStaleAtte
         "content-security-policy": csp
       };
       if (path === ".well-known/mdbase-app.json") globalHeaders["cache-control"] = "no-store";
-      if (path.startsWith("assets/")) globalHeaders["cache-control"] = "public, max-age=0, must-revalidate";
+      if (path.startsWith("assets/")) {
+        globalHeaders["cache-control"] = url.origin === canonicalOrigin
+          ? canonicalAssetCacheControl
+          : immutableAssetCacheControl;
+      }
       if (missingHeader) delete globalHeaders[missingHeader];
       let body = content;
       if (url.origin === deploymentUrl && immutableStalePath === path) body = Buffer.concat([body, Buffer.from("stale")]);

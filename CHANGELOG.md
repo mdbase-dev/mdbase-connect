@@ -23,6 +23,9 @@ authorization and strengthens release compatibility gates.
   format or semantic-engine transitions.
 - A live projection-cutover lease admits semantic queries while canonical,
   synchronization, file, import, and provider-control writes remain fenced.
+- Exact Editor qualification preserves immediate revalidation on immutable
+  Pages assets while separately verifying the canonical domain's bounded,
+  managed four-hour edge cache policy.
 
 ## 0.1.0-beta.93
 

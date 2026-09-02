@@ -482,6 +482,17 @@ export async function verifyExactDeployment({
   cacheKey = () => randomUUID(),
   delay = (milliseconds) => new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds))
 }) {
+  const normalizedCanonicalOrigin = exactHttpsOrigin(canonicalOrigin, "canonical origin");
+  if (!Array.isArray(origins) || origins.length !== 2) {
+    throw new Error("Exact deployment verification requires immutable and canonical origins.");
+  }
+  const normalizedOrigins = origins.map((origin, index) => exactHttpsOrigin(origin, index === 0 ? "immutable origin" : "canonical origin"));
+  if (normalizedOrigins[0] === normalizedOrigins[1]
+    || normalizedOrigins[1] !== normalizedCanonicalOrigin
+    || normalizedOrigins[0] === normalizedCanonicalOrigin) {
+    throw new Error("Exact deployment verification origins are not in distinct immutable and canonical roles.");
+  }
+
   const { files, controls } = await deploymentFiles(directory);
   if (files.length === 0) throw new Error(`No deployment files found in ${directory}.`);
   const manifestEntry = files.find(({ path }) => path === ".well-known/mdbase-app.json");
@@ -510,7 +521,7 @@ export async function verifyExactDeployment({
             if (finalUrl.origin !== origin || finalUrl.pathname !== remotePath) {
               throw new Error(`${file.path} escaped the expected deployment origin or path.`);
             }
-            assertRemoteHeaders(response.headers, file.path, headerPolicy);
+            assertRemoteHeaders(response.headers, file.path, headerPolicy, origin === canonicalOrigin);
             return Buffer.from(await response.arrayBuffer());
           });
           if (!actual.equals(file.content)) throw new Error(`${file.path} at ${origin} does not match local deployment content.`);
@@ -621,15 +632,33 @@ function parseHeadersFile(source) {
   return sections;
 }
 
-function assertRemoteHeaders(headers, path, policy) {
+function exactHttpsOrigin(value, label) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`Exact deployment ${label} is invalid.`);
+  }
+  if (url.protocol !== "https:" || url.username || url.password || url.origin !== value || url.pathname !== "/" || url.search || url.hash) {
+    throw new Error(`Exact deployment ${label} must be a normalized HTTPS origin.`);
+  }
+  return url.origin;
+}
+
+function assertRemoteHeaders(headers, path, policy, canonical) {
   for (const [name, expected] of policy.global) {
     if (headers.get(name) !== expected) throw new Error(`${path} is missing expected ${name}.`);
   }
   if (path === ".well-known/mdbase-app.json" && headers.get("cache-control") !== policy.manifest.get("cache-control")) {
     throw new Error("Remote manifest cache policy does not match _headers.");
   }
-  if (path.startsWith("assets/") && headers.get("cache-control") !== policy.assets.get("cache-control")) {
-    throw new Error("Remote asset cache policy does not match _headers.");
+  if (path.startsWith("assets/")) {
+    const expected = canonical
+      ? "public, max-age=14400, must-revalidate"
+      : policy.assets.get("cache-control");
+    if (headers.get("cache-control") !== expected) {
+      throw new Error(`Remote ${canonical ? "canonical" : "immutable"} asset cache policy is not exact.`);
+    }
   }
 }
 
