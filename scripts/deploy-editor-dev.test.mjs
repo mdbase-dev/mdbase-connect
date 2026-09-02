@@ -103,6 +103,12 @@ test("CLI dispatch runs only after report filesystem initialization", async () =
   assert.equal(source.indexOf("if (process.argv[1]", dispatch + 1), -1);
 });
 
+test("Editor release source changes trigger signed image-bundle publication", async () => {
+  const workflow = await readFile(resolve(root, ".github/workflows/publish-images.yml"), "utf8");
+  assert.match(workflow, /Cargo\.toml \\\n\s+apps\/editor \\\n\s+apps\/portal/u);
+  assert.match(workflow, /services\/server \\\n\s+scripts\/deploy-editor-dev\.mjs/u);
+});
+
 test("pinned Wrangler CLI exposes the expected Pages contract and no JSON flag", () => {
   const version = spawnSync("pnpm", ["exec", "wrangler", "--version"], { cwd: root, encoding: "utf8" });
   assert.equal(version.status, 0, version.stderr);

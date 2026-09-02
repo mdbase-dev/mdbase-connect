@@ -95,6 +95,7 @@ jobs:
           parent=$(git rev-parse "$SOURCE_COMMIT^")
           if git diff --quiet "$parent" "$SOURCE_COMMIT" -- \
             Cargo.toml \
+            apps/editor \
             apps/portal \
             config \
             crates \
@@ -112,7 +113,8 @@ jobs:
             pnpm-lock.yaml \
             pnpm-workspace.yaml \
             services/mcp \
-            services/server
+            services/server \
+            scripts/deploy-editor-dev.mjs
           then
             echo "publish=false" >> "$GITHUB_OUTPUT"
           else
