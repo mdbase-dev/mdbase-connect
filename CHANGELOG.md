@@ -25,7 +25,7 @@ authorization and strengthens release compatibility gates.
   synchronization, file, import, and provider-control writes remain fenced.
 - Exact Editor qualification preserves immediate revalidation on immutable
   Pages assets while separately verifying the canonical domain's bounded,
-  managed four-hour edge cache policy.
+  managed four-hour policy for edge-cache-eligible asset classes.
 
 ## 0.1.0-beta.93
 

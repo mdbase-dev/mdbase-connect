@@ -653,13 +653,20 @@ function assertRemoteHeaders(headers, path, policy, canonical) {
     throw new Error("Remote manifest cache policy does not match _headers.");
   }
   if (path.startsWith("assets/")) {
-    const expected = canonical
-      ? "public, max-age=14400, must-revalidate"
-      : policy.assets.get("cache-control");
+    const sourcePolicy = policy.assets.get("cache-control");
+    const expected = canonical ? canonicalAssetCacheControl(path, sourcePolicy) : sourcePolicy;
     if (headers.get("cache-control") !== expected) {
       throw new Error(`Remote ${canonical ? "canonical" : "immutable"} asset cache policy is not exact.`);
     }
   }
+}
+
+function canonicalAssetCacheControl(path, sourcePolicy) {
+  if (/\.(?:css|js|woff2?)$/u.test(path)) {
+    return "public, max-age=14400, must-revalidate";
+  }
+  if (/\.(?:map|wasm)$/u.test(path)) return sourcePolicy;
+  throw new Error(`Canonical asset cache class is unsupported for ${path}.`);
 }
 
 export function createSuccessReport({ qualification, deployment, wranglerDeployment, wranglerEvidence, verification }) {

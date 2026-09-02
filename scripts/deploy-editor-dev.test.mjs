@@ -585,11 +585,12 @@ test("exact verifier rejects missing, duplicated, omitted, reordered, or non-nor
   }
 });
 
-test("exact verifier requires distinct exact immutable and canonical asset cache policies", async () => {
+test("exact verifier requires distinct exact immutable and canonical asset cache classes", async () => {
   for (const options of [
     { immutableAssetCacheControl: "public, max-age=14400, must-revalidate" },
-    { canonicalAssetCacheControl: "public, max-age=0, must-revalidate" },
-    { canonicalAssetCacheControl: "public, max-age=14400" }
+    { canonicalEdgeCacheControl: "public, max-age=0, must-revalidate" },
+    { canonicalEdgeCacheControl: "public, max-age=14400" },
+    { canonicalRevalidatedCacheControl: "public, max-age=14400, must-revalidate" }
   ]) {
     const fixture = await deploymentFixture(options);
     await assert.rejects(verifyExactDeployment({
@@ -597,6 +598,12 @@ test("exact verifier requires distinct exact immutable and canonical asset cache
       fetchImplementation: fixture.fetch([])
     }), /asset cache policy is not exact/u);
   }
+
+  const unsupported = await deploymentFixture({ extraAssetPath: "assets/data.bin" });
+  await assert.rejects(verifyExactDeployment({
+    ...unsupported.options,
+    fetchImplementation: unsupported.fetch([])
+  }), /Canonical asset cache class is unsupported/u);
 });
 
 test("exact verifier rejects unconfigured implicit HTML routes", async () => {
@@ -743,7 +750,9 @@ async function deploymentFixture({
   redirectEscape = false,
   missingHeader = null,
   immutableAssetCacheControl = "public, max-age=0, must-revalidate",
-  canonicalAssetCacheControl = "public, max-age=14400, must-revalidate"
+  canonicalEdgeCacheControl = "public, max-age=14400, must-revalidate",
+  canonicalRevalidatedCacheControl = "public, max-age=0, must-revalidate",
+  extraAssetPath = null
 } = {}) {
   const directory = await mkdtemp(resolve(tmpdir(), "mdbase-editor-dist-"));
   const canonicalOrigin = "https://editor-lab.mdbase.dev";
@@ -764,10 +773,16 @@ async function deploymentFixture({
   const files = new Map([
     [".well-known/mdbase-app.json", Buffer.from(`${JSON.stringify(manifest)}\n`)],
     ["assets/main.js", Buffer.from(`globalThis.revision="${commit}";\n`)],
+    ["assets/main.js.map", Buffer.from("{}\n")],
+    ["assets/runtime.wasm", Buffer.from("wasm\n")],
+    ["assets/styles.css", Buffer.from("body {}\n")],
+    ["assets/font.woff", Buffer.from("font\n")],
+    ["assets/font.woff2", Buffer.from("font2\n")],
     ["index.html", Buffer.from("<!doctype html>\n")],
     ["_headers", Buffer.from(headersText)],
     ["_redirects", Buffer.from("# no redirects\n")]
   ]);
+  if (extraAssetPath) files.set(extraAssetPath, Buffer.from("extra\n"));
   for (const [path, content] of files) {
     const target = resolve(directory, path);
     await mkdir(resolve(target, ".."), { recursive: true });
@@ -799,8 +814,11 @@ async function deploymentFixture({
       };
       if (path === ".well-known/mdbase-app.json") globalHeaders["cache-control"] = "no-store";
       if (path.startsWith("assets/")) {
+        const canonicalCacheControl = /\.(?:css|js|woff2?)$/u.test(path)
+          ? canonicalEdgeCacheControl
+          : canonicalRevalidatedCacheControl;
         globalHeaders["cache-control"] = url.origin === canonicalOrigin
-          ? canonicalAssetCacheControl
+          ? canonicalCacheControl
           : immutableAssetCacheControl;
       }
       if (missingHeader) delete globalHeaders[missingHeader];
