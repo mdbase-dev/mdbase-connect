@@ -59,10 +59,6 @@ export const developmentDeployment = developmentDeployments.lab;
 const repoRoot = resolve(import.meta.dirname, "..");
 assertDeploymentIsolation();
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  await deployDevelopmentEditor(process.env);
-}
-
 export async function deployDevelopmentEditor(
   environment,
   run = runCommand,
@@ -950,4 +946,8 @@ async function spawnCommand(command, args, { cwd, env, capture }) {
   });
   if (exitCode !== 0) throw new Error(`${command} ${args.join(" ")} exited with code ${exitCode}.`);
   return capture ? Buffer.concat(stdout).toString("utf8") : undefined;
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  await deployDevelopmentEditor(process.env);
 }
