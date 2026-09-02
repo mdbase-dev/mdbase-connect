@@ -277,10 +277,6 @@
       "description": "The relay broker is a single managed service; tested recovery is automatic reconnect after broker restoration, not uninterrupted high availability."
     },
     {
-      "id": "complete-recovery-drill-pending",
-      "description": "The isolated full database, object, KMS-replica, retained-key, and clean-environment recovery drill remains open."
-    },
-    {
       "id": "platform-signing-pending",
       "description": "Canonical platform signing and notarization are not yet configured."
     },
