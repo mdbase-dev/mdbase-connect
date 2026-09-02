@@ -137,13 +137,18 @@ impl HostedProvider {
         request_kind: HostedQueryRequestKind,
         cancellation_cleanup: Option<tokio::sync::oneshot::Sender<bool>>,
     ) -> ApiResult<OperationResult> {
-        if let Some(release) = input.get("release_cursor") {
-            let cursor = release.as_str().ok_or_else(|| {
-                ApiError::bad_request(
-                    "invalid_query_cursor",
-                    "The hosted query cursor must be an opaque string.",
-                )
-            })?;
+        if input.get("release_cursor").is_some() {
+            let cursor = input
+                .as_object()
+                .filter(|object| object.len() == 1)
+                .and_then(|object| object.get("release_cursor"))
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    ApiError::bad_request(
+                        "invalid_query_cursor",
+                        "The release cursor must be the only input field and contain an opaque cursor.",
+                    )
+                })?;
             let cursor_id = decode_query_cursor(cursor)?;
             sqlx::query(
                 r#"DELETE FROM hosted_provider_query_cursors
@@ -157,7 +162,6 @@ impl HostedProvider {
             .bind(request_kind.as_str())
             .execute(&self.pool)
             .await?;
-            cleanup_base_query_invocations(&self.pool, collection_id, None).await?;
             return Ok(empty_query_result());
         }
         let page_input_digest = query_page_input_digest(request_kind, input)?;

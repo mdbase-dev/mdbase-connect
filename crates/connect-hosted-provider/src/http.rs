@@ -50,7 +50,7 @@ mod files;
 mod projections;
 
 use accounts::account_routes;
-use authentication::{bearer, is_query_cursor_release, request_origin, request_proof};
+use authentication::{authorize_operation, bearer, request_origin, request_proof};
 use authority_import_files::{
     commit_authority_import_file_upload, open_authority_import_file_upload,
     prepare_authority_import_file_part,
@@ -58,7 +58,6 @@ use authority_import_files::{
 use diagnostics::diagnostic_routes;
 use files::file_routes;
 use projections::projection_routes;
-
 const MAX_BODY_BYTES: usize = 3 * 1024 * 1024;
 // Record imports are paged, but a page can contain several large canonical
 // documents. Provider quotas and the concurrency gate bound parsed work.
@@ -914,9 +913,9 @@ async fn operation(
         ApiError::bad_request("invalid_json", "The hosted operation body is invalid.")
     })?;
     let recovery_only = mdbase_connect_protocol::is_mutating_operation(&operation, &request.input);
-    // Cursor release changes bounded query metadata only; keep authorized,
-    // identity-bound cleanup available while semantic reads are suspended.
-    let cursor_release = is_query_cursor_release(&operation, &request.input, recovery_only);
+    let cursor_release = !recovery_only
+        && matches!(operation.as_str(), "query" | "execute_view")
+        && HostedProvider::is_valid_query_cursor_release(&request.input);
     let admission = if cursor_release {
         None
     } else if recovery_only {
@@ -924,17 +923,16 @@ async fn operation(
     } else {
         Some(state.provider.acquire_runtime_read_admission().await?)
     };
-    let authorization = if recovery_only {
-        state
-            .provider
-            .authorize_replay_request(collection_id, token, origin, proof.as_ref())
-            .await?
-    } else {
-        state
-            .provider
-            .authorize_request(collection_id, token, origin, proof.as_ref())
-            .await?
-    };
+    let authorization = authorize_operation(
+        &state.provider,
+        collection_id,
+        token,
+        origin,
+        proof.as_ref(),
+        recovery_only,
+        cursor_release,
+    )
+    .await?;
     if !authorization.permits_operation_transport(request.protocol_version, recovery_only) {
         return Err(ApiError::bad_request(
             "transport_protocol_incompatible",
@@ -962,12 +960,13 @@ async fn operation(
             origin,
         )
         .await?;
-    // A retired credential reaches this point only after exact terminal replay.
-    // Do not let a rejected replay attempt create protocol-observation state.
-    state
-        .provider
-        .record_operation_protocol_usage(collection_id, request.protocol_version)
-        .await?;
+    // Cursor cleanup may only delete query-runtime cursor state during suspension.
+    if !cursor_release {
+        state
+            .provider
+            .record_operation_protocol_usage(collection_id, request.protocol_version)
+            .await?;
+    }
     let response = serde_json::to_value(OperationResponse {
         protocol_version: request.protocol_version,
         request_id: request.request_id,

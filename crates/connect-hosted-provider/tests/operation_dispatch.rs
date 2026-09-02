@@ -147,7 +147,11 @@ async fn retired_application_credentials_replay_only_exact_terminal_mutations() 
                 allowed_types: Vec::new(),
                 contract_scope: Vec::new(),
                 full_collection: true,
-                allowed_operations: vec!["changes".to_string(), "create".to_string()],
+                allowed_operations: vec![
+                    "changes".to_string(),
+                    "create".to_string(),
+                    "query".to_string(),
+                ],
                 operation_transport_protocol: Some(3),
                 operation_transport_recovery_protocols: vec![2],
                 file_capability: None,
@@ -162,6 +166,124 @@ async fn retired_application_credentials_replay_only_exact_terminal_mutations() 
         )
         .await
         .expect("canonical application replica is registered");
+
+    sqlx::query(
+        r#"UPDATE hosted_provider_runtime_control
+           SET query_admission_suspended = true,
+               admission_fence_token = $1,
+               admission_fence_kind = 'rollback',
+               admission_lease_expires_at = NULL,
+               admission_owner_expires_at = NULL"#,
+    )
+    .bind(Uuid::new_v4())
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let unrelated_invocation_id = Uuid::new_v4();
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_base_query_invocations (
+             invocation_id, collection_id, replica_id, scope_epoch, base_plan,
+             base_context, base_operation_clock, hard_expires_at
+           )
+           SELECT $1, collection_id, id, scope_epoch, '{}'::jsonb,
+                  NULL, 'test', now() - interval '1 minute'
+           FROM hosted_provider_replicas
+           WHERE id = $2"#,
+    )
+    .bind(unrelated_invocation_id)
+    .bind(replica_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let state = AppState::new(fixture.provider.clone(), &"internal-test-token-".repeat(2)).unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app(state)).await.unwrap() });
+    let query_target = format!("/v1/authorities/{}/operations/query", fixture.collection_id);
+    let cursor_body = serde_json::to_vec(&json!({
+        "protocol_version": 3,
+        "request_id": Uuid::now_v7(),
+        "input": {"release_cursor": format!("hq1.{}", URL_SAFE_NO_PAD.encode(Uuid::new_v4().as_bytes()))}
+    }))
+    .unwrap();
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let cursor_release = reqwest::Client::new()
+        .post(format!("http://{address}{query_target}"))
+        .headers(signed_application_headers(
+            &signing_key,
+            &token,
+            "POST",
+            &query_target,
+            &cursor_body,
+        ))
+        .header("content-type", "application/json")
+        .body(cursor_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(cursor_release.status(), reqwest::StatusCode::OK);
+    let unrelated_invocation_remains: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM hosted_provider_base_query_invocations WHERE invocation_id = $1)",
+    )
+    .bind(unrelated_invocation_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert!(
+        unrelated_invocation_remains,
+        "cursor cleanup does not perform opportunistic maintenance"
+    );
+    let conflicting_body = serde_json::to_vec(&json!({
+        "protocol_version": 3,
+        "request_id": Uuid::now_v7(),
+        "input": {
+            "release_cursor": format!("hq1.{}", URL_SAFE_NO_PAD.encode(Uuid::new_v4().as_bytes())),
+            "cursor": "conflicting"
+        }
+    }))
+    .unwrap();
+    let conflicting_release = reqwest::Client::new()
+        .post(format!("http://{address}{query_target}"))
+        .headers(signed_application_headers(
+            &signing_key,
+            &token,
+            "POST",
+            &query_target,
+            &conflicting_body,
+        ))
+        .header("content-type", "application/json")
+        .body(conflicting_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        conflicting_release.status(),
+        reqwest::StatusCode::SERVICE_UNAVAILABLE,
+        "conflicting cursor inputs cannot bypass suspended admission"
+    );
+    let cursor_nonce_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_request_proofs WHERE replica_id = $1",
+    )
+    .bind(replica_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        cursor_nonce_count, 0,
+        "cursor cleanup consumes no proof nonce"
+    );
+    server.abort();
+    sqlx::query(
+        r#"UPDATE hosted_provider_runtime_control
+           SET query_admission_suspended = false,
+               admission_fence_token = NULL,
+               admission_fence_kind = NULL,
+               admission_lease_expires_at = NULL,
+               admission_owner_expires_at = NULL"#,
+    )
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
 
     let request_id = Uuid::now_v7();
     let input = json!({"path": "retired/exact.md", "frontmatter": {"title": "Exact"}});
