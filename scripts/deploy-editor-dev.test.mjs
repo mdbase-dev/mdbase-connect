@@ -255,6 +255,34 @@ test("source qualification rejects dirty, wrong HEAD, wrong origin, and invalid 
   }
 });
 
+test("source qualification waits for command output streams to close", async () => {
+  const sourceRoot = await mkdtemp(resolve(tmpdir(), "mdbase-delayed-git-root-"));
+  const commandDirectory = await mkdtemp(resolve(tmpdir(), "mdbase-delayed-git-bin-"));
+  const reportDirectory = await mkdtemp(resolve(tmpdir(), "mdbase-delayed-git-report-"));
+  const reportPath = resolve(reportDirectory, "report.json");
+  const git = resolve(commandDirectory, "git");
+  await writeFile(git, `#!/bin/sh
+case "$1" in
+  rev-parse) printf '%s\\n' '${commit}' ;;
+  status) exit 0 ;;
+  remote) (sleep 0.1; printf '%s\\n' 'https://github.com/mdbase-dev/mdbase-connect.git') & ;;
+  *) exit 1 ;;
+esac
+`, { mode: 0o700 });
+
+  const qualification = await qualifyExactLabRelease({
+    ...labEnvironment,
+    PATH: `${commandDirectory}:${process.env.PATH}`,
+    MDBASE_LAB_DEPLOYMENT_REPORT: reportPath
+  }, undefined, sourceRoot);
+  assert.deepEqual(qualification, {
+    commit,
+    clean: true,
+    repository: "mdbase-dev/mdbase-connect",
+    reportPath
+  });
+});
+
 test("report reservation keeps the final path absent and rejects existing evidence or sidecar replacement", async () => {
   const directory = await mkdtemp(resolve(tmpdir(), "mdbase-report-"));
   const path = resolve(directory, "report.json");
