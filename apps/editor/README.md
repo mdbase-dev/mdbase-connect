@@ -85,9 +85,14 @@ allowlisted `candidate-b` production branch and canonical custom origin
 origins are static and disjoint from staging and production; the deploy command
 has no target override. Operations must independently record and validate the
 Pages project, `candidate-b` production branch, canonical domain, and managed
-Cloudflare account before each qualified release. If Cloudflare configuration
-no longer matches this repository contract, an operator must correct and
-document that prerequisite before using the command. Do not guess a replacement
+Cloudflare account before each qualified release. The immutable Pages origin
+must serve the repository's asset cache policy exactly. The canonical custom
+domain has a separately managed, exact edge transformation to `Cache-Control:
+public, max-age=14400, must-revalidate` for `/assets/*`; the manifest remains
+`no-store` and all security headers remain exact on both origins. Any other
+canonical cache policy fails qualification. If Cloudflare configuration no
+longer matches this repository contract, an operator must correct and document
+that prerequisite before using the command. Do not guess a replacement
 branch or attach the LAB domain from this script.
 
 A LAB upload is an explicit exact-commit release, not a working-tree preview.
@@ -124,8 +129,11 @@ After upload, the command compares deployable files served by both the immutable
 deployment origin and canonical LAB origin byte-for-byte with local `dist`.
 Cloudflare's supported root routing is explicit: local `index.html` is fetched
 at `/`, while other implicit HTML routes are rejected. Pages `_headers` and
-`_redirects` control files are validated locally rather than fetched, and
-resulting security and cache headers are checked remotely. The manifest
+`_redirects` control files are validated locally rather than fetched. Security
+headers and the manifest cache policy are checked exactly on both origins. The
+immutable origin's asset cache header must match `_headers`; the canonical
+origin must match the separately managed exact four-hour edge policy documented
+above. The manifest
 homepage, redirects, Connect origin, and full build revision must all match. In
 the report contract, `verification.assertions.build_revision` is the boolean
 qualification result; the exact commit remains in `source.commit` and
