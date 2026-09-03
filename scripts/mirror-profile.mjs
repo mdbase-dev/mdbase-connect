@@ -79,6 +79,10 @@ class CountingFileSystem {
     return this.files.get(path) ?? null;
   }
 
+  async readText(path) {
+    return this.read(path);
+  }
+
   async exists(path) {
     this.reads += 1;
     this.probe.touch();

@@ -1,0 +1,363 @@
+name: Performance observations
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile_size:
+        description: Synthetic task records for engine and Connect profiles
+        type: choice
+        options: ["5000", "10000"]
+        default: "5000"
+      profile_iterations:
+        description: Measured iterations per core operation
+        type: choice
+        options: ["3", "5", "10"]
+        default: "5"
+      profile_concurrency:
+        description: Concurrent Connect profile requests
+        type: choice
+        options: ["1", "4", "8"]
+        default: "4"
+      include_provider_10k:
+        description: Run the slower 10,000-record hosted-provider observation
+        type: boolean
+        default: false
+  schedule:
+    - cron: "17 15 * * 1"
+    - cron: "41 16 1 * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-observations
+  cancel-in-progress: false
+
+env:
+  PROFILE_SIZE: ${{ github.event_name == 'workflow_dispatch' && inputs.profile_size || '5000' }}
+  PROFILE_ITERATIONS: ${{ github.event_name == 'workflow_dispatch' && inputs.profile_iterations || '5' }}
+  PROFILE_CONCURRENCY: ${{ github.event_name == 'workflow_dispatch' && inputs.profile_concurrency || '4' }}
+
+jobs:
+  core-observations:
+    name: Engine, Connect, and mirrors
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    defaults:
+      run:
+        working-directory: mdbase-connect
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: mdbase-connect
+          persist-credentials: false
+      - id: mdbase_revision
+        run: echo "revision=$(tr -d '\r\n' < deploy/docker/mdbase-rs-revision)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: callumalpass/mdbase-rs
+          ref: ${{ steps.mdbase_revision.outputs.revision }}
+          path: mdbase-rs
+          persist-credentials: false
+      - name: Verify pinned mdbase-rs source
+        run: test "$(git -C ../mdbase-rs rev-parse HEAD)" = "${{ steps.mdbase_revision.outputs.revision }}"
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 11.15.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: mdbase-connect/pnpm-lock.yaml
+      - name: Install Rust
+        run: |
+          rustup toolchain install 1.94.0 --profile minimal
+          rustup override set 1.94.0
+      - name: Restore Rust dependency cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: mdbase-connect -> target
+          key: performance-core-${{ steps.mdbase_revision.outputs.revision }}
+          cache-on-failure: true
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:packages
+      - run: cargo build --locked --release -p mdbase-cli
+      - name: Capture core runner identity
+        env:
+          RUNNER_OS_VALUE: ${{ runner.os }}
+          RUNNER_ARCH_VALUE: ${{ runner.arch }}
+          RUNNER_NAME_VALUE: ${{ runner.name }}
+        run: |
+          mkdir -p target/performance-observations/raw
+          jq -n \
+            --arg runner_os "$RUNNER_OS_VALUE" \
+            --arg runner_arch "$RUNNER_ARCH_VALUE" \
+            --arg runner_name "$RUNNER_NAME_VALUE" \
+            --arg runner_image "${ImageOS:-}" \
+            --arg cpu_model "$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)" \
+            --arg logical_cpus "$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)" \
+            --arg kernel "$(uname -srmo)" \
+            --arg node "$(node --version)" \
+            --arg pnpm "$(pnpm --version)" \
+            --arg rustc "$(rustc --version)" \
+            '{schema_version:1,kind:"github-runner-environment",
+              runner_os:$runner_os,runner_arch:$runner_arch,runner_name:$runner_name,
+              runner_image:(if $runner_image == "" then null else $runner_image end),
+              cpu_model:(if $cpu_model == "" then null else $cpu_model end),
+              logical_cpus:(if $logical_cpus == "" then null else ($logical_cpus|tonumber) end),
+              kernel:$kernel,node:$node,pnpm:$pnpm,rustc:$rustc}' \
+            > target/performance-observations/raw/environment.json
+      - name: Profile the mdbase engine
+        run: |
+          target/release/mdbase profile engine \
+            --scenario all \
+            --files "$PROFILE_SIZE" \
+            --projects 80 \
+            --open-iters "$PROFILE_ITERATIONS" \
+            --read-iters "$PROFILE_ITERATIONS" \
+            --query-iters "$PROFILE_ITERATIONS" \
+            --view-iters "$PROFILE_ITERATIONS" \
+            --editor-iters "$PROFILE_ITERATIONS" \
+            --update-iters "$PROFILE_ITERATIONS" \
+            --rename-iters "$PROFILE_ITERATIONS" \
+            --create-iters "$PROFILE_ITERATIONS" \
+            --delete-iters "$PROFILE_ITERATIONS" \
+            --fixture-root target/performance-observations/fixture \
+            --keep-fixture \
+            --output target/performance-observations/raw/engine.json
+      - name: Profile the Connect collection boundary
+        run: |
+          target/release/mdbase \
+            --root target/performance-observations/fixture \
+            profile connect \
+            --scenario all \
+            --iterations "$PROFILE_ITERATIONS" \
+            --concurrency "$PROFILE_CONCURRENCY" \
+            --output target/performance-observations/raw/connect.json
+      - name: Profile Node and portable mirrors
+        run: >-
+          node --expose-gc scripts/mirror-profile.mjs
+          --records 10000 --changes 100 --rounds 3 --adapter both
+          > target/performance-observations/raw/mirror.json
+      - name: Remove the synthetic fixture
+        if: always()
+        run: rm -rf target/performance-observations/fixture
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: performance-core-${{ github.run_id }}-${{ github.run_attempt }}
+          path: mdbase-connect/target/performance-observations/raw
+          if-no-files-found: error
+          retention-days: 90
+
+  provider-observation:
+    name: Hosted provider 10,000-record observation
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.include_provider_10k) ||
+      (github.event_name == 'schedule' && github.event.schedule == '41 16 1 * *')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    defaults:
+      run:
+        working-directory: mdbase-connect
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: mdbase-connect
+          persist-credentials: false
+      - id: mdbase_revision
+        run: echo "revision=$(tr -d '\r\n' < deploy/docker/mdbase-rs-revision)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: callumalpass/mdbase-rs
+          ref: ${{ steps.mdbase_revision.outputs.revision }}
+          path: mdbase-rs
+          persist-credentials: false
+      - name: Verify pinned mdbase-rs source
+        run: test "$(git -C ../mdbase-rs rev-parse HEAD)" = "${{ steps.mdbase_revision.outputs.revision }}"
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 11.15.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: mdbase-connect/pnpm-lock.yaml
+      - name: Install Rust
+        run: |
+          rustup toolchain install 1.94.0 --profile minimal
+          rustup override set 1.94.0
+      - name: Restore Rust dependency cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: mdbase-connect -> target
+          key: performance-provider-${{ steps.mdbase_revision.outputs.revision }}
+          cache-on-failure: true
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Restore Playwright cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('mdbase-connect/pnpm-lock.yaml') }}
+      - name: Install Chromium (cache miss)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 30
+      - name: Install Chromium (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install chromium
+        timeout-minutes: 5
+      - run: cargo build --locked --release -p mdbase-connect-hosted-provider -p mdbase-cli
+      - name: Capture provider runner identity
+        env:
+          RUNNER_OS_VALUE: ${{ runner.os }}
+          RUNNER_ARCH_VALUE: ${{ runner.arch }}
+          RUNNER_NAME_VALUE: ${{ runner.name }}
+        run: |
+          mkdir -p target/performance-observations/provider
+          jq -n \
+            --arg runner_os "$RUNNER_OS_VALUE" \
+            --arg runner_arch "$RUNNER_ARCH_VALUE" \
+            --arg runner_name "$RUNNER_NAME_VALUE" \
+            --arg runner_image "${ImageOS:-}" \
+            --arg cpu_model "$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)" \
+            --arg logical_cpus "$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)" \
+            --arg kernel "$(uname -srmo)" \
+            --arg node "$(node --version)" \
+            --arg pnpm "$(pnpm --version)" \
+            --arg rustc "$(rustc --version)" \
+            '{schema_version:1,kind:"github-runner-environment",
+              runner_os:$runner_os,runner_arch:$runner_arch,runner_name:$runner_name,
+              runner_image:(if $runner_image == "" then null else $runner_image end),
+              cpu_model:(if $cpu_model == "" then null else $cpu_model end),
+              logical_cpus:(if $logical_cpus == "" then null else ($logical_cpus|tonumber) end),
+              kernel:$kernel,node:$node,pnpm:$pnpm,rustc:$rustc}' \
+            > target/performance-observations/provider/environment.json
+      - name: Observe the hosted provider at 10,000 records
+        env:
+          MDBASE_CONNECT_PROVIDER_E2E_BULK_COUNT: "10000"
+          MDBASE_CONNECT_PROVIDER_E2E_OBSERVATION_ONLY: "1"
+          MDBASE_CONNECT_PROVIDER_E2E_PERFORMANCE_OUTPUT: target/performance-observations/provider/provider.json
+          MDBASE_CONNECT_PROVIDER_E2E_BINARY: target/release/mdbase-connect-hosted-provider
+          MDBASE_CONNECT_E2E_BINARY: target/release/mdbase
+          MDBASE_CONNECT_PROVIDER_E2E_RUST_LOG: mdbase_connect::metrics=info,warn
+        run: node test/system/run.mjs --suite provider --no-prepare
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: performance-provider-${{ github.run_id }}-${{ github.run_attempt }}
+          path: mdbase-connect/target/performance-observations/provider
+          if-no-files-found: error
+          retention-days: 90
+
+  assemble:
+    name: Validate and summarize
+    needs: [core-observations, provider-observation]
+    if: >-
+      always() &&
+      needs.core-observations.result == 'success' &&
+      (needs.provider-observation.result == 'success' || needs.provider-observation.result == 'skipped')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: source
+      - uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          name: performance-core-${{ github.run_id }}-${{ github.run_attempt }}
+          path: observations/core
+      - uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        if: needs.provider-observation.result == 'success'
+        with:
+          name: performance-provider-${{ github.run_id }}-${{ github.run_attempt }}
+          path: observations/provider
+      - name: Assemble the payload-free observation
+        env:
+          PROVIDER_REQUESTED: ${{ needs.provider-observation.result == 'success' }}
+        run: |
+          mdbase_revision=$(tr -d '\r\n' < source/deploy/docker/mdbase-rs-revision)
+          pnpm_lock_sha256=$(sha256sum source/pnpm-lock.yaml | cut -d' ' -f1)
+          cargo_lock_sha256=$(sha256sum source/deploy/docker/Cargo.lock.hosted-provider | cut -d' ' -f1)
+          revision_file_sha256=$(sha256sum source/deploy/docker/mdbase-rs-revision | cut -d' ' -f1)
+          workflow_sha256=$(sha256sum source/.github/workflows/performance-observations.yml | cut -d' ' -f1)
+          args=(
+            assemble
+            --engine observations/core/engine.json
+            --connect observations/core/connect.json
+            --mirror observations/core/mirror.json
+            --environment observations/core/environment.json
+            --output observation.json
+            --summary summary.md
+            --repository "$GITHUB_REPOSITORY"
+            --commit "$GITHUB_SHA"
+            --mdbase-rs-commit "$mdbase_revision"
+            --pnpm-lock-sha256 "$pnpm_lock_sha256"
+            --cargo-lock-sha256 "$cargo_lock_sha256"
+            --revision-file-sha256 "$revision_file_sha256"
+            --workflow-sha256 "$workflow_sha256"
+            --event "$GITHUB_EVENT_NAME"
+            --run-id "$GITHUB_RUN_ID"
+            --run-attempt "$GITHUB_RUN_ATTEMPT"
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            --profile-size "$PROFILE_SIZE"
+            --profile-iterations "$PROFILE_ITERATIONS"
+            --profile-concurrency "$PROFILE_CONCURRENCY"
+            --provider-requested "$PROVIDER_REQUESTED"
+          )
+          if [[ "$PROVIDER_REQUESTED" == true ]]; then
+            args+=(
+              --provider observations/provider/provider.json
+              --provider-environment observations/provider/environment.json
+            )
+          fi
+          node source/scripts/performance-results.mjs "${args[@]}"
+          cat summary.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: performance-observation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            observation.json
+            summary.md
+          if-no-files-found: error
+          retention-days: 90
+
+  publish-history:
+    name: Append durable history
+    needs: assemble
+    if: >-
+      needs.assemble.result == 'success' &&
+      github.repository == 'mdbase-dev/mdbase-connect' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: source
+      - uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          name: performance-observation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: observation
+      - run: |
+          history="$RUNNER_TEMP/performance-history"
+          git -C source fetch origin performance-history:refs/remotes/origin/performance-history || true
+          if git -C source show-ref --verify --quiet refs/remotes/origin/performance-history; then
+            git -C source worktree add --detach "$history" refs/remotes/origin/performance-history
+          else
+            git -C source worktree add --detach "$history" HEAD
+            git -C "$history" switch --orphan performance-history
+          fi
+          node source/scripts/performance-results.mjs record \
+            --observation observation/observation.json \
+            --summary observation/summary.md \
+            --history-dir "$history"
+          git -C "$history" config user.name github-actions[bot]
+          git -C "$history" config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git -C "$history" add README.md index.json results/
+          if ! git -C "$history" diff --cached --quiet; then
+            git -C "$history" commit -m "Record performance for ${GITHUB_SHA:0:12}"
+            git -C "$history" push origin HEAD:performance-history
+          fi
