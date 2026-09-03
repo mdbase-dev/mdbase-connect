@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
@@ -22,6 +22,7 @@ const digestValues = {
   "deploy/docker/Dockerfile.hosted-provider": `sha256:${"2".repeat(64)}`,
   "deploy/docker/Dockerfile.mcp": `sha256:${"3".repeat(64)}`
 };
+const checkout = resolve(import.meta.dirname, "..");
 
 function harness({ status = "?? local-change\n", buildFailure = null, malformedMetadata = false } = {}) {
   const calls = [];
@@ -212,6 +213,21 @@ test("dirty local checkout builds and pushes three amd64 images and deploys immu
     ["gh", "cosign"].includes(command) || command.includes("release") || command.includes("qualification")
   ), []);
   for (const path of fixture.metadataPaths) await assert.rejects(stat(path), /ENOENT/u);
+});
+
+test("local image revisions survive Render runtime metadata overrides", async () => {
+  const [serverDockerfile, mcpDockerfile, serverEntry, mcpEntry] = await Promise.all([
+    readFile(resolve(checkout, "deploy/docker/Dockerfile.server"), "utf8"),
+    readFile(resolve(checkout, "deploy/docker/Dockerfile.mcp"), "utf8"),
+    readFile(resolve(checkout, "services/server/src/index.ts"), "utf8"),
+    readFile(resolve(checkout, "services/mcp/src/index.ts"), "utf8")
+  ]);
+  for (const dockerfile of [serverDockerfile, mcpDockerfile]) {
+    assert.match(dockerfile, /MDBASE_CONNECT_REVISION=\$\{MDBASE_CONNECT_REVISION\}/u);
+  }
+  for (const entry of [serverEntry, mcpEntry]) {
+    assert.match(entry, /process\.env\.MDBASE_CONNECT_REVISION \?\? process\.env\.RENDER_GIT_COMMIT/u);
+  }
 });
 
 test("component deployments build and delegate only the selected resource", async (context) => {
