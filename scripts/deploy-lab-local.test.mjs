@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   deployLocalLab,
   parseBuildxDigest,
+  parseDeployArgs,
   parseRollbackArgs,
   requireConfirmation,
   requireGhcrAuthentication,
@@ -69,6 +70,29 @@ test("confirmation is either an exact interactive LAB response or exact --confir
   }
 });
 
+test("component selection accepts only one exact supported component and remains separate from confirmation", () => {
+  for (const component of ["connect", "hosted-provider", "mcp", "editor"]) {
+    assert.deepEqual(parseDeployArgs(["--component", component, "--confirm", "LAB"]), {
+      component,
+      confirmationArgs: ["--confirm", "LAB"]
+    });
+    assert.deepEqual(parseDeployArgs(["--confirm", "LAB", "--component", component]), {
+      component,
+      confirmationArgs: ["--confirm", "LAB"]
+    });
+  }
+  assert.deepEqual(parseDeployArgs(["--confirm", "LAB"]), {
+    component: null,
+    confirmationArgs: ["--confirm", "LAB"]
+  });
+  for (const args of [
+    ["--component"],
+    ["--component", "all"],
+    ["--component", "CONNECT"],
+    ["--component", "connect", "--component", "mcp"]
+  ]) assert.throws(() => parseDeployArgs(args), /component|Usage/u);
+});
+
 test("default ops discovery derives and validates the canonical sibling checkout", async () => {
   const projects = await mkdtemp(resolve(tmpdir(), "mdbase-local-ops-"));
   const connectRoot = resolve(projects, "mdbase-connect");
@@ -127,7 +151,7 @@ test("rollback delegates directly to the fixed local LAB command", async () => {
   const calls = [];
   const state = "/private/state.json";
   assert.equal(parseRollbackArgs(["--rollback", state, "--confirm", "LAB"]), state);
-  for (const args of [["--rollback"], ["--rollback", state], ["--rollback", state, "--confirm", "lab"]]) {
+  for (const args of [["--rollback"], ["--rollback", state], ["--rollback", state, "--confirm", "lab"], ["--rollback", state, "--confirm", "LAB", "--component", "connect"]]) {
     assert.throws(() => parseRollbackArgs(args), /Usage/u);
   }
   await deployLocalLab(environment, ["--rollback", state, "--confirm", "LAB"], {
@@ -188,6 +212,78 @@ test("dirty local checkout builds and pushes three amd64 images and deploys immu
     ["gh", "cosign"].includes(command) || command.includes("release") || command.includes("qualification")
   ), []);
   for (const path of fixture.metadataPaths) await assert.rejects(stat(path), /ENOENT/u);
+});
+
+test("component deployments build and delegate only the selected resource", async (context) => {
+  const cases = [
+    {
+      component: "connect",
+      dockerfile: "deploy/docker/Dockerfile.server",
+      deployArgs: ["--connect", `ghcr.io/mdbase-dev/mdbase-connect-server@${digestValues["deploy/docker/Dockerfile.server"]}`]
+    },
+    {
+      component: "hosted-provider",
+      dockerfile: "deploy/docker/Dockerfile.hosted-provider",
+      deployArgs: ["--hosted-provider", `ghcr.io/mdbase-dev/mdbase-connect-hosted-provider@${digestValues["deploy/docker/Dockerfile.hosted-provider"]}`]
+    },
+    {
+      component: "mcp",
+      dockerfile: "deploy/docker/Dockerfile.mcp",
+      deployArgs: ["--mcp", `ghcr.io/mdbase-dev/mdbase-connect-mcp@${digestValues["deploy/docker/Dockerfile.mcp"]}`]
+    },
+    { component: "editor", dockerfile: null, deployArgs: [] }
+  ];
+  for (const scenario of cases) await context.test(scenario.component, async () => {
+    const fixture = harness();
+    let authenticationChecks = 0;
+    await deployLocalLab(environment, ["--component", scenario.component, "--confirm", "LAB"], {
+      root,
+      run: fixture.run,
+      checkAuthentication: async () => { authenticationChecks += 1; },
+      resolveOpsCommand,
+      now: () => 1770000000000,
+      random: () => "cafebabe"
+    });
+    const commandCalls = fixture.calls.map(({ command, args }) => [command, ...args]);
+    assert.deepEqual(commandCalls.find(([command, subcommand]) => command === opsCommand && subcommand === "preflight"),
+      [opsCommand, "preflight", "--component", scenario.component]);
+    const builds = fixture.calls.filter(({ command, args }) => command === "docker" && args[0] === "buildx" && args[1] === "build");
+    assert.equal(builds.length, scenario.dockerfile ? 1 : 0);
+    assert.equal(authenticationChecks, scenario.dockerfile ? 1 : 0);
+    if (scenario.dockerfile) assert.equal(builds[0].args[builds[0].args.indexOf("--file") + 1], scenario.dockerfile);
+    assert.deepEqual(commandCalls.find(([command, subcommand]) => command === opsCommand && subcommand === "deploy"), [
+      opsCommand,
+      "deploy",
+      "--component", scenario.component,
+      "--confirm", "LAB",
+      ...scenario.deployArgs,
+      "--source-revision", head,
+      "--source-dirty", "true",
+      ...(scenario.component === "editor" ? ["--editor-checkout", root] : [])
+    ]);
+    if (scenario.component === "editor") {
+      assert.equal(fixture.calls.some(({ command }) => command === "docker"), false);
+    }
+  });
+});
+
+test("invalid component forms fail before preflight, Docker, or authentication", async () => {
+  for (const args of [
+    ["--component", "all", "--confirm", "LAB"],
+    ["--component", "connect", "--component", "mcp", "--confirm", "LAB"],
+    ["--component", "connect", "--confirm", "lab"]
+  ]) {
+    const calls = [];
+    let authenticationChecks = 0;
+    await assert.rejects(deployLocalLab(environment, args, {
+      root,
+      run: async (command, commandArgs) => { calls.push([command, ...commandArgs]); return ""; },
+      checkAuthentication: async () => { authenticationChecks += 1; },
+      resolveOpsCommand
+    }), /component|Usage/u);
+    assert.deepEqual(calls, []);
+    assert.equal(authenticationChecks, 0);
+  }
 });
 
 test("clean status is informationally passed as false", async () => {
