@@ -73,3 +73,24 @@ the exact state path printed by deployment:
 MDBASE_CLOUD_OPS_CHECKOUT=/absolute/path/to/mdbase-cloud-ops \
   pnpm deploy:lab --rollback /absolute/path/to/state.json --confirm LAB
 ```
+
+## Public client release publication
+
+The tag-driven `desktop-release.yml` workflow separately owns the public desktop
+channel. It creates and verifies `mdbase-connect-channel-v1.json`, publishes the
+GitHub release, and only then sends a `connect-client-release-published`
+repository dispatch containing the immutable tag to `mdbase-dev/mdbase.dev`.
+The receiving repository verifies the signed public channel, release assets,
+tag commit, and matching npm package before opening a Downloads update pull
+request. It never pushes the website's protected branch directly.
+
+Both repositories require `RELEASE_AUTOMATION_CLIENT_ID` and
+`RELEASE_AUTOMATION_APP_PRIVATE_KEY` for a GitHub App installed on
+`mdbase-dev/mdbase.dev`. The installation token is restricted to website
+contents and pull requests. A failed dispatch is recovered by manually running
+the website's **Update Connect release** workflow with the same tag; the public
+release is not republished.
+
+This client publication boundary is independent of server staging and
+production promotion. `mdbase-cloud-ops` does not trigger, receive, or hold
+credentials for the website update.
