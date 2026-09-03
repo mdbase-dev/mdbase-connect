@@ -4,7 +4,11 @@ import { createDatabase } from "./db.js";
 
 const config = runtimeConfigFromEnv(process.env);
 const db = await createDatabase();
-const { app } = await buildApp({ db, config, revision: process.env.RENDER_GIT_COMMIT });
+const { app } = await buildApp({
+  db,
+  config,
+  revision: process.env.MDBASE_CONNECT_REVISION ?? process.env.RENDER_GIT_COMMIT
+});
 
 await app.listen({ host: config.host, port: config.port });
 

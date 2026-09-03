@@ -9,6 +9,7 @@ import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(import.meta.dirname, "..");
+const componentNames = Object.freeze(["connect", "hosted-provider", "mcp", "editor"]);
 const components = Object.freeze([
   Object.freeze({
     name: "connect",
@@ -45,7 +46,8 @@ export async function deployLocalLab(
   } = {}
 ) {
   const rollbackState = parseRollbackArgs(args);
-  if (!rollbackState) await requireConfirmation(args, confirm);
+  const selection = rollbackState ? null : parseDeployArgs(args);
+  if (!rollbackState) await requireConfirmation(selection.confirmationArgs, confirm);
 
   const checkout = resolve(root);
   const commandEnvironment = { ...environment };
@@ -70,61 +72,81 @@ export async function deployLocalLab(
   });
   const dirty = status.length > 0;
 
-  await run(opsCommand, ["preflight"], { cwd: checkout, env: commandEnvironment });
-  await run("docker", ["info"], { cwd: checkout, env: commandEnvironment });
-  await run("docker", ["buildx", "version"], { cwd: checkout, env: commandEnvironment });
-  await checkAuthentication(environment);
+  const preflightArgs = ["preflight"];
+  if (selection.component) preflightArgs.push("--component", selection.component);
+  await run(opsCommand, preflightArgs, { cwd: checkout, env: commandEnvironment });
 
-  const tag = `lab-local-${head.slice(0, 12)}-${now()}-${random()}`;
-  const metadataDirectory = await mkdtemp(resolve(tmpdir(), "mdbase-lab-buildx-"));
+  const selectedImages = selection.component === "editor"
+    ? []
+    : components.filter(({ name }) => selection.component === null || name === selection.component);
   const images = new Map();
-  try {
-    await chmod(metadataDirectory, 0o700);
-    for (const component of components) {
-      const metadataPath = resolve(metadataDirectory, `${component.name}.json`);
-      const handle = await open(metadataPath, "wx", 0o600);
-      await handle.close();
-      await run("docker", [
-        "buildx",
-        "build",
-        "--platform",
-        "linux/amd64",
-        "--file",
-        component.dockerfile,
-        "--tag",
-        `${component.repository}:${tag}`,
-        "--build-arg",
-        `MDBASE_CONNECT_REVISION=${head}`,
-        "--push",
-        "--provenance=false",
-        "--metadata-file",
-        metadataPath,
-        "."
-      ], { cwd: checkout, env: commandEnvironment });
-      const digest = parseBuildxDigest(await readFile(metadataPath, "utf8"), component.name);
-      images.set(component.name, `${component.repository}@${digest}`);
+  if (selectedImages.length > 0) {
+    await run("docker", ["info"], { cwd: checkout, env: commandEnvironment });
+    await run("docker", ["buildx", "version"], { cwd: checkout, env: commandEnvironment });
+    await checkAuthentication(environment);
+
+    const tag = `lab-local-${head.slice(0, 12)}-${now()}-${random()}`;
+    const metadataDirectory = await mkdtemp(resolve(tmpdir(), "mdbase-lab-buildx-"));
+    try {
+      await chmod(metadataDirectory, 0o700);
+      for (const component of selectedImages) {
+        const metadataPath = resolve(metadataDirectory, `${component.name}.json`);
+        const handle = await open(metadataPath, "wx", 0o600);
+        await handle.close();
+        await run("docker", [
+          "buildx",
+          "build",
+          "--platform",
+          "linux/amd64",
+          "--file",
+          component.dockerfile,
+          "--tag",
+          `${component.repository}:${tag}`,
+          "--build-arg",
+          `MDBASE_CONNECT_REVISION=${head}`,
+          "--push",
+          "--provenance=false",
+          "--metadata-file",
+          metadataPath,
+          "."
+        ], { cwd: checkout, env: commandEnvironment });
+        const digest = parseBuildxDigest(await readFile(metadataPath, "utf8"), component.name);
+        images.set(component.name, `${component.repository}@${digest}`);
+      }
+    } finally {
+      await rm(metadataDirectory, { recursive: true, force: true });
     }
-  } finally {
-    await rm(metadataDirectory, { recursive: true, force: true });
   }
 
-  await run(opsCommand, [
-    "deploy",
-    "--confirm",
-    "LAB",
-    "--connect",
-    images.get("connect"),
-    "--hosted-provider",
-    images.get("hosted-provider"),
-    "--mcp",
-    images.get("mcp"),
-    "--source-revision",
-    head,
-    "--source-dirty",
-    String(dirty),
-    "--editor-checkout",
-    checkout
-  ], { cwd: checkout, env: commandEnvironment });
+  const deployArgs = ["deploy"];
+  if (selection.component) deployArgs.push("--component", selection.component);
+  deployArgs.push("--confirm", "LAB");
+  for (const component of selectedImages) deployArgs.push(`--${component.name}`, images.get(component.name));
+  deployArgs.push("--source-revision", head, "--source-dirty", String(dirty));
+  if (selection.component === null || selection.component === "editor") {
+    deployArgs.push("--editor-checkout", checkout);
+  }
+  await run(opsCommand, deployArgs, { cwd: checkout, env: commandEnvironment });
+}
+
+export function parseDeployArgs(args) {
+  let component = null;
+  const confirmationArgs = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] !== "--component") {
+      confirmationArgs.push(args[index]);
+      continue;
+    }
+    if (component !== null || index + 1 >= args.length) {
+      throw new Error("Usage: pnpm deploy:lab [--component connect|hosted-provider|mcp|editor] [--confirm LAB]");
+    }
+    component = args[index + 1];
+    if (!componentNames.includes(component)) {
+      throw new Error("--component must be exactly connect, hosted-provider, mcp, or editor.");
+    }
+    index += 1;
+  }
+  return { component, confirmationArgs };
 }
 
 export function parseRollbackArgs(args) {
@@ -185,7 +207,7 @@ export async function resolveCloudOpsCommand({ root, run, environment }) {
 export async function requireConfirmation(args, prompt = promptForConfirmation) {
   if (args.length === 2 && args[0] === "--confirm" && args[1] === "LAB") return;
   if (args.length !== 0) {
-    throw new Error("Usage: pnpm deploy:lab [--confirm LAB]");
+    throw new Error("Usage: pnpm deploy:lab [--component connect|hosted-provider|mcp|editor] [--confirm LAB]");
   }
   const answer = await prompt();
   if (answer !== "LAB") throw new Error("LAB deployment confirmation did not exactly match LAB.");
