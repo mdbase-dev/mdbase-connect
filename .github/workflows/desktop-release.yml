@@ -516,14 +516,48 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          release_type=()
+          if [[ "${GITHUB_REF_NAME#v}" == *-* ]]; then
+            release_type+=(--prerelease)
+          fi
           gh release create "$GITHUB_REF_NAME" \
             release-artifacts/* \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --generate-notes \
-            --notes "Files containing **UNSIGNED** are preview builds, not trusted platform releases. Windows will show Unknown Publisher or SmartScreen warnings. macOS will require a manual Privacy & Security override and has not been notarized. Checksums and GitHub OIDC-backed Sigstore bundles establish build provenance but do not replace platform signing." \
-            --prerelease \
+            --notes "Files containing **UNSIGNED** are preview builds, not trusted platform releases. Those Windows files may show Unknown Publisher or SmartScreen warnings; those macOS files require a manual Privacy & Security override and have not been notarized. Checksums and GitHub OIDC-backed Sigstore bundles establish build provenance but do not replace platform signing." \
+            "${release_type[@]}" \
             --title "mdbase connect $GITHUB_REF_NAME"
+
+  website-update:
+    if: startsWith(github.ref, 'refs/tags/v')
+    name: Request website release update
+    needs: publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Create website dispatch token
+        id: website-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.RELEASE_AUTOMATION_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
+          owner: mdbase-dev
+          repositories: mdbase.dev
+          permission-contents: write
+
+      - name: Dispatch published release
+        env:
+          GH_TOKEN: ${{ steps.website-token.outputs.token }}
+        run: |
+          jq -n \
+            --arg tag "$GITHUB_REF_NAME" \
+            '{event_type:"connect-client-release-published",client_payload:{tag:$tag}}' \
+            | gh api \
+                --method POST \
+                "repos/mdbase-dev/mdbase.dev/dispatches" \
+                --input -
 
   headless-package-smoke:
     if: github.event_name != 'push'
