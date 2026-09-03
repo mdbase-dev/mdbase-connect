@@ -27,10 +27,10 @@ test("upgrade pins the exact immediate predecessor", async () => {
   );
   assert.equal(fixture, `# Exact server image from the release immediately preceding this candidate.
 # Update this file as part of each release-preparation change.
-MDBASE_CONNECT_PREVIOUS_RELEASE=v0.1.0-beta.93
-MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT=e0f7f7da316ed59cac2c2626bd15643c651cf89f
-MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-server@sha256:96c1b67ff43c9f05e22c964ddd179ddadfcf2cfda8add2b64bb6c3a33b252b0d
-MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-hosted-provider@sha256:1f34a438fabfcda81a984f5816c51206161d6e7074223f0d473531e3b1661db6
+MDBASE_CONNECT_PREVIOUS_RELEASE=v0.1.0-beta.94
+MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT=8d1b5fb1647edcadd716d4ee671f0ba04d34fa5e
+MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-server@sha256:f1243c22160489d5d9044df2a1a14e05b36e00f7d01aaeca865d797bdd31aa94
+MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE=ghcr.io/mdbase-dev/mdbase-connect-hosted-provider@sha256:caf69fea20acf7da3dac91a9babbb175f4789c7455684664734956237cd7667c
 `);
 });
 
@@ -100,7 +100,7 @@ test("upgrade shell programs are syntactically valid", async () => {
   }
 });
 
-test("previous-provider fixture preserves the notification contract", async () => {
+test("previous-provider fixture preserves a canonical notification authority", async () => {
   const fixture = await readFile(
     resolve(repoRoot, "test/upgrade/provider-notification.sql"),
     "utf8"
@@ -112,24 +112,16 @@ test("previous-provider fixture preserves the notification contract", async () =
   assert.match(fixture, /"authorization_binding":5/);
   assert.match(fixture, /mdbase\.runtime\.timer\.fired/);
   assert.match(fixture, /"version":"1\.0\.0"/);
-  assert.match(fixture, /full-collection-false application/);
-  assert.match(fixture, /allowed-types application/);
-  assert.match(fixture, /contract-scope application/);
   assert.match(
     fixture,
-    /ARRAY\[\]::text\[\],[\s\S]*?'\[\]'::jsonb,[\s\S]*?false,[\s\S]*?ae970fb3/
+    /ARRAY\[\]::text\[\],[\s\S]*?'\[\]'::jsonb,[\s\S]*?true,[\s\S]*?da324885/
   );
-  assert.match(
-    fixture,
-    /ARRAY\['task'\]::text\[\],[\s\S]*?'\[\]'::jsonb,[\s\S]*?true,[\s\S]*?50b6d796/
-  );
-  assert.match(
-    fixture,
-    /"contract_type":"record"[\s\S]*?'::jsonb,[\s\S]*?true,[\s\S]*?b4792a76/
-  );
+  assert.doesNotMatch(fixture, /full-collection-false application/);
+  assert.doesNotMatch(fixture, /allowed-types application/);
+  assert.doesNotMatch(fixture, /contract-scope application/);
 });
 
-test("provider upgrade proves bounded retired replay without canonical writes", async () => {
+test("provider upgrade proves exact application replay without canonical writes", async () => {
   const program = await readFile(
     resolve(repoRoot, "test/upgrade/provider-from-previous"),
     "utf8"
@@ -139,9 +131,8 @@ test("provider upgrade proves bounded retired replay without canonical writes", 
   assert.match(program, /query_canonical_authority_inventory/);
   assert.match(program, /changed_status == 409/);
   assert.match(program, /mutation_request_conflict/);
-  assert.match(program, /new_status == 401/);
-  assert.match(program, /invalid_replica_token/);
-  assert.match(program, /retired\.expires_at = LEAST\(/);
+  assert.doesNotMatch(program, /hosted_provider_retired_replay_credentials/);
+  assert.doesNotMatch(program, /invalid_replica_token/);
 });
 
 test("S3 readiness fixture serves a scoped empty bucket listing", async (context) => {
