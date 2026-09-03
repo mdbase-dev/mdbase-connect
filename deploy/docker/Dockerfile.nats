@@ -1,4 +1,4 @@
-FROM nats:2.12.7-alpine
+FROM nats:2.14.6-alpine
 
 COPY deploy/nats/nats.conf /etc/nats/mdbase-connect.conf
 COPY deploy/nats/start-nats.sh /usr/local/bin/start-mdbase-connect-nats
