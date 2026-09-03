@@ -100,7 +100,7 @@ test("upgrade shell programs are syntactically valid", async () => {
   }
 });
 
-test("previous-provider fixture preserves the notification contract", async () => {
+test("previous-provider fixture preserves a canonical notification authority", async () => {
   const fixture = await readFile(
     resolve(repoRoot, "test/upgrade/provider-notification.sql"),
     "utf8"
@@ -112,24 +112,16 @@ test("previous-provider fixture preserves the notification contract", async () =
   assert.match(fixture, /"authorization_binding":5/);
   assert.match(fixture, /mdbase\.runtime\.timer\.fired/);
   assert.match(fixture, /"version":"1\.0\.0"/);
-  assert.match(fixture, /full-collection-false application/);
-  assert.match(fixture, /allowed-types application/);
-  assert.match(fixture, /contract-scope application/);
   assert.match(
     fixture,
-    /ARRAY\[\]::text\[\],[\s\S]*?'\[\]'::jsonb,[\s\S]*?false,[\s\S]*?ae970fb3/
+    /ARRAY\[\]::text\[\],[\s\S]*?'\[\]'::jsonb,[\s\S]*?true,[\s\S]*?da324885/
   );
-  assert.match(
-    fixture,
-    /ARRAY\['task'\]::text\[\],[\s\S]*?'\[\]'::jsonb,[\s\S]*?true,[\s\S]*?50b6d796/
-  );
-  assert.match(
-    fixture,
-    /"contract_type":"record"[\s\S]*?'::jsonb,[\s\S]*?true,[\s\S]*?b4792a76/
-  );
+  assert.doesNotMatch(fixture, /full-collection-false application/);
+  assert.doesNotMatch(fixture, /allowed-types application/);
+  assert.doesNotMatch(fixture, /contract-scope application/);
 });
 
-test("provider upgrade proves bounded retired replay without canonical writes", async () => {
+test("provider upgrade proves exact application replay without canonical writes", async () => {
   const program = await readFile(
     resolve(repoRoot, "test/upgrade/provider-from-previous"),
     "utf8"
@@ -139,9 +131,8 @@ test("provider upgrade proves bounded retired replay without canonical writes", 
   assert.match(program, /query_canonical_authority_inventory/);
   assert.match(program, /changed_status == 409/);
   assert.match(program, /mutation_request_conflict/);
-  assert.match(program, /new_status == 401/);
-  assert.match(program, /invalid_replica_token/);
-  assert.match(program, /retired\.expires_at = LEAST\(/);
+  assert.doesNotMatch(program, /hosted_provider_retired_replay_credentials/);
+  assert.doesNotMatch(program, /invalid_replica_token/);
 });
 
 test("S3 readiness fixture serves a scoped empty bucket listing", async (context) => {

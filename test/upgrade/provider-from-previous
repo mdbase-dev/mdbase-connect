@@ -21,15 +21,8 @@ UPGRADE_COLLECTION_ID=33333333-3333-4333-8333-333333333333
 UPGRADE_REPLICA_ID=44444444-4444-4444-8444-444444444444
 UPGRADE_CANONICAL_APPLICATION_REPLICA_ID=55555555-5555-4555-8555-555555555555
 UPGRADE_CANONICAL_APPLICATION_GRANT_ID=22222222-2222-4222-8222-222222222222
-UPGRADE_FULL_COLLECTION_FALSE_REPLICA_ID=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
-UPGRADE_FULL_COLLECTION_FALSE_GRANT_ID=bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb
-UPGRADE_ALLOWED_TYPES_REPLICA_ID=cccccccc-cccc-4ccc-8ccc-cccccccccccc
-UPGRADE_ALLOWED_TYPES_GRANT_ID=dddddddd-dddd-4ddd-8ddd-dddddddddddd
-UPGRADE_CONTRACT_SCOPE_REPLICA_ID=eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee
-UPGRADE_CONTRACT_SCOPE_GRANT_ID=ffffffff-ffff-4fff-8fff-ffffffffffff
-UPGRADE_RETIRED_APPLICATION_TOKEN=upgrade-nonempty-contract-scope-token
-UPGRADE_RETIRED_REQUEST_ID=99999999-9999-4999-8999-999999999999
-UPGRADE_RETIRED_NEW_REQUEST_ID=12121212-1212-4212-8212-121212121212
+UPGRADE_APPLICATION_TOKEN=upgrade-canonical-application-token
+UPGRADE_APPLICATION_REQUEST_ID=99999999-9999-4999-8999-999999999999
 UPGRADE_MUTATION_ID=66666666-6666-4666-8666-666666666666
 UPGRADE_NEXT_MUTATION_ID=88888888-8888-4888-8888-888888888888
 UPGRADE_RECORD_ID=77777777-7777-4777-8777-777777777777
@@ -115,7 +108,7 @@ provider_application_operation() {
     --request POST \
     --header 'content-type: application/json' \
     --header 'origin: https://example.test' \
-    --header "authorization: Bearer $UPGRADE_RETIRED_APPLICATION_TOKEN" \
+    --header "authorization: Bearer $UPGRADE_APPLICATION_TOKEN" \
     --data "$body" \
     "$UPGRADE_PROVIDER_URL/v1/authorities/$UPGRADE_COLLECTION_ID/operations/create"
 }
@@ -126,7 +119,7 @@ provider_application_operation_status() {
     --request POST \
     --header 'content-type: application/json' \
     --header 'origin: https://example.test' \
-    --header "authorization: Bearer $UPGRADE_RETIRED_APPLICATION_TOKEN" \
+    --header "authorization: Bearer $UPGRADE_APPLICATION_TOKEN" \
     --data "$body" \
     --write-out $'\n%{http_code}' \
     "$UPGRADE_PROVIDER_URL/v1/authorities/$UPGRADE_COLLECTION_ID/operations/create"
@@ -210,13 +203,13 @@ exact_mutation_body() {
     '{mutation_id:$mutation_id,replica_id:$replica_id,scope_epoch:1,operation:"put",record_id:$record_id,base_revision:$base_revision,path:"upgrade/receipt.md",document:$document,created_at:"2026-08-06T00:00:00Z"}'
 }
 
-retired_operation_body() {
+application_operation_body() {
   local request_id=$1
-  local title=${2:-Preserved scoped predecessor receipt}
+  local title=${2:-Preserved predecessor application receipt}
   jq --compact-output --null-input \
     --arg request_id "$request_id" \
     --arg title "$title" \
-    '{protocol_version:3,request_id:$request_id,input:{path:"upgrade/retired-replay.md",frontmatter:{title:$title},body:"Exact predecessor application bytes.\n"}}'
+    '{protocol_version:3,request_id:$request_id,input:{path:"upgrade/application-replay.md",frontmatter:{title:$title},body:"Exact predecessor application bytes.\n"}}'
 }
 
 query_canonical_authority_inventory() {
@@ -360,90 +353,6 @@ query_canonical_application_authority_inventory() {
     | cut -d ' ' -f 1
 }
 
-query_collection_authorization_state() {
-  docker run --rm --network host \
-    --env PGPASSWORD=previous-provider-upgrade \
-    postgres:18-alpine \
-    psql --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT" --username mdbase --dbname mdbase_provider_upgrade \
-    --set ON_ERROR_STOP=1 --tuples-only --no-align \
-    --command "SELECT concat(
-                 (SELECT count(*) FROM hosted_provider_replicas
-                  WHERE id IN (
-                    '$UPGRADE_FULL_COLLECTION_FALSE_REPLICA_ID',
-                    '$UPGRADE_ALLOWED_TYPES_REPLICA_ID',
-                    '$UPGRADE_CONTRACT_SCOPE_REPLICA_ID'
-                  ) AND purpose = 'application' AND revoked_at IS NOT NULL), '|',
-                 (SELECT count(*)
-                  FROM hosted_provider_retired_replay_credentials retired
-                  JOIN hosted_provider_replicas replica ON replica.id = retired.replica_id
-                  WHERE retired.replica_id IN (
-                    '$UPGRADE_FULL_COLLECTION_FALSE_REPLICA_ID',
-                    '$UPGRADE_ALLOWED_TYPES_REPLICA_ID',
-                    '$UPGRADE_CONTRACT_SCOPE_REPLICA_ID'
-                  )
-                    AND retired.token_hash = replica.token_hash
-                    AND retired.allowed_origin IS NOT DISTINCT FROM replica.allowed_origin
-                    AND retired.proof_public_key IS NOT DISTINCT FROM replica.proof_public_key
-                    AND retired.expires_at > now()
-                    AND retired.expires_at = LEAST(
-                      replica.token_expires_at,
-                      retired.retired_at + interval '365 days'
-                    )), '|',
-                 (SELECT count(*) FROM hosted_provider_notification_grants
-                  WHERE grant_id IN (
-                    '$UPGRADE_FULL_COLLECTION_FALSE_GRANT_ID',
-                    '$UPGRADE_ALLOWED_TYPES_GRANT_ID',
-                    '$UPGRADE_CONTRACT_SCOPE_GRANT_ID'
-                  )), '|',
-                 (SELECT count(*) FROM hosted_provider_notification_grants
-                  WHERE grant_id = '$UPGRADE_CANONICAL_APPLICATION_GRANT_ID'), '|',
-                 (SELECT count(*) FROM _sqlx_migrations
-                  WHERE version = 38 AND success = true)
-               )"
-}
-
-query_legacy_collection_authorization_state() {
-  docker run --rm --network host \
-    --env PGPASSWORD=previous-provider-upgrade \
-    postgres:18-alpine \
-    psql --host 127.0.0.1 --port "$UPGRADE_DATABASE_PORT" --username mdbase --dbname mdbase_provider_upgrade \
-    --set ON_ERROR_STOP=1 --tuples-only --no-align \
-    --command "SELECT concat(
-                 (SELECT count(*) FROM hosted_provider_replicas
-                  WHERE id = '$UPGRADE_FULL_COLLECTION_FALSE_REPLICA_ID'
-                    AND purpose = 'application' AND revoked_at IS NULL
-                    AND full_collection = false
-                    AND cardinality(allowed_types) = 0
-                    AND contract_scope = '[]'::jsonb), '|',
-                 (SELECT count(*) FROM hosted_provider_replicas
-                  WHERE id = '$UPGRADE_ALLOWED_TYPES_REPLICA_ID'
-                    AND purpose = 'application' AND revoked_at IS NULL
-                    AND full_collection = true
-                    AND allowed_types = ARRAY['task']::text[]
-                    AND contract_scope = '[]'::jsonb), '|',
-                 (SELECT count(*) FROM hosted_provider_replicas
-                  WHERE id = '$UPGRADE_CONTRACT_SCOPE_REPLICA_ID'
-                    AND purpose = 'application' AND revoked_at IS NULL
-                    AND full_collection = true
-                    AND cardinality(allowed_types) = 0
-                    AND contract_scope <> '[]'::jsonb), '|',
-                 (SELECT count(*) FROM hosted_provider_retired_replay_credentials
-                  WHERE replica_id IN (
-                    '$UPGRADE_FULL_COLLECTION_FALSE_REPLICA_ID',
-                    '$UPGRADE_ALLOWED_TYPES_REPLICA_ID',
-                    '$UPGRADE_CONTRACT_SCOPE_REPLICA_ID'
-                  )), '|',
-                 (SELECT count(*) FROM hosted_provider_notification_grants
-                  WHERE grant_id IN (
-                    '$UPGRADE_FULL_COLLECTION_FALSE_GRANT_ID',
-                    '$UPGRADE_ALLOWED_TYPES_GRANT_ID',
-                    '$UPGRADE_CONTRACT_SCOPE_GRANT_ID'
-                  )), '|',
-                 (SELECT count(*) FROM hosted_provider_notification_grants
-                  WHERE grant_id = '$UPGRADE_CANONICAL_APPLICATION_GRANT_ID')
-               )"
-}
-
 run_projection_indexer() {
   local command=$1
   shift
@@ -557,14 +466,9 @@ printf 'Previous release (%s at %s) notification contract: %s\n' \
 canonical_application_authority_before=$(query_canonical_application_authority_inventory)
 printf 'Previous release canonical application authority: sha256:%s\n' \
   "$canonical_application_authority_before"
-legacy_collection_authorization_before=$(query_legacy_collection_authorization_state)
-printf 'Previous release legacy collection authorization state: %s\n' \
-  "$legacy_collection_authorization_before"
-[[ $legacy_collection_authorization_before == "1|1|1|0|3|1" ]]
-
 upgrade_phase 'seeding an exact predecessor terminal application mutation'
-retired_operation_request=$(retired_operation_body "$UPGRADE_RETIRED_REQUEST_ID")
-predecessor_application_receipt=$(provider_application_operation "$retired_operation_request")
+application_operation_request=$(application_operation_body "$UPGRADE_APPLICATION_REQUEST_ID")
+predecessor_application_receipt=$(provider_application_operation "$application_operation_request")
 printf 'Previous release application receipt: %s\n' "$predecessor_application_receipt"
 jq -e '
   .protocol_version == 3 and
@@ -607,11 +511,8 @@ upgrade_remove_container mdbase-provider-upgrade-candidate
 canonical_inventory_before=$(query_canonical_authority_inventory)
 printf 'Pre-verify candidate canonical authority inventory: sha256:%s\n' \
   "$canonical_inventory_before"
-canonical_application_authority_after_migration=$(query_canonical_application_authority_inventory)
-[[ $canonical_application_authority_after_migration == "$canonical_application_authority_before" ]]
-collection_authorization_state=$(query_collection_authorization_state)
-printf 'Migrated collection authorization state: %s\n' "$collection_authorization_state"
-[[ $collection_authorization_state == "3|1|0|1|1" ]]
+canonical_application_authority_after_write=$(query_canonical_application_authority_inventory)
+[[ $canonical_application_authority_after_write == "$canonical_application_authority_before" ]]
 
 upgrade_phase 'verifying the write-through projection without normalization'
 post_write_verify=$(run_projection_indexer verify --limit 100)
@@ -655,37 +556,28 @@ printf 'Recovered candidate canonical authority inventory: sha256:%s\n' \
 [[ $canonical_inventory_after_recovery == "$canonical_inventory_before" ]]
 canonical_application_authority_after_recovery=$(query_canonical_application_authority_inventory)
 [[ $canonical_application_authority_after_recovery == "$canonical_application_authority_before" ]]
-[[ $(query_collection_authorization_state) == "3|1|0|1|1" ]]
 
-upgrade_phase 'restarting the candidate to prove authorization migration idempotence'
+upgrade_phase 'restarting the candidate to prove persisted authority stability'
 upgrade_remove_container mdbase-provider-upgrade-candidate
 start_candidate_provider
 wait_candidate_recovery
 [[ $(query_canonical_application_authority_inventory) == "$canonical_application_authority_before" ]]
-[[ $(query_collection_authorization_state) == "3|1|0|1|1" ]]
 
-upgrade_phase 'proving retired exact replay without canonical mutation'
+upgrade_phase 'proving exact application replay without canonical mutation'
 canonical_inventory_before_replay=$(query_canonical_authority_inventory)
-replayed_application_receipt=$(provider_application_operation "$retired_operation_request")
+replayed_application_receipt=$(provider_application_operation "$application_operation_request")
 [[ $replayed_application_receipt == "$predecessor_application_receipt" ]]
 [[ $(query_canonical_authority_inventory) == "$canonical_inventory_before_replay" ]]
 [[ $(query_canonical_application_authority_inventory) == "$canonical_application_authority_before" ]]
 
 changed_response=$(provider_application_operation_status \
-  "$(retired_operation_body "$UPGRADE_RETIRED_REQUEST_ID" 'Changed retired input')")
+  "$(application_operation_body "$UPGRADE_APPLICATION_REQUEST_ID" 'Changed application input')")
 changed_status=${changed_response##*$'\n'}
 changed_body=${changed_response%$'\n'*}
-printf 'Changed retired replay denial (%s): %s\n' "$changed_status" "$changed_body"
+printf 'Changed application replay denial (%s): %s\n' "$changed_status" "$changed_body"
 [[ $changed_status == 409 ]]
 jq -e '.error.code == "mutation_request_conflict"' <<<"$changed_body" >/dev/null
 
-new_response=$(provider_application_operation_status \
-  "$(retired_operation_body "$UPGRADE_RETIRED_NEW_REQUEST_ID")")
-new_status=${new_response##*$'\n'}
-new_body=${new_response%$'\n'*}
-printf 'New retired work denial (%s): %s\n' "$new_status" "$new_body"
-[[ $new_status == 401 ]]
-jq -e '.error.code == "invalid_replica_token"' <<<"$new_body" >/dev/null
 [[ $(query_canonical_authority_inventory) == "$canonical_inventory_before_replay" ]]
 [[ $(query_canonical_application_authority_inventory) == "$canonical_application_authority_before" ]]
 
