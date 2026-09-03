@@ -51,7 +51,12 @@ async function auditPortalLogin() {
           password_login: true,
           password_recovery: true,
           password_registration: false,
-          registration: "open"
+          password_public_registration: true,
+          registration: "open",
+          agreements: {
+            terms: { version: "test", url: "https://mdbase.dev/terms/" },
+            privacy: { version: "test", url: "https://mdbase.dev/privacy/" }
+          }
         }
       });
       return;
@@ -59,8 +64,29 @@ async function auditPortalLogin() {
     await route.fulfill({ status: 404, json: { error: "not_found" } });
   });
   await page.goto(`${servers[0].origin}/login`);
-  await page.getByRole("heading", { level: 1 }).waitFor();
+  await page.getByRole("heading", { name: "Sign in" }).waitFor();
   await auditPage(page, "portal login", { keyboard: true });
+  assert.equal(await page.getByRole("link", { name: "Privacy" }).count(), 1, "portal login: privacy link is present");
+  await page.goto(`${servers[0].origin}/signup`);
+  await page.getByRole("heading", { name: "Create an account" }).waitFor();
+  await page.getByRole("button", { name: "Send verification link" }).waitFor();
+  await auditPage(page, "portal signup", { keyboard: true });
+  const authFontSizes = await page.locator(".minimal-auth-page :is(h1, p, label, input, button, a, span)").evaluateAll(
+    (elements) => [...new Set(elements.map((element) => getComputedStyle(element).fontSize))]
+  );
+  assert.deepEqual(authFontSizes, ["17px"], "portal signup: visible copy uses one font size");
+  const authFontWeights = await page.locator(".minimal-auth-page :is(h1, p, label, input, button, a, span, strong)").evaluateAll(
+    (elements) => [...new Set(elements.map((element) => getComputedStyle(element).fontWeight))]
+  );
+  assert.deepEqual(authFontWeights, ["400"], "portal signup: visible copy uses one font weight");
+  assert.equal(await page.locator("html").getAttribute("data-theme"), null, "portal signup: theme follows the operating system");
+  assert.equal(await page.getByRole("button", { name: /Color theme/ }).count(), 0, "portal signup: theme picker is absent");
+  const authAlignment = await page.locator(".page-brand-row, .minimal-auth-footer").evaluateAll(
+    (elements) => elements.map((element) => element.getBoundingClientRect().left)
+  );
+  assert.equal(authAlignment[0], authAlignment[1], "portal signup: footer tracks the content edge");
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "portal signup: narrow view does not overflow");
   assert.deepEqual(
     errors.filter((error) => !error.includes("status of 401")),
     []
@@ -340,12 +366,36 @@ async function auditPortalColdStartAuthorization() {
   await page.getByText("View and find records", { exact: true }).first().waitFor();
   await page.getByText("Create and edit records", { exact: true }).first().waitFor();
   await page.getByText("Delete records", { exact: true }).first().waitFor();
-  await page.getByText("Higher impact", { exact: true }).first().waitFor();
+  assert.equal(await page.getByText("Higher impact", { exact: true }).count(), 0, "portal authorization: exact operation names do not need impact badges");
   await page.reload();
   await page.getByText("Personal notes", { exact: true }).first().waitFor();
   await page.getByText("Delete records", { exact: true }).first().waitFor();
   assert.equal(await page.getByRole("button", { name: "Allow Workout journal" }).count(), 1, "portal authorization: review state survives refresh");
   await auditPage(page, "portal application access review", { keyboard: true });
+  const approvalFontSizes = await page.locator(".approval-page :is(h1, h2, p, small, strong, label, button, summary, li, span, code)").evaluateAll(
+    (elements) => [...new Set(elements.map((element) => getComputedStyle(element).fontSize))]
+  );
+  assert.deepEqual(approvalFontSizes, ["17px"], "portal authorization: visible copy uses one font size");
+  const approvalTextFamilies = await page.locator(
+    ".approval-page :is(h1, h2, p, small, strong, label, button, summary, li, span):not(.request-metadata):not(.request-metadata *)"
+  ).evaluateAll((elements) => [...new Set(elements.map((element) => getComputedStyle(element).fontFamily))]);
+  assert.deepEqual(
+    approvalTextFamilies,
+    ["\"Atkinson Hyperlegible\", \"Segoe UI\", sans-serif"],
+    "portal authorization: nontechnical copy uses only Atkinson Hyperlegible"
+  );
+  const approvalFontWeights = await page.locator(".approval-page").evaluateAll((elements) => {
+    const copy = elements[0].querySelectorAll("h1, h2, p, small, strong, label, button, summary, li, span, code");
+    return [...new Set([...copy].map((element) => getComputedStyle(element).fontWeight))].sort();
+  });
+  assert.deepEqual(approvalFontWeights, ["400", "700"], "portal authorization: copy uses only regular and bold weights");
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    true,
+    "portal authorization: narrow view does not overflow horizontally"
+  );
+  await auditPage(page, "portal application access review mobile", { keyboard: true });
   assert.deepEqual(errors, []);
   await page.close();
 }
@@ -726,11 +776,12 @@ async function serveStaticApplication(root) {
       } catch {
         target = resolve(root, "index.html");
       }
+      const body = await readFile(target);
       response.writeHead(200, {
         "content-type": contentType(target),
         "cache-control": "no-store"
       });
-      response.end(await readFile(target));
+      response.end(body);
     } catch (error) {
       response.writeHead(500, { "content-type": "text/plain" });
       response.end(error instanceof Error ? error.message : String(error));
