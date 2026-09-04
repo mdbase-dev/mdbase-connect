@@ -7,7 +7,22 @@ import {
   returnTarget,
   signInUrl
 } from "./portal-model";
-import { Loading, PageBrand } from "./portal-ui";
+import { Loading, PageBrand, useSystemTheme } from "./portal-ui";
+
+function MinimalAuthPage({ children }: { children: React.ReactNode }) {
+  useSystemTheme();
+
+  return <div className="minimal-auth-shell">
+    <main className="center-page minimal-auth-page">
+      <PageBrand label="connect" themePicker={false} />
+      {children}
+    </main>
+    <footer className="minimal-auth-footer">
+      <a href="https://mdbase.dev/privacy/">Privacy</a>
+      <a href="https://mdbase.dev/terms/">Terms</a>
+    </footer>
+  </div>;
+}
 
 export function Login() {
   const [name, setName] = useState("Callum");
@@ -47,16 +62,14 @@ export function Login() {
 
   if (!config) return <Loading error={error} />;
   if (config.provider === "tailscale") return (
-    <main className="center-page">
-      <PageBrand label="connect" />
+    <MinimalAuthPage>
       <section className="auth-panel">
-        <p className="eyebrow">Tailnet identity</p>
-        <h1>Open this through Tailscale.</h1>
-        <p>mdbase connect signs you in from your tailnet identity. Make sure this device is connected to your tailnet, then reload this page.</p>
+        <h1>Open this through Tailscale</h1>
+        <p>Connect this device to your tailnet, then reload the page.</p>
         {error && <div className="message error">{error}</div>}
         <button className="button primary" onClick={() => location.reload()}>Try again</button>
       </section>
-    </main>
+    </MinimalAuthPage>
   );
   const providers = config.providers.length > 0
     ? config.providers
@@ -64,16 +77,14 @@ export function Login() {
       ? [{ id: "github" as const, label: "Continue with GitHub", login_url: "/auth/github" }]
       : [];
   if (providers.length > 0 || config.password_login) return (
-    <main className="center-page">
-      <PageBrand label="connect" />
+    <MinimalAuthPage>
       <section className="auth-panel">
-        <p className="eyebrow">{continuingAuthorization ? "Choose a collection" : config.registration === "open" ? "Account access" : "Private preview"}</p>
-        <h1>{continuingAuthorization ? "Sign in to continue" : "Sign in to mdbase connect"}</h1>
+        <h1>{continuingAuthorization ? "Sign in to continue" : "Sign in"}</h1>
         <p>{continuingAuthorization
-          ? `After you choose a collection and approve access, you’ll return to the app.${config.registration === "open" ? "" : " Sign-in is currently limited to invited accounts."}`
+          ? "Sign in, review the request, and return to the application."
           : config.registration === "open"
-            ? "Open your account with email or a connected identity provider."
-            : "Access is currently limited to invited accounts. Sign in with the method attached to yours."}</p>
+            ? "Enter your email and password, or use a connected identity provider."
+            : "Sign in with the method connected to your invited account."}</p>
         {error && <div className="message error" role="alert">{error}</div>}
         {config.password_login && (
           <PasswordLoginForm
@@ -110,22 +121,20 @@ export function Login() {
           </p>
         )}
       </section>
-    </main>
+    </MinimalAuthPage>
   );
 
   return (
-    <main className="center-page">
-      <PageBrand label="connect" />
+    <MinimalAuthPage>
       <form className="auth-panel" onSubmit={(event) => void signIn(event)}>
-        <p className="eyebrow">Development session</p>
-        <h1>Open your account</h1>
-        <p>This temporary sign-in is available only when development authentication is enabled.</p>
+        <h1>Sign in</h1>
+        <p>Development authentication is enabled.</p>
         {error && <div className="message error">{error}</div>}
         <label><span>Name</span><input value={name} onChange={(event) => setName(event.target.value)} /></label>
         <label><span>Email</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
         <button className="button primary" type="submit">Continue</button>
       </form>
-    </main>
+    </MinimalAuthPage>
   );
 }
 
@@ -183,7 +192,7 @@ function PasswordLoginForm({
         />
       </label>
       <button className="button primary" disabled={busy} type="submit">
-        {busy ? "Signing in…" : "Sign in with email"}
+        {busy ? "Signing in…" : "Sign in"}
       </button>
       {recoveryAvailable && (
         <a className="quiet-auth-link" href="/forgot-password">
@@ -488,15 +497,13 @@ export function Signup({
     && config.password_public_registration
   );
   if (canRequest) return (
-    <main className="center-page">
-      <PageBrand label="connect" />
+    <MinimalAuthPage>
       <section className="auth-panel">
-        <p className="eyebrow">Create account</p>
-        <h1>{requestSubmitted ? "Check your email." : "Create your account"}</h1>
+        <h1>{requestSubmitted ? "Check your email" : "Create an account"}</h1>
         <p role={requestSubmitted ? "status" : undefined} aria-live={requestSubmitted ? "polite" : undefined}>
           {requestSubmitted
             ? "If that address can be used, its one-time verification link is on the way."
-            : "Start with your email. We’ll verify the address before asking you to choose a password."}
+            : "Enter your email address. We’ll send a one-time link to verify it. After verification, you’ll choose a password and receive a small starter collection."}
         </p>
         {error && <div className="message error" role="alert">{error}</div>}
         {!requestSubmitted && (
@@ -514,20 +521,18 @@ export function Signup({
               />
             </label>
             <button className="button primary" disabled={busy} type="submit">
-              {busy ? "Sending link…" : "Verify email"}
+              {busy ? "Sending link…" : "Send verification link"}
             </button>
           </form>
         )}
-        <a className="quiet-auth-link" href={signInUrl()}>Return to sign in</a>
+        <p className="auth-footnote">Already have an account? <a href={signInUrl()}>Sign in</a>.</p>
       </section>
-    </main>
+    </MinimalAuthPage>
   );
   return (
-    <main className="center-page">
-      <PageBrand label="connect" />
+    <MinimalAuthPage>
       <section className="auth-panel">
-        <p className="eyebrow">{isInvitation ? "Invitation" : "Email verified"}</p>
-        <h1>{ready ? "Create your account" : "This account setup link can’t be opened"}</h1>
+        <h1>{ready ? "Create an account" : "This account setup link can’t be opened"}</h1>
         <p>{ready
           ? `${isInvitation ? "Your invitation verified your email" : "Your email is verified"}. Choose a password and we’ll prepare a small starter collection.`
           : isInvitation || hasVerification
@@ -612,7 +617,7 @@ export function Signup({
         )}
         <a className="quiet-auth-link" href={signInUrl()}>Return to sign in</a>
       </section>
-    </main>
+    </MinimalAuthPage>
   );
 }
 
