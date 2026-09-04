@@ -67,6 +67,18 @@ let directOrigin;
 const applicationKeyStore = new MemoryGrantKeyStore();
 let relayContext;
 
+const COLLECTION_READ_OPERATIONS = [
+  "describe", "changes", "read", "query", "list_views", "execute_view",
+  "read_view_source", "validate", "read_type"
+];
+const RECORD_CREATE_OPERATIONS = ["create"];
+const RECORD_EDIT_OPERATIONS = ["update", "rename"];
+const RECORD_DELETE_OPERATIONS = ["delete"];
+const DEFINITION_MANAGE_OPERATIONS = [
+  "create_type", "update_type", "assess_type_pack", "apply_type_pack"
+];
+const SETUP_OPERATIONS = ["assess_collection_setup", "apply_collection_setup"];
+
 class MemoryStorage {
   values = new Map();
   get length() { return this.values.size; }
@@ -100,7 +112,11 @@ try {
     redirectUri: manifest.redirectUri,
     verifier,
     state: "e2e",
-    operations: ["describe", "changes", "read", "query", "create", "update"],
+    operations: [
+      ...COLLECTION_READ_OPERATIONS,
+      ...RECORD_CREATE_OPERATIONS,
+      ...RECORD_EDIT_OPERATIONS
+    ],
     cookie
   });
   const authorizationId = initialAuthorization.id;
@@ -342,7 +358,7 @@ secret: connector scope test
     redirectUri: manifest.redirectUri,
     verifier: portalVerifier,
     state: "portal-e2e",
-    operations: ["describe"],
+    operations: COLLECTION_READ_OPERATIONS,
     cookie
   });
   const portalAuthorizationId = portalAuthorization.id;
@@ -401,7 +417,7 @@ secret: connector scope test
   await approvePortalAuthorization(portalAuthorizationId, cookie, {
     collection_id: portalOffer.id,
     offer_id: portalOffer.offer_id,
-    operations: ["describe"]
+    operations: COLLECTION_READ_OPERATIONS
   });
   const portalCallback = await finishSignedWebAuthorization(portalAuthorization);
   const portalToken = await request("/oauth/token", {
@@ -507,7 +523,11 @@ implements:
             id: "planning.item",
             version: "1.0.0",
             digest: setupContractDigest
-          }]
+          }],
+          capabilities: {
+            contract_version: 2,
+            required: ["collection.read"]
+          }
         },
         provisions: {
           type_packs: [{
@@ -540,7 +560,7 @@ implements:
     redirectUri: manifest.redirectUri,
     verifier: setupVerifier,
     state: "setup-e2e",
-    operations: ["describe", "query"],
+    operations: [...COLLECTION_READ_OPERATIONS, ...SETUP_OPERATIONS],
     cookie
   });
   const setupAuthorizationId = setupAuthorization.id;
@@ -607,7 +627,7 @@ implements:
   await approvePortalAuthorization(setupAuthorizationId, cookie, {
     collection_id: setupOffer.id,
     offer_id: setupOffer.offer_id,
-    operations: ["describe", "query"],
+    operations: [...COLLECTION_READ_OPERATIONS, ...SETUP_OPERATIONS],
     contract_setups: [{
       contract: {
         id: "planning.item",
@@ -717,12 +737,7 @@ implements:
     redirectUri: manifest.redirectUri,
     verifier: taskNotesVerifier,
     state: "tasknotes-setup-e2e",
-    operations: [
-      "describe",
-      "query",
-      "assess_collection_setup",
-      "apply_collection_setup"
-    ],
+    operations: [...COLLECTION_READ_OPERATIONS, ...SETUP_OPERATIONS],
     cookie
   });
   const taskNotesRequest = await poll(async () => {
@@ -770,12 +785,7 @@ implements:
   await approvePortalAuthorization(taskNotesAuthorization.id, cookie, {
     collection_id: taskNotesOffer.id,
     offer_id: taskNotesOffer.offer_id,
-    operations: [
-      "describe",
-      "query",
-      "assess_collection_setup",
-      "apply_collection_setup"
-    ],
+    operations: [...COLLECTION_READ_OPERATIONS, ...SETUP_OPERATIONS],
     contract_setups: []
   });
   const taskNotesCallback = await finishSignedWebAuthorization(
@@ -976,10 +986,13 @@ implements:
     });
     const browserAppId = browserApplication.body.application.id;
     const browserVerifier = "browser-end-to-end-pkce-verifier-forty-three-chars";
-    const browserOperations = [
-      "describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename",
-      "read_type", "create_type", "update_type", "list_views", "execute_view"
-    ];
+    const browserOperations = [...new Set([
+      ...COLLECTION_READ_OPERATIONS,
+      ...RECORD_CREATE_OPERATIONS,
+      ...RECORD_EDIT_OPERATIONS,
+      ...RECORD_DELETE_OPERATIONS,
+      ...DEFINITION_MANAGE_OPERATIONS
+    ])];
     const browserAuthorization = await startSignedWebAuthorization({
       application: browserApplication.body.application,
       redirectUri: manifest.browserRedirectUri,
@@ -1080,7 +1093,11 @@ implements:
     id: "dev.mdbase.portable-e2e",
     name: "Portable E2E",
     project_url: "https://apps.example/portable-e2e",
-    requirements: { access: "full_collection", contracts: [] }
+    requirements: {
+      access: "full_collection",
+      contracts: [],
+      capabilities: { contract_version: 2, required: ["collection.read"] }
+    }
   };
   const manager = new MdbaseConnect.MdbaseConnect({
     serverUrl: ${JSON.stringify(serverUrl)},
@@ -1159,7 +1176,7 @@ implements:
     await approvePortalAuthorization(portableClaim.body.request_id, cookie, {
       collection_id: portableOffer.id,
       offer_id: portableOffer.offer_id,
-      operations: ["describe", "query"]
+      operations: COLLECTION_READ_OPERATIONS
     });
     await portablePage.waitForFunction(
       () => Boolean(globalThis.portableHarness.result || globalThis.portableHarness.error),
@@ -1855,7 +1872,18 @@ schema:
       name,
       homepage: origin,
       redirect_uris: [`${origin}/auth/mdbase/callback`],
-      requirements: { contracts, ...(access ? { access } : {}) }
+      requirements: {
+        contracts,
+        ...(access ? { access } : {}),
+        capabilities: {
+          contract_version: 2,
+          required: ["collection.read"],
+          optional: [
+            "records.create", "records.edit", "records.delete",
+            "views.manage", "definitions.manage"
+          ]
+        }
+      }
     }));
   });
   await new Promise((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
@@ -1867,7 +1895,18 @@ schema:
     name,
     homepage: origin,
     redirect_uris: [`${origin}/auth/mdbase/callback`],
-    requirements: { contracts, ...(access ? { access } : {}) }
+    requirements: {
+      contracts,
+      ...(access ? { access } : {}),
+      capabilities: {
+        contract_version: 2,
+        required: ["collection.read"],
+        optional: [
+          "records.create", "records.edit", "records.delete",
+          "views.manage", "definitions.manage"
+        ]
+      }
+    }
   };
   return {
     server,
