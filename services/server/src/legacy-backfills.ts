@@ -60,18 +60,34 @@ export async function retireLegacyContractScopedGrants(
       id: string;
       hosted_collection_id: string | null;
       hosted_replica_id: string | null;
+      reauthorization_reason: "collection_level_authorization" | "semantic_capability_v2";
     };
     const scopedGrants = await db.query<LegacyGrant>(
-      `SELECT g.id, g.hosted_collection_id, g.hosted_replica_id
+      `SELECT g.id, g.hosted_collection_id, g.hosted_replica_id,
+              CASE
+                WHEN g.scope <> '{"access":"full_collection","contracts":[]}'::jsonb
+                  THEN 'collection_level_authorization'
+                ELSE 'semantic_capability_v2'
+              END AS reauthorization_reason
        FROM grants g
        WHERE g.revoked_at IS NULL
          AND g.activated_at IS NOT NULL
-         AND g.scope <> '{"access":"full_collection","contracts":[]}'::jsonb
+         AND (
+           g.scope <> '{"access":"full_collection","contracts":[]}'::jsonb
+           OR (
+             g.application_authorization IS NOT NULL
+             AND COALESCE(
+               g.application_authorization->'binding'->'contracts'->>'semantic_capabilities',
+               ''
+             ) <> '2'
+           )
+         )
        ORDER BY g.id
        FOR UPDATE`
     );
     const scopedReplicas = await db.query<LegacyGrant>(
-      `SELECT g.id, g.hosted_collection_id, g.hosted_replica_id
+      `SELECT g.id, g.hosted_collection_id, g.hosted_replica_id,
+              'collection_level_authorization' AS reauthorization_reason
        FROM grants g
        JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
        WHERE g.revoked_at IS NULL
@@ -106,12 +122,16 @@ export async function retireLegacyContractScopedGrants(
         [grant.id]
       );
       await db.query(
+        "DELETE FROM notification_subscriptions WHERE grant_id = $1",
+        [grant.id]
+      );
+      await db.query(
         `UPDATE grants
          SET revoked_at = COALESCE(revoked_at, now()),
              reauthorization_required_at = COALESCE(reauthorization_required_at, now()),
-             reauthorization_reason = 'collection_level_authorization'
+             reauthorization_reason = $2
          WHERE id = $1`,
-        [grant.id]
+        [grant.id, grant.reauthorization_reason]
       );
       if (grant.hosted_collection_id && grant.hosted_replica_id) {
         const existing = await db.query<{ id: string }>(
@@ -130,12 +150,13 @@ export async function retireLegacyContractScopedGrants(
           await db.query(
             `INSERT INTO provider_revocation_jobs
                (id, replica_id, grant_id, collection_id, reason)
-             VALUES ($1, $2, $3, $4, 'collection_level_authorization')`,
+             VALUES ($1, $2, $3, $4, $5)`,
             [
               randomUUID(),
               grant.hosted_replica_id,
               grant.id,
-              grant.hosted_collection_id
+              grant.hosted_collection_id,
+              grant.reauthorization_reason
             ]
           );
         }

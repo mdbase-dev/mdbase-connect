@@ -104,6 +104,26 @@ function typescriptSource(value) {
     `  capability: ApplicationCapabilityId\n` +
     `): CollectionOperation[] {\n` +
     `  return [...APPLICATION_CAPABILITY_DEFINITIONS[capability]];\n` +
+    `}\n\n` +
+    `export function applicationOperationSelectionIsAtomic(\n` +
+    `  requirements: ApplicationCapabilityRequirements,\n` +
+    `  operations: readonly string[]\n` +
+    `): boolean {\n` +
+    `  const selected = new Set(operations);\n` +
+    `  const declared = [...requirements.required, ...(requirements.optional ?? [])];\n` +
+    `  const allowed = new Set<string>(declared.flatMap(\n` +
+    `    (capability) => APPLICATION_CAPABILITY_DEFINITIONS[capability]\n` +
+    `  ));\n` +
+    `  if ([...selected].some((operation) => !allowed.has(operation))) {\n` +
+    `    return false;\n` +
+    `  }\n` +
+    `  return declared.every((capability) => {\n` +
+    `    const capabilityOperations = APPLICATION_CAPABILITY_DEFINITIONS[capability];\n` +
+    `    const count = capabilityOperations.filter((operation) => selected.has(operation)).length;\n` +
+    `    return requirements.required.includes(capability)\n` +
+    `      ? count === capabilityOperations.length\n` +
+    `      : count === 0 || count === capabilityOperations.length;\n` +
+    `  });\n` +
     `}\n`;
 }
 

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type {
   ApplicationNotifications,
+  ApplicationProvisions,
   ApplicationRequirements,
   CollectionContractDescriptor,
   CollectionTypeDescriptor,
@@ -119,9 +120,10 @@ export function registerAuthorizationRoutes(
       family_identity: string;
       manifest_digest: string | null;
       requirements: ApplicationRequirements;
+      provisions: ApplicationProvisions;
       notifications: ApplicationNotifications;
     }>(
-      "SELECT id, distribution, family_identity, manifest_digest, requirements, notifications FROM applications WHERE id = $1",
+      "SELECT id, distribution, family_identity, manifest_digest, requirements, provisions, notifications FROM applications WHERE id = $1",
       [input.client_id]
     );
     if (
@@ -147,7 +149,8 @@ export function registerAuthorizationRoutes(
     assertOperationsAllowedByApplication(
       requestedOperations,
       application.rows[0].requirements,
-      application.rows[0].notifications
+      application.rows[0].notifications,
+      application.rows[0].provisions
     );
     const proof = await verifyApplicationAuthorization(
       input.application_authorization,
@@ -409,8 +412,10 @@ export function registerAuthorizationRoutes(
       manifest_digest: string | null;
       redirect_uris: string[];
       requirements: ApplicationRequirements;
+      provisions: ApplicationProvisions;
+      notifications: ApplicationNotifications;
     }>(
-      "SELECT id, distribution, family_identity, manifest_digest, redirect_uris, requirements FROM applications WHERE id = $1",
+      "SELECT id, distribution, family_identity, manifest_digest, redirect_uris, requirements, provisions, notifications FROM applications WHERE id = $1",
       [input.client_id]
     );
     if (
@@ -430,7 +435,12 @@ export function registerAuthorizationRoutes(
         "At least one record operation or file capability is required."
       ));
     }
-    assertOperationsAllowedByRequirements(requestedOperations, application.rows[0].requirements);
+    assertOperationsAllowedByApplication(
+      requestedOperations,
+      application.rows[0].requirements,
+      application.rows[0].notifications,
+      application.rows[0].provisions
+    );
     const proof = await verifyApplicationAuthorization(
       input.application_authorization,
       {
@@ -728,6 +738,7 @@ export function registerAuthorizationRoutes(
       collection_id: z.uuid(),
       offer_id: z.uuid().optional(),
       operations: z.array(operationSchema),
+      file_actions: z.array(z.enum(["list", "read", "add", "replace", "move", "delete"])).optional(),
       contract_setups: z.array(contractSetupChoiceSchema).max(20).default([])
     }).parse(request.body);
     let approved: boolean;
@@ -738,6 +749,7 @@ export function registerAuthorizationRoutes(
         offerId: input.offer_id,
         collectionId: input.collection_id,
         operations: input.operations,
+        fileActions: input.file_actions,
         contractSetups: input.contract_setups
       });
     } else {
@@ -767,6 +779,7 @@ export function registerAuthorizationRoutes(
         userId: user.id,
         collectionId: input.collection_id,
         operations: input.operations,
+        fileActions: input.file_actions,
         contracts: effectiveHostedContractDescriptors(
           hosted.contracts,
           hosted.template

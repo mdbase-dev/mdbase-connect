@@ -25,14 +25,26 @@ describe("application capability policy", () => {
     }
   };
 
-  it("accepts only operations compiled from declared semantic capabilities", () => {
-    expect(operationsAllowedByRequirements(["describe", "read", "update"], requirements)).toBe(true);
+  it("accepts only complete groups compiled from declared semantic capabilities", () => {
+    const required = operationsForApplicationCapabilities(
+      requirements.capabilities,
+      { includeOptional: false }
+    );
+    expect(operationsAllowedByRequirements(required, requirements)).toBe(true);
+    expect(operationsAllowedByRequirements(
+      [...required, "update", "rename"],
+      requirements
+    )).toBe(true);
+    expect(operationsAllowedByRequirements([...required, "update"], requirements)).toBe(false);
     expect(operationsAllowedByRequirements(["delete"], requirements)).toBe(false);
     expect(operationsAllowedByRequirements(["apply_type_pack"], requirements)).toBe(false);
   });
 
   it("does not use contract requirements as an operation ceiling", () => {
-    expect(operationsAllowedByRequirements(["read_type"], {
+    expect(operationsAllowedByRequirements(operationsForApplicationCapabilities({
+      contract_version: 2,
+      required: ["collection.read"]
+    }), {
       ...requirements,
       contracts: [{
         id: "example.tasks",
@@ -106,10 +118,14 @@ describe("application capability policy", () => {
     )).not.toThrow();
   });
 
-  it("rejects timer requests without criteria even for legacy full-access manifests", () => {
+  it("rejects timer groups without a matching notification criterion", () => {
+    const capabilities = {
+      contract_version: 2 as const,
+      required: ["background.schedule"] as const
+    };
     expect(() => assertOperationsAllowedByApplication(
-      ["put_timer"],
-      { contracts: [], access: "full_collection" },
+      operationsForApplicationCapabilities(capabilities),
+      { contracts: [], access: "full_collection", capabilities },
       { criteria: [] }
     )).toThrow("Timer operations require an mdbase.runtime.timer.fired notification criterion.");
   });

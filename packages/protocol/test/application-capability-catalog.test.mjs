@@ -5,6 +5,7 @@ import {
   APPLICATION_CAPABILITY_CONTRACT_VERSION,
   APPLICATION_CAPABILITY_DEFINITIONS,
   APPLICATION_SETUP_OPERATIONS,
+  applicationOperationSelectionIsAtomic,
   operationsForApplicationCapabilities
 } from "../dist/capabilities.js";
 
@@ -34,12 +35,29 @@ test("application capabilities compile only complete atomic groups", () => {
     }, { includeOptional: false }),
     ["update", "rename"]
   );
+  const requirements = {
+    contract_version: 2,
+    required: ["records.edit"],
+    optional: ["records.delete"]
+  };
   assert.deepEqual(
-    operationsForApplicationCapabilities({
-      contract_version: 2,
-      required: ["records.edit"],
-      optional: ["records.delete"]
-    }),
+    operationsForApplicationCapabilities(requirements),
     ["update", "rename", "delete"]
+  );
+  assert.equal(
+    applicationOperationSelectionIsAtomic(requirements, ["update", "rename"]),
+    true
+  );
+  assert.equal(
+    applicationOperationSelectionIsAtomic(requirements, ["update"]),
+    false
+  );
+  assert.equal(
+    applicationOperationSelectionIsAtomic(requirements, ["update", "rename", "delete"]),
+    true
+  );
+  assert.equal(
+    applicationOperationSelectionIsAtomic(requirements, ["update", "rename", "create"]),
+    false
   );
 });

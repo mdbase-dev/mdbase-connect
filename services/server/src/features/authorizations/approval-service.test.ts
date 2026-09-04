@@ -178,18 +178,26 @@ async function retainedReplicaFixture(options: {
       ? { state: "prior-state" }
       : {})
   });
+  const operations: CollectionOperation[] = [
+    "describe", "changes", "read", "query", "list_views", "execute_view",
+    "read_view_source", "validate", "read_type"
+  ];
   const newProof = await testApplicationAuthorization({
     applicationId,
     applicationDeclarationId: "dev.mdbase.restore-test",
     applicationManifestDigest: manifestDigest,
     flow: "device_code",
     codeChallenge: pkceChallenge("new-policy-verifier-that-is-long-enough-0002"),
-    requestedOperations: ["describe", "query"]
+    requestedOperations: operations
   });
   const requirements = {
     contracts: [],
     access: "full_collection",
-    collection_kind: "hosted"
+    collection_kind: "hosted",
+    capabilities: {
+      contract_version: 2,
+      required: ["collection.read"]
+    }
   };
 
   await db.query(
@@ -247,13 +255,14 @@ async function retainedReplicaFixture(options: {
         operation_transport_protocol, application_agreement_public_key,
         application_signing_public_key, application_authorization,
         application_installation_id, device_origin, expires_at)
-     VALUES ($1, $2, $3, 'device_code', '["describe","query"]'::jsonb, $4,
-             $5, $6, $7, $8::jsonb, $9, 'https://new.example',
+     VALUES ($1, $2, $3, 'device_code', $4::jsonb, $5,
+             $6, $7, $8, $9::jsonb, $10, 'https://new.example',
              now() + interval '10 minutes')`,
     [
       requestId,
       userId,
       applicationId,
+      JSON.stringify(operations),
       collectionId,
       newProof.binding.contracts.operation_transport,
       newProof.binding.grant_agreement_public_key,
@@ -262,8 +271,6 @@ async function retainedReplicaFixture(options: {
       newProof.binding.application_installation_id
     ]
   );
-
-  const operations: CollectionOperation[] = ["describe", "query"];
   const access: CollectionAccessContext = {
     collection: {
       collectionId,

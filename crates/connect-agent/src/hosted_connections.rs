@@ -34,27 +34,13 @@ const REGISTRY_VERSION: u32 = 1;
 const CLI_APPLICATION_ID: &str = "dev.mdbase.cli";
 const CLI_APPLICATION_NAME: &str = "mdbase CLI";
 const CLI_APPLICATION_CAPABILITIES: &[&str] = &[
-    "collection.inspect",
-    "records.watch",
-    "records.read",
-    "records.query",
-    "records.validate",
+    "collection.read",
     "records.create",
-    "records.update",
+    "records.edit",
     "records.delete",
-    "records.rename",
-    "views.list",
-    "views.execute",
-    "views.source.read",
-    "views.source.create",
-    "views.source.update",
-    "views.source.delete",
-    "definitions.read",
-    "definitions.create",
-    "definitions.update",
-    "definitions.type-pack.inspect",
-    "definitions.type-pack.apply",
-    "sync.offline-replica",
+    "views.manage",
+    "definitions.manage",
+    "offline.replica",
 ];
 const MAX_HOSTED_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 
@@ -830,7 +816,7 @@ impl HostedConnectionManager {
                         "access": "full_collection",
                         "contracts": [],
                         "capabilities": {
-                            "contract_version": 1,
+                            "contract_version": 2,
                             "required": CLI_APPLICATION_CAPABILITIES
                         }
                     }

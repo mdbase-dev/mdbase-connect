@@ -20,29 +20,15 @@ const CLI_APPLICATION_MANIFEST = {
     access: "full_collection",
     contracts: [],
     capabilities: {
-      contract_version: 1,
+      contract_version: 2,
       required: [
-        "collection.inspect",
-        "records.watch",
-        "records.read",
-        "records.query",
-        "records.validate",
+        "collection.read",
         "records.create",
-        "records.update",
+        "records.edit",
         "records.delete",
-        "records.rename",
-        "views.list",
-        "views.execute",
-        "views.source.read",
-        "views.source.create",
-        "views.source.update",
-        "views.source.delete",
-        "definitions.read",
-        "definitions.create",
-        "definitions.update",
-        "definitions.type-pack.inspect",
-        "definitions.type-pack.apply",
-        "sync.offline-replica"
+        "views.manage",
+        "definitions.manage",
+        "offline.replica"
       ]
     }
   }

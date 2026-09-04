@@ -1,48 +1,55 @@
-import { groupAuthorizationOperations } from "@mdbase/connect-ui/access";
-import type { PendingAuthorization } from "./api";
+import type { ApplicationFileAction, PendingAuthorization } from "./api";
+import type { AuthorizationCapabilityGroup } from "./authorization-capabilities";
 
-export function PermissionDelta({ existingAccess, collectionId, selected }: {
+export function PermissionDelta({ existingAccess, collectionId, groups, selected }: {
   existingAccess: PendingAuthorization["existing_access"];
   collectionId: string;
+  groups: AuthorizationCapabilityGroup[];
   selected: ReadonlySet<string>;
 }) {
   const existing = new Set(existingAccess?.find((access) =>
     access.collection_id === collectionId)?.operations ?? []);
   if (existing.size === 0) return null;
-  const approved = [...selected].filter((operation) => existing.has(operation)).length;
-  const added = selected.size - approved;
+  const selectedGroups = groups.filter((group) =>
+    group.operations.every((operation) => selected.has(operation))
+  );
+  const approved = selectedGroups.filter((group) =>
+    group.operations.every((operation) => existing.has(operation))
+  ).length;
+  const added = selectedGroups.length - approved;
   return <div className="permission-delta" role="note">
     <span><strong>{approved}</strong> already approved</span>
-    <span><strong>{added}</strong> {added === 1 ? "action" : "actions"} added by this request</span>
+    <span><strong>{added}</strong> {added === 1 ? "capability" : "capabilities"} added by this request</span>
   </div>;
 }
 
 export function PermissionCapabilitySummary({
   groups,
   selected,
-  files
+  files,
+  selectedFiles
 }: {
-  groups: ReturnType<typeof groupAuthorizationOperations>;
+  groups: AuthorizationCapabilityGroup[];
   selected: ReadonlySet<string>;
   files?: PendingAuthorization["requirements"]["files"];
+  selectedFiles: ReadonlySet<string>;
 }) {
-  const capabilities = groups.flatMap((group) => {
-    const selectedOperations = group.operations.filter((operation) => selected.has(operation.id));
-    return selectedOperations.length > 0 ? [{
-      id: group.id,
-      label: group.label,
-      description: group.description,
-      higherImpact: group.id === "delete" || group.id === "manage"
-    }] : [];
-  });
-  if (files) {
+  const capabilities = groups.filter((group) =>
+    group.operations.every((operation) => selected.has(operation))
+  ).map((group) => ({
+    id: group.id,
+    label: group.label,
+    description: group.description,
+    higherImpact: group.higherImpact
+  }));
+  if (files && selectedFiles.size > 0) {
     capabilities.push({
-      id: "files",
-      label: files.actions.includes("delete") ? "Manage and delete files" : "Work with files",
+      id: "files" as never,
+      label: selectedFiles.has("delete") ? "Manage and delete files" : "Work with files",
       description: files.scope.kind === "collection"
-        ? "Use the requested file actions in every visible folder."
-        : `Use the requested file actions in ${files.scope.folders.join(", ")}.`,
-      higherImpact: files.actions.includes("delete")
+        ? "Use the approved file actions in every visible folder."
+        : `Use the approved file actions in ${files.scope.folders.join(", ")}.`,
+      higherImpact: selectedFiles.has("delete")
     });
   }
   return (
@@ -56,56 +63,40 @@ export function PermissionCapabilitySummary({
   );
 }
 
-export function PermissionChoices({
-  groups,
-  selected,
-  disabled,
-  onToggle
-}: {
-  groups: ReturnType<typeof groupAuthorizationOperations>;
+export function PermissionChoices({ groups, selected, disabled, onToggle }: {
+  groups: AuthorizationCapabilityGroup[];
   selected: ReadonlySet<string>;
   disabled: boolean;
-  onToggle(operation: string): void;
+  onToggle(group: AuthorizationCapabilityGroup): void;
 }) {
-  const total = groups.reduce((count, group) => count + group.operations.length, 0);
-  const selectedTotal = groups.reduce(
-    (count, group) =>
-      count + group.operations.filter((operation) => selected.has(operation.id)).length,
-    0
-  );
-  const selectedGroups = groups.filter((group) =>
-    group.operations.some((operation) => selected.has(operation.id))
-  );
+  const optional = groups.filter((group) => !group.required);
+  if (optional.length === 0) return null;
   return (
     <details className="permission-review">
       <summary>
-        <span><strong>Review exact permissions</strong><small>{selectedTotal} of {total} requested actions selected{selectedGroups.length > 0 ? ` across ${selectedGroups.length} ${selectedGroups.length === 1 ? "capability" : "capabilities"}` : ""}.</small></span>
-        <b>Details</b>
+        <span><strong>Optional capabilities</strong><small>Optional capabilities can only be allowed or denied as a complete group.</small></span>
+        <b>Review</b>
       </summary>
-      <div className="permission-groups">{groups.map((group) => (
+      <div className="permission-groups">{optional.map((group) => (
         <fieldset className="permission-group" key={group.id}>
           <legend>{group.label}</legend>
           <p>{group.description}</p>
-          <div>{group.operations.map((operation) => (
-            <label key={operation.id}>
-              <input type="checkbox" checked={selected.has(operation.id)} onChange={() => onToggle(operation.id)} disabled={disabled} />
-              <span>{operation.label}</span>
-            </label>
-          ))}</div>
+          <div><label>
+            <input
+              type="checkbox"
+              checked={group.operations.every((operation) => selected.has(operation))}
+              onChange={() => onToggle(group)}
+              disabled={disabled}
+            />
+            <span>Allow this capability</span>
+          </label></div>
         </fieldset>
       ))}</div>
     </details>
   );
 }
 
-const FILE_ACTION_LABELS: Record<
-  PendingAuthorization["requirements"]["files"] extends infer Files
-    ? Files extends { actions: Array<infer Action> }
-      ? Action & string
-      : never
-    : never,
-  string
-> = {
+const FILE_ACTION_LABELS: Record<ApplicationFileAction, string> = {
   list: "List file names and metadata",
   read: "Read file contents",
   add: "Add new files",
@@ -114,8 +105,11 @@ const FILE_ACTION_LABELS: Record<
   delete: "Delete files"
 };
 
-export function FilePermissionSummary({ files }: {
+export function FilePermissionSummary({ files, selected, disabled, onToggle }: {
   files: NonNullable<PendingAuthorization["requirements"]["files"]>;
+  selected: ReadonlySet<string>;
+  disabled: boolean;
+  onToggle(action: ApplicationFileAction): void;
 }) {
   const scope = files.scope.kind === "collection"
     ? "Every visible folder in this collection. Hidden folders are always excluded."
@@ -123,16 +117,26 @@ export function FilePermissionSummary({ files }: {
   return (
     <details className="permission-review file-permission-review">
       <summary>
-        <span><strong>Review exact file permissions</strong><small>{files.actions.length} required {files.actions.length === 1 ? "action" : "actions"}. {scope}</small></span>
-        <b>Details</b>
+        <span><strong>File access</strong><small>{selected.size} approved {selected.size === 1 ? "action" : "actions"}. {scope}</small></span>
+        <b>Review</b>
       </summary>
       <div className="permission-groups">
         <fieldset className="permission-group">
           <legend>Files</legend>
-          <p>{scope} These actions are required together by the application.</p>
-          <ul className="permission-action-list">{files.actions.map((action) => (
-            <li key={action}>{FILE_ACTION_LABELS[action]}</li>
-          ))}</ul>
+          <p>{scope} Required actions stay enabled; optional actions can be denied.</p>
+          <div>{files.required.map((action) => <label key={action}>
+            <input type="checkbox" checked disabled />
+            <span>{FILE_ACTION_LABELS[action]} (required)</span>
+          </label>)}</div>
+          {(files.optional ?? []).length > 0 && <div>{(files.optional ?? []).map((action) => <label key={action}>
+            <input
+              type="checkbox"
+              checked={selected.has(action)}
+              disabled={disabled}
+              onChange={() => onToggle(action)}
+            />
+            <span>{FILE_ACTION_LABELS[action]} (optional)</span>
+          </label>)}</div>}
         </fieldset>
       </div>
     </details>

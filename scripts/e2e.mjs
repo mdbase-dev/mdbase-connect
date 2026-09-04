@@ -698,12 +698,8 @@ implements:
           contracts: [],
           configuration: taskNotesSetup.requirements.configuration,
           capabilities: {
-            contract_version: 1,
-            required: [
-              "collection.inspect",
-              "records.query",
-              "collection.setup.apply"
-            ],
+            contract_version: 2,
+            required: ["collection.read"],
             optional: []
           }
         },

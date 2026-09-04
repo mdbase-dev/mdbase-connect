@@ -1,4 +1,3 @@
-import { groupAuthorizationOperations } from "@mdbase/connect-ui/access";
 import {
   assessMapping,
   contractFields,
@@ -15,6 +14,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   ApiError,
+  type ApplicationFileAction,
   type AvailableCollection,
   type ContractSetupChoice as ContractSetupRequestChoice,
   type HostedCollection,
@@ -22,6 +22,12 @@ import {
   type UnavailableConnector
 } from "./api";
 import { collectionCompatibility } from "./compatibility";
+import {
+  authorizationCapabilityGroups,
+  selectedFileActions,
+  selectedOperationsForCapabilityGroups,
+  type AuthorizationCapabilityGroup
+} from "./authorization-capabilities";
 import { configurationSetupSummary } from "./application-setup";
 import {
   clearAuthorizationReview,
@@ -505,6 +511,13 @@ export function ApprovalForm({
     [visibleChoices]
   );
   const savedReview = useMemo(() => storedAuthorizationReview(request.id), [request.id]);
+  const permissionGroups = useMemo(
+    () => authorizationCapabilityGroups(
+      request.requirements,
+      request.requested_operations
+    ),
+    [request.requirements, request.requested_operations]
+  );
   const initialSelection = initialAuthorizationSelection(
     compatible.map((choice) => choice.collection.id),
     savedReview
@@ -514,11 +527,21 @@ export function ApprovalForm({
     Boolean(initialSelection.collectionId)
   );
   const [reviewing, setReviewing] = useState(initialSelection.reviewing);
-  const [operations, setOperations] = useState(() => new Set(
-    savedReview?.operations
-      ? savedReview.operations.filter((operation) => request.requested_operations.includes(operation))
-      : request.requested_operations
-  ));
+  const [operations, setOperations] = useState(() => {
+    const selected = selectedOperationsForCapabilityGroups(
+      permissionGroups,
+      savedReview?.operations
+    );
+    const grouped = new Set(permissionGroups.flatMap((group) => group.operations));
+    for (const operation of request.requested_operations) {
+      if (!grouped.has(operation)) selected.add(operation);
+    }
+    return selected;
+  });
+  const [fileActions, setFileActions] = useState(() => request.requirements.files
+    ? selectedFileActions(request.requirements.files, savedReview?.fileActions)
+    : new Set<string>()
+  );
   const [submitting, setSubmitting] = useState<"approved" | "denied" | "creating" | null>(null);
   const [creatingHosted, setCreatingHosted] = useState(false);
   const [collectionName, setCollectionName] = useState("");
@@ -547,29 +570,18 @@ export function ApprovalForm({
     ...setupTypes.map((type) => `${type.name}@${type.revision ?? ""}`)
   ].join("|");
   const [setupChoices, setSetupChoices] = useState<Record<string, ContractSetupChoice>>({});
-  const permissionGroups = useMemo(
-    () => groupAuthorizationOperations(request.requested_operations),
-    [request.requested_operations]
-  );
-  const permissionCount = permissionGroups.reduce(
-    (count, group) => count + group.operations.length,
-    0
-  ) + (request.requirements.files?.actions.length ?? 0);
-  const permissionCategoryCount = permissionGroups.length
+  const permissionCount = permissionGroups.length
     + (request.requirements.files ? 1 : 0);
-  const selectedPermissionCount = permissionGroups.reduce(
-    (count, group) =>
-      count + group.operations.filter((operation) => operations.has(operation.id)).length,
-    0
-  );
   const selectedPermissionGroups = permissionGroups.filter((group) =>
-    group.operations.some((operation) => operations.has(operation.id))
+    group.operations.every((operation) => operations.has(operation))
   );
+  const selectedPermissionCount = selectedPermissionGroups.length
+    + (fileActions.size > 0 ? 1 : 0);
   const higherImpactLabels = [
     ...selectedPermissionGroups.flatMap((group) =>
-      group.id === "delete" || group.id === "manage" ? [group.label] : []
+      group.higherImpact ? [group.label] : []
     ),
-    ...(request.requirements.files?.actions.includes("delete") ? ["Delete files"] : []),
+    ...(fileActions.has("delete") ? ["Delete files"] : []),
     ...(hasSetup ? ["Changes collection setup"] : [])
   ];
 
@@ -586,9 +598,10 @@ export function ApprovalForm({
       collectionId,
       collectionConfirmed,
       operations: [...operations],
+      fileActions: [...fileActions],
       reviewing
     });
-  }, [collectionConfirmed, collectionId, operations, request.id, reviewing]);
+  }, [collectionConfirmed, collectionId, fileActions, operations, request.id, reviewing]);
 
   useEffect(() => {
     setSetupChoices(Object.fromEntries(setupContracts.map((contract) => [
@@ -637,11 +650,24 @@ export function ApprovalForm({
     }];
   });
 
-  function toggleOperation(operation: string) {
+  function toggleCapability(group: AuthorizationCapabilityGroup) {
+    if (group.required) return;
     setOperations((current) => {
       const next = new Set(current);
-      if (next.has(operation)) next.delete(operation);
-      else next.add(operation);
+      const enabled = group.operations.every((operation) => next.has(operation));
+      for (const operation of group.operations) {
+        if (enabled) next.delete(operation);
+        else next.add(operation);
+      }
+      return next;
+    });
+  }
+
+  function toggleFileAction(action: ApplicationFileAction) {
+    setFileActions((current) => {
+      const next = new Set(current);
+      if (next.has(action)) next.delete(action);
+      else next.add(action);
       return next;
     });
   }
@@ -661,6 +687,7 @@ export function ApprovalForm({
             collection_id: collectionId,
             ...(selected?.offer_id ? { offer_id: selected.offer_id } : {}),
             operations: [...operations],
+            ...(request.requirements.files ? { file_actions: [...fileActions] } : {}),
             contract_setups: contractSetups
           })
         } : {})
@@ -864,18 +891,23 @@ export function ApprovalForm({
       {reviewing && <section className="approval-section">
         <div className="approval-section-intro">
           <strong>What it can do</strong>
-          <small>{permissionCount} requested actions across {permissionCategoryCount} {permissionCategoryCount === 1 ? "capability" : "capabilities"}.</small>
+          <small>{permissionCount} requested {permissionCount === 1 ? "capability" : "capabilities"}.</small>
         </div>
         <div className="approval-section-content authorization-permissions">
-          {selected && <PermissionDelta existingAccess={request.existing_access} collectionId={selected.id} selected={operations} />}
-          <PermissionCapabilitySummary groups={permissionGroups} selected={operations} files={request.requirements.files} />
+          {selected && <PermissionDelta existingAccess={request.existing_access} collectionId={selected.id} groups={permissionGroups} selected={operations} />}
+          <PermissionCapabilitySummary groups={permissionGroups} selected={operations} files={request.requirements.files} selectedFiles={fileActions} />
           {permissionGroups.length > 0 && <PermissionChoices
             groups={permissionGroups}
             selected={operations}
             disabled={submitting !== null}
-            onToggle={toggleOperation}
+            onToggle={toggleCapability}
           />}
-          {request.requirements.files && <FilePermissionSummary files={request.requirements.files} />}
+          {request.requirements.files && <FilePermissionSummary
+            files={request.requirements.files}
+            selected={fileActions}
+            disabled={submitting !== null}
+            onToggle={toggleFileAction}
+          />}
         </div>
       </section>}
       {reviewing && hasSetup && <section className="approval-section collection-changes-section">

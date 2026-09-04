@@ -167,6 +167,27 @@ describe("hosted capability lifecycle", () => {
     )).toBe("revoked");
   });
 
+  it("retires semantic-v1 grants and queues hosted cleanup", async () => {
+    const fixture = await capabilityFixture();
+    await fixture.db.query(
+      `UPDATE grants
+       SET application_authorization =
+         '{"binding":{"contracts":{"semantic_capabilities":1}}}'::jsonb
+       WHERE id = $1`,
+      [fixture.grantId]
+    );
+
+    expect(await retireLegacyContractScopedGrants(fixture.db)).toBe(1);
+    expect((await fixture.db.query(
+      "SELECT reauthorization_reason FROM grants WHERE id = $1",
+      [fixture.grantId]
+    )).rows[0]?.reauthorization_reason).toBe("semantic_capability_v2");
+    expect((await fixture.db.query(
+      "SELECT reason FROM provider_revocation_jobs WHERE grant_id = $1",
+      [fixture.grantId]
+    )).rows[0]?.reason).toBe("semantic_capability_v2");
+  });
+
   it("retires legacy scoped replicas and their notification authority", async () => {
     const fixture = await capabilityFixture();
     await fixture.db.query(

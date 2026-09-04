@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import {
+  APPLICATION_SETUP_OPERATIONS,
+  applicationOperationSelectionIsAtomic,
   areCollectionOperations,
   isCollectionOperation,
   MDBASE_TIMER_FIRED_CONTRACT,
-  operationRequiresTimerCriterion,
-  operationsForApplicationCapabilities
+  operationRequiresTimerCriterion
 } from "@mdbase-dev/connect-protocol";
 import type {
   ApplicationNotifications,
@@ -62,10 +63,17 @@ export function operationsAllowedByRequirements(
   requirements: ApplicationRequirements | null | undefined
 ): boolean {
   if (!areCollectionOperations(operations)) return false;
+  const setup = new Set<string>(APPLICATION_SETUP_OPERATIONS);
+  const requestedSetup = operations.filter((operation) => setup.has(operation));
+  if (
+    requestedSetup.length !== 0
+    && requestedSetup.length !== APPLICATION_SETUP_OPERATIONS.length
+  ) return false;
+  const semantic = operations.filter((operation) => !setup.has(operation));
   const declared = requirements?.capabilities;
-  if (!declared) return true;
-  const allowed = new Set(operationsForApplicationCapabilities(declared));
-  return operations.every((operation) => allowed.has(operation));
+  return declared
+    ? applicationOperationSelectionIsAtomic(declared, semantic)
+    : true;
 }
 
 export function assertOperationsAllowedByRequirements(
@@ -82,9 +90,31 @@ export function assertOperationsAllowedByRequirements(
 export function assertOperationsAllowedByApplication(
   operations: readonly string[],
   requirements: ApplicationRequirements | null | undefined,
-  notifications: ApplicationNotifications
+  notifications: ApplicationNotifications,
+  provisions: ApplicationProvisions = { type_packs: [] }
 ): void {
   assertOperationsAllowedByRequirements(operations, requirements);
+  const semanticOperations = operations.filter((operation) =>
+    !(APPLICATION_SETUP_OPERATIONS as readonly string[]).includes(operation)
+  );
+  if (!requirements?.capabilities && semanticOperations.length > 0) {
+    throw new RequestValidationError(
+      "Record operations require an application capability declaration."
+    );
+  }
+  const hasSetup = provisions.type_packs.length > 0
+    || (provisions.configuration?.length ?? 0) > 0;
+  const requestedSetup = operations.filter((operation) =>
+    (APPLICATION_SETUP_OPERATIONS as readonly string[]).includes(operation)
+  );
+  if (
+    (hasSetup && requestedSetup.length !== APPLICATION_SETUP_OPERATIONS.length)
+    || (!hasSetup && requestedSetup.length !== 0)
+  ) {
+    throw new RequestValidationError(
+      "Collection setup operations must exactly match the application's declared provisions."
+    );
+  }
   if (
     areCollectionOperations(operations)
     && operations.some(operationRequiresTimerCriterion)

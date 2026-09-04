@@ -160,7 +160,7 @@ describe("ConnectCollectionGateway recovery operations", () => {
       collectionId: "collection",
       displayName: "Notes",
       operations: ["read"],
-      missingCapabilities: ["records.update"],
+      missingCapabilities: ["records.edit"],
       authorityKind: "connector",
       directAccess: "unavailable"
       }
@@ -448,7 +448,7 @@ function injectConnection(
         directAccess: bound.directAccess!
       };
       const missingCapabilities = bound.authorizationCapabilities!().missingOperations
-        .map((operation) => operation === "update" ? "records.update" : operation);
+        .map((operation) => operation === "update" ? "records.edit" : operation);
       return {
         status: missingCapabilities.length ? "authorization_required" : "ready",
         collectionId: bound.collectionId!,

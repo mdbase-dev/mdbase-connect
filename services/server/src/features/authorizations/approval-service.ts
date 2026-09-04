@@ -9,6 +9,7 @@ import type {
   CollectionOperation,
   ContractRequirement,
   ContractSetupChoice,
+  FileAction,
   GrantEncryption,
   GrantPolicy
 } from "@mdbase-dev/connect-protocol";
@@ -59,6 +60,7 @@ export async function approvePortalAuthorization(
     offerId: string;
     collectionId: string;
     operations: CollectionOperation[];
+    fileActions?: FileAction[];
     contractSetups: ContractSetupChoice[];
   }
 ): Promise<boolean> {
@@ -125,7 +127,8 @@ export async function approvePortalAuthorization(
     assertOperationsAllowedByApplication(
       pending.requested_operations,
       pending.requirements,
-      pending.notifications
+      pending.notifications,
+      pending.provisions
     );
     if (pending.collection_id && pending.collection_id !== input.collectionId) {
       throw new RequestValidationError(
@@ -231,6 +234,7 @@ export async function approvePortalAuthorization(
       requestedOperations: input.operations,
       applicationOperationCeiling:
         pending.requested_operations as CollectionOperation[],
+      requestedFileActions: input.fileActions,
       requirements: pending.requirements,
       access: grantAccess
     });
@@ -373,6 +377,7 @@ export async function approvePortalAuthorization(
     const finalScope = planCollectionGrant({
       requestedOperations: grant!.operations,
       applicationOperationCeiling: grant!.operations,
+      requestedFileActions: grant!.file_capability?.actions,
       requirements,
       access: grantAccess!
     }).scope;
@@ -568,6 +573,7 @@ export async function approveHostedAuthorization(
     userId: string;
     collectionId: string;
     operations: CollectionOperation[];
+    fileActions?: FileAction[];
     contracts: CollectionContractDescriptor[];
     contractSetups: ContractSetupChoice[];
     access: CollectionAccessContext;
@@ -626,7 +632,8 @@ export async function approveHostedAuthorization(
     assertOperationsAllowedByApplication(
       pending.requested_operations,
       pending.requirements,
-      pending.notifications
+      pending.notifications,
+      pending.provisions
     );
     const hostedCollection = await connection.query(
       `SELECT id FROM hosted_collections
@@ -738,6 +745,7 @@ export async function approveHostedAuthorization(
       requestedOperations: input.operations,
       applicationOperationCeiling:
         pending.requested_operations as CollectionOperation[],
+      requestedFileActions: input.fileActions,
       requirements: pending.requirements,
       access: input.access
     });

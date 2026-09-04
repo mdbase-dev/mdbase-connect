@@ -45,3 +45,24 @@ export function capabilityOperations(
 ): CollectionOperation[] {
   return [...APPLICATION_CAPABILITY_DEFINITIONS[capability]];
 }
+
+export function applicationOperationSelectionIsAtomic(
+  requirements: ApplicationCapabilityRequirements,
+  operations: readonly string[]
+): boolean {
+  const selected = new Set(operations);
+  const declared = [...requirements.required, ...(requirements.optional ?? [])];
+  const allowed = new Set<string>(declared.flatMap(
+    (capability) => APPLICATION_CAPABILITY_DEFINITIONS[capability]
+  ));
+  if ([...selected].some((operation) => !allowed.has(operation))) {
+    return false;
+  }
+  return declared.every((capability) => {
+    const capabilityOperations = APPLICATION_CAPABILITY_DEFINITIONS[capability];
+    const count = capabilityOperations.filter((operation) => selected.has(operation)).length;
+    return requirements.required.includes(capability)
+      ? count === capabilityOperations.length
+      : count === 0 || count === capabilityOperations.length;
+  });
+}
