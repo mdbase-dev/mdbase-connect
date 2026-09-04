@@ -22,7 +22,7 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
-pub use timers::{perform_timer_operation, TimerOperationError};
+pub use timers::{cancel_grant_timers, perform_timer_operation, TimerOperationError};
 
 pub const NOTIFICATION_ACTION_ID: &str = "mdbase.connect.notification.signal";
 pub const NOTIFICATION_EXECUTOR_ID: &str = "connect-notifications";

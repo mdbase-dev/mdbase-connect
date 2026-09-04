@@ -4,9 +4,10 @@ use async_trait::async_trait;
 use mdbase_connect_core::{CollectionRegistry, ConnectError};
 use mdbase_connect_protocol::GrantSummary;
 use mdbase_connect_runtime::{
-    compose_notification_catalog, drain_notification_runtime, notification_event_envelope,
-    perform_timer_operation, successful_notification_outcome, AuthorityEvent, NotificationCatalog,
-    TimerOperationError, NOTIFICATION_EXECUTOR_ID, TIMER_EVENT_ID,
+    cancel_grant_timers, compose_notification_catalog, drain_notification_runtime,
+    notification_event_envelope, perform_timer_operation, successful_notification_outcome,
+    AuthorityEvent, NotificationCatalog, TimerOperationError, NOTIFICATION_EXECUTOR_ID,
+    TIMER_EVENT_ID,
 };
 use mdbase_runtime::{
     inspect_sqlite_recovery, ActionDispatch, ActionInvocation, ActionOutcome, ActionProvider,
@@ -29,6 +30,8 @@ pub fn start(
 ) -> (RuntimeTimerHandle, tokio::task::JoinHandle<()>) {
     let runtime_dir = state_dir.join("runtime");
     let (commands, mut command_rx) = tokio::sync::mpsc::unbounded_channel::<TimerCommand>();
+    let (cleanup_commands, mut cleanup_rx) =
+        tokio::sync::mpsc::unbounded_channel::<CleanupCommand>();
     let task = tokio::spawn(async move {
         if let Err(error) = std::fs::create_dir_all(&runtime_dir) {
             tracing::error!(%error, path = %runtime_dir.display(), "failed to create runtime state directory");
@@ -79,13 +82,30 @@ pub fn start(
                     };
                     let _ = command.response.send(result);
                 }
+                cleanup = cleanup_rx.recv() => {
+                    let Some(cleanup) = cleanup else { return; };
+                    let result = service.cleanup_orphaned_timers().await.map_err(|error| {
+                        TimerOperationError {
+                            code: error.code().to_string(),
+                            message: error.to_string(),
+                            internal: true,
+                        }
+                    });
+                    let _ = cleanup.response.send(result);
+                }
                 _ = recovery.tick() => {
                     service.recover().await;
                 }
             }
         }
     });
-    (RuntimeTimerHandle { commands }, task)
+    (
+        RuntimeTimerHandle {
+            commands,
+            cleanup_commands,
+        },
+        task,
+    )
 }
 
 struct TimerCommand {
@@ -96,12 +116,35 @@ struct TimerCommand {
     response: std::sync::mpsc::Sender<Result<Value, TimerOperationError>>,
 }
 
+struct CleanupCommand {
+    response: std::sync::mpsc::Sender<Result<usize, TimerOperationError>>,
+}
+
 #[derive(Clone)]
 pub struct RuntimeTimerHandle {
     commands: tokio::sync::mpsc::UnboundedSender<TimerCommand>,
+    cleanup_commands: tokio::sync::mpsc::UnboundedSender<CleanupCommand>,
 }
 
 impl RuntimeTimerHandle {
+    pub fn cleanup_orphaned_timers(&self) -> Result<usize, TimerOperationError> {
+        let (response, receiver) = std::sync::mpsc::channel();
+        self.cleanup_commands
+            .send(CleanupCommand { response })
+            .map_err(|_| TimerOperationError {
+                code: "timer_authority_unavailable".to_string(),
+                message: "The local timer authority is unavailable.".to_string(),
+                internal: true,
+            })?;
+        receiver
+            .recv_timeout(Duration::from_secs(30))
+            .map_err(|_| TimerOperationError {
+                code: "timer_authority_timeout".to_string(),
+                message: "The local timer authority did not respond in time.".to_string(),
+                internal: true,
+            })?
+    }
+
     pub fn operation(
         &self,
         collection_id: Uuid,
@@ -163,7 +206,43 @@ impl RuntimeNotificationService {
         drain_runtime(runtime).await
     }
 
+    async fn cleanup_orphaned_timers(&mut self) -> mdbase_runtime::RuntimeResult<usize> {
+        let mut active = HashMap::<Uuid, HashSet<Uuid>>::new();
+        for grant in self
+            .local_registry
+            .list_grants()
+            .map_err(|error| mdbase_runtime::RuntimeError::Store(error.to_string()))?
+        {
+            active
+                .entry(grant.collection_id)
+                .or_default()
+                .insert(grant.id);
+        }
+        let mut candidates = runtime_file_ids(&self.runtime_dir);
+        candidates.extend(self.runtimes.keys().copied());
+        let mut cancelled = 0;
+        for collection_id in candidates {
+            let active_grants = active.get(&collection_id);
+            let runtime = self.runtime(collection_id)?;
+            let owners = runtime
+                .timers("connect:")
+                .await?
+                .into_iter()
+                .filter_map(|timer| timer_grant_id(&timer.id))
+                .filter(|grant_id| active_grants.is_none_or(|ids| !ids.contains(grant_id)))
+                .collect::<HashSet<_>>();
+            for grant_id in owners {
+                cancelled += cancel_grant_timers(runtime, grant_id).await?;
+            }
+        }
+        Ok(cancelled)
+    }
+
     async fn recover(&mut self) {
+        if let Err(error) = self.cleanup_orphaned_timers().await {
+            tracing::warn!(code = error.code(), %error, "orphaned notification timer cleanup deferred");
+            return;
+        }
         let grants = match notification_grants_by_collection(&self.local_registry) {
             Ok(grants) => grants,
             Err(error) => {
@@ -432,28 +511,43 @@ impl DispatchAuthorizer for LocalNotificationAuthorizer {
     }
 }
 
+fn timer_grant_id(timer_id: &str) -> Option<Uuid> {
+    let remainder = timer_id.strip_prefix("connect:")?;
+    let (grant_id, owned_suffix) = remainder.split_once(':')?;
+    if owned_suffix.is_empty() {
+        return None;
+    }
+    Uuid::parse_str(grant_id).ok()
+}
+
 fn runtime_path(runtime_dir: &Path, collection_id: Uuid) -> PathBuf {
     runtime_dir.join(format!("{collection_id}.sqlite"))
 }
 
+fn runtime_file_ids(runtime_dir: &Path) -> HashSet<Uuid> {
+    let Ok(entries) = std::fs::read_dir(runtime_dir) else {
+        return HashSet::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            (path.extension().and_then(|value| value.to_str()) == Some("sqlite"))
+                .then(|| {
+                    path.file_stem()
+                        .and_then(|value| value.to_str())
+                        .and_then(|value| Uuid::parse_str(value).ok())
+                })
+                .flatten()
+        })
+        .collect()
+}
+
 fn recoverable_runtime_ids(runtime_dir: &Path) -> HashSet<Uuid> {
     let mut recoverable = HashSet::new();
-    let Ok(entries) = std::fs::read_dir(runtime_dir) else {
-        return recoverable;
-    };
     let now = chrono::Utc::now();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|value| value.to_str()) != Some("sqlite") {
-            continue;
-        }
-        let Some(collection_id) = path
-            .file_stem()
-            .and_then(|value| value.to_str())
-            .and_then(|value| Uuid::parse_str(value).ok())
-        else {
-            continue;
-        };
+    for collection_id in runtime_file_ids(runtime_dir) {
+        let path = runtime_path(runtime_dir, collection_id);
         match inspect_sqlite_recovery(&path, now) {
             Ok(state) if state.has_work() => {
                 recoverable.insert(collection_id);

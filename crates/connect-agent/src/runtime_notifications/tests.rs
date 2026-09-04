@@ -349,6 +349,54 @@ async fn private_watcher_event_becomes_only_an_opaque_cloud_signal() {
     assert!(!encoded.contains("private-reminder"));
     assert!(!encoded.contains("timer-state-stays-local"));
 
+    let timer_grant = service
+        .local_registry
+        .grant_context(grant_id)
+        .unwrap()
+        .unwrap();
+    {
+        let catalog = compose_catalog(std::slice::from_ref(&timer_grant), collection.id).unwrap();
+        let runtime = service.runtime(collection.id).unwrap();
+        perform_timer_operation(
+            runtime,
+            &catalog,
+            &timer_grant,
+            "put_timer",
+            json!({
+                "namespace": "reminders",
+                "criterion_id": "reminder.due",
+                "timer": {
+                    "id": "revoked-reminder",
+                    "fire_at": (chrono::Utc::now() - chrono::TimeDelta::seconds(1)).to_rfc3339(),
+                    "data": {}
+                }
+            }),
+        )
+        .await
+        .unwrap();
+    }
+    service.local_registry.replace_grants(&[]).unwrap();
+    service.recover().await;
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), signal_rx.recv())
+            .await
+            .is_err(),
+        "a revoked grant's due timer must be cancelled before recovery dispatch"
+    );
+    let timers = service
+        .runtime(collection.id)
+        .unwrap()
+        .timers(&format!("connect:{grant_id}:"))
+        .await
+        .unwrap();
+    assert!(timers
+        .iter()
+        .any(|timer| matches!(timer.status, mdbase_runtime::TimerStatus::Cancelled)));
+    assert!(timers.iter().all(|timer| matches!(
+        timer.status,
+        mdbase_runtime::TimerStatus::Cancelled | mdbase_runtime::TimerStatus::Fired
+    )));
+
     service
         .local_registry
         .set_enabled(collection.id, false)
@@ -457,9 +505,10 @@ async fn timer_handle_reconciles_through_the_running_local_authority() {
         .unwrap();
     let grant = registry.grant_context(grant_id).unwrap().unwrap();
     let (events, event_rx) = tokio::sync::mpsc::unbounded_channel();
-    let (timers, task) = start(state_dir.path(), registry, None, event_rx);
+    let (timers, task) = start(state_dir.path(), registry.clone(), None, event_rx);
+    let operation_timers = timers.clone();
     let result = tokio::task::spawn_blocking(move || {
-        timers.operation(
+        operation_timers.operation(
             collection.id,
             grant,
             "reconcile_timers",
@@ -468,7 +517,7 @@ async fn timer_handle_reconciles_through_the_running_local_authority() {
                 "criterion_id": "task.reminder",
                 "timers": [{
                     "id": "task-a:reminder-a",
-                    "fire_at": "2026-07-26T00:00:00Z"
+                    "fire_at": "2099-07-26T00:00:00Z"
                 }]
             }),
         )
@@ -477,6 +526,13 @@ async fn timer_handle_reconciles_through_the_running_local_authority() {
     .unwrap()
     .unwrap();
     assert_eq!(result["timers"][0]["id"], "task-a:reminder-a");
+    registry.replace_grants(&[]).unwrap();
+    assert!(registry.grant_context(grant_id).unwrap().is_none());
+    let cancelled = tokio::task::spawn_blocking(move || timers.cleanup_orphaned_timers())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(cancelled, 1);
     drop(events);
     task.abort();
     let _ = task.await;
