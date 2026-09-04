@@ -1,5 +1,6 @@
 use super::*;
 use crate::output::render_human;
+use mdbase_connect_protocol::COLLECTION_OPERATIONS;
 
 #[test]
 fn parser_keeps_data_and_connect_namespaces_unambiguous() {
@@ -244,10 +245,23 @@ fn hosted_cli_timer_operations_are_not_authorizable() {
     assert!(defaults.iter().any(|operation| operation == "create"));
     assert!(!defaults
         .iter()
-        .any(|operation| operation == "collection.setup.apply"));
+        .any(|operation| operation == "apply_collection_setup"));
     assert!(!defaults
         .iter()
         .any(|operation| mdbase_connect_protocol::operation_requires_timer_criterion(operation)));
+    let read_only = hosted_cli_authorization_operations(Vec::new(), true).unwrap();
+    assert_eq!(
+        read_only,
+        mdbase_connect_protocol::application_capability_operations("collection.read")
+            .unwrap()
+            .iter()
+            .map(|operation| operation.to_string())
+            .collect::<Vec<_>>()
+    );
+    let create = hosted_cli_authorization_operations(vec!["create".to_string()], false).unwrap();
+    assert!(create.iter().any(|operation| operation == "describe"));
+    assert!(create.iter().any(|operation| operation == "create"));
+    assert!(!create.iter().any(|operation| operation == "update"));
 
     for operation in COLLECTION_OPERATIONS
         .iter()
@@ -260,7 +274,7 @@ fn hosted_cli_timer_operations_are_not_authorizable() {
     }
 
     let setup =
-        hosted_cli_authorization_operations(vec!["collection.setup.apply".to_string()], false)
+        hosted_cli_authorization_operations(vec!["apply_collection_setup".to_string()], false)
             .unwrap_err();
     assert_eq!(setup.code, "unsupported_cli_operation");
 }

@@ -1,34 +1,27 @@
-import {
-  groupAuthorizationOperations
-} from "@mdbase/connect-ui/access";
 import React from "react";
+import type { RequestCapabilityGroup } from "./application-capabilities";
 
 export function RequestPermissionChoices({ groups, selected, onChange }: {
-  groups: ReturnType<typeof groupAuthorizationOperations>;
+  groups: RequestCapabilityGroup[];
   selected: string[];
   onChange(value: string[]): void;
 }) {
   const selectedSet = new Set(selected);
-  const total = groups.reduce((count, group) => count + group.operations.length, 0);
-  const selectedTotal = groups.reduce(
-    (count, group) =>
-      count + group.operations.filter((operation) => selectedSet.has(operation.id)).length,
-    0
-  );
   const selectedGroups = groups.filter((group) =>
-    group.operations.some((operation) => selectedSet.has(operation.id))
+    group.operations.every((operation) => selectedSet.has(operation))
   );
-  function toggle(operation: string, checked: boolean) {
+  function toggle(group: RequestCapabilityGroup, checked: boolean) {
+    const groupOperations = new Set(group.operations);
     onChange(checked
-      ? [...selected, operation]
-      : selected.filter((value) => value !== operation));
+      ? [...new Set([...selected, ...group.operations])]
+      : selected.filter((operation) => !groupOperations.has(operation)));
   }
   return (
     <details className="request-permission-review">
       <summary>
         <span>
           <strong>{selectedGroups.map((group) => group.label).join(" · ")}</strong>
-          <small>{selectedTotal} of {total} specific actions selected. Open details to narrow access.</small>
+          <small>{selectedGroups.length} of {groups.length} capabilities enabled. Optional capabilities can only be removed as complete groups.</small>
         </span>
         <b>Details</b>
       </summary>
@@ -36,12 +29,15 @@ export function RequestPermissionChoices({ groups, selected, onChange }: {
         <fieldset key={group.id}>
           <legend>{group.label}</legend>
           <p>{group.description}</p>
-          <div>{group.operations.map((operation) => (
-            <label key={operation.id}>
-              <input type="checkbox" checked={selectedSet.has(operation.id)} onChange={(event) => toggle(operation.id, event.target.checked)} />
-              <span>{operation.label}</span>
-            </label>
-          ))}</div>
+          <div><label>
+            <input
+              type="checkbox"
+              checked={group.operations.every((operation) => selectedSet.has(operation))}
+              disabled={group.required}
+              onChange={(event) => toggle(group, event.target.checked)}
+            />
+            <span>{group.required ? "Required by this application" : "Allow this capability"}</span>
+          </label></div>
         </fieldset>
       ))}</div>
     </details>

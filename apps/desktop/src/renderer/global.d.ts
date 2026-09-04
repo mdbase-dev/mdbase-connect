@@ -46,12 +46,22 @@ interface CollectionTypeDescriptor {
   schema: Record<string, unknown>;
 }
 
+type ApplicationCapabilityId =
+  | "collection.read" | "records.create" | "records.edit" | "records.delete"
+  | "views.manage" | "definitions.manage" | "background.schedule" | "offline.replica";
+
 interface ApplicationRequirements {
   contracts: ContractRequirement[];
+  capabilities?: {
+    contract_version: 2;
+    required: ApplicationCapabilityId[];
+    optional?: ApplicationCapabilityId[];
+  };
   access?: "contract" | "full_collection";
   collection_kind?: "hosted";
   files?: {
-    actions: Array<"list" | "read" | "add" | "replace" | "move" | "delete">;
+    required: Array<"list" | "read" | "add" | "replace" | "move" | "delete">;
+    optional?: Array<"list" | "read" | "add" | "replace" | "move" | "delete">;
     scope:
       | { kind: "selected_folders"; folders: string[] }
       | { kind: "collection" };
@@ -156,6 +166,7 @@ interface GrantSummary {
   collection_name: string;
   collection_kind?: "local" | "hosted";
   operations: string[];
+  requirements: ApplicationRequirements;
   scope: GrantScope;
   created_at: string;
   revocation_status?: "active" | "revoking" | "revoked";

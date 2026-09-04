@@ -21,8 +21,8 @@ const CLI_APPLICATION_MANIFEST = {
     contracts: [],
     capabilities: {
       contract_version: 2,
-      required: [
-        "collection.read",
+      required: ["collection.read"],
+      optional: [
         "records.create",
         "records.edit",
         "records.delete",

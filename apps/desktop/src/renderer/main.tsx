@@ -5,7 +5,6 @@ import "@fontsource/azeret-mono/latin-500.css";
 import "@fontsource/azeret-mono/latin-600.css";
 import {
   groupApplicationAccess,
-  groupAuthorizationOperations,
   type ApplicationAccessGroup
 } from "@mdbase/connect-ui/access";
 import "@mdbase/connect-ui/styles.css";
@@ -31,6 +30,7 @@ import {
   type AuthorityTransferReceipt as TransferReceipt
 } from "./onboarding-state.mjs";
 import { RequestPermissionChoices } from "./authorization-components";
+import { requestCapabilityGroups } from "./application-capabilities";
 import { ConnectionProgress, Overview } from "./overview-view";
 import { singleFlight } from "./single-flight.mjs";
 import {
@@ -597,14 +597,12 @@ function GrantEditor({ grant, busy, onAct, onNotice }: { grant: GrantSummary; bu
   const [operations, setOperations] = useState(grant.operations);
   const allowedOperations = grant.operations;
   const permissionGroups = useMemo(
-    () => groupAuthorizationOperations(allowedOperations),
-    [allowedOperations]
+    () => requestCapabilityGroups(grant.requirements, allowedOperations),
+    [allowedOperations, grant.requirements]
   );
-  const selectedPermissionCount = permissionGroups.reduce(
-    (count, group) =>
-      count + group.operations.filter((operation) => operations.includes(operation.id)).length,
-    0
-  );
+  const selectedPermissionCount = permissionGroups.filter((group) =>
+    group.operations.every((operation) => operations.includes(operation))
+  ).length;
   const changed = useMemo(() => [...operations].sort().join(",") !== [...grant.operations].sort().join(","), [operations, grant.operations]);
   useEffect(() => setOperations(grant.operations), [grant.operations]);
   const authority = grant.collection_kind === "hosted" ? "Hosted by mdbase" : "On this computer";
@@ -619,7 +617,7 @@ function GrantEditor({ grant, busy, onAct, onNotice }: { grant: GrantSummary; bu
       <div className="grant-identity"><p className="eyebrow">{authority}</p><h3>{grant.collection_name}</h3><code>{grant.application_distribution === "portable" ? "Downloaded file · encrypted access" : host(grant.application_origin || grant.application_homepage)}</code><small>Connected {relativeTime(grant.created_at)}</small><small>Entire collection</small></div>
       <div className="request-decision">
         <section className="request-section">
-          <div><strong>Permissions</strong><small>You can remove previously approved actions here. An application must request any additional access separately.</small></div>
+          <div><strong>Permissions</strong><small>You can remove optional capability groups here. An application must request any additional access separately.</small></div>
           <RequestPermissionChoices groups={permissionGroups} selected={operations} onChange={setOperations} />
         </section>
         <footer className="request-footer">

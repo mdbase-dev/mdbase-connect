@@ -28,7 +28,7 @@ use mdbase_connect_protocol::{
     HostedConnectionAuthorizationPollParams, HostedConnectionAuthorizationStatus,
     HostedConnectionAuthorizeParams, MirrorAddParams, MirrorApplyParams,
     MirrorConfigureSelectiveSyncParams, MirrorIdParams, MirrorResolution, MirrorResolveParams,
-    SyncReplicaMode, COLLECTION_OPERATIONS, LOCAL_CONTROL_PROTOCOL_VERSION,
+    SyncReplicaMode, LOCAL_CONTROL_PROTOCOL_VERSION,
 };
 use serde_json::Value;
 use std::io::IsTerminal;
@@ -568,12 +568,11 @@ fn hosted_cli_authorization_operations(
     operations: Vec<String>,
     read_only: bool,
 ) -> Result<Vec<String>, CliError> {
-    if operations
-        .iter()
-        .any(|operation| operation == "collection.setup.apply")
-    {
+    if operations.iter().any(|operation| {
+        mdbase_connect_protocol::APPLICATION_SETUP_OPERATIONS.contains(&operation.as_str())
+    }) {
         return Err(CliError::unsupported_cli_operation(
-            "The mdbase CLI cannot request collection.setup.apply because it declares no setup provisions.",
+            "The mdbase CLI cannot request collection setup operations because it declares no setup provisions.",
         ));
     }
     if let Some(operation) = operations
@@ -584,21 +583,47 @@ fn hosted_cli_authorization_operations(
             "The mdbase CLI cannot request {operation} because it has no timer notification criteria."
         )));
     }
-    if !operations.is_empty() {
-        return Ok(operations);
-    }
-    Ok(COLLECTION_OPERATIONS
+    let requested_capabilities: Vec<&str> = if operations.is_empty() {
+        mdbase_connect_protocol::APPLICATION_CAPABILITY_IDS
+            .iter()
+            .copied()
+            .filter(|capability| {
+                *capability != "background.schedule"
+                    && (!read_only || *capability == "collection.read")
+            })
+            .collect()
+    } else {
+        let mut selected = vec!["collection.read"];
+        for operation in &operations {
+            let capability = mdbase_connect_protocol::APPLICATION_CAPABILITY_IDS
+                .iter()
+                .copied()
+                .find(|capability| {
+                    mdbase_connect_protocol::application_capability_operations(capability)
+                        .is_some_and(|group| group.contains(&operation.as_str()))
+                })
+                .ok_or_else(|| {
+                    CliError::unsupported_cli_operation(format!(
+                        "The mdbase CLI cannot request the unknown {operation} operation."
+                    ))
+                })?;
+            if !selected.contains(&capability) {
+                selected.push(capability);
+            }
+        }
+        selected
+    };
+    Ok(mdbase_connect_protocol::APPLICATION_CAPABILITY_IDS
         .iter()
-        .filter(|operation| {
-            !mdbase_connect_protocol::operation_requires_timer_criterion(operation)
-                && **operation != "collection.setup.apply"
-                && (!read_only
-                    || (**operation != "sync"
-                        && !mdbase_connect_protocol::MUTATING_OPERATION_IDENTIFIERS
-                            .iter()
-                            .any(|mutation| mutation.split(':').next() == Some(**operation))))
+        .copied()
+        .filter(|capability| requested_capabilities.contains(capability))
+        .flat_map(|capability| {
+            mdbase_connect_protocol::application_capability_operations(capability)
+                .unwrap_or_default()
+                .iter()
+                .copied()
         })
-        .map(|operation| (*operation).to_string())
+        .map(str::to_string)
         .collect())
 }
 

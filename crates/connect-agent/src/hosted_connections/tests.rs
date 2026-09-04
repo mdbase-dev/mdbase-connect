@@ -431,9 +431,13 @@ async fn test_register_application(
     assert_eq!(body["manifest"]["distribution"], "portable");
     assert_eq!(
         body["manifest"]["requirements"]["capabilities"]["required"],
-        json!(CLI_APPLICATION_CAPABILITIES)
+        json!(CLI_APPLICATION_REQUIRED_CAPABILITIES)
     );
-    assert!(!CLI_APPLICATION_CAPABILITIES.contains(&"collection.setup.apply"));
+    assert_eq!(
+        body["manifest"]["requirements"]["capabilities"]["optional"],
+        json!(CLI_APPLICATION_OPTIONAL_CAPABILITIES)
+    );
+    assert!(!CLI_APPLICATION_OPTIONAL_CAPABILITIES.contains(&"background.schedule"));
     assert!(body["manifest"]["notifications"].is_null());
     Json(json!({
         "application": {

@@ -33,8 +33,8 @@ use uuid::Uuid;
 const REGISTRY_VERSION: u32 = 1;
 const CLI_APPLICATION_ID: &str = "dev.mdbase.cli";
 const CLI_APPLICATION_NAME: &str = "mdbase CLI";
-const CLI_APPLICATION_CAPABILITIES: &[&str] = &[
-    "collection.read",
+const CLI_APPLICATION_REQUIRED_CAPABILITIES: &[&str] = &["collection.read"];
+const CLI_APPLICATION_OPTIONAL_CAPABILITIES: &[&str] = &[
     "records.create",
     "records.edit",
     "records.delete",
@@ -817,7 +817,8 @@ impl HostedConnectionManager {
                         "contracts": [],
                         "capabilities": {
                             "contract_version": 2,
-                            "required": CLI_APPLICATION_CAPABILITIES
+                            "required": CLI_APPLICATION_REQUIRED_CAPABILITIES,
+                            "optional": CLI_APPLICATION_OPTIONAL_CAPABILITIES
                         }
                     }
                 }
