@@ -241,9 +241,13 @@ export function Authorization({ requestId }: { requestId: string }) {
 }
 
 export function RequestIdentity({ request, large = false }: { request: PendingAuthorization; large?: boolean }) {
+  const [failedIcon, setFailedIcon] = useState<string | null>(null);
+
   return (
     <div className={`request-identity ${large ? "large" : ""}`}>
-      <span aria-hidden="true">{initials(request.application_name)}</span>
+      <span className="request-identity-mark" aria-hidden="true">{request.icon && request.icon !== failedIcon
+        ? <img src={request.icon} alt="" referrerPolicy="no-referrer" onError={() => setFailedIcon(request.icon)} />
+        : initials(request.application_name)}</span>
       <div>
         {large ? <h1>{request.application_name}</h1> : <strong>{request.application_name}</strong>}
         <small className="request-metadata">{request.distribution === "portable"

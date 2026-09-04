@@ -2972,11 +2972,18 @@ select {
   place-items: center;
   width: 3.25rem;
   height: 3.25rem;
+  overflow: hidden;
   color: oklch(99% 0 0);
   background: var(--accent-dark);
   border-radius: 0.8rem;
   font-size: 1.15rem;
   font-weight: 700;
+}
+
+.approval-page .request-identity-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .approval-page .request-identity.large h1 {

@@ -292,7 +292,13 @@ async function auditPortalColdStartAuthorization() {
   const page = await browser.newPage();
   const errors = watchPageErrors(page);
   const requestId = "22222222-2222-4222-8222-222222222222";
-  const authorization = portalAuthorizationFixture(requestId);
+  const authorization = { ...portalAuthorizationFixture(requestId), icon: "https://journal.example/icon.png" };
+  await page.route("https://journal.example/icon.png", async (route) => {
+    await route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#245f84"/><path fill="white" d="M16 18h8l8 25 8-25h8L36 50h-8z"/></svg>'
+    });
+  });
   await page.route("**/v1/**", async (route) => {
     const pathname = new URL(route.request().url()).pathname;
     if (pathname === `/v1/authorization-requests/${requestId}`) {
@@ -330,6 +336,12 @@ async function auditPortalColdStartAuthorization() {
   });
   await page.goto(`${servers[0].origin}/authorize/${requestId}`);
   await page.getByRole("heading", { name: "Workout journal" }).waitFor();
+  const applicationIcon = page.locator('.request-identity-mark img[src="https://journal.example/icon.png"]');
+  await applicationIcon.waitFor();
+  assert.equal(await applicationIcon.getAttribute("referrerpolicy"), "no-referrer", "portal authorization: application icons do not send the approval-page referrer");
+  await applicationIcon.evaluate((element) => element.dispatchEvent(new Event("error")));
+  assert.equal(await applicationIcon.count(), 0, "portal authorization: a failed application icon is removed");
+  assert.equal(await page.locator(".request-identity-mark").textContent(), "WJ", "portal authorization: initials replace a failed application icon");
   const reviewAccess = page.getByRole("button", { name: "Review access" });
   assert.equal(await reviewAccess.isDisabled(), true, "portal authorization: multiple collections require a deliberate choice");
   assert.equal(await page.getByRole("radio").count(), 2, "portal authorization: compatible collections are visible");
