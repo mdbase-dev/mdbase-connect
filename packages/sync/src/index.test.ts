@@ -451,7 +451,7 @@ describe("hosted sync vertical slice", () => {
     });
   });
 
-  it("persists causal rebasing across an interrupted multi-mutation upload", async () => {
+  it.each([false, true])("preserves pending edits across an interrupted upload and restart (replayed receipt: %s)", async (replayed) => {
     const hosted = authority();
     hosted.registerReplica({ id: ids.writer, name: "Android", mode: "read_write", allowedTypes: ["task"] });
     const replicaStore = store(ids.writer);
@@ -462,6 +462,7 @@ describe("hosted sync vertical slice", () => {
       mutate: async (mutation: SyncMutation) => {
         calls += 1;
         if (calls === 2) throw new SyncError("offline", "Network interrupted.");
+        if (calls === 1 && replayed) await upstream.mutate(mutation);
         return upstream.mutate(mutation);
       }
     };
@@ -479,11 +480,49 @@ describe("hosted sync vertical slice", () => {
       base_revision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/)
     });
     expect(remaining[0].causal_predecessor).toBeUndefined();
+    expect((await first.records())[0].frontmatter.status).toBe("done");
 
     const restarted = new OfflineReplica(upstream, replicaStore);
+    expect((await restarted.records())[0].frontmatter.status).toBe("done");
+    await restarted.queueUpdate({ recordId: ids.record, patch: { title: "Two" } });
     await restarted.sync();
     expect(await restarted.pending()).toEqual([]);
-    expect((await restarted.records())[0].frontmatter.status).toBe("done");
+    expect((await restarted.records())[0].frontmatter).toMatchObject({ title: "Two", status: "done" });
+    const reader = new OfflineReplica(upstream, store(ids.writer));
+    await reader.initialize();
+    expect((await reader.records())[0].frontmatter).toMatchObject({ title: "Two", status: "done" });
+  });
+
+  it.each(["rename", "delete"] as const)("preserves a pending %s after an interrupted upload", async (operation) => {
+    const hosted = authority();
+    hosted.registerReplica({ id: ids.writer, name: "Android", mode: "read_write", allowedTypes: ["task"] });
+    const upstream = hosted.transport(ids.writer);
+    let calls = 0;
+    const replica = new OfflineReplica({
+      ...upstream,
+      mutate: async (mutation: SyncMutation) => {
+        if (++calls === 2) throw new SyncError("offline", "Network interrupted.");
+        return upstream.mutate(mutation);
+      }
+    }, store(ids.writer));
+    await replica.initialize();
+    await replica.queueCreate({
+      recordId: ids.record, path: "tasks/one.md",
+      frontmatter: { type: "task", title: "One" }, types: ["task"]
+    });
+    if (operation === "rename") {
+      await replica.queueRename({ recordId: ids.record, path: "tasks/renamed.md" });
+    } else {
+      await replica.queueDelete({ recordId: ids.record });
+    }
+    const optimistic = await replica.records();
+    await expect(replica.sync()).rejects.toMatchObject({ code: "offline" });
+    expect(await replica.records()).toEqual(optimistic);
+    await replica.sync();
+    expect(await replica.pending()).toEqual([]);
+    expect((await replica.records()).map((record) => record.path)).toEqual(
+      operation === "rename" ? ["tasks/renamed.md"] : []
+    );
   });
 
   it("serializes concurrent local writes and supports optimistic rename and delete", async () => {

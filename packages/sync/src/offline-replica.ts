@@ -320,7 +320,13 @@ export class OfflineReplica<Frontmatter extends JsonObject = JsonObject> {
             }
           }
         }
-        if (receipt.record) data.records[receipt.record.record_id] = clone(receipt.record);
+        // A receipt acknowledges this mutation, not any later local edits.
+        // Persist their overlay too so interrupted uploads remain editable.
+        const records = applyPendingOverlay(
+          receipt.record ? { [queued.record_id]: receipt.record } : {},
+          data.pending.filter((pending) => pending.record_id === queued.record_id)
+        );
+        if (records[queued.record_id]) data.records[queued.record_id] = records[queued.record_id];
         else delete data.records[queued.record_id];
       } else if (receipt.status === "conflicted") {
         data.conflicts[queued.record_id] = clone(receipt);
