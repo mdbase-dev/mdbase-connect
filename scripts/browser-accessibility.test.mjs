@@ -335,7 +335,14 @@ async function auditPortalColdStartAuthorization() {
   assert.equal(await page.getByRole("radio").count(), 2, "portal authorization: compatible collections are visible");
   assert.equal(await page.getByRole("radio", { checked: true }).count(), 0, "portal authorization: no ambiguous collection is preselected");
   assert.equal(await page.getByText("Delete records", { exact: true }).count(), 0, "portal authorization: permissions wait until collection choice");
-  await page.getByText("Need a different collection?", { exact: true }).click();
+  const selectionHelp = page.getByText("Select a collection to continue.", { exact: true });
+  await selectionHelp.waitFor();
+  assert.equal(
+    await reviewAccess.getAttribute("aria-describedby"),
+    await selectionHelp.getAttribute("id"),
+    "portal authorization: the disabled continuation explains how to proceed"
+  );
+  await page.getByText("Add or connect another collection", { exact: true }).click();
   const localFolder = page.getByRole("link", { name: "Use a local folder" });
   assert.equal(
     await localFolder.getAttribute("href"),
@@ -354,23 +361,58 @@ async function auditPortalColdStartAuthorization() {
   );
   await auditPage(page, "portal desktop continuation", { keyboard: true });
   await page.getByRole("button", { name: "Review in this browser" }).click();
-  await page.getByText("Need a different collection?", { exact: true }).click();
+  await page.getByText("Add or connect another collection", { exact: true }).click();
   await localFolder.waitFor();
   assert.equal(
     new URL(page.url()).searchParams.has("continue_in_desktop"),
     false,
     "portal authorization: browser review remains available"
   );
-  await page.getByRole("radio", { name: /Personal notes.*Home computer/ }).check();
+  const createHosted = page.getByRole("button", { name: "Create hosted collection" });
+  await createHosted.click();
+  assert.equal(await page.getByLabel("New collection name").evaluate((element) => document.activeElement === element), true, "portal authorization: hosted collection form receives focus");
+  await page.getByRole("button", { name: "Cancel" }).click();
+  assert.equal(await createHosted.evaluate((element) => document.activeElement === element), true, "portal authorization: cancelling hosted collection creation restores focus");
+  const personalNotesChoice = page.getByRole("radio", { name: /Personal notes.*Home computer/ });
+  const personalNotesRow = personalNotesChoice.locator("xpath=..");
+  assert.equal(await personalNotesRow.evaluate((element) => getComputedStyle(element).cursor), "pointer", "portal authorization: the full collection row is visibly selectable");
+  assert.equal(await personalNotesRow.evaluate((element) => element.getBoundingClientRect().height >= 68), true, "portal authorization: collection rows have deliberate full-row presence");
+  await personalNotesChoice.focus();
+  await page.keyboard.press("ArrowDown");
+  const sharedNotesChoice = page.getByRole("radio", { name: /Shared notes.*Hosted by mdbase/ });
+  assert.equal(await sharedNotesChoice.evaluate((element) => document.activeElement === element), true, "portal authorization: native arrow-key radio navigation is preserved");
+  assert.equal(await sharedNotesChoice.isChecked(), true, "portal authorization: keyboard navigation updates the native selection");
+  await page.keyboard.press("ArrowUp");
+  assert.equal(await personalNotesChoice.isChecked(), true, "portal authorization: keyboard navigation can return to the first collection");
+  await page.getByText("Personal notes", { exact: true }).click();
+  assert.equal(await personalNotesChoice.isChecked(), true, "portal authorization: clicking collection copy selects its radio");
+  assert.equal(await selectionHelp.count(), 0, "portal authorization: selection guidance clears after choosing a collection");
   await reviewAccess.click();
   await page.getByText("View and find records", { exact: true }).first().waitFor();
   await page.getByText("Create and edit records", { exact: true }).first().waitFor();
   await page.getByText("Delete records", { exact: true }).first().waitFor();
   assert.equal(await page.getByText("Higher impact", { exact: true }).count(), 0, "portal authorization: exact operation names do not need impact badges");
+  const permissionColumns = await page.locator(".approval-page .permission-groups").first().evaluate(
+    (element) => getComputedStyle(element).gridTemplateColumns.trim().split(/\s+/u).length
+  );
+  assert.equal(permissionColumns, 1, "portal authorization: permission review follows one calm reading column");
   await page.reload();
   await page.getByText("Personal notes", { exact: true }).first().waitFor();
   await page.getByText("Delete records", { exact: true }).first().waitFor();
-  assert.equal(await page.getByRole("button", { name: "Allow Workout journal" }).count(), 1, "portal authorization: review state survives refresh");
+  const allowAccess = page.getByRole("button", { name: "Allow access" });
+  assert.equal(await allowAccess.count(), 1, "portal authorization: review state survives refresh with a stable action label");
+  assert.equal(await allowAccess.evaluate((element) => getComputedStyle(element).textDecorationLine), "none", "portal authorization: committing actions do not look like hyperlinks");
+  assert.equal(await allowAccess.evaluate((element) => element.getBoundingClientRect().height >= 44), true, "portal authorization: text actions retain a full touch target");
+  await allowAccess.focus();
+  assert.equal(await allowAccess.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return style.outlineStyle !== "none" || style.boxShadow !== "none";
+  }), true, "portal authorization: restrained text actions retain visible keyboard focus");
+  await page.getByRole("button", { name: "Change" }).click();
+  assert.equal(await personalNotesChoice.evaluate((element) => document.activeElement === element), true, "portal authorization: changing the collection restores focus to the selected choice");
+  assert.equal(await page.getByRole("radio", { checked: true }).count(), 1, "portal authorization: changing the collection preserves exactly one selection");
+  await reviewAccess.click();
+  await allowAccess.waitFor();
   await auditPage(page, "portal application access review", { keyboard: true });
   const approvalFontSizes = await page.locator(".approval-page :is(h1, h2, p, small, strong, label, button, summary, li, span, code)").evaluateAll(
     (elements) => [...new Set(elements.map((element) => getComputedStyle(element).fontSize))]
@@ -395,7 +437,22 @@ async function auditPortalColdStartAuthorization() {
     true,
     "portal authorization: narrow view does not overflow horizontally"
   );
+  const footerClearsPermissions = await page.evaluate(() => {
+    const footer = document.querySelector(".approval-footer");
+    const deleteChoice = [...document.querySelectorAll(".permission-group label")]
+      .find((element) => element.textContent?.trim() === "Delete records");
+    return footer instanceof HTMLElement
+      && deleteChoice instanceof HTMLElement
+      && footer.getBoundingClientRect().top >= deleteChoice.getBoundingClientRect().bottom;
+  });
+  assert.equal(footerClearsPermissions, true, "portal authorization: sticky actions do not obscure the final permission");
   await auditPage(page, "portal application access review mobile", { keyboard: true });
+  await page.setViewportSize({ width: 320, height: 640 });
+  assert.equal(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    true,
+    "portal authorization: compact mobile view does not overflow horizontally"
+  );
   assert.deepEqual(errors, []);
   await page.close();
 }

@@ -518,8 +518,13 @@ export function ApprovalForm({
   ));
   const [submitting, setSubmitting] = useState<"approved" | "denied" | "creating" | null>(null);
   const [creatingHosted, setCreatingHosted] = useState(false);
+  const [showAlternateCollections, setShowAlternateCollections] = useState(false);
   const [collectionName, setCollectionName] = useState("");
   const [error, setError] = useState("");
+  const collectionChoicesRef = useRef<HTMLFieldSetElement>(null);
+  const createHostedTriggerRef = useRef<HTMLButtonElement>(null);
+  const focusCollectionOnReturn = useRef(false);
+  const focusHostedTriggerOnCancel = useRef(false);
   const selected = compatible.find((choice) => choice.collection.id === collectionId)?.collection;
   const setup = selected ? neededProvisions(request, selected) : [];
   const configurationSetup = request.provisions.configuration ?? [];
@@ -570,6 +575,20 @@ export function ApprovalForm({
       reviewing
     });
   }, [collectionConfirmed, collectionId, operations, request.id, reviewing]);
+
+  useEffect(() => {
+    if (!reviewing && focusCollectionOnReturn.current) {
+      focusCollectionOnReturn.current = false;
+      collectionChoicesRef.current?.querySelector<HTMLInputElement>("input:checked")?.focus();
+    }
+  }, [reviewing]);
+
+  useEffect(() => {
+    if (!creatingHosted && focusHostedTriggerOnCancel.current) {
+      focusHostedTriggerOnCancel.current = false;
+      createHostedTriggerRef.current?.focus();
+    }
+  }, [creatingHosted]);
 
   useEffect(() => {
     setSetupChoices(Object.fromEntries(setupContracts.map((contract) => [
@@ -708,9 +727,12 @@ export function ApprovalForm({
               <strong>{selected.display_name}</strong>
               <small>{collectionLocations.get(selected.id)}</small>
             </div>
-            {!request.collection_id && <button className="quiet-action" type="button" disabled={submitting !== null} onClick={() => setReviewing(false)}>Change</button>}
+            {!request.collection_id && <button className="quiet-action" type="button" disabled={submitting !== null} onClick={() => {
+              focusCollectionOnReturn.current = true;
+              setReviewing(false);
+            }}>Change</button>}
           </div> : <>
-          {compatible.length > 0 && <fieldset className="collection-choice-field">
+          {compatible.length > 0 && <fieldset className="collection-choice-field" ref={collectionChoicesRef}>
             <legend className="sr-only">Collection</legend>
             <div className="collection-choice-list">
               {compatible.map(({ collection }) => {
@@ -727,7 +749,7 @@ export function ApprovalForm({
                       setCollectionConfirmed(true);
                     }}
                   />
-                  <span>
+                  <span className="collection-choice-copy">
                     <strong>{collection.display_name}</strong>
                     <small>{collectionLocations.get(collection.id)}</small>
                   </span>
@@ -743,8 +765,16 @@ export function ApprovalForm({
           {(unavailable.length > 0
             || unavailableConnectors.length > 0
             || (request.requirements.collection_kind !== "hosted" && !request.collection_id)
-            || (canCreateHosted && !request.collection_id)) && <details className="alternate-collection-options" open={compatible.length === 0 || creatingHosted ? true : undefined}>
-            <summary>{compatible.length > 0 ? "Need a different collection?" : "Choose another way"}</summary>
+            || (canCreateHosted && !request.collection_id)) && <details
+              className="alternate-collection-options"
+              open={compatible.length === 0 || creatingHosted || showAlternateCollections}
+              onToggle={(event) => {
+                if (compatible.length > 0 && !creatingHosted) {
+                  setShowAlternateCollections(event.currentTarget.open);
+                }
+              }}
+            >
+            <summary>{compatible.length > 0 ? "Add or connect another collection" : "Choose another way"}</summary>
             <div>
               {unavailable.length > 0 && <div className="collection-compatibility">
                 <strong>{unavailable.length} {unavailable.length === 1 ? "collection is" : "collections are"} unavailable</strong>
@@ -792,6 +822,7 @@ export function ApprovalForm({
                   type="button"
                   disabled={submitting !== null}
                   onClick={() => {
+                    focusHostedTriggerOnCancel.current = true;
                     setCreatingHosted(false);
                     setCollectionName("");
                     setError("");
@@ -807,6 +838,7 @@ export function ApprovalForm({
               <button
                 className="button secondary"
                 type="button"
+                ref={createHostedTriggerRef}
                 aria-controls={`create-hosted-${request.id}`}
                 disabled={submitting !== null}
                 onClick={() => {
@@ -818,9 +850,18 @@ export function ApprovalForm({
               ))}
             </div>
           </details>}
+          {!collectionId && compatible.length > 0 && (
+            <p className="collection-selection-help" id={`collection-selection-help-${request.id}`}>Select a collection to continue.</p>
+          )}
           <footer className="collection-step-actions">
             <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? "Denying…" : "Deny"}</button>
-            <button className="button primary" type="button" disabled={submitting !== null || !collectionId || !collectionConfirmed} onClick={() => setReviewing(true)}>Review access</button>
+            <button
+              className="button primary"
+              type="button"
+              aria-describedby={!collectionId && compatible.length > 0 ? `collection-selection-help-${request.id}` : undefined}
+              disabled={submitting !== null || !collectionId || !collectionConfirmed}
+              onClick={() => setReviewing(true)}
+            >Review access</button>
           </footer>
           </>}
         </div>
@@ -890,7 +931,7 @@ export function ApprovalForm({
       {reviewing && <footer className="approval-footer">
         <div className="approval-actions">
           <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? "Denying…" : "Deny"}</button>
-          <button className="button primary" type="button" disabled={submitting !== null || !collectionId || !collectionConfirmed || (selectedPermissionCount === 0 && !request.requirements.files) || !setupReady} onClick={() => void decide("approved")}>{submitting === "approved" ? (hasSetup ? "Setting up and allowing…" : "Approving…") : hasSetup ? `Set up and allow ${request.application_name}` : `Allow ${request.application_name}`}</button>
+          <button className="button primary" type="button" disabled={submitting !== null || !collectionId || !collectionConfirmed || (selectedPermissionCount === 0 && !request.requirements.files) || !setupReady} onClick={() => void decide("approved")}>{submitting === "approved" ? (hasSetup ? "Setting up and allowing…" : "Allowing…") : hasSetup ? "Set up and allow access" : "Allow access"}</button>
         </div>
       </footer>}
     </div>

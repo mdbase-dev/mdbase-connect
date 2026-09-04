@@ -2682,18 +2682,20 @@ select {
 }
 
 .approval-page .request-identity.large > div {
-  gap: 0.35rem;
+  gap: 0.25rem;
 }
 
 .approval-page .request-identity.large h1 {
   font-size: 17px;
-  line-height: 1.5;
+  font-weight: 700;
+  line-height: 1.45;
   letter-spacing: 0;
 }
 
 .approval-page .request-identity .request-metadata {
   overflow: visible;
   color: var(--ink-muted);
+  line-height: 1.45;
   text-overflow: clip;
   white-space: normal;
 }
@@ -2704,15 +2706,17 @@ select {
 }
 
 .approval-page .approval-form {
-  margin-top: 1.25rem;
+  margin-top: 1.5rem;
+  padding-bottom: 0.5rem;
   border-top: 0;
 }
 
 .approval-page .approval-section {
   grid-template-columns: 1fr;
-  gap: 0.9rem;
-  padding: 1.3rem 0;
+  gap: 1rem;
+  padding: 1.45rem 0;
   border-bottom: 0;
+  scroll-margin-bottom: 5rem;
 }
 
 .approval-page .approval-section-intro {
@@ -2720,28 +2724,67 @@ select {
 }
 
 .approval-page .approval-section-content {
-  gap: 1rem;
+  gap: 1.1rem;
 }
 
 .approval-page .selected-collection-summary {
   min-height: 0;
-  padding: 0.25rem 0;
+  padding: 0.65rem 0;
+}
+
+.approval-page .selected-collection-summary > div {
+  gap: 0.2rem;
+}
+
+.approval-page .selected-collection-summary small {
+  color: var(--ink-muted);
+  line-height: 1.45;
 }
 
 .approval-page .collection-choice-list {
-  gap: 0.5rem;
-  border-top: 0;
+  gap: 0;
+  border-top: 1px solid var(--line);
 }
 
 .approval-page .collection-choice-list > label {
-  min-height: 3.25rem;
-  padding: 0.55rem 0;
-  border-bottom: 0;
+  min-height: 4.25rem;
+  align-items: start;
+  gap: 0.8rem;
+  padding: 0.85rem 0.7rem;
+  border-bottom: 1px solid var(--line);
 }
 
 .approval-page .collection-choice-list > label:hover,
 .approval-page .collection-choice-list > label.selected {
   background: color-mix(in srgb, var(--ink) 4%, transparent);
+}
+
+.approval-page .collection-choice-list > label:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.approval-page .collection-choice-list input {
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.25rem;
+}
+
+.approval-page .collection-choice-copy {
+  gap: 0.15rem;
+}
+
+.approval-page .collection-choice-copy strong,
+.approval-page .collection-choice-copy small {
+  overflow: visible;
+  line-height: 1.45;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.approval-page .collection-choice-list > label.selected .collection-choice-copy strong {
+  font-weight: 700;
 }
 
 .approval-page .collection-choice-list input,
@@ -2750,6 +2793,41 @@ select {
 .approval-page .contract-setup-mode input,
 .approval-page .contract-binding input[type="checkbox"] {
   accent-color: var(--accent-dark);
+}
+
+.approval-page .alternate-collection-options {
+  margin-top: 0;
+  border-top: 0;
+}
+
+.approval-page .alternate-collection-options > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 2.75rem;
+  padding: 0.35rem 0;
+  color: var(--ink-muted);
+  font-weight: 400;
+  list-style: none;
+}
+
+.approval-page .alternate-collection-options > summary::-webkit-details-marker {
+  display: none;
+}
+
+.approval-page .alternate-collection-options > summary::after {
+  content: "+";
+  color: var(--ink-muted);
+}
+
+.approval-page .alternate-collection-options[open] > summary::after {
+  content: "−";
+}
+
+.approval-page .collection-selection-help {
+  margin: -0.25rem 0 0;
+  color: var(--ink-muted);
+  line-height: 1.45;
 }
 
 .approval-page .authorization-permissions > .permission-review {
@@ -2763,22 +2841,38 @@ select {
 }
 
 .approval-page .permission-groups {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1.25rem 2rem;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.4rem;
+  max-width: 34rem;
   padding: 0.4rem 0;
 }
 
 .approval-page .permission-group {
   display: grid;
-  gap: 0.65rem;
+  gap: 0.55rem;
 }
 
 .approval-page .permission-group > div {
+  gap: 0.4rem;
+}
+
+.approval-page .permission-group label {
+  min-height: 2rem;
+  align-items: start;
   gap: 0.55rem;
+  line-height: 1.45;
+}
+
+.approval-page .permission-group input {
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.22rem;
 }
 
 .approval-page .approval-footer {
   position: sticky;
+  bottom: 0;
+  z-index: 2;
   justify-content: flex-end;
   margin: 0;
   padding: 0.75rem 0;
@@ -2789,21 +2883,26 @@ select {
 
 .approval-page .approval-actions,
 .approval-page .collection-step-actions {
-  gap: 1.25rem;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.approval-page .collection-step-actions {
+  padding-top: 0.25rem;
 }
 
 .approval-page .approval-actions .button,
 .approval-page .collection-step-actions .button {
-  min-height: 0;
-  padding: 0;
+  min-height: 2.75rem;
+  padding: 0.45rem 0.15rem;
   color: var(--ink);
   background: transparent;
   border: 0;
   border-radius: 0;
   font-family: inherit;
   font-weight: 400;
-  text-decoration: underline;
-  text-underline-offset: 0.2em;
+  line-height: 1.35;
+  text-decoration: none;
 }
 
 .approval-page .approval-actions .button.primary {
@@ -2850,15 +2949,21 @@ select {
     padding: 1.1rem 0;
   }
 
+  .approval-page .collection-choice-list > label {
+    padding-inline: 0.25rem;
+  }
+
   .approval-page .permission-groups {
     grid-template-columns: 1fr;
   }
 
   .approval-page .approval-footer {
-    align-items: flex-start;
+    align-items: center;
   }
 
-  .approval-page .approval-actions {
-    flex-wrap: wrap;
+  .approval-page .approval-actions,
+  .approval-page .collection-step-actions {
+    width: 100%;
+    justify-content: space-between;
   }
 }
