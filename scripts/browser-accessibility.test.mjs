@@ -402,7 +402,8 @@ async function auditPortalColdStartAuthorization() {
   const allowAccess = page.getByRole("button", { name: "Allow access" });
   assert.equal(await allowAccess.count(), 1, "portal authorization: review state survives refresh with a stable action label");
   assert.equal(await allowAccess.evaluate((element) => getComputedStyle(element).textDecorationLine), "none", "portal authorization: committing actions do not look like hyperlinks");
-  assert.equal(await allowAccess.evaluate((element) => element.getBoundingClientRect().height >= 44), true, "portal authorization: text actions retain a full touch target");
+  assert.notEqual(await allowAccess.evaluate((element) => getComputedStyle(element).backgroundColor), "rgba(0, 0, 0, 0)", "portal authorization: the affirmative decision is visually primary");
+  assert.equal(await allowAccess.evaluate((element) => element.getBoundingClientRect().height >= 44), true, "portal authorization: actions retain a full touch target");
   await allowAccess.focus();
   assert.equal(await allowAccess.evaluate((element) => {
     const style = getComputedStyle(element);
@@ -414,10 +415,20 @@ async function auditPortalColdStartAuthorization() {
   await reviewAccess.click();
   await allowAccess.waitFor();
   await auditPage(page, "portal application access review", { keyboard: true });
-  const approvalFontSizes = await page.locator(".approval-page :is(h1, h2, p, small, strong, label, button, summary, li, span, code)").evaluateAll(
-    (elements) => [...new Set(elements.map((element) => getComputedStyle(element).fontSize))]
-  );
-  assert.deepEqual(approvalFontSizes, ["17px"], "portal authorization: visible copy uses one font size");
+  const approvalTypeScale = await page.evaluate(() => {
+    const heading = document.querySelector(".approval-page h1");
+    const permission = document.querySelector(".approval-page .permission-group label");
+    const visibleCopy = [...document.querySelectorAll(".approval-page :is(h1, h2, p, small, strong, label, button, summary, li, span, code)")]
+      .filter((element) => element.getBoundingClientRect().height > 0)
+      .map((element) => Number.parseFloat(getComputedStyle(element).fontSize));
+    return {
+      heading: heading ? Number.parseFloat(getComputedStyle(heading).fontSize) : 0,
+      permission: permission ? Number.parseFloat(getComputedStyle(permission).fontSize) : 0,
+      minimum: Math.min(...visibleCopy)
+    };
+  });
+  assert.equal(approvalTypeScale.heading > approvalTypeScale.permission, true, "portal authorization: application identity has clear typographic hierarchy");
+  assert.equal(approvalTypeScale.minimum >= 12, true, "portal authorization: supporting copy remains legible");
   const approvalTextFamilies = await page.locator(
     ".approval-page :is(h1, h2, p, small, strong, label, button, summary, li, span):not(.request-metadata):not(.request-metadata *)"
   ).evaluateAll((elements) => [...new Set(elements.map((element) => getComputedStyle(element).fontFamily))]);
