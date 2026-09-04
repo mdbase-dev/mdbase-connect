@@ -3454,7 +3454,7 @@ describe("authorization renewal", () => {
       collectionName: "Worklog",
       operations: [
         "describe", "changes", "read", "query", "list_views",
-        "execute_view", "read_view_source", "validate", "read_type"
+        "execute_view", "read_view_source", "validate", "read_type", "create"
       ],
       scope: { contracts: [], access: "full_collection" },
       expiresAt: Date.now() + 60_000,
@@ -3479,7 +3479,7 @@ describe("authorization renewal", () => {
                 capabilities: {
                   contract_version: 2,
                   required: ["collection.read"],
-                  optional: ["records.edit"]
+                  optional: ["records.create", "records.edit"]
                 }
               }
             })
@@ -3511,7 +3511,7 @@ describe("authorization renewal", () => {
       collectionId: "00000000-0000-0000-0000-000000000002",
       grantedOperations: [
         "describe", "changes", "read", "query", "list_views",
-        "execute_view", "read_view_source", "validate", "read_type"
+        "execute_view", "read_view_source", "validate", "read_type", "create"
       ],
       missingOperations: ["update"]
     });
@@ -3525,7 +3525,7 @@ describe("authorization renewal", () => {
     });
     await vi.waitFor(() => expect(navigate).toHaveBeenCalledOnce());
     expect(authorizationForm?.get("operations")).toBe(
-      "describe,changes,read,query,list_views,execute_view,read_view_source,validate,read_type,update,rename"
+      "describe,changes,read,query,list_views,execute_view,read_view_source,validate,read_type,create,update,rename"
     );
     controller.abort();
     await outcome;

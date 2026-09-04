@@ -5,7 +5,10 @@ import type {
   ConnectProblemCode,
   JsonObject
 } from "@mdbase-dev/connect-protocol";
-import { capabilityOperations } from "@mdbase-dev/connect-protocol";
+import {
+  APPLICATION_CAPABILITY_DEFINITIONS,
+  capabilityOperations
+} from "@mdbase-dev/connect-protocol";
 import {
   authorizationCallbackState,
   authorizationReturnToFromProblem,
@@ -398,9 +401,10 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
     const operation = this.beginLifecycleOperation(options);
     this.transactionDepth += 1;
     try {
+      const retained = completeCapabilities(current.connection.operations ?? []);
       const outcome = await this.connect.authorize({
         ...operation.options,
-        capabilities: requiredCapabilities,
+        capabilities: [...new Set([...retained, ...requiredCapabilities])],
         target: { kind: "collection", collectionId: current.collectionId },
         returnTo: this.selection.authorizationReturnTo()
       });
@@ -670,6 +674,15 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
     this.snapshotKey = key;
     for (const listener of this.listeners) listener();
   }
+}
+
+function completeCapabilities(
+  operations: readonly CollectionOperation[]
+): ApplicationCapabilityId[] {
+  return (Object.keys(APPLICATION_CAPABILITY_DEFINITIONS) as ApplicationCapabilityId[])
+    .filter((capability) =>
+      capabilityOperations(capability).every((operation) => operations.includes(operation))
+    );
 }
 
 function sessionSnapshotKey<Frontmatter extends JsonObject>(

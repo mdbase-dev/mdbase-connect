@@ -7,7 +7,10 @@ import type {
   JsonObject,
   MdbaseOperationEnvelope
 } from "@mdbase-dev/connect-protocol";
-import { capabilityOperations } from "@mdbase-dev/connect-protocol";
+import {
+  APPLICATION_CAPABILITY_DEFINITIONS,
+  capabilityOperations
+} from "@mdbase-dev/connect-protocol";
 import { MdbaseCollectionClient } from "./collection-client.js";
 import {
   ConnectionNotifications
@@ -350,7 +353,11 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     if (sufficient) {
       return connectSuccess({ kind: "unchanged", connection: this });
     }
-    return this.authorize({ ...options, capabilities });
+    const retained = completeCapabilities(this.operations);
+    return this.authorize({
+      ...options,
+      capabilities: [...new Set([...retained, ...capabilities])]
+    });
   }
 
   onConnectionChange(listener: (connection: MdbaseConnectionInfo | null) => void): () => void {
@@ -921,6 +928,15 @@ class CollectionWatchSubscription implements MdbaseWatchSubscription {
     this.currentStatus = status;
     for (const listener of this.statuses) listener(status);
   }
+}
+
+function completeCapabilities(
+  operations: readonly CollectionOperation[]
+): ApplicationCapabilityId[] {
+  return (Object.keys(APPLICATION_CAPABILITY_DEFINITIONS) as ApplicationCapabilityId[])
+    .filter((capability) =>
+      capabilityOperations(capability).every((operation) => operations.includes(operation))
+    );
 }
 
 function syncRequestOptions(

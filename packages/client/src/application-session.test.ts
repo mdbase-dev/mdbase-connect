@@ -116,6 +116,7 @@ function connection(
   });
   const value = {
     collectionId,
+    operations,
     info: () => ({
       collectionId,
       displayName: "Test collection",
@@ -749,6 +750,34 @@ describe("MdbaseApplicationSession", () => {
       timeoutMs: null
     }));
     expect(fixture.authorize.mock.calls[0]?.[0]).not.toHaveProperty("operations");
+  });
+
+  it("preserves already granted optional groups when requesting another capability", async () => {
+    const declaration = manifest({
+      requirements: {
+        access: "full_collection",
+        contracts: [],
+        capabilities: {
+          contract_version: 2,
+          required: ["collection.read"],
+          optional: ["records.create", "records.edit"]
+        }
+      }
+    });
+    const fixture = connectFixture(declaration, [
+      "describe", "changes", "read", "query", "list_views", "execute_view",
+      "read_view_source", "validate", "read_type", "create"
+    ]);
+    const session = new MdbaseApplicationSession(fixture.facade as never, {
+      selection: new MdbaseMemorySelection()
+    });
+    await session.start();
+
+    await session.ensureCapabilities(["records.edit"]);
+
+    expect(fixture.authorize).toHaveBeenCalledWith(expect.objectContaining({
+      capabilities: ["collection.read", "records.create", "records.edit"]
+    }));
   });
 
   it("inspects definition evolution and applies only the exact reviewed assessment", async () => {

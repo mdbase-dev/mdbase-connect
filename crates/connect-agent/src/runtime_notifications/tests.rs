@@ -59,6 +59,31 @@ fn local_notification_runtime_upgrades_unversioned_state() {
     assert_eq!(version, mdbase_runtime::SQLITE_SCHEMA_VERSION);
 }
 
+#[test]
+fn orphan_cleanup_runtime_does_not_require_collection_configuration() {
+    let state_dir = tempdir().unwrap();
+    let runtime_dir = state_dir.path().join("runtime");
+    std::fs::create_dir_all(&runtime_dir).unwrap();
+    let registry = CollectionRegistry::open(state_dir.path()).unwrap();
+    let collection = registry
+        .create(state_dir.path().join("collection"), Some("Offline"), "UTC")
+        .unwrap();
+    std::fs::write(
+        state_dir.path().join("collection").join("mdbase.yaml"),
+        "invalid: [",
+    )
+    .unwrap();
+    let mut service = RuntimeNotificationService {
+        runtime_dir,
+        local_registry: registry,
+        cloud: None,
+        runtimes: HashMap::new(),
+    };
+
+    assert!(service.build_runtime(collection.id, None).is_ok());
+    assert!(service.runtime(collection.id).is_err());
+}
+
 #[tokio::test]
 async fn recovery_keeps_idle_registered_collections_cold() {
     let state_dir = tempdir().unwrap();

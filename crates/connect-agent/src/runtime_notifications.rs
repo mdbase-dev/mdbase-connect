@@ -207,41 +207,65 @@ impl RuntimeNotificationService {
     }
 
     async fn cleanup_orphaned_timers(&mut self) -> mdbase_runtime::RuntimeResult<usize> {
-        let mut active = HashMap::<Uuid, HashSet<Uuid>>::new();
-        for grant in self
-            .local_registry
-            .list_grants()
-            .map_err(|error| mdbase_runtime::RuntimeError::Store(error.to_string()))?
-        {
-            active
-                .entry(grant.collection_id)
-                .or_default()
-                .insert(grant.id);
+        let active = active_grant_ids_by_collection(&self.local_registry)?;
+        let mut cancelled = 0;
+        for collection_id in self.timer_runtime_ids() {
+            cancelled += self
+                .cleanup_collection_timers(collection_id, active.get(&collection_id))
+                .await?;
         }
+        Ok(cancelled)
+    }
+
+    fn timer_runtime_ids(&self) -> HashSet<Uuid> {
         let mut candidates = runtime_file_ids(&self.runtime_dir);
         candidates.extend(self.runtimes.keys().copied());
+        candidates
+    }
+
+    async fn cleanup_collection_timers(
+        &self,
+        collection_id: Uuid,
+        active_grants: Option<&HashSet<Uuid>>,
+    ) -> mdbase_runtime::RuntimeResult<usize> {
+        let ephemeral;
+        let runtime = if let Some(runtime) = self.runtimes.get(&collection_id) {
+            runtime
+        } else {
+            ephemeral = self.build_runtime(collection_id, None)?;
+            &ephemeral
+        };
+        let owners = runtime
+            .timers("connect:")
+            .await?
+            .into_iter()
+            .filter_map(|timer| timer_grant_id(&timer.id))
+            .filter(|grant_id| active_grants.is_none_or(|ids| !ids.contains(grant_id)))
+            .collect::<HashSet<_>>();
         let mut cancelled = 0;
-        for collection_id in candidates {
-            let active_grants = active.get(&collection_id);
-            let runtime = self.runtime(collection_id)?;
-            let owners = runtime
-                .timers("connect:")
-                .await?
-                .into_iter()
-                .filter_map(|timer| timer_grant_id(&timer.id))
-                .filter(|grant_id| active_grants.is_none_or(|ids| !ids.contains(grant_id)))
-                .collect::<HashSet<_>>();
-            for grant_id in owners {
-                cancelled += cancel_grant_timers(runtime, grant_id).await?;
-            }
+        for grant_id in owners {
+            cancelled += cancel_grant_timers(runtime, grant_id).await?;
         }
         Ok(cancelled)
     }
 
     async fn recover(&mut self) {
-        if let Err(error) = self.cleanup_orphaned_timers().await {
-            tracing::warn!(code = error.code(), %error, "orphaned notification timer cleanup deferred");
-            return;
+        let active = match active_grant_ids_by_collection(&self.local_registry) {
+            Ok(active) => active,
+            Err(error) => {
+                tracing::warn!(code = error.code(), %error, "notification grant cleanup lookup failed");
+                return;
+            }
+        };
+        let mut cleanup_failed = HashSet::new();
+        for collection_id in self.timer_runtime_ids() {
+            if let Err(error) = self
+                .cleanup_collection_timers(collection_id, active.get(&collection_id))
+                .await
+            {
+                tracing::warn!(%collection_id, code = error.code(), %error, "orphaned notification timer cleanup deferred");
+                cleanup_failed.insert(collection_id);
+            }
         }
         let grants = match notification_grants_by_collection(&self.local_registry) {
             Ok(grants) => grants,
@@ -253,6 +277,10 @@ impl RuntimeNotificationService {
         let candidates = recoverable_runtime_ids(&self.runtime_dir);
         let mut keep_resident = HashSet::new();
         for collection_id in candidates {
+            if cleanup_failed.contains(&collection_id) {
+                keep_resident.insert(collection_id);
+                continue;
+            }
             let catalog = match compose_catalog(
                 grants.get(&collection_id).map(Vec::as_slice).unwrap_or(&[]),
                 collection_id,
@@ -302,42 +330,50 @@ impl RuntimeNotificationService {
     fn runtime(&mut self, collection_id: Uuid) -> mdbase_runtime::RuntimeResult<&Runtime> {
         if !self.runtimes.contains_key(&collection_id) {
             let timezone = collection_timezone(&self.local_registry, collection_id)?;
-            let store: Arc<dyn RuntimeStore> = Arc::new(SqliteRuntimeStore::open(runtime_path(
-                &self.runtime_dir,
-                collection_id,
-            ))?);
-            let providers = ProviderRegistry::default();
-            let catalog = compose_catalog(&[], collection_id)?;
-            providers.register(
-                catalog.notification_provider_binding().clone(),
-                Arc::new(NotificationProvider {
-                    cloud: self.cloud.clone(),
-                }),
-            );
-            let runtime = Runtime::new(
-                store,
-                providers,
-                Arc::new(LocalNotificationAuthorizer {
-                    registry: self.local_registry.clone(),
-                }),
-                Arc::new(mdbase_runtime::SystemClock),
-                RuntimeConfig {
-                    runtime_id: format!("mdbase-connect:{collection_id}"),
-                    executor_id: NOTIFICATION_EXECUTOR_ID.to_string(),
-                    worker_id: format!("connect-agent:{collection_id}"),
-                    actor_id: "mdbase-connect-daemon".to_string(),
-                    actor_kind: "service".to_string(),
-                    identity: runtime_identity(collection_id),
-                    timezone,
-                    lease_duration: Duration::from_secs(30),
-                    max_items: 50,
-                },
-            )?;
+            let runtime = self.build_runtime(collection_id, timezone)?;
             self.runtimes.insert(collection_id, runtime);
         }
         self.runtimes.get(&collection_id).ok_or_else(|| {
             mdbase_runtime::RuntimeError::Store("notification runtime was not initialized".into())
         })
+    }
+
+    fn build_runtime(
+        &self,
+        collection_id: Uuid,
+        timezone: Option<String>,
+    ) -> mdbase_runtime::RuntimeResult<Runtime> {
+        let store: Arc<dyn RuntimeStore> = Arc::new(SqliteRuntimeStore::open(runtime_path(
+            &self.runtime_dir,
+            collection_id,
+        ))?);
+        let providers = ProviderRegistry::default();
+        let catalog = compose_catalog(&[], collection_id)?;
+        providers.register(
+            catalog.notification_provider_binding().clone(),
+            Arc::new(NotificationProvider {
+                cloud: self.cloud.clone(),
+            }),
+        );
+        Runtime::new(
+            store,
+            providers,
+            Arc::new(LocalNotificationAuthorizer {
+                registry: self.local_registry.clone(),
+            }),
+            Arc::new(mdbase_runtime::SystemClock),
+            RuntimeConfig {
+                runtime_id: format!("mdbase-connect:{collection_id}"),
+                executor_id: NOTIFICATION_EXECUTOR_ID.to_string(),
+                worker_id: format!("connect-agent:{collection_id}"),
+                actor_id: "mdbase-connect-daemon".to_string(),
+                actor_kind: "service".to_string(),
+                identity: runtime_identity(collection_id),
+                timezone,
+                lease_duration: Duration::from_secs(30),
+                max_items: 50,
+            },
+        )
     }
 }
 
@@ -559,6 +595,24 @@ fn recoverable_runtime_ids(runtime_dir: &Path) -> HashSet<Uuid> {
         }
     }
     recoverable
+}
+
+fn active_grant_ids_by_collection(
+    registry: &CollectionRegistry,
+) -> Result<HashMap<Uuid, HashSet<Uuid>>, mdbase_runtime::RuntimeError> {
+    registry
+        .list_grants()
+        .map(|grants| {
+            let mut grouped = HashMap::<Uuid, HashSet<Uuid>>::new();
+            for grant in grants {
+                grouped
+                    .entry(grant.collection_id)
+                    .or_default()
+                    .insert(grant.id);
+            }
+            grouped
+        })
+        .map_err(|error| mdbase_runtime::RuntimeError::Store(error.to_string()))
 }
 
 fn notification_grants_by_collection(
