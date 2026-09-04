@@ -29,7 +29,18 @@ describe("mdbase MCP gateway", () => {
     expect(manifest.statusCode).toBe(200);
     expect(manifest.json().requirements).toEqual({
       access: "full_collection",
-      contracts: []
+      contracts: [],
+      capabilities: {
+        contract_version: 2,
+        required: ["collection.read"],
+        optional: [
+          "records.create",
+          "records.edit",
+          "records.delete",
+          "views.manage",
+          "definitions.manage"
+        ]
+      }
     });
     const denied = await app.inject({
       method: "POST",

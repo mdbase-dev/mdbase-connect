@@ -176,6 +176,18 @@ describe("hosted capability lifecycle", () => {
        WHERE id = $1`,
       [fixture.grantId]
     );
+    const channelId = randomUUID();
+    await fixture.db.query(
+      `INSERT INTO push_channels (id, grant_id, installation_id)
+       VALUES ($1, $2, 'legacy-installation')`,
+      [channelId, fixture.grantId]
+    );
+    await fixture.db.query(
+      `INSERT INTO notification_subscriptions
+         (id, grant_id, channel_id, criterion_id)
+       VALUES ($1, $2, $3, 'legacy-criterion')`,
+      [randomUUID(), fixture.grantId, channelId]
+    );
 
     expect(await retireLegacyContractScopedGrants(fixture.db)).toBe(1);
     expect((await fixture.db.query(
@@ -186,6 +198,10 @@ describe("hosted capability lifecycle", () => {
       "SELECT reason FROM provider_revocation_jobs WHERE grant_id = $1",
       [fixture.grantId]
     )).rows[0]?.reason).toBe("semantic_capability_v2");
+    expect((await fixture.db.query(
+      "SELECT id FROM notification_subscriptions WHERE grant_id = $1",
+      [fixture.grantId]
+    )).rows).toEqual([]);
   });
 
   it("retires legacy scoped replicas and their notification authority", async () => {

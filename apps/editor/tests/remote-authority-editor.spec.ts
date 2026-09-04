@@ -147,7 +147,14 @@ class RemoteAuthorityHarness {
       expect(request.postDataJSON()).toMatchObject({
         manifest: {
           manifest_version: 1,
-          id: "dev.mdbase.editor"
+          id: "dev.mdbase.editor",
+          requirements: {
+            access: "full_collection",
+            capabilities: {
+              contract_version: 2,
+              required: ["collection.read", "records.create", "records.edit", "records.delete", "definitions.manage"]
+            }
+          }
         }
       });
       return json(route, {
@@ -157,7 +164,16 @@ class RemoteAuthorityHarness {
           manifest_digest: "0".repeat(64),
           name: "mdbase editor",
           homepage: "http://127.0.0.1:4174/",
-          requirements: { contracts: [], access: "full_collection" }
+          requirements: {
+            contracts: [],
+            access: "full_collection",
+            capabilities: {
+              contract_version: 2,
+              required: ["collection.read", "records.create", "records.edit", "records.delete", "definitions.manage"],
+              optional: []
+            },
+            files: { required: ["list", "read"], optional: ["add"], scope: { kind: "collection" } }
+          }
         }
       });
     }
@@ -208,7 +224,11 @@ class RemoteAuthorityHarness {
         refresh_expires_in: 2_592_000,
         collection_id: selectedSecondCollection ? secondCollectionId : collectionId,
         collection_name: selectedSecondCollection ? "Research" : "Hosted writing",
-        operations: ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename"],
+        operations: [
+          "describe", "changes", "read", "query", "list_views", "execute_view",
+          "read_view_source", "validate", "read_type", "create", "update", "rename",
+          "delete", "create_type", "update_type", "assess_type_pack", "apply_type_pack"
+        ],
         scope: { contracts: [], access: "full_collection" },
         file_capability: {
           kind: "files",

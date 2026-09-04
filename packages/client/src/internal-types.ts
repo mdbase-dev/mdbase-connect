@@ -1,5 +1,6 @@
 import type {
   ApplicationNotifications,
+  ApplicationProvisions,
   ApplicationRequirements,
   CollectionOperation,
   EncryptedRelayOperationRequest,
@@ -21,6 +22,7 @@ export interface Application {
   project_url?: string;
   notifications?: ApplicationNotifications;
   requirements: ApplicationRequirements;
+  provisions?: ApplicationProvisions;
 }
 
 export interface StoredAuthorization {

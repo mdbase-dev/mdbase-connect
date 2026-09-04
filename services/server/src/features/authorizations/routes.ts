@@ -49,7 +49,6 @@ import {
 import {
   assertCollectionSupportsOperations,
   assertOperationsAllowedByApplication,
-  assertOperationsAllowedByRequirements,
   contractsSatisfy,
   requiredContractsForRequirements,
   requiredTypePackProvisions,
@@ -310,6 +309,8 @@ export function registerAuthorizationRoutes(
       encryption: GrantEncryption | null;
       scope: GrantScope;
       requirements: ApplicationRequirements;
+      notifications: ApplicationNotifications;
+      provisions: ApplicationProvisions;
       allowed_types: string[] | null;
       file_capability: FileCapability | null;
       application_origin: string;
@@ -320,7 +321,7 @@ export function registerAuthorizationRoutes(
     }>(
       `SELECT g.id, g.operations, g.encryption, g.scope, g.file_capability,
               g.application_origin, g.proof_public_key, g.application_authorization,
-              a.requirements,
+              a.requirements, a.notifications, a.provisions,
               a.family_identity AS application_family_identity,
               a.manifest_digest AS application_manifest_digest,
               col.connector_id,
@@ -351,7 +352,12 @@ export function registerAuthorizationRoutes(
         "Existing access can be narrowed here, but broader access requires a new application request."
       ));
     }
-    assertOperationsAllowedByRequirements(operations, current.requirements);
+    assertOperationsAllowedByApplication(
+      operations,
+      current.requirements,
+      current.notifications,
+      current.provisions
+    );
     if (current.hosted_replica_id) {
       if (!options.hostedProvider) {
         return reply.code(503).send(apiError("hosted_provider_unavailable", "Hosted application access is temporarily unavailable."));

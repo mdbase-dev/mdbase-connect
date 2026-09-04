@@ -260,13 +260,17 @@ impl GrantPolicy {
             self.file_capability.as_ref(),
         ) {
             (None, None) => true,
+            (Some(_requested), None) => true,
             (Some(requested), Some(granted)) => {
                 granted.kind == FileCapabilityKind::Files
                     && granted.protocol_version == FILE_PROTOCOL_VERSION
-                    && granted.actions == requested.actions
+                    && granted
+                        .actions
+                        .iter()
+                        .all(|action| requested.actions.contains(action))
                     && granted.scope == requested.scope
             }
-            _ => false,
+            (None, Some(_)) => false,
         };
         let requires_durable_mutation = authorization_requires_durable_mutation(
             &authorization.requested_operations,
@@ -533,6 +537,51 @@ mod tests {
             },
             signing_key,
         )
+    }
+
+    fn grant_policy() -> GrantPolicy {
+        let legacy: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../test-fixtures/protocol-v1-policy-canonical.json"
+        ))
+        .unwrap();
+        let mut grant: GrantPolicy =
+            serde_json::from_value(legacy["normalized_wire_body"]["grants"][1].clone()).unwrap();
+        let (authorization, _) = proof();
+        let binding = &authorization.binding;
+        grant.application_id = binding.application_id;
+        grant.collection_id = binding.collection_id.unwrap();
+        grant.operations = binding.requested_operations.clone();
+        grant.application_distribution = "web".to_string();
+        let encryption = grant.encryption.as_mut().unwrap();
+        encryption.collection_id = grant.collection_id;
+        encryption.application_agreement_public_key = binding.grant_agreement_public_key.clone();
+        grant.application_authorization = authorization;
+        grant
+    }
+
+    #[test]
+    fn file_grant_may_be_narrower_than_signed_request() {
+        let mut grant = grant_policy();
+        grant.file_capability.as_mut().unwrap().actions.pop();
+        grant.validate_application_security().unwrap();
+
+        grant.file_capability = None;
+        grant.validate_application_security().unwrap();
+    }
+
+    #[test]
+    fn file_grant_cannot_exceed_signed_request() {
+        let mut grant = grant_policy();
+        grant
+            .file_capability
+            .as_mut()
+            .unwrap()
+            .actions
+            .push(FileAction::Delete);
+        assert_eq!(
+            grant.validate_application_security(),
+            Err(ApplicationAuthorizationError::InvalidProof)
+        );
     }
 
     #[test]

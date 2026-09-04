@@ -1724,7 +1724,15 @@ schema:
   assert.ok(emptyCookie);
   const inlineManifest = await openManifestServer({
     name: "Workout Inline E2E",
-    requirements: { access: "full_collection", contracts: [typeProvision.provides[0]] },
+    requirements: {
+      access: "full_collection",
+      contracts: [typeProvision.provides[0]],
+      capabilities: {
+        contract_version: 2,
+        required: ["collection.read", "records.create", "records.edit"],
+        optional: []
+      }
+    },
     provisions: { type_packs: [typeProvision] }
   });
   try {
@@ -1739,9 +1747,7 @@ schema:
       identityStore: new MemoryApplicationIdentityStore(),
       navigate: (value) => { inlineAuthorizationUrl = value; }
     });
-    const inlineAuthorization = inlineSdk.authorize({
-      operations: ["describe", "read", "query", "create", "update"]
-    });
+    const inlineAuthorization = inlineSdk.authorize();
     await waitFor(() => inlineAuthorizationUrl, "SDK did not start inline hosted authorization");
     assert.deepEqual(requireConnectSuccess(await inlineAuthorization), { kind: "redirecting" });
     const inlineCallbackUrl = await authorizeHostedApplicationByCreating(
@@ -1784,7 +1790,18 @@ schema:
 
   phase("authorizing the browser SDK directly against the hosted data plane");
   const manifest = await openManifestServer({
-    requirements: { contracts: [], access: "full_collection" }
+    requirements: {
+      contracts: [],
+      access: "full_collection",
+      capabilities: {
+        contract_version: 2,
+        required: ["collection.read"],
+        optional: [
+          "records.create", "records.edit", "records.delete", "definitions.manage",
+          "offline.replica"
+        ]
+      }
+    }
   });
   manifestServer = manifest.server;
   const storage = memoryStorage();
@@ -1798,12 +1815,7 @@ schema:
     identityStore: new MemoryApplicationIdentityStore(),
     navigate: (value) => { authorizationUrl = value; }
   });
-  const hostedAuthorization = hostedSdk.authorize({
-    operations: [
-      "describe", "changes", "read", "query", "list_views", "execute_view",
-      "create", "update", "delete", "rename", "create_type"
-    ]
-  });
+  const hostedAuthorization = hostedSdk.authorize();
   await waitFor(() => authorizationUrl, "SDK did not start hosted authorization");
   assert.deepEqual(requireConnectSuccess(await hostedAuthorization), { kind: "redirecting" });
   const callbackUrl = await authorizeHostedApplication(
@@ -2027,7 +2039,12 @@ schema:
   );
   await controlRequest(controlUrl, `/v1/grants/${hostedGrant.id}`, cookie, {
     method: "PATCH",
-    body: { operations: ["describe", "read", "query"] }
+    body: {
+      operations: [
+        "describe", "changes", "read", "query", "list_views", "execute_view",
+        "read_view_source", "validate", "read_type"
+      ]
+    }
   });
   await assert.rejects(
     async () => requireConnectSuccess(await hostedConnection.create({
@@ -4832,7 +4849,11 @@ async function waitForOutput(action, message) {
 
 async function openManifestServer({
   name = "Hosted SDK E2E",
-  requirements = { contracts: [] },
+  requirements = {
+    contracts: [],
+    access: "full_collection",
+    capabilities: { contract_version: 2, required: ["collection.read"], optional: [] }
+  },
   provisions = { type_packs: [] }
 } = {}) {
   const server = createServer((_request, response) => {

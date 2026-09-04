@@ -1,5 +1,5 @@
 import {
-  capabilityOperations,
+  APPLICATION_SETUP_OPERATIONS,
   operationsForApplicationCapabilities,
   type ApplicationCapabilityId,
   type ApplicationCapabilityRequirements,
@@ -327,7 +327,7 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     const base = new MdbaseSession(this.connect, {
       selection: this.options.selection,
       autoSelect: this.options.autoSelect,
-      operations: operationsForSession(capabilities)
+      operations: operationsForSession(capabilities, manifest.value)
     });
     this.base = base;
     try {
@@ -440,7 +440,7 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
 
   authorize(
     target: "choose" | "selected" | { collectionId: string },
-    options: Omit<MdbaseAuthorizeOptions, "operations" | "returnTo" | "target"> = {}
+    options: Omit<MdbaseAuthorizeOptions, "returnTo" | "target"> = {}
   ): Promise<ConnectOutcome<MdbaseAuthorizationOutcome<Frontmatter>, SessionProblemCode>> {
     return this.withLifecycleBase(options, async (base, requestOptions, generation) => {
       const outcome = await base.authorize(target, { ...options, ...requestOptions });
@@ -522,7 +522,7 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
           }
         )));
       }
-      return base.ensureOperations(operationsForIds(capabilities), requestOptions).then(async (outcome) => {
+      return base.ensureCapabilities(capabilities, requestOptions).then(async (outcome) => {
         if (outcome.ok && outcome.value.kind === "connected" && this.lifecycleCurrent(generation)) {
           await this.refresh(true, requestOptions);
         }
@@ -840,13 +840,16 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
   }
 }
 
-function operationsForSession(requirements: ApplicationCapabilityRequirements) {
-  return operationsForApplicationCapabilities(requirements);
-}
-
-function operationsForIds(capabilities: ApplicationCapabilityId[]) {
-  const definitions = capabilities.flatMap((id) => capabilityOperations(id));
-  return [...new Set(definitions)];
+function operationsForSession(
+  requirements: ApplicationCapabilityRequirements,
+  manifest: MdbaseAppManifest
+) {
+  const hasSetup = (manifest.provisions?.type_packs.length ?? 0) > 0
+    || (manifest.provisions?.configuration?.length ?? 0) > 0;
+  return [
+    ...operationsForApplicationCapabilities(requirements),
+    ...(hasSetup ? APPLICATION_SETUP_OPERATIONS : [])
+  ];
 }
 
 function definitionUpdate(

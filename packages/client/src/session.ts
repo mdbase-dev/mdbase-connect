@@ -1,9 +1,11 @@
 import type {
+  ApplicationCapabilityId,
   CollectionOperation,
   ConnectProblem,
   ConnectProblemCode,
   JsonObject
 } from "@mdbase-dev/connect-protocol";
+import { capabilityOperations } from "@mdbase-dev/connect-protocol";
 import {
   authorizationCallbackState,
   authorizationReturnToFromProblem,
@@ -328,7 +330,7 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
 
   async authorize(
     target: "choose" | "selected" | { collectionId: string },
-    options: Omit<MdbaseAuthorizeOptions, "operations" | "returnTo" | "target"> = {}
+    options: Omit<MdbaseAuthorizeOptions, "returnTo" | "target"> = {}
   ): Promise<ConnectOutcome<MdbaseAuthorizationOutcome<Frontmatter>, SessionProblemCode>> {
     const lifecycle = this.lifecycleProblem();
     if (lifecycle) return connectFailure(lifecycle);
@@ -349,7 +351,6 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
     try {
       const outcome = await this.connect.authorize({
         ...operation.options,
-        operations: this.operations,
         target: targetCollectionId === null
           ? { kind: "choose" }
           : { kind: "collection", collectionId: targetCollectionId },
@@ -370,8 +371,8 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
     }
   }
 
-  async ensureOperations(
-    requiredOperations: CollectionOperation[],
+  async ensureCapabilities(
+    requiredCapabilities: ApplicationCapabilityId[],
     options?: ConnectRequestOptions
   ): Promise<ConnectOutcome<
     MdbaseAuthorizationOutcome<Frontmatter>
@@ -387,9 +388,11 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
         "Choose an authorized collection first."
       ));
     }
-    const required = uniqueOperations(requiredOperations);
-    const capabilities = current.connection.authorizationCapabilities(required);
-    if (capabilities.sufficient) {
+    const requiredOperations = uniqueOperations(
+      requiredCapabilities.flatMap((capability) => capabilityOperations(capability))
+    );
+    const authorization = current.connection.authorizationCapabilities(requiredOperations);
+    if (authorization.sufficient) {
       return connectSuccess({ kind: "unchanged", connection: current.connection });
     }
     const operation = this.beginLifecycleOperation(options);
@@ -397,7 +400,7 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
     try {
       const outcome = await this.connect.authorize({
         ...operation.options,
-        operations: uniqueOperations([...capabilities.grantedOperations, ...capabilities.missingOperations]),
+        capabilities: requiredCapabilities,
         target: { kind: "collection", collectionId: current.collectionId },
         returnTo: this.selection.authorizationReturnTo()
       });

@@ -1,4 +1,5 @@
 import type {
+  ApplicationCapabilityId,
   CollectionOperation,
   CollectionTypeDocument,
   FileCapability,
@@ -6,6 +7,7 @@ import type {
   JsonObject,
   MdbaseOperationEnvelope
 } from "@mdbase-dev/connect-protocol";
+import { capabilityOperations } from "@mdbase-dev/connect-protocol";
 import { MdbaseCollectionClient } from "./collection-client.js";
 import {
   ConnectionNotifications
@@ -139,7 +141,8 @@ export type MdbaseAuthorizationTarget =
   | { kind: "collection"; collectionId: string };
 
 export interface MdbaseAuthorizeOptions extends ConnectRequestOptions {
-  operations?: CollectionOperation[];
+  /** Capability groups to request. Required groups are always included; optional groups default to all. */
+  capabilities?: ApplicationCapabilityId[];
   /** Keep a web application loaded while Connect owns the approval ceremony. */
   presentation?: "redirect" | "popup";
   /** Choose any compatible collection, or require one exact collection. */
@@ -153,7 +156,8 @@ export interface MdbaseAuthorizeOptions extends ConnectRequestOptions {
 }
 
 export interface MdbaseConnectionAuthorizeOptions extends ConnectRequestOptions {
-  operations?: CollectionOperation[];
+  /** Capability groups to request. Required groups are always included; optional groups default to all. */
+  capabilities?: ApplicationCapabilityId[];
   presentation?: "redirect" | "popup";
   returnTo?: string;
   onDeviceCode?: (authorization: MdbaseDeviceAuthorization) => void;
@@ -330,9 +334,9 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     );
   }
 
-  async requestOperations(
-    requiredOperations: CollectionOperation[],
-    options: Omit<MdbaseConnectionAuthorizeOptions, "operations"> = {}
+  async requestCapabilities(
+    capabilities: ApplicationCapabilityId[],
+    options: MdbaseConnectionAuthorizeOptions = {}
   ): Promise<
     ConnectOutcome<
       MdbaseAuthorizationOutcome<Frontmatter>
@@ -340,17 +344,13 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       AuthorizationProblemCode
     >
   > {
-    const capabilities = this.authorizationCapabilities(requiredOperations);
-    if (capabilities.sufficient) {
+    const sufficient = capabilities.every((capability) =>
+      capabilityOperations(capability).every((operation) => this.operations.includes(operation))
+    );
+    if (sufficient) {
       return connectSuccess({ kind: "unchanged", connection: this });
     }
-    return this.authorize({
-      ...options,
-      operations: uniqueOperations([
-        ...capabilities.grantedOperations,
-        ...capabilities.missingOperations
-      ])
-    });
+    return this.authorize({ ...options, capabilities });
   }
 
   onConnectionChange(listener: (connection: MdbaseConnectionInfo | null) => void): () => void {

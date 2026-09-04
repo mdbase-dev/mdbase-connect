@@ -23,7 +23,14 @@ test("recovers from a stale local grant without bypassing the connector", async 
       expect(route.request().postDataJSON()).toMatchObject({
         manifest: {
           manifest_version: 1,
-          id: "dev.mdbase.editor"
+          id: "dev.mdbase.editor",
+          requirements: {
+            access: "full_collection",
+            capabilities: {
+              contract_version: 2,
+              required: ["collection.read", "records.create", "records.edit", "records.delete", "definitions.manage"]
+            }
+          }
         }
       });
       await json(route, {
@@ -33,7 +40,16 @@ test("recovers from a stale local grant without bypassing the connector", async 
           manifest_digest: "0".repeat(64),
           name: "mdbase editor",
           homepage: "http://127.0.0.1",
-          requirements: { contracts: [], access: "full_collection" }
+          requirements: {
+            contracts: [],
+            access: "full_collection",
+            capabilities: {
+              contract_version: 2,
+              required: ["collection.read", "records.create", "records.edit", "records.delete", "definitions.manage"],
+              optional: []
+            },
+            files: { required: ["list", "read"], optional: ["add"], scope: { kind: "collection" } }
+          }
         }
       });
       return;
@@ -142,8 +158,9 @@ test("recovers from a stale local grant without bypassing the connector", async 
         collectionId,
         collectionName: "Stale editor collection",
         operations: [
-          "describe", "changes", "read", "query", "validate", "create", "update",
-          "delete", "rename", "read_type", "create_type", "update_type", "apply_type_pack"
+          "describe", "changes", "read", "query", "list_views", "execute_view",
+          "read_view_source", "validate", "read_type", "create", "update", "rename",
+          "delete", "create_type", "update_type", "assess_type_pack", "apply_type_pack"
         ],
         scope: { contracts: [], access: "full_collection" },
         fileCapability: {

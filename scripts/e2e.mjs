@@ -1097,7 +1097,7 @@ implements:
   };
   document.querySelector("#connect").onclick = () => {
     globalThis.portableHarness.pending = manager.authorize({
-      operations: ["describe", "query"],
+      capabilities: ["collection.read"],
       onDeviceCode(authorization) {
         globalThis.portableHarness.authorization = authorization;
         document.querySelector("#code").textContent = authorization.userCode;

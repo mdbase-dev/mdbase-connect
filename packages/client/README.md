@@ -304,22 +304,17 @@ documents both threat models. New or changed declaration criteria never silently
 broaden an existing grant: handle `notification_reauthorization_required` by
 running authorization again before retrying registration.
 
-Before opening a feature, inspect its exact authorization gap instead of
-waiting for an operation to fail:
+Before opening a feature, request its declared capability group instead of
+selecting individual transport operations:
 
 ```ts
-const required = ["read", "query", "update"] as const;
-const capabilities = connection.authorizationCapabilities([...required]);
-if (!capabilities.sufficient) {
-  console.log("Needs", capabilities.missingOperations);
-  await connection.requestOperations([...required]);
-}
+await connection.requestCapabilities(["records.edit"]);
 ```
 
-`requestOperations()` is a no-op when the current grant is sufficient. When a
-replacement grant is needed, it requests the least-privilege union of the
-already granted operations and the missing requirements. An
-An `insufficient_access` problem carries the same `granted_operations`,
+`requestCapabilities()` is a no-op when the current grant already includes the
+complete group. When authorization is needed, required groups remain fixed and
+the requested optional groups are expanded atomically. An
+`insufficient_access` problem carries the internal `granted_operations`,
 `missing_operations`, and `required_operations` metadata with a `reauthorize`
 recovery action.
 
@@ -346,7 +341,7 @@ When the local connector definitively rejects an encrypted grant, the SDK does
 not bypass that decision through the relay. It classifies the error as requiring
 authorization, removes only the matching stale credential, and emits a `null`
 connection through `onConnectionChange()`. A subsequent
-`requestOperations()` call therefore starts authorization instead of trusting
+`requestCapabilities()` call therefore starts authorization instead of trusting
 the stale cached capability list.
 
 Applications can register and maintain type definitions when their

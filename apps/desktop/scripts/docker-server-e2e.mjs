@@ -183,7 +183,11 @@ try {
     name: "Docker fixture consumer",
     homepage: "https://desktop-docker-e2e.example",
     redirect_uris: ["https://desktop-docker-e2e.example/callback"],
-    requirements: { contracts: [], access: "full_collection" },
+    requirements: {
+      contracts: [],
+      access: "full_collection",
+      capabilities: { contract_version: 2, required: ["collection.read"], optional: [] }
+    },
     provisions: { type_packs: [] },
     notifications: { criteria: [] }
   };
@@ -207,7 +211,6 @@ try {
     navigate: (value) => { authorizationUrl = value; }
   });
   const authorization = consumer.authorize({
-    operations: ["describe"],
     target: { kind: "collection", collectionId: collection.id }
   });
   await waitForValue(

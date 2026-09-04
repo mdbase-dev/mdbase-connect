@@ -93,6 +93,27 @@ describe("application capability policy", () => {
     )).toBe(false);
   });
 
+  it("requires complete setup authority whenever the application declares provisions", () => {
+    const read = operationsForApplicationCapabilities(requirements.capabilities, {
+      includeOptional: false
+    });
+    const provisions = {
+      type_packs: [{ id: "example.tasks", version: "1.0.0" }]
+    };
+    expect(() => assertOperationsAllowedByApplication(
+      read,
+      requirements,
+      {},
+      provisions
+    )).toThrow("must exactly match the application's declared provisions");
+    expect(() => assertOperationsAllowedByApplication(
+      [...read, "assess_collection_setup", "apply_collection_setup"],
+      requirements,
+      {},
+      provisions
+    )).not.toThrow();
+  });
+
   it("keeps timer operations available to applications that declare them", () => {
     const timerCapabilities = Object.keys(APPLICATION_CAPABILITY_DEFINITIONS)
       .filter((capability): capability is ApplicationCapabilityId => capability === "background.schedule");

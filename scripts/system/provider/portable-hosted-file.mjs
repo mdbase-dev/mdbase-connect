@@ -34,7 +34,12 @@ export async function portableHostedFileE2E({
       requirements: {
         access: "full_collection",
         contracts: [],
-        collection_kind: "hosted"
+        collection_kind: "hosted",
+        capabilities: {
+          contract_version: 2,
+          required: ["collection.read", "records.create", "offline.replica"],
+          optional: []
+        }
       }
     }
   });
@@ -61,7 +66,6 @@ export async function portableHostedFileE2E({
   };
   document.querySelector("#connect").onclick = () => {
     manager.authorize({
-      operations: ["describe", "query", "create", "sync"],
       openVerification() {},
       onDeviceCode(authorization) {
         globalThis.portableHarness.authorization = authorization;
@@ -135,7 +139,10 @@ export async function portableHostedFileE2E({
         method: "POST",
         body: {
           collection_id: collectionId,
-          operations: ["describe", "query", "create", "sync"]
+          operations: [
+            "describe", "changes", "read", "query", "list_views", "execute_view",
+            "read_view_source", "validate", "read_type", "create", "sync"
+          ]
         }
       }
     );

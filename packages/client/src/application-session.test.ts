@@ -626,21 +626,8 @@ describe("MdbaseApplicationSession", () => {
 
     await session.authorize("choose");
 
-    expect(fixture.authorize).toHaveBeenCalledWith(expect.objectContaining({
-      operations: [
-        "describe",
-        "changes",
-        "read",
-        "query",
-        "list_views",
-        "execute_view",
-        "read_view_source",
-        "validate",
-        "read_type",
-        "update",
-        "rename"
-      ]
-    }));
+    const options = fixture.authorize.mock.calls[0]?.[0];
+    expect(options).not.toHaveProperty("operations");
   });
 
   it("reports semantic authorization gaps for required capabilities", async () => {
@@ -757,10 +744,11 @@ describe("MdbaseApplicationSession", () => {
     });
 
     expect(fixture.authorize).toHaveBeenCalledWith(expect.objectContaining({
-      operations: ["describe", "read", "update", "rename"],
+      capabilities: ["records.edit"],
       signal: expect.any(AbortSignal),
       timeoutMs: null
     }));
+    expect(fixture.authorize.mock.calls[0]?.[0]).not.toHaveProperty("operations");
   });
 
   it("inspects definition evolution and applies only the exact reviewed assessment", async () => {
