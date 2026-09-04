@@ -20,8 +20,8 @@ const owner = ownerAccess({
 describe("planCollectionGrant", () => {
   it("plans every operation compiled for type-pack application sessions", () => {
     const capabilities = {
-      contract_version: 1 as const,
-      required: ["definitions.type-pack.apply"] as const
+      contract_version: 2 as const,
+      required: ["definitions.manage"] as const
     };
     const operations = operationsForApplicationCapabilities(capabilities);
     const result = planCollectionGrant({
@@ -36,7 +36,7 @@ describe("planCollectionGrant", () => {
     });
 
     expect(result).toEqual({
-      operations: ["assess_type_pack", "apply_type_pack"],
+      operations: ["create_type", "update_type", "assess_type_pack", "apply_type_pack"],
       scope: { access: "full_collection", contracts: [] },
       replicaMode: "read_write"
     });
@@ -72,7 +72,8 @@ describe("planCollectionGrant", () => {
         access: "full_collection",
         contracts: [],
         files: {
-          actions: ["list", "read", "add"],
+          required: ["list", "read"],
+          optional: ["add"],
           scope: { kind: "selected_folders", folders: ["Assets"] }
         }
       },

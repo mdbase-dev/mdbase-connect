@@ -1,4 +1,4 @@
-use crate::{ApplicationFileRequirement, FileAction};
+use crate::{ApplicationFileRequest, FileAction};
 use crate::{ConnectOperationOutcome, ConnectProblem};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -15,7 +15,8 @@ pub const SUPPORTED_AUTHORIZATION_BINDING_PROTOCOL_VERSIONS: &[u32] = &[
     AUTHORIZATION_BINDING_PROTOCOL_VERSION,
     LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION,
 ];
-pub const SEMANTIC_CAPABILITY_CONTRACT_VERSION: u32 = 1;
+pub const SEMANTIC_CAPABILITY_CONTRACT_VERSION: u32 =
+    crate::APPLICATION_CAPABILITY_CONTRACT_VERSION;
 pub const DURABLE_MUTATION_CONTRACT_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -183,7 +184,7 @@ impl ConnectContractRequirements {
 
 pub fn authorization_requires_durable_mutation(
     operations: &[String],
-    files: Option<&ApplicationFileRequirement>,
+    files: Option<&ApplicationFileRequest>,
 ) -> bool {
     operations.iter().any(|operation| {
         matches!(

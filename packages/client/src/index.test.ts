@@ -1093,7 +1093,7 @@ describe("provider-neutral collection client", () => {
               access: "full_collection",
               collection_kind: "hosted",
               files: {
-                actions: ["list", "read"],
+                required: ["list", "read"],
                 scope: { kind: "collection" }
               }
             }
@@ -1164,7 +1164,7 @@ describe("provider-neutral collection client", () => {
           access: "full_collection",
           collection_kind: "hosted",
           files: {
-            actions: ["list", "read"],
+            required: ["list", "read"],
             scope: { kind: "collection" }
           }
         }
@@ -2371,7 +2371,7 @@ describe("application sessions", () => {
       requirements: {
         contracts: [],
         access: "full_collection",
-        capabilities: { contract_version: 1, required: ["records.query"] }
+        capabilities: { contract_version: 2, required: ["collection.read"] }
       }
     }));
     let finish!: (value: ReturnType<typeof connectSuccess>) => void;
@@ -3269,7 +3269,7 @@ describe("authorization renewal", () => {
         operation_transport: 3,
         operation_transport_recovery: [2],
         authorization_binding: 5,
-        semantic_capabilities: 1,
+        semantic_capabilities: 2,
         durable_mutation: 1
       }
     });

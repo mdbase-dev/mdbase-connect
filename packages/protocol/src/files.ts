@@ -53,8 +53,28 @@ export type FileScope =
 
 /** File intent declared by an application before an authority is selected. */
 export interface ApplicationFileRequirement {
+  required: FileAction[];
+  optional?: FileAction[];
+  scope: FileScope;
+}
+
+/** Exact file actions signed into an authorization request. */
+export interface ApplicationFileRequest {
   actions: FileAction[];
   scope: FileScope;
+}
+
+export function applicationFileRequest(
+  requirement: ApplicationFileRequirement,
+  options: { includeOptional?: boolean } = {}
+): ApplicationFileRequest {
+  return {
+    actions: [...new Set([
+      ...requirement.required,
+      ...(options.includeOptional === false ? [] : requirement.optional ?? [])
+    ])],
+    scope: structuredClone(requirement.scope)
+  };
 }
 
 export interface FileCapability {

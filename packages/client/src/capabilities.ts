@@ -2,7 +2,6 @@ import {
   capabilityOperations,
   type ApplicationCapabilityId,
   type ApplicationCapabilityRequirements,
-  type FileAction,
   type MdbaseAppManifest
 } from "@mdbase-dev/connect-protocol";
 import type { MdbaseConnectionInfo } from "./connection-types.js";
@@ -31,7 +30,7 @@ export interface MdbaseEffectiveCapability {
 }
 
 export interface MdbaseEffectiveCapabilities {
-  contractVersion: 1;
+  contractVersion: 2;
   values: Partial<Record<ApplicationCapabilityId, MdbaseEffectiveCapability>>;
   requiredAvailable: boolean;
 }
@@ -41,14 +40,15 @@ export function effectiveCapabilities(
   manifest: MdbaseAppManifest,
   connection: MdbaseConnectionInfo
 ): MdbaseEffectiveCapabilities {
+  void manifest;
   const required = new Set(requirements.required);
   const declared = [...new Set([...requirements.required, ...(requirements.optional ?? [])])];
   const values: Partial<Record<ApplicationCapabilityId, MdbaseEffectiveCapability>> = {};
   for (const id of declared) {
-    values[id] = effectiveCapability(id, required.has(id), manifest, connection);
+    values[id] = effectiveCapability(id, required.has(id), connection);
   }
   return {
-    contractVersion: 1,
+    contractVersion: 2,
     values,
     requiredAvailable: requirements.required.every(
       (id) => values[id]?.state === "available"
@@ -59,7 +59,6 @@ export function effectiveCapabilities(
 function effectiveCapability(
   id: ApplicationCapabilityId,
   required: boolean,
-  manifest: MdbaseAppManifest,
   connection: MdbaseConnectionInfo
 ): MdbaseEffectiveCapability {
   const operations = capabilityOperations(id);
@@ -73,7 +72,7 @@ function effectiveCapability(
     missingOperations,
     evidence: [{
       source: "application" as const,
-      fact: `${required ? "Required" : "Optional"} in capability contract v1.`
+      fact: `${required ? "Required" : "Optional"} in capability contract v2.`
     }]
   };
   if (missingOperations.length > 0) {
@@ -98,38 +97,6 @@ function effectiveCapability(
       }]
     };
   }
-  if (id.startsWith("files.")) {
-    const action = id.slice("files.".length);
-    if (!connection.fileCapability?.actions.includes(action as FileAction)) {
-      return {
-        ...base,
-        state: connection.fileCapability ? "requires_authorization" : "unsupported",
-        reason: connection.fileCapability
-          ? `The current file grant does not include ${action}.`
-          : "This connection has no file capability.",
-        evidence: [...base.evidence, {
-          source: "authorization",
-          fact: connection.fileCapability
-            ? `Granted file actions: ${connection.fileCapability.actions.join(", ")}.`
-            : "No file capability was granted."
-        }]
-      };
-    }
-  }
-  if (
-    id === "notifications.background-delivery"
-    && (manifest.notifications?.criteria.length ?? 0) === 0
-  ) {
-    return {
-      ...base,
-      state: "requires_setup",
-      reason: "The application manifest declares no notification criteria.",
-      evidence: [...base.evidence, {
-        source: "application",
-        fact: "No authority notification criteria are declared."
-      }]
-    };
-  }
   return {
     ...base,
     state: "available",
@@ -144,7 +111,7 @@ function effectiveCapability(
         ? "Backed by a durable hosted mdbase authority."
         : "Backed by a user-operated mdbase connector."
     }],
-    ...(id === "sync.offline-replica"
+    ...(id === "offline.replica"
       ? {
           details: {
             durability: "device",
@@ -152,9 +119,6 @@ function effectiveCapability(
             authority: connection.authority.kind
           }
         }
-      : {}),
-    ...(id === "notifications.background-delivery"
-      ? { details: { delivery: "authority", payload: "opaque" } }
       : {})
   };
 }

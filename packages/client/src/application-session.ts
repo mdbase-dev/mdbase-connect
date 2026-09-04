@@ -625,8 +625,8 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
       this.publish({ status: "authorization_required", ...context });
       return;
     }
-    const managesSetup = this.manifest.requirements?.capabilities?.required
-      .includes("collection.setup.apply") ?? false;
+    const managesSetup = (this.manifest.provisions?.type_packs.length ?? 0) > 0
+      || (this.manifest.provisions?.configuration?.length ?? 0) > 0;
     if (!managesSetup) {
       this.publish({ status: "ready", verification: "verified", ...context });
       return;

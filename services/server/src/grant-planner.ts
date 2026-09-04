@@ -5,7 +5,10 @@ import type {
   FileCapability,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
-import { FILE_PROTOCOL_VERSION } from "@mdbase-dev/connect-protocol";
+import {
+  FILE_PROTOCOL_VERSION,
+  applicationFileRequest
+} from "@mdbase-dev/connect-protocol";
 import type { CollectionAccessContext } from "./collection-access.js";
 import { requiresWriteReplica } from "./collection-operation-policy.js";
 
@@ -32,15 +35,20 @@ export function planCollectionGrant(input: {
 }): GrantPlan {
   const operations = [...new Set(input.requestedOperations)];
   const fileRequirement = input.requirements.files;
+  const requestedFiles = fileRequirement
+    ? applicationFileRequest(fileRequirement)
+    : undefined;
   if (operations.length === 0 && !fileRequirement) {
     throw new GrantPlanningError("At least one record operation or file capability must be approved.");
   }
   if (fileRequirement) {
     if (
-      fileRequirement.actions.length === 0
-      || new Set(fileRequirement.actions).size !== fileRequirement.actions.length
+      fileRequirement.required.length === 0
+      || new Set(fileRequirement.required).size !== fileRequirement.required.length
+      || new Set(fileRequirement.optional ?? []).size !== (fileRequirement.optional ?? []).length
+      || (fileRequirement.optional ?? []).some((action) => fileRequirement.required.includes(action))
     ) {
-      throw new GrantPlanningError("File capabilities require at least one unique action.");
+      throw new GrantPlanningError("File requirements need disjoint, unique required and optional actions.");
     }
   }
   const applicationOperations = new Set(input.applicationOperationCeiling);
@@ -66,7 +74,7 @@ export function planCollectionGrant(input: {
     operations,
     scope,
     replicaMode: operations.some(requiresWriteReplica)
-      || fileRequirement?.actions.some((action) => WRITE_FILE_ACTIONS.has(action))
+      || requestedFiles?.actions.some((action) => WRITE_FILE_ACTIONS.has(action))
       ? "read_write"
       : "read_only",
     ...(fileCapability ? { fileCapability } : {})
@@ -80,7 +88,7 @@ export function fileCapabilityForRequirements(
     ? {
         kind: "files",
         protocol_version: FILE_PROTOCOL_VERSION,
-        actions: [...requirements.files.actions],
+        actions: applicationFileRequest(requirements.files).actions,
         scope: structuredClone(requirements.files.scope)
       }
     : undefined;

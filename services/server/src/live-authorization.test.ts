@@ -712,7 +712,7 @@ describe("live connector-mediated authorization", () => {
       contract_support: {
         operation_transport: [2],
         authorization_binding: [4],
-        semantic_capabilities: [1],
+        semantic_capabilities: [2],
         durable_mutation: [1]
       }
     }));
@@ -750,7 +750,7 @@ describe("live connector-mediated authorization", () => {
       contract_support: {
         operation_transport: [3],
         authorization_binding: [4],
-        semantic_capabilities: [1],
+        semantic_capabilities: [2],
         durable_mutation: [1]
       }
     }));

@@ -523,7 +523,6 @@ function validateCapabilityRequirements(value: unknown): ManifestValidationIssue
       "must explicitly request full_collection; legacy or omitted access is not widened"
     ));
   }
-  if (Object.keys(capabilities).length === 0) return issues;
   const required = Array.isArray(capabilities.required)
     ? capabilities.required.map(String)
     : [];
@@ -538,78 +537,16 @@ function validateCapabilityRequirements(value: unknown): ManifestValidationIssue
       `must not repeat required capability ${overlap}`
     ));
   }
-  const declared = new Set([...required, ...optional]);
-  const provisions = asObject(manifest.provisions);
-  if (declared.has("definitions.type-pack.apply")) {
-    if (requirements.access !== "full_collection") {
-      issues.push(issue(
-        "/requirements/access",
-        "typePackAccess",
-        "must be full_collection for definitions.type-pack.apply"
-      ));
-    }
-  }
-  if (
-    Array.isArray(provisions.type_packs)
-    && provisions.type_packs.length > 0
-    && !required.includes("collection.setup.apply")
-  ) {
-      issues.push(issue(
-        "/requirements/capabilities/required",
-        "collectionSetupCapability",
-        "must require collection.setup.apply when bundled type packs are declared"
-      ));
-  }
-  const hasConfigurationProvisions = Array.isArray(provisions.configuration)
-    && provisions.configuration.length > 0;
-  const hasSetupProvisions = hasConfigurationProvisions
-    || (Array.isArray(provisions.type_packs) && provisions.type_packs.length > 0);
-  if (hasConfigurationProvisions && !required.includes("collection.setup.apply")) {
+  const files = asObject(requirements.files);
+  const requiredFiles = Array.isArray(files.required) ? files.required.map(String) : [];
+  const optionalFiles = Array.isArray(files.optional) ? files.optional.map(String) : [];
+  const fileOverlap = optionalFiles.find((action) => requiredFiles.includes(action));
+  if (fileOverlap) {
     issues.push(issue(
-      "/requirements/capabilities/required",
-      "collectionSetupCapability",
-      "must require collection.setup.apply when configuration provisions are declared"
+      "/requirements/files/optional",
+      "disjoint",
+      `must not repeat required file action ${fileOverlap}`
     ));
-  }
-  if (declared.has("collection.setup.apply")) {
-    if (requirements.access !== "full_collection") {
-      issues.push(issue(
-        "/requirements/access",
-        "collectionSetupAccess",
-        "must be full_collection for collection.setup.apply"
-      ));
-    }
-    if (!hasSetupProvisions) {
-      issues.push(issue(
-        "/provisions",
-        "collectionSetupProvision",
-        "must declare a configuration provision or type pack for collection.setup.apply"
-      ));
-    }
-  }
-  if (
-    declared.has("notifications.background-delivery")
-    && !Array.isArray(asObject(manifest.notifications).criteria)
-  ) {
-    issues.push(issue(
-      "/notifications/criteria",
-      "notificationCapability",
-      "must be declared for notifications.background-delivery"
-    ));
-  }
-  const fileRequirement = asObject(requirements.files);
-  const fileActions = Array.isArray(fileRequirement.actions)
-    ? new Set(fileRequirement.actions.map(String))
-    : new Set<string>();
-  for (const action of ["list", "read", "add", "replace", "move", "delete"]) {
-    const capability = `files.${action}`;
-    if (declared.has(capability) !== fileActions.has(action)) {
-      issues.push(issue(
-        "/requirements/capabilities",
-        "fileCapability",
-        `${capability} and requirements.files.actions.${action} must be declared together`
-      ));
-    }
   }
   return issues;
 }

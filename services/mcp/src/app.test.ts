@@ -119,7 +119,7 @@ describe("mdbase MCP gateway", () => {
       contracts: {
         operation_transport: 3,
         authorization_binding: 5,
-        semantic_capabilities: 1,
+        semantic_capabilities: 2,
         durable_mutation: 1
       }
     });

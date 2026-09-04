@@ -11,6 +11,7 @@ import {
 import {
   APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
   OPERATION_TRANSPORT_PROTOCOL_VERSION,
+  applicationFileRequest,
   authorizationContractRequirements,
   type CollectionOperation,
   type EncryptedRelayOperationResponse,
@@ -140,6 +141,9 @@ export class ConnectGateway {
   }): Promise<string> {
     const application = await this.registerApplication();
     const installation = await this.applicationIdentity(application.id);
+    const requestedFiles = this.manifest.requirements?.files
+      ? applicationFileRequest(this.manifest.requirements.files)
+      : undefined;
     const issuedAt = new Date();
     const proof = await signApplicationAuthorization({
       protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
@@ -160,12 +164,10 @@ export class ConnectGateway {
       code_challenge: input.codeChallenge,
       contracts: authorizationContractRequirements(
         input.operations,
-        this.manifest.requirements?.files
+        requestedFiles
       ),
       requested_operations: input.operations,
-      ...(this.manifest.requirements?.files
-        ? { requested_files: this.manifest.requirements.files }
-        : {}),
+      ...(requestedFiles ? { requested_files: requestedFiles } : {}),
       ...(input.collectionId ? { collection_id: input.collectionId } : {})
     }, installation);
     const response = await fetch(`${this.connectUrl}/oauth/authorization_request`, {

@@ -23,28 +23,18 @@ await writeFile(target, `${JSON.stringify({
   requirements: {
     contracts: [],
     capabilities: {
-      contract_version: 1,
+      contract_version: 2,
       required: [
-        "collection.inspect",
-        "records.watch",
-        "records.read",
-        "records.query",
-        "records.validate",
+        "collection.read",
         "records.create",
-        "records.update",
+        "records.edit",
         "records.delete",
-        "records.rename",
-        "files.list",
-        "files.read",
-        "definitions.read",
-        "definitions.create",
-        "definitions.update",
-        "definitions.type-pack.apply",
+        "definitions.manage",
       ],
-      optional: ["files.add"],
     },
     files: {
-      actions: ["list", "read", "add"],
+      required: ["list", "read"],
+      optional: ["add"],
       scope: { kind: "collection" }
     },
     access: "full_collection"

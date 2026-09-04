@@ -47,23 +47,14 @@ import type {
 } from "./model";
 
 export const CORE_CAPABILITIES: ApplicationCapabilityId[] = [
-  "collection.inspect",
-  "records.watch",
-  "records.read",
-  "records.query",
-  "records.validate",
+  "collection.read",
   "records.create",
-  "records.update",
-  "records.delete",
-  "records.rename",
-  "files.list",
-  "files.read"
+  "records.edit",
+  "records.delete"
 ];
 
 export const TYPE_DEFINITION_CAPABILITIES: ApplicationCapabilityId[] = [
-  "definitions.read",
-  "definitions.create",
-  "definitions.update"
+  "definitions.manage"
 ];
 
 export function missingCoreCapabilities(connection: ConnectionSummary | null): string[] {

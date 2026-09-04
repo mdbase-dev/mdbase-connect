@@ -28,7 +28,7 @@
   ],
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
-    "test": "node --test test/*.test.mjs && node ../../scripts/generate-connect-problems.mjs --check && node ../../scripts/generate-operation-catalog.mjs --check",
+    "test": "node --test test/*.test.mjs && node ../../scripts/generate-connect-problems.mjs --check && node ../../scripts/generate-operation-catalog.mjs --check && node ../../scripts/generate-application-capabilities.mjs --check",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

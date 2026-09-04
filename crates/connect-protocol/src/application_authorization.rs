@@ -1,6 +1,6 @@
 use crate::{
-    authorization_requires_durable_mutation, ApplicationFileRequirement,
-    ConnectContractRequirements, FileAction, FileCapabilityKind, FileScope, GrantPolicy,
+    authorization_requires_durable_mutation, ApplicationFileRequest, ConnectContractRequirements,
+    FileAction, FileCapabilityKind, FileScope, GrantPolicy,
     APPLICATION_AUTHORIZATION_PROTOCOL_VERSION, AUTHORIZATION_BINDING_PROTOCOL_VERSION,
     FILE_PROTOCOL_VERSION, GRANT_ENCRYPTION_PROTOCOL_VERSION,
     LEGACY_AUTHORIZATION_BINDING_PROTOCOL_VERSION,
@@ -60,7 +60,7 @@ pub struct ApplicationAuthorizationBinding {
     pub contracts: ConnectContractRequirements,
     pub requested_operations: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub requested_files: Option<ApplicationFileRequirement>,
+    pub requested_files: Option<ApplicationFileRequest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collection_id: Option<Uuid>,
 }
@@ -380,7 +380,7 @@ fn append_optional_uuid(output: &mut Vec<u8>, value: Option<Uuid>) {
 }
 
 fn validate_requested_files(
-    files: Option<&ApplicationFileRequirement>,
+    files: Option<&ApplicationFileRequest>,
 ) -> Result<(), ApplicationAuthorizationError> {
     let Some(files) = files else {
         return Ok(());
@@ -413,7 +413,7 @@ fn validate_requested_files(
     Ok(())
 }
 
-fn append_requested_files(output: &mut Vec<u8>, files: Option<&ApplicationFileRequirement>) {
+fn append_requested_files(output: &mut Vec<u8>, files: Option<&ApplicationFileRequest>) {
     let Some(files) = files else {
         output.push(0);
         return;
@@ -555,7 +555,7 @@ mod tests {
     }
 
     #[test]
-    fn frozen_beta55_v4_fixture_keeps_its_protocol_two_transcript_and_signature() {
+    fn frozen_beta55_v4_fixture_requires_reauthorization() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
             "../../../packages/protocol/test/fixtures/application-authorization-beta55-v4.json"
         ))
@@ -571,15 +571,17 @@ mod tests {
             crate::LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION
         );
         assert_eq!(
-            hex(&Sha256::digest(binding.signing_message().unwrap())),
-            fixture["signing_message_sha256"].as_str().unwrap()
+            binding.signing_message(),
+            Err(ApplicationAuthorizationError::InvalidProof)
         );
-        ApplicationAuthorizationProof {
-            binding,
-            signature: fixture["signature"].as_str().unwrap().to_string(),
-        }
-        .verify()
-        .unwrap();
+        assert_eq!(
+            ApplicationAuthorizationProof {
+                binding,
+                signature: fixture["signature"].as_str().unwrap().to_string(),
+            }
+            .verify(),
+            Err(ApplicationAuthorizationError::InvalidProof)
+        );
     }
 
     #[test]

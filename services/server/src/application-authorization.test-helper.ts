@@ -11,7 +11,7 @@ import {
   authorizationSigningMessage,
   type ApplicationAuthorizationBinding,
   type ApplicationAuthorizationProof,
-  type ApplicationFileRequirement,
+  type ApplicationFileRequest,
   type CollectionOperation,
   type OperationTransportProtocolVersion
 } from "@mdbase-dev/connect-protocol";
@@ -29,7 +29,7 @@ export async function testApplicationAuthorization(input: {
   codeChallenge: string;
   requestedOperations: CollectionOperation[];
   operationTransportRecovery?: OperationTransportProtocolVersion[];
-  requestedFiles?: ApplicationFileRequirement;
+  requestedFiles?: ApplicationFileRequest;
   redirectUri?: string;
   state?: string;
   collectionId?: string;

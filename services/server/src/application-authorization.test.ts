@@ -52,12 +52,15 @@ describe("application authorization proofs", () => {
       .resolves.toEqual(expect.objectContaining({ signature: fixture.signature }));
   });
 
-  it("verifies the frozen beta55 protocol-2/v4 proof without rewriting it", async () => {
+  it("requires reauthorization for the frozen semantic-v1 proof", async () => {
     await expect(verifyApplicationAuthorization(beta55Fixture, {
       ...expected,
       requestedOperations: beta55Fixture.binding.requested_operations,
       requestedFiles: beta55Fixture.binding.requested_files
-    })).resolves.toEqual(beta55Fixture);
+    })).rejects.toMatchObject({
+      code: "capability_contract_incompatible",
+      details: { required: [2], supported: [1] }
+    });
   });
 
   it("rejects every substituted security boundary", async () => {

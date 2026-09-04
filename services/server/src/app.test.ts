@@ -516,13 +516,8 @@ describe("mdbase connect server", () => {
       ],
       requirements: {
         capabilities: {
-          contract_version: 1,
-          required: [
-            "collection.inspect",
-            "records.read",
-            "definitions.contracts.current",
-            "collection.setup.apply"
-          ]
+          contract_version: 2,
+          required: ["collection.read"]
         },
         access: "full_collection",
         contracts: [{
@@ -750,8 +745,8 @@ describe("mdbase connect server", () => {
       contracts: [],
       access: "full_collection",
       capabilities: {
-        contract_version: 1,
-        required: ["definitions.type-pack.apply"]
+        contract_version: 2,
+        required: ["definitions.manage"]
       }
     }, "Definition Manager");
     definitionManager.manifest.id = "dev.mdbase.definition-manager";

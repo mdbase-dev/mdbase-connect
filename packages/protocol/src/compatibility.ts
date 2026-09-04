@@ -1,4 +1,5 @@
-import type { ApplicationFileRequirement } from "./files.js";
+import { APPLICATION_CAPABILITY_CONTRACT_VERSION } from "./capabilities.js";
+import type { ApplicationFileRequest } from "./files.js";
 import {
   isMutatingOperation,
   type CollectionOperation
@@ -21,7 +22,7 @@ export const SUPPORTED_AUTHORIZATION_BINDING_PROTOCOL_VERSIONS = [
 ] as const;
 export type AuthorizationBindingProtocolVersion =
   typeof SUPPORTED_AUTHORIZATION_BINDING_PROTOCOL_VERSIONS[number];
-export const SEMANTIC_CAPABILITY_CONTRACT_VERSION = 1 as const;
+export const SEMANTIC_CAPABILITY_CONTRACT_VERSION = APPLICATION_CAPABILITY_CONTRACT_VERSION;
 export const DURABLE_MUTATION_CONTRACT_VERSION = 1 as const;
 
 export interface ConnectContractRequirements {
@@ -54,13 +55,13 @@ export const CONNECT_CONTRACT_SUPPORT: ConnectContractSupport = {
  */
 export function authorizationContractRequirements(
   operations: readonly CollectionOperation[],
-  files?: ApplicationFileRequirement,
+  files?: ApplicationFileRequest,
   operationTransportRecovery: readonly OperationTransportProtocolVersion[] = []
 ): ConnectContractRequirements {
   const requirements: ConnectContractRequirements = {
     operation_transport: OPERATION_TRANSPORT_PROTOCOL_VERSION,
     authorization_binding: AUTHORIZATION_BINDING_PROTOCOL_VERSION,
-    semantic_capabilities: 1 satisfies typeof SEMANTIC_CAPABILITY_CONTRACT_VERSION
+    semantic_capabilities: APPLICATION_CAPABILITY_CONTRACT_VERSION
   };
   const recovery = [...new Set(operationTransportRecovery)]
     .filter((version) => version !== OPERATION_TRANSPORT_PROTOCOL_VERSION)

@@ -46,17 +46,54 @@ function manifest(overrides: Partial<MdbaseAppManifest> = {}): MdbaseAppManifest
       access: "full_collection",
       contracts: [],
       capabilities: {
-        contract_version: 1,
-        required: ["collection.inspect", "records.read"],
-        optional: ["records.update"]
+        contract_version: 2,
+        required: ["collection.read"],
+        optional: ["records.edit"]
       }
     },
     ...overrides
   } as MdbaseAppManifest;
 }
 
+function setupManifest(): MdbaseAppManifest {
+  return manifest({
+    requirements: {
+      access: "full_collection",
+      contracts: [],
+      capabilities: { contract_version: 2, required: [] },
+      configuration: [{
+        id: "session-test",
+        path: "/x-session/features",
+        predicate: "contains",
+        value: "setup"
+      }]
+    },
+    provisions: {
+      type_packs: [],
+      configuration: [{
+        requirement: "session-test",
+        operation: "set_add",
+        path: "/x-session/features",
+        value: "setup"
+      }]
+    }
+  });
+}
+
 function connection(
-  operations = ["describe", "read", "update"],
+  operations = [
+    "describe",
+    "changes",
+    "read",
+    "query",
+    "list_views",
+    "execute_view",
+    "read_view_source",
+    "validate",
+    "read_type",
+    "update",
+    "rename"
+  ],
   assessment?: CollectionSetupAssessment,
   access: "contract" | "full_collection" = "full_collection"
 ) {
@@ -248,7 +285,7 @@ describe("MdbaseApplicationSession", () => {
 
       const operation = method === "authorize"
         ? session.authorize("choose", { timeoutMs: null })
-        : session.ensureCapabilities(["records.update"], { timeoutMs: null });
+        : session.ensureCapabilities(["records.edit"], { timeoutMs: null });
       await vi.waitFor(() => expect(signal).toBeInstanceOf(AbortSignal));
       session.destroy();
       expect(signal?.aborted).toBe(true);
@@ -288,16 +325,7 @@ describe("MdbaseApplicationSession", () => {
   });
 
   it("aborts and fences collection setup apply without masking an unknown mutation outcome", async () => {
-    const declaration = manifest({
-      requirements: {
-        access: "full_collection",
-        contracts: [],
-        capabilities: {
-          contract_version: 1,
-          required: ["collection.inspect", "records.read", "collection.setup.apply"]
-        }
-      }
-    });
+    const declaration = setupManifest();
     const assessment = setupAssessment(declaration.id);
     const fixture = connectFixture(
       declaration,
@@ -366,7 +394,7 @@ describe("MdbaseApplicationSession", () => {
     expect(session.forget(collectionId)).toMatchObject({ problem: { code: "session_not_started" } });
     const authorization = session.authorize("choose");
     const callback = session.handleAuthorizationCallback("https://session.example/callback?code=x&state=y");
-    const capabilities = session.ensureCapabilities(["records.read"]);
+    const capabilities = session.ensureCapabilities(["collection.read"]);
     const setup = session.applyCollectionSetup();
 
     await expect(authorization).resolves.toMatchObject({ problem: { code: "session_not_started" } });
@@ -420,16 +448,7 @@ describe("MdbaseApplicationSession", () => {
 
   it("abandons provisional setup verification and fences stale publications after timeout", async () => {
     vi.useFakeTimers();
-    const declaration = manifest({
-      requirements: {
-        access: "full_collection",
-        contracts: [],
-        capabilities: {
-          contract_version: 1,
-          required: ["collection.inspect", "records.read", "collection.setup.apply"]
-        }
-      }
-    });
+    const declaration = setupManifest();
     const fixture = connectFixture(
       declaration,
       ["describe", "read", "assess_collection_setup", "apply_collection_setup"]
@@ -486,7 +505,7 @@ describe("MdbaseApplicationSession", () => {
       session.authorize("choose"),
       session.handleAuthorizationCallback("https://session.example/callback?code=x&state=y"),
       session.completeAuthorization("https://session.example/callback?code=x&state=y"),
-      session.ensureCapabilities(["records.read"]),
+      session.ensureCapabilities(["collection.read"]),
       session.applyCollectionSetup()
     ])) {
       expect(outcome.ok || outcome.problem).toBe(snapshot.problem);
@@ -541,16 +560,7 @@ describe("MdbaseApplicationSession", () => {
   });
 
   it("classifies an authority declaration mismatch as authorization required rather than blocked", async () => {
-    const declaration = manifest({
-      requirements: {
-        access: "full_collection",
-        contracts: [],
-        capabilities: {
-          contract_version: 1,
-          required: ["collection.inspect", "records.read", "collection.setup.apply"]
-        }
-      }
-    });
+    const declaration = setupManifest();
     const fixture = connectFixture(
       declaration,
       ["describe", "read", "assess_collection_setup", "apply_collection_setup"]
@@ -570,16 +580,7 @@ describe("MdbaseApplicationSession", () => {
   });
 
   it("reviews setup drift after explicit selected reauthorization succeeds", async () => {
-    const declaration = manifest({
-      requirements: {
-        access: "full_collection",
-        contracts: [],
-        capabilities: {
-          contract_version: 1,
-          required: ["collection.inspect", "records.read", "collection.setup.apply"]
-        }
-      }
-    });
+    const declaration = setupManifest();
     const assessment: CollectionSetupAssessment = {
       status: "provision",
       applicable: true,
@@ -626,7 +627,19 @@ describe("MdbaseApplicationSession", () => {
     await session.authorize("choose");
 
     expect(fixture.authorize).toHaveBeenCalledWith(expect.objectContaining({
-      operations: ["describe", "read", "update"]
+      operations: [
+        "describe",
+        "changes",
+        "read",
+        "query",
+        "list_views",
+        "execute_view",
+        "read_view_source",
+        "validate",
+        "read_type",
+        "update",
+        "rename"
+      ]
     }));
   });
 
@@ -643,8 +656,20 @@ describe("MdbaseApplicationSession", () => {
       capabilities: {
         requiredAvailable: false,
         values: {
-          "records.read": { state: "requires_authorization", missingOperations: ["read"] },
-          "records.update": { state: "requires_authorization", requirement: "optional" }
+          "collection.read": {
+            state: "requires_authorization",
+            missingOperations: [
+              "changes",
+              "read",
+              "query",
+              "list_views",
+              "execute_view",
+              "read_view_source",
+              "validate",
+              "read_type"
+            ]
+          },
+          "records.edit": { state: "requires_authorization", requirement: "optional" }
         }
       }
     });
@@ -656,8 +681,8 @@ describe("MdbaseApplicationSession", () => {
         contracts: [],
         access: "full_collection",
         capabilities: {
-          contract_version: 1,
-          required: ["collection.inspect", "records.read"]
+          contract_version: 2,
+          required: ["collection.read"]
         }
       }
     });
@@ -681,8 +706,8 @@ describe("MdbaseApplicationSession", () => {
         contracts: [],
         access: "contract",
         capabilities: {
-          contract_version: 1,
-          required: ["collection.inspect", "records.read"]
+          contract_version: 2,
+          required: ["collection.read"]
         }
       }
     });
@@ -726,13 +751,13 @@ describe("MdbaseApplicationSession", () => {
     await session.start();
     const controller = new AbortController();
 
-    await session.ensureCapabilities(["records.update"], {
+    await session.ensureCapabilities(["records.edit"], {
       signal: controller.signal,
       timeoutMs: 4321
     });
 
     expect(fixture.authorize).toHaveBeenCalledWith(expect.objectContaining({
-      operations: ["describe", "read", "update"],
+      operations: ["describe", "read", "update", "rename"],
       signal: expect.any(AbortSignal),
       timeoutMs: null
     }));
@@ -773,10 +798,7 @@ describe("MdbaseApplicationSession", () => {
       requirements: {
         access: "full_collection",
         contracts: [],
-        capabilities: {
-          contract_version: 1,
-          required: ["collection.inspect", "records.read", "collection.setup.apply"]
-        }
+        capabilities: { contract_version: 2, required: [] }
       },
       provisions: {
         type_packs: [{ manifest: { kind: "mdbase.type-pack", id: desired.id, version: desired.version, resources: [] }, resources: [], provides: [] }]
@@ -866,10 +888,7 @@ describe("MdbaseApplicationSession", () => {
       requirements: {
         access: "full_collection",
         contracts: [],
-        capabilities: {
-          contract_version: 1,
-          required: ["collection.inspect", "records.read", "collection.setup.apply"]
-        }
+        capabilities: { contract_version: 2, required: [] }
       },
       provisions: {
         type_packs: [{

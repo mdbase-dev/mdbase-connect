@@ -73,6 +73,14 @@ pub enum FileScope {
 /// version or repeating the granted capability discriminator.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApplicationFileRequirement {
+    pub required: Vec<FileAction>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub optional: Vec<FileAction>,
+    pub scope: FileScope,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApplicationFileRequest {
     pub actions: Vec<FileAction>,
     pub scope: FileScope,
 }

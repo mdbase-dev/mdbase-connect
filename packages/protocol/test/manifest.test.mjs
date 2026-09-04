@@ -30,9 +30,9 @@ function manifest() {
     requirements: {
       contracts: [],
       capabilities: {
-        contract_version: 1,
-        required: ["collection.inspect", "collection.setup.apply"],
-        optional: ["records.query"]
+        contract_version: 2,
+        required: ["collection.read"],
+        optional: ["records.create"]
       },
       access: "full_collection"
     },
@@ -109,23 +109,17 @@ test("legacy contract-scoped declarations are rejected rather than widened", () 
   );
 });
 
-test("generic editors may apply user-selected packs without bundling one", () => {
+test("setup provisions and ongoing definition management are independent", () => {
+  const setupOnly = manifest();
+  assert.deepEqual(validateAppManifest(setupOnly), { valid: true, issues: [] });
+
   const editor = manifest();
   editor.provisions.type_packs = [];
   editor.requirements.capabilities.required = [
-    "collection.inspect",
-    "definitions.type-pack.apply"
+    "collection.read",
+    "definitions.manage"
   ];
   assert.deepEqual(validateAppManifest(editor), { valid: true, issues: [] });
-
-  const missingCapability = manifest();
-  missingCapability.requirements.capabilities.required = ["collection.inspect"];
-  const result = validateAppManifest(missingCapability);
-  assert.equal(result.valid, false);
-  assert.ok(result.issues.some((issue) =>
-    issue.path === "/requirements/capabilities/required"
-    && issue.keyword === "collectionSetupCapability"
-  ));
 });
 
 test("portable declarations validate without inventing a web origin", () => {
@@ -157,7 +151,7 @@ test("portable declarations validate without inventing a web origin", () => {
 
 test("semantic diagnostics expose exact paths", () => {
   const invalid = manifest();
-  invalid.requirements.capabilities.optional = ["collection.inspect"];
+  invalid.requirements.capabilities.optional = ["collection.read"];
   invalid.provisions.type_packs[0].manifest.resources[0].digest =
     `sha256:${"0".repeat(64)}`;
   const result = validateAppManifest(invalid);

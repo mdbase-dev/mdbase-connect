@@ -8,6 +8,7 @@ import type {
   GrantEncryption,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
+import { applicationFileRequest } from "@mdbase-dev/connect-protocol";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { verifyApplicationAuthorization } from "../../application-authorization.js";
@@ -159,7 +160,9 @@ export function registerAuthorizationRoutes(
         flow: "device_code",
         codeChallenge: input.code_challenge,
         requestedOperations,
-        requestedFiles: application.rows[0].requirements.files,
+        requestedFiles: application.rows[0].requirements.files
+          ? applicationFileRequest(application.rows[0].requirements.files)
+          : undefined,
         collectionId: input.collection_id
       }
     );
@@ -441,7 +444,9 @@ export function registerAuthorizationRoutes(
         state: input.state,
         codeChallenge: input.code_challenge,
         requestedOperations,
-        requestedFiles: application.rows[0].requirements.files,
+        requestedFiles: application.rows[0].requirements.files
+          ? applicationFileRequest(application.rows[0].requirements.files)
+          : undefined,
         collectionId: input.collection_id
       }
     );

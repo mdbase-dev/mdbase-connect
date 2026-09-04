@@ -19,9 +19,9 @@ describe("application capability policy", () => {
     contracts: [],
     access: "full_collection" as const,
     capabilities: {
-      contract_version: 1 as const,
-      required: ["collection.inspect", "records.read"] as const,
-      optional: ["records.update"] as const
+      contract_version: 2 as const,
+      required: ["collection.read"] as const,
+      optional: ["records.edit"] as const
     }
   };
 
@@ -40,8 +40,8 @@ describe("application capability policy", () => {
         digest: `sha256:${"a".repeat(64)}`
       }],
       capabilities: {
-        contract_version: 1,
-        required: ["definitions.read"]
+        contract_version: 2,
+        required: ["collection.read"]
       }
     })).toBe(true);
   });
@@ -83,15 +83,15 @@ describe("application capability policy", () => {
 
   it("keeps timer operations available to applications that declare them", () => {
     const timerCapabilities = Object.keys(APPLICATION_CAPABILITY_DEFINITIONS)
-      .filter((capability): capability is ApplicationCapabilityId => capability.startsWith("timers."));
+      .filter((capability): capability is ApplicationCapabilityId => capability === "background.schedule");
     const timerOperations = operationsForApplicationCapabilities({
-      contract_version: 1,
+      contract_version: 2,
       required: timerCapabilities
     });
     const requirements = {
       contracts: [],
       access: "full_collection" as const,
-      capabilities: { contract_version: 1 as const, required: timerCapabilities }
+      capabilities: { contract_version: 2 as const, required: timerCapabilities }
     };
     expect(() => assertOperationsAllowedByApplication(
       timerOperations,
@@ -130,10 +130,10 @@ describe("application capability policy", () => {
 
   it("keeps operation timer metadata aligned with semantic capabilities", () => {
     const timerCapabilities = Object.keys(APPLICATION_CAPABILITY_DEFINITIONS)
-      .filter((capability): capability is ApplicationCapabilityId => capability.startsWith("timers."));
+      .filter((capability): capability is ApplicationCapabilityId => capability === "background.schedule");
     expect(new Set(COLLECTION_OPERATIONS.filter(operationRequiresTimerCriterion))).toEqual(
       new Set(operationsForApplicationCapabilities({
-        contract_version: 1,
+        contract_version: 2,
         required: timerCapabilities
       }))
     );

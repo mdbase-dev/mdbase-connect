@@ -6,6 +6,7 @@ import type {
 } from "@mdbase-dev/connect-protocol";
 import {
   APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
+  applicationFileRequest,
   authorizationContractRequirements,
   DEFAULT_LOOPBACK_PORT,
   GRANT_ENCRYPTION_PROTOCOL_VERSION,
@@ -311,6 +312,9 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       throw error;
     }
     const operations = uniqueOperations(options.operations ?? DEFAULT_OPERATIONS);
+    const requestedFiles = application.requirements?.files
+      ? applicationFileRequest(application.requirements.files)
+      : undefined;
     const issuedAt = new Date();
     const proof = await signApplicationAuthorization({
       protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
@@ -331,7 +335,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       code_challenge: challenge,
       contracts: authorizationContractRequirements(
         operations,
-        application.requirements?.files,
+        requestedFiles,
         pendingRecoveryTransports(
           this.storage,
           this.storagePrefix(),
@@ -340,9 +344,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         )
       ),
       requested_operations: operations,
-      ...(application.requirements?.files
-        ? { requested_files: application.requirements.files }
-        : {}),
+      ...(requestedFiles ? { requested_files: requestedFiles } : {}),
       ...(targetCollectionId ? { collection_id: targetCollectionId } : {})
     }, installation);
     const pending: StoredAuthorization = {
@@ -459,6 +461,9 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       throw error;
     }
     const operations = uniqueOperations(options.operations ?? DEFAULT_OPERATIONS);
+    const requestedFiles = application.requirements?.files
+      ? applicationFileRequest(application.requirements.files)
+      : undefined;
     const authorizationId = crypto.randomUUID();
     const issuedAt = new Date();
     const proof = await signApplicationAuthorization({
@@ -478,7 +483,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       code_challenge: challenge,
       contracts: authorizationContractRequirements(
         operations,
-        application.requirements?.files,
+        requestedFiles,
         pendingRecoveryTransports(
           this.storage,
           this.storagePrefix(),
@@ -487,9 +492,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         )
       ),
       requested_operations: operations,
-      ...(application.requirements?.files
-        ? { requested_files: application.requirements.files }
-        : {}),
+      ...(requestedFiles ? { requested_files: requestedFiles } : {}),
       ...(options.target?.kind === "collection"
         ? { collection_id: options.target.collectionId }
         : {})
