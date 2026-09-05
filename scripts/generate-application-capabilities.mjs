@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const catalogPath = resolve(root, "packages/protocol/schemas/application-capability-catalog.v2.json");
+const legacyCatalogPath = resolve(root, "packages/protocol/schemas/application-capability-catalog.v1.json");
+const legacyCatalog = JSON.parse(readFileSync(legacyCatalogPath, "utf8"));
 const operationCatalogPath = resolve(root, "packages/protocol/schemas/operation-catalog.v1.json");
 const manifestSchemaPath = resolve(root, "packages/protocol/schemas/mdbase-app.schema.json");
 const typescriptPath = resolve(root, "packages/protocol/src/capabilities.ts");
@@ -14,8 +16,28 @@ const manifestSchema = JSON.parse(readFileSync(manifestSchemaPath, "utf8"));
 const check = process.argv.includes("--check");
 
 validateCatalog(catalog, operationCatalog, manifestSchema);
-emit(typescriptPath, typescriptSource(catalog));
-emit(rustPath, rustSource(catalog));
+validateLegacyCatalog(legacyCatalog, operationCatalog);
+emit(typescriptPath, typescriptSource(catalog) + legacyTypescriptSource(legacyCatalog));
+emit(rustPath, rustSource(catalog) + legacyRustSource(legacyCatalog));
+
+// V1 is a historical intent table, not a partition of the operation catalog:
+// empty aliases and operations shared between capabilities must remain intact.
+function validateLegacyCatalog(value, operations) {
+  if (value.catalog_version !== 1 || !Array.isArray(value.capabilities) || !value.capabilities.length) {
+    throw new Error("Legacy application capability catalog must be version 1.");
+  }
+  const ids = new Set();
+  const known = new Set(operations.collection_operations.map(({ id }) => id));
+  for (const { id, operations: expansion } of value.capabilities) {
+    if (typeof id !== "string" || !/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/u.test(id) || ids.has(id)) {
+      throw new Error(`Invalid legacy capability identifier: ${id}`);
+    }
+    ids.add(id);
+    if (!Array.isArray(expansion) || expansion.some((operation) => !known.has(operation))) {
+      throw new Error(`Invalid legacy capability operations: ${id}`);
+    }
+  }
+}
 
 function emit(path, content) {
   if (check) {
@@ -125,6 +147,51 @@ function typescriptSource(value) {
     `      : count === 0 || count === capabilityOperations.length;\n` +
     `  });\n` +
     `}\n`;
+}
+
+function legacyTypescriptSource(value) {
+  const definitions = value.capabilities.map(({ id, operations }) =>
+    `  ${JSON.stringify(id)}: Object.freeze(${JSON.stringify(operations)} as const)`
+  ).join(",\n");
+  return `\n// Frozen predecessor catalog. Lookup availability does not imply declaration acceptance.\n` +
+    `export const APPLICATION_CAPABILITY_V1_CONTRACT_VERSION = 1 as const;\n\n` +
+    `export const APPLICATION_CAPABILITY_V1_DEFINITIONS = Object.freeze({\n${definitions}\n} as const satisfies Record<string, readonly CollectionOperation[]>);\n\n` +
+    `export type LegacyApplicationCapabilityId = keyof typeof APPLICATION_CAPABILITY_V1_DEFINITIONS;\n\n` +
+    `export interface LegacyApplicationCapabilityRequirements {\n` +
+    `  contract_version: typeof APPLICATION_CAPABILITY_V1_CONTRACT_VERSION;\n` +
+    `  required: LegacyApplicationCapabilityId[];\n` +
+    `  optional?: LegacyApplicationCapabilityId[];\n` +
+    `}\n\n` +
+    `export function capabilityOperationsForContractVersion(\n` +
+    `  contractVersion: number,\n` +
+    `  capability: string\n` +
+    `): CollectionOperation[] | undefined {\n` +
+    `  const definitions = contractVersion === 1 ? APPLICATION_CAPABILITY_V1_DEFINITIONS\n` +
+    `    : contractVersion === 2 ? APPLICATION_CAPABILITY_DEFINITIONS : undefined;\n` +
+    `  if (!definitions || !Object.hasOwn(definitions, capability)) return undefined;\n` +
+    `  return [...(definitions as Readonly<Record<string, readonly CollectionOperation[]>>)[capability]];\n` +
+    `}\n`;
+}
+
+function legacyRustSource(value) {
+  const ids = value.capabilities.map(({ id }) => `    ${JSON.stringify(id)},`).join("\n");
+  const matches = value.capabilities.map(({ id, operations }) =>
+    `        ${JSON.stringify(id)} => Some(&[${operations.map(JSON.stringify).join(", ")}]),`
+  ).join("\n");
+  return `\n// Frozen predecessor catalog. Lookup availability does not imply declaration acceptance.\n` +
+    `pub const APPLICATION_CAPABILITY_V1_CONTRACT_VERSION: u32 = 1;\n\n` +
+    `pub const APPLICATION_CAPABILITY_V1_IDS: &[&str] = &[\n${ids}\n];\n\n` +
+    `pub fn application_capability_operations_for_contract_version(\n` +
+    `    contract_version: u32,\n` +
+    `    capability: &str,\n` +
+    `) -> Option<&'static [&'static str]> {\n` +
+    `    match contract_version {\n` +
+    `        1 => legacy_application_capability_operations(capability),\n` +
+    `        2 => application_capability_operations(capability),\n` +
+    `        _ => None,\n` +
+    `    }\n}\n\n` +
+    `fn legacy_application_capability_operations(capability: &str) -> Option<&'static [&'static str]> {\n` +
+    `    match capability {\n${matches}\n        _ => None,\n    }\n}\n`;
 }
 
 function rustSource(value) {

@@ -66,3 +66,61 @@ export function applicationOperationSelectionIsAtomic(
       : count === 0 || count === capabilityOperations.length;
   });
 }
+
+// Frozen predecessor catalog. Lookup availability does not imply declaration acceptance.
+export const APPLICATION_CAPABILITY_V1_CONTRACT_VERSION = 1 as const;
+
+export const APPLICATION_CAPABILITY_V1_DEFINITIONS = Object.freeze({
+  "collection.inspect": Object.freeze(["describe"] as const),
+  "records.watch": Object.freeze(["changes"] as const),
+  "records.read": Object.freeze(["read"] as const),
+  "records.query": Object.freeze(["query"] as const),
+  "records.validate": Object.freeze(["validate"] as const),
+  "records.create": Object.freeze(["create"] as const),
+  "records.update": Object.freeze(["update"] as const),
+  "records.delete": Object.freeze(["delete"] as const),
+  "records.rename": Object.freeze(["rename"] as const),
+  "views.list": Object.freeze(["list_views"] as const),
+  "views.execute": Object.freeze(["execute_view"] as const),
+  "views.source.read": Object.freeze(["read_view_source"] as const),
+  "views.source.create": Object.freeze(["create_view_source"] as const),
+  "views.source.update": Object.freeze(["update_view_source"] as const),
+  "views.source.delete": Object.freeze(["delete_view_source"] as const),
+  "definitions.contracts.current": Object.freeze([] as const),
+  "definitions.read": Object.freeze(["read_type"] as const),
+  "definitions.create": Object.freeze(["create_type"] as const),
+  "definitions.update": Object.freeze(["update_type"] as const),
+  "definitions.type-pack.inspect": Object.freeze(["assess_type_pack"] as const),
+  "definitions.type-pack.apply": Object.freeze(["assess_type_pack","apply_type_pack"] as const),
+  "collection.setup.apply": Object.freeze(["assess_collection_setup","apply_collection_setup"] as const),
+  "timers.list": Object.freeze(["list_timers"] as const),
+  "timers.put": Object.freeze(["put_timer"] as const),
+  "timers.cancel": Object.freeze(["cancel_timer"] as const),
+  "timers.reconcile": Object.freeze(["reconcile_timers"] as const),
+  "sync.offline-replica": Object.freeze(["sync"] as const),
+  "notifications.background-delivery": Object.freeze([] as const),
+  "files.list": Object.freeze([] as const),
+  "files.read": Object.freeze([] as const),
+  "files.add": Object.freeze([] as const),
+  "files.replace": Object.freeze([] as const),
+  "files.move": Object.freeze([] as const),
+  "files.delete": Object.freeze([] as const)
+} as const satisfies Record<string, readonly CollectionOperation[]>);
+
+export type LegacyApplicationCapabilityId = keyof typeof APPLICATION_CAPABILITY_V1_DEFINITIONS;
+
+export interface LegacyApplicationCapabilityRequirements {
+  contract_version: typeof APPLICATION_CAPABILITY_V1_CONTRACT_VERSION;
+  required: LegacyApplicationCapabilityId[];
+  optional?: LegacyApplicationCapabilityId[];
+}
+
+export function capabilityOperationsForContractVersion(
+  contractVersion: number,
+  capability: string
+): CollectionOperation[] | undefined {
+  const definitions = contractVersion === 1 ? APPLICATION_CAPABILITY_V1_DEFINITIONS
+    : contractVersion === 2 ? APPLICATION_CAPABILITY_DEFINITIONS : undefined;
+  if (!definitions || !Object.hasOwn(definitions, capability)) return undefined;
+  return [...(definitions as Readonly<Record<string, readonly CollectionOperation[]>>)[capability]];
+}

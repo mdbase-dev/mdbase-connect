@@ -53,3 +53,94 @@ pub fn application_capability_operations(capability: &str) -> Option<&'static [&
         _ => None,
     }
 }
+
+// Frozen predecessor catalog. Lookup availability does not imply declaration acceptance.
+pub const APPLICATION_CAPABILITY_V1_CONTRACT_VERSION: u32 = 1;
+
+pub const APPLICATION_CAPABILITY_V1_IDS: &[&str] = &[
+    "collection.inspect",
+    "records.watch",
+    "records.read",
+    "records.query",
+    "records.validate",
+    "records.create",
+    "records.update",
+    "records.delete",
+    "records.rename",
+    "views.list",
+    "views.execute",
+    "views.source.read",
+    "views.source.create",
+    "views.source.update",
+    "views.source.delete",
+    "definitions.contracts.current",
+    "definitions.read",
+    "definitions.create",
+    "definitions.update",
+    "definitions.type-pack.inspect",
+    "definitions.type-pack.apply",
+    "collection.setup.apply",
+    "timers.list",
+    "timers.put",
+    "timers.cancel",
+    "timers.reconcile",
+    "sync.offline-replica",
+    "notifications.background-delivery",
+    "files.list",
+    "files.read",
+    "files.add",
+    "files.replace",
+    "files.move",
+    "files.delete",
+];
+
+pub fn application_capability_operations_for_contract_version(
+    contract_version: u32,
+    capability: &str,
+) -> Option<&'static [&'static str]> {
+    match contract_version {
+        1 => legacy_application_capability_operations(capability),
+        2 => application_capability_operations(capability),
+        _ => None,
+    }
+}
+
+fn legacy_application_capability_operations(capability: &str) -> Option<&'static [&'static str]> {
+    match capability {
+        "collection.inspect" => Some(&["describe"]),
+        "records.watch" => Some(&["changes"]),
+        "records.read" => Some(&["read"]),
+        "records.query" => Some(&["query"]),
+        "records.validate" => Some(&["validate"]),
+        "records.create" => Some(&["create"]),
+        "records.update" => Some(&["update"]),
+        "records.delete" => Some(&["delete"]),
+        "records.rename" => Some(&["rename"]),
+        "views.list" => Some(&["list_views"]),
+        "views.execute" => Some(&["execute_view"]),
+        "views.source.read" => Some(&["read_view_source"]),
+        "views.source.create" => Some(&["create_view_source"]),
+        "views.source.update" => Some(&["update_view_source"]),
+        "views.source.delete" => Some(&["delete_view_source"]),
+        "definitions.contracts.current" => Some(&[]),
+        "definitions.read" => Some(&["read_type"]),
+        "definitions.create" => Some(&["create_type"]),
+        "definitions.update" => Some(&["update_type"]),
+        "definitions.type-pack.inspect" => Some(&["assess_type_pack"]),
+        "definitions.type-pack.apply" => Some(&["assess_type_pack", "apply_type_pack"]),
+        "collection.setup.apply" => Some(&["assess_collection_setup", "apply_collection_setup"]),
+        "timers.list" => Some(&["list_timers"]),
+        "timers.put" => Some(&["put_timer"]),
+        "timers.cancel" => Some(&["cancel_timer"]),
+        "timers.reconcile" => Some(&["reconcile_timers"]),
+        "sync.offline-replica" => Some(&["sync"]),
+        "notifications.background-delivery" => Some(&[]),
+        "files.list" => Some(&[]),
+        "files.read" => Some(&[]),
+        "files.add" => Some(&[]),
+        "files.replace" => Some(&[]),
+        "files.move" => Some(&[]),
+        "files.delete" => Some(&[]),
+        _ => None,
+    }
+}
