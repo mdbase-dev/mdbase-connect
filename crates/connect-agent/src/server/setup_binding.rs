@@ -262,7 +262,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn v2_initial_setup_requires_evidence_before_provisioning() {
+    async fn v2_initial_setup_issuance_is_denied_but_retained_policy_still_executes() {
         use base64::Engine;
         use p256::ecdsa::{signature::Signer, Signature, SigningKey};
         let dir = tempfile::tempdir().unwrap();
@@ -319,6 +319,7 @@ mod tests {
         let mut policy = serde_json::to_value(&summary).unwrap();
         policy["application_authorization"] = serde_json::to_value(proof).unwrap();
         let grant: mdbase_connect_protocol::GrantPolicy = serde_json::from_value(policy).unwrap();
+        grant.validate_application_security().unwrap();
         let declaration = summary.application_declaration.as_ref().unwrap();
         let requirements: mdbase_connect_protocol::ApplicationRequirements =
             serde_json::from_value(declaration["requirements"].clone()).unwrap();
@@ -349,13 +350,17 @@ mod tests {
             requirements,
             provisions,
             contract_setups: Vec::new(),
-            grant: Box::new(grant),
+            grant: Box::new(grant.clone()),
         };
         let before = std::fs::read(root.join("mdbase.yaml")).unwrap();
+        let types_before = registry.describe(collection.id).unwrap().types;
         for absent in [false, true] {
             let mut bad = request.clone();
             if let RelayMessage::AuthorizationActivationRequest {
-                grant, provisions, ..
+                grant,
+                requirements,
+                provisions,
+                ..
             } = &mut bad
             {
                 if absent {
@@ -363,24 +368,100 @@ mod tests {
                 } else {
                     provisions.configuration[0].value = serde_json::json!("unapproved");
                 }
+                // Retain the v2 security boundary assertion independently of
+                // the earlier fresh-issuance gate on the activation path.
+                assert_eq!(
+                    validate_activation_setup_binding(grant, requirements, provisions)
+                        .unwrap_err()
+                        .code(),
+                    "application_declaration_mismatch"
+                );
             }
             let response = state.handle_relay_message(bad).unwrap();
             assert!(
-                matches!(response, RelayMessage::AuthorizationActivationResponse { ok: false, error: Some(ControlError { ref code, .. }), .. } if code == "application_declaration_mismatch"),
+                matches!(response, RelayMessage::AuthorizationActivationResponse { ok: false, error: Some(ControlError { ref code, ref message, .. }), .. } if code == "access_denied" && message.contains("issuance is unavailable")),
                 "{response:?}"
             );
             assert_eq!(std::fs::read(root.join("mdbase.yaml")).unwrap(), before);
             assert!(registry.list_grants().unwrap().is_empty());
         }
-        let response = state.handle_relay_message(request).unwrap();
-        assert!(
-            matches!(
-                response,
-                RelayMessage::AuthorizationActivationResponse { ok: true, .. }
-            ),
-            "{response:?}"
-        );
-        assert_eq!(registry.list_grants().unwrap().len(), 1);
+        let assert_denied = || {
+            let response = state.handle_relay_message(request.clone()).unwrap();
+            assert!(
+                matches!(response, RelayMessage::AuthorizationActivationResponse {
+                ok: false, setup_assessment: None, provision_receipt: None,
+                error: Some(ControlError { ref code, ref message, .. }), ..
+            } if code == "access_denied" && message.contains("issuance is unavailable")),
+                "{response:?}"
+            );
+            assert_eq!(std::fs::read(root.join("mdbase.yaml")).unwrap(), before);
+            assert_eq!(
+                serde_json::to_value(registry.describe(collection.id).unwrap().types).unwrap(),
+                serde_json::to_value(&types_before).unwrap()
+            );
+        };
+        assert_denied();
+        assert!(registry.list_grants().unwrap().is_empty());
+
+        // Authenticated, leased policy restore is not issuance, even with an
+        // empty cache. Restored v2 authority keeps ordinary setup execution.
+        let connector_id = grant.encryption.as_ref().unwrap().connector_id;
+        let now = chrono::Utc::now().timestamp_millis();
+        registry
+            .replace_remote_grants_at_revision(
+                connector_id,
+                "retained-v2",
+                1,
+                now,
+                now + 60_000,
+                &[grant.clone()],
+            )
+            .unwrap();
+        assert_denied(); // Existing installation does not bypass activation.
+        let stored = registry.grant_context(grant.id).unwrap().unwrap();
+        assert_eq!(stored.contracts.semantic_capabilities, 2);
+        let (_, mut exact) = v2_fixture();
+        let assessment = state
+            .scoped_operation(
+                "test",
+                collection.id,
+                "assess_collection_setup",
+                &exact,
+                &stored,
+            )
+            .unwrap();
+        assert_eq!(assessment["valid"], true, "{assessment}");
+        for field in [
+            "assessment_digest",
+            "collection_revision",
+            "provision_digest",
+        ] {
+            exact[format!("expected_{field}")] = assessment["result"][field].clone();
+        }
+        let applied = state
+            .scoped_operation(
+                "test",
+                collection.id,
+                "apply_collection_setup",
+                &exact,
+                &stored,
+            )
+            .unwrap();
+        assert_eq!(applied["valid"], true, "{applied}");
+        assert!(std::fs::read_to_string(root.join("mdbase.yaml"))
+            .unwrap()
+            .contains("é"));
+        registry
+            .replace_remote_grants_at_revision(
+                connector_id,
+                "revoked-v2",
+                2,
+                now,
+                now + 60_000,
+                &[],
+            )
+            .unwrap();
+        assert!(registry.grant_context(grant.id).unwrap().is_none());
     }
 
     fn legacy_grant() -> GrantSummary {

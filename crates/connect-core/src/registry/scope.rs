@@ -24,6 +24,22 @@ pub(super) fn validate_grant_application_authorization(
     Ok(())
 }
 
+// Local upsert installs authority, even when an installation ID already exists.
+// Snapshot restore and runtime proof validation deliberately do not call this gate.
+pub(super) fn validate_fresh_grant_issuance(grant: &GrantPolicy) -> Result<(), ConnectError> {
+    let version = grant
+        .application_authorization
+        .binding
+        .contracts
+        .semantic_capabilities;
+    if !mdbase_connect_protocol::permits_fresh_application_authorization(version) {
+        return Err(ConnectError::AccessDenied(format!(
+            "Fresh application authorization issuance is unavailable for semantic capability version {version}."
+        )));
+    }
+    Ok(())
+}
+
 pub(super) fn invalid_grant_security(message: impl Into<String>) -> ConnectError {
     ConnectError::InvalidInput(format!(
         "Invalid application authorization: {}",

@@ -384,6 +384,7 @@ impl CollectionRegistry {
 
     pub fn upsert_grant(&self, grant: &GrantPolicy) -> Result<(), ConnectError> {
         validate_grant_application_authorization(grant)?;
+        super::scope::validate_fresh_grant_issuance(grant)?;
         let grant = grant.clone();
         self.authority
             .write(AuthorityWritePriority::Control, move |connection| {

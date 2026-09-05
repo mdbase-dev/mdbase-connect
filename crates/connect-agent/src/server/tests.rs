@@ -617,14 +617,13 @@ schema:
             file_capability: None,
         },
     );
-    // Current v2 activation authenticates complete evidence before provisioning.
-    // Preserve this fixture's empty setup, but sign its actual declaration.
+    // Fresh issuance lifecycle uses the enabled legacy version explicitly.
+    // V2 denied activation and retained authority are covered separately.
     let declaration = serde_json::json!({
         "manifest_version": 1, "id": "dev.mdbase.test", "name": "Live application",
         "distribution": "web", "homepage": "https://example.test",
         "requirements": {
-            "access": "full_collection", "contracts": [], "configuration": [],
-            "capabilities": {"contract_version": 2, "required": []}
+            "access": "full_collection", "contracts": [], "configuration": []
         },
         "provisions": {"configuration": [], "type_packs": []}
     });
@@ -635,6 +634,7 @@ schema:
         let signing = SigningKey::random(&mut rand_core::OsRng);
         let encoding = base64::engine::general_purpose::URL_SAFE_NO_PAD;
         let binding = &mut security.proof.binding;
+        binding.contracts.semantic_capabilities = 1;
         binding.installation_signing_public_key =
             encoding.encode(signing.verifying_key().to_encoded_point(false).as_bytes());
         binding.application_installation_id = mdbase_connect_protocol::application_installation_id(
@@ -692,11 +692,7 @@ schema:
             access: Some(ApplicationAccess::FullCollection),
             collection_kind: None,
             files: None,
-            capabilities: Some(mdbase_connect_protocol::ApplicationCapabilityRequirements {
-                contract_version: 2,
-                required: Vec::new(),
-                optional: Vec::new(),
-            }),
+            capabilities: None,
         },
         provisions: ApplicationProvisions::default(),
         contract_setups: Vec::new(),
