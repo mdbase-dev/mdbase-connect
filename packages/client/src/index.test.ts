@@ -2684,6 +2684,7 @@ describe("application sessions", () => {
       serverUrl, manifest, redirectUri: "https://tasks.example/callback",
       relayEncryption: "disabled", storage
     });
+    vi.spyOn(manager, "manifest").mockResolvedValue(connectSuccess(sessionManifest()));
     const session = new MdbaseSession(manager, { operations: ["query"], selection: new MdbaseBrowserSelection() });
     await session.start();
     const authorize = vi.spyOn(manager, "authorize").mockImplementationOnce(async (options) => {
@@ -5795,13 +5796,22 @@ function managerWithConnections(collectionIds: string[]): MdbaseConnect {
     `mdbase-connect:${serverUrl}:${manifest}:connections`,
     storedConnectionIndex(collectionIds)
   );
-  return new MdbaseConnect({
+  const manager = new MdbaseConnect({
     serverUrl,
     manifest,
     redirectUri: "https://tasks.example/auth/mdbase/callback",
     storage,
     relayEncryption: "disabled"
   });
+  vi.spyOn(manager, "manifest").mockResolvedValue(connectSuccess(sessionManifest()));
+  return manager;
+}
+
+function sessionManifest(): MdbaseAppManifest {
+  return { ...portableManifest(), requirements: {
+    contracts: [], access: "full_collection",
+    capabilities: { contract_version: 2, required: ["collection.read"], optional: ["records.edit"] }
+  } };
 }
 
 function storedConnectionIndex(collectionIds: string[]): string {

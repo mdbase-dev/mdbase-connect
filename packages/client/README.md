@@ -151,6 +151,46 @@ versioned capabilities in their manifest; they never maintain a parallel array
 of protocol operations. Use `getSnapshot()` and `subscribe()` directly or
 through your framework's external-store integration.
 
+### Legacy v1 and capability-group v2 declarations
+
+The same SDK accepts both declaration versions without translating legacy exact
+operations into broader groups. `requirements.capabilities.contract_version`
+selects the semantics; an absent capability declaration means legacy v1.
+`manifest_version` remains the document-format version, not this selector.
+
+- **V1:** `authorize({ operations })`, `connection.requestOperations(operations)`,
+  and `session.ensureOperations(operations)` retain independent exact operations.
+  Incremental requests retain the existing exact grant. Legacy `files.actions`
+  and capability aliases (for example `records.update` and `files.read`) remain
+  supported. Bare registry/connection `authorize()` retains the predecessor's
+  `describe, changes, read, query` default; application sessions derive their
+  exact operation selection from the legacy capability declaration.
+- **V2:** use `capabilities`, `requestCapabilities()`, and `ensureCapabilities()`.
+  Required groups are always included; omitted optional selection requests all
+  declared optional groups. Incremental requests retain already granted declared
+  groups. Files use `required`/`optional` actions.
+
+Mixing `operations` and `capabilities`, or using an operations authorization API
+with a v2 declaration, returns `invalid_application_manifest`, including for
+JavaScript callers and already-sufficient grants. A rejected v2 request is never
+retried as v1. Saved credentials and pending mutations are not translated or
+replayed when selecting a semantic version; signed authorization retains its
+registered declaration digest and exact recovery-transport requirements.
+
+The SDK's `MdbaseAppManifest` and capability input types are explicit v1/v2
+unions. `LegacyMdbaseAppManifest`, `LegacyApplicationRequirements`, and
+`MdbaseApplicationRequirements` are available for explicit annotations. The
+protocol package's canonical `ApplicationRequirements` remains v2-only.
+Application sessions still require an explicit full-collection, versioned
+capability declaration; no-capability legacy declarations can use the registry
+or advanced session APIs.
+
+This bridge is not a v2 readiness or rollout gate: structured v2 file,
+notification, offline-runtime, and authority readiness evidence remains
+incomplete. Legacy readiness aliases are evaluated only for v1. Positive server
+and selected-authority v2 support gating remains separate work; this SDK change
+does not advertise new support or authorize automatic consumer conversion.
+
 Before and during startup the session distinguishes `not_started`, `starting`,
 and `start_failed`; the last state carries the original typed problem and a
 later `start()` retries. `destroyed` is terminal. Once started, the session

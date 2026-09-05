@@ -1,9 +1,9 @@
 import type {
   FileCapability,
   GrantEncryption,
-  GrantScope,
-  MdbaseAppManifest
+  GrantScope
 } from "@mdbase-dev/connect-protocol";
+import type { MdbaseApplicationManifest as MdbaseAppManifest } from "./application-contract.js";
 import { validateGrantEncryption } from "./crypto.js";
 import {
   MdbaseConnectError,

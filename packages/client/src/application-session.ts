@@ -1,14 +1,19 @@
 import {
   APPLICATION_SETUP_OPERATIONS,
-  operationsForApplicationCapabilities,
-  type ApplicationCapabilityId,
   type ApplicationCapabilityRequirements,
   type ConnectProblem,
   type ConnectProblemCode,
   type JsonObject,
-  type MdbaseAppManifest,
+  type LegacyApplicationCapabilityRequirements,
+  type CollectionOperation,
   type TypePackProvision
 } from "@mdbase-dev/connect-protocol";
+import {
+  declaredOperations,
+  validateAuthorizationSelection,
+  type MdbaseApplicationManifest as MdbaseAppManifest,
+  type MdbaseApplicationCapabilityId as ApplicationCapabilityId
+} from "./application-contract.js";
 /* The versioned protocol package is the sole capability-to-operation compiler. */
 import { effectiveCapabilities, type MdbaseEffectiveCapabilities } from "./capabilities.js";
 import type {
@@ -498,8 +503,9 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     SessionProblemCode
   >> {
     return this.withLifecycleBase(options, (base, requestOptions, generation) => {
+      validateAuthorizationSelection(this.manifest!.requirements, { ...options, capabilities });
       const manifestRequirements = this.manifest!.requirements?.capabilities;
-      const declared = new Set([
+      const declared = new Set<string>([
         ...(manifestRequirements?.required ?? []),
         ...(manifestRequirements?.optional ?? [])
       ]);
@@ -528,6 +534,15 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
         }
         return outcome;
       });
+    });
+  }
+
+  ensureOperations(operations: CollectionOperation[], options?: ConnectRequestOptions) {
+    return this.withLifecycleBase(options, async (base, requestOptions, generation) => {
+      validateAuthorizationSelection(this.manifest!.requirements, { ...options, operations });
+      const outcome = await base.ensureOperations(operations, requestOptions);
+      if (outcome.ok && outcome.value.kind === "connected" && this.lifecycleCurrent(generation)) await this.refresh(true, requestOptions);
+      return outcome;
     });
   }
 
@@ -841,14 +856,14 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
 }
 
 function operationsForSession(
-  requirements: ApplicationCapabilityRequirements,
+  requirements: ApplicationCapabilityRequirements | LegacyApplicationCapabilityRequirements,
   manifest: MdbaseAppManifest
 ) {
   const hasSetup = (manifest.provisions?.type_packs.length ?? 0) > 0
     || (manifest.provisions?.configuration?.length ?? 0) > 0;
   return [
-    ...operationsForApplicationCapabilities(requirements),
-    ...(hasSetup ? APPLICATION_SETUP_OPERATIONS : [])
+    ...declaredOperations(manifest.requirements),
+    ...(requirements.contract_version === 2 && hasSetup ? APPLICATION_SETUP_OPERATIONS : [])
   ];
 }
 

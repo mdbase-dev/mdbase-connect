@@ -1,4 +1,5 @@
-import type { JsonObject, MdbaseAppManifest } from "@mdbase-dev/connect-protocol";
+import type { MdbaseApplicationManifest as MdbaseAppManifest } from "./application-contract.js";
+import type { JsonObject } from "@mdbase-dev/connect-protocol";
 import type { GrantKeyStore } from "./crypto.js";
 import type { ApplicationIdentityStore } from "./application-identity.js";
 

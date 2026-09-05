@@ -1,7 +1,6 @@
 import type {
   ApplicationNotifications,
   ApplicationProvisions,
-  ApplicationRequirements,
   CollectionOperation,
   EncryptedRelayOperationRequest,
   GrantEncryption,
@@ -10,6 +9,7 @@ import type {
   MdbaseOperationRequest,
   MutationOperationIdentifier
 } from "@mdbase-dev/connect-protocol";
+import type { MdbaseApplicationRequirements as ApplicationRequirements } from "./application-contract.js";
 import { encryptRelayRequest } from "./crypto.js";
 
 export interface Application {

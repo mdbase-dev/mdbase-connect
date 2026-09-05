@@ -53,7 +53,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     return new MdbaseApplicationSession(this, options, this.internals.timeouts);
   }
 
-  manifest(options?: ConnectRequestOptions): Promise<ConnectOutcome<import("@mdbase-dev/connect-protocol").MdbaseAppManifest, RegistrationProblemCode>> {
+  manifest(options?: ConnectRequestOptions): Promise<ConnectOutcome<import("./application-contract.js").MdbaseApplicationManifest, RegistrationProblemCode>> {
     return captureConnectOutcome(
       () => this.internals.manifestDeclaration(options),
       REGISTRATION_PROBLEM_CODES

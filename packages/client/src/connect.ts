@@ -1,20 +1,22 @@
 import type {
-  ApplicationCapabilityId,
   CollectionOperation,
   GrantScope,
-  JsonObject,
-  MdbaseAppManifest
+  JsonObject
 } from "@mdbase-dev/connect-protocol";
 import {
   APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
-  APPLICATION_SETUP_OPERATIONS,
-  applicationFileRequest,
   authorizationContractRequirements,
   DEFAULT_LOOPBACK_PORT,
   GRANT_ENCRYPTION_PROTOCOL_VERSION,
-  RELAY_ENCRYPTION_SUITE,
-  operationsForApplicationCapabilities
+  RELAY_ENCRYPTION_SUITE
 } from "@mdbase-dev/connect-protocol";
+import {
+  authorizationOperations,
+  authorizationFiles,
+  semanticContractVersion,
+  validateAuthorizationSelection,
+  type MdbaseApplicationManifest as MdbaseAppManifest
+} from "./application-contract.js";
 import { abortableDelay } from "./async.js";
 import { authorizationCallbackState } from "./authorization-url.js";
 import type { MdbaseDeviceAuthorization } from "./authorization-types.js";
@@ -281,6 +283,12 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       navigate: this.navigate,
       register: (signal) => this.registerWithinBudget(signal)
     });
+    try {
+      validateAuthorizationSelection(application.requirements, options);
+    } catch (error) {
+      popup?.close();
+      throw error;
+    }
     if (application.distribution === "portable") {
       if (options.openVerification) popup?.close();
       return this.authorizePortable(
@@ -312,10 +320,8 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       await this.keyStore.delete(keyHandle);
       throw error;
     }
-    const operations = authorizationOperations(application, options.capabilities);
-    const requestedFiles = application.requirements?.files
-      ? applicationFileRequest(application.requirements.files)
-      : undefined;
+    const operations = authorizationOperations(application, options);
+    const requestedFiles = authorizationFiles(application.requirements);
     const issuedAt = new Date();
     const proof = await signApplicationAuthorization({
       protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
@@ -342,7 +348,8 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
           this.storagePrefix(),
           operations,
           targetCollectionId
-        )
+        ),
+        semanticContractVersion(application.requirements)
       ),
       requested_operations: operations,
       ...(requestedFiles ? { requested_files: requestedFiles } : {}),
@@ -461,10 +468,8 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       await this.keyStore.delete(keyHandle);
       throw error;
     }
-    const operations = authorizationOperations(application, options.capabilities);
-    const requestedFiles = application.requirements?.files
-      ? applicationFileRequest(application.requirements.files)
-      : undefined;
+    const operations = authorizationOperations(application, options);
+    const requestedFiles = authorizationFiles(application.requirements);
     const authorizationId = crypto.randomUUID();
     const issuedAt = new Date();
     const proof = await signApplicationAuthorization({
@@ -490,7 +495,8 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
           this.storagePrefix(),
           operations,
           options.target?.kind === "collection" ? options.target.collectionId : undefined
-        )
+        ),
+        semanticContractVersion(application.requirements)
       ),
       requested_operations: operations,
       ...(requestedFiles ? { requested_files: requestedFiles } : {}),
@@ -998,42 +1004,4 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     const connections = this.connections();
     for (const listener of this.listeners) listener(connections);
   }
-}
-
-function authorizationOperations(
-  application: Application,
-  capabilities: ApplicationCapabilityId[] | undefined
-): CollectionOperation[] {
-  const declared = application.requirements.capabilities;
-  const declaredRequired = new Set(declared?.required ?? []);
-  const declaredOptional = new Set(declared?.optional ?? []);
-  const selected = capabilities ?? [...declaredOptional];
-  if (selected.some((capability) =>
-    !declaredRequired.has(capability) && !declaredOptional.has(capability)
-  )) {
-    throw connectError(
-      "invalid_application_manifest",
-      "Authorization can only include capability groups declared by the application.",
-      {
-        details: {
-          issues: [{
-            path: "/requirements/capabilities",
-            keyword: "enum",
-            message: "must contain only declared capability groups",
-            params: {}
-          }]
-        }
-      }
-    );
-  }
-  const selectedOptional = selected.filter((capability) => declaredOptional.has(capability));
-  const semantic = declared
-    ? operationsForApplicationCapabilities({ ...declared, optional: selectedOptional })
-    : [];
-  const hasSetup = (application.provisions?.type_packs.length ?? 0) > 0
-    || (application.provisions?.configuration?.length ?? 0) > 0;
-  return [
-    ...semantic,
-    ...(hasSetup ? APPLICATION_SETUP_OPERATIONS : [])
-  ];
 }

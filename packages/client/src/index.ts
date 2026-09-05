@@ -198,10 +198,19 @@ export {
   operationsForApplicationCapabilities
 } from "@mdbase-dev/connect-protocol";
 export type {
+  MdbaseApplicationManifest,
+  MdbaseApplicationManifest as MdbaseAppManifest,
+  MdbaseApplicationRequirements,
+  MdbaseApplicationCapabilityId as ApplicationCapabilityId,
+  MdbaseApplicationCapabilityRequirements as ApplicationCapabilityRequirements
+} from "./application-contract.js";
+export type {
   ApplicationProvisions,
-  ApplicationCapabilityId,
-  ApplicationCapabilityRequirements,
   ApplicationRequirements,
+  LegacyApplicationRequirements,
+  LegacyApplicationCapabilityId,
+  LegacyApplicationCapabilityRequirements,
+  LegacyMdbaseAppManifest,
   ApplicationNotifications,
   ApplicationAuthorizationBinding,
   ApplicationAuthorizationProof,
@@ -218,7 +227,6 @@ export type {
   ContractRequirement,
   GrantScope,
   JsonObject,
-  MdbaseAppManifest,
   NotificationCriterion,
   MdbaseDiagnostic,
   MdbaseOperationEnvelope,

@@ -1,5 +1,4 @@
 import type {
-  ApplicationCapabilityId,
   CollectionOperation,
   CollectionTypeDocument,
   FileCapability,
@@ -8,9 +7,14 @@ import type {
   MdbaseOperationEnvelope
 } from "@mdbase-dev/connect-protocol";
 import {
-  APPLICATION_CAPABILITY_DEFINITIONS,
-  capabilityOperations
+  capabilityOperationsForContractVersion
 } from "@mdbase-dev/connect-protocol";
+import {
+  retainedCapabilities,
+  semanticContractVersion,
+  validateAuthorizationSelection,
+  type MdbaseApplicationCapabilityId as ApplicationCapabilityId
+} from "./application-contract.js";
 import { MdbaseCollectionClient } from "./collection-client.js";
 import {
   ConnectionNotifications
@@ -144,6 +148,8 @@ export type MdbaseAuthorizationTarget =
   | { kind: "collection"; collectionId: string };
 
 export interface MdbaseAuthorizeOptions extends ConnectRequestOptions {
+  /** Exact independent operations, for legacy v1 declarations only. Cannot be mixed with capabilities. */
+  operations?: CollectionOperation[];
   /** Capability groups to request. Required groups are always included; optional groups default to all. */
   capabilities?: ApplicationCapabilityId[];
   /** Keep a web application loaded while Connect owns the approval ceremony. */
@@ -159,6 +165,8 @@ export interface MdbaseAuthorizeOptions extends ConnectRequestOptions {
 }
 
 export interface MdbaseConnectionAuthorizeOptions extends ConnectRequestOptions {
+  /** Exact independent operations, for legacy v1 declarations only. */
+  operations?: CollectionOperation[];
   /** Capability groups to request. Required groups are always included; optional groups default to all. */
   capabilities?: ApplicationCapabilityId[];
   presentation?: "redirect" | "popup";
@@ -347,17 +355,48 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       AuthorizationProblemCode
     >
   > {
-    const sufficient = capabilities.every((capability) =>
-      capabilityOperations(capability).every((operation) => this.operations.includes(operation))
-    );
-    if (sufficient) {
-      return connectSuccess({ kind: "unchanged", connection: this });
-    }
-    const retained = completeCapabilities(this.operations);
-    return this.authorize({
-      ...options,
-      capabilities: [...new Set([...retained, ...capabilities])]
-    });
+    return captureConnectOutcome(async () => {
+      const application = await this.internals.register(options);
+      validateAuthorizationSelection(application.requirements, { ...options, capabilities });
+      const sufficient = this.info() !== null && capabilities.every((capability) =>
+        (capabilityOperationsForContractVersion(semanticContractVersion(application.requirements), capability) ?? [])
+          .every((operation) => this.operations.includes(operation))
+      );
+      if (sufficient) return { kind: "unchanged" as const, connection: this };
+      if (semanticContractVersion(application.requirements) === 1) {
+        const { capabilities: _selection, ...legacyOptions } = options;
+        return this.internals.authorize({
+          ...legacyOptions,
+          target: { kind: "collection", collectionId: this.collectionId },
+          operations: [...new Set([...this.operations, ...capabilities.flatMap(
+            (id) => capabilityOperationsForContractVersion(1, id) ?? []
+          )])]
+        });
+      }
+      const retained = retainedCapabilities(application.requirements, this.operations);
+      return this.internals.authorize({
+        ...options,
+        target: { kind: "collection", collectionId: this.collectionId },
+        capabilities: [...new Set([...retained, ...capabilities])]
+      });
+    }, AUTHORIZATION_PROBLEM_CODES);
+  }
+
+  async requestOperations(
+    requiredOperations: CollectionOperation[],
+    options: Omit<MdbaseConnectionAuthorizeOptions, "operations"> = {}
+  ): Promise<ConnectOutcome<MdbaseAuthorizationOutcome<Frontmatter> | { kind: "unchanged"; connection: MdbaseConnection<Frontmatter> }, AuthorizationProblemCode>> {
+    return captureConnectOutcome(async () => {
+      const application = await this.internals.register(options);
+      validateAuthorizationSelection(application.requirements, { ...options, operations: requiredOperations });
+      const authorization = this.authorizationCapabilities(requiredOperations);
+      if (authorization.sufficient) return { kind: "unchanged" as const, connection: this };
+      return this.internals.authorize({
+        ...options,
+        target: { kind: "collection", collectionId: this.collectionId },
+        operations: [...new Set([...authorization.grantedOperations, ...requiredOperations])]
+      });
+    }, AUTHORIZATION_PROBLEM_CODES);
   }
 
   onConnectionChange(listener: (connection: MdbaseConnectionInfo | null) => void): () => void {
@@ -928,15 +967,6 @@ class CollectionWatchSubscription implements MdbaseWatchSubscription {
     this.currentStatus = status;
     for (const listener of this.statuses) listener(status);
   }
-}
-
-function completeCapabilities(
-  operations: readonly CollectionOperation[]
-): ApplicationCapabilityId[] {
-  return (Object.keys(APPLICATION_CAPABILITY_DEFINITIONS) as ApplicationCapabilityId[])
-    .filter((capability) =>
-      capabilityOperations(capability).every((operation) => operations.includes(operation))
-    );
 }
 
 function syncRequestOptions(
