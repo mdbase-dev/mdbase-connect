@@ -2067,10 +2067,9 @@ schema:
     })),
     (error) => error?.problem?.code === "insufficient_access"
   );
-  await assert.rejects(
-    () => hostedSync.transport.changes(0, 10),
-    (error) => error?.code === "insufficient_access"
-  );
+  // Narrowing removed creation, but collection.read still explicitly grants
+  // changes. The transport must respect that exact retained operation authority.
+  await assert.doesNotReject(() => hostedSync.transport.changes(0, 10));
   await controlRequest(controlUrl, `/v1/grants/${hostedGrant.id}`, cookie, { method: "DELETE" });
   await assert.rejects(
     async () => requireConnectSuccess(await hostedConnection.query()),
@@ -2944,7 +2943,12 @@ schema:
   const conformanceInputs = {
     update_type: { name: "missing", document: "invalid" },
     apply_type_pack: {},
-    apply_collection_setup: {},
+    // Admit this legacy request under its exact installed binding before
+    // exercising the terminal setup-validation failure in the journal.
+    apply_collection_setup: {
+      application_id: "dev.mdbase.provider-conformance",
+      declaration_digest: `sha256:${"c".repeat(64)}`
+    },
     create_view_source: { document: "invalid" },
     update_view_source: { path: "Views/missing.md", document: "invalid" },
     delete_view_source: { path: "Views/missing.md" },
