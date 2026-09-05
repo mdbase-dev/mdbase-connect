@@ -17,6 +17,7 @@ export * from "./operations.js";
 export * from "./mutation-fingerprint.js";
 export * from "./compatibility.js";
 export * from "./capabilities.js";
+export type * from "./legacy-manifest.js";
 export * from "./application-authorization.js";
 export * from "./type-packs.js";
 export * from "./collection-setup.js";

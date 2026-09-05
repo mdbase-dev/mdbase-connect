@@ -2,6 +2,9 @@ import { createHash } from "node:crypto";
 import { Ajv2020, type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
 import addFormatsModule from "ajv-formats";
 import appManifestSchema from "../schemas/mdbase-app.schema.json" with { type: "json" };
+import legacyAppManifestSchema from "../schemas/mdbase-app.legacy-v1.schema.json" with { type: "json" };
+import type { LegacyMdbaseAppManifest } from "./legacy-manifest.js";
+export type * from "./legacy-manifest.js";
 import {
   isNativeRedirectUri,
   type ApplicationNotifications,
@@ -52,6 +55,16 @@ export type ValidatedAppManifest =
   | ValidatedWebAppManifest
   | ValidatedPortableAppManifest;
 
+export type ValidatedLegacyAppManifest = LegacyMdbaseAppManifest & {
+  provisions: ApplicationProvisions;
+  notifications: ApplicationNotifications;
+};
+
+/** The discriminator describes the original declaration, not a translation. */
+export type VersionedAppManifest =
+  | { contractVersion: 1; manifest: ValidatedLegacyAppManifest }
+  | { contractVersion: 2; manifest: ValidatedAppManifest };
+
 export class AppManifestValidationError extends Error {
   constructor(public readonly issues: ManifestValidationIssue[]) {
     super(`Invalid application manifest: ${formatManifestValidationIssues(issues)}`);
@@ -69,6 +82,8 @@ const addFormats = addFormatsModule as unknown as (instance: Ajv2020) => Ajv2020
 addFormats(ajv);
 ajv.addSchema(appManifestSchema);
 const appManifestValidator = requiredValidator(String(appManifestSchema.$id));
+ajv.addSchema(legacyAppManifestSchema);
+const legacyAppManifestValidator = requiredValidator(String(legacyAppManifestSchema.$id));
 
 /**
  * Validate the complete bundled application declaration accepted by Connect.
@@ -81,19 +96,54 @@ export function validateAppManifest(
   value: unknown,
   options: ManifestValidationOptions = {}
 ): ManifestValidationResult {
+  return validateManifest(value, options, false);
+}
+
+/** Explicit opt-in to predecessor declarations; omission defaults to v1. */
+export function validateVersionedAppManifest(
+  value: unknown,
+  options: ManifestValidationOptions = {}
+): ManifestValidationResult {
+  return validateManifest(value, options, true);
+}
+
+function declaredContractVersion(value: unknown): unknown {
+  const requirements = asObject(asObject(value).requirements);
+  return requirements.capabilities === undefined
+    ? 1
+    : asObject(requirements.capabilities).contract_version;
+}
+
+function validateManifest(
+  value: unknown,
+  options: ManifestValidationOptions,
+  versioned: boolean
+): ManifestValidationResult {
   const sizeIssue = validateSerializedSize(
     value,
     options.maxBytes ?? APPLICATION_MANIFEST_MAX_BYTES
   );
   if (sizeIssue) return invalid([sizeIssue]);
 
+  const version = versioned ? declaredContractVersion(value) : 2;
+  if (version !== 1 && version !== 2) {
+    return invalid([issue(
+      "/requirements/capabilities/contract_version",
+      "contractVersion",
+      "must declare supported contract version 1 or 2"
+    )]);
+  }
   const candidate = options.allowLocal ? localManifestSchemaCandidate(value) : value;
-  const schemaResult = validationResult(appManifestValidator, candidate);
+  const schemaResult = validationResult(
+    version === 1 ? legacyAppManifestValidator : appManifestValidator, candidate
+  );
   if (!schemaResult.valid) return schemaResult;
 
   const issues = [
     ...validateManifestOrigins(value, options.allowLocal === true),
-    ...validateCapabilityRequirements(value),
+    ...(version === 1
+      ? validateLegacyCapabilityRequirements(value)
+      : validateCapabilityRequirements(value)),
     ...validateProvisionRequirements(value),
     ...validateConfigurationSetup(value)
   ];
@@ -107,7 +157,23 @@ export function parseAppManifest(
 ): ValidatedAppManifest {
   const result = validateAppManifest(value, options);
   if (!result.valid) throw new AppManifestValidationError(result.issues);
-  const manifest = structuredClone(value) as MdbaseAppManifest;
+  return normalizeManifest(value as MdbaseAppManifest) as ValidatedAppManifest;
+}
+
+/** Validate and clone without changing capability IDs, file aliases, or version. */
+export function parseVersionedAppManifest(
+  value: unknown,
+  options: ManifestValidationOptions = {}
+): VersionedAppManifest {
+  const result = validateVersionedAppManifest(value, options);
+  if (!result.valid) throw new AppManifestValidationError(result.issues);
+  return declaredContractVersion(value) === 1
+    ? { contractVersion: 1, manifest: normalizeManifest(value as LegacyMdbaseAppManifest) }
+    : { contractVersion: 2, manifest: normalizeManifest(value as MdbaseAppManifest) as ValidatedAppManifest };
+}
+
+function normalizeManifest<T extends MdbaseAppManifest | LegacyMdbaseAppManifest>(value: T) {
+  const manifest = structuredClone(value);
   return {
     ...manifest,
     requirements: {
@@ -120,7 +186,7 @@ export function parseAppManifest(
       ...manifest.provisions
     },
     notifications: manifest.notifications ?? { criteria: [] }
-  } as ValidatedAppManifest;
+  };
 }
 
 export function formatManifestValidationIssues(
@@ -547,6 +613,111 @@ function validateCapabilityRequirements(value: unknown): ManifestValidationIssue
       "disjoint",
       `must not repeat required file action ${fileOverlap}`
     ));
+  }
+  return issues;
+}
+
+// Frozen cross-field rules from c2596a6e; notably, absent capabilities skip
+// alias/setup checks rather than inventing or widening a declaration.
+function validateLegacyCapabilityRequirements(value: unknown): ManifestValidationIssue[] {
+  const manifest = asObject(value);
+  const requirements = asObject(manifest.requirements);
+  const capabilities = asObject(requirements.capabilities);
+  const issues: ManifestValidationIssue[] = [];
+  if (requirements.access !== "full_collection") {
+    issues.push(issue(
+      "/requirements/access",
+      "collectionAccess",
+      "must explicitly request full_collection; legacy or omitted access is not widened"
+    ));
+  }
+  if (Object.keys(capabilities).length === 0) return issues;
+  const required = Array.isArray(capabilities.required)
+    ? capabilities.required.map(String)
+    : [];
+  const optional = Array.isArray(capabilities.optional)
+    ? capabilities.optional.map(String)
+    : [];
+  const overlap = optional.find((capability) => required.includes(capability));
+  if (overlap) {
+    issues.push(issue(
+      "/requirements/capabilities/optional",
+      "disjoint",
+      `must not repeat required capability ${overlap}`
+    ));
+  }
+  const declared = new Set([...required, ...optional]);
+  const provisions = asObject(manifest.provisions);
+  if (declared.has("definitions.type-pack.apply")) {
+    if (requirements.access !== "full_collection") {
+      issues.push(issue(
+        "/requirements/access",
+        "typePackAccess",
+        "must be full_collection for definitions.type-pack.apply"
+      ));
+    }
+  }
+  if (
+    Array.isArray(provisions.type_packs)
+    && provisions.type_packs.length > 0
+    && !required.includes("collection.setup.apply")
+  ) {
+      issues.push(issue(
+        "/requirements/capabilities/required",
+        "collectionSetupCapability",
+        "must require collection.setup.apply when bundled type packs are declared"
+      ));
+  }
+  const hasConfigurationProvisions = Array.isArray(provisions.configuration)
+    && provisions.configuration.length > 0;
+  const hasSetupProvisions = hasConfigurationProvisions
+    || (Array.isArray(provisions.type_packs) && provisions.type_packs.length > 0);
+  if (hasConfigurationProvisions && !required.includes("collection.setup.apply")) {
+    issues.push(issue(
+      "/requirements/capabilities/required",
+      "collectionSetupCapability",
+      "must require collection.setup.apply when configuration provisions are declared"
+    ));
+  }
+  if (declared.has("collection.setup.apply")) {
+    if (requirements.access !== "full_collection") {
+      issues.push(issue(
+        "/requirements/access",
+        "collectionSetupAccess",
+        "must be full_collection for collection.setup.apply"
+      ));
+    }
+    if (!hasSetupProvisions) {
+      issues.push(issue(
+        "/provisions",
+        "collectionSetupProvision",
+        "must declare a configuration provision or type pack for collection.setup.apply"
+      ));
+    }
+  }
+  if (
+    declared.has("notifications.background-delivery")
+    && !Array.isArray(asObject(manifest.notifications).criteria)
+  ) {
+    issues.push(issue(
+      "/notifications/criteria",
+      "notificationCapability",
+      "must be declared for notifications.background-delivery"
+    ));
+  }
+  const fileRequirement = asObject(requirements.files);
+  const fileActions = Array.isArray(fileRequirement.actions)
+    ? new Set(fileRequirement.actions.map(String))
+    : new Set<string>();
+  for (const action of ["list", "read", "add", "replace", "move", "delete"]) {
+    const capability = `files.${action}`;
+    if (declared.has(capability) !== fileActions.has(action)) {
+      issues.push(issue(
+        "/requirements/capabilities",
+        "fileCapability",
+        `${capability} and requirements.files.actions.${action} must be declared together`
+      ));
+    }
   }
   return issues;
 }
