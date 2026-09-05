@@ -36,6 +36,20 @@ import {
 process.env.NODE_ENV = "test";
 const execute = promisify(execFile);
 const repoRoot = resolve(import.meta.dirname, "..");
+const providerPerformanceOutput = process.env.MDBASE_CONNECT_PROVIDER_E2E_PERFORMANCE_OUTPUT;
+const providerObservationMode = process.env.MDBASE_CONNECT_PROVIDER_E2E_OBSERVATION_ONLY;
+assert.ok(
+  providerObservationMode === undefined || ["0", "1"].includes(providerObservationMode),
+  "MDBASE_CONNECT_PROVIDER_E2E_OBSERVATION_ONLY must be 0 or 1"
+);
+const providerObservationOnly = providerObservationMode === "1";
+let providerPerformanceReport;
+if (providerObservationOnly) {
+  assert.ok(
+    providerPerformanceOutput,
+    "MDBASE_CONNECT_PROVIDER_E2E_PERFORMANCE_OUTPUT is required in observation-only mode"
+  );
+}
 const CONNECT_COMMAND_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 const operationCatalog = JSON.parse(await readFile(
   join(repoRoot, "packages", "protocol", "schemas", "operation-catalog.v1.json"),
@@ -2721,6 +2735,10 @@ schema:
   const bulkCount = Number(process.env.MDBASE_CONNECT_PROVIDER_E2E_BULK_COUNT ?? 205);
   assert.ok(Number.isInteger(bulkCount) && bulkCount >= 205 && bulkCount <= 20_000);
   const stressRun = bulkCount >= 10_000;
+  assert.ok(
+    !providerObservationOnly || stressRun,
+    "provider observation-only mode requires at least 10,000 bulk records"
+  );
   const memoryBeforeBulk = stressRun ? await processMemory(provider.pid) : undefined;
   let finalBulkRecordId;
   const bulkStartSession = await writerTransport.openSession();
@@ -2861,11 +2879,28 @@ schema:
       measured_cgroup_peak_bytes: maximumLogMetric(providerMeasurements, "cgroup_peak_bytes")
     };
     process.stdout.write(`[provider-e2e] performance ${JSON.stringify(result)}\n`);
-    assert.ok(result.mutation_p95_ms < 200, `mutation p95 budget exceeded: ${result.mutation_p95_ms}`);
-    assert.ok(result.snapshot_ms < 10_000, `snapshot budget exceeded: ${result.snapshot_ms}`);
-    assert.ok(result.change_page_p95_ms < 150, `change page p95 budget exceeded: ${result.change_page_p95_ms}`);
-    assert.ok(result.warm_read_p95_ms < 100, `warm read p95 budget exceeded: ${result.warm_read_p95_ms}`);
-    assert.ok(result.warm_query_p95_ms < 300, `warm query p95 budget exceeded: ${result.warm_query_p95_ms}`);
+    if (providerPerformanceOutput) {
+      providerPerformanceReport = {
+        schema_version: 1,
+        tool: "mdbase-provider-e2e-performance",
+        generated_at: new Date().toISOString(),
+        parameters: {
+          bulk_records: bulkCount,
+          records_before_bulk: recordsBeforeBulk,
+          final_records: pagedRecords.length,
+          warm_samples: readLatencies.length,
+          percentile_method: "nearest-rank-floor"
+        },
+        metrics: result
+      };
+    }
+    if (!providerObservationOnly) {
+      assert.ok(result.mutation_p95_ms < 200, `mutation p95 budget exceeded: ${result.mutation_p95_ms}`);
+      assert.ok(result.snapshot_ms < 10_000, `snapshot budget exceeded: ${result.snapshot_ms}`);
+      assert.ok(result.change_page_p95_ms < 150, `change page p95 budget exceeded: ${result.change_page_p95_ms}`);
+      assert.ok(result.warm_read_p95_ms < 100, `warm read p95 budget exceeded: ${result.warm_read_p95_ms}`);
+      assert.ok(result.warm_query_p95_ms < 300, `warm query p95 budget exceeded: ${result.warm_query_p95_ms}`);
+    }
     assert.equal(result.cold_read_records_fetched, 1, "cold point read must fetch exactly one row");
     assert.equal(
       result.cold_read_used_authority_bulk_materialization,
@@ -3063,6 +3098,14 @@ schema:
     "provider_internal_error"
   );
 
+  if (providerPerformanceOutput) {
+    assert.ok(providerPerformanceReport, "provider performance report was not produced");
+    await mkdir(dirname(resolve(providerPerformanceOutput)), { recursive: true });
+    await writeFile(
+      providerPerformanceOutput,
+      `${JSON.stringify(providerPerformanceReport, null, 2)}\n`
+    );
+  }
   process.stdout.write("mdbase PostgreSQL hosted provider e2e passed\n");
 } finally {
   if (notificationCallbackServer) {
@@ -4504,7 +4547,7 @@ async function measureColdOperation({ databaseUrl, collectionId, token, operatio
       scannedRecords: maximumLogMetric(logs, "scanned_records"),
       recordsFetched: maximumLogMetric(logs, "records_fetched"),
       ciphertextBytes: maximumLogMetric(logs, "ciphertext_bytes"),
-      usedAuthorityBulkMaterialization: logs.includes("hosted_authority_snapshot_load")
+      usedAuthorityBulkMaterialization: plainLogs(logs).includes("hosted_authority_snapshot_load")
     };
   } finally {
     await stopProvider(coldProvider);
@@ -4521,11 +4564,15 @@ function procMemoryBytes(contents, key) {
 function maximumLogMetric(contents, key) {
   const pattern = new RegExp(`${key}=(\\d+)`, "g");
   let maximum;
-  for (const match of contents.matchAll(pattern)) {
+  for (const match of plainLogs(contents).matchAll(pattern)) {
     const value = Number(match[1]);
     if (Number.isSafeInteger(value)) maximum = Math.max(maximum ?? 0, value);
   }
   return maximum;
+}
+
+function plainLogs(contents) {
+  return contents.replaceAll(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
 }
 
 async function postgresQuery(sql) {
