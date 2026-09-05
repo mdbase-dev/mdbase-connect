@@ -106,4 +106,4 @@ export interface OperationAttempt {
   resumingMutation?: boolean;
 }
 
-export const DEFAULT_OPERATIONS: CollectionOperation[] = ["describe", "changes", "read", "query"];
+export { DEFAULT_OPERATIONS } from "./application-contract.js";

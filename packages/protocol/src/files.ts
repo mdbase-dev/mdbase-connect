@@ -1,3 +1,9 @@
+/** Frozen predecessor file declaration; never translate this into v2 intent. */
+export interface LegacyApplicationFileRequirement {
+  actions: FileAction[];
+  scope: FileScope;
+}
+
 export const FILE_PROTOCOL_VERSION = 1 as const;
 export const FILE_TRANSFER_PROTOCOL_VERSION = 1 as const;
 export const DEFAULT_FILE_CHUNK_BYTES = 1024 * 1024;

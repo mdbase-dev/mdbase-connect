@@ -78,12 +78,10 @@ import {
   collectionIdFromTokenKey,
   connectFetch,
   createPkce,
-  defaultManifestSource,
-  defaultRedirectUri,
   defaultStorage,
   decodeJsonResponse,
   isOpaquePortableManifest,
-  manifestStorageFingerprint,
+  resolveManifestSource,
   oauthErrorCode,
   parseDeviceAuthorization,
   parseStored,
@@ -118,20 +116,11 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
 
   constructor(options: MdbaseConnectOptions) {
     this.serverUrl = stripTrailingSlash(String(options.serverUrl));
-    this.manifest = options.manifest instanceof URL
-      ? options.manifest.href
-      : options.manifest ?? defaultManifestSource();
-    this.manifestSource = typeof this.manifest === "string"
-      ? this.manifest
-      : this.manifest.distribution === "portable"
-        ? `bundle:${this.manifest.id}:${manifestStorageFingerprint(this.manifest)}`
-        : `bundle:${this.manifest.id}`;
+    const declaration = resolveManifestSource(options.manifest, options.redirectUri);
+    this.manifest = declaration.manifest;
+    this.manifestSource = declaration.manifestSource;
     const opaquePortable = isOpaquePortableManifest(this.manifest);
-    this.redirectUri = options.redirectUri === undefined ? (
-      typeof this.manifest !== "string" && this.manifest.distribution === "portable"
-        ? ""
-        : defaultRedirectUri()
-    ) : String(options.redirectUri);
+    this.redirectUri = declaration.redirectUri;
     this.storage = options.storage ?? defaultStorage(opaquePortable);
     this.relayEncryption = options.relayEncryption ?? "required";
     this.keyStore = options.keyStore ?? (

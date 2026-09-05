@@ -3,8 +3,14 @@ import { Ajv2020, type ErrorObject, type ValidateFunction } from "ajv/dist/2020.
 import addFormatsModule from "ajv-formats";
 import appManifestSchema from "../schemas/mdbase-app.schema.json" with { type: "json" };
 import legacyAppManifestSchema from "../schemas/mdbase-app.legacy-v1.schema.json" with { type: "json" };
-import type { LegacyMdbaseAppManifest } from "./legacy-manifest.js";
-export type * from "./legacy-manifest.js";
+import type { LegacyMdbaseAppManifest } from "./index.js";
+export type {
+  LegacyApplicationFileRequirement,
+  LegacyApplicationRequirements,
+  LegacyMdbaseWebAppManifest,
+  LegacyMdbasePortableAppManifest,
+  LegacyMdbaseAppManifest
+} from "./index.js";
 import {
   isNativeRedirectUri,
   type ApplicationNotifications,

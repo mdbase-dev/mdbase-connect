@@ -18,6 +18,26 @@ import {
   randomBase64Url
 } from "./base64.js";
 
+/** Resolve bundled declarations and their stable storage identity without loading URLs. */
+export function resolveManifestSource(input?: MdbaseAppManifest | string | URL, redirect?: string | URL): {
+  manifest: MdbaseAppManifest | string;
+  manifestSource: string;
+  redirectUri: string;
+} {
+  const manifest = input instanceof URL ? input.href : input ?? defaultManifestSource();
+  const manifestSource = typeof manifest === "string"
+    ? manifest
+    : manifest.distribution === "portable"
+      ? `bundle:${manifest.id}:${manifestStorageFingerprint(manifest)}`
+      : `bundle:${manifest.id}`;
+  const redirectUri = redirect === undefined ? (
+    typeof manifest !== "string" && manifest.distribution === "portable"
+      ? ""
+      : defaultRedirectUri()
+  ) : String(redirect);
+  return { manifest, manifestSource, redirectUri };
+}
+
 type NetworkProblemCode =
   | "notification_registration_failed"
   | "notification_unregistration_failed"

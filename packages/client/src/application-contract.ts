@@ -13,7 +13,7 @@ import {
   type CollectionOperation
 } from "@mdbase-dev/connect-protocol";
 import { connectError } from "./errors.js";
-import { DEFAULT_OPERATIONS } from "./internal-types.js";
+export const DEFAULT_OPERATIONS: CollectionOperation[] = ["describe", "changes", "read", "query"];
 
 /** SDK input compatibility boundary; protocol ApplicationRequirements remains v2-only. */
 export type MdbaseApplicationManifest = MdbaseAppManifest | LegacyMdbaseAppManifest;

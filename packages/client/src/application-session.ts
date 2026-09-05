@@ -14,9 +14,15 @@ import {
   type MdbaseApplicationManifest as MdbaseAppManifest,
   type MdbaseApplicationCapabilityId as ApplicationCapabilityId
 } from "./application-contract.js";
-/* The versioned protocol package is the sole capability-to-operation compiler. */
-import { effectiveCapabilities, type MdbaseEffectiveCapabilities } from "./capabilities.js";
-import { structuredReadiness, type MdbaseStructuredReadiness } from "./structured-readiness.js";
+import {
+  applicationReadinessContext,
+  collectionSetupInput,
+  publishedStructuredReadiness,
+  verifyStructuredReadiness,
+  verificationKey,
+  verificationValue,
+  type ApplicationSessionContext
+} from "./structured-readiness.js";
 import type {
   MdbaseAuthorizationOutcome,
   MdbaseAuthorizeOptions,
@@ -47,6 +53,7 @@ import {
   withRequestBudget
 } from "./request-budget.js";
 import { defaultCallbackUrl } from "./runtime-utils.js";
+import { declarationIdFromFamilyIdentity } from "./connect-authorization-helpers.js";
 import type { Application } from "./internal-types.js";
 import {
   MdbaseSession,
@@ -113,15 +120,6 @@ export interface MdbaseCollectionSetupUpdate {
   typePacks: MdbaseDefinitionUpdate[];
   canApply: boolean;
   reason: string;
-}
-
-interface ApplicationSessionContext {
-  collectionId: string;
-  info: MdbaseConnectionInfo;
-  capabilities: MdbaseEffectiveCapabilities;
-  /** Present only for semantic contract v2. */
-  readiness?: MdbaseStructuredReadiness;
-  connections: MdbaseConnectionInfo[];
 }
 
 type LifecycleProblemCode =
@@ -736,42 +734,14 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
       const controller = new AbortController();
       this.readinessController?.abort();
       this.readinessController = controller;
-      const abort = () => controller.abort(options?.signal?.reason);
-      if (options?.signal?.aborted) abort();
-      else options?.signal?.addEventListener("abort", abort, { once: true });
       try {
-        const outcome = await withRequestBudget({ ...options, signal: controller.signal }, this.timeouts.requestMs,
-          request => connection.describe(request));
-        if (generation !== this.verificationGeneration || this.connection() !== connection) return;
-        if (!outcome.ok) {
-          const authorizationRequired = ["access_denied", "collection_access_denied", "insufficient_access", "not_authorized", "authorization_expired", "application_declaration_mismatch"].includes(outcome.problem.code);
-          context.readiness.contracts = { state: authorizationRequired ? "requires_authorization" : "temporarily_unavailable", missing: [], evidence: [{ source: "runtime", fact: outcome.problem.message }] };
-          this.publish(authorizationRequired
-            ? { status: "authorization_required", ...context }
-            : { status: "blocked", problem: outcome.problem, ...context });
-          return;
-        }
-        if (outcome.value.collectionId !== context.collectionId) {
-          context.readiness.contracts = { state: "temporarily_unavailable", missing: [], evidence: [] };
-          this.publish({ status: "blocked", problem: { code: "collection_not_ready", message: "Description belongs to a different collection." }, ...context });
-          return;
-        }
-        const missing = contracts.filter(required => !outcome.value.contracts.some(actual =>
-          actual.id === required.id && actual.version === required.version && actual.digest === required.digest));
-        context.readiness.contracts = { state: missing.length ? "requires_setup" : "verified", missing,
-          evidence: [{ source: "authority", fact: "Exact contract ID, version and digest checked by live describe for this collection." }] };
-        if (missing.length) {
-          this.publish({ status: "blocked", problem: { code: "collection_not_ready", message: "The collection is missing required exact contracts." }, ...context });
-          return;
-        }
-      } catch (error) {
-        if (generation !== this.verificationGeneration || this.connection() !== connection) return;
-        if (!(error instanceof MdbaseConnectError)) throw error;
-        context.readiness.contracts = { state: "temporarily_unavailable", missing: [], evidence: [{ source: "runtime", fact: error.problem.message }] };
-        this.publish({ status: "blocked", problem: error.problem, ...context });
-        return;
+        if (!await verifyStructuredReadiness({
+          ...context, readiness: context.readiness, contracts, connection, controller, options,
+          requestMs: this.timeouts.requestMs,
+          isCurrent: () => generation === this.verificationGeneration && this.connection() === connection,
+          publish: result => this.publish({ ...result, ...context })
+        })) return;
       } finally {
-        options?.signal?.removeEventListener("abort", abort);
         if (this.readinessController === controller) this.readinessController = undefined;
       }
     }
@@ -781,49 +751,21 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
   private collectionSetupInput(typePackAdoptions?: Record<string, Record<string, string>>) {
     const manifest = this.requireManifest();
     const application = this.requireApplication();
-    return {
-      applicationId: declarationIdFromFamilyIdentity(application.family_identity),
-      declarationDigest: `sha256:${application.manifest_digest}`,
-      requirements: {
-        configuration: manifest.requirements?.configuration ?? []
-      },
-      provisions: {
-        configuration: manifest.provisions?.configuration ?? [],
-        typePacks: manifest.provisions?.type_packs ?? []
-      },
-      ...(typePackAdoptions ? { typePackAdoptions } : {})
-    };
+    return collectionSetupInput(manifest, declarationIdFromFamilyIdentity(application.family_identity),
+      `sha256:${application.manifest_digest}`, typePackAdoptions);
   }
 
   private context(connection: MdbaseConnection<Frontmatter>): ApplicationSessionContext {
-    const info = connection.info()!;
-    return {
-      collectionId: connection.collectionId,
-      info,
-      capabilities: effectiveCapabilities(
-        this.requireManifest().requirements!.capabilities!,
-        this.requireManifest(),
-        info
-      ),
-      ...(this.requireManifest().requirements?.capabilities?.contract_version === 2
-        ? { readiness: structuredReadiness(this.requireManifest(), info) } : {}),
-      connections: this.connect.connections()
-    };
+    return applicationReadinessContext(this.requireManifest(), connection.collectionId,
+      connection.info()!, this.connect.connections());
   }
 
   private publish(snapshot: MdbaseApplicationSessionSnapshot): void {
     if (this.snapshot.status === "destroyed" && snapshot.status !== "destroyed") return;
     if ("readiness" in snapshot && snapshot.readiness) {
-      const readiness = structuredClone(snapshot.readiness);
-      if (readiness.setup.state !== "not_required" && readiness.setup.state !== "current") {
-        readiness.setup.state = snapshot.status === "ready" ? (snapshot.verification === "cached" ? "cached" : "current")
-          : snapshot.status === "setup_review_required" ? "review_required"
-          : snapshot.status === "authorization_required" ? "requires_authorization"
-          : snapshot.status === "blocked" ? "blocked" : "checking";
-        readiness.setup.evidence = [{ source: snapshot.status === "ready" && snapshot.verification === "cached" ? "runtime" : "authority",
-          fact: `Collection setup verification: ${readiness.setup.state}.` }];
-      }
-      snapshot = { ...snapshot, readiness };
+      snapshot = { ...snapshot, readiness: publishedStructuredReadiness(
+        snapshot.readiness, snapshot.status, snapshot.status === "ready" ? snapshot.verification : undefined
+      ) };
     }
     if (JSON.stringify(this.snapshot) === JSON.stringify(snapshot)) return;
     this.snapshot = snapshot;
@@ -1021,18 +963,6 @@ function reviewableTypePackAdoptions(
   return adoptions;
 }
 
-function verificationKey(manifest: MdbaseAppManifest, collectionId: string): string {
-  return `mdbase-application-session:v1:${manifest.id}:${collectionId}`;
-}
-
-function verificationValue(manifest: MdbaseAppManifest): string {
-  return JSON.stringify({
-    capabilities: manifest.requirements?.capabilities,
-    requirements: manifest.requirements?.configuration ?? [],
-    provisions: manifest.provisions ?? {}
-  });
-}
-
 function accessRequirementSatisfied(
   manifest: MdbaseAppManifest,
   connection: MdbaseConnectionInfo
@@ -1040,14 +970,6 @@ function accessRequirementSatisfied(
   return manifest.requirements?.access === "full_collection"
     && connection.scope.access === "full_collection"
     && connection.scope.contracts.length === 0;
-}
-
-function declarationIdFromFamilyIdentity(familyIdentity: string): string {
-  const prefix = "bundle:";
-  if (!familyIdentity.startsWith(prefix) || familyIdentity.length === prefix.length) {
-    throw new Error("The registered application has no valid declaration identity.");
-  }
-  return familyIdentity.slice(prefix.length);
 }
 
 function lifecycleProblemMessage(code: LifecycleProblemCode): string {
