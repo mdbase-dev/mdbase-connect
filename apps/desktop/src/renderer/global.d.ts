@@ -166,7 +166,7 @@ interface GrantSummary {
   collection_name: string;
   collection_kind?: "local" | "hosted";
   operations: string[];
-  requirements: ApplicationRequirements;
+  requirements?: ApplicationRequirements;
   scope: GrantScope;
   created_at: string;
   revocation_status?: "active" | "revoking" | "revoked";

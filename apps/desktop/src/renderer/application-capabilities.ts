@@ -22,12 +22,18 @@ const CAPABILITY_COPY: Record<ApplicationCapabilityId, [string, string]> = {
   "offline.replica": ["Keep an offline replica", "Synchronize an application-controlled local copy."]
 };
 
+export function hasSupportedCapabilityDeclaration(
+  requirements: ApplicationRequirements | null | undefined
+): requirements is ApplicationRequirements & { capabilities: NonNullable<ApplicationRequirements["capabilities"]> } {
+  return requirements?.capabilities?.contract_version === 2;
+}
+
 export function requestCapabilityGroups(
-  requirements: ApplicationRequirements,
+  requirements: ApplicationRequirements | null | undefined,
   operations: readonly string[]
 ): RequestCapabilityGroup[] {
+  if (!hasSupportedCapabilityDeclaration(requirements)) return [];
   const declared = requirements.capabilities;
-  if (!declared) return [];
   const granted = new Set(operations);
   const required = new Set<ApplicationCapabilityId>(declared.required);
   return [...declared.required, ...(declared.optional ?? [])].flatMap((id) => {
