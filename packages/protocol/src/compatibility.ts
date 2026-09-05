@@ -56,12 +56,13 @@ export const CONNECT_CONTRACT_SUPPORT: ConnectContractSupport = {
 export function authorizationContractRequirements(
   operations: readonly CollectionOperation[],
   files?: ApplicationFileRequest,
-  operationTransportRecovery: readonly OperationTransportProtocolVersion[] = []
+  operationTransportRecovery: readonly OperationTransportProtocolVersion[] = [],
+  semanticCapabilityContractVersion: 1 | 2 = APPLICATION_CAPABILITY_CONTRACT_VERSION
 ): ConnectContractRequirements {
   const requirements: ConnectContractRequirements = {
     operation_transport: OPERATION_TRANSPORT_PROTOCOL_VERSION,
     authorization_binding: AUTHORIZATION_BINDING_PROTOCOL_VERSION,
-    semantic_capabilities: APPLICATION_CAPABILITY_CONTRACT_VERSION
+    semantic_capabilities: semanticCapabilityContractVersion
   };
   const recovery = [...new Set(operationTransportRecovery)]
     .filter((version) => version !== OPERATION_TRANSPORT_PROTOCOL_VERSION)

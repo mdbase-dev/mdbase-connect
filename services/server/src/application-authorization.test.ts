@@ -52,7 +52,23 @@ describe("application authorization proofs", () => {
       .resolves.toEqual(expect.objectContaining({ signature: fixture.signature }));
   });
 
-  it("requires reauthorization for the frozen semantic-v1 proof", async () => {
+  it("accepts the unchanged predecessor signature only with explicit v1 dispatch", async () => {
+    await expect(verifyApplicationAuthorization(beta55Fixture, {
+      ...expected,
+      semanticCapabilityContractVersion: 1,
+      requestedOperations: beta55Fixture.binding.requested_operations,
+      requestedFiles: beta55Fixture.binding.requested_files
+    })).resolves.toEqual(beta55Fixture);
+    await expect(verifyApplicationAuthorization(proof, {
+      ...expected,
+      semanticCapabilityContractVersion: 1
+    })).rejects.toMatchObject({
+      code: "capability_contract_incompatible",
+      details: { required: [1], supported: [2] }
+    });
+  });
+
+  it("rejects the frozen semantic-v1 proof at the default v2 boundary", async () => {
     await expect(verifyApplicationAuthorization(beta55Fixture, {
       ...expected,
       requestedOperations: beta55Fixture.binding.requested_operations,

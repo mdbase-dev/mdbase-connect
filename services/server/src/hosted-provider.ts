@@ -1,7 +1,7 @@
+import type { ApplicationRequirements } from "./application-requirements.js";
 import type {
   ApplicationAuthorizationProof,
   ApplicationProvisions,
-  ApplicationRequirements,
   CollectionContractDescriptor,
   CollectionTypeDescriptor,
   ContractSetupChoice,

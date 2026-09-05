@@ -77,6 +77,7 @@ describe("planCollectionGrant", () => {
       requirements: {
         access: "full_collection",
         contracts: [],
+        capabilities: { contract_version: 2, required: [] },
         files: {
           required: ["list", "read"],
           optional: ["add"],
@@ -103,6 +104,7 @@ describe("planCollectionGrant", () => {
     const requirements = {
       access: "full_collection" as const,
       contracts: [],
+      capabilities: { contract_version: 2 as const, required: [] },
       files: {
         required: ["list", "read"] as const,
         optional: ["add", "delete"] as const,

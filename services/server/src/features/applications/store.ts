@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type {
   ApplicationNotifications,
-  ApplicationProvisions,
-  ApplicationRequirements
+  ApplicationProvisions
 } from "@mdbase-dev/connect-protocol";
+import type { ApplicationRequirements } from "../../application-requirements.js";
 import type { DatabaseQueryable } from "../../db.js";
 import type { AppManifest, RegisteredApplicationManifest } from "../../manifest.js";
 

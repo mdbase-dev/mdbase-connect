@@ -2,14 +2,13 @@ import { randomUUID } from "node:crypto";
 import type {
   ApplicationNotifications,
   ApplicationProvisions,
-  ApplicationRequirements,
   CollectionContractDescriptor,
   CollectionTypeDescriptor,
   FileCapability,
   GrantEncryption,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
-import { applicationFileRequest } from "@mdbase-dev/connect-protocol";
+import { fileRequestForRequirements, requirementContractVersion, type ApplicationRequirements } from "../../application-requirements.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { verifyApplicationAuthorization } from "../../application-authorization.js";
@@ -162,9 +161,8 @@ export function registerAuthorizationRoutes(
         flow: "device_code",
         codeChallenge: input.code_challenge,
         requestedOperations,
-        requestedFiles: application.rows[0].requirements.files
-          ? applicationFileRequest(application.rows[0].requirements.files)
-          : undefined,
+        semanticCapabilityContractVersion: requirementContractVersion(application.rows[0].requirements),
+        requestedFiles: fileRequestForRequirements(application.rows[0].requirements),
         collectionId: input.collection_id
       }
     );
@@ -464,9 +462,8 @@ export function registerAuthorizationRoutes(
         state: input.state,
         codeChallenge: input.code_challenge,
         requestedOperations,
-        requestedFiles: application.rows[0].requirements.files
-          ? applicationFileRequest(application.rows[0].requirements.files)
-          : undefined,
+        semanticCapabilityContractVersion: requirementContractVersion(application.rows[0].requirements),
+        requestedFiles: fileRequestForRequirements(application.rows[0].requirements),
         collectionId: input.collection_id
       }
     );

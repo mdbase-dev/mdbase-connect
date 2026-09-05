@@ -101,6 +101,8 @@ const persistedProofSchema = z.object({
 }).passthrough();
 
 export interface ExpectedApplicationAuthorization {
+  /** Explicit declaration dispatch; public/default validation remains v2-only. */
+  semanticCapabilityContractVersion?: 1 | 2;
   applicationId: string;
   applicationDeclarationId: string;
   applicationManifestDigest: string;
@@ -325,7 +327,7 @@ function assertContractRequirements(
     [
       "semantic_capabilities",
       "capability_contract_incompatible",
-      SEMANTIC_CAPABILITY_CONTRACT_VERSION
+      expected.semanticCapabilityContractVersion ?? SEMANTIC_CAPABILITY_CONTRACT_VERSION
     ],
     [
       "durable_mutation",

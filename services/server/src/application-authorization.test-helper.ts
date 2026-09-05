@@ -29,6 +29,7 @@ export async function testApplicationAuthorization(input: {
   codeChallenge: string;
   requestedOperations: CollectionOperation[];
   operationTransportRecovery?: OperationTransportProtocolVersion[];
+  semanticCapabilityContractVersion?: 1 | 2;
   requestedFiles?: ApplicationFileRequest;
   redirectUri?: string;
   state?: string;
@@ -65,7 +66,8 @@ export async function testApplicationAuthorization(input: {
     contracts: authorizationContractRequirements(
       input.requestedOperations,
       input.requestedFiles,
-      input.operationTransportRecovery
+      input.operationTransportRecovery,
+      input.semanticCapabilityContractVersion
     ),
     requested_operations: input.requestedOperations,
     ...(input.requestedFiles ? { requested_files: input.requestedFiles } : {}),

@@ -10,13 +10,13 @@ import {
 import type {
   ApplicationNotifications,
   ApplicationProvisions,
-  ApplicationRequirements,
   CollectionContractDescriptor,
   ContractRequirement,
   GrantEncryption,
   GrantScope,
   TypePackProvision
 } from "@mdbase-dev/connect-protocol";
+import { legacyOperationSelectionAllowed, requirementContractVersion, type ApplicationRequirements } from "../../application-requirements.js";
 import { collectionGrantScope } from "../../application-grant-scope.js";
 import type { DatabasePool } from "../../database-types.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
@@ -63,6 +63,10 @@ export function operationsAllowedByRequirements(
   requirements: ApplicationRequirements | null | undefined
 ): boolean {
   if (!areCollectionOperations(operations)) return false;
+  const declared = requirements?.capabilities;
+  if (requirementContractVersion(requirements) === 1) {
+    return legacyOperationSelectionAllowed(requirements, operations);
+  }
   const setup = new Set<string>(APPLICATION_SETUP_OPERATIONS);
   const requestedSetup = operations.filter((operation) => setup.has(operation));
   if (
@@ -70,8 +74,7 @@ export function operationsAllowedByRequirements(
     && requestedSetup.length !== APPLICATION_SETUP_OPERATIONS.length
   ) return false;
   const semantic = operations.filter((operation) => !setup.has(operation));
-  const declared = requirements?.capabilities;
-  return declared
+  return declared?.contract_version === 2
     ? applicationOperationSelectionIsAtomic(declared, semantic)
     : true;
 }
@@ -94,26 +97,20 @@ export function assertOperationsAllowedByApplication(
   provisions: ApplicationProvisions = { type_packs: [] }
 ): void {
   assertOperationsAllowedByRequirements(operations, requirements);
-  const semanticOperations = operations.filter((operation) =>
-    !(APPLICATION_SETUP_OPERATIONS as readonly string[]).includes(operation)
-  );
-  if (!requirements?.capabilities && semanticOperations.length > 0) {
-    throw new RequestValidationError(
-      "Record operations require an application capability declaration."
+  if (requirementContractVersion(requirements) === 2) {
+    const hasSetup = provisions.type_packs.length > 0
+      || (provisions.configuration?.length ?? 0) > 0;
+    const requestedSetup = operations.filter((operation) =>
+      (APPLICATION_SETUP_OPERATIONS as readonly string[]).includes(operation)
     );
-  }
-  const hasSetup = provisions.type_packs.length > 0
-    || (provisions.configuration?.length ?? 0) > 0;
-  const requestedSetup = operations.filter((operation) =>
-    (APPLICATION_SETUP_OPERATIONS as readonly string[]).includes(operation)
-  );
-  if (
-    (hasSetup && requestedSetup.length !== APPLICATION_SETUP_OPERATIONS.length)
-    || (!hasSetup && requestedSetup.length !== 0)
-  ) {
-    throw new RequestValidationError(
-      "Collection setup operations must exactly match the application's declared provisions."
-    );
+    if (
+      (hasSetup && requestedSetup.length !== APPLICATION_SETUP_OPERATIONS.length)
+      || (!hasSetup && requestedSetup.length !== 0)
+    ) {
+      throw new RequestValidationError(
+        "Collection setup operations must exactly match the application's declared provisions."
+      );
+    }
   }
   if (
     areCollectionOperations(operations)

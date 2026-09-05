@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
+import type { ApplicationRequirements } from "../../application-requirements.js";
 import { isDeepStrictEqual } from "node:util";
 import type {
   ApplicationNotifications,
   ApplicationAuthorizationProof,
   ApplicationProvisions,
-  ApplicationRequirements,
   CollectionContractDescriptor,
   CollectionOperation,
   ContractRequirement,

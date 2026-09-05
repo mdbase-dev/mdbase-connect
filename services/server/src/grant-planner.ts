@@ -1,6 +1,5 @@
 import { collectionGrantScope } from "./application-grant-scope.js";
 import type {
-  ApplicationRequirements,
   CollectionOperation,
   FileAction,
   FileCapability,
@@ -9,11 +8,12 @@ import type {
 import {
   APPLICATION_SETUP_OPERATIONS,
   FILE_PROTOCOL_VERSION,
-  applicationFileRequest,
   applicationOperationSelectionIsAtomic
 } from "@mdbase-dev/connect-protocol";
 import type { CollectionAccessContext } from "./collection-access.js";
 import { requiresWriteReplica } from "./collection-operation-policy.js";
+
+import { fileRequestForRequirements, legacyOperationSelectionAllowed, requirementContractVersion, type ApplicationRequirements } from "./application-requirements.js";
 
 const WRITE_FILE_ACTIONS = new Set(["add", "replace", "move", "delete"]);
 
@@ -39,16 +39,23 @@ export function planCollectionGrant(input: {
 }): GrantPlan {
   const operations = [...new Set(input.requestedOperations)];
   const fileRequirement = input.requirements.files;
-  const requestedFiles = fileRequirement
-    ? applicationFileRequest(fileRequirement)
-    : undefined;
+  const version = requirementContractVersion(input.requirements);
+  const requestedFiles = fileRequestForRequirements(input.requirements);
   const selectedFileActions = input.requestedFileActions
     ? [...new Set(input.requestedFileActions)]
     : requestedFiles?.actions;
   if (operations.length === 0 && !fileRequirement) {
     throw new GrantPlanningError("At least one record operation or file capability must be approved.");
   }
-  if (fileRequirement) {
+  if (fileRequirement && "actions" in fileRequirement) {
+    if (fileRequirement.actions.length === 0
+      || new Set(fileRequirement.actions).size !== fileRequirement.actions.length
+      || (selectedFileActions?.length !== fileRequirement.actions.length)
+      || fileRequirement.actions.some((action) => !selectedFileActions?.includes(action))) {
+      throw new GrantPlanningError("Legacy file actions must be approved exactly as declared.");
+    }
+  }
+  if (fileRequirement && !("actions" in fileRequirement)) {
     if (
       fileRequirement.required.length === 0
       || new Set(fileRequirement.required).size !== fileRequirement.required.length
@@ -61,7 +68,7 @@ export function planCollectionGrant(input: {
   if (fileRequirement && selectedFileActions) {
     const declaredActions = new Set(requestedFiles?.actions ?? []);
     if (
-      fileRequirement.required.some((action) => !selectedFileActions.includes(action))
+      (!("actions" in fileRequirement) && fileRequirement.required.some((action) => !selectedFileActions.includes(action)))
       || selectedFileActions.some((action) => !declaredActions.has(action))
     ) {
       throw new GrantPlanningError(
@@ -72,6 +79,9 @@ export function planCollectionGrant(input: {
     throw new GrantPlanningError(
       "File actions require an application file declaration."
     );
+  }
+  if (version === 1 && !legacyOperationSelectionAllowed(input.requirements, operations)) {
+    throw new GrantPlanningError("Approved operations exceed the legacy declaration.");
   }
   const applicationOperations = new Set(input.applicationOperationCeiling);
   if (operations.some((operation) => !applicationOperations.has(operation))) {
@@ -92,18 +102,18 @@ export function planCollectionGrant(input: {
   const setupOperations = new Set<string>(APPLICATION_SETUP_OPERATIONS);
   const semanticOperations = operations.filter((operation) => !setupOperations.has(operation));
   if (
-    input.requirements.capabilities
+    version === 2 && (input.requirements.capabilities?.contract_version === 2
       ? !applicationOperationSelectionIsAtomic(
           input.requirements.capabilities,
           semanticOperations
         )
-      : semanticOperations.length > 0
+      : semanticOperations.length > 0)
   ) {
     throw new GrantPlanningError(
       "Capability groups must be approved or denied as complete groups."
     );
   }
-  if (APPLICATION_SETUP_OPERATIONS.some(
+  if (version === 2 && APPLICATION_SETUP_OPERATIONS.some(
     (operation) => applicationOperations.has(operation) && !operations.includes(operation)
   )) {
     throw new GrantPlanningError(
@@ -130,12 +140,13 @@ export function fileCapabilityForRequirements(
   requirements: ApplicationRequirements,
   actions?: readonly FileAction[]
 ): FileCapability | undefined {
-  return requirements.files
+  const files = fileRequestForRequirements(requirements);
+  return files
     ? {
         kind: "files",
         protocol_version: FILE_PROTOCOL_VERSION,
-        actions: [...(actions ?? applicationFileRequest(requirements.files).actions)],
-        scope: structuredClone(requirements.files.scope)
+        actions: [...(actions ?? files.actions)],
+        scope: structuredClone(files.scope)
       }
     : undefined;
 }

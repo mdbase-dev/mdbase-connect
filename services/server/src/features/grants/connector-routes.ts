@@ -1,7 +1,7 @@
+import type { ApplicationRequirements } from "../../application-requirements.js";
 import type {
   ApplicationNotifications,
   ApplicationProvisions,
-  ApplicationRequirements,
   CollectionContractDescriptor
 } from "@mdbase-dev/connect-protocol";
 import type { FastifyInstance } from "fastify";

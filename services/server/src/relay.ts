@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
+import type { ApplicationRequirements } from "./application-requirements.js";
 import type {
-  ApplicationProvisions, ApplicationRequirements, AuthorizationActivationResponse,
+  ApplicationProvisions, AuthorizationActivationResponse,
   AuthorizationOfferResponse, ConnectContractRequirements, ContractSetupChoice,
   EncryptedRelayEnvelope, EncryptedRelayOperationRequest, EncryptedRelayOperationResponse,
   GrantPolicy, RelayFileFrame
