@@ -67,7 +67,9 @@ pub const RELAY_REQUIRED_CAPABILITIES: &[&str] = &[
     "encrypted-relay",
     "policy-ack",
 ];
+pub const APPLICATION_DECLARATION_EVIDENCE_CAPABILITY: &str = "application-declaration-evidence-v1";
 pub const RELAY_CAPABILITIES: &[&str] = &[
+    APPLICATION_DECLARATION_EVIDENCE_CAPABILITY,
     "application-authorization-v4",
     "application-authorization-v5",
     "authorization-activation",

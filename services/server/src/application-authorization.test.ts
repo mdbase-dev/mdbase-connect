@@ -130,7 +130,11 @@ describe("application authorization proofs", () => {
         }
       }, expected)).rejects.toMatchObject({
         code,
-        details: { contract: axis, required: CONNECT_CONTRACT_SUPPORT[axis] }
+        // Acceptance is version-dispatched by declaration; peer support is not
+        // permission to change this signed request's selected semantic version.
+        details: { contract: axis, required: axis === "semantic_capabilities"
+          ? [2]
+          : CONNECT_CONTRACT_SUPPORT[axis] }
       });
     }
   });

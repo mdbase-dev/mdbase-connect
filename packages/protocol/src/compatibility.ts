@@ -45,7 +45,7 @@ export interface ConnectContractSupport {
 export const CONNECT_CONTRACT_SUPPORT: ConnectContractSupport = {
   operation_transport: [...SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS],
   authorization_binding: [...SUPPORTED_AUTHORIZATION_BINDING_PROTOCOL_VERSIONS],
-  semantic_capabilities: [SEMANTIC_CAPABILITY_CONTRACT_VERSION],
+  semantic_capabilities: [SEMANTIC_CAPABILITY_CONTRACT_VERSION, 1],
   durable_mutation: [DURABLE_MUTATION_CONTRACT_VERSION]
 };
 

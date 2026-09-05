@@ -53,7 +53,9 @@ export const HOSTED_PROVIDER_CAPABILITIES = [
   "mutation-replay-after-credential-retirement-v1",
   HOSTED_CANDIDATE_B_ACTIVATION_CAPABILITY
 ] as const;
+export const APPLICATION_DECLARATION_EVIDENCE_CAPABILITY = "application-declaration-evidence-v1" as const;
 export const RELAY_CAPABILITIES = [
+  APPLICATION_DECLARATION_EVIDENCE_CAPABILITY,
   ...RELAY_REQUIRED_CAPABILITIES,
   POLICY_FRESHNESS_LEASE_CAPABILITY,
   "application-authorization-v5",

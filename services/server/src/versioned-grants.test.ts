@@ -26,7 +26,7 @@ describe("explicit server declaration bridge", () => {
     expect(authorizationContractRequirements(["read"]).semantic_capabilities).toBe(2);
     expect(authorizationContractRequirements(["read"], undefined, [], 1).semantic_capabilities).toBe(1);
     expect(authorizationContractRequirements(["update"], undefined, [], 1).durable_mutation).toBe(1);
-    expect(CONNECT_CONTRACT_SUPPORT.semantic_capabilities).toEqual([2]);
+    expect(CONNECT_CONTRACT_SUPPORT.semantic_capabilities).toEqual([2, 1]);
   });
   it.each([
     ["records.read", "read", "query"],

@@ -157,7 +157,8 @@ describe("live connector-mediated authorization", () => {
           "authorization-activation",
           "encrypted-relay",
           "policy-ack",
-          "policy-freshness-lease-v1"
+          "policy-freshness-lease-v1",
+          "application-declaration-evidence-v1"
         ],
         contract_support: CONNECT_CONTRACT_SUPPORT
       }));

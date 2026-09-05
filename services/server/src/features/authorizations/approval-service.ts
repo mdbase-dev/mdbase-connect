@@ -67,6 +67,7 @@ export async function approvePortalAuthorization(
   const connection = await db.connect();
   const grantId = randomUUID();
   let connectorId = "";
+  let authorityGeneration = "";
   let localCollectionId = "";
   let authorityRowId = "";
   let requirements: ApplicationRequirements;
@@ -216,6 +217,9 @@ export async function approvePortalAuthorization(
         "Update mdbase connect on this computer before approving this application."
       );
     }
+    authorityGeneration = relay.authorizationAuthority(
+      selected.connector_id, pending.application_authorization.binding.contracts
+    );
     grantAccess = requireCollectionAction(
       await resolveLocalCollectionAccess(
         connection,
@@ -342,6 +346,8 @@ export async function approvePortalAuthorization(
   let activation: Awaited<ReturnType<RelayHub["activateAuthorization"]>>;
   try {
     activation = await relay.activateAuthorization(connectorId, {
+      authorityGeneration,
+      authorityRowId,
       authorizationId: input.requestId,
       applicationDeclarationId,
       applicationManifestDigest,
@@ -363,8 +369,21 @@ export async function approvePortalAuthorization(
   }
 
   const finalize = await db.connect();
+  let finalizeReleased = false;
   try {
     await finalize.query("BEGIN");
+    await relay.assertAuthorizationAuthority(
+      connectorId, authorityGeneration, grant!.application_authorization.binding.contracts,
+      finalize
+    );
+    const authority = await finalize.query(
+      `SELECT id FROM collections WHERE id = $1 AND connector_id = $2
+         AND authority_state = 'active' AND present = true FOR UPDATE`,
+      [authorityRowId, connectorId]
+    );
+    if (!authority.rows[0]) {
+      throw new RequestValidationError("The selected collection authority changed during activation.");
+    }
     const completed = await finalize.query(
       `UPDATE authorization_requests SET
          completed_at = now(),
@@ -451,14 +470,24 @@ export async function approvePortalAuthorization(
        WHERE id = $1`,
       [authorityRowId, JSON.stringify(activation.contracts)]
     );
+    // The transaction still owns the user, connector-generation and collection
+    // locks. Recheck in-memory liveness without another checkout or network I/O.
+    if (relay.authorizationAuthority(
+      connectorId, grant!.application_authorization.binding.contracts
+    ) !== authorityGeneration) {
+      throw new RequestValidationError("The connector session changed before publication.");
+    }
     await finalize.query("COMMIT");
   } catch (error) {
     await finalize.query("ROLLBACK");
+    // Compensation uses the pool; return the transaction's slot first.
+    finalize.release();
+    finalizeReleased = true;
     await abandonPendingAuthorizationGrant(db, input.requestId, grantId);
     await relay.pushPolicy(connectorId);
     throw error;
   } finally {
-    finalize.release();
+    if (!finalizeReleased) finalize.release();
   }
   await relay.pushPolicy(connectorId);
   await audit(db, input.userId, "authorization.approved", input.requestId, {

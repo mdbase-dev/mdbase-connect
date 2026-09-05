@@ -124,7 +124,16 @@ describe("connector policy sequence", () => {
       provisions: { configuration: {}, type_packs: [] },
       unknown: { preserve: [3, 1, 2] }
     };
-    const delivered = normalizePolicyGrant({ ...source, application_declaration: evidence });
+    expect(normalizePolicyGrant({ ...source, application_declaration: evidence })).toEqual(legacy);
+    const delivered = normalizePolicyGrant({ ...source, application_declaration: evidence }, true);
+    const v2 = { ...source, application_declaration: evidence,
+      application_authorization: { ...source.application_authorization,
+        binding: { ...source.application_authorization.binding,
+          contracts: { ...source.application_authorization.binding.contracts, semantic_capabilities: 2 } } } };
+    expect(() => normalizePolicyGrant(v2)).toThrow("complete declaration evidence");
+    expect(normalizePolicyGrant(v2, true).application_declaration).toEqual(evidence);
+    expect(() => normalizePolicyGrant({ ...v2, application_declaration: null }, true))
+      .toThrow("complete declaration evidence");
     expect(delivered.application_declaration).toEqual(evidence);
     expect(delivered.application_authorization).toEqual(legacy.application_authorization);
     expect(delivered.operations).toEqual(legacy.operations);

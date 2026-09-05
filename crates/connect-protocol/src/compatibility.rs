@@ -43,20 +43,35 @@ impl Default for ConnectContractSupport {
         Self {
             operation_transport: SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS.to_vec(),
             authorization_binding: SUPPORTED_AUTHORIZATION_BINDING_PROTOCOL_VERSIONS.to_vec(),
-            semantic_capabilities: vec![SEMANTIC_CAPABILITY_CONTRACT_VERSION],
+            semantic_capabilities: vec![SEMANTIC_CAPABILITY_CONTRACT_VERSION, 1],
             durable_mutation: vec![DURABLE_MUTATION_CONTRACT_VERSION],
         }
     }
 }
 
 impl ConnectContractSupport {
-    /// Internal validation/dispatch support, not peer negotiation advertisement.
-    /// Hosted setup/evidence delivery must be ready before advertising v1.
+    /// Internal validation/dispatch support for exact signed grants.
     pub fn implemented() -> Self {
         Self {
             semantic_capabilities: vec![1, 2],
             ..Self::default()
         }
+    }
+
+    /// Handshake baseline only; never selects or downgrades a signed grant.
+    pub fn supports_relay_baseline(&self) -> bool {
+        self.operation_transport
+            .contains(&OPERATION_TRANSPORT_PROTOCOL_VERSION)
+            && self
+                .authorization_binding
+                .contains(&AUTHORIZATION_BINDING_PROTOCOL_VERSION)
+            && self
+                .semantic_capabilities
+                .iter()
+                .any(|version| matches!(version, 1 | 2))
+            && self
+                .durable_mutation
+                .contains(&DURABLE_MUTATION_CONTRACT_VERSION)
     }
 
     pub fn supports_current(&self) -> bool {
@@ -256,10 +271,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn relay_baseline_accepts_both_semantics_without_changing_exact_current() {
+        for versions in [vec![1], vec![2], vec![2, 1], vec![], vec![99]] {
+            let support = ConnectContractSupport {
+                semantic_capabilities: versions.clone(),
+                ..Default::default()
+            };
+            assert_eq!(
+                support.supports_relay_baseline(),
+                versions.contains(&1) || versions.contains(&2)
+            );
+            assert_eq!(support.supports_current(), versions.contains(&2));
+            let mut invalid = support;
+            invalid.authorization_binding.clear();
+            assert!(!invalid.supports_relay_baseline());
+        }
+    }
+
+    #[test]
     fn implemented_semantics_are_not_peer_advertisement() {
         assert_eq!(
             ConnectContractSupport::default().semantic_capabilities,
-            vec![2]
+            vec![2, 1]
         );
         assert_eq!(
             ConnectContractRequirements::current(false).semantic_capabilities,

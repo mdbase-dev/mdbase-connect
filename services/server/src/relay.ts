@@ -12,9 +12,11 @@ import {
   OPERATION_TRANSPORT_PROTOCOL_VERSION,
   POLICY_FRESHNESS_LEASE_CAPABILITY,
   POLICY_FRESHNESS_LEASE_MINIMUM_CONNECTOR_VERSION,
-  PROTOCOL_USAGE_REPORT_CAPABILITY, RELAY_CAPABILITIES
+  PROTOCOL_USAGE_REPORT_CAPABILITY, RELAY_CAPABILITIES,
+  APPLICATION_DECLARATION_EVIDENCE_CAPABILITY
 } from "@mdbase-dev/connect-protocol";
 import type { DatabasePool } from "./db.js";
+import type { DatabaseQueryable } from "./database-types.js";
 import {
   LocalRelayBroker, RelayBrokerUnavailableError, type RelayBroker,
   type RelayBrokerCommand, type RelayBrokerReply
@@ -237,7 +239,11 @@ export class RelayHub {
           && identity.socket.readyState === 1,
         push: (identity, isStillCurrent, initial) =>
           (mode === "lease_v1" ? this.leasePolicyPublisher : this.legacyPolicyPublisher).push(
-            { connectorId: identity.connectorId, generation: identity.generation, isStillCurrent },
+            {
+              connectorId: identity.connectorId, generation: identity.generation, isStillCurrent,
+              declarationEvidence: hello.capabilities.includes(APPLICATION_DECLARATION_EVIDENCE_CAPABILITY)
+                && hello.contract_support.semantic_capabilities.includes(2)
+            },
             (message) => this.sendToConnector(
               identity.socket, identity.connectorId, undefined, message.request_id,
               message, undefined, "policy_applied", message.revision, identity.generation,
@@ -564,7 +570,8 @@ export class RelayHub {
     required: ConnectContractRequirements
   ): boolean {
     const session = this.connectors.get(connectorId);
-    const support = session?.ready ? session.contractSupport : undefined;
+    const support = session?.ready && session.socket.readyState === 1 && !this.closed
+      ? session.contractSupport : undefined;
     return Boolean(
       support
       && support.operation_transport.includes(required.operation_transport)
@@ -572,9 +579,49 @@ export class RelayHub {
         support.operation_transport.includes(version))
       && support.authorization_binding.includes(required.authorization_binding)
       && support.semantic_capabilities.includes(required.semantic_capabilities)
+      && (required.semantic_capabilities !== 2
+        || session!.capabilities.includes(APPLICATION_DECLARATION_EVIDENCE_CAPABILITY))
       && (required.durable_mutation === undefined
         || support.durable_mutation.includes(required.durable_mutation))
     );
+  }
+
+  authorizationAuthority(connectorId: string, required: ConnectContractRequirements): string {
+    if (!this.supportsContracts(connectorId, required)) throw new RelayUnavailableError();
+    return this.connectors.get(connectorId)!.generation;
+  }
+
+  async assertAuthorizationAuthority(
+    connectorId: string, generation: string, required: ConnectContractRequirements,
+    transaction?: DatabaseQueryable
+  ): Promise<void> {
+    let current: string | null;
+    if (transaction) {
+      // Caller owns BEGIN/COMMIT. Match account/inventory lock order: user,
+      // connector, then collection. Suspension and generation replacement must
+      // wait for publication; never acquire another pool connection here.
+      const owner = await transaction.query(
+        `SELECT id FROM users WHERE id = (SELECT user_id FROM connectors WHERE id = $1)
+           AND suspended_at IS NULL FOR UPDATE`,
+        [connectorId]
+      );
+      if (!owner.rows[0]) throw new RelayUnavailableError();
+      // Single-table FOR UPDATE is exactly FOR UPDATE OF c; keeping the
+      // already-locked user out of this query also makes lock ordering explicit.
+      const authority = await transaction.query<{ relay_generation: string | number }>(
+        `SELECT c.relay_generation FROM connectors c
+         WHERE c.id = $1 AND c.user_id = $2 AND c.revoked_at IS NULL
+         FOR UPDATE`,
+        [connectorId, owner.rows[0].id]
+      );
+      current = authority.rows[0] ? String(authority.rows[0].relay_generation) : null;
+    } else {
+      current = await this.currentGeneration(connectorId);
+    }
+    if (current !== generation
+        || this.authorizationAuthority(connectorId, required) !== generation) {
+      throw new RelayUnavailableError();
+    }
   }
 
   async pushPolicy(connectorId: string): Promise<void> {
@@ -668,6 +715,8 @@ export class RelayHub {
   async activateAuthorization(
     connectorId: string,
     input: {
+      authorityGeneration?: string;
+      authorityRowId?: string;
       authorizationId: string;
       applicationDeclarationId: string;
       applicationManifestDigest: string;
@@ -680,6 +729,24 @@ export class RelayHub {
   ): Promise<AuthorizationActivationResponse> {
     const generation = await this.requireCurrentGeneration(connectorId);
     const requestId = randomUUID();
+    const required = input.grant.application_authorization.binding.contracts;
+    if (input.authorityRowId) {
+      const authority = await this.db.query(
+        `SELECT id FROM collections WHERE id = $1 AND connector_id = $2
+           AND local_id = $3 AND authority_state = 'active' AND present = true`,
+        [input.authorityRowId, connectorId, input.collectionId]
+      );
+      if (!authority.rows[0]) throw new RelayUnavailableError();
+    }
+    await this.assertAuthorizationAuthority(
+      connectorId, input.authorityGeneration ?? generation, required
+    );
+    const { application_declaration, ...legacyGrant } = input.grant;
+    const evidence = this.connectors.get(connectorId)!.capabilities
+      .includes(APPLICATION_DECLARATION_EVIDENCE_CAPABILITY);
+    if (required.semantic_capabilities === 2 && application_declaration == null) {
+      throw new RelayUnavailableError();
+    }
     const response = await this.deliver(connectorId, generation, {
       type: "authorization_activation_request",
       protocol_version: CONTROL_PROTOCOL_VERSION,
@@ -691,7 +758,7 @@ export class RelayHub {
       requirements: input.requirements,
       provisions: input.provisions,
       contract_setups: input.contractSetups,
-      grant: input.grant
+      grant: evidence ? input.grant : legacyGrant
     });
     return response as AuthorizationActivationResponse;
   }
@@ -779,7 +846,7 @@ export class RelayHub {
         request: () => this.requestChangedPolicy(connectorId, session)
       });
     }
-    if (!session.ready) {
+    if (!session.ready || this.connectors.get(connectorId) !== session) {
       return brokerError("unavailable", "connector_offline", "The computer hosting this collection is offline.");
     }
     if (isContractSetupCommand(command.message)
@@ -789,6 +856,21 @@ export class RelayHub {
         "connector_upgrade_required",
         "Update mdbase connect on the collection computer before approving contract setup."
       );
+    }
+    const activation = command.message as { type?: string; grant?: GrantPolicy } | null;
+    if (activation?.type === "authorization_activation_request") {
+      const grant = activation.grant;
+      if (!grant?.application_authorization
+          || !this.supportsContracts(connectorId, grant.application_authorization.binding.contracts)
+          || (grant.application_authorization.binding.contracts.semantic_capabilities === 2
+            && grant.application_declaration == null)) {
+        return brokerError("connector", "capability_contract_incompatible",
+          "The selected authority cannot activate this exact authorization contract.");
+      }
+      if (!session.capabilities.includes(APPLICATION_DECLARATION_EVIDENCE_CAPABILITY)) {
+        const { application_declaration: _omitted, ...legacyGrant } = grant;
+        command = { ...command, message: { ...activation, grant: legacyGrant } };
+      }
     }
     const requestId = requestIdFromMessage(command.message);
     if (!requestId) {

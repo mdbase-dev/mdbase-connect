@@ -195,7 +195,17 @@ export interface PolicyGrantSource {
   application_authorization: ApplicationAuthorizationProof;
 }
 
-export function normalizePolicyGrant(grant: PolicyGrantSource): Record<string, unknown> {
+export function normalizePolicyGrant(
+  grant: PolicyGrantSource,
+  declarationEvidence = false
+): Record<string, unknown> {
+  if (grant.application_authorization.binding.contracts.semantic_capabilities === 2
+      && (!declarationEvidence || grant.application_declaration == null)) {
+    throw new ConnectorOperationError(
+      "capability_contract_incompatible",
+      "This policy requires authenticated complete declaration evidence."
+    );
+  }
   return {
     id: grant.id,
     application_id: grant.application_id,
@@ -218,7 +228,7 @@ export function normalizePolicyGrant(grant: PolicyGrantSource): Record<string, u
     ...(grant.encryption == null ? {} : { encryption: grant.encryption }),
     ...(grant.file_capability == null ? {} : { file_capability: grant.file_capability }),
     // Retain the entire registered normalized JSON, never reconstruct split columns.
-    ...(grant.application_declaration == null
+    ...(!declarationEvidence || grant.application_declaration == null
       ? {}
       : { application_declaration: grant.application_declaration }),
     application_authorization: grant.application_authorization
@@ -231,7 +241,8 @@ export async function buildPolicySnapshot(
   leaseMs: number,
   expectedRelayGeneration?: string,
   isStillCurrent: () => boolean = () => true,
-  mode: PolicyMode = "lease_v1"
+  mode: PolicyMode = "lease_v1",
+  declarationEvidence = false
 ): Promise<PolicySnapshot | null> {
   const connection = await observeConnectorPolicyStage("database_checkout", () => db.connect());
   const rollback = () => observeConnectorPolicyStage(
@@ -313,7 +324,7 @@ export async function buildPolicySnapshot(
     const policyGrants = grants.rows.map((grant) => normalizePolicyGrant({
       ...grant,
       collection_id: grant.local_id
-    }));
+    }, declarationEvidence));
     await observeConnectorPolicyStage("transaction_commit", () => connection.query("COMMIT"));
     if (mode === "legacy_ack_v0") {
       return {
