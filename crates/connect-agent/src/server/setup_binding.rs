@@ -45,6 +45,9 @@ pub(super) fn validate_activation_setup_binding(
     provisions: &mdbase_connect_protocol::ApplicationProvisions,
 ) -> Result<(), ConnectError> {
     let binding = &grant.application_authorization.binding;
+    if !requirements.valid_for_semantic_contract(binding.contracts.semantic_capabilities) {
+        return Err(declaration_mismatch());
+    }
     if binding.contracts.semantic_capabilities == 1 {
         return Ok(());
     }

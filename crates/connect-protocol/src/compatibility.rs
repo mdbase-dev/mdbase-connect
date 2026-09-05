@@ -50,6 +50,15 @@ impl Default for ConnectContractSupport {
 }
 
 impl ConnectContractSupport {
+    /// Internal validation/dispatch support, not peer negotiation advertisement.
+    /// Hosted setup/evidence delivery must be ready before advertising v1.
+    pub fn implemented() -> Self {
+        Self {
+            semantic_capabilities: vec![1, 2],
+            ..Self::default()
+        }
+    }
+
     pub fn supports_current(&self) -> bool {
         self.operation_transport
             .contains(&OPERATION_TRANSPORT_PROTOCOL_VERSION)
@@ -91,7 +100,9 @@ impl ConnectContractRequirements {
         SUPPORTED_OPERATION_TRANSPORT_PROTOCOL_VERSIONS.contains(&self.operation_transport)
             && SUPPORTED_AUTHORIZATION_BINDING_PROTOCOL_VERSIONS
                 .contains(&self.authorization_binding)
-            && self.semantic_capabilities == SEMANTIC_CAPABILITY_CONTRACT_VERSION
+            && ConnectContractSupport::implemented()
+                .semantic_capabilities
+                .contains(&self.semantic_capabilities)
             && (if requires_durable_mutation {
                 self.durable_mutation == Some(DURABLE_MUTATION_CONTRACT_VERSION)
             } else {
@@ -119,13 +130,15 @@ impl ConnectContractRequirements {
             || (recovery_only && self.operation_transport_recovery.contains(&version))
     }
 
+    /// Check local execution support for an already selected, signed contract.
+    /// This is not a peer-support advertisement or a negotiation decision.
     pub fn mismatch_problem(
         &self,
         operation: &str,
         input: &Value,
         peer: &str,
     ) -> Option<ConnectProblem> {
-        let supported = ConnectContractSupport::default();
+        let supported = ConnectContractSupport::implemented();
         let checks = [
             (
                 "operation_transport",
@@ -241,6 +254,36 @@ fn contract_problem(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn implemented_semantics_are_not_peer_advertisement() {
+        assert_eq!(
+            ConnectContractSupport::default().semantic_capabilities,
+            vec![2]
+        );
+        assert_eq!(
+            ConnectContractRequirements::current(false).semantic_capabilities,
+            2
+        );
+        for version in [0, 1, 2, 3, u32::MAX] {
+            let requirements = ConnectContractRequirements {
+                semantic_capabilities: version,
+                ..ConnectContractRequirements::current(false)
+            };
+            let implemented = matches!(version, 1 | 2);
+            assert_eq!(requirements.valid_for_authorization(false), implemented);
+            assert_eq!(
+                requirements
+                    .mismatch_problem("read", &serde_json::json!({}), "connector")
+                    .is_none(),
+                implemented
+            );
+            // Semantic compatibility cannot bypass the durable mutation axis.
+            assert!(requirements
+                .mismatch_problem("create", &serde_json::json!({}), "connector")
+                .is_some());
+        }
+    }
 
     #[test]
     fn reads_do_not_require_the_durable_mutation_axis() {

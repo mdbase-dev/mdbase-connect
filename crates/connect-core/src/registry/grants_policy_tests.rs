@@ -218,6 +218,53 @@ fn legacy_can_upgrade_to_lease_but_cannot_return_after_restart() {
 }
 
 #[test]
+fn frozen_semantic_v1_grant_stays_exact_across_storage_and_revoked_replay() {
+    let directory = tempfile::tempdir().unwrap();
+    let registry = CollectionRegistry::open(directory.path()).unwrap();
+    let mut grant = super::super::tests::signed_test_grant(&registry, vec!["read".into()]);
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../connect-protocol/test-fixtures/semantic-v1-authorization-c2596a6e.json"
+    ))
+    .unwrap();
+    grant.application_authorization = serde_json::from_value(fixture.clone()).unwrap();
+    grant.validate_application_security().unwrap();
+    registry.upsert_grant(&grant).unwrap();
+    let identity = registry.grant_mutation_identity(grant.id).unwrap();
+    let mut broadened = grant.clone();
+    broadened.operations.push("read_type".into());
+    assert!(registry.upsert_grant(&broadened).is_err());
+    broadened = grant.clone();
+    broadened
+        .file_capability
+        .as_mut()
+        .unwrap()
+        .actions
+        .push(mdbase_connect_protocol::FileAction::Add);
+    assert!(registry.upsert_grant(&broadened).is_err());
+    broadened = grant.clone();
+    broadened.application_declaration = Some(declaration_evidence()); // v2 evidence / v1 proof
+    assert!(registry.upsert_grant(&broadened).is_err());
+    drop(registry);
+    let registry = CollectionRegistry::open(directory.path()).unwrap();
+    let summary = registry.grant_context(grant.id).unwrap().unwrap();
+    assert_eq!(summary.contracts.semantic_capabilities, 1);
+    assert_eq!(summary.operations, vec!["read"]);
+    assert_eq!(
+        registry.grant_mutation_identity(grant.id).unwrap(),
+        identity
+    );
+    registry.replace_grants(&[]).unwrap();
+    let replay = registry
+        .grant_replay_context(grant.id, "key-1")
+        .unwrap()
+        .unwrap();
+    assert!(replay.revoked);
+    assert_eq!(replay.grant.contracts.semantic_capabilities, 1);
+    assert_eq!(replay.grant.operations, vec!["read"]);
+    assert_eq!(replay.grant_snapshot_digest, identity.unwrap().1);
+}
+
+#[test]
 fn protocol_v1_fixture_round_trips_exact_grant_policy_and_digests() {
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
         "../../../../test-fixtures/protocol-v1-policy-canonical.json"
@@ -227,6 +274,11 @@ fn protocol_v1_fixture_round_trips_exact_grant_policy_and_digests() {
     let wire_body = &fixture["normalized_wire_body"];
     let mut grants: Vec<GrantPolicy> = serde_json::from_value(wire_body["grants"].clone()).unwrap();
     assert_eq!(serde_json::to_value(&grants).unwrap(), wire_body["grants"]);
+    // This fixture's wire body and digests are unchanged from c2596a6e.
+    // Verify its frozen semantic-v1 signatures, rather than replacing/resigning.
+    for grant in &grants {
+        grant.validate_application_security().unwrap();
+    }
     grants.reverse();
 
     let connector_id: Uuid = serde_json::from_value(wire_body["connector_id"].clone()).unwrap();

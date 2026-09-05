@@ -245,6 +245,20 @@ impl GrantPolicy {
     pub fn validate_application_security(&self) -> Result<(), ApplicationAuthorizationError> {
         self.application_authorization.verify()?;
         let authorization = &self.application_authorization.binding;
+        if let Some(declaration) = &self.application_declaration {
+            let requirements: crate::ApplicationRequirements = serde_json::from_value(
+                declaration
+                    .get("requirements")
+                    .cloned()
+                    .ok_or(ApplicationAuthorizationError::InvalidProof)?,
+            )
+            .map_err(|_| ApplicationAuthorizationError::InvalidProof)?;
+            if !requirements
+                .valid_for_semantic_contract(authorization.contracts.semantic_capabilities)
+            {
+                return Err(ApplicationAuthorizationError::InvalidProof);
+            }
+        }
         let encryption = self
             .encryption
             .as_ref()
@@ -604,7 +618,7 @@ mod tests {
     }
 
     #[test]
-    fn frozen_beta55_v4_fixture_requires_reauthorization() {
+    fn frozen_beta55_v4_fixture_preserves_transcript_and_signature() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
             "../../../packages/protocol/test/fixtures/application-authorization-beta55-v4.json"
         ))
@@ -620,17 +634,76 @@ mod tests {
             crate::LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION
         );
         assert_eq!(
-            binding.signing_message(),
-            Err(ApplicationAuthorizationError::InvalidProof)
+            hex(&Sha256::digest(binding.signing_message().unwrap())),
+            fixture["signing_message_sha256"].as_str().unwrap()
+        );
+        ApplicationAuthorizationProof {
+            binding,
+            signature: fixture["signature"].as_str().unwrap().to_string(),
+        }
+        .verify()
+        .unwrap();
+    }
+
+    fn historical_proof() -> (ApplicationAuthorizationProof, serde_json::Value) {
+        // Frozen c2596a6e input, not regenerated with the current constructor/key.
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../test-fixtures/semantic-v1-authorization-c2596a6e.json"
+        ))
+        .unwrap();
+        let proof = serde_json::from_value(fixture.clone()).unwrap();
+        (proof, fixture)
+    }
+
+    #[test]
+    fn frozen_semantic_v1_proof_and_exact_ceilings_are_preserved() {
+        let (proof, fixture) = historical_proof();
+        proof.verify().unwrap();
+        assert_eq!(
+            hex(&Sha256::digest(proof.binding.signing_message().unwrap())),
+            fixture["signing_message_sha256"]
         );
         assert_eq!(
-            ApplicationAuthorizationProof {
-                binding,
-                signature: fixture["signature"].as_str().unwrap().to_string(),
-            }
-            .verify(),
-            Err(ApplicationAuthorizationError::InvalidProof)
+            serde_json::to_value(&proof.binding).unwrap(),
+            fixture["binding"]
         );
+        let mut grant = grant_policy();
+        grant.application_authorization = proof;
+        // Independent legacy read, not the v2 collection.read group.
+        grant.operations = vec!["read".into()];
+        grant.validate_application_security().unwrap();
+        grant.operations.push("read_type".into());
+        assert!(grant.validate_application_security().is_err());
+        grant.operations.pop();
+        grant.file_capability.as_mut().unwrap().scope = FileScope::Collection;
+        assert!(grant.validate_application_security().is_err());
+    }
+
+    #[test]
+    fn semantic_version_is_signed_and_unknown_versions_fail_closed() {
+        let (proof, _) = historical_proof();
+        for version in [0, 2, 3, u32::MAX] {
+            let mut changed = proof.clone();
+            changed.binding.contracts.semantic_capabilities = version;
+            assert!(changed.verify().is_err(), "version {version}");
+        }
+    }
+
+    #[test]
+    fn declaration_evidence_cannot_mix_semantic_versions() {
+        for (version, capability) in [(1, "records.read"), (2, "collection.read")] {
+            let mut grant = grant_policy();
+            if version == 1 {
+                grant.application_authorization = historical_proof().0;
+            }
+            grant.application_declaration = Some(serde_json::json!({
+                "requirements": {"capabilities": {"contract_version": version, "required": [capability]}}
+            }));
+            grant.validate_application_security().unwrap();
+            grant.application_declaration.as_mut().unwrap()["requirements"]["capabilities"]
+                ["contract_version"] = serde_json::json!(3 - version);
+            assert!(grant.validate_application_security().is_err());
+        }
     }
 
     #[test]

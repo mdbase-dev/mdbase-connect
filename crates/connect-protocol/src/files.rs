@@ -72,11 +72,28 @@ pub enum FileScope {
 /// authority-owned, so manifests describe intent without pinning a transport
 /// version or repeating the granted capability discriminator.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ApplicationFileRequirement {
-    pub required: Vec<FileAction>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub optional: Vec<FileAction>,
-    pub scope: FileScope,
+#[serde(untagged, deny_unknown_fields)]
+pub enum ApplicationFileRequirement {
+    V2 {
+        required: Vec<FileAction>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        optional: Vec<FileAction>,
+        scope: FileScope,
+    },
+    // Distinct wire shape: never synthesize required/optional into signed v1 JSON.
+    V1 {
+        actions: Vec<FileAction>,
+        scope: FileScope,
+    },
+}
+
+impl ApplicationFileRequirement {
+    pub fn contract_version(&self) -> u32 {
+        match self {
+            Self::V1 { .. } => 1,
+            Self::V2 { .. } => 2,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
