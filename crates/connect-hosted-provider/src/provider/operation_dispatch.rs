@@ -409,7 +409,7 @@ impl HostedProvider {
         input: &Value,
     ) -> ApiResult<()> {
         let binding = sqlx::query(
-            r#"SELECT application_declaration_id, application_declaration_digest,
+            r#"SELECT purpose, application_declaration_id, application_declaration_digest,
                       application_setup_evidence, application_semantic_version, proof_public_key, allowed_operations,
                       operation_transport_protocol, operation_transport_recovery_protocols,
                       file_capability
@@ -422,7 +422,14 @@ impl HostedProvider {
         let Some(binding) = binding else {
             return Err(collection_setup_declaration_mismatch());
         };
-        match binding.get::<Option<i32>, _>("application_semantic_version") {
+        let evidence = binding.get::<Option<Value>, _>("application_setup_evidence");
+        match super::replicas::decode_persisted_semantics(
+            &binding.get::<String, _>("purpose"),
+            binding.get("application_semantic_version"),
+            evidence.as_ref(),
+        )
+        .map_err(|_| collection_setup_declaration_mismatch())?
+        {
             Some(1) => {
                 // Bounded predecessor semantics (c2596a6e): only ID/digest binding,
                 // not v2 authenticity or exact declaration projection guarantees.
@@ -446,9 +453,7 @@ impl HostedProvider {
             Some(2) => {}
             _ => return Err(collection_setup_declaration_mismatch()),
         }
-        let evidence = binding
-            .get::<Option<Value>, _>("application_setup_evidence")
-            .ok_or_else(collection_setup_declaration_mismatch)?;
+        let evidence = evidence.ok_or_else(collection_setup_declaration_mismatch)?;
         let files = binding
             .get::<Option<Value>, _>("file_capability")
             .map(serde_json::from_value::<FileCapability>)

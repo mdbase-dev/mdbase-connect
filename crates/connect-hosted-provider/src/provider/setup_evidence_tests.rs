@@ -3,6 +3,52 @@ use super::*;
 mod fixture;
 
 #[test]
+fn persisted_semantics_truth_table() {
+    // Synthetic decoder inputs only: no claim these states satisfy SQL constraints
+    // or that a predecessor INSERT is accepted by the current migration.
+    let evidence = [
+        None,
+        Some(Value::Null),
+        Some(json!({})),
+        Some(json!("malformed")),
+    ];
+    for purpose in ["application", "mirror", "unknown"] {
+        for version in [None, Some(-1), Some(0), Some(1), Some(2), Some(3)] {
+            for evidence in &evidence {
+                let expected = match (purpose, version, evidence.is_none()) {
+                    ("application", None | Some(1), true) => Some(Some(1)),
+                    ("application", Some(2), _) => Some(Some(2)),
+                    ("mirror", None, true) => Some(None),
+                    _ => None,
+                };
+                let actual = decode_persisted_semantics(purpose, version, evidence.as_ref());
+                assert_eq!(
+                    actual.as_ref().ok().copied(),
+                    expected,
+                    "purpose={purpose}, version={version:?}, evidence={evidence:?}"
+                );
+                if let Err(error) = actual {
+                    assert_eq!(error.code, "application_semantic_version_mismatch");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn legacy_normalization_is_not_a_semantic_epoch_change() {
+    // This checks the decoded values bound to the epoch comparison, not SQL
+    // admission of historical NULL rows (which depends on migration policy).
+    let legacy = decode_persisted_semantics("application", None, None).unwrap();
+    let explicit = decode_persisted_semantics("application", Some(1), None).unwrap();
+    assert_eq!(legacy, explicit);
+    assert_ne!(
+        legacy,
+        decode_persisted_semantics("application", Some(2), None).unwrap()
+    );
+}
+
+#[test]
 fn installed_setup_proof_binds_exact_policy_and_raw_projection() {
     let collection = Uuid::new_v4();
     let (evidence, input, key) = fixture::setup_evidence(collection);

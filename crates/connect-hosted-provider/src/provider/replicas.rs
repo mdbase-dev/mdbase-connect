@@ -112,7 +112,11 @@ impl HostedProvider {
         .await?
         {
             let requested_semantics = (input.purpose == ReplicaPurpose::Application).then_some(semantics);
-            if existing.get::<Option<i32>, _>("application_semantic_version") != requested_semantics {
+            if decode_persisted_semantics(
+                &existing.get::<String, _>("purpose"),
+                existing.get("application_semantic_version"),
+                existing.get::<Option<Value>, _>("application_setup_evidence").as_ref(),
+            )? != requested_semantics {
                 return Err(semantic_policy_mismatch());
             }
             let existing_hash: Vec<u8> = existing.get("token_hash");
@@ -563,8 +567,9 @@ impl HostedProvider {
                 ApiError::internal(format!("File capability could not be serialized: {error}"))
             })?;
         let mut transaction = self.pool.begin().await?;
-        let collection_id: Uuid = sqlx::query_scalar(
-            "SELECT collection_id FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE",
+        let installed = sqlx::query(
+            "SELECT collection_id, purpose, application_semantic_version, application_setup_evidence
+             FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE",
         )
         .bind(replica_id)
         .fetch_optional(&mut *transaction)
@@ -575,12 +580,14 @@ impl HostedProvider {
                 "Active application capability not found.",
             )
         })?;
-        let installed: Option<i32> = sqlx::query_scalar(
-            "SELECT application_semantic_version FROM hosted_provider_replicas WHERE id = $1",
-        )
-        .bind(replica_id)
-        .fetch_one(&mut *transaction)
-        .await?;
+        let collection_id: Uuid = installed.get("collection_id");
+        let installed = decode_persisted_semantics(
+            &installed.get::<String, _>("purpose"),
+            installed.get("application_semantic_version"),
+            installed
+                .get::<Option<Value>, _>("application_setup_evidence")
+                .as_ref(),
+        )?;
         if !matches!(installed, Some(1 | 2)) || (installed == Some(2) && semantics == 1) {
             return Err(semantic_policy_mismatch());
         }
@@ -604,7 +611,7 @@ impl HostedProvider {
                        OR application_declaration_id IS DISTINCT FROM $13
                        OR application_declaration_digest IS DISTINCT FROM $14
                        OR application_setup_evidence IS DISTINCT FROM $15
-                       OR application_semantic_version IS DISTINCT FROM $16
+                       OR $17::integer IS DISTINCT FROM $16
                      THEN 1 ELSE 0 END,
                    mode = $2,
                    allowed_types = $3,
@@ -648,6 +655,7 @@ impl HostedProvider {
         .bind(input.application_declaration_digest)
         .bind(input.application_setup_evidence)
         .bind(semantics)
+        .bind(installed)
         .execute(&mut *transaction)
         .await?;
         if result.rows_affected() == 0 {
@@ -717,6 +725,21 @@ impl HostedProvider {
         let replica = replica_from_row(row)?;
         authorize_sync_access(&replica, required_operation, request_origin)?;
         Ok(replica)
+    }
+}
+
+/// Decode stored authority, not evidence validity. SQL NULL differs from JSON null.
+/// Explicit v2 never falls back; its evidence must still pass signature verification.
+pub(super) fn decode_persisted_semantics(
+    purpose: &str,
+    version: Option<i32>,
+    evidence: Option<&Value>,
+) -> ApiResult<Option<i32>> {
+    match (purpose, version, evidence) {
+        ("application", None | Some(1), None) => Ok(Some(1)),
+        ("application", Some(2), _) => Ok(Some(2)),
+        ("mirror", None, None) => Ok(None),
+        _ => Err(semantic_policy_mismatch()),
     }
 }
 
