@@ -42,7 +42,11 @@ upgrade_require \
 upgrade_verify_previous_release "$repo_root"
 
 r2_pid=
+projection_diagnostics_dir=
 cleanup() {
+  if [[ -n $projection_diagnostics_dir ]]; then
+    rm -rf -- "$projection_diagnostics_dir"
+  fi
   for container in \
     mdbase-provider-previous \
     mdbase-provider-previous-migration \
@@ -363,6 +367,52 @@ run_projection_indexer() {
     "$CANDIDATE_IMAGE" "$command" "$@"
 }
 
+# These diagnostics are only for this synthetic upgrade fixture. Never dump
+# container configuration, the environment, or connection credentials.
+projection_diagnostic_text() {
+  local text=$1 name value
+  for name in DATABASE_URL PROVIDER_INTERNAL_TOKEN PROVIDER_MASTER_KEY \
+    MDBASE_CONNECT_R2_ACCESS_KEY_ID MDBASE_CONNECT_R2_SECRET_ACCESS_KEY \
+    UPGRADE_APPLICATION_TOKEN UPGRADE_REPLICA_TOKEN GITHUB_TOKEN; do
+    value=${!name:-}
+    if [[ -n $value ]]; then
+      text=${text//"$value"/[REDACTED]}
+    fi
+  done
+  printf '%s\n' "${text:-<empty>}" >&2
+}
+
+verify_synthetic_projection() {
+  local phase=$1 output verifier_status=0 assertion_status=0
+  # mktemp creates a private directory; cleanup also covers interrupted runs.
+  if [[ -z $projection_diagnostics_dir ]]; then
+    projection_diagnostics_dir=$(mktemp -d "${RUNNER_TEMP:-/tmp}/mdbase-upgrade-projection.XXXXXX")
+  fi
+  # Do not use ! here: retain the actual verifier exit status under errexit.
+  output=$(run_projection_indexer verify --limit 100 \
+    2>"$projection_diagnostics_dir/verifier.stderr") || verifier_status=$?
+  jq -e '
+    .ok == true and
+    .command == "verify" and
+    (.result.collections | length) == 1 and
+    .result.collections[0].verified == true
+  ' <<<"$output" >/dev/null 2>"$projection_diagnostics_dir/assertion.stderr" || assertion_status=$?
+  if ((verifier_status != 0 || assertion_status != 0)); then
+    printf 'Projection verification failed (%s): verifier exit=%s; jq assertion exit=%s\n' \
+      "$phase" "$verifier_status" "$assertion_status" >&2
+    printf '%s\n' 'Verifier stdout (synthetic fixture JSON):' >&2
+    projection_diagnostic_text "$output"
+    printf '%s\n' 'Verifier stderr:' >&2
+    projection_diagnostic_text "$(<"$projection_diagnostics_dir/verifier.stderr")"
+    printf '%s\n' 'jq assertion stderr:' >&2
+    projection_diagnostic_text "$(<"$projection_diagnostics_dir/assertion.stderr")"
+    if ((verifier_status != 0)); then
+      return "$verifier_status"
+    fi
+    return "$assertion_status"
+  fi
+}
+
 query_notification_contract() {
   local include_digest=${1:-false}
   local digest_expression=
@@ -515,13 +565,7 @@ canonical_application_authority_after_write=$(query_canonical_application_author
 [[ $canonical_application_authority_after_write == "$canonical_application_authority_before" ]]
 
 upgrade_phase 'verifying the write-through projection without normalization'
-post_write_verify=$(run_projection_indexer verify --limit 100)
-jq -e '
-  .ok == true and
-  .command == "verify" and
-  (.result.collections | length) == 1 and
-  .result.collections[0].verified == true
-' <<<"$post_write_verify" >/dev/null
+verify_synthetic_projection 'write-through without normalization'
 canonical_inventory_after_verify=$(query_canonical_authority_inventory)
 printf 'Verified candidate canonical authority inventory: sha256:%s\n' \
   "$canonical_inventory_after_verify"
@@ -532,13 +576,7 @@ start_candidate_provider
 wait_candidate_recovery
 
 upgrade_phase 'verifying projections after final provider restart'
-final_verify=$(run_projection_indexer verify --limit 100)
-jq -e '
-  .ok == true and
-  .command == "verify" and
-  (.result.collections | length) == 1 and
-  .result.collections[0].verified == true
-' <<<"$final_verify" >/dev/null
+verify_synthetic_projection 'after final provider restart'
 
 contract=$(query_notification_contract true)
 printf 'Recovered notification contract: %s\n' "$contract"
