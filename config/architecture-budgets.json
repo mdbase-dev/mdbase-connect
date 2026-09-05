@@ -44,10 +44,10 @@
   },
   "reviewBudgets": {
     "productionFiles": 675,
-    "relativeImports": 1430,
+    "relativeImports": 1431,
     "workspacePackages": 24,
-    "rustPublicDeclarations": 3155,
-    "typeScriptExportDeclarations": 2386,
+    "rustPublicDeclarations": 3161,
+    "typeScriptExportDeclarations": 2392,
     "mdbaseCollectionReferences": 16,
     "typedCollectionReferences": 1
   }

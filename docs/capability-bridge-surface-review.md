@@ -43,6 +43,23 @@ The Editor bridge validator and version-specific compatibility branches have del
 
 Visibility/export counts conservatively include generated catalog identifiers, legacy SDK APIs/types retained for source compatibility, structured readiness types, declaration verification, and named internal helpers extracted to preserve module ownership and line limits. They do not imply that all helpers are public network APIs. Per-package file bounds increase only for the additions listed above. No spare headroom is added.
 
+## Compatibility-prelude additions
+
+The approved prelude introduces a separate artifact-bound fresh-issuance policy,
+without modifying either immutable reader catalog. Its generated constant and
+predicate add two public declarations in each language. Rust also adds one shared
+persisted-semantics decoder, one local issuance guard, and two hosted policy guards
+(four restricted-visibility declarations). TypeScript adds the server issuance
+assertion and three exports in existing authorization test support. One relative
+import connects that assertion to the existing structured HTTP error type.
+
+The resulting reviewed totals are 3,161 Rust public declarations, 2,392 TypeScript
+export declarations, and 1,431 relative imports. Production-file count remains
+675: a redundant legacy test-helper file was consolidated into existing test
+support before review. No per-file limit, package file allowance, cycle rule, or
+external guard changes. Corrective migration 0041 and its tests preserve 0039/0040
+bytes; these counts do not qualify any new rollback endpoint.
+
 ## Verification evidence
 
 - The merged bridge at `22143340` passed complete local Rust/TypeScript suites and local E2E; bundled defaults at `f07c11ee` also passed complete local suites (611 Rust tests; 1,720 JS/TS tests).
